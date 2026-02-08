@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DSF Studio Pro - Ultimate Edition</title>
+    <link rel="stylesheet" href="css/studio.css">
+</head>
+<body>
+
+<!-- 左サイドバー: セクション一覧 -->
+<div id="sidebar">
+    <div class="sidebar-header">
+        <h3>セクション一覧</h3>
+        <label>サムネイルサイズ</label>
+        <input type="range" min="60" max="150" value="100" oninput="resizeThumbs(this.value)">
+    </div>
+    <div id="thumb-container"></div>
+    <div class="sidebar-footer">
+        <button class="btn btn-add" onclick="addSection()">+ セクション追加</button>
+    </div>
+</div>
+
+<!-- 中央: キャンバス編集エリア -->
+<div id="editor-main">
+    <div id="canvas-view">
+        <img id="main-img" src="" alt="背景画像">
+        <div id="bubble-layer"></div>
+        <div id="text-layer"></div>
+    </div>
+</div>
+
+<!-- 右パネル: コントロール -->
+<div id="panel-right">
+    <!-- プロジェクト管理 -->
+    <div class="control-group project-control">
+        <h4>📦 プロジェクト管理</h4>
+        <input type="text" id="project-id" placeholder="プロジェクトID (例: my-story-001)">
+        <button class="btn btn-success" onclick="saveToCloud()">💾 クラウドに保存</button>
+        <button class="btn btn-primary" onclick="loadFromCloud()">📂 読込</button>
+        <button class="btn btn-export" onclick="exportProject()">📤 エクスポート (JSON)</button>
+        <button class="btn btn-embed" onclick="generateEmbed()">🔗 埋め込みコード生成</button>
+    </div>
+
+    <!-- 言語切り替え -->
+    <div class="control-group">
+        <h4>🌍 言語設定</h4>
+        <div id="lang-tabs"></div>
+        <button class="btn btn-small" onclick="addLanguage()">+ 言語を追加</button>
+    </div>
+
+    <!-- セクションタイプ -->
+    <div class="control-group">
+        <h4>📄 セクションタイプ</h4>
+        <select id="section-type" onchange="changeSectionType(this.value)">
+            <option value="cover">表紙 (Cover)</option>
+            <option value="image">画像セクション (Image)</option>
+            <option value="text">テキストセクション (Text Only)</option>
+        </select>
+    </div>
+
+    <!-- 画像アップロード -->
+    <div class="control-group" id="image-controls">
+        <h4>🖼️ 画像アップロード</h4>
+        <input type="file" id="image-upload" accept="image/*" onchange="uploadImage(this)">
+        <label>現在の画像URL</label>
+        <input type="text" id="prop-bg" oninput="updateBackground(this.value)">
+    </div>
+
+    <!-- テキスト設定 -->
+    <div class="control-group">
+        <h4>✏️ テキスト設定</h4>
+        <select id="prop-mode" onchange="updateWritingMode(this.value)">
+            <option value="horizontal-tb">横書き (Horizontal)</option>
+            <option value="vertical-rl">縦書き (Vertical)</option>
+        </select>
+        
+        <label id="content-label">本文</label>
+        <textarea id="prop-content" rows="6" oninput="updateContent(this.value)" placeholder="本文を入力..."></textarea>
+        
+        <label>タイトル (表紙用)</label>
+        <input type="text" id="prop-title" oninput="updateTitle(this.value)" placeholder="作品タイトル">
+    </div>
+
+    <!-- 吹き出し管理 -->
+    <div class="control-group" id="bubble-controls">
+        <h4>💬 吹き出し管理</h4>
+        <button class="btn" onclick="addBubble()">+ 吹き出しを追加</button>
+        <div id="bubble-list"></div>
+    </div>
+
+    <!-- セクション操作 -->
+    <div class="control-group">
+        <h4>🔧 セクション操作</h4>
+        <button class="btn" onclick="moveSection(-1)">↑ 上へ移動</button>
+        <button class="btn" onclick="moveSection(1)">↓ 下へ移動</button>
+        <button class="btn btn-danger" onclick="deleteSection()">🗑️ セクション削除</button>
+    </div>
+</div>
+
+<!-- モーダル: 言語追加 -->
+<div id="lang-modal" class="modal">
+    <div class="modal-content">
+        <h3>新しい言語を追加</h3>
+        <input type="text" id="new-lang-code" placeholder="言語コード (例: zh, ko, fr)">
+        <input type="text" id="new-lang-name" placeholder="言語名 (例: 中国語, 한국어)">
+        <button class="btn btn-success" onclick="confirmAddLanguage()">追加</button>
+        <button class="btn" onclick="closeLangModal()">キャンセル</button>
+    </div>
+</div>
+
+<!-- モーダル: 埋め込みコード -->
+<div id="embed-modal" class="modal">
+    <div class="modal-content">
+        <h3>埋め込みコード</h3>
+        <p>以下のコードをウェブサイトに貼り付けてください</p>
+        <textarea id="embed-code" rows="8" readonly></textarea>
+        <button class="btn btn-success" onclick="copyEmbed()">📋 コピー</button>
+        <button class="btn" onclick="closeEmbedModal()">閉じる</button>
+    </div>
+</div>
+
+<script type="module" src="js/firebase-config.js"></script>
+<script src="js/studio-core.js"></script>
+<script src="js/bubble-editor.js"></script>
+<script src="js/exporter.js"></script>
+
+</body>
+</html>
