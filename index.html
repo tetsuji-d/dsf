@@ -121,6 +121,20 @@
 </div>
 
 <script type="module" src="js/firebase-config.js"></script>
+<script>
+// Service Workerをクリア（キャッシュ問題の解決）
+if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.getRegistrations().then(registrations => {
+        registrations.forEach(registration => registration.unregister());
+    });
+}
+// キャッシュをクリア
+if ('caches' in window) {
+    caches.keys().then(names => {
+        names.forEach(name => caches.delete(name));
+    });
+}
+</script>
 <script src="js/studio-core.js"></script>
 <script src="js/bubble-editor.js"></script>
 <script src="js/exporter.js"></script>

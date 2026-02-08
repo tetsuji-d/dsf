@@ -305,28 +305,44 @@ function refreshCanvas() {
     // 吹き出し描画
     bubbleLayer.innerHTML = (data.captions || []).map((caption, i) => {
         const type = caption.type || 'bottom';
-        let tailPath = '';
+        let bubblePath = '';
         
-        // 吹き出し口の形状を決定
+        // 丸い吹き出しの形状
         if (type === 'bottom') {
-            tailPath = '<path d="M 60 65 L 50 80 L 70 65 Z" fill="white" stroke="black" stroke-width="2"/>';
+            bubblePath = `
+                <path d="M 20 20 Q 10 20, 10 30 L 10 50 Q 10 60, 20 60 L 50 60 L 55 75 L 60 60 L 100 60 Q 110 60, 110 50 L 110 30 Q 110 20, 100 20 Z" 
+                      fill="white" stroke="black" stroke-width="2"/>
+            `;
         } else if (type === 'top') {
-            tailPath = '<path d="M 60 5 L 50 -10 L 70 5 Z" fill="white" stroke="black" stroke-width="2"/>';
+            bubblePath = `
+                <path d="M 20 20 L 55 5 L 60 20 L 100 20 Q 110 20, 110 30 L 110 50 Q 110 60, 100 60 L 20 60 Q 10 60, 10 50 L 10 30 Q 10 20, 20 20 Z" 
+                      fill="white" stroke="black" stroke-width="2"/>
+            `;
         } else if (type === 'left') {
-            tailPath = '<path d="M 5 40 L -10 30 L 5 50 Z" fill="white" stroke="black" stroke-width="2"/>';
+            bubblePath = `
+                <path d="M 20 20 Q 10 20, 10 30 L 10 35 L -5 40 L 10 45 L 10 50 Q 10 60, 20 60 L 100 60 Q 110 60, 110 50 L 110 30 Q 110 20, 100 20 Z" 
+                      fill="white" stroke="black" stroke-width="2"/>
+            `;
         } else if (type === 'right') {
-            tailPath = '<path d="M 115 40 L 130 30 L 115 50 Z" fill="white" stroke="black" stroke-width="2"/>';
+            bubblePath = `
+                <path d="M 20 20 Q 10 20, 10 30 L 10 50 Q 10 60, 20 60 L 100 60 Q 110 60, 110 50 L 110 45 L 125 40 L 110 35 L 110 30 Q 110 20, 100 20 Z" 
+                      fill="white" stroke="black" stroke-width="2"/>
+            `;
+        } else {
+            // 吹き出し口なし
+            bubblePath = `
+                <rect x="10" y="20" width="100" height="40" rx="10" ry="10" 
+                      fill="white" stroke="black" stroke-width="2"/>
+            `;
         }
-        // type === 'none' の場合は tailPath は空文字列のまま
         
         return `
         <div class="bubble-svg ${i === activeBubbleIdx ? 'active' : ''}" 
              id="bubble-${i}"
              style="top:${caption.y}%; left:${caption.x}%; width:${caption.width || 120}px; height:${caption.height || 80}px;"
              onmousedown="startBubbleDrag(event, ${i})">
-            <svg width="100%" height="100%" viewBox="0 0 120 80">
-                <ellipse cx="60" cy="35" rx="55" ry="30" fill="white" stroke="black" stroke-width="2"/>
-                ${tailPath}
+            <svg width="100%" height="100%" viewBox="0 0 120 80" preserveAspectRatio="none">
+                ${bubblePath}
             </svg>
             <div class="bubble-text ${data.writingMode === 'vertical-rl' ? 'v-text' : ''}">${caption.text || ''}</div>
             <div class="resize-handle" onmousedown="startBubbleResize(event, ${i})"></div>
@@ -429,3 +445,4 @@ function restoreThumbSize() {
 window.resizeThumbs = resizeThumbs;
 window.restoreThumbSize = restoreThumbSize;
 window.refresh = refresh;
+window.refreshCanvas = refreshCanvas;

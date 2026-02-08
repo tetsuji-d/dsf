@@ -60,7 +60,8 @@ function updateBubbleType(index, type) {
     const data = getCurrentData();
     if (data.captions[index]) {
         data.captions[index].type = type;
-        refresh();
+        // キャンバスの吹き出しだけを再描画
+        refreshCanvas();
     }
 }
 
@@ -178,28 +179,71 @@ function refreshBubbleList() {
         return;
     }
     
-    bubbleList.innerHTML = data.captions.map((caption, i) => `
-        <div class="bubble-item ${i === activeBubbleIdx ? 'active' : ''}" onclick="selectBubble(${i})">
-            <div class="bubble-item-header">
-                <span style="font-weight:bold;">吹き出し #${i+1}</span>
-                <button class="bubble-delete" onclick="event.stopPropagation();deleteBubble(${i})">削除</button>
-            </div>
-            <select onchange="event.stopPropagation();updateBubbleType(${i}, this.value)" style="width:100%;padding:6px;margin:6px 0;border:1px solid #ddd;border-radius:4px;font-size:12px;">
-                <option value="bottom" ${(caption.type || 'bottom') === 'bottom' ? 'selected' : ''}>下向き</option>
-                <option value="top" ${caption.type === 'top' ? 'selected' : ''}>上向き</option>
-                <option value="left" ${caption.type === 'left' ? 'selected' : ''}>左向き</option>
-                <option value="right" ${caption.type === 'right' ? 'selected' : ''}>右向き</option>
-                <option value="none" ${caption.type === 'none' ? 'selected' : ''}>吹き出し口なし</option>
-            </select>
-            <input type="text" 
-                   value="${caption.text || ''}" 
-                   onclick="event.stopPropagation()"
-                   oninput="updateBubbleText(${i}, this.value)"
-                   placeholder="テキストを入力"
-                   style="width:100%;padding:6px;margin-top:6px;border:1px solid #ddd;border-radius:4px;font-size:12px;">
-            <div class="bubble-item-text">位置: (${Math.round(caption.x)}%, ${Math.round(caption.y)}%)</div>
-        </div>
-    `).join('');
+    // 既存の要素を保持してイベントリスナーを維持
+    bubbleList.innerHTML = '';
+    
+    data.captions.forEach((caption, i) => {
+        const item = document.createElement('div');
+        item.className = `bubble-item ${i === activeBubbleIdx ? 'active' : ''}`;
+        item.onclick = () => selectBubble(i);
+        
+        // ヘッダー
+        const header = document.createElement('div');
+        header.className = 'bubble-item-header';
+        header.innerHTML = `<span style="font-weight:bold;">吹き出し #${i+1}</span>`;
+        
+        const deleteBtn = document.createElement('button');
+        deleteBtn.className = 'bubble-delete';
+        deleteBtn.textContent = '削除';
+        deleteBtn.onclick = (e) => {
+            e.stopPropagation();
+            deleteBubble(i);
+        };
+        header.appendChild(deleteBtn);
+        item.appendChild(header);
+        
+        // タイプ選択
+        const typeSelect = document.createElement('select');
+        typeSelect.style.cssText = 'width:100%;padding:6px;margin:6px 0;border:1px solid #ddd;border-radius:4px;font-size:12px;';
+        typeSelect.innerHTML = `
+            <option value="bottom" ${(caption.type || 'bottom') === 'bottom' ? 'selected' : ''}>下向き</option>
+            <option value="top" ${caption.type === 'top' ? 'selected' : ''}>上向き</option>
+            <option value="left" ${caption.type === 'left' ? 'selected' : ''}>左向き</option>
+            <option value="right" ${caption.type === 'right' ? 'selected' : ''}>右向き</option>
+            <option value="none" ${caption.type === 'none' ? 'selected' : ''}>吹き出し口なし</option>
+        `;
+        typeSelect.onclick = (e) => e.stopPropagation();
+        typeSelect.onchange = (e) => {
+            e.stopPropagation();
+            updateBubbleType(i, e.target.value);
+        };
+        item.appendChild(typeSelect);
+        
+        // テキスト入力
+        const textInput = document.createElement('input');
+        textInput.type = 'text';
+        textInput.value = caption.text || '';
+        textInput.placeholder = 'テキストを入力';
+        textInput.style.cssText = 'width:100%;padding:6px;margin-top:6px;border:1px solid #ddd;border-radius:4px;font-size:12px;';
+        textInput.onclick = (e) => e.stopPropagation();
+        textInput.oninput = (e) => {
+            // refresh()を呼ばずに直接更新
+            data.captions[i].text = e.target.value;
+            const bubbleTextElem = document.querySelector(`#bubble-${i} .bubble-text`);
+            if (bubbleTextElem) {
+                bubbleTextElem.textContent = e.target.value;
+            }
+        };
+        item.appendChild(textInput);
+        
+        // 位置情報
+        const position = document.createElement('div');
+        position.className = 'bubble-item-text';
+        position.textContent = `位置: (${Math.round(caption.x)}%, ${Math.round(caption.y)}%)`;
+        item.appendChild(position);
+        
+        bubbleList.appendChild(item);
+    });
 }
 
 window.refreshBubbleList = refreshBubbleList;
