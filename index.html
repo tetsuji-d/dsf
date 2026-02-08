@@ -89,6 +89,7 @@
   import { getFirestore, doc, setDoc, getDoc } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
   import { getStorage, ref, uploadBytes, getDownloadURL } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-storage.js";
 
+  // --- Firebase Config ---
   const firebaseConfig = {
     apiKey: "AIzaSyBj3U-wFkNsWlW1d4OHayerECMIRyhQ40o",
     authDomain: "vmnn-26345.firebaseapp.com",
@@ -103,29 +104,52 @@
   const db = getFirestore(app);
   const storage = getStorage(app);
 
+  // 画像アップロード & 画面反映の修正
   window.uploadToStorage = async (input) => {
     const file = input.files[0];
     if(!file) return;
+    
+    // アップロード中であることを示す（UX改善）
+    const originalText = document.getElementById('text-label').innerText;
+    document.getElementById('text-label').innerText = "画像をアップロード中...";
+
     const storageRef = ref(storage, `dsf/${Date.now()}_${file.name}`);
     try {
       const snapshot = await uploadBytes(storageRef, file);
       const url = await getDownloadURL(snapshot.ref);
-      update('background', url);
-      alert("画像を保存しました！");
-    } catch (e) { alert("保存失敗: " + e.message); }
+      
+      // 1. 現在のセクションの背景を更新
+      sections[activeIdx].background = url;
+      
+      // 2. 画面とサムネイルを強制再描画
+      refresh(); 
+      
+      alert("画像のアップロードと反映が完了しました！");
+    } catch (e) { 
+      alert("保存失敗: " + e.message); 
+    } finally {
+      document.getElementById('text-label').innerText = originalText;
+    }
   };
 
+  // 保存・読込ロジック（既存）
   window.saveToCloud = async () => {
     const pid = document.getElementById('project-id').value;
     if(!pid) return alert("作品IDを入力してください");
     await setDoc(doc(db, "works", pid), { sections: sections, lastUpdated: new Date() });
-    alert("クラウド同期完了！");
+    alert("クラウドに全てのデータを同期しました！");
   };
 
   window.loadFromCloud = async () => {
     const pid = document.getElementById('project-id').value;
     const snap = await getDoc(doc(db, "works", pid));
-    if(snap.exists()) { sections = snap.data().sections; refresh(); }
+    if(snap.exists()) { 
+      sections = snap.data().sections; 
+      refresh(); 
+      alert("読込が完了しました。");
+    } else {
+      alert("作品が見つかりません。作品IDを確認してください。");
+    }
   };
 </script>
 
