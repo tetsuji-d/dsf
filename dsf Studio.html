@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <title>Studio Pro - Multi Project</title>
+    <style>
+        /* (前回のスタイルを継承) */
+        :root { --primary: #007AFF; --border: #ddd; }
+        body { margin: 0; display: flex; height: 100vh; font-family: sans-serif; background: #e9ecef; }
+        #sidebar { width: 200px; background: #fff; border-right: 1px solid var(--border); padding: 15px; display: flex; flex-direction: column; }
+        #editor-main { flex: 1; display: flex; align-items: center; justify-content: center; overflow: auto; }
+        #canvas-view { position: relative; width: 400px; aspect-ratio: 9/16; background: #fff; box-shadow: 0 10px 30px rgba(0,0,0,0.1); overflow: hidden; }
+        #bg-img { width: 100%; height: 100%; object-fit: cover; }
+        .bubble { position: absolute; transform: translate(-50%, -50%); padding: 8px; background: #fff; border: 2px solid #000; font-size: 13px; cursor: move; }
+        #panel-right { width: 300px; background: #fff; border-left: 1px solid var(--border); padding: 20px; }
+        .project-meta { background: #f0f7ff; padding: 10px; border-radius: 8px; margin-bottom: 20px; border: 1px solid #cce4ff; }
+        input, textarea { width: 100%; padding: 8px; margin-bottom: 10px; border: 1px solid #ddd; border-radius: 4px; box-sizing: border-box; }
+        .btn-save { background: #34c759; color: #fff; border: none; padding: 12px; width: 100%; border-radius: 6px; cursor: pointer; font-weight: bold; }
+        .btn-load { background: #007AFF; color: #fff; border: none; padding: 12px; width: 100%; border-radius: 6px; cursor: pointer; margin-top: 5px; }
+    </style>
+</head>
+<body>
+
+<div id="sidebar">
+    <h4>作品一覧</h4>
+    <div id="thumb-list" style="flex:1; overflow-y:auto;"></div>
+    <button onclick="addSection()">+ セクション追加</button>
+</div>
+
+<div id="editor-main">
+    <div id="canvas-view" onmousedown="handleCanvasClick(event)">
+        <img id="bg-img" src="">
+        <div id="bubble-container"></div>
+    </div>
+</div>
+
+<div id="panel-right">
+    <div class="project-meta">
+        <h4>プロジェクト管理</h4>
+        <label style="font-size:11px;">作品ID (英数字)</label>
+        <input type="text" id="project-id" placeholder="eternal-summer">
+        <label style="font-size:11px;">作品タイトル</label>
+        <input type="text" id="project-title" placeholder="作品の正式名称">
+        <button class="btn-save" onclick="saveToCloud()">クラウドに保存</button>
+        <button class="btn-load" onclick="loadFromCloud()">クラウドから読込</button>
+    </div>
+
+    <h4>セクション編集</h4>
+    <label>背景画像URL</label>
+    <input type="text" id="in-bg" oninput="update('background', this.value)">
+    <label>日本語テキスト</label>
+    <textarea id="in-ja" rows="4" oninput="updateContent('ja', this.value)"></textarea>
+</div>
+
+<script type="module">
+  import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
+  import { getFirestore, doc, setDoc, getDoc } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
+
+  // --- 【重要】ここにあなたのFirebase Configを貼り付けてください ---
+  const firebaseConfig = {
+  apiKey: "AIzaSyBj3U-wFKnsWlwId4OHAyerEGMiRYhQN0o",
+  authDomain: "vmnn-26345.firebaseapp.com",
+  projectId: "vmnn-26345",
+  storageBucket: "vmnn-26345.firebasestorage.app",
+  messagingSenderId: "166808261830",
+  appId: "1:166808261830:web:c218463dd04297749eb3c7",
+  measurementId: "G-N639C3XCVQ"
+};
+  // -----------------------------------------------------------
+
+  const app = initializeApp(firebaseConfig);
+  const db = getFirestore(app);
+
+  // クラウドへ保存
+  window.saveToCloud = async () => {
+    const pid = document.getElementById('project-id').value;
+    const title = document.getElementById('project-title').value;
+    if(!pid) return alert("作品IDを入力してください");
+
+    try {
+      await setDoc(doc(db, "works", pid), {
+        metadata: { title: title, lastUpdated: new Date() },
+        sections: sections
+      });
+      alert(`作品「${title}」を保存しました！`);
+    } catch (e) { alert("エラー: " + e.message); }
+  };
+
+  // クラウドから読み込み
+  window.loadFromCloud = async () => {
+    const pid = document.getElementById('project-id').value;
+    if(!pid) return alert("読み込みたい作品IDを入力してください");
+
+    try {
+      const docSnap = await getDoc(doc(db, "works", pid));
+      if (docSnap.exists()) {
+        const data = docSnap.data();
+        sections = data.sections;
+        document.getElementById('project-title').value = data.metadata.title;
+        alert("読み込み完了！");
+        refresh();
+      } else { alert("作品が見つかりません"); }
+    } catch (e) { alert("エラー: " + e.message); }
+  };
+</script>
+
+<script>
+    // (ドラッグ移動、Canvasクリック、refresh等の基本ロジックは前回同様)
+    let sections = [{ type: 'image', background: 'https://picsum.photos/id/1/600/1066', captions: [], content: {ja:"", en:""} }];
+    let activeIdx = 0;
+    let activeBubbleIdx = null;
+
+    function addSection() {
+        sections.push({ type: 'image', background: 'https://via.placeholder.com/600/1066', captions: [], content: {ja:"", en:""} });
+        activeIdx = sections.length - 1; refresh();
+    }
+    function handleCanvasClick(e) {
+        if(e.target.id!=='bg-img') return;
+        const r = e.target.getBoundingClientRect();
+        sections[activeIdx].captions.push({ x: ((e.clientX-r.left)/r.width*100).toFixed(1), y: ((e.clientY-r.top)/r.height*100).toFixed(1), content: {ja:"テキスト", en:""} });
+        activeBubbleIdx = sections[activeIdx].captions.length - 1; refresh();
+    }
+    function refresh() {
+        document.getElementById('thumb-list').innerHTML = sections.map((s,i)=>`<div class="thumb ${i===activeIdx?'active':''}" onclick="activeIdx=${i};refresh()"><img src="${s.background}" style="width:100%"></div>`).join('');
+        const s = sections[activeIdx];
+        document.getElementById('bg-img').src = s.background;
+        document.getElementById('bubble-container').innerHTML = (s.captions||[]).map((c,i)=>`<div class="bubble" style="top:${c.y}%; left:${c.x}%; border:${i===activeBubbleIdx?'2px solid #007AFF':'2px solid #000'}" onmousedown="startDrag(event,${i})">${c.content.ja}</div>`).join('');
+    }
+    function startDrag(e, i) {
+        e.stopPropagation(); activeBubbleIdx = i; refresh();
+        const move = (me) => {
+            const r = document.getElementById('bg-img').getBoundingClientRect();
+            sections[activeIdx].captions[i].x = ((me.clientX-r.left)/r.width*100).toFixed(1);
+            sections[activeIdx].captions[i].y = ((me.clientY-r.top)/r.height*100).toFixed(1);
+            refresh();
+        };
+        const up = () => { window.removeEventListener('mousemove', move); window.removeEventListener('mouseup', up); };
+        window.addEventListener('mousemove', move); window.addEventListener('mouseup', up);
+    }
+    function update(k,v){ sections[activeIdx][k]=v; refresh(); }
+    function updateContent(l,v){ if(activeBubbleIdx!==null) sections[activeIdx].captions[activeBubbleIdx].content[l]=v; else sections[activeIdx].content[l]=v; refresh(); }
+    window.refresh = refresh;
+    refresh();
+</script>
+</body>
+</html>
