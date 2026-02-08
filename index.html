@@ -7,7 +7,7 @@
         :root { --primary: #007AFF; --bg: #f5f5f7; --border: #d2d2d7; }
         body { margin: 0; display: flex; height: 100vh; font-family: sans-serif; background: var(--bg); overflow: hidden; }
         
-        /* 左：ナビゲーション（スクロール & サイズ調整） */
+        /* 左：ナビゲーション（スクロール対応） */
         #sidebar { width: 220px; background: #fff; border-right: 1px solid var(--border); display: flex; flex-direction: column; }
         #thumb-container { flex: 1; overflow-y: auto; padding: 10px; }
         .thumb-wrap { width: 100%; margin-bottom: 15px; cursor: pointer; position: relative; }
@@ -18,9 +18,11 @@
         #editor-main { flex: 1; display: flex; align-items: center; justify-content: center; overflow: auto; padding: 20px; }
         #canvas-view { position: relative; width: 360px; aspect-ratio: 9/16; background: #fff; box-shadow: 0 20px 40px rgba(0,0,0,0.1); overflow: hidden; }
         #main-img { width: 100%; height: 100%; object-fit: cover; }
+        .text-layer { width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; background: #fafafa; font-size: 24px; text-align: center; padding: 20px; box-sizing: border-box; }
         
         /* SVG吹き出し（縦書き対応） */
         .bubble-svg { position: absolute; transform: translate(-50%, -50%); cursor: move; }
+        .bubble-svg.selected ellipse { stroke: var(--primary); stroke-width: 3; }
         .bubble-text { position: absolute; top: 45%; left: 50%; transform: translate(-50%, -50%); width: 70%; text-align: center; font-size: 16px; pointer-events: none; color: #000; }
         .v-text { writing-mode: vertical-rl; text-orientation: upright; }
 
@@ -43,7 +45,7 @@
 
 <div id="editor-main">
     <div id="canvas-view" onmousedown="handleCanvasClick(event)">
-        <img id="main-img" src="">
+        <div id="content-render"></div>
         <div id="bubble-layer"></div>
     </div>
 </div>
@@ -51,19 +53,34 @@
 <div id="panel-right">
     <div class="control-group" style="background:#eef7ff;">
         <h4>プロジェクト管理</h4>
-        <input type="text" id="project-id" placeholder="作品ID (例: eternal-summer)" style="width:100%; padding:8px; margin-bottom:10px;">
+        <input type="text" id="project-id" placeholder="作品ID" style="width:100%; padding:8px; margin-bottom:10px;">
         <button class="btn" style="background:#34c759; color:#fff;" onclick="saveToCloud()">クラウドに保存</button>
-        <button class="btn" style="background:var(--primary); color:#fff;" onclick="loadFromCloud()">クラウドから読込</button>
+        <button class="btn" style="background:var(--primary); color:#fff;" onclick="loadFromCloud()">読込</button>
     </div>
 
     <div class="control-group">
-        <h4>画像・テキスト設定</h4>
-        <input type="file" accept="image/*" onchange="uploadToStorage(this)">
-        <select id="prop-mode" onchange="update('writingMode', this.value)" style="width:100%; margin:10px 0; padding:8px;">
+        <h4>セクション設定</h4>
+        <label>タイプ</label>
+        <select id="prop-type" onchange="update('type', this.value)" style="width:100%; margin-bottom:10px;">
+            <option value="image">イメージセクション</option>
+            <option value="text">テキストセクション</option>
+        </select>
+        
+        <div id="image-only-props">
+            <label>背景画像アップロード</label>
+            <input type="file" accept="image/*" onchange="uploadToStorage(this)">
+        </div>
+
+        <label>文字の向き</label>
+        <select id="prop-mode" onchange="update('writingMode', this.value)" style="width:100%; margin-bottom:10px;">
             <option value="horizontal-tb">横書き</option>
             <option value="vertical-rl">縦書き</option>
         </select>
-        <textarea id="prop-text" rows="4" style="width:100%;" oninput="updateContent(this.value)"></textarea>
+
+        <label id="text-label">テキスト入力 (選択中の吹き出し or 背景テキスト)</label>
+        <textarea id="prop-text" rows="5" style="width:100%;" oninput="updateActiveText(this.value)"></textarea>
+        
+        <button class="btn" style="margin-top:10px; background:#ff3b30; color:#fff;" onclick="deleteActive()">削除</button>
     </div>
 </div>
 
@@ -86,7 +103,6 @@
   const db = getFirestore(app);
   const storage = getStorage(app);
 
-  // 画像アップロード & URL取得
   window.uploadToStorage = async (input) => {
     const file = input.files[0];
     if(!file) return;
@@ -114,60 +130,104 @@
 </script>
 
 <script>
-    let sections = [{ background: 'https://picsum.photos/id/10/600/1066', writingMode: 'horizontal-tb', bubbles: [] }];
+    let sections = [{ type: 'image', background: 'https://picsum.photos/id/10/600/1066', writingMode: 'horizontal-tb', bubbles: [], text: '' }];
     let activeIdx = 0;
     let activeBubbleIdx = null;
 
     function refresh() {
         const s = sections[activeIdx];
-        document.getElementById('main-img').src = s.background;
-        document.getElementById('prop-mode').value = s.writingMode;
+        const render = document.getElementById('content-render');
+        
+        // メインキャンバスの描画切り替え
+        if(s.type === 'image') {
+            render.innerHTML = `<img id="main-img" src="${s.background}">`;
+            document.getElementById('image-only-props').style.display = 'block';
+        } else {
+            render.innerHTML = `<div class="text-layer ${s.writingMode === 'vertical-rl' ? 'v-text' : ''}">${s.text}</div>`;
+            document.getElementById('image-only-props').style.display = 'none';
+        }
 
-        // SVG吹き出しの描画
+        // 吹き出し描画
         document.getElementById('bubble-layer').innerHTML = (s.bubbles || []).map((b, i) => `
-            <div class="bubble-svg" style="top:${b.y}%; left:${b.x}%;" onmousedown="startDrag(event, ${i})">
+            <div class="bubble-svg ${i === activeBubbleIdx ? 'selected' : ''}" style="top:${b.y}%; left:${b.x}%;" onmousedown="selectBubble(event, ${i})">
                 <svg width="150" height="120" viewBox="0 0 150 120">
                     <ellipse cx="75" cy="50" rx="65" ry="40" fill="white" stroke="black" stroke-width="2"/>
-                    <path d="M 75 90 L ${75 + b.tailX} ${90 + b.tailY} L 95 85" fill="white" stroke="black" stroke-width="2"/>
+                    <path d="M 75 90 L ${75 + (b.tailX || 10)} ${90 + (b.tailY || 20)} L 95 85" fill="white" stroke="black" stroke-width="2"/>
                 </svg>
                 <div class="bubble-text ${s.writingMode === 'vertical-rl' ? 'v-text' : ''}">${b.text}</div>
             </div>
         `).join('');
+
+        // パネルUIの同期
+        document.getElementById('prop-type').value = s.type;
+        document.getElementById('prop-mode').value = s.writingMode;
+        document.getElementById('prop-text').value = (activeBubbleIdx !== null) ? s.bubbles[activeBubbleIdx].text : s.text;
+
         renderThumbs();
     }
 
     function renderThumbs() {
         document.getElementById('thumb-container').innerHTML = sections.map((s, i) => `
-            <div class="thumb-wrap ${i === activeIdx ? 'active' : ''}" onclick="activeIdx=${i};refresh()">
-                <img class="thumb-canvas" src="${s.background}">
-                <div style="position:absolute; top:5px; left:5px; background:white; font-size:10px; padding:2px;">#${i+1}</div>
+            <div class="thumb-wrap ${i === activeIdx ? 'active' : ''}" onclick="changeSection(${i})">
+                ${s.type === 'image' ? `<img class="thumb-canvas" src="${s.background}">` : `<div class="thumb-canvas" style="display:flex;align-items:center;justify-content:center;font-size:10px;padding:5px;background:#fff;">${s.text}</div>`}
+                <div style="position:absolute; top:5px; left:5px; background:white; font-size:10px; padding:2px; border:1px solid #ddd;">#${i+1}</div>
             </div>
         `).join('');
     }
 
+    function changeSection(i) {
+        activeIdx = i;
+        activeBubbleIdx = null;
+        refresh();
+    }
+
     function addSection() { 
-        sections.push({ background: 'https://via.placeholder.com/600x1066', writingMode: 'horizontal-tb', bubbles: [] });
+        sections.push({ type: 'image', background: 'https://via.placeholder.com/600x1066', writingMode: 'horizontal-tb', bubbles: [], text: '' });
         activeIdx = sections.length - 1; refresh(); 
     }
 
     function handleCanvasClick(e) {
-        if(e.target.id !== 'main-img') return;
-        const r = e.currentTarget.getBoundingClientRect();
+        if(e.target.id !== 'main-img' && !e.target.classList.contains('text-layer')) return;
+        const r = document.getElementById('canvas-view').getBoundingClientRect();
         sections[activeIdx].bubbles.push({
             x: ((e.clientX - r.left) / r.width * 100).toFixed(1),
             y: ((e.clientY - r.top) / r.height * 100).toFixed(1),
-            tailX: 10, tailY: 20, text: "セリフ"
+            tailX: 10, tailY: 20, text: "新しいセリフ"
         });
         activeBubbleIdx = sections[activeIdx].bubbles.length - 1;
         refresh();
     }
 
+    function selectBubble(e, i) {
+        e.stopPropagation();
+        activeBubbleIdx = i;
+        refresh();
+        startDrag(e, i);
+    }
+
     function update(k, v) { sections[activeIdx][k] = v; refresh(); }
-    function updateContent(v) { if(activeBubbleIdx !== null) sections[activeIdx].bubbles[activeBubbleIdx].text = v; refresh(); }
-    function resizeThumbs(v) { document.querySelectorAll('.thumb-wrap').forEach(w => w.style.width = v + '%'); }
+
+    function updateActiveText(v) {
+        if(activeBubbleIdx !== null) {
+            sections[activeIdx].bubbles[activeBubbleIdx].text = v;
+        } else {
+            sections[activeIdx].text = v;
+        }
+        refresh();
+    }
+
+    function deleteActive() {
+        if(activeBubbleIdx !== null) {
+            sections[activeIdx].bubbles.splice(activeBubbleIdx, 1);
+            activeBubbleIdx = null;
+        } else if(sections.length > 1) {
+            sections.splice(activeIdx, 1);
+            activeIdx = Math.max(0, activeIdx - 1);
+        }
+        refresh();
+    }
 
     function startDrag(e, i) {
-        e.stopPropagation(); activeBubbleIdx = i; refresh();
         const container = document.getElementById('canvas-view').getBoundingClientRect();
         const move = (me) => {
             sections[activeIdx].bubbles[i].x = ((me.clientX - container.left) / container.width * 100).toFixed(1);
