@@ -2,54 +2,84 @@
 <html lang="ja">
 <head>
     <meta charset="UTF-8">
-    <title>Studio Pro - Multi Project</title>
+    <title>DSF Studio Pro - Design / Develop / Direction</title>
     <style>
-        /* (前回のスタイルを継承) */
-        :root { --primary: #007AFF; --border: #ddd; }
-        body { margin: 0; display: flex; height: 100vh; font-family: sans-serif; background: #e9ecef; }
-        #sidebar { width: 200px; background: #fff; border-right: 1px solid var(--border); padding: 15px; display: flex; flex-direction: column; }
-        #editor-main { flex: 1; display: flex; align-items: center; justify-content: center; overflow: auto; }
-        #canvas-view { position: relative; width: 400px; aspect-ratio: 9/16; background: #fff; box-shadow: 0 10px 30px rgba(0,0,0,0.1); overflow: hidden; }
-        #bg-img { width: 100%; height: 100%; object-fit: cover; }
-        .bubble { position: absolute; transform: translate(-50%, -50%); padding: 8px; background: #fff; border: 2px solid #000; font-size: 13px; cursor: move; }
-        #panel-right { width: 300px; background: #fff; border-left: 1px solid var(--border); padding: 20px; }
-        .project-meta { background: #f0f7ff; padding: 10px; border-radius: 8px; margin-bottom: 20px; border: 1px solid #cce4ff; }
-        input, textarea { width: 100%; padding: 8px; margin-bottom: 10px; border: 1px solid #ddd; border-radius: 4px; box-sizing: border-box; }
-        .btn-save { background: #34c759; color: #fff; border: none; padding: 12px; width: 100%; border-radius: 6px; cursor: pointer; font-weight: bold; }
-        .btn-load { background: #007AFF; color: #fff; border: none; padding: 12px; width: 100%; border-radius: 6px; cursor: pointer; margin-top: 5px; }
+        :root { --primary: #007AFF; --bg: #f5f5f7; --border: #d2d2d7; }
+        body { margin: 0; display: flex; height: 100vh; font-family: -apple-system, sans-serif; background: var(--bg); overflow: hidden; }
+        
+        /* 左：ナビゲーション */
+        #sidebar { width: 180px; background: #fff; border-right: 1px solid var(--border); display: flex; flex-direction: column; padding: 10px; }
+        .thumb { width: 100%; aspect-ratio: 9/16; background: #eee; margin-bottom: 10px; cursor: pointer; border: 3px solid transparent; border-radius: 4px; overflow: hidden; position: relative; }
+        .thumb.active { border-color: var(--primary); }
+        .thumb img { width: 100%; height: 100%; object-fit: cover; }
+        .thumb-label { position: absolute; bottom: 0; width: 100%; background: rgba(0,0,0,0.5); color: #fff; font-size: 10px; text-align: center; }
+
+        /* 中央：キャンバス */
+        #editor-main { flex: 1; display: flex; align-items: center; justify-content: center; position: relative; overflow: auto; padding: 40px; }
+        #canvas-container { position: relative; width: 400px; aspect-ratio: 9/16; background: #fff; box-shadow: 0 20px 40px rgba(0,0,0,0.1); overflow: hidden; }
+        #main-img { width: 100%; height: 100%; object-fit: cover; cursor: crosshair; }
+        .text-layer { width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; background: #fafafa; font-size: 24px; text-align: center; padding: 20px; box-sizing: border-box; }
+        
+        /* 吹き出し */
+        .bubble { position: absolute; transform: translate(-50%, -50%); padding: 10px 15px; background: #fff; border: 2px solid #000; border-radius: 20px; cursor: move; font-size: 14px; min-width: 50px; text-align: center; line-height: 1.2; z-index: 10; }
+        .bubble.selected { border-color: var(--primary); box-shadow: 0 0 10px rgba(0,122,255,0.5); }
+
+        /* 右：コントロール */
+        #panel-right { width: 320px; background: #fff; border-left: 1px solid var(--border); padding: 20px; overflow-y: auto; }
+        .control-group { background: #f9f9f9; padding: 15px; border-radius: 8px; margin-bottom: 15px; border: 1px solid #eee; }
+        h4 { margin: 0 0 10px 0; font-size: 14px; color: #333; }
+        label { font-size: 11px; color: #888; display: block; margin-bottom: 4px; }
+        input, textarea, select { width: 100%; padding: 8px; margin-bottom: 10px; border: 1px solid var(--border); border-radius: 4px; font-size: 13px; box-sizing: border-box; }
+        .btn { width: 100%; padding: 12px; border: none; border-radius: 6px; cursor: pointer; font-weight: bold; margin-bottom: 8px; transition: 0.2s; }
+        .btn-primary { background: var(--primary); color: #fff; }
+        .btn-success { background: #34c759; color: #fff; }
+        .btn-outline { background: #fff; border: 1px solid var(--border); color: #333; }
     </style>
 </head>
 <body>
 
 <div id="sidebar">
-    <h4>作品一覧</h4>
-    <div id="thumb-list" style="flex:1; overflow-y:auto;"></div>
-    <button onclick="addSection()">+ セクション追加</button>
+    <div id="thumb-list"></div>
+    <button class="btn btn-outline" onclick="addSection()">+ セクション追加</button>
 </div>
 
 <div id="editor-main">
-    <div id="canvas-view" onmousedown="handleCanvasClick(event)">
-        <img id="bg-img" src="">
+    <div id="canvas-container" onmousedown="handleCanvasClick(event)">
+        <div id="content-render"></div>
         <div id="bubble-container"></div>
     </div>
 </div>
 
 <div id="panel-right">
-    <div class="project-meta">
-        <h4>プロジェクト管理</h4>
-        <label style="font-size:11px;">作品ID (英数字)</label>
-        <input type="text" id="project-id" placeholder="eternal-summer">
-        <label style="font-size:11px;">作品タイトル</label>
-        <input type="text" id="project-title" placeholder="作品の正式名称">
-        <button class="btn-save" onclick="saveToCloud()">クラウドに保存</button>
-        <button class="btn-load" onclick="loadFromCloud()">クラウドから読込</button>
+    <div class="control-group" style="background: #eef7ff;">
+        <h4>プロジェクト設定</h4>
+        <input type="text" id="project-id" placeholder="作品ID (例: eternal-summer)">
+        <input type="text" id="project-title" placeholder="作品タイトル">
+        <button class="btn btn-success" onclick="saveToCloud()">クラウドに保存</button>
+        <button class="btn btn-primary" onclick="loadFromCloud()">クラウドから読込</button>
     </div>
 
-    <h4>セクション編集</h4>
-    <label>背景画像URL</label>
-    <input type="text" id="in-bg" oninput="update('background', this.value)">
-    <label>日本語テキスト</label>
-    <textarea id="in-ja" rows="4" oninput="updateContent('ja', this.value)"></textarea>
+    <div id="section-editor" style="display:none;">
+        <h4>セクション編集</h4>
+        <label>タイプ</label>
+        <select id="prop-type" onchange="update('type', this.value)">
+            <option value="image">イメージレイヤー</option>
+            <option value="text">テキストレイヤー</option>
+        </select>
+        
+        <div id="image-props">
+            <label>背景画像URL</label>
+            <input type="text" id="prop-bg" oninput="update('background', this.value)">
+        </div>
+
+        <h4>テキスト / キャプション</h4>
+        <label>日本語 (JP)</label>
+        <textarea id="prop-ja" rows="4" oninput="updateContent('ja', this.value)"></textarea>
+        <label>English (EN)</label>
+        <textarea id="prop-en" rows="4" oninput="updateContent('en', this.value)"></textarea>
+        
+        <button class="btn btn-outline" style="color:red; border-color:red;" onclick="deleteActive()">削除</button>
+    </div>
 </div>
 
 <script type="module">
@@ -66,17 +96,14 @@
   appId: "1:166808261830:web:c218463dd04297749eb3c7",
   measurementId: "G-N639C3XCVQ"
 };
-  // -----------------------------------------------------------
 
   const app = initializeApp(firebaseConfig);
   const db = getFirestore(app);
 
-  // クラウドへ保存
   window.saveToCloud = async () => {
     const pid = document.getElementById('project-id').value;
     const title = document.getElementById('project-title').value;
     if(!pid) return alert("作品IDを入力してください");
-
     try {
       await setDoc(doc(db, "works", pid), {
         metadata: { title: title, lastUpdated: new Date() },
@@ -86,60 +113,133 @@
     } catch (e) { alert("エラー: " + e.message); }
   };
 
-  // クラウドから読み込み
   window.loadFromCloud = async () => {
     const pid = document.getElementById('project-id').value;
     if(!pid) return alert("読み込みたい作品IDを入力してください");
-
     try {
       const docSnap = await getDoc(doc(db, "works", pid));
       if (docSnap.exists()) {
         const data = docSnap.data();
         sections = data.sections;
         document.getElementById('project-title').value = data.metadata.title;
-        alert("読み込み完了！");
         refresh();
+        alert("クラウドからデータを復元しました。");
       } else { alert("作品が見つかりません"); }
-    } catch (e) { alert("エラー: " + e.message); }
+    } catch (e) { alert("読込エラー: " + e.message); }
   };
 </script>
 
 <script>
-    // (ドラッグ移動、Canvasクリック、refresh等の基本ロジックは前回同様)
-    let sections = [{ type: 'image', background: 'https://picsum.photos/id/1/600/1066', captions: [], content: {ja:"", en:""} }];
+    let sections = [{ type: 'image', background: 'https://picsum.photos/id/10/600/1066', captions: [], content: {ja:"はじまりのシーン", en:"Beginning"} }];
     let activeIdx = 0;
     let activeBubbleIdx = null;
 
     function addSection() {
-        sections.push({ type: 'image', background: 'https://via.placeholder.com/600/1066', captions: [], content: {ja:"", en:""} });
-        activeIdx = sections.length - 1; refresh();
+        sections.push({ type: 'image', background: 'https://via.placeholder.com/600x1066?text=New+Scene', captions: [], content: {ja:"", en:""} });
+        activeIdx = sections.length - 1; 
+        activeBubbleIdx = null;
+        refresh();
     }
+
     function handleCanvasClick(e) {
-        if(e.target.id!=='bg-img') return;
-        const r = e.target.getBoundingClientRect();
-        sections[activeIdx].captions.push({ x: ((e.clientX-r.left)/r.width*100).toFixed(1), y: ((e.clientY-r.top)/r.height*100).toFixed(1), content: {ja:"テキスト", en:""} });
-        activeBubbleIdx = sections[activeIdx].captions.length - 1; refresh();
+        if(e.target.id !== 'main-img' && !e.target.classList.contains('text-layer')) return;
+        const r = e.currentTarget.getBoundingClientRect();
+        const x = ((e.clientX - r.left) / r.width * 100).toFixed(1);
+        const y = ((e.clientY - r.top) / r.height * 100).toFixed(1);
+        
+        sections[activeIdx].captions.push({
+            x: x, y: y, content: { ja: "新しいセリフ", en: "New Dialogue" }
+        });
+        activeBubbleIdx = sections[activeIdx].captions.length - 1;
+        refresh();
     }
+
     function refresh() {
-        document.getElementById('thumb-list').innerHTML = sections.map((s,i)=>`<div class="thumb ${i===activeIdx?'active':''}" onclick="activeIdx=${i};refresh()"><img src="${s.background}" style="width:100%"></div>`).join('');
+        // サムネイル更新
+        document.getElementById('thumb-list').innerHTML = sections.map((s, i) => `
+            <div class="thumb ${i === activeIdx ? 'active' : ''}" onclick="selectSection(${i})">
+                ${s.type === 'image' ? `<img src="${s.background}">` : `<div style="padding:5px; font-size:8px;">${s.content.ja}</div>`}
+                <div class="thumb-label">Section ${i+1}</div>
+            </div>
+        `).join('');
+
         const s = sections[activeIdx];
-        document.getElementById('bg-img').src = s.background;
-        document.getElementById('bubble-container').innerHTML = (s.captions||[]).map((c,i)=>`<div class="bubble" style="top:${c.y}%; left:${c.x}%; border:${i===activeBubbleIdx?'2px solid #007AFF':'2px solid #000'}" onmousedown="startDrag(event,${i})">${c.content.ja}</div>`).join('');
+        document.getElementById('section-editor').style.display = 'block';
+
+        // メイン描画
+        const render = document.getElementById('content-render');
+        if(s.type === 'image') {
+            render.innerHTML = `<img id="main-img" src="${s.background}">`;
+        } else {
+            render.innerHTML = `<div class="text-layer">${s.content.ja}</div>`;
+        }
+
+        // 吹き出し描画
+        document.getElementById('bubble-container').innerHTML = (s.captions || []).map((c, i) => `
+            <div class="bubble ${i === activeBubbleIdx ? 'selected' : ''}" 
+                 style="top:${c.y}%; left:${c.x}%;" 
+                 onmousedown="startDrag(event, ${i})">
+                ${c.content.ja || '...'}
+            </div>
+        `).join('');
+
+        // フォーム更新
+        document.getElementById('prop-type').value = s.type;
+        document.getElementById('prop-bg').value = s.background || '';
+        document.getElementById('image-props').style.display = s.type === 'image' ? 'block' : 'none';
+        
+        if(activeBubbleIdx !== null) {
+            document.getElementById('prop-ja').value = s.captions[activeBubbleIdx].content.ja;
+            document.getElementById('prop-en').value = s.captions[activeBubbleIdx].content.en;
+        } else {
+            document.getElementById('prop-ja').value = s.content.ja;
+            document.getElementById('prop-en').value = s.content.en;
+        }
     }
+
+    function selectSection(i) { activeIdx = i; activeBubbleIdx = null; refresh(); }
+    
+    function update(k, v) { sections[activeIdx][k] = v; refresh(); }
+    
+    function updateContent(lang, val) {
+        if(activeBubbleIdx !== null) {
+            sections[activeIdx].captions[activeBubbleIdx].content[lang] = val;
+        } else {
+            sections[activeIdx].content[lang] = val;
+        }
+        refresh();
+    }
+
     function startDrag(e, i) {
-        e.stopPropagation(); activeBubbleIdx = i; refresh();
+        e.stopPropagation();
+        activeBubbleIdx = i;
+        refresh();
+        const container = document.getElementById('canvas-container').getBoundingClientRect();
         const move = (me) => {
-            const r = document.getElementById('bg-img').getBoundingClientRect();
-            sections[activeIdx].captions[i].x = ((me.clientX-r.left)/r.width*100).toFixed(1);
-            sections[activeIdx].captions[i].y = ((me.clientY-r.top)/r.height*100).toFixed(1);
+            let x = ((me.clientX - container.left) / container.width * 100).toFixed(1);
+            let y = ((me.clientY - container.top) / container.height * 100).toFixed(1);
+            sections[activeIdx].captions[i].x = x;
+            sections[activeIdx].captions[i].y = y;
             refresh();
         };
         const up = () => { window.removeEventListener('mousemove', move); window.removeEventListener('mouseup', up); };
-        window.addEventListener('mousemove', move); window.addEventListener('mouseup', up);
+        window.addEventListener('mousemove', move);
+        window.addEventListener('mouseup', up);
     }
-    function update(k,v){ sections[activeIdx][k]=v; refresh(); }
-    function updateContent(l,v){ if(activeBubbleIdx!==null) sections[activeIdx].captions[activeBubbleIdx].content[l]=v; else sections[activeIdx].content[l]=v; refresh(); }
-    window.refresh = refresh;
+
+    function deleteActive() {
+        if(activeBubbleIdx !== null) {
+            sections[activeIdx].captions.splice(activeBubbleIdx, 1);
+            activeBubbleIdx = null;
+        } else {
+            if(sections.length > 1) {
+                sections.splice(activeIdx, 1);
+                activeIdx = Math.max(0, activeIdx - 1);
+            }
+        }
+        refresh();
+    }
+
     refresh();
 </script>
 </body>
