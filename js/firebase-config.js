@@ -21,11 +21,15 @@ const storage = getStorage(app);
 // グローバルに公開
 window.firebaseDB = db;
 window.firebaseStorage = storage;
-window.firebaseDoc = doc;
-window.firebaseSetDoc = setDoc;
-window.firebaseGetDoc = getDoc;
-window.firebaseStorageRef = ref;
-window.firebaseUploadBytes = uploadBytes;
-window.firebaseGetDownloadURL = getDownloadURL;
+
+// Firestoreメソッド
+window.firestoreDoc = doc;
+window.firestoreSetDoc = setDoc;
+window.firestoreGetDoc = getDoc;
+
+// Storageメソッド
+window.storageRef = ref;
+window.storageUploadBytes = uploadBytes;
+window.storageGetDownloadURL = getDownloadURL;
 
 console.log("Firebase initialized successfully");

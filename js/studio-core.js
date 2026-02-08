@@ -19,6 +19,8 @@ window.addEventListener('DOMContentLoaded', () => {
     // デフォルトセクションを追加
     addSection();
     refresh();
+    // サムネイルサイズを復元
+    setTimeout(restoreThumbSize, 100);
 });
 
 // ========== セクション管理 ==========
@@ -205,13 +207,13 @@ async function uploadImage(input) {
     if (!file) return;
     
     try {
-        const storageRef = window.firebaseStorageRef(
+        const storageRef = window.storageRef(
             window.firebaseStorage, 
             `images/${Date.now()}_${file.name}`
         );
         
-        const snapshot = await window.firebaseUploadBytes(storageRef, file);
-        const url = await window.firebaseGetDownloadURL(snapshot.ref);
+        const snapshot = await window.storageUploadBytes(storageRef, file);
+        const url = await window.storageGetDownloadURL(snapshot.ref);
         
         updateBackground(url);
         alert("画像をアップロードしました");
@@ -235,8 +237,8 @@ async function saveToCloud() {
         project.id = projectId;
         project.metadata.updatedAt = new Date().toISOString();
         
-        const docRef = window.firebaseDoc(window.firebaseDB, "projects", projectId);
-        await window.firebaseSetDoc(docRef, project);
+        const docRef = window.firestoreDoc(window.firebaseDB, "projects", projectId);
+        await window.firestoreSetDoc(docRef, project);
         
         alert("保存しました!");
     } catch (error) {
@@ -255,8 +257,8 @@ async function loadFromCloud() {
     }
     
     try {
-        const docRef = window.firebaseDoc(window.firebaseDB, "projects", projectId);
-        const docSnap = await window.firebaseGetDoc(docRef);
+        const docRef = window.firestoreDoc(window.firebaseDB, "projects", projectId);
+        const docSnap = await window.firestoreGetDoc(docRef);
         
         if (docSnap.exists()) {
             project = docSnap.data();
@@ -301,19 +303,36 @@ function refreshCanvas() {
     }
     
     // 吹き出し描画
-    bubbleLayer.innerHTML = (data.captions || []).map((caption, i) => `
-        <div class="bubble-svg" 
+    bubbleLayer.innerHTML = (data.captions || []).map((caption, i) => {
+        const type = caption.type || 'bottom';
+        let tailPath = '';
+        
+        // 吹き出し口の形状を決定
+        if (type === 'bottom') {
+            tailPath = '<path d="M 60 65 L 50 80 L 70 65 Z" fill="white" stroke="black" stroke-width="2"/>';
+        } else if (type === 'top') {
+            tailPath = '<path d="M 60 5 L 50 -10 L 70 5 Z" fill="white" stroke="black" stroke-width="2"/>';
+        } else if (type === 'left') {
+            tailPath = '<path d="M 5 40 L -10 30 L 5 50 Z" fill="white" stroke="black" stroke-width="2"/>';
+        } else if (type === 'right') {
+            tailPath = '<path d="M 115 40 L 130 30 L 115 50 Z" fill="white" stroke="black" stroke-width="2"/>';
+        }
+        // type === 'none' の場合は tailPath は空文字列のまま
+        
+        return `
+        <div class="bubble-svg ${i === activeBubbleIdx ? 'active' : ''}" 
              id="bubble-${i}"
              style="top:${caption.y}%; left:${caption.x}%; width:${caption.width || 120}px; height:${caption.height || 80}px;"
              onmousedown="startBubbleDrag(event, ${i})">
             <svg width="100%" height="100%" viewBox="0 0 120 80">
                 <ellipse cx="60" cy="35" rx="55" ry="30" fill="white" stroke="black" stroke-width="2"/>
-                <path d="M 60 65 L 50 80 L 70 65" fill="white" stroke="black" stroke-width="2"/>
+                ${tailPath}
             </svg>
             <div class="bubble-text ${data.writingMode === 'vertical-rl' ? 'v-text' : ''}">${caption.text || ''}</div>
             <div class="resize-handle" onmousedown="startBubbleResize(event, ${i})"></div>
         </div>
-    `).join('');
+    `;
+    }).join('');
     
     // テキストレイヤー (テキストセクション用)
     if (section.type === 'text') {
@@ -339,6 +358,12 @@ function refreshThumbs() {
             </div>
         `;
     }).join('');
+    
+    // サムネイルサイズを復元
+    const savedSize = localStorage.getItem('dsf-thumb-size');
+    if (savedSize) {
+        resizeThumbs(savedSize);
+    }
 }
 
 function refreshControls() {
@@ -385,7 +410,22 @@ function refreshLangTabs() {
 function resizeThumbs(val) {
     const wraps = document.querySelectorAll('.thumb-wrap');
     wraps.forEach(w => w.style.width = val + '%');
+    // サイズを保存
+    localStorage.setItem('dsf-thumb-size', val);
+}
+
+// 初期化時にサイズを復元
+function restoreThumbSize() {
+    const savedSize = localStorage.getItem('dsf-thumb-size');
+    if (savedSize) {
+        const slider = document.querySelector('input[type="range"]');
+        if (slider) {
+            slider.value = savedSize;
+            resizeThumbs(savedSize);
+        }
+    }
 }
 
 window.resizeThumbs = resizeThumbs;
+window.restoreThumbSize = restoreThumbSize;
 window.refresh = refresh;

@@ -18,7 +18,8 @@ function addBubble() {
         y: 30,
         width: 120,
         height: 80,
-        text: "吹き出し"
+        text: "テキストを入力",
+        type: "bottom" // bottom, top, left, right, none
     });
     
     activeBubbleIdx = data.captions.length - 1;
@@ -54,6 +55,16 @@ function updateBubbleText(index, text) {
 }
 
 window.updateBubbleText = updateBubbleText;
+
+function updateBubbleType(index, type) {
+    const data = getCurrentData();
+    if (data.captions[index]) {
+        data.captions[index].type = type;
+        refresh();
+    }
+}
+
+window.updateBubbleType = updateBubbleType;
 
 // ========== ドラッグ操作 ==========
 function startBubbleDrag(event, index) {
@@ -173,6 +184,13 @@ function refreshBubbleList() {
                 <span style="font-weight:bold;">吹き出し #${i+1}</span>
                 <button class="bubble-delete" onclick="event.stopPropagation();deleteBubble(${i})">削除</button>
             </div>
+            <select onchange="event.stopPropagation();updateBubbleType(${i}, this.value)" style="width:100%;padding:6px;margin:6px 0;border:1px solid #ddd;border-radius:4px;font-size:12px;">
+                <option value="bottom" ${(caption.type || 'bottom') === 'bottom' ? 'selected' : ''}>下向き</option>
+                <option value="top" ${caption.type === 'top' ? 'selected' : ''}>上向き</option>
+                <option value="left" ${caption.type === 'left' ? 'selected' : ''}>左向き</option>
+                <option value="right" ${caption.type === 'right' ? 'selected' : ''}>右向き</option>
+                <option value="none" ${caption.type === 'none' ? 'selected' : ''}>吹き出し口なし</option>
+            </select>
             <input type="text" 
                    value="${caption.text || ''}" 
                    onclick="event.stopPropagation()"
