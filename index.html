@@ -2,142 +2,184 @@
 <html lang="ja">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>DSF Studio Pro - Ultimate Edition</title>
-    <link rel="stylesheet" href="css/studio.css">
+    <style>
+        :root { --primary: #007AFF; --bg: #f5f5f7; --border: #d2d2d7; }
+        body { margin: 0; display: flex; height: 100vh; font-family: sans-serif; background: var(--bg); overflow: hidden; }
+        
+        /* 左：ナビゲーション（スクロール & サイズ調整） */
+        #sidebar { width: 220px; background: #fff; border-right: 1px solid var(--border); display: flex; flex-direction: column; }
+        #thumb-container { flex: 1; overflow-y: auto; padding: 10px; }
+        .thumb-wrap { width: 100%; margin-bottom: 15px; cursor: pointer; position: relative; }
+        .thumb-canvas { width: 100%; aspect-ratio: 9/16; background: #eee; border: 3px solid transparent; border-radius: 4px; object-fit: cover; }
+        .thumb-wrap.active .thumb-canvas { border-color: var(--primary); box-shadow: 0 0 8px rgba(0,122,255,0.3); }
+
+        /* 中央：キャンバス */
+        #editor-main { flex: 1; display: flex; align-items: center; justify-content: center; overflow: auto; padding: 20px; }
+        #canvas-view { position: relative; width: 360px; aspect-ratio: 9/16; background: #fff; box-shadow: 0 20px 40px rgba(0,0,0,0.1); overflow: hidden; }
+        #main-img { width: 100%; height: 100%; object-fit: cover; }
+        
+        /* SVG吹き出し（縦書き対応） */
+        .bubble-svg { position: absolute; transform: translate(-50%, -50%); cursor: move; }
+        .bubble-text { position: absolute; top: 45%; left: 50%; transform: translate(-50%, -50%); width: 70%; text-align: center; font-size: 16px; pointer-events: none; color: #000; }
+        .v-text { writing-mode: vertical-rl; text-orientation: upright; }
+
+        /* 右：コントロール */
+        #panel-right { width: 340px; background: #fff; border-left: 1px solid var(--border); padding: 20px; overflow-y: auto; }
+        .control-group { background: #f9f9f9; padding: 15px; border-radius: 8px; margin-bottom: 15px; border: 1px solid #eee; }
+        .btn { width: 100%; padding: 12px; border: none; border-radius: 6px; cursor: pointer; font-weight: bold; margin-bottom: 8px; }
+    </style>
 </head>
 <body>
 
-<!-- 左サイドバー: セクション一覧 -->
 <div id="sidebar">
-    <div class="sidebar-header">
-        <h3>セクション一覧</h3>
-        <label>サムネイルサイズ</label>
-        <input type="range" min="60" max="150" value="100" oninput="resizeThumbs(this.value)">
+    <div style="padding:10px; border-bottom:1px solid #eee;">
+        <label style="font-size:11px;">サムネイルサイズ</label>
+        <input type="range" min="50" max="100" value="100" oninput="resizeThumbs(this.value)">
     </div>
     <div id="thumb-container"></div>
-    <div class="sidebar-footer">
-        <button class="btn btn-add" onclick="addSection()">+ セクション追加</button>
-    </div>
+    <div style="padding:10px;"><button class="btn" onclick="addSection()">+ セクション追加</button></div>
 </div>
 
-<!-- 中央: キャンバス編集エリア -->
 <div id="editor-main">
-    <div id="canvas-view">
-        <img id="main-img" src="" alt="背景画像">
+    <div id="canvas-view" onmousedown="handleCanvasClick(event)">
+        <img id="main-img" src="">
         <div id="bubble-layer"></div>
-        <div id="text-layer"></div>
     </div>
 </div>
 
-<!-- 右パネル: コントロール -->
 <div id="panel-right">
-    <!-- プロジェクト管理 -->
-    <div class="control-group project-control">
-        <h4>📦 プロジェクト管理</h4>
-        <input type="text" id="project-id" placeholder="プロジェクトID (例: my-story-001)">
-        <button class="btn btn-success" onclick="saveToCloud()">💾 クラウドに保存</button>
-        <button class="btn btn-primary" onclick="loadFromCloud()">📂 読込</button>
-        <button class="btn btn-export" onclick="exportProject()">📤 エクスポート (JSON)</button>
-        <button class="btn btn-embed" onclick="generateEmbed()">🔗 埋め込みコード生成</button>
+    <div class="control-group" style="background:#eef7ff;">
+        <h4>プロジェクト管理</h4>
+        <input type="text" id="project-id" placeholder="作品ID (例: eternal-summer)" style="width:100%; padding:8px; margin-bottom:10px;">
+        <button class="btn" style="background:#34c759; color:#fff;" onclick="saveToCloud()">クラウドに保存</button>
+        <button class="btn" style="background:var(--primary); color:#fff;" onclick="loadFromCloud()">クラウドから読込</button>
     </div>
 
-    <!-- 言語切り替え -->
     <div class="control-group">
-        <h4>🌍 言語設定</h4>
-        <div id="lang-tabs"></div>
-        <button class="btn btn-small" onclick="addLanguage()">+ 言語を追加</button>
-    </div>
-
-    <!-- セクションタイプ -->
-    <div class="control-group">
-        <h4>📄 セクションタイプ</h4>
-        <select id="section-type" onchange="changeSectionType(this.value)">
-            <option value="cover">表紙 (Cover)</option>
-            <option value="image">画像セクション (Image)</option>
-            <option value="text">テキストセクション (Text Only)</option>
+        <h4>画像・テキスト設定</h4>
+        <input type="file" accept="image/*" onchange="uploadToStorage(this)">
+        <select id="prop-mode" onchange="update('writingMode', this.value)" style="width:100%; margin:10px 0; padding:8px;">
+            <option value="horizontal-tb">横書き</option>
+            <option value="vertical-rl">縦書き</option>
         </select>
-    </div>
-
-    <!-- 画像アップロード -->
-    <div class="control-group" id="image-controls">
-        <h4>🖼️ 画像アップロード</h4>
-        <input type="file" id="image-upload" accept="image/*" onchange="uploadImage(this)">
-        <label>現在の画像URL</label>
-        <input type="text" id="prop-bg" oninput="updateBackground(this.value)">
-    </div>
-
-    <!-- テキスト設定 -->
-    <div class="control-group">
-        <h4>✏️ テキスト設定</h4>
-        <select id="prop-mode" onchange="updateWritingMode(this.value)">
-            <option value="horizontal-tb">横書き (Horizontal)</option>
-            <option value="vertical-rl">縦書き (Vertical)</option>
-        </select>
-        
-        <label id="content-label">本文</label>
-        <textarea id="prop-content" rows="6" oninput="updateContent(this.value)" placeholder="本文を入力..."></textarea>
-        
-        <label>タイトル (表紙用)</label>
-        <input type="text" id="prop-title" oninput="updateTitle(this.value)" placeholder="作品タイトル">
-    </div>
-
-    <!-- 吹き出し管理 -->
-    <div class="control-group" id="bubble-controls">
-        <h4>💬 吹き出し管理</h4>
-        <button class="btn" onclick="addBubble()">+ 吹き出しを追加</button>
-        <div id="bubble-list"></div>
-    </div>
-
-    <!-- セクション操作 -->
-    <div class="control-group">
-        <h4>🔧 セクション操作</h4>
-        <button class="btn" onclick="moveSection(-1)">↑ 上へ移動</button>
-        <button class="btn" onclick="moveSection(1)">↓ 下へ移動</button>
-        <button class="btn btn-danger" onclick="deleteSection()">🗑️ セクション削除</button>
+        <textarea id="prop-text" rows="4" style="width:100%;" oninput="updateContent(this.value)"></textarea>
     </div>
 </div>
 
-<!-- モーダル: 言語追加 -->
-<div id="lang-modal" class="modal">
-    <div class="modal-content">
-        <h3>新しい言語を追加</h3>
-        <input type="text" id="new-lang-code" placeholder="言語コード (例: zh, ko, fr)">
-        <input type="text" id="new-lang-name" placeholder="言語名 (例: 中国語, 한국어)">
-        <button class="btn btn-success" onclick="confirmAddLanguage()">追加</button>
-        <button class="btn" onclick="closeLangModal()">キャンセル</button>
-    </div>
-</div>
+<script type="module">
+  import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
+  import { getFirestore, doc, setDoc, getDoc } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
+  import { getStorage, ref, uploadBytes, getDownloadURL } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-storage.js";
 
-<!-- モーダル: 埋め込みコード -->
-<div id="embed-modal" class="modal">
-    <div class="modal-content">
-        <h3>埋め込みコード</h3>
-        <p>以下のコードをウェブサイトに貼り付けてください</p>
-        <textarea id="embed-code" rows="8" readonly></textarea>
-        <button class="btn btn-success" onclick="copyEmbed()">📋 コピー</button>
-        <button class="btn" onclick="closeEmbedModal()">閉じる</button>
-    </div>
-</div>
+  const firebaseConfig = {
+    apiKey: "AIzaSyBj3U-wFkNsWlW1d4OHayerECMIRyhQ40o",
+    authDomain: "vmnn-26345.firebaseapp.com",
+    projectId: "vmnn-26345",
+    storageBucket: "vmnn-26345.firebasestorage.app",
+    messagingSenderId: "16688261830",
+    appId: "1:16688261830:web:c218463dd6429774eb3c77",
+    measurementId: "G-N6J9C3XCVQ"
+  };
 
-<script type="module" src="js/firebase-config.js"></script>
-<script>
-// Service Workerをクリア（キャッシュ問題の解決）
-if ('serviceWorker' in navigator) {
-    navigator.serviceWorker.getRegistrations().then(registrations => {
-        registrations.forEach(registration => registration.unregister());
-    });
-}
-// キャッシュをクリア
-if ('caches' in window) {
-    caches.keys().then(names => {
-        names.forEach(name => caches.delete(name));
-    });
-}
+  const app = initializeApp(firebaseConfig);
+  const db = getFirestore(app);
+  const storage = getStorage(app);
+
+  // 画像アップロード & URL取得
+  window.uploadToStorage = async (input) => {
+    const file = input.files[0];
+    if(!file) return;
+    const storageRef = ref(storage, `dsf/${Date.now()}_${file.name}`);
+    try {
+      const snapshot = await uploadBytes(storageRef, file);
+      const url = await getDownloadURL(snapshot.ref);
+      update('background', url);
+      alert("画像を保存しました！");
+    } catch (e) { alert("保存失敗: " + e.message); }
+  };
+
+  window.saveToCloud = async () => {
+    const pid = document.getElementById('project-id').value;
+    if(!pid) return alert("作品IDを入力してください");
+    await setDoc(doc(db, "works", pid), { sections: sections, lastUpdated: new Date() });
+    alert("クラウド同期完了！");
+  };
+
+  window.loadFromCloud = async () => {
+    const pid = document.getElementById('project-id').value;
+    const snap = await getDoc(doc(db, "works", pid));
+    if(snap.exists()) { sections = snap.data().sections; refresh(); }
+  };
 </script>
-<script src="js/studio-core.js"></script>
-<script src="js/bubble-editor.js"></script>
-<script src="js/exporter.js"></script>
 
+<script>
+    let sections = [{ background: 'https://picsum.photos/id/10/600/1066', writingMode: 'horizontal-tb', bubbles: [] }];
+    let activeIdx = 0;
+    let activeBubbleIdx = null;
+
+    function refresh() {
+        const s = sections[activeIdx];
+        document.getElementById('main-img').src = s.background;
+        document.getElementById('prop-mode').value = s.writingMode;
+
+        // SVG吹き出しの描画
+        document.getElementById('bubble-layer').innerHTML = (s.bubbles || []).map((b, i) => `
+            <div class="bubble-svg" style="top:${b.y}%; left:${b.x}%;" onmousedown="startDrag(event, ${i})">
+                <svg width="150" height="120" viewBox="0 0 150 120">
+                    <ellipse cx="75" cy="50" rx="65" ry="40" fill="white" stroke="black" stroke-width="2"/>
+                    <path d="M 75 90 L ${75 + b.tailX} ${90 + b.tailY} L 95 85" fill="white" stroke="black" stroke-width="2"/>
+                </svg>
+                <div class="bubble-text ${s.writingMode === 'vertical-rl' ? 'v-text' : ''}">${b.text}</div>
+            </div>
+        `).join('');
+        renderThumbs();
+    }
+
+    function renderThumbs() {
+        document.getElementById('thumb-container').innerHTML = sections.map((s, i) => `
+            <div class="thumb-wrap ${i === activeIdx ? 'active' : ''}" onclick="activeIdx=${i};refresh()">
+                <img class="thumb-canvas" src="${s.background}">
+                <div style="position:absolute; top:5px; left:5px; background:white; font-size:10px; padding:2px;">#${i+1}</div>
+            </div>
+        `).join('');
+    }
+
+    function addSection() { 
+        sections.push({ background: 'https://via.placeholder.com/600x1066', writingMode: 'horizontal-tb', bubbles: [] });
+        activeIdx = sections.length - 1; refresh(); 
+    }
+
+    function handleCanvasClick(e) {
+        if(e.target.id !== 'main-img') return;
+        const r = e.currentTarget.getBoundingClientRect();
+        sections[activeIdx].bubbles.push({
+            x: ((e.clientX - r.left) / r.width * 100).toFixed(1),
+            y: ((e.clientY - r.top) / r.height * 100).toFixed(1),
+            tailX: 10, tailY: 20, text: "セリフ"
+        });
+        activeBubbleIdx = sections[activeIdx].bubbles.length - 1;
+        refresh();
+    }
+
+    function update(k, v) { sections[activeIdx][k] = v; refresh(); }
+    function updateContent(v) { if(activeBubbleIdx !== null) sections[activeIdx].bubbles[activeBubbleIdx].text = v; refresh(); }
+    function resizeThumbs(v) { document.querySelectorAll('.thumb-wrap').forEach(w => w.style.width = v + '%'); }
+
+    function startDrag(e, i) {
+        e.stopPropagation(); activeBubbleIdx = i; refresh();
+        const container = document.getElementById('canvas-view').getBoundingClientRect();
+        const move = (me) => {
+            sections[activeIdx].bubbles[i].x = ((me.clientX - container.left) / container.width * 100).toFixed(1);
+            sections[activeIdx].bubbles[i].y = ((me.clientY - container.top) / container.height * 100).toFixed(1);
+            refresh();
+        };
+        const up = () => { window.removeEventListener('mousemove', move); window.removeEventListener('mouseup', up); };
+        window.addEventListener('mousemove', move); window.addEventListener('mouseup', up);
+    }
+
+    window.update = update;
+    refresh();
+</script>
 </body>
 </html>
