@@ -1,12 +1,17 @@
 {
   "name": "dsf-studio-pro",
   "version": "1.0.0",
+  "type": "module",
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test:firebase": "node scripts/verify-firebase.js"
   },
   "devDependencies": {
     "vite": "^5.0.0"
+  },
+  "dependencies": {
+    "firebase": "^10.7.1"
   }
 }
