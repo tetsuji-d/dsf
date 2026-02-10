@@ -174,21 +174,20 @@ body {
     cursor: move;
 }
 
-.bubble-svg.selected ellipse {
-    stroke: var(--primary);
-    stroke-width: 3;
-}
-
 .bubble-text {
     position: absolute;
-    top: 45%;
     left: 50%;
     transform: translate(-50%, -50%);
-    width: 70%;
     text-align: center;
-    font-size: 16px;
+    font-size: 12px;
+    line-height: 1.3;
     pointer-events: none;
     color: #000;
+    overflow: hidden;
+    word-break: break-all;
+    display: flex;
+    align-items: center;
+    justify-content: center;
 }
 
 .v-text {

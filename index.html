@@ -59,6 +59,16 @@
                 <option value="vertical-rl">縦書き</option>
             </select>
 
+            <div id="bubble-shape-props">
+                <label>吹き出し形状</label>
+                <select id="prop-shape" onchange="updateBubbleShape(this.value)"
+                    style="width:100%; margin-bottom:10px;">
+                    <option value="speech">💬 通常</option>
+                    <option value="thought">💭 考え中</option>
+                    <option value="shout">💥 叫び</option>
+                </select>
+            </div>
+
             <label id="text-label">テキスト入力 (選択中の吹き出し or 背景テキスト)</label>
             <textarea id="prop-text" rows="5" style="width:100%;" oninput="updateActiveText(this.value)"></textarea>
 

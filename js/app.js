@@ -3,7 +3,7 @@
  */
 import { state } from './state.js';
 import { uploadToStorage, triggerAutoSave, saveAsProject, loadProject } from './firebase.js';
-import { handleCanvasClick, selectBubble } from './bubbles.js';
+import { handleCanvasClick, selectBubble, renderBubbleHTML } from './bubbles.js';
 import { addSection, changeSection, renderThumbs, deleteActive } from './sections.js';
 import { pushState, undo, redo, getHistoryInfo, clearHistory } from './history.js';
 import { openProjectModal, closeProjectModal } from './projects.js';
@@ -24,16 +24,10 @@ function refresh() {
         document.getElementById('image-only-props').style.display = 'none';
     }
 
-    // 吹き出し描画
-    document.getElementById('bubble-layer').innerHTML = (s.bubbles || []).map((b, i) => `
-        <div class="bubble-svg ${i === state.activeBubbleIdx ? 'selected' : ''}" style="top:${b.y}%; left:${b.x}%;" onmousedown="selectBubble(event, ${i})">
-            <svg width="150" height="120" viewBox="0 0 150 120">
-                <ellipse cx="75" cy="50" rx="65" ry="40" fill="white" stroke="black" stroke-width="2"/>
-                <path d="M 75 90 L ${75 + (b.tailX || 10)} ${90 + (b.tailY || 20)} L 95 85" fill="white" stroke="black" stroke-width="2"/>
-            </svg>
-            <div class="bubble-text ${s.writingMode === 'vertical-rl' ? 'v-text' : ''}">${b.text}</div>
-        </div>
-    `).join('');
+    // 吹き出し描画（統一パス）
+    document.getElementById('bubble-layer').innerHTML = (s.bubbles || []).map((b, i) =>
+        renderBubbleHTML(b, i, i === state.activeBubbleIdx, s.writingMode)
+    ).join('');
 
     // activeBubbleIdxが無効な場合はリセット
     if (state.activeBubbleIdx !== null && (!s.bubbles || !s.bubbles[state.activeBubbleIdx])) {
@@ -44,6 +38,16 @@ function refresh() {
     document.getElementById('prop-type').value = s.type;
     document.getElementById('prop-mode').value = s.writingMode;
     document.getElementById('prop-text').value = (state.activeBubbleIdx !== null) ? s.bubbles[state.activeBubbleIdx].text : s.text;
+
+    // 吹き出し形状セレクタの同期
+    const shapeProps = document.getElementById('bubble-shape-props');
+    const shapeSelect = document.getElementById('prop-shape');
+    if (state.activeBubbleIdx !== null && s.bubbles[state.activeBubbleIdx]) {
+        shapeProps.style.display = 'block';
+        shapeSelect.value = s.bubbles[state.activeBubbleIdx].shape || 'speech';
+    } else {
+        shapeProps.style.display = 'none';
+    }
 
     // プロジェクト名表示
     const titleEl = document.getElementById('project-title');
@@ -118,6 +122,19 @@ function updateActiveText(v) {
 }
 
 /**
+ * 選択中の吹き出しの形状を変更する
+ */
+function updateBubbleShape(shapeName) {
+    const s = state.sections[state.activeIdx];
+    if (state.activeBubbleIdx !== null && s.bubbles && s.bubbles[state.activeBubbleIdx]) {
+        pushState();
+        s.bubbles[state.activeBubbleIdx].shape = shapeName;
+        refresh();
+        triggerAutoSave();
+    }
+}
+
+/**
  * サムネイルサイズを変更する
  */
 function resizeThumbs(value) {
@@ -161,6 +178,7 @@ window.changeSection = (i) => changeSection(i, refresh);
 window.deleteActive = () => { pushState(); deleteActive(refresh); triggerAutoSave(); };
 window.update = update;
 window.updateActiveText = updateActiveText;
+window.updateBubbleShape = updateBubbleShape;
 window.resizeThumbs = resizeThumbs;
 window.uploadToStorage = (input) => { pushState(); uploadToStorage(input, refresh); };
 window.saveAsProject = saveAsProject;

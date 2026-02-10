@@ -1,7 +1,59 @@
 /**
- * bubbles.js — 吹き出し管理（追加・選択・ドラッグ）
+ * bubbles.js — 吹き出し管理（追加・選択・ドラッグ・描画）
  */
 import { state } from './state.js';
+import { getShape, getShapeNames } from './shapes.js';
+
+/**
+ * テキスト量に応じてフォントサイズを計算する
+ * @param {string} text - テキスト
+ * @param {boolean} isVertical - 縦書きかどうか
+ * @returns {number} フォントサイズ（px）
+ */
+function calcFontSize(text, isVertical) {
+    const len = text.length;
+    if (len <= 4) return 14;
+    if (len <= 8) return 12;
+    if (len <= 15) return 10;
+    return 9;
+}
+
+/**
+ * 吹き出し1つ分のHTMLを生成する
+ * @param {object} b - バブルデータ
+ * @param {number} i - インデックス
+ * @param {boolean} isSelected - 選択中かどうか
+ * @param {string} writingMode - 文字の向き
+ * @returns {string} HTMLテンプレート
+ */
+export function renderBubbleHTML(b, i, isSelected, writingMode) {
+    const shapeName = b.shape || 'speech';
+    const shape = getShape(shapeName);
+    const isVertical = writingMode === 'vertical-rl';
+    const fontSize = calcFontSize(b.text, isVertical);
+    const tb = shape.textBounds;
+
+    const svgContent = shape.render(b, isSelected);
+
+    return `
+        <div class="bubble-svg"
+             style="top:${b.y}%; left:${b.x}%;"
+             onmousedown="selectBubble(event, ${i})">
+            <svg width="${shape.svgWidth}" height="${shape.svgHeight}" viewBox="${shape.viewBox}">
+                ${svgContent}
+            </svg>
+            <div class="bubble-text ${isVertical ? 'v-text' : ''}"
+                 style="font-size:${fontSize}px; width:${tb.width}px; max-height:${tb.height}px; top:${tb.top};">
+                ${b.text}
+            </div>
+        </div>
+    `;
+}
+
+/**
+ * 利用可能な形状名の一覧を返す
+ */
+export { getShapeNames };
 
 /**
  * キャンバスクリック時に吹き出しを追加する
@@ -14,7 +66,8 @@ export function handleCanvasClick(e, refresh) {
     state.sections[state.activeIdx].bubbles.push({
         x: ((e.clientX - r.left) / r.width * 100).toFixed(1),
         y: ((e.clientY - r.top) / r.height * 100).toFixed(1),
-        tailX: 10, tailY: 20, text: "新しいセリフ"
+        tailX: 10, tailY: 25, text: "新しいセリフ",
+        shape: 'speech'
     });
     state.activeBubbleIdx = state.sections[state.activeIdx].bubbles.length - 1;
     refresh();
@@ -22,9 +75,6 @@ export function handleCanvasClick(e, refresh) {
 
 /**
  * 吹き出しを選択し、ドラッグを開始する
- * @param {MouseEvent} e
- * @param {number} i - 吹き出しのインデックス
- * @param {function} refresh - 画面更新コールバック
  */
 export function selectBubble(e, i, refresh) {
     e.stopPropagation();
@@ -35,9 +85,6 @@ export function selectBubble(e, i, refresh) {
 
 /**
  * 吹き出しのドラッグ処理
- * @param {MouseEvent} e
- * @param {number} i - 吹き出しのインデックス
- * @param {function} refresh - 画面更新コールバック
  */
 export function startDrag(e, i, refresh) {
     const container = document.getElementById('canvas-view').getBoundingClientRect();
