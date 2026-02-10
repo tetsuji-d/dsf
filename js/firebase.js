@@ -1,5 +1,5 @@
 /**
- * firebase.js — Firebase初期化・クラウド保存/読込
+ * firebase.js — Firebase初期化・クラウド保存/読込・自動保存
  */
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
 import { getFirestore, doc, setDoc, getDoc } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
@@ -21,6 +21,72 @@ const app = initializeApp(firebaseConfig);
 const db = getFirestore(app);
 const storage = getStorage(app);
 
+// --- 自動保存 ---
+let autoSaveTimer = null;
+let saveStatus = 'idle'; // 'idle' | 'saving' | 'saved' | 'error'
+
+/**
+ * 保存ステータスを更新してUIに反映する
+ */
+function updateSaveIndicator(status, message) {
+    saveStatus = status;
+    const el = document.getElementById('save-status');
+    if (!el) return;
+
+    const icons = { idle: '', saving: '💾', saved: '✓', error: '⚠' };
+    const colors = { idle: '#999', saving: '#f0ad4e', saved: '#34c759', error: '#ff3b30' };
+
+    el.textContent = `${icons[status]} ${message || ''}`;
+    el.style.color = colors[status];
+}
+
+/**
+ * 自動保存をトリガーする（2秒デバウンス）
+ */
+export function triggerAutoSave() {
+    if (!state.projectId) return;
+
+    if (autoSaveTimer) clearTimeout(autoSaveTimer);
+
+    updateSaveIndicator('idle', '未保存');
+
+    autoSaveTimer = setTimeout(async () => {
+        await performSave();
+    }, 2000);
+}
+
+/**
+ * 実際の保存処理
+ */
+async function performSave() {
+    if (!state.projectId) return;
+
+    updateSaveIndicator('saving', '保存中...');
+
+    try {
+        await setDoc(doc(db, "works", state.projectId), {
+            sections: state.sections,
+            lastUpdated: new Date()
+        });
+        updateSaveIndicator('saved', '保存済み');
+        console.log(`[DSF] Auto-saved project: ${state.projectId}`);
+    } catch (e) {
+        console.error("[DSF] Auto-save failed:", e);
+        updateSaveIndicator('error', '保存失敗');
+    }
+}
+
+/**
+ * 手動保存（プロジェクトIDを新規設定して保存）
+ */
+export async function saveAsProject() {
+    const pid = prompt("プロジェクト名を入力してください:", state.projectId || "");
+    if (!pid) return;
+
+    state.projectId = pid;
+    await performSave();
+}
+
 /**
  * 画像をFirebase Storageにアップロードし、セクションの背景に設定する
  * @param {HTMLInputElement} input - ファイル入力要素
@@ -40,63 +106,32 @@ export async function uploadToStorage(input, refresh) {
 
         state.sections[state.activeIdx].background = url;
         refresh();
+        triggerAutoSave();
 
-        alert("画像のアップロードと反映が完了しました！");
+        document.getElementById('text-label').innerText = "アップロード完了！";
+        setTimeout(() => {
+            document.getElementById('text-label').innerText = originalText;
+        }, 2000);
     } catch (e) {
         alert("保存失敗: " + e.message);
-    } finally {
         document.getElementById('text-label').innerText = originalText;
+    } finally {
         console.log("[DSF] Upload process finished.");
     }
 }
 
 /**
- * 現在のセクションデータをFirestoreに保存する
- */
-export async function saveToCloud() {
-    const pid = document.getElementById('project-id').value;
-    if (!pid) return alert("作品IDを入力してください");
-
-    const btn = document.querySelector('button[onclick="saveToCloud()"]');
-    const originalText = btn.innerText;
-    btn.innerText = "保存中...";
-    btn.disabled = true;
-
-    console.log(`[DSF] Attempting to save project ${pid} to Firestore...`);
-
-    try {
-        await setDoc(doc(db, "works", pid), { sections: state.sections, lastUpdated: new Date() });
-        console.log("[DSF] Save successful!");
-        alert("クラウドに全てのデータを同期しました！\n(保存成功: " + new Date().toLocaleTimeString() + ")");
-    } catch (e) {
-        console.error("[DSF] Save failed:", e);
-        let msg = "保存に失敗しました。\n";
-        if (e.code === 'permission-denied') {
-            msg += "権限がありません (Permission Denied)。\nFirebaseのセキュリティルールを確認してください。";
-        } else if (e.code === 'resource-exhausted') {
-            msg += "割り当て超過です (Quota Exceeded)。\nBlazeプランへの移行が正しく反映されていない可能性があります。";
-        } else {
-            msg += "エラー詳細: " + e.message;
-        }
-        alert(msg);
-    } finally {
-        btn.innerText = originalText;
-        btn.disabled = false;
-    }
-}
-
-/**
  * Firestoreからセクションデータを読み込む
+ * @param {string} pid - プロジェクトID
  * @param {function} refresh - 画面更新コールバック
  */
-export async function loadFromCloud(refresh) {
-    const pid = document.getElementById('project-id').value;
+export async function loadProject(pid, refresh) {
     const snap = await getDoc(doc(db, "works", pid));
     if (snap.exists()) {
+        state.projectId = pid;
         state.sections = snap.data().sections;
+        state.activeIdx = 0;
+        state.activeBubbleIdx = null;
         refresh();
-        alert("読込が完了しました。");
-    } else {
-        alert("作品が見つかりません。作品IDを確認してください。");
     }
 }

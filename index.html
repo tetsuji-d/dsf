@@ -10,7 +10,11 @@
 <body>
 
     <div id="sidebar">
-        <div style="padding:10px; border-bottom:1px solid #eee;">
+        <div class="sidebar-header">
+            <button class="btn-icon" onclick="openProjectModal()">📂 プロジェクト</button>
+            <button class="btn-icon" onclick="newProject()">＋ 新規</button>
+        </div>
+        <div style="padding:8px 10px; border-bottom:1px solid #eee;">
             <label style="font-size:11px;">サムネイルサイズ</label>
             <input type="range" min="50" max="100" value="100" oninput="resizeThumbs(this.value)">
         </div>
@@ -19,6 +23,16 @@
     </div>
 
     <div id="editor-main">
+        <!-- ツールバー -->
+        <div class="toolbar">
+            <button id="btn-undo" class="btn-tool" onclick="performUndo()" title="元に戻す (Ctrl+Z)" disabled>↩</button>
+            <button id="btn-redo" class="btn-tool" onclick="performRedo()" title="やり直す (Ctrl+Shift+Z)"
+                disabled>↪</button>
+            <div class="divider"></div>
+            <span id="project-title" class="project-title">新規プロジェクト</span>
+            <span id="save-status" class="save-status"></span>
+        </div>
+        <!-- キャンバス -->
         <div id="canvas-view" onmousedown="handleCanvasClick(event)">
             <div id="content-render"></div>
             <div id="bubble-layer"></div>
@@ -26,13 +40,6 @@
     </div>
 
     <div id="panel-right">
-        <div class="control-group" style="background:#eef7ff;">
-            <h4>プロジェクト管理</h4>
-            <input type="text" id="project-id" placeholder="作品ID" style="width:100%; padding:8px; margin-bottom:10px;">
-            <button class="btn" style="background:#34c759; color:#fff;" onclick="saveToCloud()">クラウドに保存</button>
-            <button class="btn" style="background:var(--primary); color:#fff;" onclick="loadFromCloud()">読込</button>
-        </div>
-
         <div class="control-group">
             <h4>セクション設定</h4>
             <label>タイプ</label>
@@ -57,6 +64,29 @@
 
             <button class="btn" style="margin-top:10px; background:#ff3b30; color:#fff;"
                 onclick="deleteActive()">削除</button>
+        </div>
+
+        <div class="control-group" style="background:#eef7ff;">
+            <h4>プロジェクト</h4>
+            <button class="btn" style="background:var(--primary); color:#fff;"
+                onclick="saveAsProject()">名前を付けて保存</button>
+        </div>
+    </div>
+
+    <!-- プロジェクト一覧モーダル -->
+    <div id="project-modal">
+        <div class="modal-overlay" onclick="closeProjectModal()"></div>
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>📂 プロジェクト一覧</h2>
+                <div class="modal-header-actions">
+                    <button class="btn-modal primary" onclick="newProject()">＋ 新規プロジェクト</button>
+                    <button class="btn-modal" onclick="closeProjectModal()">閉じる</button>
+                </div>
+            </div>
+            <div class="modal-body">
+                <div id="project-grid"></div>
+            </div>
         </div>
     </div>
 

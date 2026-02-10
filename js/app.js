@@ -2,9 +2,11 @@
  * app.js — メインエントリポイント・描画・UI同期
  */
 import { state } from './state.js';
-import { uploadToStorage, saveToCloud, loadFromCloud } from './firebase.js';
+import { uploadToStorage, triggerAutoSave, saveAsProject, loadProject } from './firebase.js';
 import { handleCanvasClick, selectBubble } from './bubbles.js';
 import { addSection, changeSection, renderThumbs, deleteActive } from './sections.js';
+import { pushState, undo, redo, getHistoryInfo, clearHistory } from './history.js';
+import { openProjectModal, closeProjectModal } from './projects.js';
 
 /**
  * 画面全体を再描画する
@@ -43,7 +45,27 @@ function refresh() {
     document.getElementById('prop-mode').value = s.writingMode;
     document.getElementById('prop-text').value = (state.activeBubbleIdx !== null) ? s.bubbles[state.activeBubbleIdx].text : s.text;
 
+    // プロジェクト名表示
+    const titleEl = document.getElementById('project-title');
+    if (titleEl) {
+        titleEl.textContent = state.projectId || '新規プロジェクト';
+    }
+
+    // Undo/Redo ボタン状態更新
+    updateHistoryButtons();
+
     renderThumbs();
+}
+
+/**
+ * Undo/Redoボタンの有効/無効を更新
+ */
+function updateHistoryButtons() {
+    const info = getHistoryInfo();
+    const undoBtn = document.getElementById('btn-undo');
+    const redoBtn = document.getElementById('btn-redo');
+    if (undoBtn) undoBtn.disabled = !info.canUndo;
+    if (redoBtn) redoBtn.disabled = !info.canRedo;
 }
 
 /**
@@ -56,30 +78,43 @@ function update(k, v) {
     if (k === 'type' && v === 'text' && s.bubbles && s.bubbles.length > 0) {
         const ok = confirm(`このセクションには${s.bubbles.length}個の吹き出しがあります。\nテキストセクションに切り替えると吹き出しは削除されます。\nよろしいですか？`);
         if (!ok) {
-            // キャンセル時はドロップダウンを元に戻す
             document.getElementById('prop-type').value = s.type;
             return;
         }
-        // 吹き出しを削除
+        pushState();
         s.bubbles = [];
         state.activeBubbleIdx = null;
+    } else {
+        pushState();
     }
 
     s[k] = v;
     refresh();
+    triggerAutoSave();
 }
 
 /**
  * アクティブなテキスト（吹き出し or セクションテキスト）を更新する
  */
+let textPushTimer = null;
 function updateActiveText(v) {
     const s = state.sections[state.activeIdx];
+
+    // テキスト入力は連続するため、500msのデバウンスでpushState
+    if (!textPushTimer) {
+        pushState();
+    } else {
+        clearTimeout(textPushTimer);
+    }
+    textPushTimer = setTimeout(() => { textPushTimer = null; }, 500);
+
     if (state.activeBubbleIdx !== null && s.bubbles && s.bubbles[state.activeBubbleIdx]) {
         s.bubbles[state.activeBubbleIdx].text = v;
     } else {
         s.text = v;
     }
     refresh();
+    triggerAutoSave();
 }
 
 /**
@@ -90,18 +125,71 @@ function resizeThumbs(value) {
     thumbs.forEach(t => t.style.width = value + '%');
 }
 
-// --- グローバル関数の登録（HTMLのonclick属性から呼び出し可能にする） ---
-window.handleCanvasClick = (e) => handleCanvasClick(e, refresh);
+/**
+ * プロジェクトを読み込んだ時の処理
+ */
+function onLoadProject(pid, sections) {
+    state.projectId = pid;
+    state.sections = sections;
+    state.activeIdx = 0;
+    state.activeBubbleIdx = null;
+    clearHistory();
+    refresh();
+}
+
+// --- キーボードショートカット ---
+document.addEventListener('keydown', (e) => {
+    // Ctrl+Z: Undo
+    if ((e.ctrlKey || e.metaKey) && !e.shiftKey && e.key === 'z') {
+        e.preventDefault();
+        undo(refresh);
+        triggerAutoSave();
+    }
+    // Ctrl+Shift+Z or Ctrl+Y: Redo
+    if ((e.ctrlKey || e.metaKey) && (e.shiftKey && e.key === 'Z' || e.key === 'y')) {
+        e.preventDefault();
+        redo(refresh);
+        triggerAutoSave();
+    }
+});
+
+// --- グローバル関数の登録 ---
+window.handleCanvasClick = (e) => { pushState(); handleCanvasClick(e, refresh); triggerAutoSave(); };
 window.selectBubble = (e, i) => selectBubble(e, i, refresh);
-window.addSection = () => addSection(refresh);
+window.addSection = () => { pushState(); addSection(refresh); triggerAutoSave(); };
 window.changeSection = (i) => changeSection(i, refresh);
-window.deleteActive = () => deleteActive(refresh);
+window.deleteActive = () => { pushState(); deleteActive(refresh); triggerAutoSave(); };
 window.update = update;
 window.updateActiveText = updateActiveText;
 window.resizeThumbs = resizeThumbs;
-window.uploadToStorage = (input) => uploadToStorage(input, refresh);
-window.saveToCloud = saveToCloud;
-window.loadFromCloud = () => loadFromCloud(refresh);
+window.uploadToStorage = (input) => { pushState(); uploadToStorage(input, refresh); };
+window.saveAsProject = saveAsProject;
+
+// Undo/Redo
+window.performUndo = () => { undo(refresh); triggerAutoSave(); };
+window.performRedo = () => { redo(refresh); triggerAutoSave(); };
+
+// プロジェクトモーダル
+window.openProjectModal = () => openProjectModal(onLoadProject);
+window.closeProjectModal = closeProjectModal;
+
+// 新規プロジェクト
+window.newProject = () => {
+    if (state.projectId && !confirm('現在のプロジェクトを閉じて新しいプロジェクトを作成しますか？')) return;
+    state.projectId = null;
+    state.sections = [{
+        type: 'image',
+        background: 'https://picsum.photos/id/10/600/1066',
+        writingMode: 'horizontal-tb',
+        bubbles: [],
+        text: ''
+    }];
+    state.activeIdx = 0;
+    state.activeBubbleIdx = null;
+    clearHistory();
+    refresh();
+    closeProjectModal();
+};
 
 // --- 初回描画 ---
 refresh();

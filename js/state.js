@@ -3,6 +3,7 @@
  * 全モジュールがこのオブジェクトを参照・変更する
  */
 export const state = {
+    projectId: null,
     sections: [
         {
             type: 'image',

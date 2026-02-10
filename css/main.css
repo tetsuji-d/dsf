@@ -22,6 +22,28 @@ body {
     flex-direction: column;
 }
 
+.sidebar-header {
+    padding: 10px;
+    border-bottom: 1px solid #eee;
+    display: flex;
+    gap: 6px;
+}
+
+.sidebar-header .btn-icon {
+    flex: 1;
+    padding: 8px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    background: #fff;
+    cursor: pointer;
+    font-size: 13px;
+    transition: background 0.15s;
+}
+
+.sidebar-header .btn-icon:hover {
+    background: #f0f0f0;
+}
+
 #thumb-container {
     flex: 1;
     overflow-y: auto;
@@ -49,14 +71,69 @@ body {
     box-shadow: 0 0 8px rgba(0, 122, 255, 0.3);
 }
 
-/* 中央：キャンバス */
+/* 中央：キャンバス（ツールバー付き） */
 #editor-main {
     flex: 1;
     display: flex;
+    flex-direction: column;
     align-items: center;
     justify-content: center;
     overflow: auto;
     padding: 20px;
+}
+
+/* ツールバー */
+.toolbar {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 12px;
+    padding: 6px 12px;
+    background: #fff;
+    border-radius: 8px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+}
+
+.toolbar .btn-tool {
+    padding: 6px 12px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    background: #fff;
+    cursor: pointer;
+    font-size: 16px;
+    transition: all 0.15s;
+    line-height: 1;
+}
+
+.toolbar .btn-tool:hover:not(:disabled) {
+    background: #f0f0f0;
+}
+
+.toolbar .btn-tool:disabled {
+    opacity: 0.3;
+    cursor: default;
+}
+
+.toolbar .project-title {
+    font-size: 13px;
+    color: #666;
+    margin: 0 8px;
+    max-width: 200px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.toolbar .save-status {
+    font-size: 12px;
+    color: #999;
+    margin-left: 4px;
+}
+
+.toolbar .divider {
+    width: 1px;
+    height: 20px;
+    background: var(--border);
 }
 
 #canvas-view {
@@ -144,4 +221,186 @@ body {
     cursor: pointer;
     font-weight: bold;
     margin-bottom: 8px;
+}
+
+/* === プロジェクト一覧モーダル === */
+#project-modal {
+    display: none;
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 1000;
+}
+
+#project-modal.visible {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.modal-overlay {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.5);
+    backdrop-filter: blur(4px);
+}
+
+.modal-content {
+    position: relative;
+    background: #fff;
+    border-radius: 16px;
+    width: 680px;
+    max-height: 80vh;
+    display: flex;
+    flex-direction: column;
+    box-shadow: 0 24px 48px rgba(0, 0, 0, 0.2);
+    overflow: hidden;
+}
+
+.modal-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 20px 24px;
+    border-bottom: 1px solid #eee;
+}
+
+.modal-header h2 {
+    margin: 0;
+    font-size: 18px;
+}
+
+.modal-header-actions {
+    display: flex;
+    gap: 8px;
+}
+
+.modal-header .btn-modal {
+    padding: 8px 16px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    background: #fff;
+    cursor: pointer;
+    font-size: 13px;
+    transition: background 0.15s;
+}
+
+.modal-header .btn-modal:hover {
+    background: #f0f0f0;
+}
+
+.modal-header .btn-modal.primary {
+    background: var(--primary);
+    color: #fff;
+    border-color: var(--primary);
+}
+
+.modal-header .btn-modal.primary:hover {
+    background: #0066d6;
+}
+
+.modal-body {
+    flex: 1;
+    overflow-y: auto;
+    padding: 20px 24px;
+}
+
+#project-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 16px;
+}
+
+.project-card {
+    position: relative;
+    border: 1px solid #eee;
+    border-radius: 10px;
+    overflow: hidden;
+    cursor: pointer;
+    transition: all 0.2s;
+    background: #fff;
+}
+
+.project-card:hover {
+    border-color: var(--primary);
+    box-shadow: 0 4px 12px rgba(0, 122, 255, 0.15);
+    transform: translateY(-2px);
+}
+
+.project-card-thumb {
+    aspect-ratio: 9/16;
+    background: #f0f0f0;
+    overflow: hidden;
+}
+
+.project-card-thumb img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+
+.project-card-text-thumb {
+    width: 100%;
+    height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 11px;
+    color: #666;
+    padding: 8px;
+    text-align: center;
+    word-break: break-all;
+}
+
+.project-card-info {
+    padding: 10px 12px;
+}
+
+.project-card-title {
+    font-size: 13px;
+    font-weight: 600;
+    margin-bottom: 2px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.project-card-meta {
+    font-size: 11px;
+    color: #999;
+}
+
+.project-card-delete {
+    position: absolute;
+    top: 6px;
+    right: 6px;
+    width: 24px;
+    height: 24px;
+    border: none;
+    border-radius: 50%;
+    background: rgba(0, 0, 0, 0.5);
+    color: #fff;
+    font-size: 12px;
+    cursor: pointer;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    line-height: 1;
+}
+
+.project-card:hover .project-card-delete {
+    display: flex;
+}
+
+.project-loading {
+    grid-column: 1 / -1;
+    text-align: center;
+    padding: 40px;
+    color: #999;
+    font-size: 14px;
 }
