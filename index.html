@@ -36,6 +36,8 @@
                 <span id="project-title" class="project-title" contenteditable="true" oninput="onProjectTitleInput()"
                     onkeydown="onProjectTitleKeydown(event)" onblur="onProjectTitleBlur()">新規プロジェクト</span>
                 <button id="btn-save" class="btn-tool" onclick="saveProject()" title="保存">💾</button>
+                <button class="btn-tool" onclick="exportProject()" title="エクスポート (.dsf)">⬇</button>
+                <button class="btn-tool" onclick="shareProject()" title="ビューワーURLを共有">🔗</button>
             </div>
             <span id="save-status" class="save-status"></span>
             <div class="divider"></div>
@@ -62,12 +64,6 @@
                 <input type="file" accept="image/*" onchange="uploadToStorage(this)">
             </div>
 
-            <label>文字の向き</label>
-            <select id="prop-mode" onchange="update('writingMode', this.value)" style="width:100%; margin-bottom:10px;">
-                <option value="horizontal-tb">横書き</option>
-                <option value="vertical-rl">縦書き</option>
-            </select>
-
             <div id="bubble-shape-props">
                 <label>吹き出し形状</label>
                 <select id="prop-shape" onchange="updateBubbleShape(this.value)"
@@ -88,6 +84,14 @@
         <div class="control-group">
             <h4>言語設定</h4>
             <div id="lang-list"></div>
+
+            <label style="margin-top:10px; display:block;">文字の向き (現在の言語)</label>
+            <select id="lang-writing-mode" onchange="updateGlobalWritingMode(this.value)"
+                style="width:100%; margin-bottom:10px;">
+                <option value="horizontal-tb">横書き (→)</option>
+                <option value="vertical-rl">縦書き (↓)</option>
+            </select>
+
             <div style="display:flex; gap:6px; margin-top:8px;">
                 <select id="lang-add-select" style="flex:1;">
                     <option value="en">English</option>

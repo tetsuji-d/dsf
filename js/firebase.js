@@ -18,8 +18,8 @@ const firebaseConfig = {
 };
 
 const app = initializeApp(firebaseConfig);
-const db = getFirestore(app);
-const storage = getStorage(app);
+export const db = getFirestore(app);
+export const storage = getStorage(app);
 
 // --- 自動保存 ---
 let autoSaveTimer = null;
@@ -67,6 +67,7 @@ async function performSave() {
         await setDoc(doc(db, "works", state.projectId), {
             sections: state.sections,
             languages: state.languages,
+            languageConfigs: state.languageConfigs,
             lastUpdated: new Date()
         });
         updateSaveIndicator('saved', '保存済み');

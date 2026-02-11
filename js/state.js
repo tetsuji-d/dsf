@@ -5,6 +5,9 @@
 export const state = {
     projectId: null,
     languages: ['ja'],       // プロジェクトの対応言語
+    languageConfigs: {
+        ja: { writingMode: 'vertical-rl' }
+    },
     activeLang: 'ja',        // エディタで表示中の言語
     sections: [
         {

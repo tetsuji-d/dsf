@@ -28,15 +28,29 @@ function setSectionText(s, text) {
 // ──────────────────────────────────────
 //  refresh — 画面全体を再描画する
 // ──────────────────────────────────────
+// ──────────────────────────────────────
+//  ヘルパー: 書字方向の取得
+// ──────────────────────────────────────
+function getWritingMode(lang) {
+    if (state.languageConfigs && state.languageConfigs[lang]) {
+        return state.languageConfigs[lang].writingMode;
+    }
+    // Fallback / Default
+    const props = getLangProps(lang);
+    return props.defaultWritingMode || 'horizontal-tb';
+}
+
+// ──────────────────────────────────────
+//  refresh — 画面全体を再描画する
+// ──────────────────────────────────────
 function refresh() {
     const s = state.sections[state.activeIdx];
     const render = document.getElementById('content-render');
     const lang = state.activeLang;
     const langProps = getLangProps(lang);
 
-    // writingMode: 言語が対応していない場合は横書きに強制
-    const allowedModes = langProps.writingModes;
-    const effectiveMode = allowedModes.includes(s.writingMode) ? s.writingMode : 'horizontal-tb';
+    // Global Writing Mode
+    const effectiveMode = getWritingMode(lang);
 
     // メインキャンバスの描画切り替え
     if (s.type === 'image') {
@@ -62,14 +76,14 @@ function refresh() {
         document.getElementById('bubble-shape-props').style.display = 'none';
     }
 
-    // 吹き出し描画（テキストセクションの場合はスキップされるが念のため条件追加）
+    // 吹き出し描画
     const editingEl = document.activeElement;
     const isDirectEditing = editingEl && editingEl.classList.contains('bubble-text')
         && editingEl.getAttribute('contenteditable') === 'true';
 
     if (!isDirectEditing && s.type !== 'text') {
         document.getElementById('bubble-layer').innerHTML = (s.bubbles || []).map((b, i) =>
-            renderBubbleHTML(b, i, i === state.activeBubbleIdx, s.writingMode)
+            renderBubbleHTML(b, i, i === state.activeBubbleIdx, effectiveMode) // Pass effectiveMode
         ).join('');
     }
 
@@ -80,7 +94,18 @@ function refresh() {
 
     // パネルUIの同期
     document.getElementById('prop-type').value = s.type;
-    document.getElementById('prop-mode').value = s.writingMode;
+
+    // 言語設定パネル内の書字方向同期
+    const langModeSelect = document.getElementById('lang-writing-mode');
+    if (langModeSelect) {
+        langModeSelect.value = effectiveMode;
+        // 言語が縦書き非対応なら無効化などの制御も可能だが、
+        // lang.js の writingModes に従うべき
+        const allowed = langProps.writingModes;
+        Array.from(langModeSelect.options).forEach(opt => {
+            opt.disabled = !allowed.includes(opt.value);
+        });
+    }
 
     // テキストエリア: 言語に応じたテキストを表示
     if (state.activeBubbleIdx !== null && s.bubbles[state.activeBubbleIdx]) {
@@ -103,14 +128,7 @@ function refresh() {
         shapeProps.style.display = 'none';
     }
 
-    // writingMode: 言語が対応していない場合はUIを無効化
-    const modeSelect = document.getElementById('prop-mode');
-    const verticalOption = modeSelect.querySelector('option[value="vertical-rl"]');
-    if (verticalOption) {
-        verticalOption.disabled = !allowedModes.includes('vertical-rl');
-    }
-
-    // プロジェクト名表示 (contenteditable なので textContent を更新)
+    // プロジェクト名表示
     const titleEl = document.getElementById('project-title');
     if (titleEl && document.activeElement !== titleEl) {
         titleEl.textContent = state.projectId || '新規プロジェクト';
@@ -216,10 +234,40 @@ function updateBubbleShape(shapeName) {
 
 
 
-function onLoadProject(pid, sections, languages) {
+// ──────────────────────────────────────
+//  グローバル書字方向更新
+// ──────────────────────────────────────
+function updateGlobalWritingMode(mode) {
+    const lang = state.activeLang;
+    if (!state.languageConfigs) state.languageConfigs = {};
+    if (!state.languageConfigs[lang]) state.languageConfigs[lang] = {};
+
+    state.languageConfigs[lang].writingMode = mode;
+    pushState();
+    refresh();
+    triggerAutoSave();
+}
+
+
+function onLoadProject(pid, sections, languages, languageConfigs) {
     state.projectId = pid;
     state.sections = sections;
     state.languages = languages && languages.length > 0 ? languages : ['ja'];
+
+    // languageConfigs Migration
+    if (languageConfigs) {
+        state.languageConfigs = languageConfigs;
+    } else {
+        // Old format migration: create configs based on defaults
+        state.languageConfigs = {};
+        state.languages.forEach(lang => {
+            const props = getLangProps(lang);
+            state.languageConfigs[lang] = {
+                writingMode: props.defaultWritingMode || 'horizontal-tb'
+            };
+        });
+    }
+
     state.activeLang = state.languages[0];
     state.activeIdx = 0;
     state.activeBubbleIdx = null;
@@ -251,6 +299,7 @@ window.deleteActive = () => { pushState(); deleteActive(refresh); triggerAutoSav
 window.update = update;
 window.updateActiveText = updateActiveText;
 window.updateBubbleShape = updateBubbleShape;
+window.updateGlobalWritingMode = updateGlobalWritingMode;
 window.setThumbSize = (size) => {
     state.thumbSize = size;
     refresh();
@@ -299,6 +348,53 @@ window.saveProject = () => {
         }
     }
     triggerAutoSave();
+};
+
+window.exportProject = () => {
+    const data = {
+        version: 2,
+        projectId: state.projectId,
+        sections: state.sections,
+        languages: state.languages,
+        languageConfigs: state.languageConfigs,
+        lastUpdated: new Date().toISOString()
+    };
+    const json = JSON.stringify(data, null, 2);
+    const blob = new Blob([json], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${state.projectId || 'project'}.dsf`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+};
+
+window.shareProject = async () => {
+    if (!state.projectId) {
+        alert("プロジェクトが保存されていません。");
+        return;
+    }
+    // Ensure save
+    await triggerAutoSave();
+
+    // Construct URL
+    // Make it mobile-friendly by replacing localhost with actual IP if detected
+    let host = window.location.host;
+    if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
+        host = '192.168.2.102:8080';
+    }
+
+    const url = `${window.location.protocol}//${host}/viewer.html?id=${encodeURIComponent(state.projectId)}`;
+
+    // Copy to clipboard
+    try {
+        await navigator.clipboard.writeText(url);
+        alert(`スマホ用URLをコピーしました！\n\n${url}`);
+    } catch (e) {
+        prompt("ビューワー用URL (コピーしてください):", url);
+    }
 };
 
 // 吹き出し直接編集（多言語対応）
@@ -363,11 +459,14 @@ window.newProject = () => {
     if (state.projectId && !confirm('現在のプロジェクトを閉じて新しいプロジェクトを作成しますか？')) return;
     state.projectId = null;
     state.languages = ['ja'];
+    state.languageConfigs = {
+        ja: { writingMode: 'vertical-rl' }
+    };
     state.activeLang = 'ja';
     state.sections = [{
         type: 'image',
         background: 'https://picsum.photos/id/10/600/1066',
-        writingMode: 'horizontal-tb',
+        writingMode: 'horizontal-tb', // Legacy usage, ignored
         bubbles: [],
         text: '',
         texts: {}
