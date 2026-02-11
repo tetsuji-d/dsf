@@ -1,139 +1,180 @@
 /**
  * shapes.js — 吹き出し形状レジストリ
- * 各形状タイプのレンダリング関数を登録・取得する
- * 今後のバリエーション追加に対応
+ * テキストサイズに応じて動的にSVGを生成する（角丸長方形ベース）
+ *
+ * render(textW, textH, b, isSelected) → {
+ *   svgWidth, svgHeight, viewBox, svgContent,
+ *   textCenterX, textCenterY
+ * }
  */
 
 const SHAPES = {};
 
-/**
- * 形状を登録する
- * @param {string} name - 形状名
- * @param {object} shape - { svgWidth, svgHeight, viewBox, textBounds, render(b) }
- */
-export function registerShape(name, shape) {
-    SHAPES[name] = shape;
-}
-
-/**
- * 形状を取得する（未登録の場合は 'speech' にフォールバック）
- * @param {string} name - 形状名
- * @returns {object} 形状定義
- */
-export function getShape(name) {
-    return SHAPES[name] || SHAPES['speech'];
-}
-
-/**
- * 登録済み形状名の一覧を返す
- * @returns {string[]}
- */
-export function getShapeNames() {
-    return Object.keys(SHAPES);
-}
+export function registerShape(name, shape) { SHAPES[name] = shape; }
+export function getShape(name) { return SHAPES[name] || SHAPES['speech']; }
+export function getShapeNames() { return Object.keys(SHAPES); }
 
 // ============================================================
-//  組み込み形状: speech（楕円 + 尻尾の通常吹き出し）
+//  speech（角丸長方形 + 尻尾）
 // ============================================================
-const SPEECH = {
-    svgWidth: 150,
-    svgHeight: 130,
-    viewBox: '0 0 150 130',
-    textBounds: { width: 82, height: 52, top: '36%' },
+registerShape('speech', {
+    render(textW, textH, b, isSelected) {
+        const pad = 10;
+        const w = textW + pad * 2;
+        const h = textH + pad * 2;
+        const cr = Math.min(14, w / 4, h / 4); // 角丸半径
+        const m = 4; // ストロークマージン
 
-    /**
-     * 吹き出しSVGの内部要素を返す
-     * 3レイヤー方式: (1)尻尾の塗り+線 (2)楕円を上に重ねる (3)白マスクで繋ぎ目を消す
-     * @param {object} b - バブルデータ { tailX, tailY }
-     * @param {boolean} isSelected
-     * @returns {string} SVG innerHTML
-     */
-    render(b, isSelected) {
-        const cx = 75, cy = 50, rx = 65, ry = 40;
-        const tailX = b.tailX || 10;
-        const tailY = b.tailY || 25;
+        const rx = m;       // 矩形左上X
+        const ry = m;       // 矩形左上Y
+        const cx = rx + w / 2;
+        const cy = ry + h / 2;
 
-        // 尻尾を接続する角度（楕円底部の左右）
-        const spread = 0.25;
-        const baseAngle = Math.PI / 2;
-        const a1 = baseAngle - spread;
-        const a2 = baseAngle + spread;
+        const tailX = b.tailX || 0;
+        const tailY = b.tailY || 20;
+        const tailCX = cx + tailX;
+        const tipY = ry + h + tailY;
+        const jl = tailCX - 8;  // 尻尾左接合
+        const jr = tailCX + 8;  // 尻尾右接合
 
-        // 楕円上の接続点
-        const p1x = cx + rx * Math.cos(a1);
-        const p1y = cy + ry * Math.sin(a1);
-        const p2x = cx + rx * Math.cos(a2);
-        const p2y = cy + ry * Math.sin(a2);
+        const svgW = Math.ceil(Math.max(rx + w, tailCX + 10) + m);
+        const svgH = Math.ceil(tipY + m);
 
-        // 尻尾の先端
-        const tipX = cx + tailX;
-        const tipY = cy + ry + tailY;
-
-        // 白マスクの範囲（接続点間の楕円ストロークを消す）
-        const maskX = Math.min(p1x, p2x) + 1;
-        const maskW = Math.abs(p1x - p2x) - 2;
-        const maskY = Math.min(p1y, p2y) - 2;
-
-        const selectedStroke = isSelected ? 'var(--primary)' : 'black';
-        const strokeWidth = isSelected ? 3 : 2;
-
-        return `
-            <!-- Layer 1: 尻尾（塗り+線） -->
-            <polygon points="${p2x.toFixed(1)},${p2y.toFixed(1)} ${tipX},${tipY} ${p1x.toFixed(1)},${p1y.toFixed(1)}"
-                     fill="white" stroke="${selectedStroke}" stroke-width="${strokeWidth}" stroke-linejoin="round"/>
-            <!-- Layer 2: 楕円（上に重ねて内部の尻尾線を隠す） -->
-            <ellipse cx="${cx}" cy="${cy}" rx="${rx}" ry="${ry}"
-                     fill="white" stroke="${selectedStroke}" stroke-width="${strokeWidth}"/>
-            <!-- Layer 3: 白マスク（楕円底部の接続部分のストロークを消す） -->
-            <rect x="${maskX.toFixed(1)}" y="${maskY.toFixed(1)}" width="${maskW.toFixed(1)}" height="6"
-                  fill="white" stroke="none"/>
-        `;
-    }
-};
-registerShape('speech', SPEECH);
-
-// ============================================================
-//  組み込み形状: thought（考え中の雲形吹き出し）
-// ============================================================
-registerShape('thought', {
-    svgWidth: 150,
-    svgHeight: 130,
-    viewBox: '0 0 150 130',
-    textBounds: { width: 78, height: 48, top: '36%' },
-
-    render(b, isSelected) {
         const stroke = isSelected ? 'var(--primary)' : 'black';
         const sw = isSelected ? 3 : 2;
-        const tipX = 75 + (b.tailX || 10);
-        const tipY = 90 + (b.tailY || 25);
 
-        return `
-            <ellipse cx="75" cy="48" rx="62" ry="38" fill="white" stroke="${stroke}" stroke-width="${sw}"/>
-            <ellipse cx="${tipX - 8}" cy="92" rx="8" ry="6" fill="white" stroke="${stroke}" stroke-width="${sw}"/>
-            <ellipse cx="${tipX - 2}" cy="106" rx="5" ry="4" fill="white" stroke="${stroke}" stroke-width="${sw}"/>
-            <ellipse cx="${tipX}" cy="${tipY}" rx="3" ry="2.5" fill="white" stroke="${stroke}" stroke-width="${sw}"/>
-        `;
+        const d = [
+            `M ${rx + cr} ${ry}`,
+            `H ${rx + w - cr}`,
+            `Q ${rx + w} ${ry} ${rx + w} ${ry + cr}`,
+            `V ${ry + h - cr}`,
+            `Q ${rx + w} ${ry + h} ${rx + w - cr} ${ry + h}`,
+            `H ${jr}`,
+            `L ${tailCX} ${tipY}`,
+            `L ${jl} ${ry + h}`,
+            `H ${rx + cr}`,
+            `Q ${rx} ${ry + h} ${rx} ${ry + h - cr}`,
+            `V ${ry + cr}`,
+            `Q ${rx} ${ry} ${rx + cr} ${ry}`,
+            `Z`
+        ].join(' ');
+
+        return {
+            svgWidth: svgW, svgHeight: svgH,
+            viewBox: `0 0 ${svgW} ${svgH}`,
+            svgContent: `<path d="${d}" fill="white" stroke="${stroke}" stroke-width="${sw}" stroke-linejoin="round" vector-effect="non-scaling-stroke"/>`,
+            textCenterX: cx, textCenterY: cy
+        };
     }
 });
 
 // ============================================================
-//  組み込み形状: shout（叫び吹き出し）
+//  thought（角丸長方形 + ドット）
 // ============================================================
-registerShape('shout', {
-    svgWidth: 160,
-    svgHeight: 130,
-    viewBox: '0 0 160 130',
-    textBounds: { width: 80, height: 50, top: '36%' },
+registerShape('thought', {
+    render(textW, textH, b, isSelected) {
+        const pad = 10;
+        const w = textW + pad * 2;
+        const h = textH + pad * 2;
+        const cr = Math.min(14, w / 4, h / 4);
+        const m = 4;
 
-    render(b, isSelected) {
+        const rx = m;
+        const ry = m;
+        const cx = rx + w / 2;
+        const cy = ry + h / 2;
+
+        const tailX = b.tailX || 0;
+        const tailY = b.tailY || 20;
+        const baseY = ry + h + 4;
+        const tipX = cx + tailX;
+        const tipY = baseY + tailY;
+        const d1y = baseY + 4;
+        const d2y = baseY + tailY * 0.55;
+
+        const svgW = Math.ceil(Math.max(rx + w, tipX + 6) + m);
+        const svgH = Math.ceil(tipY + 6);
+
         const stroke = isSelected ? 'var(--primary)' : 'black';
         const sw = isSelected ? 3 : 2;
-        const tipX = 80 + (b.tailX || 10);
-        const tipY = 50 + 40 + (b.tailY || 25);
 
-        return `
-            <polygon points="80,2 100,20 120,5 115,30 145,25 120,48 150,55 118,62 140,85 105,72 95,95 82,68 ${tipX},${tipY} 62,68 55,95 48,72 20,85 42,62 10,55 40,48 15,25 45,30 40,5 60,20"
-                     fill="white" stroke="${stroke}" stroke-width="${sw}" stroke-linejoin="round"/>
-        `;
+        const rect = [
+            `M ${rx + cr} ${ry}`,
+            `H ${rx + w - cr}`,
+            `Q ${rx + w} ${ry} ${rx + w} ${ry + cr}`,
+            `V ${ry + h - cr}`,
+            `Q ${rx + w} ${ry + h} ${rx + w - cr} ${ry + h}`,
+            `H ${rx + cr}`,
+            `Q ${rx} ${ry + h} ${rx} ${ry + h - cr}`,
+            `V ${ry + cr}`,
+            `Q ${rx} ${ry} ${rx + cr} ${ry}`,
+            `Z`
+        ].join(' ');
+
+        return {
+            svgWidth: svgW, svgHeight: svgH,
+            viewBox: `0 0 ${svgW} ${svgH}`,
+            svgContent: `
+                <path d="${rect}" fill="white" stroke="${stroke}" stroke-width="${sw}" stroke-linejoin="round" vector-effect="non-scaling-stroke"/>
+                <ellipse cx="${tipX - 6}" cy="${d1y}" rx="7" ry="5" fill="white" stroke="${stroke}" stroke-width="${sw}" vector-effect="non-scaling-stroke"/>
+                <ellipse cx="${tipX - 2}" cy="${d2y}" rx="5" ry="3.5" fill="white" stroke="${stroke}" stroke-width="${sw}" vector-effect="non-scaling-stroke"/>
+                <ellipse cx="${tipX}" cy="${tipY}" rx="3" ry="2.5" fill="white" stroke="${stroke}" stroke-width="${sw}" vector-effect="non-scaling-stroke"/>
+            `,
+            textCenterX: cx, textCenterY: cy
+        };
+    }
+});
+
+// ============================================================
+//  shout（ギザギザ吹き出し — 動的生成）
+// ============================================================
+registerShape('shout', {
+    render(textW, textH, b, isSelected) {
+        const pad = 8;
+        const pw = textW + pad * 2;
+        const ph = textH + pad * 2;
+        const baseRx = Math.max(pw / 2, 25);
+        const baseRy = Math.max(ph / 2, 18);
+        const spike = 15;
+        const m = 4;
+        const cx = baseRx + spike + m;
+        const cy = baseRy + spike + m;
+
+        const tailX = b.tailX || 0;
+        const tailY = b.tailY || 20;
+        const tipX = cx + tailX;
+        const tipY = cy + baseRy + spike + tailY;
+
+        const numSpikes = 12;
+        const total = numSpikes * 2;
+        const pts = [];
+        let tailDone = false;
+
+        for (let j = 0; j < total; j++) {
+            const ang = (j / total) * Math.PI * 2 - Math.PI / 2;
+            const isOuter = j % 2 === 0;
+
+            if (isOuter && !tailDone && ang > 1.1 && ang < 2.1) {
+                pts.push(`${tipX.toFixed(1)},${tipY.toFixed(1)}`);
+                tailDone = true;
+            } else {
+                const rr_x = isOuter ? baseRx + spike : baseRx;
+                const rr_y = isOuter ? baseRy + spike : baseRy;
+                pts.push(`${(cx + rr_x * Math.cos(ang)).toFixed(1)},${(cy + rr_y * Math.sin(ang)).toFixed(1)}`);
+            }
+        }
+
+        const svgW = Math.ceil(cx + baseRx + spike + m);
+        const svgH = Math.ceil(tipY + m);
+
+        const stroke = isSelected ? 'var(--primary)' : 'black';
+        const sw = isSelected ? 3 : 2;
+
+        return {
+            svgWidth: svgW, svgHeight: svgH,
+            viewBox: `0 0 ${svgW} ${svgH}`,
+            svgContent: `<polygon points="${pts.join(' ')}" fill="white" stroke="${stroke}" stroke-width="${sw}" stroke-linejoin="round" vector-effect="non-scaling-stroke"/>`,
+            textCenterX: cx, textCenterY: cy
+        };
     }
 });

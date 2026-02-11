@@ -4,13 +4,16 @@
  */
 export const state = {
     projectId: null,
+    languages: ['ja'],       // プロジェクトの対応言語
+    activeLang: 'ja',        // エディタで表示中の言語
     sections: [
         {
             type: 'image',
             background: 'https://picsum.photos/id/10/600/1066',
             writingMode: 'horizontal-tb',
             bubbles: [],
-            text: ''
+            text: '',
+            texts: {}        // { ja: "...", en: "..." }
         }
     ],
     activeIdx: 0,

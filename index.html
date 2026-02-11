@@ -31,6 +31,8 @@
             <div class="divider"></div>
             <span id="project-title" class="project-title">新規プロジェクト</span>
             <span id="save-status" class="save-status"></span>
+            <div class="divider"></div>
+            <div id="lang-tabs" class="lang-tabs"></div>
         </div>
         <!-- キャンバス -->
         <div id="canvas-view" onmousedown="handleCanvasClick(event)">
@@ -74,6 +76,18 @@
 
             <button class="btn" style="margin-top:10px; background:#ff3b30; color:#fff;"
                 onclick="deleteActive()">削除</button>
+        </div>
+
+        <div class="control-group">
+            <h4>言語設定</h4>
+            <div id="lang-list"></div>
+            <div style="display:flex; gap:6px; margin-top:8px;">
+                <select id="lang-add-select" style="flex:1;">
+                    <option value="en">English</option>
+                    <option value="ja">日本語</option>
+                </select>
+                <button class="btn-sm" onclick="addLang()">＋追加</button>
+            </div>
         </div>
 
         <div class="control-group" style="background:#eef7ff;">

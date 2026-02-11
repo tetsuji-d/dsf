@@ -1,74 +1,159 @@
 /**
  * bubbles.js — 吹き出し管理（追加・選択・ドラッグ・描画）
+ * テキスト外形に合わせてバブル形状を動的に生成する
+ * 多言語対応: texts[lang] からテキストを取得し言語別配置を適用
  */
 import { state } from './state.js';
 import { getShape, getShapeNames } from './shapes.js';
+import { getLangProps } from './lang.js';
+
+/** 固定フォントサイズ */
+const FONT_SIZE = 12;
+/** 行高さ倍率 */
+const LINE_HEIGHT = 1.4;
+/** 1文字あたりの幅（日本語全角基準） */
+const CHAR_W = FONT_SIZE;
+/** 英語の文字幅（半角基準） */
+const CHAR_W_EN = FONT_SIZE * 0.6;
+/** 1行あたりの高さ */
+const LINE_H = Math.round(FONT_SIZE * LINE_HEIGHT);
 
 /**
- * テキスト量に応じてフォントサイズを計算する
- * @param {string} text - テキスト
- * @param {boolean} isVertical - 縦書きかどうか
- * @returns {number} フォントサイズ（px）
+ * テキストの描画サイズを計測する
  */
-function calcFontSize(text, isVertical) {
-    const len = text.length;
-    if (len <= 4) return 14;
-    if (len <= 8) return 12;
-    if (len <= 15) return 10;
-    return 9;
+function measureText(text, isVertical, lang) {
+    if (!text) return { width: CHAR_W * 3, height: LINE_H };
+    const lines = text.split('\n');
+    const charW = (lang === 'en') ? CHAR_W_EN : CHAR_W;
+    const maxLen = Math.max(1, ...lines.map(l => l.length));
+    const numLines = Math.max(1, lines.length);
+
+    if (isVertical) {
+        return { width: numLines * LINE_H, height: maxLen * charW };
+    }
+    return { width: maxLen * charW, height: numLines * LINE_H };
+}
+
+/**
+ * バブルから現在の言語のテキストを取得する
+ */
+export function getBubbleText(b) {
+    const lang = state.activeLang;
+    if (b.texts && b.texts[lang] !== undefined) {
+        return b.texts[lang];
+    }
+    // 後方互換: texts が無い場合は text を使う
+    return b.text || '';
+}
+
+/**
+ * バブルのテキストを現在の言語で設定する
+ */
+export function setBubbleText(b, text) {
+    const lang = state.activeLang;
+    if (!b.texts) b.texts = {};
+    b.texts[lang] = text;
+    // 後方互換: text フィールドも更新
+    b.text = text;
+}
+
+/**
+ * バブルの現在の言語の位置を取得する
+ */
+export function getBubblePos(b) {
+    const lang = state.activeLang;
+    if (b.positions && b.positions[lang]) {
+        return b.positions[lang];
+    }
+    // 後方互換: positions が無い場合は x, y を使う
+    return { x: b.x, y: b.y };
+}
+
+/**
+ * バブルの現在の言語の位置を設定する
+ */
+export function setBubblePos(b, x, y) {
+    const lang = state.activeLang;
+    if (!b.positions) b.positions = {};
+    b.positions[lang] = { x, y };
+    // 後方互換: x, y フィールドも更新
+    b.x = x;
+    b.y = y;
 }
 
 /**
  * 吹き出し1つ分のHTMLを生成する
- * @param {object} b - バブルデータ
- * @param {number} i - インデックス
- * @param {boolean} isSelected - 選択中かどうか
- * @param {string} writingMode - 文字の向き
- * @returns {string} HTMLテンプレート
  */
-export function renderBubbleHTML(b, i, isSelected, writingMode) {
+export function renderBubbleHTML(b, i, isSelected, sectionWritingMode) {
     const shapeName = b.shape || 'speech';
     const shape = getShape(shapeName);
-    const isVertical = writingMode === 'vertical-rl';
-    const fontSize = calcFontSize(b.text, isVertical);
-    const tb = shape.textBounds;
+    const lang = state.activeLang;
+    const langProps = getLangProps(lang);
 
-    const svgContent = shape.render(b, isSelected);
+    // 言語に応じたwritingMode（言語が対応していない場合はhorizontal-tb）
+    const allowedModes = langProps.writingModes;
+    const isVertical = allowedModes.includes(sectionWritingMode) && sectionWritingMode === 'vertical-rl';
+
+    // テキスト取得・計測
+    const text = getBubbleText(b);
+    const { width: textW, height: textH } = measureText(text, isVertical, lang);
+    const layout = shape.render(textW, textH, b, isSelected);
+
+    // 言語別の位置を取得
+    const pos = getBubblePos(b);
+
+    // テキスト表示（\n → <br>）
+    const displayText = (text || '').split('\n').map(l => l || '&nbsp;').join('<br>');
+
+    // 言語別のtext-align
+    const textAlign = langProps.align;
+
+    // 選択中: 直接編集可能
+    const editAttrs = isSelected
+        ? `contenteditable="true" onmousedown="event.stopPropagation()" oninput="onBubbleTextInput(event, ${i})" onblur="onBubbleTextBlur()"`
+        : '';
+    const editStyle = isSelected
+        ? 'pointer-events:auto; cursor:text;'
+        : 'pointer-events:none;';
+
+    const vtClass = isVertical ? 'v-text' : '';
 
     return `
         <div class="bubble-svg"
-             style="top:${b.y}%; left:${b.x}%;"
+             style="top:${pos.y}%; left:${pos.x}%;"
              onmousedown="selectBubble(event, ${i})">
-            <svg width="${shape.svgWidth}" height="${shape.svgHeight}" viewBox="${shape.viewBox}">
-                ${svgContent}
+            <svg width="${layout.svgWidth}" height="${layout.svgHeight}" viewBox="${layout.viewBox}">
+                ${layout.svgContent}
             </svg>
-            <div class="bubble-text ${isVertical ? 'v-text' : ''}"
-                 style="font-size:${fontSize}px; width:${tb.width}px; max-height:${tb.height}px; top:${tb.top};">
-                ${b.text}
-            </div>
+            <div class="bubble-text ${vtClass}"
+                 style="font-size:${FONT_SIZE}px; left:${layout.textCenterX}px; top:${layout.textCenterY}px; text-align:${textAlign}; ${editStyle}"
+                 ${editAttrs}>${displayText}</div>
         </div>
     `;
 }
 
-/**
- * 利用可能な形状名の一覧を返す
- */
+/** 利用可能な形状名の一覧を返す */
 export { getShapeNames };
 
 /**
  * キャンバスクリック時に吹き出しを追加する
- * @param {MouseEvent} e
- * @param {function} refresh - 画面更新コールバック
  */
 export function handleCanvasClick(e, refresh) {
     if (e.target.id !== 'main-img' && !e.target.classList.contains('text-layer')) return;
     const r = document.getElementById('canvas-view').getBoundingClientRect();
-    state.sections[state.activeIdx].bubbles.push({
-        x: ((e.clientX - r.left) / r.width * 100).toFixed(1),
-        y: ((e.clientY - r.top) / r.height * 100).toFixed(1),
-        tailX: 10, tailY: 25, text: "新しいセリフ",
+    const lang = state.activeLang;
+    const defaultText = lang === 'en' ? 'Text' : 'セリフ';
+    const posX = ((e.clientX - r.left) / r.width * 100).toFixed(1);
+    const posY = ((e.clientY - r.top) / r.height * 100).toFixed(1);
+    const newBubble = {
+        x: posX, y: posY,
+        tailX: 0, tailY: 20,
+        text: defaultText,
+        texts: { [lang]: defaultText },
+        positions: { [lang]: { x: posX, y: posY } },
         shape: 'speech'
-    });
+    };
+    state.sections[state.activeIdx].bubbles.push(newBubble);
     state.activeBubbleIdx = state.sections[state.activeIdx].bubbles.length - 1;
     refresh();
 }
@@ -89,8 +174,9 @@ export function selectBubble(e, i, refresh) {
 export function startDrag(e, i, refresh) {
     const container = document.getElementById('canvas-view').getBoundingClientRect();
     const move = (me) => {
-        state.sections[state.activeIdx].bubbles[i].x = ((me.clientX - container.left) / container.width * 100).toFixed(1);
-        state.sections[state.activeIdx].bubbles[i].y = ((me.clientY - container.top) / container.height * 100).toFixed(1);
+        const x = ((me.clientX - container.left) / container.width * 100).toFixed(1);
+        const y = ((me.clientY - container.top) / container.height * 100).toFixed(1);
+        setBubblePos(state.sections[state.activeIdx].bubbles[i], x, y);
         refresh();
     };
     const up = () => {
