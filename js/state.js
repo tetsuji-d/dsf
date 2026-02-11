@@ -17,5 +17,6 @@ export const state = {
         }
     ],
     activeIdx: 0,
-    activeBubbleIdx: null
+    activeBubbleIdx: null,
+    thumbSize: 'M'
 };

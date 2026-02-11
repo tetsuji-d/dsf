@@ -35,7 +35,9 @@ export function changeSection(i, refresh) {
  * サムネイル一覧を描画する
  */
 export function renderThumbs() {
-    document.getElementById('thumb-container').innerHTML = state.sections.map((s, i) => `
+    const container = document.getElementById('thumb-container');
+    container.setAttribute('data-size', state.thumbSize || 'M');
+    container.innerHTML = state.sections.map((s, i) => `
         <div class="thumb-wrap ${i === state.activeIdx ? 'active' : ''}" onclick="changeSection(${i})">
             ${s.type === 'image'
             ? `<img class="thumb-canvas" src="${s.background}">`

@@ -27,13 +27,33 @@ body {
     flex: 1;
     overflow-y: auto;
     padding: 10px;
+    display: grid;
+    gap: 10px;
+    align-content: start;
+}
+
+#thumb-container[data-size="S"] {
+    grid-template-columns: 1fr 1fr;
+}
+
+#thumb-container[data-size="M"],
+#thumb-container[data-size="L"] {
+    grid-template-columns: 1fr;
 }
 
 .thumb-wrap {
     width: 100%;
-    margin-bottom: 15px;
+    margin-bottom: 0px;
+    /* grid gap handles spacing */
     cursor: pointer;
     position: relative;
+    box-sizing: border-box;
+}
+
+.thumb-size-buttons {
+    display: flex;
+    gap: 4px;
+    margin-top: 4px;
 }
 
 .thumb-canvas {

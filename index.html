@@ -12,8 +12,12 @@
     <div id="sidebar">
 
         <div style="padding:8px 10px; border-bottom:1px solid #eee;">
-            <label style="font-size:11px;">サムネイルサイズ</label>
-            <input type="range" min="50" max="100" value="100" oninput="resizeThumbs(this.value)">
+            <label style="font-size:11px;">サイズ:</label>
+            <div class="thumb-size-buttons">
+                <button class="btn-sm" onclick="setThumbSize('S')">S</button>
+                <button class="btn-sm" onclick="setThumbSize('M')">M</button>
+                <button class="btn-sm" onclick="setThumbSize('L')">L</button>
+            </div>
         </div>
         <div id="thumb-container"></div>
         <div style="padding:10px;"><button class="btn" onclick="addSection()">+ セクション追加</button></div>

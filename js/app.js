@@ -201,10 +201,7 @@ function updateBubbleShape(shapeName) {
     }
 }
 
-function resizeThumbs(value) {
-    const thumbs = document.querySelectorAll('.thumb-wrap');
-    thumbs.forEach(t => t.style.width = value + '%');
-}
+
 
 function onLoadProject(pid, sections, languages) {
     state.projectId = pid;
@@ -241,7 +238,10 @@ window.deleteActive = () => { pushState(); deleteActive(refresh); triggerAutoSav
 window.update = update;
 window.updateActiveText = updateActiveText;
 window.updateBubbleShape = updateBubbleShape;
-window.resizeThumbs = resizeThumbs;
+window.setThumbSize = (size) => {
+    state.thumbSize = size;
+    refresh();
+};
 window.uploadToStorage = (input) => { pushState(); uploadToStorage(input, refresh); };
 
 window.performUndo = () => { undo(refresh); triggerAutoSave(); };
