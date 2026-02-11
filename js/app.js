@@ -42,19 +42,32 @@ function refresh() {
     if (s.type === 'image') {
         render.innerHTML = `<img id="main-img" src="${s.background}">`;
         document.getElementById('image-only-props').style.display = 'block';
+        document.getElementById('bubble-layer').style.display = 'block';
     } else {
         const sectionText = getSectionText(s);
         const vtClass = effectiveMode === 'vertical-rl' ? 'v-text' : '';
-        render.innerHTML = `<div class="text-layer ${vtClass}" style="text-align:${langProps.sectionAlign}; word-break:${langProps.wordBreak}">${sectionText}</div>`;
+        const align = langProps.sectionAlign;
+
+        // フォーカス維持判定
+        const existing = document.getElementById('main-text-area');
+        if (existing && document.activeElement === existing) {
+            if (existing.value !== sectionText) existing.value = sectionText;
+        } else {
+            render.innerHTML = `<textarea id="main-text-area" class="text-layer ${vtClass}" 
+                style="text-align:${align};" 
+                oninput="updateActiveText(this.value)">${sectionText}</textarea>`;
+        }
         document.getElementById('image-only-props').style.display = 'none';
+        document.getElementById('bubble-layer').style.display = 'none';
+        document.getElementById('bubble-shape-props').style.display = 'none';
     }
 
-    // 吹き出し描画（直接編集中はスキップ）
+    // 吹き出し描画（テキストセクションの場合はスキップされるが念のため条件追加）
     const editingEl = document.activeElement;
     const isDirectEditing = editingEl && editingEl.classList.contains('bubble-text')
         && editingEl.getAttribute('contenteditable') === 'true';
 
-    if (!isDirectEditing) {
+    if (!isDirectEditing && s.type !== 'text') {
         document.getElementById('bubble-layer').innerHTML = (s.bubbles || []).map((b, i) =>
             renderBubbleHTML(b, i, i === state.activeBubbleIdx, s.writingMode)
         ).join('');

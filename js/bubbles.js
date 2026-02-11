@@ -139,6 +139,7 @@ export { getShapeNames };
  * キャンバスクリック時に吹き出しを追加する
  */
 export function handleCanvasClick(e, refresh) {
+    if (state.sections[state.activeIdx].type === 'text') return;
     if (e.target.id !== 'main-img' && !e.target.classList.contains('text-layer')) return;
     const r = document.getElementById('canvas-view').getBoundingClientRect();
     const lang = state.activeLang;
