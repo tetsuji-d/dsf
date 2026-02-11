@@ -10,10 +10,7 @@
 <body>
 
     <div id="sidebar">
-        <div class="sidebar-header">
-            <button class="btn-icon" onclick="openProjectModal()">📂 プロジェクト</button>
-            <button class="btn-icon" onclick="newProject()">＋ 新規</button>
-        </div>
+
         <div style="padding:8px 10px; border-bottom:1px solid #eee;">
             <label style="font-size:11px;">サムネイルサイズ</label>
             <input type="range" min="50" max="100" value="100" oninput="resizeThumbs(this.value)">
@@ -29,9 +26,13 @@
             <button id="btn-redo" class="btn-tool" onclick="performRedo()" title="やり直す (Ctrl+Shift+Z)"
                 disabled>↪</button>
             <div class="divider"></div>
-            <span id="project-title" class="project-title" contenteditable="true" oninput="onProjectTitleInput()"
-                onkeydown="onProjectTitleKeydown(event)" onblur="onProjectTitleBlur()">新規プロジェクト</span>
-            <button id="btn-save" class="btn-tool" onclick="saveProject()" title="保存">💾</button>
+            <div class="project-controls">
+                <button class="btn-tool" onclick="openProjectModal()" title="プロジェクト一覧">📂</button>
+                <button class="btn-tool" onclick="newProject()" title="新規プロジェクト">📄</button>
+                <span id="project-title" class="project-title" contenteditable="true" oninput="onProjectTitleInput()"
+                    onkeydown="onProjectTitleKeydown(event)" onblur="onProjectTitleBlur()">新規プロジェクト</span>
+                <button id="btn-save" class="btn-tool" onclick="saveProject()" title="保存">💾</button>
+            </div>
             <span id="save-status" class="save-status"></span>
             <div class="divider"></div>
             <div id="lang-tabs" class="lang-tabs"></div>
