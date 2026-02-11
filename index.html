@@ -29,7 +29,9 @@
             <button id="btn-redo" class="btn-tool" onclick="performRedo()" title="やり直す (Ctrl+Shift+Z)"
                 disabled>↪</button>
             <div class="divider"></div>
-            <span id="project-title" class="project-title">新規プロジェクト</span>
+            <span id="project-title" class="project-title" contenteditable="true" oninput="onProjectTitleInput()"
+                onkeydown="onProjectTitleKeydown(event)" onblur="onProjectTitleBlur()">新規プロジェクト</span>
+            <button id="btn-save" class="btn-tool" onclick="saveProject()" title="保存">💾</button>
             <span id="save-status" class="save-status"></span>
             <div class="divider"></div>
             <div id="lang-tabs" class="lang-tabs"></div>
@@ -90,11 +92,7 @@
             </div>
         </div>
 
-        <div class="control-group" style="background:#eef7ff;">
-            <h4>プロジェクト</h4>
-            <button class="btn" style="background:var(--primary); color:#fff;"
-                onclick="saveAsProject()">名前を付けて保存</button>
-        </div>
+
     </div>
 
     <!-- プロジェクト一覧モーダル -->

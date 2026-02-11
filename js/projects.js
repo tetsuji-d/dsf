@@ -44,6 +44,7 @@ export async function openProjectModal(onLoadProject) {
             projects.push({
                 id: docSnap.id,
                 sections: data.sections || [],
+                languages: data.languages || ['ja'],
                 lastUpdated: data.lastUpdated?.toDate?.() || new Date(0)
             });
         });
@@ -85,7 +86,7 @@ export async function openProjectModal(onLoadProject) {
                 const pid = card.dataset.id;
                 const project = projects.find(p => p.id === pid);
                 if (project) {
-                    onLoadProject(pid, project.sections);
+                    onLoadProject(pid, project.sections, project.languages);
                     closeProjectModal();
                 }
             });

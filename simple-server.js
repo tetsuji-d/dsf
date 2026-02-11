@@ -11,7 +11,8 @@ const port = 8080;
 const server = http.createServer((req, res) => {
     // Remove query params
     const cleanUrl = req.url.split('?')[0];
-    let filePath = path.join(__dirname, cleanUrl === '/' ? 'index.html' : cleanUrl);
+    const safeUrl = cleanUrl === '/' ? 'index.html' : cleanUrl.replace(/^\//, '');
+    let filePath = path.join(__dirname, safeUrl);
 
     const extname = String(path.extname(filePath)).toLowerCase();
     const mimeTypes = {

@@ -116,12 +116,25 @@ body {
 
 .toolbar .project-title {
     font-size: 13px;
-    color: #666;
+    color: #333;
     margin: 0 8px;
     max-width: 200px;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+    border-bottom: 1px dashed #ccc;
+    padding: 2px 6px;
+    cursor: text;
+    outline: none;
+    min-width: 80px;
+    border-radius: 2px;
+    transition: all 0.15s;
+}
+
+.toolbar .project-title:focus {
+    border-bottom-color: var(--primary);
+    background: #f0f7ff;
+    color: #000;
 }
 
 .toolbar .save-status {

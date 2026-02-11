@@ -2,7 +2,7 @@
  * app.js — メインエントリポイント・描画・UI同期
  */
 import { state } from './state.js';
-import { uploadToStorage, triggerAutoSave, saveAsProject, loadProject } from './firebase.js';
+import { uploadToStorage, triggerAutoSave, loadProject } from './firebase.js';
 import { handleCanvasClick, selectBubble, renderBubbleHTML, getBubbleText, setBubbleText } from './bubbles.js';
 import { addSection, changeSection, renderThumbs, deleteActive } from './sections.js';
 import { pushState, undo, redo, getHistoryInfo, clearHistory } from './history.js';
@@ -97,9 +97,11 @@ function refresh() {
         verticalOption.disabled = !allowedModes.includes('vertical-rl');
     }
 
-    // プロジェクト名表示
+    // プロジェクト名表示 (contenteditable なので textContent を更新)
     const titleEl = document.getElementById('project-title');
-    if (titleEl) titleEl.textContent = state.projectId || '新規プロジェクト';
+    if (titleEl && document.activeElement !== titleEl) {
+        titleEl.textContent = state.projectId || '新規プロジェクト';
+    }
 
     // 言語タブの更新
     renderLangTabs();
@@ -204,13 +206,16 @@ function resizeThumbs(value) {
     thumbs.forEach(t => t.style.width = value + '%');
 }
 
-function onLoadProject(pid, sections) {
+function onLoadProject(pid, sections, languages) {
     state.projectId = pid;
     state.sections = sections;
+    state.languages = languages && languages.length > 0 ? languages : ['ja'];
+    state.activeLang = state.languages[0];
     state.activeIdx = 0;
     state.activeBubbleIdx = null;
     clearHistory();
     refresh();
+    renderLangSettings();
 }
 
 // --- キーボードショートカット ---
@@ -238,10 +243,50 @@ window.updateActiveText = updateActiveText;
 window.updateBubbleShape = updateBubbleShape;
 window.resizeThumbs = resizeThumbs;
 window.uploadToStorage = (input) => { pushState(); uploadToStorage(input, refresh); };
-window.saveAsProject = saveAsProject;
 
 window.performUndo = () => { undo(refresh); triggerAutoSave(); };
 window.performRedo = () => { redo(refresh); triggerAutoSave(); };
+
+// プロジェクト名インライン編集
+window.onProjectTitleInput = () => {
+    const el = document.getElementById('project-title');
+    if (el) {
+        const name = (el.textContent || '').trim();
+        if (name && name !== '新規プロジェクト') {
+            state.projectId = name;
+        }
+    }
+};
+window.onProjectTitleKeydown = (e) => {
+    if (e.key === 'Enter') {
+        e.preventDefault();
+        e.target.blur();
+    }
+};
+window.onProjectTitleBlur = () => {
+    const el = document.getElementById('project-title');
+    if (el) {
+        const name = (el.textContent || '').trim();
+        if (name && name !== '新規プロジェクト') {
+            state.projectId = name;
+            triggerAutoSave();
+        }
+    }
+};
+window.saveProject = () => {
+    if (!state.projectId) {
+        const name = (document.getElementById('project-title').textContent || '').trim();
+        if (!name || name === '新規プロジェクト') {
+            const input = prompt('プロジェクト名を入力してください:');
+            if (!input) return;
+            state.projectId = input;
+            document.getElementById('project-title').textContent = input;
+        } else {
+            state.projectId = name;
+        }
+    }
+    triggerAutoSave();
+};
 
 // 吹き出し直接編集（多言語対応）
 let directEditPushTimer = null;

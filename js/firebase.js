@@ -66,6 +66,7 @@ async function performSave() {
     try {
         await setDoc(doc(db, "works", state.projectId), {
             sections: state.sections,
+            languages: state.languages,
             lastUpdated: new Date()
         });
         updateSaveIndicator('saved', '保存済み');
@@ -128,8 +129,11 @@ export async function uploadToStorage(input, refresh) {
 export async function loadProject(pid, refresh) {
     const snap = await getDoc(doc(db, "works", pid));
     if (snap.exists()) {
+        const data = snap.data();
         state.projectId = pid;
-        state.sections = snap.data().sections;
+        state.sections = data.sections;
+        state.languages = data.languages && data.languages.length > 0 ? data.languages : ['ja'];
+        state.activeLang = state.languages[0];
         state.activeIdx = 0;
         state.activeBubbleIdx = null;
         refresh();
