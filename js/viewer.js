@@ -284,8 +284,11 @@ function resizeCanvas() {
         }
     }
 
-    canvas.style.width = `${finalW}px`;
-    canvas.style.height = `${finalH}px`;
+    // Force full width if close match to avoid gaps
+    if (Math.abs(finalW - w) < 1) finalW = w;
+
+    canvas.style.width = `${Math.ceil(finalW)}px`;
+    canvas.style.height = `${Math.ceil(finalH)}px`;
 
     // Scale `#content-stage` (360x640 base) to fit `#viewer-canvas`
     const stage = document.getElementById('content-stage');
@@ -294,14 +297,40 @@ function resizeCanvas() {
         const baseW = 360;
         const baseH = 640;
 
-        // Calculate scale to fit
+        let fitScale;
+        let tx = 0;
+        let ty = 0;
+
+        // Determine fitting strategy
         const scaleX = finalW / baseW;
         const scaleY = finalH / baseH;
-        // Should be same ratio effectively due to constraints, but pick min to be safe
-        const fitScale = Math.min(scaleX, scaleY);
 
-        // Apply transform. Note we must keep translate(-50%, -50%) for centering.
-        stage.style.transform = `translate(-50%, -50%) scale(${fitScale})`;
+        if (scaleX < scaleY) {
+            // Fit Width (e.g. Phone Portrait)
+            fitScale = scaleX;
+            // tx is 0
+            // Center vertically
+            ty = (finalH - (baseH * fitScale)) / 2;
+        } else {
+            // Fit Height
+            fitScale = scaleY;
+            // Center horizontally
+            tx = (finalW - (baseW * fitScale)) / 2;
+            // ty is 0
+        }
+
+        // Add tiny epsilon for safety against rounding gaps? 
+        // If we strictly used finalW = w, then baseW * (finalW/baseW) === finalW.
+        // So tx should be exact 0.
+        // Let's add slight buffer only if we are scaling UP or largely separate? 
+        // Actually, let's stick to exact math first, but ceil the canvas size.
+        fitScale = fitScale * 1.001; // Tiny overlap to kill gaps
+
+        // Recalculate offsets with new scale
+        tx = (finalW - (baseW * fitScale)) / 2;
+        ty = (finalH - (baseH * fitScale)) / 2;
+
+        stage.style.transform = `translate(${Math.floor(tx)}px, ${Math.floor(ty)}px) scale(${fitScale})`;
     }
 }
 
