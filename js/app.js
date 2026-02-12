@@ -2,7 +2,7 @@
  * app.js — メインエントリポイント・描画・UI同期
  */
 import { state } from './state.js';
-import { uploadToStorage, triggerAutoSave, loadProject } from './firebase.js';
+import { saveProject, loadProject, uploadToStorage, triggerAutoSave, generateCroppedThumbnail } from './firebase.js';
 import { handleCanvasClick, selectBubble, renderBubbleHTML, getBubbleText, setBubbleText, addBubbleAtCenter, startDrag } from './bubbles.js';
 import { addSection, changeSection, renderThumbs, deleteActive } from './sections.js';
 import { pushState, undo, redo, getHistoryInfo, clearHistory } from './history.js';
@@ -238,15 +238,29 @@ window.toggleImageAdjustment = () => {
         btn.style.color = isImageAdjusting ? '#fff' : '#333';
     }
 
+    // クロップ枠外のグレーアウト表示切り替え
+    const layer = document.getElementById('canvas-transform-layer');
+    if (layer) {
+        if (isImageAdjusting) {
+            layer.classList.add('adjust-image-mode');
+        } else {
+            layer.classList.remove('adjust-image-mode');
+        }
+    }
+
     // ガイド表示などの視覚的フィードバック
     const imgInfo = document.getElementById('text-label');
     if (imgInfo) {
         imgInfo.textContent = isImageAdjusting ? "画像をドラッグ/ピンチして調整" : "テキスト入力";
     }
 
-    // 調整モード終了時に値を確定して保存（念のため）
+    // 調整モード終了時に値を確定して保存＋サムネイル再生成
     if (!isImageAdjusting) {
         triggerAutoSave();
+        // サムネイル更新
+        if (s.background) {
+            generateCroppedThumbnail(s.background, s.imagePosition || { x: 0, y: 0, scale: 1 }, refresh);
+        }
     }
 };
 

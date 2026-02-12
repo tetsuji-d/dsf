@@ -253,6 +253,22 @@ body {
     /* Initial transform handled by JS */
 }
 
+/* 画像調整モード時の表示 */
+#canvas-transform-layer.adjust-image-mode {
+    overflow: visible;
+    z-index: 1000;
+}
+
+#canvas-transform-layer.adjust-image-mode::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    /* 枠外をグレーアウト (box-shadowで巨大な影を落とすハック) */
+    box-shadow: 0 0 0 100vmax rgba(0, 0, 0, 0.7);
+    pointer-events: none;
+    z-index: 9999;
+}
+
 /* ヘッダー/フッターガイドオーバーレイ */
 .canvas-guide {
     position: absolute;

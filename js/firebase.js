@@ -132,6 +132,103 @@ function compressImage(file, maxWidth, quality) {
 }
 
 /**
+ * 切り抜き位置・スケールを反映してサムネイルを再生成・アップロードする
+ * @param {string} bgUrl - 現在の背景画像URL
+ * @param {object} pos - {x, y, scale}
+ * @param {function} refresh - 画面更新コールバック
+ */
+export async function generateCroppedThumbnail(bgUrl, pos, refresh) {
+    if (!bgUrl) return;
+
+    try {
+        const timestamp = Date.now();
+        // オリジナルファイル名はURLから推測（簡易的）
+        const filename = "cropped_" + timestamp;
+        const thumbPath = `dsf/thumbs/${timestamp}_${filename}_thumb.webp`;
+
+        // Canvasで描画
+        const img = new Image();
+        img.crossOrigin = "anonymous"; // CORS対応トライ
+        img.src = bgUrl;
+
+        await new Promise((resolve, reject) => {
+            img.onload = resolve;
+            img.onerror = reject;
+        });
+
+        // サムネイルサイズ (9:16)
+        const targetW = 320;
+        // height = 320 * (16/9) = 568.88...
+        const targetH = Math.round(targetW * (16 / 9));
+
+        const canvas = document.createElement('canvas');
+        canvas.width = targetW;
+        canvas.height = targetH;
+        const ctx = canvas.getContext('2d');
+
+        // 白背景（透明画像対策）
+        ctx.fillStyle = "#ffffff";
+        ctx.fillRect(0, 0, targetW, targetH);
+
+        // 描画
+        // オリジナルキャンバス(360x640)に対する比率
+        const baseW = 360;
+        const baseH = 640;
+        const ratio = targetW / baseW; // 320/360 = 0.888...
+
+        // pos.x, pos.y は 360x640 基準の移動量
+        // pos.scale は拡大率
+        // imgは width:100%, height:100%, object-fit:cover 相当で描画されている
+        // つまり、imgの描画サイズは baseW x baseH (のアスペクト比維持)
+
+        ctx.save();
+
+        // 中心基準で変形するため、中心へ移動
+        ctx.translate(targetW / 2, targetH / 2);
+        ctx.translate(pos.x * ratio, pos.y * ratio);
+        ctx.scale(pos.scale, pos.scale);
+
+        // imgを描画。object-fit:cover の挙動を再現する必要がある。
+        // imgのアスペクト比と枠のアスペクト比を比較
+        const imgAspect = img.width / img.height;
+        const frameAspect = baseW / baseH;
+
+        let drawW, drawH;
+        if (imgAspect > frameAspect) {
+            // 画像が横長 -> 縦を合わせる
+            drawH = targetH;
+            drawW = targetH * imgAspect;
+        } else {
+            // 画像が縦長 -> 横を合わせる
+            drawW = targetW;
+            drawH = targetW / imgAspect;
+        }
+
+        // 中心に描画
+        ctx.drawImage(img, -drawW / 2, -drawH / 2, drawW, drawH);
+
+        ctx.restore();
+
+        const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/webp', 0.8));
+
+        // アップロード
+        const thumbRef = ref(storage, thumbPath);
+        const snap = await uploadBytes(thumbRef, blob);
+        const thumbUrl = await getDownloadURL(snap.ref);
+
+        state.sections[state.activeIdx].thumbnail = thumbUrl;
+        console.log("[DSF] Thumbnail updated:", thumbUrl);
+
+        refresh(); // update thumbnails if logical
+        triggerAutoSave();
+
+    } catch (e) {
+        console.warn("[DSF] Thumbnail generation failed (likely CORS):", e);
+        // エラーでも処理は止めない（サムネ生成失敗だけなので）
+    }
+}
+
+/**
  * 画像をFirebase Storageにアップロードし、セクションの背景に設定する
  * クライアント側でWebP変換・サムネイル生成を行う
  * @param {HTMLInputElement} input - ファイル入力要素
