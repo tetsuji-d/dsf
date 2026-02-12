@@ -39,9 +39,17 @@ export function renderThumbs() {
     container.setAttribute('data-size', state.thumbSize || 'M');
     container.innerHTML = state.sections.map((s, i) => `
         <div class="thumb-wrap ${i === state.activeIdx ? 'active' : ''}" onclick="changeSection(${i})">
-            ${s.type === 'image'
-            ? `<img class="thumb-canvas" src="${s.thumbnail || s.background}">`
-            : `<div class="thumb-canvas" style="display:flex;align-items:center;justify-content:center;font-size:10px;padding:5px;background:#fff;">${s.text}</div>`}
+            ${(() => {
+            if (s.type === 'image') {
+                const pos = s.imagePosition || { x: 0, y: 0, scale: 1 };
+                const tx = (pos.x / 360) * 100;
+                const ty = (pos.y / 640) * 100;
+                const style = `transform: translate(${tx}%, ${ty}%) scale(${pos.scale}); transform-origin: center center; width:100%; height:100%; object-fit:cover;`;
+                return `<div style="width:100%;height:100%;overflow:hidden;border-radius:4px;"><img class="thumb-canvas" src="${s.background}" style="${style}"></div>`;
+            } else {
+                return `<div class="thumb-canvas" style="display:flex;align-items:center;justify-content:center;font-size:10px;padding:5px;background:#fff;">${s.text}</div>`;
+            }
+        })()}
             <div style="position:absolute; top:5px; left:5px; background:white; font-size:10px; padding:2px; border:1px solid #ddd;">#${i + 1}</div>
         </div>
     `).join('');

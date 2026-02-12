@@ -286,6 +286,23 @@ function resizeCanvas() {
 
     canvas.style.width = `${finalW}px`;
     canvas.style.height = `${finalH}px`;
+
+    // Scale `#content-stage` (360x640 base) to fit `#viewer-canvas`
+    const stage = document.getElementById('content-stage');
+    if (stage) {
+        // We know canvas dimensions are finalW x finalH
+        const baseW = 360;
+        const baseH = 640;
+
+        // Calculate scale to fit
+        const scaleX = finalW / baseW;
+        const scaleY = finalH / baseH;
+        // Should be same ratio effectively due to constraints, but pick min to be safe
+        const fitScale = Math.min(scaleX, scaleY);
+
+        // Apply transform. Note we must keep translate(-50%, -50%) for centering.
+        stage.style.transform = `translate(-50%, -50%) scale(${fitScale})`;
+    }
 }
 
 // ──────────────────────────────────────
