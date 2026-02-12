@@ -207,7 +207,9 @@ function refresh() {
 
     // 1. Content
     if (s.type === 'image') {
-        contentEl.innerHTML = `<img src="${s.background}" style="width:100%; height:100%; object-fit:cover;">`;
+        const pos = s.imagePosition || { x: 0, y: 0, scale: 1 };
+        const imgStyle = `width:100%; height:100%; object-fit:cover; transform: translate(${pos.x}px, ${pos.y}px) scale(${pos.scale}); transform-origin: center center;`;
+        contentEl.innerHTML = `<img src="${s.background}" style="${imgStyle}">`;
     } else {
         let text = s.text || '';
         if (s.texts && s.texts[lang]) text = s.texts[lang];

@@ -238,19 +238,8 @@ body {
     background: #fff;
     box-shadow: 0 0 50px rgba(0, 0, 0, 0.5);
     /* Initial transform handled by JS */
-}
-
-#canvas-transform-layer {
-    position: absolute;
-    top: 50%;
-    left: 50%;
-    transform-origin: center center;
-    /* width/height will be set by JS based on aspect ratio */
-    width: 360px;
-    aspect-ratio: 9/16;
-    background: #fff;
-    box-shadow: 0 0 50px rgba(0, 0, 0, 0.5);
-    /* Initial transform handled by JS */
+    overflow: hidden;
+    /* Default: clip content */
 }
 
 /* 画像調整モード時の表示 */

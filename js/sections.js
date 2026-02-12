@@ -40,7 +40,7 @@ export function renderThumbs() {
     container.innerHTML = state.sections.map((s, i) => `
         <div class="thumb-wrap ${i === state.activeIdx ? 'active' : ''}" onclick="changeSection(${i})">
             ${s.type === 'image'
-            ? `<img class="thumb-canvas" src="${s.background}">`
+            ? `<img class="thumb-canvas" src="${s.thumbnail || s.background}">`
             : `<div class="thumb-canvas" style="display:flex;align-items:center;justify-content:center;font-size:10px;padding:5px;background:#fff;">${s.text}</div>`}
             <div style="position:absolute; top:5px; left:5px; background:white; font-size:10px; padding:2px; border:1px solid #ddd;">#${i + 1}</div>
         </div>
