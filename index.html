@@ -3,6 +3,7 @@
 
 <head>
     <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0">
     <title>DSF Studio Pro - Ultimate Edition</title>
     <link rel="stylesheet" href="css/main.css">
 </head>
@@ -44,13 +45,24 @@
             <div id="lang-tabs" class="lang-tabs"></div>
         </div>
         <!-- キャンバス -->
-        <div id="canvas-view" onmousedown="handleCanvasClick(event)">
+        <div id="canvas-view" onmousedown="handleCanvasClick(event)" ontouchstart="handleCanvasClick(event)">
             <div id="content-render"></div>
             <div id="bubble-layer"></div>
+            <!-- ヘッダー/フッターガイド -->
+            <div id="header-guide" class="canvas-guide header-guide"><span id="header-guide-title"></span></div>
+            <div id="footer-guide" class="canvas-guide footer-guide"><span class="footer-guide-label">フッター領域</span>
+            </div>
         </div>
     </div>
 
     <div id="panel-right">
+        <div class="control-group">
+            <h4>作品設定</h4>
+            <label>作品タイトル（ヘッダー表示）</label>
+            <input type="text" id="prop-title" placeholder="タイトルを入力"
+                style="width:100%; padding:6px 8px; margin-bottom:10px; border:1px solid #ccc; border-radius:4px; font-size:13px;"
+                oninput="updateTitle(this.value)">
+        </div>
         <div class="control-group">
             <h4>セクション設定</h4>
             <label>タイプ</label>
@@ -102,6 +114,22 @@
         </div>
 
 
+    </div>
+
+    <!-- モバイル用ボトムナビゲーション -->
+    <div id="mobile-nav">
+        <button class="nav-item" onclick="toggleMobilePanel('sidebar')">
+            <span class="nav-icon">layers</span>
+            <span class="nav-label">レイヤー</span>
+        </button>
+        <button class="nav-item active" onclick="toggleMobilePanel('editor')">
+            <span class="nav-icon">edit</span>
+            <span class="nav-label">編集</span>
+        </button>
+        <button class="nav-item" onclick="toggleMobilePanel('properties')">
+            <span class="nav-icon">settings</span>
+            <span class="nav-label">設定</span>
+        </button>
     </div>
 
     <!-- プロジェクト一覧モーダル -->

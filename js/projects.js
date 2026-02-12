@@ -43,6 +43,7 @@ export async function openProjectModal(onLoadProject) {
             const data = docSnap.data();
             projects.push({
                 id: docSnap.id,
+                title: data.title || '',
                 sections: data.sections || [],
                 languages: data.languages || ['ja'],
                 languageConfigs: data.languageConfigs || null,
@@ -87,7 +88,7 @@ export async function openProjectModal(onLoadProject) {
                 const pid = card.dataset.id;
                 const project = projects.find(p => p.id === pid);
                 if (project) {
-                    onLoadProject(pid, project.sections, project.languages, project.languageConfigs);
+                    onLoadProject(pid, project.sections, project.languages, project.languageConfigs, project.title);
                     closeProjectModal();
                 }
             });

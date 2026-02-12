@@ -142,10 +142,18 @@ export function handleCanvasClick(e, refresh) {
     if (state.sections[state.activeIdx].type === 'text') return;
     if (e.target.id !== 'main-img' && !e.target.classList.contains('text-layer')) return;
     const r = document.getElementById('canvas-view').getBoundingClientRect();
+
+    let clientX = e.clientX;
+    let clientY = e.clientY;
+    if (e.touches && e.touches.length > 0) {
+        clientX = e.touches[0].clientX;
+        clientY = e.touches[0].clientY;
+    }
+
     const lang = state.activeLang;
     const defaultText = lang === 'en' ? 'Text' : 'セリフ';
-    const posX = ((e.clientX - r.left) / r.width * 100).toFixed(1);
-    const posY = ((e.clientY - r.top) / r.height * 100).toFixed(1);
+    const posX = ((clientX - r.left) / r.width * 100).toFixed(1);
+    const posY = ((clientY - r.top) / r.height * 100).toFixed(1);
     const newBubble = {
         x: posX, y: posY,
         tailX: 0, tailY: 20,
@@ -174,16 +182,30 @@ export function selectBubble(e, i, refresh) {
  */
 export function startDrag(e, i, refresh) {
     const container = document.getElementById('canvas-view').getBoundingClientRect();
+
+    const getClientPos = (evt) => {
+        if (evt.touches && evt.touches.length > 0) {
+            return { x: evt.touches[0].clientX, y: evt.touches[0].clientY };
+        }
+        return { x: evt.clientX, y: evt.clientY };
+    };
+
     const move = (me) => {
-        const x = ((me.clientX - container.left) / container.width * 100).toFixed(1);
-        const y = ((me.clientY - container.top) / container.height * 100).toFixed(1);
+        if (me.type === 'touchmove') me.preventDefault();
+        const pos = getClientPos(me);
+        const x = ((pos.x - container.left) / container.width * 100).toFixed(1);
+        const y = ((pos.y - container.top) / container.height * 100).toFixed(1);
         setBubblePos(state.sections[state.activeIdx].bubbles[i], x, y);
         refresh();
     };
     const up = () => {
         window.removeEventListener('mousemove', move);
         window.removeEventListener('mouseup', up);
+        window.removeEventListener('touchmove', move);
+        window.removeEventListener('touchend', up);
     };
     window.addEventListener('mousemove', move);
     window.addEventListener('mouseup', up);
+    window.addEventListener('touchmove', move, { passive: false });
+    window.addEventListener('touchend', up);
 }

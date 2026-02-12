@@ -65,6 +65,7 @@ async function performSave() {
 
     try {
         await setDoc(doc(db, "works", state.projectId), {
+            title: state.title || '',
             sections: state.sections,
             languages: state.languages,
             languageConfigs: state.languageConfigs,
@@ -132,6 +133,7 @@ export async function loadProject(pid, refresh) {
     if (snap.exists()) {
         const data = snap.data();
         state.projectId = pid;
+        state.title = data.title || '';
         state.sections = data.sections;
         state.languages = data.languages && data.languages.length > 0 ? data.languages : ['ja'];
         state.activeLang = state.languages[0];

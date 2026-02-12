@@ -58,7 +58,8 @@ function init() {
     document.addEventListener('wheel', handleWheel, { passive: false });
 
     // UI Toggle Listeners
-    document.body.addEventListener('click', handleBodyClick); // PC Click outside
+    // UI Toggle Listeners
+    // Removed body click handler, replaced with explicit triggers
 
     // Mobile Double Tap
     if (layer) {
@@ -73,12 +74,15 @@ function init() {
 // ──────────────────────────────────────
 //  UI Visibility
 // ──────────────────────────────────────
+// ──────────────────────────────────────
+//  UI Visibility
+// ──────────────────────────────────────
 let isUiVisible = false;
 
-function toggleUi() {
+window.toggleUi = function () {
     isUiVisible = !isUiVisible;
     updateUiVisibility();
-}
+};
 
 function updateUiVisibility() {
     const ui = document.getElementById('viewer-ui');
@@ -88,13 +92,16 @@ function updateUiVisibility() {
     }
 }
 
-// PC: Click outside canvas (on body)
-function handleBodyClick(e) {
-    // If click target is body or specific wrapper, toggle
-    if (e.target === document.body || e.target.id === 'viewer-stage-wrapper') {
-        toggleUi();
+// ──────────────────────────────────────
+//  Page Navigation (Slider)
+// ──────────────────────────────────────
+window.jumpToPage = function (val) {
+    const page = parseInt(val, 10);
+    if (page >= 1 && page <= state.sections.length) {
+        state.activeIdx = page - 1;
+        refresh();
     }
-}
+};
 
 async function loadFromFirestore(pid) {
     try {
@@ -143,6 +150,7 @@ function loadProjectData(data) {
     }
 
     state.projectId = data.projectId;
+    state.title = data.title || ''; // Load title
     state.sections = data.sections || [];
     state.languages = data.languages || ['ja'];
     state.languageConfigs = data.languageConfigs;
@@ -150,6 +158,10 @@ function loadProjectData(data) {
     state.activeIdx = 0;
 
     currentProject = data;
+
+    // Set Title
+    const titleEl = document.getElementById('ui-title');
+    if (titleEl) titleEl.textContent = state.title || state.projectId || 'Untitled';
 
     // Populate Lang Select
     const langSelect = document.getElementById('lang-select');
@@ -215,6 +227,21 @@ function refresh() {
         ).join('');
     } else {
         bubblesEl.innerHTML = '';
+    }
+
+    // 3. Update Footer Info
+    const total = state.sections.length;
+    const current = state.activeIdx + 1;
+    const slider = document.getElementById('page-slider');
+    const label = document.getElementById('page-count');
+
+    if (slider) {
+        slider.min = 1;
+        slider.max = total;
+        slider.value = current;
+    }
+    if (label) {
+        label.textContent = `${current} / ${total}`;
     }
 }
 

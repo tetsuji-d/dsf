@@ -134,6 +134,17 @@ function refresh() {
         titleEl.textContent = state.projectId || '新規プロジェクト';
     }
 
+    // 作品タイトル同期
+    const propTitle = document.getElementById('prop-title');
+    if (propTitle && document.activeElement !== propTitle) {
+        propTitle.value = state.title || '';
+    }
+    // ヘッダーガイドにタイトル表示
+    const headerGuideTitle = document.getElementById('header-guide-title');
+    if (headerGuideTitle) {
+        headerGuideTitle.textContent = state.title || 'タイトル未設定';
+    }
+
     // 言語タブの更新
     renderLangTabs();
 
@@ -249,8 +260,9 @@ function updateGlobalWritingMode(mode) {
 }
 
 
-function onLoadProject(pid, sections, languages, languageConfigs) {
+function onLoadProject(pid, sections, languages, languageConfigs, title) {
     state.projectId = pid;
+    state.title = title || '';
     state.sections = sections;
     state.languages = languages && languages.length > 0 ? languages : ['ja'];
 
@@ -300,6 +312,12 @@ window.update = update;
 window.updateActiveText = updateActiveText;
 window.updateBubbleShape = updateBubbleShape;
 window.updateGlobalWritingMode = updateGlobalWritingMode;
+window.updateTitle = (v) => {
+    state.title = v;
+    const headerGuideTitle = document.getElementById('header-guide-title');
+    if (headerGuideTitle) headerGuideTitle.textContent = v || 'タイトル未設定';
+    triggerAutoSave();
+};
 window.setThumbSize = (size) => {
     state.thumbSize = size;
     refresh();
@@ -354,6 +372,7 @@ window.exportProject = () => {
     const data = {
         version: 2,
         projectId: state.projectId,
+        title: state.title || '',
         sections: state.sections,
         languages: state.languages,
         languageConfigs: state.languageConfigs,
@@ -380,12 +399,7 @@ window.shareProject = async () => {
     await triggerAutoSave();
 
     // Construct URL
-    // Make it mobile-friendly by replacing localhost with actual IP if detected
-    let host = window.location.host;
-    if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
-        host = '192.168.2.102:8080';
-    }
-
+    const host = window.location.host;
     const url = `${window.location.protocol}//${host}/viewer.html?id=${encodeURIComponent(state.projectId)}`;
 
     // Copy to clipboard
@@ -458,6 +472,7 @@ window.closeProjectModal = closeProjectModal;
 window.newProject = () => {
     if (state.projectId && !confirm('現在のプロジェクトを閉じて新しいプロジェクトを作成しますか？')) return;
     state.projectId = null;
+    state.title = '';
     state.languages = ['ja'];
     state.languageConfigs = {
         ja: { writingMode: 'vertical-rl' }
@@ -477,6 +492,33 @@ window.newProject = () => {
     refresh();
     renderLangSettings();
     closeProjectModal();
+};
+
+// モバイルナビゲーション切り替え
+window.toggleMobilePanel = (panelName) => {
+    // 1. Update Nav Tabs
+    const navItems = document.querySelectorAll('.nav-item');
+    navItems.forEach(item => item.classList.remove('active'));
+
+    // Find the button that triggered this (based on onclick value is hard, so text search or just pass element? 
+    // Easier: Map panelName to index or just update logic slightly.
+    // For simplicity, let's look for the one with matching onclick
+    const targetBtn = Array.from(navItems).find(b => b.getAttribute('onclick').includes(`'${panelName}'`));
+    if (targetBtn) targetBtn.classList.add('active');
+
+    // 2. Hide all panels first
+    const sidebar = document.getElementById('sidebar');
+    const rightPanel = document.getElementById('panel-right');
+    if (sidebar) sidebar.classList.remove('active');
+    if (rightPanel) rightPanel.classList.remove('active');
+
+    // 3. Show target
+    if (panelName === 'sidebar') {
+        if (sidebar) sidebar.classList.add('active');
+    } else if (panelName === 'properties') {
+        if (rightPanel) rightPanel.classList.add('active');
+    }
+    // 'editor' just leaves panels hidden (showing main content)
 };
 
 // --- 初回描画 ---
