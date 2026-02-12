@@ -3,7 +3,7 @@
  */
 import { state } from './state.js';
 import { uploadToStorage, triggerAutoSave, loadProject } from './firebase.js';
-import { handleCanvasClick, selectBubble, renderBubbleHTML, getBubbleText, setBubbleText } from './bubbles.js';
+import { handleCanvasClick, selectBubble, renderBubbleHTML, getBubbleText, setBubbleText, addBubbleAtCenter, startDrag } from './bubbles.js';
 import { addSection, changeSection, renderThumbs, deleteActive } from './sections.js';
 import { pushState, undo, redo, getHistoryInfo, clearHistory } from './history.js';
 import { openProjectModal, closeProjectModal } from './projects.js';
@@ -54,7 +54,14 @@ function refresh() {
 
     // メインキャンバスの描画切り替え
     if (s.type === 'image') {
-        render.innerHTML = `<img id="main-img" src="${s.background}">`;
+        const pos = s.imagePosition || { x: 0, y: 0, scale: 1 };
+        // 画像自体にtransformを適用。
+        // object-fit: cover とバッティングしないよう、width/heightを維持しつつCSS transformで動かす
+        // ただし cover だと中心基準で切り取られるため、transform translate は中心からのオフセットとして機能する。
+        // これで直感的な挙動になるはず。
+        const imgStyle = `transform: translate(${pos.x}px, ${pos.y}px) scale(${pos.scale}); pointer-events: auto;`;
+
+        render.innerHTML = `<img id="main-img" src="${s.background}" style="${imgStyle}">`;
         document.getElementById('image-only-props').style.display = 'block';
         document.getElementById('bubble-layer').style.display = 'block';
     } else {
@@ -208,7 +215,161 @@ function update(k, v) {
     }
     s[k] = v;
     refresh();
+    s[k] = v;
+    refresh();
     triggerAutoSave();
+}
+
+// ──────────────────────────────────────
+//  背景画像調整モード
+// ──────────────────────────────────────
+let isImageAdjusting = false;
+
+window.toggleImageAdjustment = () => {
+    const s = state.sections[state.activeIdx];
+    if (!s || s.type !== 'image') return;
+
+    isImageAdjusting = !isImageAdjusting;
+
+    // UI更新
+    const btn = document.getElementById('btn-adjust-img');
+    if (btn) {
+        btn.style.background = isImageAdjusting ? 'var(--primary)' : '#fff';
+        btn.style.color = isImageAdjusting ? '#fff' : '#333';
+    }
+
+    // ガイド表示などの視覚的フィードバック
+    const imgInfo = document.getElementById('text-label');
+    if (imgInfo) {
+        imgInfo.textContent = isImageAdjusting ? "画像をドラッグ/ピンチして調整" : "テキスト入力";
+    }
+
+    // 調整モード終了時に値を確定して保存（念のため）
+    if (!isImageAdjusting) {
+        triggerAutoSave();
+    }
+};
+
+// 画像操作イベントリスナー
+function initImageAdjustment() {
+    const view = document.getElementById('canvas-view');
+    // We bind events to view but check target or mode
+
+    let isDraggingImg = false;
+    let startPos = { x: 0, y: 0 };
+    let startTransform = { x: 0, y: 0 };
+    let startScale = 1;
+    let initialPinchDist = null;
+
+    // Helper to get image transform state
+    const getImgState = () => {
+        const s = state.sections[state.activeIdx];
+        if (!s.imagePosition) s.imagePosition = { x: 0, y: 0, scale: 1 };
+        return s.imagePosition;
+    };
+
+    // Events
+    const onStart = (clientX, clientY) => {
+        if (!isImageAdjusting) return;
+        isDraggingImg = true;
+        startPos = { x: clientX, y: clientY };
+        const pos = getImgState();
+        startTransform = { x: pos.x, y: pos.y };
+    };
+
+    const onMove = (clientX, clientY) => {
+        if (!isImageAdjusting || !isDraggingImg) return;
+        const dx = clientX - startPos.x;
+        const dy = clientY - startPos.y;
+
+        // Canvasのズームレベルを考慮して移動量を補正
+        // canvasScale is global from initCanvasZoom scope... wait, we need access to it.
+        // It's defined below. We might need to move this logic or access it.
+        // For now, let's assume we can access 'canvasScale' variable if it's in outer scope or module scope.
+        // Actually canvasScale is defined in outer scope in this file. Good.
+
+        const pos = getImgState();
+        pos.x = startTransform.x + dx / canvasScale;
+        pos.y = startTransform.y + dy / canvasScale;
+
+        refresh(); // Re-render transform
+    };
+
+    const onEnd = () => {
+        if (isDraggingImg) {
+            isDraggingImg = false;
+            triggerAutoSave();
+        }
+    };
+
+    // Mouse
+    view.addEventListener('mousedown', (e) => {
+        if (isImageAdjusting && e.target.id === 'main-img') {
+            e.stopPropagation(); // Stop canvas pan
+            e.preventDefault();
+            onStart(e.clientX, e.clientY);
+        }
+    });
+    window.addEventListener('mousemove', (e) => onMove(e.clientX, e.clientY));
+    window.addEventListener('mouseup', onEnd);
+
+    // Touch
+    view.addEventListener('touchstart', (e) => {
+        if (isImageAdjusting && (e.target.id === 'main-img' || e.touches.length === 2)) {
+            e.stopPropagation();
+            if (e.touches.length === 1) {
+                onStart(e.touches[0].clientX, e.touches[0].clientY);
+            } else if (e.touches.length === 2) {
+                // Pinch start
+                isDraggingImg = false; // Cancel drag
+                const dist = Math.hypot(
+                    e.touches[0].clientX - e.touches[1].clientX,
+                    e.touches[0].clientY - e.touches[1].clientY
+                );
+                initialPinchDist = dist;
+                const pos = getImgState();
+                startScale = pos.scale || 1;
+            }
+        }
+    }, { passive: false });
+
+    view.addEventListener('touchmove', (e) => {
+        if (!isImageAdjusting) return;
+        if (e.touches.length === 1) {
+            e.preventDefault(); // Prevent scroll
+            onMove(e.touches[0].clientX, e.touches[0].clientY);
+        } else if (e.touches.length === 2 && initialPinchDist) {
+            e.preventDefault();
+            const dist = Math.hypot(
+                e.touches[0].clientX - e.touches[1].clientX,
+                e.touches[0].clientY - e.touches[1].clientY
+            );
+            const scale = dist / initialPinchDist;
+            const pos = getImgState();
+            pos.scale = Math.max(0.1, startScale * scale);
+            refresh();
+        }
+    }, { passive: false });
+
+    view.addEventListener('touchend', () => {
+        initialPinchDist = null;
+        onEnd();
+    });
+
+    // Wheel Zoom for Image
+    view.addEventListener('wheel', (e) => {
+        if (isImageAdjusting) {
+            e.preventDefault();
+            e.stopPropagation();
+            const pos = getImgState();
+            const delta = e.deltaY > 0 ? 0.9 : 1.1;
+            pos.scale = Math.max(0.1, (pos.scale || 1) * delta);
+            refresh();
+            // Debounce save?
+            if (window.saveTimer) clearTimeout(window.saveTimer);
+            window.saveTimer = setTimeout(triggerAutoSave, 500);
+        }
+    }, { passive: false });
 }
 
 // ──────────────────────────────────────
@@ -326,6 +487,133 @@ window.uploadToStorage = (input) => { pushState(); uploadToStorage(input, refres
 
 window.performUndo = () => { undo(refresh); triggerAutoSave(); };
 window.performRedo = () => { redo(refresh); triggerAutoSave(); };
+
+// FAB用
+window.addBubbleFab = () => {
+    pushState();
+    addBubbleAtCenter(refresh);
+    triggerAutoSave();
+};
+
+// バブル移動ハンドル用
+window.onHandleDown = (e, i) => {
+    startDrag(e, i, refresh);
+};
+
+// ズーム・パン機能
+let canvasScale = 1;
+let canvasTranslate = { x: 0, y: 0 };
+
+function updateCanvasTransform() {
+    const layer = document.getElementById('canvas-transform-layer');
+    if (layer) {
+        layer.style.transform = `translate(-50%, -50%) translate(${canvasTranslate.x}px, ${canvasTranslate.y}px) scale(${canvasScale})`;
+    }
+}
+
+// キャンバスリセット（中央寄せ・初期サイズ）
+window.resetCanvasView = () => {
+    canvasTranslate = { x: 0, y: 0 };
+
+    // 画面サイズに合わせて自動スケール
+    const container = document.getElementById('canvas-view');
+    if (container) {
+        const cw = container.clientWidth;
+        const ch = container.clientHeight;
+        // 9:16 (360x640) base
+        const targetW = 360;
+        const targetH = 640;
+
+        let s = Math.min(cw / targetW, ch / targetH) * 0.9;
+        if (s > 1.2) s = 1.0; // あまり大きすぎないように
+        canvasScale = s;
+    } else {
+        canvasScale = 1;
+    }
+
+    updateCanvasTransform();
+};
+
+function initCanvasZoom() {
+    const view = document.getElementById('canvas-view');
+    if (!view) return;
+
+    // 初期化時にリセット
+    resetCanvasView();
+
+    // Pan handling
+    let isPanning = false;
+    let startPan = { x: 0, y: 0 };
+    let startTranslate = { x: 0, y: 0 };
+
+    view.addEventListener('mousedown', (e) => {
+        // 画像調整中はCanvas全体のパンを無効化
+        if (isImageAdjusting) return;
+
+        // バブルやテキストレイヤー以外ならPan開始
+        if (e.target.id === 'canvas-view' || e.target.id === 'content-render' || e.target.classList.contains('text-layer')) {
+            isPanning = true;
+            startPan = { x: e.clientX, y: e.clientY };
+            startTranslate = { ...canvasTranslate };
+            view.style.cursor = 'grabbing';
+        }
+    });
+
+    window.addEventListener('mousemove', (e) => {
+        if (!isPanning) return;
+        const dx = e.clientX - startPan.x;
+        const dy = e.clientY - startPan.y;
+        canvasTranslate.x = startTranslate.x + dx;
+        canvasTranslate.y = startTranslate.y + dy;
+        updateCanvasTransform();
+    });
+
+    window.addEventListener('mouseup', () => {
+        if (isPanning) {
+            isPanning = false;
+            view.style.cursor = 'default';
+        }
+    });
+
+    // Touch Pan & Pinch (Simplified)
+    // Hammer.js or similar recommended for robust pinch, but implementing basic logic here
+    // For now, support single touch pan (if not on bubble)
+    view.addEventListener('touchstart', (e) => {
+        // 画像調整中はCanvasパン無効
+        if (isImageAdjusting) return;
+
+        if (e.touches.length === 1 && (e.target.id === 'canvas-view' || e.target.classList.contains('text-layer'))) {
+            isPanning = true;
+            startPan = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+            startTranslate = { ...canvasTranslate };
+        }
+    });
+
+    view.addEventListener('touchmove', (e) => {
+        if (isPanning && e.touches.length === 1) {
+            const dx = e.touches[0].clientX - startPan.x;
+            const dy = e.touches[0].clientY - startPan.y;
+            canvasTranslate.x = startTranslate.x + dx;
+            canvasTranslate.y = startTranslate.y + dy;
+            updateCanvasTransform();
+        }
+    }, { passive: false });
+
+    view.addEventListener('touchend', () => {
+        isPanning = false;
+    });
+
+    // Wheel Zoom
+    view.addEventListener('wheel', (e) => {
+        if (isImageAdjusting) return; // 画像調整中はCanvasズーム無効
+
+        e.preventDefault();
+        const delta = e.deltaY > 0 ? 0.9 : 1.1;
+        canvasScale *= delta;
+        canvasScale = Math.min(Math.max(0.1, canvasScale), 5); // Limit scale
+        updateCanvasTransform();
+    }, { passive: false });
+}
 
 // プロジェクト名インライン編集
 window.onProjectTitleInput = () => {
@@ -524,3 +812,5 @@ window.toggleMobilePanel = (panelName) => {
 // --- 初回描画 ---
 refresh();
 renderLangSettings();
+initCanvasZoom(); // Initialize zoom/pan
+initImageAdjustment(); // Initialize image adjustment events

@@ -6,6 +6,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0">
     <title>DSF Studio Pro - Ultimate Edition</title>
     <link rel="stylesheet" href="css/main.css">
+    <link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet">
 </head>
 
 <body>
@@ -45,13 +46,27 @@
             <div id="lang-tabs" class="lang-tabs"></div>
         </div>
         <!-- キャンバス -->
+        <!-- キャンバス -->
         <div id="canvas-view" onmousedown="handleCanvasClick(event)" ontouchstart="handleCanvasClick(event)">
-            <div id="content-render"></div>
-            <div id="bubble-layer"></div>
-            <!-- ヘッダー/フッターガイド -->
-            <div id="header-guide" class="canvas-guide header-guide"><span id="header-guide-title"></span></div>
-            <div id="footer-guide" class="canvas-guide footer-guide"><span class="footer-guide-label">フッター領域</span>
+            <!-- ズーム・移動用レイヤー -->
+            <div id="canvas-transform-layer">
+                <div id="content-render"></div>
+                <div id="bubble-layer"></div>
+                <!-- ヘッダー/フッターガイド -->
+                <div id="header-guide" class="canvas-guide header-guide"><span id="header-guide-title"></span></div>
+                <div id="footer-guide" class="canvas-guide footer-guide"><span class="footer-guide-label">フッター領域</span>
+                </div>
             </div>
+
+            <!-- FAB (吹き出し追加) -->
+            <button id="fab-add-bubble" class="fab-btn" onclick="addBubbleFab()" title="吹き出し追加">
+                <span class="material-icons">add_comment</span>
+            </button>
+
+            <!-- キャンバスリセットボタン -->
+            <button id="btn-reset-view" class="reset-view-btn" onclick="resetCanvasView()" title="全体表示">
+                <span class="material-icons">restart_alt</span>
+            </button>
         </div>
     </div>
 
@@ -72,8 +87,18 @@
             </select>
 
             <div id="image-only-props">
-                <label>背景画像アップロード</label>
-                <input type="file" accept="image/*" onchange="uploadToStorage(this)">
+                <label>背景画像変更 / 位置調整</label>
+                <div style="display:flex; gap:8px; margin-bottom:10px;">
+                    <button class="btn-sm" onclick="document.getElementById('file-upload').click()" style="flex:1;">
+                        <span class="material-icons" style="font-size:16px; vertical-align:middle;">image</span> 画像変更
+                    </button>
+                    <button class="btn-sm" onclick="toggleImageAdjustment()" id="btn-adjust-img" style="flex:1;"
+                        title="位置・サイズ調整">
+                        <span class="material-icons" style="font-size:16px; vertical-align:middle;">crop_free</span> 調整
+                    </button>
+                </div>
+                <input type="file" id="file-upload" accept="image/*" onchange="uploadToStorage(this)"
+                    style="display:none;">
             </div>
 
             <div id="bubble-shape-props">

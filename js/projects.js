@@ -124,11 +124,15 @@ export function closeProjectModal() {
 
 /**
  * セクション配列から表紙画像URLを取得
+ * サムネイルがあれば優先して使用
  */
 function getCoverImage(sections) {
     if (!sections || sections.length === 0) return null;
     const first = sections[0];
-    if (first.type === 'image' && first.background) return first.background;
+    if (first.type === 'image') {
+        if (first.thumbnail) return first.thumbnail;
+        if (first.background) return first.background;
+    }
     return null;
 }
 

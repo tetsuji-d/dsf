@@ -8,9 +8,68 @@ body {
     margin: 0;
     display: flex;
     height: 100vh;
+    height: 100dvh;
+    /* For mobile browsers */
     font-family: sans-serif;
-    background: var(--bg);
+    background: #333;
+    /* Darker bg for better verify */
     overflow: hidden;
+}
+
+/* FAB */
+.fab-btn {
+    position: fixed;
+    bottom: 80px;
+    /* Above mobile nav */
+    right: 20px;
+    width: 56px;
+    height: 56px;
+    border-radius: 50%;
+    background: var(--primary);
+    color: #fff;
+    border: none;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 1500;
+    /* Above overlay panels */
+    cursor: pointer;
+    transition: transform 0.2s;
+    /* Font icon support (assuming using emoji or generic content if icon font not loaded) */
+}
+
+.fab-btn:active {
+    transform: scale(0.95);
+}
+
+.fab-btn .material-icons {
+    font-size: 24px;
+}
+
+/* リセットボタン */
+.reset-view-btn {
+    position: fixed;
+    bottom: 150px;
+    /* Above FAB */
+    right: 28px;
+    /* Center with FAB */
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    background: #fff;
+    color: #333;
+    border: 1px solid #ccc;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 1500;
+    cursor: pointer;
+}
+
+.reset-view-btn:active {
+    background: #eee;
 }
 
 /* 左：ナビゲーション（スクロール対応） */
@@ -160,11 +219,38 @@ body {
 
 #canvas-view {
     position: relative;
+    width: 100%;
+    height: 100%;
+    background: #333;
+    overflow: hidden;
+    touch-action: none;
+    /* Disable browser zoom/scroll */
+}
+
+#canvas-transform-layer {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform-origin: center center;
+    /* width/height will be set by JS based on aspect ratio */
     width: 360px;
     aspect-ratio: 9/16;
     background: #fff;
-    box-shadow: 0 20px 40px rgba(0, 0, 0, 0.1);
-    overflow: hidden;
+    box-shadow: 0 0 50px rgba(0, 0, 0, 0.5);
+    /* Initial transform handled by JS */
+}
+
+#canvas-transform-layer {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform-origin: center center;
+    /* width/height will be set by JS based on aspect ratio */
+    width: 360px;
+    aspect-ratio: 9/16;
+    background: #fff;
+    box-shadow: 0 0 50px rgba(0, 0, 0, 0.5);
+    /* Initial transform handled by JS */
 }
 
 /* ヘッダー/フッターガイドオーバーレイ */
@@ -199,6 +285,8 @@ body {
     width: 100%;
     height: 100%;
     object-fit: cover;
+    transform-origin: center center;
+    will-change: transform;
 }
 
 .text-layer {
@@ -236,6 +324,30 @@ body {
     color: #000;
     white-space: pre-line;
     outline: none;
+}
+
+/* 移動用ハンドル */
+.bubble-handle {
+    position: absolute;
+    top: -20px;
+    right: -20px;
+    width: 24px;
+    height: 24px;
+    background: var(--primary);
+    color: #fff;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: grab;
+    z-index: 1000;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+    pointer-events: auto;
+    /* Ensure it captures events */
+}
+
+.bubble-handle .material-icons {
+    font-size: 16px;
 }
 
 .v-text {
@@ -563,7 +675,8 @@ body {
     #panel-right {
         display: none;
         position: fixed;
-        top: 0;
+        top: 60px;
+        /* Toolbar height approx */
         left: 0;
         right: 0;
         bottom: 60px;
@@ -571,6 +684,11 @@ body {
         width: 100%;
         z-index: 100;
         border: none;
+        background: rgba(255, 255, 255, 0.85);
+        /* Glassmorphism */
+        backdrop-filter: blur(10px);
+        -webkit-backdrop-filter: blur(10px);
+        box-shadow: 0 4px 30px rgba(0, 0, 0, 0.1);
     }
 
     #sidebar.active,
@@ -578,6 +696,19 @@ body {
         display: flex;
         /* Sidebarはflex column */
         flex-direction: column;
+        animation: slideUp 0.3s ease-out;
+    }
+
+    @keyframes slideUp {
+        from {
+            transform: translateY(100%);
+            opacity: 0;
+        }
+
+        to {
+            transform: translateY(0);
+            opacity: 1;
+        }
     }
 
     #panel-right.active {
@@ -586,34 +717,60 @@ body {
     }
 
     #editor-main {
-        height: calc(100vh - 60px);
-        padding: 10px;
-        box-sizing: border-box;
-        overflow-y: auto;
+        position: fixed;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 60px;
+        padding: 0;
+        z-index: 0;
+        background: #222;
+        display: block;
+        /* Override flex */
     }
 
     #canvas-view {
         width: 100%;
-        height: auto;
-        aspect-ratio: 9/16;
-        box-shadow: 0 5px 15px rgba(0, 0, 0, 0.1);
+        height: 100%;
+        box-shadow: none;
+        background: #222;
+        aspect-ratio: auto;
     }
 
+    /* ツールバー Glassmorphism */
     .toolbar {
-        flex-wrap: wrap;
-        justify-content: center;
-        gap: 4px;
-        padding: 4px;
+        position: fixed;
+        top: 10px;
+        left: 10px;
+        right: 10px;
+        z-index: 50;
+        background: rgba(255, 255, 255, 0.7);
+        backdrop-filter: blur(8px);
+        -webkit-backdrop-filter: blur(8px);
+        border: 1px solid rgba(255, 255, 255, 0.3);
+        flex-wrap: nowrap;
+        overflow-x: auto;
+        justify-content: flex-start;
+        padding: 8px;
     }
 
     .toolbar .project-title {
-        max-width: 80px;
+        max-width: 100px;
         font-size: 11px;
     }
 
-    /* モバイルナビ表示 */
+    /* モバイルナビ Glassmorphism */
     #mobile-nav {
         display: flex;
+        background: rgba(255, 255, 255, 0.8);
+        backdrop-filter: blur(10px);
+        -webkit-backdrop-filter: blur(10px);
+        border-top: 1px solid rgba(255, 255, 255, 0.3);
+    }
+
+    /* FAB位置調整 */
+    .fab-btn {
+        bottom: 80px;
     }
 
     /* モーダルも少し調整 */
