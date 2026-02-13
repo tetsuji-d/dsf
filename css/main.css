@@ -4,6 +4,20 @@
     --border: #d2d2d7;
 }
 
+* {
+    box-sizing: border-box;
+    -webkit-tap-highlight-color: transparent;
+}
+
+html {
+    overflow-x: hidden;
+}
+
+img {
+    max-width: 100%;
+    height: auto;
+}
+
 body {
     margin: 0;
     display: flex;
