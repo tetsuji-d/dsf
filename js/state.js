@@ -4,7 +4,11 @@
  */
 export const state = {
     projectId: null,
+    title: '',               // 作品タイトル（ヘッダー表示用）
     languages: ['ja'],       // プロジェクトの対応言語
+    languageConfigs: {
+        ja: { writingMode: 'vertical-rl' }
+    },
     activeLang: 'ja',        // エディタで表示中の言語
     sections: [
         {
@@ -17,5 +21,6 @@ export const state = {
         }
     ],
     activeIdx: 0,
-    activeBubbleIdx: null
+    activeBubbleIdx: null,
+    thumbSize: 'M'
 };

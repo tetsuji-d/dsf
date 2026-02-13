@@ -3,20 +3,23 @@
 
 <head>
     <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0">
     <title>DSF Studio Pro - Ultimate Edition</title>
     <link rel="stylesheet" href="css/main.css">
+    <link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet">
 </head>
 
 <body>
 
     <div id="sidebar">
-        <div class="sidebar-header">
-            <button class="btn-icon" onclick="openProjectModal()">📂 プロジェクト</button>
-            <button class="btn-icon" onclick="newProject()">＋ 新規</button>
-        </div>
+
         <div style="padding:8px 10px; border-bottom:1px solid #eee;">
-            <label style="font-size:11px;">サムネイルサイズ</label>
-            <input type="range" min="50" max="100" value="100" oninput="resizeThumbs(this.value)">
+            <label style="font-size:11px;">サイズ:</label>
+            <div class="thumb-size-buttons">
+                <button class="btn-sm" onclick="setThumbSize('S')">S</button>
+                <button class="btn-sm" onclick="setThumbSize('M')">M</button>
+                <button class="btn-sm" onclick="setThumbSize('L')">L</button>
+            </div>
         </div>
         <div id="thumb-container"></div>
         <div style="padding:10px;"><button class="btn" onclick="addSection()">+ セクション追加</button></div>
@@ -29,19 +32,52 @@
             <button id="btn-redo" class="btn-tool" onclick="performRedo()" title="やり直す (Ctrl+Shift+Z)"
                 disabled>↪</button>
             <div class="divider"></div>
-            <span id="project-title" class="project-title">新規プロジェクト</span>
+            <div class="project-controls">
+                <button class="btn-tool" onclick="openProjectModal()" title="プロジェクト一覧">📂</button>
+                <button class="btn-tool" onclick="newProject()" title="新規プロジェクト">📄</button>
+                <span id="project-title" class="project-title" contenteditable="true" oninput="onProjectTitleInput()"
+                    onkeydown="onProjectTitleKeydown(event)" onblur="onProjectTitleBlur()">新規プロジェクト</span>
+                <button id="btn-save" class="btn-tool" onclick="saveProject()" title="保存">💾</button>
+                <button class="btn-tool" onclick="exportProject()" title="エクスポート (.dsf)">⬇</button>
+                <button class="btn-tool" onclick="shareProject()" title="ビューワーURLを共有">🔗</button>
+            </div>
             <span id="save-status" class="save-status"></span>
             <div class="divider"></div>
             <div id="lang-tabs" class="lang-tabs"></div>
         </div>
         <!-- キャンバス -->
-        <div id="canvas-view" onmousedown="handleCanvasClick(event)">
-            <div id="content-render"></div>
-            <div id="bubble-layer"></div>
+        <!-- キャンバス -->
+        <div id="canvas-view" onmousedown="handleCanvasClick(event)" ontouchstart="handleCanvasClick(event)">
+            <!-- ズーム・移動用レイヤー -->
+            <div id="canvas-transform-layer">
+                <div id="content-render"></div>
+                <div id="bubble-layer"></div>
+                <!-- ヘッダー/フッターガイド -->
+                <div id="header-guide" class="canvas-guide header-guide"><span id="header-guide-title"></span></div>
+                <div id="footer-guide" class="canvas-guide footer-guide"><span class="footer-guide-label">フッター領域</span>
+                </div>
+            </div>
+
+            <!-- FAB (吹き出し追加) -->
+            <button id="fab-add-bubble" class="fab-btn" onclick="addBubbleFab()" title="吹き出し追加">
+                <span class="material-icons">add_comment</span>
+            </button>
+
+            <!-- キャンバスリセットボタン -->
+            <button id="btn-reset-view" class="reset-view-btn" onclick="resetCanvasView()" title="全体表示">
+                <span class="material-icons">restart_alt</span>
+            </button>
         </div>
     </div>
 
     <div id="panel-right">
+        <div class="control-group">
+            <h4>作品設定</h4>
+            <label>作品タイトル（ヘッダー表示）</label>
+            <input type="text" id="prop-title" placeholder="タイトルを入力"
+                style="width:100%; padding:6px 8px; margin-bottom:10px; border:1px solid #ccc; border-radius:4px; font-size:13px;"
+                oninput="updateTitle(this.value)">
+        </div>
         <div class="control-group">
             <h4>セクション設定</h4>
             <label>タイプ</label>
@@ -51,15 +87,19 @@
             </select>
 
             <div id="image-only-props">
-                <label>背景画像アップロード</label>
-                <input type="file" accept="image/*" onchange="uploadToStorage(this)">
+                <label>背景画像変更 / 位置調整</label>
+                <div style="display:flex; gap:8px; margin-bottom:10px;">
+                    <button class="btn-sm" onclick="document.getElementById('file-upload').click()" style="flex:1;">
+                        <span class="material-icons" style="font-size:16px; vertical-align:middle;">image</span> 画像変更
+                    </button>
+                    <button class="btn-sm" onclick="toggleImageAdjustment()" id="btn-adjust-img" style="flex:1;"
+                        title="位置・サイズ調整">
+                        <span class="material-icons" style="font-size:16px; vertical-align:middle;">crop_free</span> 調整
+                    </button>
+                </div>
+                <input type="file" id="file-upload" accept="image/*" onchange="uploadToStorage(this)"
+                    style="display:none;">
             </div>
-
-            <label>文字の向き</label>
-            <select id="prop-mode" onchange="update('writingMode', this.value)" style="width:100%; margin-bottom:10px;">
-                <option value="horizontal-tb">横書き</option>
-                <option value="vertical-rl">縦書き</option>
-            </select>
 
             <div id="bubble-shape-props">
                 <label>吹き出し形状</label>
@@ -81,6 +121,14 @@
         <div class="control-group">
             <h4>言語設定</h4>
             <div id="lang-list"></div>
+
+            <label style="margin-top:10px; display:block;">文字の向き (現在の言語)</label>
+            <select id="lang-writing-mode" onchange="updateGlobalWritingMode(this.value)"
+                style="width:100%; margin-bottom:10px;">
+                <option value="horizontal-tb">横書き (→)</option>
+                <option value="vertical-rl">縦書き (↓)</option>
+            </select>
+
             <div style="display:flex; gap:6px; margin-top:8px;">
                 <select id="lang-add-select" style="flex:1;">
                     <option value="en">English</option>
@@ -90,11 +138,23 @@
             </div>
         </div>
 
-        <div class="control-group" style="background:#eef7ff;">
-            <h4>プロジェクト</h4>
-            <button class="btn" style="background:var(--primary); color:#fff;"
-                onclick="saveAsProject()">名前を付けて保存</button>
-        </div>
+
+    </div>
+
+    <!-- モバイル用ボトムナビゲーション -->
+    <div id="mobile-nav">
+        <button class="nav-item" onclick="toggleMobilePanel('sidebar')">
+            <span class="nav-icon">layers</span>
+            <span class="nav-label">レイヤー</span>
+        </button>
+        <button class="nav-item active" onclick="toggleMobilePanel('editor')">
+            <span class="nav-icon">edit</span>
+            <span class="nav-label">編集</span>
+        </button>
+        <button class="nav-item" onclick="toggleMobilePanel('properties')">
+            <span class="nav-icon">settings</span>
+            <span class="nav-label">設定</span>
+        </button>
     </div>
 
     <!-- プロジェクト一覧モーダル -->

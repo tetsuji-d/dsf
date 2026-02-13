@@ -43,7 +43,10 @@ export async function openProjectModal(onLoadProject) {
             const data = docSnap.data();
             projects.push({
                 id: docSnap.id,
+                title: data.title || '',
                 sections: data.sections || [],
+                languages: data.languages || ['ja'],
+                languageConfigs: data.languageConfigs || null,
                 lastUpdated: data.lastUpdated?.toDate?.() || new Date(0)
             });
         });
@@ -85,7 +88,7 @@ export async function openProjectModal(onLoadProject) {
                 const pid = card.dataset.id;
                 const project = projects.find(p => p.id === pid);
                 if (project) {
-                    onLoadProject(pid, project.sections);
+                    onLoadProject(pid, project.sections, project.languages, project.languageConfigs, project.title);
                     closeProjectModal();
                 }
             });
@@ -121,11 +124,15 @@ export function closeProjectModal() {
 
 /**
  * セクション配列から表紙画像URLを取得
+ * サムネイルがあれば優先して使用
  */
 function getCoverImage(sections) {
     if (!sections || sections.length === 0) return null;
     const first = sections[0];
-    if (first.type === 'image' && first.background) return first.background;
+    if (first.type === 'image') {
+        if (first.thumbnail) return first.thumbnail;
+        if (first.background) return first.background;
+    }
     return null;
 }
 

@@ -9,6 +9,7 @@
     "test:firebase": "node scripts/verify-firebase.js"
   },
   "devDependencies": {
+    "firebase-tools": "^15.5.1",
     "vite": "^5.0.0"
   },
   "dependencies": {
