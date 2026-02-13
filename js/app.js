@@ -2,7 +2,7 @@
  * app.js — メインエントリポイント・描画・UI同期
  */
 import { state } from './state.js';
-import { saveProject, loadProject, uploadToStorage, triggerAutoSave, generateCroppedThumbnail } from './firebase.js';
+import { saveProject, loadProject, uploadToStorage, triggerAutoSave, generateCroppedThumbnail, signInWithGoogle, signOutUser, onAuthChanged } from './firebase.js';
 import { handleCanvasClick, selectBubble, renderBubbleHTML, getBubbleText, setBubbleText, addBubbleAtCenter, startDrag } from './bubbles.js';
 import { addSection, changeSection, renderThumbs, deleteActive } from './sections.js';
 import { pushState, undo, redo, getHistoryInfo, clearHistory } from './history.js';
@@ -38,6 +38,30 @@ function getWritingMode(lang) {
     // Fallback / Default
     const props = getLangProps(lang);
     return props.defaultWritingMode || 'horizontal-tb';
+}
+
+function updateAuthUI() {
+    const signedIn = !!state.uid;
+    const authBtn = document.getElementById('btn-auth');
+    const authStatus = document.getElementById('auth-status');
+    const saveStatus = document.getElementById('save-status');
+
+    if (authBtn) {
+        authBtn.textContent = signedIn ? 'Sign out' : 'Sign in with Google';
+        authBtn.title = signedIn ? 'ログアウト' : 'Googleでログイン';
+    }
+    if (authStatus) {
+        authStatus.textContent = signedIn
+            ? `👤 ${state.user?.displayName || state.user?.email || 'Signed in'}`
+            : '未ログイン';
+    }
+    if (!signedIn && saveStatus) {
+        saveStatus.textContent = 'ログインしてください';
+        saveStatus.style.color = '#999';
+    }
+    document.querySelectorAll('[data-auth-required]').forEach((el) => {
+        el.disabled = !signedIn;
+    });
 }
 
 // ──────────────────────────────────────
@@ -697,12 +721,16 @@ window.shareProject = async () => {
         alert("プロジェクトが保存されていません。");
         return;
     }
+    if (!state.uid) {
+        alert("ログインしてください。");
+        return;
+    }
     // Ensure save
     await triggerAutoSave();
 
     // Construct URL
     const host = window.location.host;
-    const url = `${window.location.protocol}//${host}/viewer.html?id=${encodeURIComponent(state.projectId)}`;
+    const url = `${window.location.protocol}//${host}/viewer.html?id=${encodeURIComponent(state.projectId)}&uid=${encodeURIComponent(state.uid)}`;
 
     // Copy to clipboard
     try {
@@ -823,8 +851,27 @@ window.toggleMobilePanel = (panelName) => {
     // 'editor' just leaves panels hidden (showing main content)
 };
 
+window.toggleAuth = async () => {
+    try {
+        if (state.uid) {
+            await signOutUser();
+        } else {
+            await signInWithGoogle();
+        }
+    } catch (e) {
+        alert(`認証に失敗しました: ${e.message}`);
+    }
+};
+
+onAuthChanged((user) => {
+    state.user = user || null;
+    state.uid = user?.uid || null;
+    updateAuthUI();
+});
+
 // --- 初回描画 ---
 refresh();
 renderLangSettings();
+updateAuthUI();
 initCanvasZoom(); // Initialize zoom/pan
 initImageAdjustment(); // Initialize image adjustment events

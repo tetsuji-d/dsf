@@ -49,8 +49,9 @@ function init() {
     // Check URL Param
     const params = new URLSearchParams(window.location.search);
     const pid = params.get('id');
+    const uid = params.get('uid');
     if (pid) {
-        loadFromFirestore(pid);
+        loadFromFirestore(pid, uid);
     }
 
     // Resize & Wheel
@@ -103,9 +104,13 @@ window.jumpToPage = function (val) {
     }
 };
 
-async function loadFromFirestore(pid) {
+async function loadFromFirestore(pid, uid) {
     try {
-        const docRef = doc(db, "works", pid);
+        if (!uid) {
+            alert('URLにuidが必要です。');
+            return;
+        }
+        const docRef = doc(db, "users", uid, "projects", pid);
         const snap = await getDoc(docRef);
         if (snap.exists()) {
             const data = snap.data();

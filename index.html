@@ -32,14 +32,19 @@
             <button id="btn-redo" class="btn-tool" onclick="performRedo()" title="やり直す (Ctrl+Shift+Z)"
                 disabled>↪</button>
             <div class="divider"></div>
+            <button id="btn-auth" class="btn-tool" onclick="toggleAuth()" title="Googleでログイン">Sign in with Google</button>
+            <span id="auth-status" class="save-status"></span>
+            <div class="divider"></div>
             <div class="project-controls">
-                <button class="btn-tool" onclick="openProjectModal()" title="プロジェクト一覧">📂</button>
+                <button id="btn-projects" class="btn-tool" onclick="openProjectModal()" title="プロジェクト一覧"
+                    data-auth-required>📂</button>
                 <button class="btn-tool" onclick="newProject()" title="新規プロジェクト">📄</button>
                 <span id="project-title" class="project-title" contenteditable="true" oninput="onProjectTitleInput()"
                     onkeydown="onProjectTitleKeydown(event)" onblur="onProjectTitleBlur()">新規プロジェクト</span>
-                <button id="btn-save" class="btn-tool" onclick="saveProject()" title="保存">💾</button>
+                <button id="btn-save" class="btn-tool" onclick="saveProject()" title="保存" data-auth-required>💾</button>
                 <button class="btn-tool" onclick="exportProject()" title="エクスポート (.dsf)">⬇</button>
-                <button class="btn-tool" onclick="shareProject()" title="ビューワーURLを共有">🔗</button>
+                <button id="btn-share" class="btn-tool" onclick="shareProject()" title="ビューワーURLを共有"
+                    data-auth-required>🔗</button>
             </div>
             <span id="save-status" class="save-status"></span>
             <div class="divider"></div>
@@ -89,7 +94,8 @@
             <div id="image-only-props">
                 <label>背景画像変更 / 位置調整</label>
                 <div style="display:flex; gap:8px; margin-bottom:10px;">
-                    <button class="btn-sm" onclick="document.getElementById('file-upload').click()" style="flex:1;">
+                    <button class="btn-sm" onclick="document.getElementById('file-upload').click()" style="flex:1;"
+                        data-auth-required>
                         <span class="material-icons" style="font-size:16px; vertical-align:middle;">image</span> 画像変更
                     </button>
                     <button class="btn-sm" onclick="toggleImageAdjustment()" id="btn-adjust-img" style="flex:1;"
@@ -97,7 +103,7 @@
                         <span class="material-icons" style="font-size:16px; vertical-align:middle;">crop_free</span> 調整
                     </button>
                 </div>
-                <input type="file" id="file-upload" accept="image/*" onchange="uploadToStorage(this)"
+                <input type="file" id="file-upload" accept="image/*" onchange="uploadToStorage(this)" data-auth-required
                     style="display:none;">
             </div>
 

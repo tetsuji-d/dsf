@@ -3,6 +3,8 @@
  * 全モジュールがこのオブジェクトを参照・変更する
  */
 export const state = {
+    user: null,
+    uid: null,
     projectId: null,
     title: '',               // 作品タイトル（ヘッダー表示用）
     languages: ['ja'],       // プロジェクトの対応言語

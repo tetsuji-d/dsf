@@ -4,6 +4,7 @@
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
 import { getFirestore, doc, setDoc, getDoc } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
 import { getStorage, ref, uploadBytes, getDownloadURL } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-storage.js";
+import { getAuth, GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js";
 import { state } from './state.js';
 
 // --- Firebase Config ---
@@ -20,10 +21,35 @@ const firebaseConfig = {
 const app = initializeApp(firebaseConfig);
 export const db = getFirestore(app);
 export const storage = getStorage(app);
+export const auth = getAuth(app);
+const googleProvider = new GoogleAuthProvider();
 
 // --- 自動保存 ---
 let autoSaveTimer = null;
 let saveStatus = 'idle'; // 'idle' | 'saving' | 'saved' | 'error'
+
+function requireUid() {
+    if (!state.uid) throw new Error("ログインしてください");
+    return state.uid;
+}
+
+function projectDocRef(projectId) {
+    const uid = requireUid();
+    return doc(db, "users", uid, "projects", projectId);
+}
+
+export async function signInWithGoogle() {
+    const result = await signInWithPopup(auth, googleProvider);
+    return result.user;
+}
+
+export async function signOutUser() {
+    await signOut(auth);
+}
+
+export function onAuthChanged(callback) {
+    return onAuthStateChanged(auth, callback);
+}
 
 /**
  * 保存ステータスを更新してUIに反映する
@@ -44,7 +70,7 @@ function updateSaveIndicator(status, message) {
  * 自動保存をトリガーする（2秒デバウンス）
  */
 export function triggerAutoSave() {
-    if (!state.projectId) return;
+    if (!state.projectId || !state.uid) return;
 
     if (autoSaveTimer) clearTimeout(autoSaveTimer);
 
@@ -59,16 +85,18 @@ export function triggerAutoSave() {
  * 実際の保存処理
  */
 async function performSave() {
-    if (!state.projectId) return;
+    if (!state.projectId || !state.uid) return;
 
     updateSaveIndicator('saving', '保存中...');
 
     try {
-        await setDoc(doc(db, "works", state.projectId), {
+        await setDoc(projectDocRef(state.projectId), {
             title: state.title || '',
             sections: state.sections,
             languages: state.languages,
             languageConfigs: state.languageConfigs,
+            ownerUid: state.uid,
+            ownerEmail: state.user?.email || '',
             lastUpdated: new Date()
         });
         updateSaveIndicator('saved', '保存済み');
@@ -83,10 +111,21 @@ async function performSave() {
  * 手動保存（プロジェクトIDを新規設定して保存）
  */
 export async function saveAsProject() {
+    requireUid();
     const pid = prompt("プロジェクト名を入力してください:", state.projectId || "");
     if (!pid) return;
 
     state.projectId = pid;
+    await performSave();
+}
+
+/**
+ * 後方互換: 旧API `saveProject` を維持する
+ * @param {string=} pid - 任意のプロジェクトID
+ */
+export async function saveProject(pid) {
+    requireUid();
+    if (pid) state.projectId = pid;
     await performSave();
 }
 
@@ -139,12 +178,13 @@ function compressImage(file, maxWidth, quality) {
  */
 export async function generateCroppedThumbnail(bgUrl, pos, refresh) {
     if (!bgUrl) return;
+    const uid = requireUid();
 
     try {
         const timestamp = Date.now();
         // オリジナルファイル名はURLから推測（簡易的）
         const filename = "cropped_" + timestamp;
-        const thumbPath = `dsf/thumbs/${timestamp}_${filename}_thumb.webp`;
+        const thumbPath = `users/${uid}/dsf/thumbs/${timestamp}_${filename}_thumb.webp`;
 
         // Canvasで描画
         const img = new Image();
@@ -235,6 +275,7 @@ export async function generateCroppedThumbnail(bgUrl, pos, refresh) {
  * @param {function} refresh - 画面更新コールバック
  */
 export async function uploadToStorage(input, refresh) {
+    const uid = requireUid();
     const file = input.files[0];
     if (!file) return;
 
@@ -253,8 +294,8 @@ export async function uploadToStorage(input, refresh) {
         // オリジナル拡張子は無視して .webp に統一
         const filename = file.name.replace(/\.[^/.]+$/, "");
 
-        const mainPath = `dsf/${timestamp}_${filename}.webp`;
-        const thumbPath = `dsf/thumbs/${timestamp}_${filename}_thumb.webp`;
+        const mainPath = `users/${uid}/dsf/${timestamp}_${filename}.webp`;
+        const thumbPath = `users/${uid}/dsf/thumbs/${timestamp}_${filename}_thumb.webp`;
 
         document.getElementById('text-label').innerText = "アップロード中...";
 
@@ -300,7 +341,8 @@ export async function uploadToStorage(input, refresh) {
  * @param {function} refresh - 画面更新コールバック
  */
 export async function loadProject(pid, refresh) {
-    const snap = await getDoc(doc(db, "works", pid));
+    if (!state.uid) return;
+    const snap = await getDoc(projectDocRef(pid));
     if (snap.exists()) {
         const data = snap.data();
         state.projectId = pid;

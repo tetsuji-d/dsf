@@ -1,29 +1,9 @@
 /**
  * projects.js — プロジェクト一覧モーダル管理
  */
-import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
-import { getFirestore, collection, getDocs, deleteDoc, doc } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
+import { collection, getDocs, deleteDoc, doc } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
 import { state } from './state.js';
-
-// Firebase は firebase.js で既に初期化済みなので、同じ設定を使う
-const firebaseConfig = {
-    apiKey: "AIzaSyBj3U-wFkNsWlW1d4OHayerECMIRyhQ40o",
-    authDomain: "vmnn-26345.firebaseapp.com",
-    projectId: "vmnn-26345",
-    storageBucket: "vmnn-26345.firebasestorage.app",
-    messagingSenderId: "16688261830",
-    appId: "1:16688261830:web:c218463dd6429774eb3c77",
-    measurementId: "G-N6J9C3XCVQ"
-};
-
-let db;
-try {
-    const app = initializeApp(firebaseConfig, 'projects');
-    db = getFirestore(app);
-} catch (e) {
-    // 既に初期化済みの場合
-    db = getFirestore();
-}
+import { db } from './firebase.js';
 
 /**
  * プロジェクト一覧モーダルを開く
@@ -36,8 +16,13 @@ export async function openProjectModal(onLoadProject) {
     modal.classList.add('visible');
     grid.innerHTML = '<div class="project-loading">読み込み中...</div>';
 
+    if (!state.uid) {
+        grid.innerHTML = '<div class="project-loading">ログインしてください</div>';
+        return;
+    }
+
     try {
-        const snapshot = await getDocs(collection(db, "works"));
+        const snapshot = await getDocs(collection(db, "users", state.uid, "projects"));
         const projects = [];
         snapshot.forEach(docSnap => {
             const data = docSnap.data();
@@ -101,7 +86,7 @@ export async function openProjectModal(onLoadProject) {
                 const pid = btn.dataset.deleteId;
                 if (!confirm(`「${pid}」を削除しますか？`)) return;
                 try {
-                    await deleteDoc(doc(db, "works", pid));
+                    await deleteDoc(doc(db, "users", state.uid, "projects", pid));
                     btn.closest('.project-card').remove();
                 } catch (err) {
                     alert("削除に失敗しました: " + err.message);
