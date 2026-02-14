@@ -4,10 +4,14 @@
 import { state } from './state.js';
 import { renderBubbleHTML } from './bubbles.js';
 import { getLangProps } from './lang.js';
-import { db } from './firebase.js';
+import { db, signInWithGoogle, signOutUser, onAuthChanged, consumeRedirectResult } from './firebase.js';
 import { doc, getDoc } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
 
 let currentProject = null;
+let sharedProjectRef = null;
+let isProjectLoading = false;
+let projectLoaded = false;
+let lastLoadErrorCode = '';
 
 // ──────────────────────────────────────
 //  Zoom & Pan State
@@ -46,12 +50,15 @@ function init() {
     }
     document.addEventListener('keydown', handleKeydown);
 
+    initAuthHandlers();
+
     // Check URL Param
     const params = new URLSearchParams(window.location.search);
     const pid = params.get('id');
     const uid = params.get('uid');
     if (pid) {
-        loadFromFirestore(pid, uid);
+        sharedProjectRef = { pid, uid };
+        attemptLoadSharedProject();
     }
 
     // Resize & Wheel
@@ -69,7 +76,76 @@ function init() {
         layer.addEventListener('touchend', handleTouchEnd);
     }
 
+    updateUiVisibility();
     resizeCanvas();
+}
+
+function isPermissionDeniedError(code) {
+    return code === 'permission-denied' || code === 'firestore/permission-denied';
+}
+
+function updateViewerAuthUI(user) {
+    const btn = document.getElementById('viewer-auth-btn');
+    const status = document.getElementById('viewer-auth-status');
+    const signedIn = !!user;
+
+    if (btn) {
+        btn.textContent = signedIn ? 'Sign out' : 'Sign in';
+        btn.title = signedIn ? 'ログアウト' : 'Googleでログイン';
+    }
+    if (status) {
+        status.textContent = signedIn
+            ? (user.displayName || user.email || 'Signed in')
+            : 'ゲスト';
+    }
+}
+
+function initAuthHandlers() {
+    consumeRedirectResult().catch((e) => {
+        console.warn('[Viewer] Redirect result failed:', e);
+        const code = e?.code || 'no-code';
+        alert(`ログイン復帰に失敗しました (${code}): ${e?.message || 'unknown error'}`);
+    });
+
+    onAuthChanged((user) => {
+        state.user = user || null;
+        state.uid = user?.uid || null;
+        updateViewerAuthUI(user);
+
+        const shouldRetryLoad = sharedProjectRef
+            && (!projectLoaded || isPermissionDeniedError(lastLoadErrorCode));
+        if (shouldRetryLoad) {
+            attemptLoadSharedProject();
+        }
+    });
+}
+
+window.viewerToggleAuth = async () => {
+    try {
+        if (state.uid) {
+            await signOutUser();
+            return;
+        }
+        await signInWithGoogle();
+    } catch (e) {
+        const code = e?.code || 'no-code';
+        alert(`認証に失敗しました (${code}): ${e?.message || 'unknown error'}`);
+    }
+};
+
+async function attemptLoadSharedProject() {
+    if (!sharedProjectRef || isProjectLoading) return;
+
+    isProjectLoading = true;
+    try {
+        const ok = await loadFromFirestore(sharedProjectRef.pid, sharedProjectRef.uid);
+        if (ok) {
+            projectLoaded = true;
+            lastLoadErrorCode = '';
+        }
+    } finally {
+        isProjectLoading = false;
+    }
 }
 
 // ──────────────────────────────────────
@@ -78,7 +154,7 @@ function init() {
 // ──────────────────────────────────────
 //  UI Visibility
 // ──────────────────────────────────────
-let isUiVisible = false;
+let isUiVisible = true;
 
 window.toggleUi = function () {
     isUiVisible = !isUiVisible;
@@ -108,7 +184,7 @@ async function loadFromFirestore(pid, uid) {
     try {
         if (!uid) {
             alert('URLにuidが必要です。');
-            return;
+            return false;
         }
         const docRef = doc(db, "users", uid, "projects", pid);
         const snap = await getDoc(docRef);
@@ -116,12 +192,22 @@ async function loadFromFirestore(pid, uid) {
             const data = snap.data();
             data.projectId = pid; // Ensure ID is set
             loadProjectData(data);
+            return true;
         } else {
             alert('プロジェクトが見つかりませんでした: ' + pid);
+            return false;
         }
     } catch (e) {
         console.error(e);
+        lastLoadErrorCode = e?.code || '';
+        if (isPermissionDeniedError(lastLoadErrorCode)) {
+            alert('読み込みエラー: 閲覧にはログインが必要です。右上の Sign in を押してください。');
+            isUiVisible = true;
+            updateUiVisibility();
+            return false;
+        }
         alert('読み込みエラー: ' + e.message);
+        return false;
     }
 }
 
@@ -212,8 +298,16 @@ function refresh() {
 
     // 1. Content
     if (s.type === 'image') {
-        const pos = s.imagePosition || { x: 0, y: 0, scale: 1 };
-        const imgStyle = `width:100%; height:100%; object-fit:cover; transform: translate(${pos.x}px, ${pos.y}px) scale(${pos.scale}); transform-origin: center center;`;
+        const toNum = (v, fallback) => {
+            const n = Number(v);
+            return Number.isFinite(n) ? n : fallback;
+        };
+        const pos = s.imagePosition || {};
+        const x = toNum(pos.x, 0);
+        const y = toNum(pos.y, 0);
+        const scale = Math.max(0.1, toNum(pos.scale, 1));
+        const rotation = toNum(pos.rotation, 0);
+        const imgStyle = `width:100%; height:100%; object-fit:cover; transform: translate(${x}px, ${y}px) scale(${scale}) rotate(${rotation}deg); transform-origin: center center;`;
         contentEl.innerHTML = `<img src="${s.background}" style="${imgStyle}">`;
     } else {
         let text = s.text || '';
@@ -357,6 +451,8 @@ function prev() {
         refresh();
     }
 }
+window.next = next;
+window.prev = prev;
 
 function getNextPageDirection() {
     const lang = state.activeLang;

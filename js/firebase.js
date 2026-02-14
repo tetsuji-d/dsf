@@ -4,18 +4,30 @@
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
 import { getFirestore, doc, setDoc, getDoc } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
 import { getStorage, ref, uploadBytes, getDownloadURL } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-storage.js";
-import { getAuth, GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js";
+import {
+    getAuth,
+    GoogleAuthProvider,
+    signInWithPopup,
+    signInWithRedirect,
+    getRedirectResult,
+    setPersistence,
+    browserLocalPersistence,
+    browserSessionPersistence,
+    inMemoryPersistence,
+    signOut,
+    onAuthStateChanged
+} from "https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js";
 import { state } from './state.js';
 
 // --- Firebase Config ---
 const firebaseConfig = {
-    apiKey: "AIzaSyBj3U-wFkNsWlW1d4OHayerECMIRyhQ40o",
-    authDomain: "vmnn-26345.firebaseapp.com",
-    projectId: "vmnn-26345",
-    storageBucket: "vmnn-26345.firebasestorage.app",
-    messagingSenderId: "16688261830",
-    appId: "1:16688261830:web:c218463dd6429774eb3c77",
-    measurementId: "G-N6J9C3XCVQ"
+  apiKey: "AIzaSyBj3U-wFKnsWlwId4OHAyerEGMiRYhQN0o",
+  authDomain: "vmnn-26345.web.app",
+  projectId: "vmnn-26345",
+  storageBucket: "vmnn-26345.firebasestorage.app",
+  messagingSenderId: "166808261830",
+  appId: "1:166808261830:web:c218463dd04297749eb3c7",
+  measurementId: "G-N639C3XCVQ"
 };
 
 const app = initializeApp(firebaseConfig);
@@ -23,6 +35,44 @@ export const db = getFirestore(app);
 export const storage = getStorage(app);
 export const auth = getAuth(app);
 const googleProvider = new GoogleAuthProvider();
+let authInitPromise = null;
+let authPersistenceLevel = 'unknown'; // local | session | memory | unavailable
+
+function isIOSDevice() {
+    if (typeof navigator === 'undefined') return false;
+    const ua = navigator.userAgent || '';
+    const iOSUA = /iPad|iPhone|iPod/i.test(ua);
+    // iPadOS desktop UA support
+    const iPadOS = navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1;
+    return iOSUA || iPadOS;
+}
+
+async function ensureAuthPersistence() {
+    if (authInitPromise) return authInitPromise;
+    authInitPromise = (async () => {
+        try {
+            await setPersistence(auth, browserLocalPersistence);
+            authPersistenceLevel = 'local';
+            return;
+        } catch (_) {
+            // Continue with weaker persistence fallback
+        }
+        try {
+            await setPersistence(auth, browserSessionPersistence);
+            authPersistenceLevel = 'session';
+            return;
+        } catch (_) {
+            // Continue with weakest persistence fallback
+        }
+        try {
+            await setPersistence(auth, inMemoryPersistence);
+            authPersistenceLevel = 'memory';
+        } catch (_) {
+            authPersistenceLevel = 'unavailable';
+        }
+    })();
+    return authInitPromise;
+}
 
 // --- 自動保存 ---
 let autoSaveTimer = null;
@@ -39,8 +89,33 @@ function projectDocRef(projectId) {
 }
 
 export async function signInWithGoogle() {
-    const result = await signInWithPopup(auth, googleProvider);
-    return result.user;
+    await ensureAuthPersistence();
+    // Redirect login requires persistence that survives full-page navigation.
+    if (isIOSDevice() && authPersistenceLevel === 'memory') {
+        const err = new Error('ブラウザ設定によりログイン状態を保持できません。SafariでプライベートブラウズOFF/すべてのCookieをブロックOFFを確認してください。');
+        err.code = 'auth/persistence-unavailable';
+        throw err;
+    }
+    if (isIOSDevice()) {
+        await signInWithRedirect(auth, googleProvider);
+        return null;
+    }
+    try {
+        const result = await signInWithPopup(auth, googleProvider);
+        return result.user;
+    } catch (e) {
+        const popupFallbackCodes = new Set([
+            'auth/popup-blocked',
+            'auth/popup-closed-by-user',
+            'auth/cancelled-popup-request',
+            'auth/operation-not-supported-in-this-environment'
+        ]);
+        if (popupFallbackCodes.has(e?.code)) {
+            await signInWithRedirect(auth, googleProvider);
+            return null;
+        }
+        throw e;
+    }
 }
 
 export async function signOutUser() {
@@ -49,6 +124,11 @@ export async function signOutUser() {
 
 export function onAuthChanged(callback) {
     return onAuthStateChanged(auth, callback);
+}
+
+export async function consumeRedirectResult() {
+    await ensureAuthPersistence();
+    return getRedirectResult(auth);
 }
 
 /**
@@ -224,9 +304,17 @@ export async function generateCroppedThumbnail(bgUrl, pos, refresh) {
         ctx.save();
 
         // 中心基準で変形するため、中心へ移動
+        const safePos = {
+            x: Number.isFinite(Number(pos?.x)) ? Number(pos.x) : 0,
+            y: Number.isFinite(Number(pos?.y)) ? Number(pos.y) : 0,
+            scale: Math.max(0.1, Number.isFinite(Number(pos?.scale)) ? Number(pos.scale) : 1),
+            rotation: Number.isFinite(Number(pos?.rotation)) ? Number(pos.rotation) : 0
+        };
+
         ctx.translate(targetW / 2, targetH / 2);
-        ctx.translate(pos.x * ratio, pos.y * ratio);
-        ctx.scale(pos.scale, pos.scale);
+        ctx.translate(safePos.x * ratio, safePos.y * ratio);
+        ctx.rotate((safePos.rotation * Math.PI) / 180);
+        ctx.scale(safePos.scale, safePos.scale);
 
         // imgを描画。object-fit:cover の挙動を再現する必要がある。
         // imgのアスペクト比と枠のアスペクト比を比較
@@ -317,6 +405,8 @@ export async function uploadToStorage(input, refresh) {
         // 4. ステート更新
         state.sections[state.activeIdx].background = mainUrl;
         state.sections[state.activeIdx].thumbnail = thumbUrl; // サムネイル保存
+        state.sections[state.activeIdx].imagePosition = { x: 0, y: 0, scale: 1, rotation: 0 };
+        state.sections[state.activeIdx].imageBasePosition = { x: 0, y: 0, scale: 1, rotation: 0 };
 
         refresh();
         triggerAutoSave();

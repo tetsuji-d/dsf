@@ -179,6 +179,8 @@
         <div id="viewer-header" class="ui-bar">
             <div class="ui-title" id="ui-title"></div>
             <div class="ui-controls">
+                <span id="viewer-auth-status" class="page-count" style="min-width:72px;">ゲスト</span>
+                <button id="viewer-auth-btn" class="btn-sm" onclick="viewerToggleAuth()">Sign in</button>
                 <!-- Language Select (Styled) -->
                 <select id="lang-select" onchange="switchViewerLang(this.value)"
                     style="padding:4px; border-radius:4px; border:1px solid #ccc; font-size:12px; display:none;">

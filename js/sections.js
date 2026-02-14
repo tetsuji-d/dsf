@@ -44,7 +44,8 @@ export function renderThumbs() {
                 const pos = s.imagePosition || { x: 0, y: 0, scale: 1 };
                 const tx = (pos.x / 360) * 100;
                 const ty = (pos.y / 640) * 100;
-                const style = `transform: translate(${tx}%, ${ty}%) scale(${pos.scale}); transform-origin: center center; width:100%; height:100%; object-fit:cover;`;
+                const rot = Number.isFinite(Number(pos.rotation)) ? Number(pos.rotation) : 0;
+                const style = `transform: translate(${tx}%, ${ty}%) scale(${pos.scale}) rotate(${rot}deg); transform-origin: center center; width:100%; height:100%; object-fit:cover;`;
                 return `<div style="width:100%;height:100%;overflow:hidden;border-radius:4px;"><img class="thumb-canvas" src="${s.background}" style="${style}"></div>`;
             } else {
                 return `<div class="thumb-canvas" style="display:flex;align-items:center;justify-content:center;font-size:10px;padding:5px;background:#fff;">${s.text}</div>`;

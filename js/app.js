@@ -2,7 +2,7 @@
  * app.js — メインエントリポイント・描画・UI同期
  */
 import { state } from './state.js';
-import { saveProject, loadProject, uploadToStorage, triggerAutoSave, generateCroppedThumbnail, signInWithGoogle, signOutUser, onAuthChanged } from './firebase.js';
+import { saveProject, loadProject, uploadToStorage, triggerAutoSave, generateCroppedThumbnail, signInWithGoogle, signOutUser, onAuthChanged, consumeRedirectResult } from './firebase.js';
 import { handleCanvasClick, selectBubble, renderBubbleHTML, getBubbleText, setBubbleText, addBubbleAtCenter, startDrag } from './bubbles.js';
 import { addSection, changeSection, renderThumbs, deleteActive } from './sections.js';
 import { pushState, undo, redo, getHistoryInfo, clearHistory } from './history.js';
@@ -43,6 +43,7 @@ function getWritingMode(lang) {
 function updateAuthUI() {
     const signedIn = !!state.uid;
     const authBtn = document.getElementById('btn-auth');
+    const authBtnMobile = document.getElementById('btn-auth-mobile');
     const authStatus = document.getElementById('auth-status');
     const saveStatus = document.getElementById('save-status');
 
@@ -50,17 +51,24 @@ function updateAuthUI() {
         authBtn.textContent = signedIn ? 'Sign out' : 'Sign in with Google';
         authBtn.title = signedIn ? 'ログアウト' : 'Googleでログイン';
     }
+    if (authBtnMobile) {
+        authBtnMobile.textContent = signedIn ? 'Sign out' : 'Sign in';
+    }
     if (authStatus) {
         authStatus.textContent = signedIn
-            ? `👤 ${state.user?.displayName || state.user?.email || 'Signed in'}`
-            : '未ログイン';
+            ? `${state.user?.displayName || state.user?.email || 'Signed in'}`
+            : 'ゲスト';
     }
-    if (!signedIn && saveStatus) {
-        saveStatus.textContent = 'ログインしてください';
-        saveStatus.style.color = '#999';
+    if (!signedIn && saveStatus && !saveStatus.textContent.trim()) {
+        saveStatus.textContent = 'ログインでクラウド保存';
+        saveStatus.style.color = '#8a5d00';
     }
+    document.body.classList.toggle('auth-guest', !signedIn);
     document.querySelectorAll('[data-auth-required]').forEach((el) => {
         el.disabled = !signedIn;
+        if (!signedIn) {
+            el.title = 'ログインすると利用できます';
+        }
     });
 }
 
@@ -78,14 +86,45 @@ function refresh() {
 
     // メインキャンバスの描画切り替え
     if (s.type === 'image') {
-        const pos = s.imagePosition || { x: 0, y: 0, scale: 1 };
+        if (!s.imagePosition) s.imagePosition = {};
+        const toNum = (v, fallback) => {
+            const n = Number(v);
+            return Number.isFinite(n) ? n : fallback;
+        };
+        s.imagePosition.x = toNum(s.imagePosition.x, 0);
+        s.imagePosition.y = toNum(s.imagePosition.y, 0);
+        s.imagePosition.scale = Math.max(0.1, toNum(s.imagePosition.scale, 1));
+        s.imagePosition.rotation = toNum(s.imagePosition.rotation, 0);
+        const pos = s.imagePosition;
+        if (!s.imageBasePosition) {
+            s.imageBasePosition = { x: 0, y: 0, scale: 1, rotation: 0 };
+        }
         // 画像自体にtransformを適用。
         // object-fit: cover とバッティングしないよう、width/heightを維持しつつCSS transformで動かす
         // ただし cover だと中心基準で切り取られるため、transform translate は中心からのオフセットとして機能する。
         // これで直感的な挙動になるはず。
-        const imgStyle = `transform: translate(${pos.x}px, ${pos.y}px) scale(${pos.scale}); pointer-events: auto;`;
+        const targetStyle = `transform: translate(${pos.x}px, ${pos.y}px) scale(${pos.scale}) rotate(${pos.rotation}deg);`;
 
-        render.innerHTML = `<img id="main-img" src="${s.background}" style="${imgStyle}">`;
+        const invScale = 1 / Math.max(pos.scale || 1, 0.1);
+
+        const overlayInTarget = isImageAdjusting ? `
+            <div id="image-adjust-overlay" style="--inv-handle-scale:${invScale};">
+                <div class="adjust-frame"></div>
+                <button class="img-handle corner nw" onmousedown="startImageHandleDrag(event, 'nw')" ontouchstart="startImageHandleDrag(event, 'nw')" title="左上ハンドル"></button>
+                <button class="img-handle corner ne" onmousedown="startImageHandleDrag(event, 'ne')" ontouchstart="startImageHandleDrag(event, 'ne')" title="右上ハンドル"></button>
+                <button class="img-handle corner sw" onmousedown="startImageHandleDrag(event, 'sw')" ontouchstart="startImageHandleDrag(event, 'sw')" title="左下ハンドル"></button>
+                <button class="img-handle corner se" onmousedown="startImageHandleDrag(event, 'se')" ontouchstart="startImageHandleDrag(event, 'se')" title="右下ハンドル"></button>
+                <button class="img-handle rotate" onmousedown="startImageHandleDrag(event, 'rotate')" ontouchstart="startImageHandleDrag(event, 'rotate')" title="回転ハンドル">⟳</button>
+            </div>
+        ` : '';
+
+        render.innerHTML = `
+            <div id="image-adjust-stage">
+                <div id="image-adjust-target" style="${targetStyle}">
+                    <img id="main-img" src="${s.background}">
+                    ${overlayInTarget}
+                </div>
+            </div>`;
         document.getElementById('image-only-props').style.display = 'block';
         document.getElementById('bubble-layer').style.display = 'block';
     } else {
@@ -187,13 +226,15 @@ function refresh() {
 //  言語UI
 // ──────────────────────────────────────
 function renderLangTabs() {
-    const container = document.getElementById('lang-tabs');
-    if (!container) return;
-    container.innerHTML = state.languages.map(code => {
+    const html = state.languages.map(code => {
         const props = getLangProps(code);
         const active = code === state.activeLang ? 'active' : '';
         return `<button class="lang-tab ${active}" onclick="switchLang('${code}')">${props.label}</button>`;
     }).join('');
+    ['lang-tabs', 'lang-tabs-project', 'lang-tabs-mobile'].forEach((id) => {
+        const container = document.getElementById(id);
+        if (container) container.innerHTML = html;
+    });
 }
 
 function renderLangSettings() {
@@ -248,6 +289,138 @@ function update(k, v) {
 //  背景画像調整モード
 // ──────────────────────────────────────
 let isImageAdjusting = false;
+let mobileAdjustViewBackup = null;
+let imageHandleDrag = null;
+
+function calcMobileAdjustScale(pos) {
+    const view = document.getElementById('canvas-view');
+    if (!view) return 0.6;
+    const cw = view.clientWidth || 360;
+    const ch = view.clientHeight || 640;
+    const visibilityFactor = Math.max(
+        1,
+        pos?.scale || 1,
+        1 + Math.abs(pos?.x || 0) / 180,
+        1 + Math.abs(pos?.y || 0) / 320
+    );
+    const needW = 360 * visibilityFactor;
+    const needH = 640 * visibilityFactor;
+    const s = Math.min(cw / needW, ch / needH) * 0.82;
+    return Math.min(Math.max(s, 0.22), 0.9);
+}
+
+function getActiveImagePosition() {
+    const s = state.sections[state.activeIdx];
+    if (!s || s.type !== 'image') return null;
+    if (!s.imagePosition) s.imagePosition = {};
+    const toNum = (v, fallback) => {
+        const n = Number(v);
+        return Number.isFinite(n) ? n : fallback;
+    };
+    s.imagePosition.x = toNum(s.imagePosition.x, 0);
+    s.imagePosition.y = toNum(s.imagePosition.y, 0);
+    s.imagePosition.scale = Math.max(0.1, toNum(s.imagePosition.scale, 1));
+    s.imagePosition.rotation = toNum(s.imagePosition.rotation, 0);
+    if (!s.imageBasePosition) s.imageBasePosition = { x: 0, y: 0, scale: 1, rotation: 0 };
+    return s.imagePosition;
+}
+
+function getPointerClientPoint(e) {
+    if (e.touches && e.touches[0]) {
+        return { x: e.touches[0].clientX, y: e.touches[0].clientY };
+    }
+    return { x: e.clientX, y: e.clientY };
+}
+
+window.adjustImageZoom = (delta) => {
+    const pos = getActiveImagePosition();
+    if (!isImageAdjusting || !pos) return;
+    pushState();
+    pos.scale = Math.max(0.1, pos.scale + delta);
+    refresh();
+    triggerAutoSave();
+};
+
+window.resetImageTransform = () => {
+    const s = state.sections[state.activeIdx];
+    const pos = getActiveImagePosition();
+    if (!isImageAdjusting || !s || !pos) return;
+    const base = s.imageBasePosition || { x: 0, y: 0, scale: 1, rotation: 0 };
+    pushState();
+    pos.x = base.x || 0;
+    pos.y = base.y || 0;
+    pos.scale = base.scale || 1;
+    pos.rotation = base.rotation || 0;
+    refresh();
+    triggerAutoSave();
+};
+
+window.startImageHandleDrag = (e, handleType) => {
+    if (!isImageAdjusting) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const pos = getActiveImagePosition();
+    if (!pos) return;
+
+    const p = getPointerClientPoint(e);
+    const target = document.getElementById('image-adjust-target') || document.getElementById('canvas-transform-layer');
+    if (!target) return;
+    const rect = target.getBoundingClientRect();
+    const cx = rect.left + rect.width / 2;
+    const cy = rect.top + rect.height / 2;
+
+    imageHandleDrag = {
+        handleType,
+        startPoint: p,
+        center: { x: cx, y: cy },
+        base: {
+            x: pos.x,
+            y: pos.y,
+            scale: pos.scale,
+            rotation: pos.rotation || 0
+        },
+        startAngle: Math.atan2(p.y - cy, p.x - cx),
+        startDist: Math.hypot(p.x - cx, p.y - cy) || 1
+    };
+    pushState();
+};
+
+function onImageHandleDragMove(e) {
+    if (!isImageAdjusting || !imageHandleDrag) return;
+    const pos = getActiveImagePosition();
+    if (!pos) return;
+
+    const p = getPointerClientPoint(e);
+    const dx = p.x - imageHandleDrag.startPoint.x;
+    const dy = p.y - imageHandleDrag.startPoint.y;
+
+    if (imageHandleDrag.handleType === 'rotate') {
+        const currentAngle = Math.atan2(p.y - imageHandleDrag.center.y, p.x - imageHandleDrag.center.x);
+        const deltaDeg = (currentAngle - imageHandleDrag.startAngle) * (180 / Math.PI);
+        pos.rotation = imageHandleDrag.base.rotation + deltaDeg;
+    } else {
+        const currentDist = Math.hypot(p.x - imageHandleDrag.center.x, p.y - imageHandleDrag.center.y) || 1;
+        const ratio = currentDist / imageHandleDrag.startDist;
+        pos.scale = Math.max(0.1, imageHandleDrag.base.scale * ratio);
+        pos.x = imageHandleDrag.base.x + dx / (2 * canvasScale);
+        pos.y = imageHandleDrag.base.y + dy / (2 * canvasScale);
+    }
+    refresh();
+}
+
+function onImageHandleDragEnd() {
+    if (!imageHandleDrag) return;
+    imageHandleDrag = null;
+    const s = state.sections[state.activeIdx];
+    if (s && s.background && state.uid) {
+        generateCroppedThumbnail(
+            s.background,
+            s.imagePosition || { x: 0, y: 0, scale: 1, rotation: 0 },
+            refresh
+        ).catch(() => { });
+    }
+    triggerAutoSave();
+}
 
 window.toggleImageAdjustment = () => {
     const s = state.sections[state.activeIdx];
@@ -256,11 +429,13 @@ window.toggleImageAdjustment = () => {
     isImageAdjusting = !isImageAdjusting;
 
     // UI更新
-    const btn = document.getElementById('btn-adjust-img');
-    if (btn) {
-        btn.style.background = isImageAdjusting ? 'var(--primary)' : '#fff';
-        btn.style.color = isImageAdjusting ? '#fff' : '#333';
-    }
+    ['btn-adjust-img', 'btn-adjust-img-panel'].forEach((id) => {
+        const btn = document.getElementById(id);
+        if (btn) {
+            btn.style.background = isImageAdjusting ? 'var(--primary)' : '#fff';
+            btn.style.color = isImageAdjusting ? '#fff' : '#333';
+        }
+    });
 
     // クロップ枠外のグレーアウト表示切り替え
     const layer = document.getElementById('canvas-transform-layer');
@@ -270,6 +445,38 @@ window.toggleImageAdjustment = () => {
         } else {
             layer.classList.remove('adjust-image-mode');
         }
+    }
+    const bubbleLayer = document.getElementById('bubble-layer');
+    if (bubbleLayer) {
+        bubbleLayer.style.pointerEvents = isImageAdjusting ? 'none' : '';
+    }
+    const floatingControls = document.getElementById('image-zoom-controls-floating');
+    if (floatingControls) {
+        floatingControls.classList.toggle('visible', isImageAdjusting);
+    }
+
+    const isMobile = window.innerWidth < 1024;
+    if (isMobile && isImageAdjusting) {
+        if (typeof window.closeMobileSheet === 'function') {
+            window.closeMobileSheet();
+        }
+        mobileAdjustViewBackup = {
+            scale: canvasScale,
+            translate: { ...canvasTranslate }
+        };
+        const pos = s.imagePosition || { x: 0, y: 0, scale: 1 };
+        canvasScale = calcMobileAdjustScale(pos);
+        canvasTranslate = { x: 0, y: 0 };
+        updateCanvasTransform();
+        document.body.classList.add('image-adjusting-mobile');
+    } else if (isMobile && !isImageAdjusting) {
+        if (mobileAdjustViewBackup) {
+            canvasScale = mobileAdjustViewBackup.scale;
+            canvasTranslate = { ...mobileAdjustViewBackup.translate };
+            updateCanvasTransform();
+        }
+        mobileAdjustViewBackup = null;
+        document.body.classList.remove('image-adjusting-mobile');
     }
 
     // ガイド表示などの視覚的フィードバック
@@ -282,8 +489,12 @@ window.toggleImageAdjustment = () => {
     if (!isImageAdjusting) {
         triggerAutoSave();
         // サムネイル更新
-        if (s.background) {
-            generateCroppedThumbnail(s.background, s.imagePosition || { x: 0, y: 0, scale: 1 }, refresh);
+        if (s.background && state.uid) {
+            generateCroppedThumbnail(
+                s.background,
+                s.imagePosition || { x: 0, y: 0, scale: 1, rotation: 0 },
+                refresh
+            ).catch(() => { });
         }
     }
 };
@@ -336,13 +547,22 @@ function initImageAdjustment() {
     const onEnd = () => {
         if (isDraggingImg) {
             isDraggingImg = false;
+            const s = state.sections[state.activeIdx];
+            if (s && s.background && state.uid) {
+                generateCroppedThumbnail(
+                    s.background,
+                    s.imagePosition || { x: 0, y: 0, scale: 1, rotation: 0 },
+                    refresh
+                ).catch(() => { });
+            }
             triggerAutoSave();
         }
     };
 
     // Mouse
     view.addEventListener('mousedown', (e) => {
-        if (isImageAdjusting && e.target.id === 'main-img') {
+        const inAdjustTarget = !!(e.target && e.target.closest && e.target.closest('#image-adjust-target'));
+        if (isImageAdjusting && (e.target.id === 'main-img' || inAdjustTarget)) {
             e.stopPropagation(); // Stop canvas pan
             e.preventDefault();
             onStart(e.clientX, e.clientY);
@@ -350,10 +570,13 @@ function initImageAdjustment() {
     });
     window.addEventListener('mousemove', (e) => onMove(e.clientX, e.clientY));
     window.addEventListener('mouseup', onEnd);
+    window.addEventListener('mousemove', onImageHandleDragMove);
+    window.addEventListener('mouseup', onImageHandleDragEnd);
 
     // Touch
     view.addEventListener('touchstart', (e) => {
-        if (isImageAdjusting && (e.target.id === 'main-img' || e.touches.length === 2)) {
+        const inAdjustTarget = !!(e.target && e.target.closest && e.target.closest('#image-adjust-target'));
+        if (isImageAdjusting && (e.target.id === 'main-img' || inAdjustTarget || e.touches.length === 2)) {
             e.stopPropagation();
             if (e.touches.length === 1) {
                 onStart(e.touches[0].clientX, e.touches[0].clientY);
@@ -372,6 +595,7 @@ function initImageAdjustment() {
     }, { passive: false });
 
     view.addEventListener('touchmove', (e) => {
+        onImageHandleDragMove(e);
         if (!isImageAdjusting) return;
         if (e.touches.length === 1) {
             e.preventDefault(); // Prevent scroll
@@ -392,6 +616,7 @@ function initImageAdjustment() {
     view.addEventListener('touchend', () => {
         initialPinchDist = null;
         onEnd();
+        onImageHandleDragEnd();
     });
 
     // Wheel Zoom for Image
@@ -399,7 +624,7 @@ function initImageAdjustment() {
         if (isImageAdjusting) {
             e.preventDefault();
             e.stopPropagation();
-            const pos = getImgState();
+            const pos = getActiveImagePosition() || getImgState();
             const delta = e.deltaY > 0 ? 0.9 : 1.1;
             pos.scale = Math.max(0.1, (pos.scale || 1) * delta);
             refresh();
@@ -542,11 +767,36 @@ window.onHandleDown = (e, i) => {
 let canvasScale = 1;
 let canvasTranslate = { x: 0, y: 0 };
 
+const CANVAS_ZOOM_PRESETS = [25, 33, 50, 67, 75, 90, 100, 110, 125, 150, 175, 200, 300, 400];
+
+function syncCanvasZoomUI() {
+    const select = document.getElementById('canvas-zoom-select');
+    if (!select) return;
+    const percent = Math.round(canvasScale * 100);
+    const custom = select.querySelector('option[value="custom"]');
+    if (CANVAS_ZOOM_PRESETS.includes(percent)) {
+        if (custom) custom.hidden = true;
+        select.value = String(percent);
+    } else if (custom) {
+        custom.hidden = false;
+        custom.textContent = `${percent}%`;
+        select.value = 'custom';
+    }
+}
+
+window.setCanvasZoomPercent = (value) => {
+    const num = Number(value);
+    if (!Number.isFinite(num) || num <= 0) return;
+    canvasScale = Math.min(Math.max(num / 100, 0.1), 5);
+    updateCanvasTransform();
+};
+
 function updateCanvasTransform() {
     const layer = document.getElementById('canvas-transform-layer');
     if (layer) {
         layer.style.transform = `translate(-50%, -50%) translate(${canvasTranslate.x}px, ${canvasTranslate.y}px) scale(${canvasScale})`;
     }
+    syncCanvasZoomUI();
 }
 
 // キャンバスリセット（中央寄せ・初期サイズ）
@@ -824,31 +1074,119 @@ window.newProject = () => {
     closeProjectModal();
 };
 
-// モバイルナビゲーション切り替え
-window.toggleMobilePanel = (panelName) => {
-    // 1. Update Nav Tabs
-    const navItems = document.querySelectorAll('.nav-item');
-    navItems.forEach(item => item.classList.remove('active'));
+function setRibbonTab(tabName) {
+    document.querySelectorAll('.ribbon-tab').forEach((tab) => {
+        tab.classList.toggle('active', tab.dataset.ribbonTab === tabName);
+    });
+    document.querySelectorAll('.ribbon-panel').forEach((panel) => {
+        panel.classList.toggle('active', panel.dataset.ribbonPanel === tabName);
+    });
+}
 
-    // Find the button that triggered this (based on onclick value is hard, so text search or just pass element? 
-    // Easier: Map panelName to index or just update logic slightly.
-    // For simplicity, let's look for the one with matching onclick
-    const targetBtn = Array.from(navItems).find(b => b.getAttribute('onclick').includes(`'${panelName}'`));
-    if (targetBtn) targetBtn.classList.add('active');
+function syncDesktopToggleButtons() {
+    const leftCollapsed = document.body.classList.contains('left-collapsed');
+    const rightCollapsed = document.body.classList.contains('right-collapsed');
+    const leftBtn = document.getElementById('btn-toggle-sidebar');
+    const rightBtn = document.getElementById('btn-toggle-panel');
+    if (leftBtn) leftBtn.textContent = leftCollapsed ? '📚 Pagesを開く' : '📚 Pages';
+    if (rightBtn) rightBtn.textContent = rightCollapsed ? '⚙ Editを開く' : '⚙ Edit';
+}
 
-    // 2. Hide all panels first
-    const sidebar = document.getElementById('sidebar');
-    const rightPanel = document.getElementById('panel-right');
-    if (sidebar) sidebar.classList.remove('active');
-    if (rightPanel) rightPanel.classList.remove('active');
-
-    // 3. Show target
-    if (panelName === 'sidebar') {
-        if (sidebar) sidebar.classList.add('active');
-    } else if (panelName === 'properties') {
-        if (rightPanel) rightPanel.classList.add('active');
+window.toggleDesktopPanel = (side) => {
+    if (side === 'left') {
+        document.body.classList.toggle('left-collapsed');
     }
-    // 'editor' just leaves panels hidden (showing main content)
+    if (side === 'right') {
+        document.body.classList.toggle('right-collapsed');
+    }
+    syncDesktopToggleButtons();
+};
+
+let activeMobileSheet = null;
+
+function setBottomBarActive(actionName) {
+    document.querySelectorAll('.bottom-item').forEach((item) => {
+        item.classList.toggle('active', item.dataset.mobileAction === actionName);
+    });
+}
+
+window.closeMobileSheet = () => {
+    activeMobileSheet = null;
+    document.body.classList.remove('mobile-sheet-active');
+    ['sidebar', 'panel-right', 'mobile-action-sheet'].forEach((id) => {
+        const el = document.getElementById(id);
+        if (el) el.classList.remove('mobile-sheet-open');
+    });
+    document.querySelectorAll('.mobile-sheet-content').forEach((el) => el.classList.remove('active'));
+    setBottomBarActive(null);
+};
+
+function openMobileActionSheet(contentId) {
+    const actionSheet = document.getElementById('mobile-action-sheet');
+    if (!actionSheet) return;
+    actionSheet.classList.add('mobile-sheet-open');
+    document.querySelectorAll('.mobile-sheet-content').forEach((el) => {
+        el.classList.toggle('active', el.id === contentId);
+    });
+}
+
+window.openMobileSheet = (sheetName) => {
+    if (window.innerWidth >= 1024) return;
+    if (activeMobileSheet === sheetName) {
+        closeMobileSheet();
+        return;
+    }
+
+    closeMobileSheet();
+    activeMobileSheet = sheetName;
+    document.body.classList.add('mobile-sheet-active');
+    setBottomBarActive(sheetName);
+
+    if (sheetName === 'pages') {
+        document.getElementById('sidebar')?.classList.add('mobile-sheet-open');
+        return;
+    }
+    if (sheetName === 'edit') {
+        document.getElementById('panel-right')?.classList.add('mobile-sheet-open');
+        return;
+    }
+
+    const map = {
+        home: 'mobile-sheet-home',
+        add: 'mobile-sheet-add',
+        export: 'mobile-sheet-export',
+        lang: 'mobile-sheet-lang'
+    };
+    openMobileActionSheet(map[sheetName] || 'mobile-sheet-home');
+};
+
+function initUIChrome() {
+    document.querySelectorAll('.ribbon-tab').forEach((tab) => {
+        tab.addEventListener('click', () => setRibbonTab(tab.dataset.ribbonTab));
+    });
+
+    document.getElementById('btn-toggle-sidebar')?.addEventListener('click', () => toggleDesktopPanel('left'));
+    document.getElementById('btn-toggle-panel')?.addEventListener('click', () => toggleDesktopPanel('right'));
+
+    document.querySelectorAll('.bottom-item').forEach((item) => {
+        item.addEventListener('click', () => openMobileSheet(item.dataset.mobileAction));
+    });
+
+    window.addEventListener('resize', () => {
+        if (window.innerWidth >= 1024) {
+            closeMobileSheet();
+        }
+    });
+
+    setRibbonTab('home');
+    syncDesktopToggleButtons();
+}
+
+// 後方互換: 旧モバイルナビAPI
+window.toggleMobilePanel = (panelName) => {
+    if (panelName === 'sidebar') return openMobileSheet('pages');
+    if (panelName === 'properties') return openMobileSheet('edit');
+    return closeMobileSheet();
 };
 
 window.toggleAuth = async () => {
@@ -859,7 +1197,16 @@ window.toggleAuth = async () => {
             await signInWithGoogle();
         }
     } catch (e) {
-        alert(`認証に失敗しました: ${e.message}`);
+        const code = e?.code || '';
+        let msg = e?.message || 'unknown error';
+        if (code === 'auth/unauthorized-domain') {
+            msg = 'このアクセス元ドメインはFirebase Authで未許可です。Firebase Console > Authentication > Settings > Authorized domains に現在のホストを追加してください。';
+        } else if (code === 'auth/popup-blocked') {
+            msg = 'ポップアップがブロックされました。iPhoneではリダイレクトログインを使用してください。';
+        } else if (code === 'auth/persistence-unavailable') {
+            msg = 'Safariでログイン状態を保持できません。プライベートブラウズOFF・すべてのCookieをブロックOFFを確認してください。';
+        }
+        alert(`認証に失敗しました (${code || 'no-code'}): ${msg}`);
     }
 };
 
@@ -870,6 +1217,14 @@ onAuthChanged((user) => {
 });
 
 // --- 初回描画 ---
+initUIChrome();
+consumeRedirectResult().catch((e) => {
+    const code = e?.code || '';
+    const detail = code === 'auth/unauthorized-domain'
+        ? 'Firebase AuthのAuthorized domainsに現在のホストが未登録です。'
+        : (e?.message || 'unknown error');
+    alert(`ログイン復帰に失敗しました (${code || 'no-code'}): ${detail}`);
+});
 refresh();
 renderLangSettings();
 updateAuthUI();

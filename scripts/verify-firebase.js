@@ -14,7 +14,7 @@ const firebaseConfig = {
   projectId: "vmnn-26345",
   storageBucket: "vmnn-26345.firebasestorage.app",
   messagingSenderId: "16688261830",
-  appId: "1:16688261830:web:c218463dd6429774eb3c77",
+  appId: "1:166808261830:web:c218463dd04297749eb3c7",
   measurementId: "G-N6J9C3XCVQ"
 };
 
