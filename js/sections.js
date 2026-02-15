@@ -36,9 +36,10 @@ export function changeSection(i, refresh) {
  */
 export function renderThumbs() {
     const container = document.getElementById('thumb-container');
-    container.setAttribute('data-size', state.thumbSize || 'M');
+    const cols = Number(state.thumbColumns) || 2;
+    container.setAttribute('data-cols', String(cols));
     container.innerHTML = state.sections.map((s, i) => `
-        <div class="thumb-wrap ${i === state.activeIdx ? 'active' : ''}" onclick="changeSection(${i})">
+        <div class="thumb-wrap ${i === state.activeIdx ? 'active' : ''}" onclick="changeSection(${i})" aria-current="${i === state.activeIdx ? 'true' : 'false'}">
             ${(() => {
             if (s.type === 'image') {
                 const pos = s.imagePosition || { x: 0, y: 0, scale: 1 };

@@ -72,6 +72,54 @@ function updateAuthUI() {
     });
 }
 
+const THUMB_COLUMN_OPTIONS = [8, 5, 4, 2, 1];
+
+function getDeviceKey() {
+    return window.innerWidth < 1024 ? 'mobile' : 'desktop';
+}
+
+function sanitizeThumbColumns(value) {
+    const n = Number(value);
+    if (THUMB_COLUMN_OPTIONS.includes(n)) return n;
+    return 2;
+}
+
+function ensureUiPrefs() {
+    if (!state.uiPrefs || typeof state.uiPrefs !== 'object') {
+        state.uiPrefs = {};
+    }
+    if (!state.uiPrefs.desktop || typeof state.uiPrefs.desktop !== 'object') {
+        state.uiPrefs.desktop = {};
+    }
+    if (!state.uiPrefs.mobile || typeof state.uiPrefs.mobile !== 'object') {
+        state.uiPrefs.mobile = {};
+    }
+    state.uiPrefs.desktop.thumbColumns = sanitizeThumbColumns(state.uiPrefs.desktop.thumbColumns);
+    state.uiPrefs.mobile.thumbColumns = sanitizeThumbColumns(state.uiPrefs.mobile.thumbColumns);
+}
+
+function applyThumbColumnsFromPrefs() {
+    ensureUiPrefs();
+    const key = getDeviceKey();
+    state.thumbColumns = sanitizeThumbColumns(state.uiPrefs[key].thumbColumns);
+}
+
+function syncThumbColumnButtons() {
+    const active = sanitizeThumbColumns(state.thumbColumns);
+    document.querySelectorAll('[data-thumb-cols]').forEach((btn) => {
+        const isActive = Number(btn.dataset.thumbCols) === active;
+        btn.classList.toggle('active', isActive);
+    });
+}
+
+function setCurrentDeviceThumbColumns(cols) {
+    ensureUiPrefs();
+    const key = getDeviceKey();
+    const normalized = sanitizeThumbColumns(cols);
+    state.uiPrefs[key].thumbColumns = normalized;
+    state.thumbColumns = normalized;
+}
+
 // ──────────────────────────────────────
 //  refresh — 画面全体を再描画する
 // ──────────────────────────────────────
@@ -220,6 +268,7 @@ function refresh() {
 
     updateHistoryButtons();
     renderThumbs();
+    syncThumbColumnButtons();
 }
 
 // ──────────────────────────────────────
@@ -684,7 +733,7 @@ function updateGlobalWritingMode(mode) {
 }
 
 
-function onLoadProject(pid, sections, languages, languageConfigs, title) {
+function onLoadProject(pid, sections, languages, languageConfigs, title, uiPrefs) {
     state.projectId = pid;
     state.title = title || '';
     state.sections = sections;
@@ -703,6 +752,10 @@ function onLoadProject(pid, sections, languages, languageConfigs, title) {
             };
         });
     }
+
+    state.uiPrefs = uiPrefs || state.uiPrefs || {};
+    ensureUiPrefs();
+    applyThumbColumnsFromPrefs();
 
     state.activeLang = state.languages[0];
     state.activeIdx = 0;
@@ -742,10 +795,12 @@ window.updateTitle = (v) => {
     if (headerGuideTitle) headerGuideTitle.textContent = v || 'タイトル未設定';
     triggerAutoSave();
 };
-window.setThumbSize = (size) => {
-    state.thumbSize = size;
+window.setThumbColumns = (cols) => {
+    setCurrentDeviceThumbColumns(cols);
     refresh();
+    triggerAutoSave();
 };
+window.setThumbSize = window.setThumbColumns;
 window.uploadToStorage = (input) => { pushState(); uploadToStorage(input, refresh); };
 
 window.performUndo = () => { undo(refresh); triggerAutoSave(); };
@@ -1057,6 +1112,11 @@ window.newProject = () => {
     state.languageConfigs = {
         ja: { writingMode: 'vertical-rl' }
     };
+    state.uiPrefs = {
+        desktop: { thumbColumns: 2 },
+        mobile: { thumbColumns: 2 }
+    };
+    applyThumbColumnsFromPrefs();
     state.activeLang = 'ja';
     state.sections = [{
         type: 'image',
@@ -1102,7 +1162,24 @@ window.toggleDesktopPanel = (side) => {
     syncDesktopToggleButtons();
 };
 
+window.togglePagesPanel = () => {
+    if (window.innerWidth < 1024) {
+        closeMobileSheet();
+        return;
+    }
+    toggleDesktopPanel('left');
+};
+
+window.toggleEditPanel = () => {
+    if (window.innerWidth < 1024) {
+        closeMobileSheet();
+        return;
+    }
+    toggleDesktopPanel('right');
+};
+
 let activeMobileSheet = null;
+let lastDeviceKey = getDeviceKey();
 
 function setBottomBarActive(actionName) {
     document.querySelectorAll('.bottom-item').forEach((item) => {
@@ -1176,6 +1253,12 @@ function initUIChrome() {
         if (window.innerWidth >= 1024) {
             closeMobileSheet();
         }
+        const currentDeviceKey = getDeviceKey();
+        if (currentDeviceKey !== lastDeviceKey) {
+            lastDeviceKey = currentDeviceKey;
+            applyThumbColumnsFromPrefs();
+            refresh();
+        }
     });
 
     setRibbonTab('home');
@@ -1220,6 +1303,8 @@ onAuthChanged((user) => {
 
 // --- 初回描画 ---
 initUIChrome();
+ensureUiPrefs();
+applyThumbColumnsFromPrefs();
 consumeRedirectResult().catch((e) => {
     const code = e?.code || '';
     let detail = e?.message || 'unknown error';

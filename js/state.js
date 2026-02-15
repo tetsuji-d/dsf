@@ -24,5 +24,9 @@ export const state = {
     ],
     activeIdx: 0,
     activeBubbleIdx: null,
-    thumbSize: 'M'
+    thumbColumns: 2,
+    uiPrefs: {
+        desktop: { thumbColumns: 2 },
+        mobile: { thumbColumns: 2 }
+    }
 };

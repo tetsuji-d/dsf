@@ -215,6 +215,7 @@ async function performSave() {
             sections: state.sections,
             languages: state.languages,
             languageConfigs: state.languageConfigs,
+            uiPrefs: state.uiPrefs || null,
             ownerUid: state.uid,
             ownerEmail: state.user?.email || '',
             lastUpdated: new Date()
@@ -479,6 +480,7 @@ export async function loadProject(pid, refresh) {
         state.title = data.title || '';
         state.sections = data.sections;
         state.languages = data.languages && data.languages.length > 0 ? data.languages : ['ja'];
+        state.uiPrefs = data.uiPrefs || state.uiPrefs || {};
         state.activeLang = state.languages[0];
         state.activeIdx = 0;
         state.activeBubbleIdx = null;

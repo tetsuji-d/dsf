@@ -32,6 +32,7 @@ export async function openProjectModal(onLoadProject) {
                 sections: data.sections || [],
                 languages: data.languages || ['ja'],
                 languageConfigs: data.languageConfigs || null,
+                uiPrefs: data.uiPrefs || null,
                 lastUpdated: data.lastUpdated?.toDate?.() || new Date(0)
             });
         });
@@ -73,7 +74,7 @@ export async function openProjectModal(onLoadProject) {
                 const pid = card.dataset.id;
                 const project = projects.find(p => p.id === pid);
                 if (project) {
-                    onLoadProject(pid, project.sections, project.languages, project.languageConfigs, project.title);
+                    onLoadProject(pid, project.sections, project.languages, project.languageConfigs, project.title, project.uiPrefs);
                     closeProjectModal();
                 }
             });

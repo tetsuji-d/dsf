@@ -108,14 +108,16 @@
             <aside id="sidebar">
                 <div class="panel-head">
                     <h3>Pages</h3>
-                    <button class="btn-sm" type="button" onclick="toggleDesktopPanel('left')">閉じる</button>
+                    <button class="btn-sm" type="button" onclick="togglePagesPanel()">閉じる</button>
                 </div>
                 <div class="thumb-tools">
-                    <label>サイズ:</label>
+                    <label>列数:</label>
                     <div class="thumb-size-buttons">
-                        <button class="btn-sm" onclick="setThumbSize('S')">S</button>
-                        <button class="btn-sm" onclick="setThumbSize('M')">M</button>
-                        <button class="btn-sm" onclick="setThumbSize('L')">L</button>
+                        <button class="btn-sm" data-thumb-cols="8" onclick="setThumbColumns(8)">8</button>
+                        <button class="btn-sm" data-thumb-cols="5" onclick="setThumbColumns(5)">5</button>
+                        <button class="btn-sm" data-thumb-cols="4" onclick="setThumbColumns(4)">4</button>
+                        <button class="btn-sm" data-thumb-cols="2" onclick="setThumbColumns(2)">2</button>
+                        <button class="btn-sm" data-thumb-cols="1" onclick="setThumbColumns(1)">1</button>
                     </div>
                 </div>
                 <div id="thumb-container"></div>
@@ -147,7 +149,7 @@
             <aside id="panel-right">
                 <div class="panel-head">
                     <h3>Edit</h3>
-                    <button class="btn-sm" type="button" onclick="toggleDesktopPanel('right')">閉じる</button>
+                    <button class="btn-sm" type="button" onclick="toggleEditPanel()">閉じる</button>
                 </div>
                 <div class="control-group">
                     <h4>作品設定</h4>
