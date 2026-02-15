@@ -40,6 +40,8 @@
                         <span class="field-label">Project</span>
                         <span id="project-title" class="project-title" contenteditable="true" oninput="onProjectTitleInput()"
                             onkeydown="onProjectTitleKeydown(event)" onblur="onProjectTitleBlur()">新規プロジェクト</span>
+                        <span class="field-label">Title</span>
+                        <input type="text" id="prop-title" class="ribbon-title-input" placeholder="作品タイトルを入力" oninput="updateTitle(this.value)">
                         <span id="save-status" class="save-status"></span>
                     </div>
                     <div class="ribbon-group">
@@ -150,11 +152,6 @@
                 <div class="panel-head">
                     <h3>Edit</h3>
                     <button class="btn-sm" type="button" onclick="toggleEditPanel()">閉じる</button>
-                </div>
-                <div class="control-group">
-                    <h4>作品設定</h4>
-                    <label>作品タイトル（ヘッダー表示）</label>
-                    <input type="text" id="prop-title" placeholder="タイトルを入力" oninput="updateTitle(this.value)">
                 </div>
                 <div class="control-group">
                     <h4>セクション設定</h4>
