@@ -1205,6 +1205,8 @@ window.toggleAuth = async () => {
             msg = 'ポップアップがブロックされました。iPhoneではリダイレクトログインを使用してください。';
         } else if (code === 'auth/persistence-unavailable') {
             msg = 'Safariでログイン状態を保持できません。プライベートブラウズOFF・すべてのCookieをブロックOFFを確認してください。';
+        } else if (code === 'auth/redirect-state-lost') {
+            msg = 'リダイレクト後にログイン状態が消えています。iPhoneの「サイト越えトラッキングを防ぐ」を一時的にOFFにして再試行してください。';
         }
         alert(`認証に失敗しました (${code || 'no-code'}): ${msg}`);
     }
@@ -1220,9 +1222,12 @@ onAuthChanged((user) => {
 initUIChrome();
 consumeRedirectResult().catch((e) => {
     const code = e?.code || '';
-    const detail = code === 'auth/unauthorized-domain'
-        ? 'Firebase AuthのAuthorized domainsに現在のホストが未登録です。'
-        : (e?.message || 'unknown error');
+    let detail = e?.message || 'unknown error';
+    if (code === 'auth/unauthorized-domain') {
+        detail = 'Firebase AuthのAuthorized domainsに現在のホストが未登録です。';
+    } else if (code === 'auth/redirect-state-lost') {
+        detail = 'iPhoneでリダイレクト後の認証状態が復元できませんでした。Cookie/トラッキング設定を確認してください。';
+    }
     alert(`ログイン復帰に失敗しました (${code || 'no-code'}): ${detail}`);
 });
 refresh();

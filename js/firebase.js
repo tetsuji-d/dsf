@@ -22,7 +22,7 @@ import { state } from './state.js';
 // --- Firebase Config ---
 const firebaseConfig = {
   apiKey: "AIzaSyBj3U-wFKnsWlwId4OHAyerEGMiRYhQN0o",
-  authDomain: "vmnn-26345.web.app",
+  authDomain: "vmnn-26345.firebaseapp.com",
   projectId: "vmnn-26345",
   storageBucket: "vmnn-26345.firebasestorage.app",
   messagingSenderId: "166808261830",
@@ -37,6 +37,7 @@ export const auth = getAuth(app);
 const googleProvider = new GoogleAuthProvider();
 let authInitPromise = null;
 let authPersistenceLevel = 'unknown'; // local | session | memory | unavailable
+const AUTH_REDIRECT_PENDING_KEY = 'dsf-auth-redirect-pending';
 
 function isIOSDevice() {
     if (typeof navigator === 'undefined') return false;
@@ -74,6 +75,30 @@ async function ensureAuthPersistence() {
     return authInitPromise;
 }
 
+function markRedirectPending() {
+    try {
+        sessionStorage.setItem(AUTH_REDIRECT_PENDING_KEY, '1');
+    } catch (_) {
+        // ignore
+    }
+}
+
+function wasRedirectPending() {
+    try {
+        return sessionStorage.getItem(AUTH_REDIRECT_PENDING_KEY) === '1';
+    } catch (_) {
+        return false;
+    }
+}
+
+function clearRedirectPending() {
+    try {
+        sessionStorage.removeItem(AUTH_REDIRECT_PENDING_KEY);
+    } catch (_) {
+        // ignore
+    }
+}
+
 // --- 自動保存 ---
 let autoSaveTimer = null;
 let saveStatus = 'idle'; // 'idle' | 'saving' | 'saved' | 'error'
@@ -96,21 +121,18 @@ export async function signInWithGoogle() {
         err.code = 'auth/persistence-unavailable';
         throw err;
     }
-    if (isIOSDevice()) {
-        await signInWithRedirect(auth, googleProvider);
-        return null;
-    }
+    const popupFallbackCodes = new Set([
+        'auth/popup-blocked',
+        'auth/popup-closed-by-user',
+        'auth/cancelled-popup-request',
+        'auth/operation-not-supported-in-this-environment'
+    ]);
     try {
         const result = await signInWithPopup(auth, googleProvider);
         return result.user;
     } catch (e) {
-        const popupFallbackCodes = new Set([
-            'auth/popup-blocked',
-            'auth/popup-closed-by-user',
-            'auth/cancelled-popup-request',
-            'auth/operation-not-supported-in-this-environment'
-        ]);
         if (popupFallbackCodes.has(e?.code)) {
+            markRedirectPending();
             await signInWithRedirect(auth, googleProvider);
             return null;
         }
@@ -128,7 +150,25 @@ export function onAuthChanged(callback) {
 
 export async function consumeRedirectResult() {
     await ensureAuthPersistence();
-    return getRedirectResult(auth);
+    const pending = wasRedirectPending();
+    try {
+        const result = await getRedirectResult(auth);
+        if (pending) {
+            clearRedirectPending();
+        }
+        // Detect silent redirect failure on iOS (no error, no user, no result).
+        if (pending && !result && !auth.currentUser) {
+            const err = new Error('リダイレクト後に認証状態を復元できませんでした。ブラウザのCookie/トラッキング設定を確認してください。');
+            err.code = 'auth/redirect-state-lost';
+            throw err;
+        }
+        return result;
+    } catch (e) {
+        if (pending) {
+            clearRedirectPending();
+        }
+        throw e;
+    }
 }
 
 /**

@@ -129,7 +129,13 @@ window.viewerToggleAuth = async () => {
         await signInWithGoogle();
     } catch (e) {
         const code = e?.code || 'no-code';
-        alert(`認証に失敗しました (${code}): ${e?.message || 'unknown error'}`);
+        let msg = e?.message || 'unknown error';
+        if (code === 'auth/redirect-state-lost') {
+            msg = 'リダイレクト後にログイン状態が復元できませんでした。iPhoneのCookie/トラッキング設定を確認してください。';
+        } else if (code === 'auth/persistence-unavailable') {
+            msg = 'ブラウザ設定によりログイン状態を保持できません。プライベートブラウズOFF/すべてのCookieをブロックOFFを確認してください。';
+        }
+        alert(`認証に失敗しました (${code}): ${msg}`);
     }
 };
 
