@@ -328,6 +328,7 @@ body.right-collapsed #panel-right {
 .thumb-wrap {
     position: relative;
     cursor: pointer;
+    border-radius: 8px;
 }
 
 .thumb-canvas {
@@ -347,6 +348,77 @@ body.right-collapsed #panel-right {
     outline: 2px solid var(--primary);
     outline-offset: 2px;
     border-radius: 8px;
+}
+
+.thumb-wrap.drag-source {
+    opacity: 0.5;
+}
+
+.thumb-wrap.drop-before::before,
+.thumb-wrap.drop-after::after {
+    content: "";
+    position: absolute;
+    left: 2px;
+    right: 2px;
+    height: 3px;
+    background: var(--primary);
+    border-radius: 999px;
+    z-index: 12;
+}
+
+.thumb-wrap.drop-before::before {
+    top: -4px;
+}
+
+.thumb-wrap.drop-after::after {
+    bottom: -4px;
+}
+
+.thumb-insert-btn,
+.thumb-duplicate-btn {
+    position: absolute;
+    z-index: 15;
+    border: 1px solid #b8c5dc;
+    background: rgba(255, 255, 255, 0.95);
+    color: #27466f;
+    width: 22px;
+    height: 22px;
+    line-height: 1;
+    border-radius: 999px;
+    font-size: 14px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.thumb-insert-btn.before {
+    top: -10px;
+    left: calc(50% - 11px);
+}
+
+.thumb-insert-btn.after {
+    bottom: -10px;
+    left: calc(50% - 11px);
+}
+
+.thumb-duplicate-btn {
+    right: 6px;
+    top: 6px;
+    font-size: 12px;
+}
+
+.thumb-insert-btn,
+.thumb-duplicate-btn {
+    opacity: 0;
+    pointer-events: none;
+}
+
+.thumb-wrap:hover .thumb-insert-btn,
+.thumb-wrap:hover .thumb-duplicate-btn,
+.thumb-wrap.active .thumb-insert-btn,
+.thumb-wrap.active .thumb-duplicate-btn {
+    opacity: 1;
+    pointer-events: auto;
 }
 
 .thumb-size-buttons .btn-sm.active {
@@ -1098,6 +1170,12 @@ body.right-collapsed #panel-right {
 
     .modal-content {
         width: 94vw;
+    }
+
+    .thumb-insert-btn,
+    .thumb-duplicate-btn {
+        opacity: 1;
+        pointer-events: auto;
     }
 
     #project-grid {

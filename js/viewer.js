@@ -6,6 +6,7 @@ import { renderBubbleHTML } from './bubbles.js';
 import { getLangProps } from './lang.js';
 import { db, signInWithGoogle, signOutUser, onAuthChanged, consumeRedirectResult } from './firebase.js';
 import { doc, getDoc } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
+import { composeText, LAYOUT_VERSION } from './layout.js';
 
 let currentProject = null;
 let sharedProjectRef = null;
@@ -290,6 +291,23 @@ function getWritingMode(lang) {
     return props.defaultWritingMode || 'horizontal-tb';
 }
 
+function getComposedLayoutForViewerSection(section, lang) {
+    if (!section.layout || typeof section.layout !== 'object') section.layout = {};
+    const mode = getWritingMode(lang);
+    if (!section.layout[lang] || section.layout[lang].writingMode !== mode || Number(section.layout[lang].version) !== LAYOUT_VERSION) {
+        const raw = (section.texts && section.texts[lang] !== undefined) ? section.texts[lang] : (section.text || '');
+        section.layout[lang] = composeText(raw, lang, mode);
+    }
+    return section.layout[lang];
+}
+
+function escapeHtml(text) {
+    return String(text || '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;');
+}
+
 function refresh() {
     if (!state.sections || state.sections.length === 0) return;
 
@@ -316,15 +334,15 @@ function refresh() {
         const imgStyle = `width:100%; height:100%; object-fit:cover; transform: translate(${x}px, ${y}px) scale(${scale}) rotate(${rotation}deg); transform-origin: center center;`;
         contentEl.innerHTML = `<img src="${s.background}" style="${imgStyle}">`;
     } else {
-        let text = s.text || '';
-        if (s.texts && s.texts[lang]) text = s.texts[lang];
-
         const vtClass = mode === 'vertical-rl' ? 'v-text' : '';
         const langProps = getLangProps(lang);
         const align = langProps.sectionAlign;
+        const layout = getComposedLayoutForViewerSection(s, lang);
+        const text = escapeHtml((layout?.lines || []).join('\n'));
 
-        contentEl.innerHTML = `<div class="text-layer ${vtClass}" 
-            style="width:100%; height:100%; padding:20px; box-sizing:border-box; background:#fafafa; text-align:${align}; font-size:16px; line-height:1.8; white-space:pre-wrap; overflow:auto;">${text}</div>`;
+        contentEl.innerHTML = `<div class="viewer-text-page">
+            <div class="viewer-text-block ${vtClass}" style="text-align:${align};">${text}</div>
+        </div>`;
     }
 
     // 2. Bubbles
@@ -349,6 +367,24 @@ function refresh() {
     }
     if (label) {
         label.textContent = `${current} / ${total}`;
+    }
+
+    updateNavigationUI();
+}
+
+function updateNavigationUI() {
+    const nextDir = getNextPageDirection();
+    const slider = document.getElementById('page-slider');
+    const leftBtn = document.getElementById('viewer-nav-left');
+    const rightBtn = document.getElementById('viewer-nav-right');
+    if (slider) {
+        slider.style.direction = nextDir === 'left' ? 'rtl' : 'ltr';
+    }
+    if (leftBtn) {
+        leftBtn.title = nextDir === 'left' ? '次へ' : '前へ';
+    }
+    if (rightBtn) {
+        rightBtn.title = nextDir === 'left' ? '前へ' : '次へ';
     }
 }
 
@@ -459,6 +495,16 @@ function prev() {
 }
 window.next = next;
 window.prev = prev;
+window.viewerNavLeft = () => {
+    const dir = getNextPageDirection();
+    if (dir === 'left') next();
+    else prev();
+};
+window.viewerNavRight = () => {
+    const dir = getNextPageDirection();
+    if (dir === 'left') prev();
+    else next();
+};
 
 function getNextPageDirection() {
     const lang = state.activeLang;

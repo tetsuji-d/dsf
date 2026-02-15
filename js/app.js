@@ -4,10 +4,11 @@
 import { state } from './state.js';
 import { saveProject, loadProject, uploadToStorage, triggerAutoSave, generateCroppedThumbnail, signInWithGoogle, signOutUser, onAuthChanged, consumeRedirectResult } from './firebase.js';
 import { handleCanvasClick, selectBubble, renderBubbleHTML, getBubbleText, setBubbleText, addBubbleAtCenter, startDrag } from './bubbles.js';
-import { addSection, changeSection, renderThumbs, deleteActive } from './sections.js';
+import { addSection, changeSection, renderThumbs, deleteActive, insertSectionAt, duplicateSectionAt, moveSection } from './sections.js';
 import { pushState, undo, redo, getHistoryInfo, clearHistory } from './history.js';
 import { openProjectModal, closeProjectModal } from './projects.js';
 import { getLangProps, getAllLangs } from './lang.js';
+import { composeText, LAYOUT_VERSION } from './layout.js';
 
 // ──────────────────────────────────────
 //  ヘルパー: セクションテキストの多言語取得・設定
@@ -23,6 +24,56 @@ function setSectionText(s, text) {
     if (!s.texts) s.texts = {};
     s.texts[lang] = text;
     s.text = text;
+}
+
+function ensureSectionLayout(s) {
+    if (!s.layout || typeof s.layout !== 'object') s.layout = {};
+}
+
+function getSectionLayout(s) {
+    const lang = state.activeLang;
+    ensureSectionLayout(s);
+    return s.layout[lang] || null;
+}
+
+function composeSectionForActiveLang(s) {
+    const lang = state.activeLang;
+    const raw = getSectionText(s);
+    const mode = getWritingMode(lang);
+    ensureSectionLayout(s);
+    const layout = composeText(raw, lang, mode);
+    s.layout[lang] = layout;
+    return layout;
+}
+
+function ensureComposedLayoutForActiveLang(s) {
+    const lang = state.activeLang;
+    const raw = getSectionText(s);
+    const mode = getWritingMode(lang);
+    const existing = getSectionLayout(s);
+    if (!existing || existing.writingMode !== mode || Number(existing.version) !== LAYOUT_VERSION) {
+        return composeSectionForActiveLang(s);
+    }
+    return existing;
+}
+
+function updateTextFitStatus(s) {
+    const statusEl = document.getElementById('text-fit-status');
+    const splitBtn = document.getElementById('btn-split-overflow');
+    if (!statusEl || !splitBtn) return;
+    if (!s || s.type !== 'text') {
+        statusEl.textContent = '';
+        splitBtn.style.display = 'none';
+        return;
+    }
+    const layout = ensureComposedLayoutForActiveLang(s);
+    const lines = layout?.lines?.length || 0;
+    const maxLines = layout?.rules?.maxLines || 0;
+    const chars = Array.from(getSectionText(s) || '').length;
+    const maxChars = layout?.rules?.maxChars || 0;
+    statusEl.textContent = `収まり: ${lines}/${maxLines}行  文字数: ${chars}/${maxChars}`;
+    statusEl.style.color = layout?.overflow ? '#c0392b' : '#2f3e52';
+    splitBtn.style.display = layout?.overflow ? 'inline-flex' : 'none';
 }
 
 // ──────────────────────────────────────
@@ -176,7 +227,8 @@ function refresh() {
         document.getElementById('image-only-props').style.display = 'block';
         document.getElementById('bubble-layer').style.display = 'block';
     } else {
-        const sectionText = getSectionText(s);
+        const layout = ensureComposedLayoutForActiveLang(s);
+        const sectionText = (layout?.lines || []).join('\n');
         const vtClass = effectiveMode === 'vertical-rl' ? 'v-text' : '';
         const align = langProps.sectionAlign;
 
@@ -185,8 +237,8 @@ function refresh() {
         if (existing && document.activeElement === existing) {
             if (existing.value !== sectionText) existing.value = sectionText;
         } else {
-            render.innerHTML = `<textarea id="main-text-area" class="text-layer ${vtClass}" 
-                style="text-align:${align};" 
+            render.innerHTML = `<textarea id="main-text-area" class="text-layer ${vtClass}" wrap="off"
+                style="text-align:${align}; white-space:pre; word-break:normal; overflow-wrap:normal; overflow:hidden;" 
                 oninput="updateActiveText(this.value)">${sectionText}</textarea>`;
         }
         document.getElementById('image-only-props').style.display = 'none';
@@ -231,6 +283,7 @@ function refresh() {
     } else {
         document.getElementById('prop-text').value = getSectionText(s);
     }
+    updateTextFitStatus(s);
 
     // テキストラベルに現在の言語を表示
     const textLabel = document.getElementById('text-label');
@@ -308,6 +361,118 @@ function updateHistoryButtons() {
     const redoBtn = document.getElementById('btn-redo');
     if (undoBtn) undoBtn.disabled = !info.canUndo;
     if (redoBtn) redoBtn.disabled = !info.canRedo;
+}
+
+let thumbDragSourceIdx = null;
+let thumbTouchState = null;
+let suppressThumbClickUntil = 0;
+
+function clearThumbDropHints() {
+    document.querySelectorAll('.thumb-wrap').forEach((el) => {
+        el.classList.remove('drop-before', 'drop-after', 'drag-source');
+    });
+}
+
+function getThumbElement(index) {
+    return document.querySelector(`.thumb-wrap[data-section-index="${index}"]`);
+}
+
+function markThumbDropHint(index, position) {
+    clearThumbDropHints();
+    const sourceEl = getThumbElement(thumbDragSourceIdx);
+    if (sourceEl) sourceEl.classList.add('drag-source');
+    const el = getThumbElement(index);
+    if (!el) return;
+    el.classList.add(position === 'before' ? 'drop-before' : 'drop-after');
+}
+
+function getDropPositionByPoint(el, clientY) {
+    const rect = el.getBoundingClientRect();
+    return clientY < (rect.top + rect.height / 2) ? 'before' : 'after';
+}
+
+function moveSectionWithHistory(fromIndex, targetIndex, position) {
+    const insertIndex = position === 'before' ? targetIndex : targetIndex + 1;
+    const from = Number(fromIndex);
+    let to = Math.max(0, Math.min(insertIndex, state.sections.length));
+    if (to === from || to === from + 1) return false;
+    pushState();
+    moveSection(from, to, refresh);
+    triggerAutoSave();
+    return true;
+}
+
+function bindTouchDragListeners() {
+    document.addEventListener('touchmove', onThumbTouchMove, { passive: false });
+    document.addEventListener('touchend', onThumbTouchEnd, { passive: false });
+    document.addEventListener('touchcancel', onThumbTouchCancel, { passive: false });
+}
+
+function unbindTouchDragListeners() {
+    document.removeEventListener('touchmove', onThumbTouchMove);
+    document.removeEventListener('touchend', onThumbTouchEnd);
+    document.removeEventListener('touchcancel', onThumbTouchCancel);
+}
+
+function onThumbTouchMove(e) {
+    if (!thumbTouchState) return;
+    const touch = e.touches && e.touches[0];
+    if (!touch) return;
+
+    const dx = touch.clientX - thumbTouchState.startX;
+    const dy = touch.clientY - thumbTouchState.startY;
+
+    if (!thumbTouchState.active && Math.hypot(dx, dy) > 10) {
+        clearTimeout(thumbTouchState.timerId);
+        thumbTouchState.timerId = null;
+        thumbTouchState = null;
+        unbindTouchDragListeners();
+        clearThumbDropHints();
+        return;
+    }
+
+    if (!thumbTouchState.active) return;
+
+    e.preventDefault();
+    const hit = document.elementFromPoint(touch.clientX, touch.clientY);
+    const wrap = hit ? hit.closest('.thumb-wrap') : null;
+    if (!wrap) return;
+
+    const targetIndex = Number(wrap.dataset.sectionIndex);
+    if (!Number.isInteger(targetIndex)) return;
+    const position = getDropPositionByPoint(wrap, touch.clientY);
+    thumbTouchState.targetIndex = targetIndex;
+    thumbTouchState.position = position;
+    markThumbDropHint(targetIndex, position);
+
+    const container = document.getElementById('thumb-container');
+    if (container) {
+        const cRect = container.getBoundingClientRect();
+        if (touch.clientY < cRect.top + 40) container.scrollBy({ top: -20, behavior: 'auto' });
+        if (touch.clientY > cRect.bottom - 40) container.scrollBy({ top: 20, behavior: 'auto' });
+    }
+}
+
+function onThumbTouchEnd() {
+    if (!thumbTouchState) return;
+    clearTimeout(thumbTouchState.timerId);
+    if (thumbTouchState.active && Number.isInteger(thumbTouchState.targetIndex)) {
+        moveSectionWithHistory(thumbTouchState.sourceIndex, thumbTouchState.targetIndex, thumbTouchState.position || 'after');
+        suppressThumbClickUntil = Date.now() + 350;
+    }
+    thumbTouchState = null;
+    unbindTouchDragListeners();
+    clearThumbDropHints();
+    thumbDragSourceIdx = null;
+}
+
+function onThumbTouchCancel() {
+    if (!thumbTouchState) return;
+    clearTimeout(thumbTouchState.timerId);
+    thumbTouchState = null;
+    unbindTouchDragListeners();
+    clearThumbDropHints();
+    thumbDragSourceIdx = null;
 }
 
 // ──────────────────────────────────────
@@ -701,6 +866,7 @@ function updateActiveText(v) {
         setBubbleText(s.bubbles[state.activeBubbleIdx], v);
     } else {
         setSectionText(s, v);
+        composeSectionForActiveLang(s);
     }
     refresh();
     triggerAutoSave();
@@ -728,6 +894,10 @@ function updateGlobalWritingMode(mode) {
 
     state.languageConfigs[lang].writingMode = mode;
     pushState();
+    const s = state.sections[state.activeIdx];
+    if (s && s.type === 'text') {
+        composeSectionForActiveLang(s);
+    }
     refresh();
     triggerAutoSave();
 }
@@ -783,7 +953,112 @@ document.addEventListener('keydown', (e) => {
 window.handleCanvasClick = (e) => { pushState(); handleCanvasClick(e, refresh); triggerAutoSave(); };
 window.selectBubble = (e, i) => selectBubble(e, i, refresh);
 window.addSection = () => { pushState(); addSection(refresh); triggerAutoSave(); };
-window.changeSection = (i) => changeSection(i, refresh);
+window.changeSection = (i) => {
+    if (Date.now() < suppressThumbClickUntil) return;
+    changeSection(i, refresh);
+};
+window.insertSectionAtIndex = (idx, e) => {
+    if (e) {
+        e.preventDefault();
+        e.stopPropagation();
+    }
+    pushState();
+    insertSectionAt(idx, refresh);
+    triggerAutoSave();
+};
+window.duplicateSectionByIndex = (idx, e) => {
+    if (e) {
+        e.preventDefault();
+        e.stopPropagation();
+    }
+    pushState();
+    duplicateSectionAt(idx, refresh);
+    triggerAutoSave();
+};
+window.splitOverflowToNextPage = () => {
+    const s = state.sections[state.activeIdx];
+    if (!s || s.type !== 'text') return;
+    const layout = ensureComposedLayoutForActiveLang(s);
+    if (!layout?.overflow || !layout?.overflowText) return;
+    const lang = state.activeLang;
+
+    pushState();
+    setSectionText(s, layout.lines.join('\n'));
+    composeSectionForActiveLang(s);
+
+    const insertIdx = state.activeIdx + 1;
+    insertSectionAt(insertIdx, refresh);
+    const next = state.sections[insertIdx];
+    next.type = 'text';
+    next.background = '';
+    next.bubbles = [];
+    next.texts = next.texts || {};
+    next.layout = next.layout || {};
+    next.languageConfigs = next.languageConfigs || {};
+    next.texts[lang] = layout.overflowText;
+    next.text = layout.overflowText;
+    state.activeIdx = insertIdx;
+    composeSectionForActiveLang(next);
+
+    refresh();
+    triggerAutoSave();
+};
+window.startThumbDrag = (e, idx) => {
+    thumbDragSourceIdx = idx;
+    const el = getThumbElement(idx);
+    if (el) el.classList.add('drag-source');
+    if (e.dataTransfer) {
+        e.dataTransfer.effectAllowed = 'move';
+        e.dataTransfer.setData('text/plain', String(idx));
+    }
+};
+window.onThumbDragOver = (e, idx) => {
+    if (!Number.isInteger(thumbDragSourceIdx)) return;
+    e.preventDefault();
+    const el = getThumbElement(idx);
+    if (!el) return;
+    const position = getDropPositionByPoint(el, e.clientY);
+    markThumbDropHint(idx, position);
+};
+window.onThumbDragLeave = () => {
+    // no-op; keep hint until a new target is selected
+};
+window.onThumbDrop = (e, idx) => {
+    if (!Number.isInteger(thumbDragSourceIdx)) return;
+    e.preventDefault();
+    const el = getThumbElement(idx);
+    if (!el) return;
+    const position = getDropPositionByPoint(el, e.clientY);
+    moveSectionWithHistory(thumbDragSourceIdx, idx, position);
+    suppressThumbClickUntil = Date.now() + 250;
+    thumbDragSourceIdx = null;
+    clearThumbDropHints();
+};
+window.endThumbDrag = () => {
+    thumbDragSourceIdx = null;
+    clearThumbDropHints();
+};
+window.startThumbTouchDrag = (e, idx) => {
+    if (e.touches?.length !== 1) return;
+    const touch = e.touches[0];
+    thumbDragSourceIdx = idx;
+    thumbTouchState = {
+        sourceIndex: idx,
+        targetIndex: null,
+        position: 'after',
+        startX: touch.clientX,
+        startY: touch.clientY,
+        active: false,
+        timerId: null
+    };
+    thumbTouchState.timerId = setTimeout(() => {
+        if (!thumbTouchState) return;
+        thumbTouchState.active = true;
+        const sourceEl = getThumbElement(idx);
+        if (sourceEl) sourceEl.classList.add('drag-source');
+    }, 320);
+    bindTouchDragListeners();
+};
 window.deleteActive = () => { pushState(); deleteActive(refresh); triggerAutoSave(); };
 window.update = update;
 window.updateActiveText = updateActiveText;
