@@ -231,15 +231,22 @@ function refresh() {
         const sectionText = (layout?.lines || []).join('\n');
         const vtClass = effectiveMode === 'vertical-rl' ? 'v-text' : '';
         const align = langProps.sectionAlign;
+        const frame = layout?.frame || { x: 20, y: 32, w: 320, h: 576 };
 
         // フォーカス維持判定
         const existing = document.getElementById('main-text-area');
         if (existing && document.activeElement === existing) {
             if (existing.value !== sectionText) existing.value = sectionText;
         } else {
-            render.innerHTML = `<textarea id="main-text-area" class="text-layer ${vtClass}" wrap="off"
-                style="text-align:${align}; white-space:pre; word-break:normal; overflow-wrap:normal; overflow:hidden;" 
-                oninput="updateActiveText(this.value)">${sectionText}</textarea>`;
+            render.innerHTML = `<div class="fixed-text-frame"
+                style="position:absolute; left:${frame.x}px; top:${frame.y}px; width:${frame.w}px; height:${frame.h}px; overflow:hidden;">
+                <textarea id="main-text-area" class="text-layer ${vtClass}" wrap="off"
+                    style="width:100%; height:100%; padding:0; background:transparent; text-align:${align}; white-space:pre; word-break:normal; overflow-wrap:normal; overflow:hidden;"
+                    onmousedown="event.stopPropagation()"
+                    onclick="event.stopPropagation()"
+                    ontouchstart="event.stopPropagation()"
+                    oninput="updateActiveText(this.value, event)">${sectionText}</textarea>
+            </div>`;
         }
         document.getElementById('image-only-props').style.display = 'none';
         document.getElementById('bubble-layer').style.display = 'none';
@@ -853,7 +860,7 @@ function initImageAdjustment() {
 //  テキスト更新（多言語対応）
 // ──────────────────────────────────────
 let textPushTimer = null;
-function updateActiveText(v) {
+function updateActiveText(v, ev) {
     const s = state.sections[state.activeIdx];
     if (!textPushTimer) {
         pushState();
@@ -868,7 +875,17 @@ function updateActiveText(v) {
         setSectionText(s, v);
         composeSectionForActiveLang(s);
     }
-    refresh();
+    if (ev?.isComposing) {
+        updateTextFitStatus(s);
+    } else {
+        const activeEl = document.activeElement;
+        const editingMainText = activeEl && activeEl.id === 'main-text-area';
+        if (editingMainText) {
+            updateTextFitStatus(s);
+        } else {
+            refresh();
+        }
+    }
     triggerAutoSave();
 }
 

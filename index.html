@@ -187,7 +187,7 @@
                     </div>
 
                     <label id="text-label">テキスト入力 (選択中の吹き出し or 背景テキスト)</label>
-                    <textarea id="prop-text" rows="5" oninput="updateActiveText(this.value)"></textarea>
+                    <textarea id="prop-text" rows="5" oninput="updateActiveText(this.value, event)"></textarea>
                     <div id="text-fit-status" class="field-label" style="margin:-4px 0 8px 0;"></div>
                     <button id="btn-split-overflow" class="btn-sm" style="display:none; margin-bottom:10px;" onclick="splitOverflowToNextPage()">残りを次ページに分割</button>
                     <button class="btn btn-danger" onclick="deleteActive()">削除</button>

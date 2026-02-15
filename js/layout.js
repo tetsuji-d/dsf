@@ -2,7 +2,7 @@
  * layout.js — Fixed 9:16 text composition for deterministic paging.
  */
 
-const DEFAULT_FRAME = { x: 20, y: 20, w: 320, h: 600 };
+const DEFAULT_FRAME = { x: 20, y: 32, w: 320, h: 576 };
 export const LAYOUT_VERSION = 2;
 
 const KINSOKU_LINE_START = new Set(Array.from('、。，．・：；！？)]}〉》」』】ぁぃぅぇぉっゃゅょゎァィゥェォッャュョヮー'));
