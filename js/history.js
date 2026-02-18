@@ -1,6 +1,6 @@
 /**
  * history.js — Undo/Redo 履歴管理
- * sections の deep copy スナップショットをスタックで管理する
+ * sections/blocks の deep copy スナップショットをスタックで管理する
  */
 import { state } from './state.js';
 
@@ -13,8 +13,10 @@ let redoStack = [];
  */
 export function pushState() {
     const snapshot = {
+        blocks: JSON.parse(JSON.stringify(state.blocks || [])),
         sections: JSON.parse(JSON.stringify(state.sections)),
         activeIdx: state.activeIdx,
+        activeBlockIdx: state.activeBlockIdx,
         activeBubbleIdx: state.activeBubbleIdx
     };
     undoStack.push(snapshot);
@@ -35,15 +37,19 @@ export function undo(refresh) {
 
     // 現在の状態をredoスタックに保存
     redoStack.push({
+        blocks: JSON.parse(JSON.stringify(state.blocks || [])),
         sections: JSON.parse(JSON.stringify(state.sections)),
         activeIdx: state.activeIdx,
+        activeBlockIdx: state.activeBlockIdx,
         activeBubbleIdx: state.activeBubbleIdx
     });
 
     // undoスタックから復元
     const snapshot = undoStack.pop();
+    state.blocks = snapshot.blocks || state.blocks || [];
     state.sections = snapshot.sections;
     state.activeIdx = snapshot.activeIdx;
+    state.activeBlockIdx = Number.isInteger(snapshot.activeBlockIdx) ? snapshot.activeBlockIdx : state.activeBlockIdx;
     state.activeBubbleIdx = snapshot.activeBubbleIdx;
 
     refresh();
@@ -60,15 +66,19 @@ export function redo(refresh) {
 
     // 現在の状態をundoスタックに保存
     undoStack.push({
+        blocks: JSON.parse(JSON.stringify(state.blocks || [])),
         sections: JSON.parse(JSON.stringify(state.sections)),
         activeIdx: state.activeIdx,
+        activeBlockIdx: state.activeBlockIdx,
         activeBubbleIdx: state.activeBubbleIdx
     });
 
     // redoスタックから復元
     const snapshot = redoStack.pop();
+    state.blocks = snapshot.blocks || state.blocks || [];
     state.sections = snapshot.sections;
     state.activeIdx = snapshot.activeIdx;
+    state.activeBlockIdx = Number.isInteger(snapshot.activeBlockIdx) ? snapshot.activeBlockIdx : state.activeBlockIdx;
     state.activeBubbleIdx = snapshot.activeBubbleIdx;
 
     refresh();

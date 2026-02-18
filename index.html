@@ -6,6 +6,9 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0">
     <title>DSF Studio Pro - Ultimate Edition</title>
     <link rel="stylesheet" href="css/main.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans:wght@400;700&family=Noto+Sans+JP:wght@400;700&family=Noto+Serif:wght@400;700&family=Noto+Serif+JP:wght@400;700&display=swap" rel="stylesheet">
     <link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet">
 </head>
 
@@ -54,6 +57,10 @@
                         <button class="btn-tool" onclick="addSection()">＋ セクション追加</button>
                         <button class="btn-tool" onclick="addBubbleFab()">💬 吹き出し追加</button>
                         <button class="btn-tool" onclick="document.getElementById('file-upload').click()" data-auth-required>🖼 画像追加</button>
+                        <button class="btn-tool" onclick="addChapterBlock()">📘 章</button>
+                        <button class="btn-tool" onclick="addSubsectionBlock()">📑 節</button>
+                        <button class="btn-tool" onclick="addItemBlock()">🔹 項</button>
+                        <button class="btn-tool" onclick="addTocBlock()">📚 目次</button>
                     </div>
                 </div>
                 <div class="ribbon-panel" data-ribbon-panel="arrange">
@@ -198,6 +205,12 @@
                         <option value="horizontal-tb">横書き (→)</option>
                         <option value="vertical-rl">縦書き (↓)</option>
                     </select>
+                    <label>フォント (現在の言語)</label>
+                    <select id="lang-font-preset" onchange="updateGlobalFontPreset(this.value)">
+                        <option value="gothic">ゴシック</option>
+                        <option value="mincho">明朝</option>
+                        <option value="ui">UI Sans</option>
+                    </select>
 
                     <div class="inline-actions">
                         <select id="lang-add-select">
@@ -229,6 +242,10 @@
                 <button class="btn-tool" onclick="addSection()">＋ セクション追加</button>
                 <button class="btn-tool" onclick="addBubbleFab()">💬 吹き出し追加</button>
                 <button class="btn-tool" onclick="document.getElementById('file-upload').click()" data-auth-required>🖼 画像追加</button>
+                <button class="btn-tool" onclick="addChapterBlock()">📘 章</button>
+                <button class="btn-tool" onclick="addSubsectionBlock()">📑 節</button>
+                <button class="btn-tool" onclick="addItemBlock()">🔹 項</button>
+                <button class="btn-tool" onclick="addTocBlock()">📚 目次</button>
             </div>
             <div id="mobile-sheet-export" class="mobile-sheet-content">
                 <button class="btn-tool" onclick="saveProject()" data-auth-required>💾 Save</button>

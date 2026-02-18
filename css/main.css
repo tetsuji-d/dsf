@@ -342,6 +342,10 @@ body.right-collapsed #panel-right {
     border-radius: 8px;
 }
 
+.thumb-card {
+    min-width: 0;
+}
+
 .thumb-canvas {
     width: 100%;
     aspect-ratio: 9 / 16;
@@ -359,6 +363,89 @@ body.right-collapsed #panel-right {
     outline: 2px solid var(--primary);
     outline-offset: 2px;
     border-radius: 8px;
+}
+
+.thumb-row {
+    grid-column: 1 / -1;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    min-height: 40px;
+    border: 1px solid #dde4f0;
+    background: #f7f9fc;
+    border-radius: 8px;
+    padding: 6px 8px;
+}
+
+.thumb-row.active {
+    border-color: #7fa7ea;
+    background: #edf4ff;
+}
+
+.thumb-row-main {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    min-width: 0;
+}
+
+.thumb-tree-indent {
+    display: inline-block;
+    width: calc(var(--tree-depth, 0) * 14px);
+    min-width: 0;
+}
+
+.thumb-row-badge {
+    display: inline-flex;
+    align-items: center;
+    border: 1px solid #d0d9e8;
+    background: #fff;
+    border-radius: 999px;
+    color: #2f3e52;
+    padding: 2px 6px;
+    font-size: 10px;
+    line-height: 1.2;
+    white-space: nowrap;
+}
+
+.thumb-row-title {
+    font-size: 12px;
+    font-weight: 600;
+    color: #2f3e52;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.thumb-row-subtitle {
+    font-size: 11px;
+    color: #637089;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.thumb-row-actions {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    margin-left: 8px;
+    opacity: 0;
+    pointer-events: none;
+}
+
+.thumb-row-btn {
+    width: 22px;
+    height: 22px;
+    border: 1px solid #b8c5dc;
+    background: rgba(255, 255, 255, 0.95);
+    color: #27466f;
+    border-radius: 999px;
+    font-size: 12px;
+    line-height: 1;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
 }
 
 .thumb-wrap.drag-source {
@@ -428,6 +515,12 @@ body.right-collapsed #panel-right {
 .thumb-wrap:hover .thumb-duplicate-btn,
 .thumb-wrap.active .thumb-insert-btn,
 .thumb-wrap.active .thumb-duplicate-btn {
+    opacity: 1;
+    pointer-events: auto;
+}
+
+.thumb-row:hover .thumb-row-actions,
+.thumb-row.active .thumb-row-actions {
     opacity: 1;
     pointer-events: auto;
 }

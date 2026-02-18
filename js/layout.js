@@ -4,6 +4,25 @@
 
 const DEFAULT_FRAME = { x: 20, y: 32, w: 320, h: 576 };
 export const LAYOUT_VERSION = 2;
+const DEFAULT_FONT_PRESET = 'gothic';
+
+const FONT_PRESETS = {
+    gothic: {
+        label: 'ゴシック',
+        ja: "'Noto Sans JP','Hiragino Sans','Hiragino Kaku Gothic ProN','Yu Gothic UI',sans-serif",
+        en: "'Noto Sans',Arial,'Helvetica Neue','Segoe UI',sans-serif"
+    },
+    mincho: {
+        label: '明朝',
+        ja: "'Noto Serif JP','Hiragino Mincho ProN','Yu Mincho',serif",
+        en: "'Noto Serif',Georgia,'Times New Roman',serif"
+    },
+    ui: {
+        label: 'UI Sans',
+        ja: "'Yu Gothic UI',Meiryo,sans-serif",
+        en: "'Segoe UI',Arial,sans-serif"
+    }
+};
 
 const KINSOKU_LINE_START = new Set(Array.from('、。，．・：；！？)]}〉》」』】ぁぃぅぇぉっゃゅょゎァィゥェォッャュョヮー'));
 const KINSOKU_LINE_END = new Set(Array.from('([<{〈《「『【'));
@@ -37,15 +56,22 @@ function measureTextWidth(text, font) {
     return ctx.measureText(text || '').width;
 }
 
-function getLangPreset(lang, writingMode) {
+function resolveFontFamily(lang, fontPreset) {
+    const isJa = (lang || '').toLowerCase().startsWith('ja');
+    const key = FONT_PRESETS[fontPreset] ? fontPreset : DEFAULT_FONT_PRESET;
+    return isJa ? FONT_PRESETS[key].ja : FONT_PRESETS[key].en;
+}
+
+function getLangPreset(lang, writingMode, fontPreset = DEFAULT_FONT_PRESET) {
     const isJa = (lang || '').toLowerCase().startsWith('ja');
     const vertical = writingMode === 'vertical-rl';
+    const family = resolveFontFamily(lang, fontPreset);
     if (isJa || vertical) {
         return {
             writingMode: 'vertical-rl',
             frame: { ...DEFAULT_FRAME },
             font: {
-                family: '"Noto Sans JP","Hiragino Kaku Gothic ProN","Yu Gothic UI",sans-serif',
+                family,
                 size: 16,
                 lineHeight: 1.8,
                 letterSpacing: 0
@@ -63,13 +89,13 @@ function getLangPreset(lang, writingMode) {
         writingMode: 'horizontal-tb',
         frame: { ...DEFAULT_FRAME },
         font: {
-            family: '"Noto Sans","Segoe UI",sans-serif',
+            family,
             size: 16,
             lineHeight: 1.8,
             letterSpacing: 0
         },
         rules: {
-            maxLines: 21,
+            maxLines: 20,
             charsPerLine: 32,
             maxChars: 680,
             wordBreak: 'keep-word',
@@ -216,8 +242,8 @@ function composeWithPreset(rawText, preset) {
     };
 }
 
-export function composeText(rawText, lang, writingMode) {
-    const preset = getLangPreset(lang, writingMode);
+export function composeText(rawText, lang, writingMode, fontPreset = DEFAULT_FONT_PRESET) {
+    const preset = getLangPreset(lang, writingMode, fontPreset);
     const out = composeWithPreset(rawText, preset);
     return {
         version: LAYOUT_VERSION,
@@ -228,6 +254,40 @@ export function composeText(rawText, lang, writingMode) {
         lines: out.lines,
         overflow: out.overflow,
         overflowText: out.overflowText,
+        fontPreset: FONT_PRESETS[fontPreset] ? fontPreset : DEFAULT_FONT_PRESET,
         styleHash: `${preset.writingMode}:${preset.font.family}:${preset.font.size}:${preset.rules.maxLines}:${preset.rules.charsPerLine}`
     };
+}
+
+export function getWritingModeFromConfigs(lang, languageConfigs) {
+    if (languageConfigs && languageConfigs[lang]?.writingMode) {
+        return languageConfigs[lang].writingMode;
+    }
+    return (lang || '').toLowerCase().startsWith('ja') ? 'vertical-rl' : 'horizontal-tb';
+}
+
+export function getFontPresetFromConfigs(lang, languageConfigs) {
+    const key = languageConfigs?.[lang]?.fontPreset;
+    return FONT_PRESETS[key] ? key : DEFAULT_FONT_PRESET;
+}
+
+export function getFontPresetOptions() {
+    return Object.entries(FONT_PRESETS).map(([value, cfg]) => ({ value, label: cfg.label }));
+}
+
+export function composeCanonicalLayoutsForSections(sections, languages, languageConfigs) {
+    const list = Array.isArray(sections) ? sections : [];
+    const langs = Array.isArray(languages) && languages.length ? languages : ['ja'];
+    for (const s of list) {
+        if (!s || s.type !== 'text') continue;
+        if (!s.texts || typeof s.texts !== 'object') s.texts = {};
+        if (!s.layout || typeof s.layout !== 'object') s.layout = {};
+        for (const lang of langs) {
+            const raw = s.texts[lang] !== undefined ? s.texts[lang] : (s.text || '');
+            const writingMode = getWritingModeFromConfigs(lang, languageConfigs);
+            const fontPreset = getFontPresetFromConfigs(lang, languageConfigs);
+            s.layout[lang] = composeText(raw, lang, writingMode, fontPreset);
+        }
+    }
+    return list;
 }

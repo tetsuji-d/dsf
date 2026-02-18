@@ -18,6 +18,8 @@ import {
     onAuthStateChanged
 } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js";
 import { state } from './state.js';
+import { BLOCK_SCHEMA_VERSION, getBlockIndexFromPageIndex, normalizeProjectData, syncBlocksWithSections } from './blocks.js';
+import { composeCanonicalLayoutsForSections } from './layout.js';
 
 // --- Firebase Config ---
 const firebaseConfig = {
@@ -206,12 +208,16 @@ export function triggerAutoSave() {
  */
 async function performSave() {
     if (!state.projectId || !state.uid) return;
+    composeCanonicalLayoutsForSections(state.sections, state.languages, state.languageConfigs);
+    state.blocks = syncBlocksWithSections(state.blocks, state.sections, state.languages);
 
     updateSaveIndicator('saving', '保存中...');
 
     try {
         await setDoc(projectDocRef(state.projectId), {
+            version: BLOCK_SCHEMA_VERSION,
             title: state.title || '',
+            blocks: state.blocks,
             sections: state.sections,
             languages: state.languages,
             languageConfigs: state.languageConfigs,
@@ -475,14 +481,16 @@ export async function loadProject(pid, refresh) {
     if (!state.uid) return;
     const snap = await getDoc(projectDocRef(pid));
     if (snap.exists()) {
-        const data = snap.data();
+        const data = normalizeProjectData(snap.data() || {});
         state.projectId = pid;
         state.title = data.title || '';
+        state.blocks = data.blocks || [];
         state.sections = data.sections;
         state.languages = data.languages && data.languages.length > 0 ? data.languages : ['ja'];
         state.uiPrefs = data.uiPrefs || state.uiPrefs || {};
         state.activeLang = state.languages[0];
         state.activeIdx = 0;
+        state.activeBlockIdx = Math.max(0, getBlockIndexFromPageIndex(state.blocks, 0));
         state.activeBubbleIdx = null;
         refresh();
     }

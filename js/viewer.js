@@ -7,6 +7,7 @@ import { getLangProps } from './lang.js';
 import { db, signInWithGoogle, signOutUser, onAuthChanged, consumeRedirectResult } from './firebase.js';
 import { doc, getDoc } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
 import { composeText, LAYOUT_VERSION } from './layout.js';
+import { normalizeProjectData } from './blocks.js';
 
 let currentProject = null;
 let sharedProjectRef = null;
@@ -238,22 +239,35 @@ window.loadDsf = (input) => {
 };
 
 function loadProjectData(data) {
-    if (!data.languageConfigs) {
-        data.languageConfigs = {};
-        (data.languages || ['ja']).forEach(lang => {
-            data.languageConfigs[lang] = {
-                writingMode: (lang === 'ja') ? 'vertical-rl' : 'horizontal-tb'
+    const normalized = normalizeProjectData(data || {});
+    if (!normalized.languageConfigs) {
+        normalized.languageConfigs = {};
+        (normalized.languages || ['ja']).forEach(lang => {
+            normalized.languageConfigs[lang] = {
+                writingMode: (lang === 'ja') ? 'vertical-rl' : 'horizontal-tb',
+                fontPreset: 'gothic'
             };
         });
     }
+    (normalized.languages || ['ja']).forEach((lang) => {
+        if (!normalized.languageConfigs[lang]) normalized.languageConfigs[lang] = {};
+        if (!normalized.languageConfigs[lang].writingMode) {
+            normalized.languageConfigs[lang].writingMode = (lang === 'ja') ? 'vertical-rl' : 'horizontal-tb';
+        }
+        if (!normalized.languageConfigs[lang].fontPreset) {
+            normalized.languageConfigs[lang].fontPreset = 'gothic';
+        }
+    });
 
-    state.projectId = data.projectId;
-    state.title = data.title || ''; // Load title
-    state.sections = data.sections || [];
-    state.languages = data.languages || ['ja'];
-    state.languageConfigs = data.languageConfigs;
+    state.projectId = normalized.projectId;
+    state.title = normalized.title || ''; // Load title
+    state.blocks = normalized.blocks || [];
+    state.sections = normalized.sections || [];
+    state.languages = normalized.languages || ['ja'];
+    state.languageConfigs = normalized.languageConfigs;
     state.activeLang = state.languages[0];
     state.activeIdx = 0;
+    state.activeBlockIdx = 0;
 
     currentProject = data;
 
@@ -293,12 +307,34 @@ function getWritingMode(lang) {
 
 function getComposedLayoutForViewerSection(section, lang) {
     if (!section.layout || typeof section.layout !== 'object') section.layout = {};
+    const cached = section.layout[lang];
+    if (cached) return cached; // Canonical layout is authored in editor and rendered as-is.
+
+    // Backward compatibility for old projects without precomposed layout.
     const mode = getWritingMode(lang);
-    if (!section.layout[lang] || section.layout[lang].writingMode !== mode || Number(section.layout[lang].version) !== LAYOUT_VERSION) {
+    const fontPreset = state.languageConfigs?.[lang]?.fontPreset || 'gothic';
+    if (!section.layout[lang]) {
         const raw = (section.texts && section.texts[lang] !== undefined) ? section.texts[lang] : (section.text || '');
-        section.layout[lang] = composeText(raw, lang, mode);
+        section.layout[lang] = composeText(raw, lang, mode, fontPreset);
     }
     return section.layout[lang];
+}
+
+function getVerticalTextPadding(layout) {
+    if (!layout || layout.writingMode !== 'vertical-rl') return 0;
+    const frameH = Number(layout?.frame?.h) || 0;
+    const fontSize = Number(layout?.font?.size) || 16;
+    const letterSpacing = Number(layout?.font?.letterSpacing) || 0;
+    const lines = Array.isArray(layout?.lines) ? layout.lines : [];
+    let maxChars = 0;
+    for (const line of lines) {
+        const count = Array.from(String(line || '')).length;
+        if (count > maxChars) maxChars = count;
+    }
+    if (maxChars <= 0 || frameH <= 0) return 0;
+    const usedH = maxChars * Math.max(1, fontSize + letterSpacing);
+    const pad = Math.floor((frameH - usedH) / 2);
+    return Math.max(0, Math.min(40, pad));
 }
 
 function escapeHtml(text) {
@@ -339,9 +375,17 @@ function refresh() {
         const align = langProps.sectionAlign;
         const layout = getComposedLayoutForViewerSection(s, lang);
         const text = escapeHtml((layout?.lines || []).join('\n'));
+        const frame = layout?.frame || { x: 20, y: 32, w: 320, h: 576 };
+        const font = layout?.font || {};
+        const fontFamily = font.family || '"Noto Sans","Segoe UI",sans-serif';
+        const fontSize = Number(font.size) || 16;
+        const lineHeight = Number(font.lineHeight) || 1.8;
+        const letterSpacing = Number.isFinite(Number(font.letterSpacing)) ? Number(font.letterSpacing) : 0;
+        const verticalPad = getVerticalTextPadding(layout);
 
         contentEl.innerHTML = `<div class="viewer-text-page">
-            <div class="viewer-text-block ${vtClass}" style="text-align:${align};">${text}</div>
+            <div class="viewer-text-block ${vtClass}"
+                 style="left:${frame.x}px; top:${frame.y}px; width:${frame.w}px; height:${frame.h}px; padding:${verticalPad}px 0; text-align:${align}; font-family:${fontFamily}; font-size:${fontSize}px; line-height:${lineHeight}; letter-spacing:${letterSpacing}px;">${text}</div>
         </div>`;
     }
 

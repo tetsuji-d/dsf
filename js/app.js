@@ -4,11 +4,12 @@
 import { state } from './state.js';
 import { saveProject, loadProject, uploadToStorage, triggerAutoSave, generateCroppedThumbnail, signInWithGoogle, signOutUser, onAuthChanged, consumeRedirectResult } from './firebase.js';
 import { handleCanvasClick, selectBubble, renderBubbleHTML, getBubbleText, setBubbleText, addBubbleAtCenter, startDrag } from './bubbles.js';
-import { addSection, changeSection, renderThumbs, deleteActive, insertSectionAt, duplicateSectionAt, moveSection } from './sections.js';
+import { addSection, changeSection, changeBlock, insertStructureBlock, renderThumbs, deleteActive, insertSectionAt, duplicateSectionAt, moveSection } from './sections.js';
 import { pushState, undo, redo, getHistoryInfo, clearHistory } from './history.js';
 import { openProjectModal, closeProjectModal } from './projects.js';
 import { getLangProps, getAllLangs } from './lang.js';
-import { composeText, LAYOUT_VERSION } from './layout.js';
+import { composeCanonicalLayoutsForSections, composeText, getFontPresetFromConfigs, getFontPresetOptions, LAYOUT_VERSION } from './layout.js';
+import { BLOCK_SCHEMA_VERSION, getBlockIndexFromPageIndex, getPageIndexFromBlockIndex, migrateSectionsToBlocks, normalizeProjectData, syncBlocksWithSections } from './blocks.js';
 
 // ──────────────────────────────────────
 //  ヘルパー: セクションテキストの多言語取得・設定
@@ -26,6 +27,58 @@ function setSectionText(s, text) {
     s.text = text;
 }
 
+function getActiveBlock() {
+    const blocks = state.blocks || [];
+    if (Number.isInteger(state.activeBlockIdx) && blocks[state.activeBlockIdx]) {
+        return blocks[state.activeBlockIdx];
+    }
+    const fallbackBlockIdx = getBlockIndexFromPageIndex(blocks, state.activeIdx);
+    if (fallbackBlockIdx >= 0) {
+        state.activeBlockIdx = fallbackBlockIdx;
+        return blocks[fallbackBlockIdx];
+    }
+    return null;
+}
+
+function getBlockLocalizedText(block) {
+    const lang = state.activeLang;
+    if (!block) return '';
+    if (block.kind === 'cover_front') return block.meta?.title?.[lang] || '';
+    if (block.kind === 'cover_back') return block.meta?.colophon?.[lang] || '';
+    if (block.kind === 'chapter' || block.kind === 'section' || block.kind === 'item' || block.kind === 'toc') {
+        return block.meta?.title?.[lang] || '';
+    }
+    return '';
+}
+
+function setBlockLocalizedText(block, text) {
+    const lang = state.activeLang;
+    if (!block) return;
+    if (!block.meta) block.meta = {};
+    if (block.kind === 'cover_front') {
+        if (!block.meta.title) block.meta.title = {};
+        block.meta.title[lang] = text;
+        return;
+    }
+    if (block.kind === 'cover_back') {
+        if (!block.meta.colophon) block.meta.colophon = {};
+        block.meta.colophon[lang] = text;
+        return;
+    }
+    if (block.kind === 'chapter' || block.kind === 'section' || block.kind === 'item' || block.kind === 'toc') {
+        if (!block.meta.title) block.meta.title = {};
+        block.meta.title[lang] = text;
+    }
+}
+
+function syncBlocksFromState() {
+    state.blocks = syncBlocksWithSections(state.blocks, state.sections, state.languages);
+    const activeBlock = getActiveBlock();
+    const pageIdx = getPageIndexFromBlockIndex(state.blocks, state.activeBlockIdx);
+    if (pageIdx >= 0) state.activeIdx = pageIdx;
+    if (!activeBlock && state.blocks?.length) state.activeBlockIdx = 0;
+}
+
 function ensureSectionLayout(s) {
     if (!s.layout || typeof s.layout !== 'object') s.layout = {};
 }
@@ -40,8 +93,9 @@ function composeSectionForActiveLang(s) {
     const lang = state.activeLang;
     const raw = getSectionText(s);
     const mode = getWritingMode(lang);
+    const fontPreset = getFontPreset(lang);
     ensureSectionLayout(s);
-    const layout = composeText(raw, lang, mode);
+    const layout = composeText(raw, lang, mode, fontPreset);
     s.layout[lang] = layout;
     return layout;
 }
@@ -50,11 +104,24 @@ function ensureComposedLayoutForActiveLang(s) {
     const lang = state.activeLang;
     const raw = getSectionText(s);
     const mode = getWritingMode(lang);
+    const fontPreset = getFontPreset(lang);
     const existing = getSectionLayout(s);
-    if (!existing || existing.writingMode !== mode || Number(existing.version) !== LAYOUT_VERSION) {
+    if (!existing || existing.writingMode !== mode || existing.fontPreset !== fontPreset || Number(existing.version) !== LAYOUT_VERSION) {
         return composeSectionForActiveLang(s);
     }
     return existing;
+}
+
+function composeAllTextSectionsForLang(lang) {
+    const mode = getWritingMode(lang);
+    const fontPreset = getFontPreset(lang);
+    for (const s of state.sections || []) {
+        if (!s || s.type !== 'text') continue;
+        if (!s.texts) s.texts = {};
+        if (!s.layout || typeof s.layout !== 'object') s.layout = {};
+        const raw = s.texts[lang] !== undefined ? s.texts[lang] : (s.text || '');
+        s.layout[lang] = composeText(raw, lang, mode, fontPreset);
+    }
 }
 
 function updateTextFitStatus(s) {
@@ -76,6 +143,23 @@ function updateTextFitStatus(s) {
     splitBtn.style.display = layout?.overflow ? 'inline-flex' : 'none';
 }
 
+function getVerticalTextPadding(layout) {
+    if (!layout || layout.writingMode !== 'vertical-rl') return 0;
+    const frameH = Number(layout?.frame?.h) || 0;
+    const fontSize = Number(layout?.font?.size) || 16;
+    const letterSpacing = Number(layout?.font?.letterSpacing) || 0;
+    const lines = Array.isArray(layout?.lines) ? layout.lines : [];
+    let maxChars = 0;
+    for (const line of lines) {
+        const count = Array.from(String(line || '')).length;
+        if (count > maxChars) maxChars = count;
+    }
+    if (maxChars <= 0 || frameH <= 0) return 0;
+    const usedH = maxChars * Math.max(1, fontSize + letterSpacing);
+    const pad = Math.floor((frameH - usedH) / 2);
+    return Math.max(0, Math.min(40, pad));
+}
+
 // ──────────────────────────────────────
 //  refresh — 画面全体を再描画する
 // ──────────────────────────────────────
@@ -89,6 +173,10 @@ function getWritingMode(lang) {
     // Fallback / Default
     const props = getLangProps(lang);
     return props.defaultWritingMode || 'horizontal-tb';
+}
+
+function getFontPreset(lang) {
+    return getFontPresetFromConfigs(lang, state.languageConfigs);
 }
 
 function updateAuthUI() {
@@ -175,6 +263,9 @@ function setCurrentDeviceThumbColumns(cols) {
 //  refresh — 画面全体を再描画する
 // ──────────────────────────────────────
 function refresh() {
+    syncBlocksFromState();
+    const activeBlock = getActiveBlock();
+    const isPageBlock = activeBlock?.kind === 'page';
     const s = state.sections[state.activeIdx];
     const render = document.getElementById('content-render');
     const lang = state.activeLang;
@@ -184,7 +275,30 @@ function refresh() {
     const effectiveMode = getWritingMode(lang);
 
     // メインキャンバスの描画切り替え
-    if (s.type === 'image') {
+    if (!isPageBlock) {
+        const labels = {
+            cover_front: '表紙ブロック',
+            cover_back: '裏表紙ブロック',
+            chapter: '章ブロック',
+            section: '節ブロック',
+            item: '項ブロック',
+            item_end: '項終了ブロック',
+            toc: '目次ブロック'
+        };
+        const label = labels[activeBlock?.kind] || (activeBlock?.kind || 'ブロック');
+        const text = getBlockLocalizedText(activeBlock);
+        render.innerHTML = `
+            <div class="fixed-text-frame" style="position:absolute; left:20px; top:32px; width:320px; height:576px; display:flex; align-items:center; justify-content:center; border:2px dashed #cfd7e3; background:#f8fafc; color:#2f3e52; padding:20px; text-align:center;">
+                <div>
+                    <div style="font-size:12px; margin-bottom:8px;">${label}</div>
+                    <div style="font-size:14px; font-weight:700;">${text || '右パネルのテキスト入力で編集'}</div>
+                </div>
+            </div>
+        `;
+        document.getElementById('image-only-props').style.display = 'none';
+        document.getElementById('bubble-layer').style.display = 'none';
+        document.getElementById('bubble-shape-props').style.display = 'none';
+    } else if (s.type === 'image') {
         if (!s.imagePosition) s.imagePosition = {};
         const toNum = (v, fallback) => {
             const n = Number(v);
@@ -232,6 +346,12 @@ function refresh() {
         const vtClass = effectiveMode === 'vertical-rl' ? 'v-text' : '';
         const align = langProps.sectionAlign;
         const frame = layout?.frame || { x: 20, y: 32, w: 320, h: 576 };
+        const font = layout?.font || {};
+        const family = font.family || '"Noto Sans","Segoe UI",sans-serif';
+        const size = Number(font.size) || 16;
+        const lineHeight = Number(font.lineHeight) || 1.8;
+        const letterSpacing = Number.isFinite(Number(font.letterSpacing)) ? Number(font.letterSpacing) : 0;
+        const verticalPad = getVerticalTextPadding(layout);
 
         // フォーカス維持判定
         const existing = document.getElementById('main-text-area');
@@ -241,7 +361,7 @@ function refresh() {
             render.innerHTML = `<div class="fixed-text-frame"
                 style="position:absolute; left:${frame.x}px; top:${frame.y}px; width:${frame.w}px; height:${frame.h}px; overflow:hidden;">
                 <textarea id="main-text-area" class="text-layer ${vtClass}" wrap="off"
-                    style="width:100%; height:100%; padding:0; background:transparent; text-align:${align}; white-space:pre; word-break:normal; overflow-wrap:normal; overflow:hidden;"
+                    style="width:100%; height:100%; padding:${verticalPad}px 0; background:transparent; text-align:${align}; white-space:pre; word-break:normal; overflow-wrap:normal; overflow:hidden; font-family:${family}; font-size:${size}px; line-height:${lineHeight}; letter-spacing:${letterSpacing}px;"
                     onmousedown="event.stopPropagation()"
                     onclick="event.stopPropagation()"
                     ontouchstart="event.stopPropagation()"
@@ -258,19 +378,29 @@ function refresh() {
     const isDirectEditing = editingEl && editingEl.classList.contains('bubble-text')
         && editingEl.getAttribute('contenteditable') === 'true';
 
-    if (!isDirectEditing && s.type !== 'text') {
+    if (isPageBlock && !isDirectEditing && s.type !== 'text') {
         document.getElementById('bubble-layer').innerHTML = (s.bubbles || []).map((b, i) =>
             renderBubbleHTML(b, i, i === state.activeBubbleIdx, effectiveMode) // Pass effectiveMode
         ).join('');
+    } else if (!isPageBlock) {
+        document.getElementById('bubble-layer').innerHTML = '';
     }
 
     // activeBubbleIdxが無効な場合はリセット
-    if (state.activeBubbleIdx !== null && (!s.bubbles || !s.bubbles[state.activeBubbleIdx])) {
+    if (isPageBlock && state.activeBubbleIdx !== null && (!s.bubbles || !s.bubbles[state.activeBubbleIdx])) {
         state.activeBubbleIdx = null;
     }
 
     // パネルUIの同期
-    document.getElementById('prop-type').value = s.type;
+    const propType = document.getElementById('prop-type');
+    if (propType) {
+        if (isPageBlock) {
+            propType.disabled = false;
+            propType.value = s.type;
+        } else {
+            propType.disabled = true;
+        }
+    }
 
     // 言語設定パネル内の書字方向同期
     const langModeSelect = document.getElementById('lang-writing-mode');
@@ -284,22 +414,39 @@ function refresh() {
         });
     }
 
-    // テキストエリア: 言語に応じたテキストを表示
-    if (state.activeBubbleIdx !== null && s.bubbles[state.activeBubbleIdx]) {
-        document.getElementById('prop-text').value = getBubbleText(s.bubbles[state.activeBubbleIdx]);
-    } else {
-        document.getElementById('prop-text').value = getSectionText(s);
+    const langFontSelect = document.getElementById('lang-font-preset');
+    if (langFontSelect) {
+        const current = getFontPreset(lang);
+        const options = getFontPresetOptions();
+        langFontSelect.innerHTML = options.map((opt) =>
+            `<option value="${opt.value}">${opt.label}</option>`
+        ).join('');
+        langFontSelect.value = current;
     }
-    updateTextFitStatus(s);
+
+    // テキストエリア: 言語に応じたテキストを表示
+    if (isPageBlock && state.activeBubbleIdx !== null && s.bubbles[state.activeBubbleIdx]) {
+        document.getElementById('prop-text').value = getBubbleText(s.bubbles[state.activeBubbleIdx]);
+    } else if (isPageBlock) {
+        document.getElementById('prop-text').value = getSectionText(s);
+    } else {
+        document.getElementById('prop-text').value = getBlockLocalizedText(activeBlock);
+    }
+    updateTextFitStatus(isPageBlock ? s : null);
 
     // テキストラベルに現在の言語を表示
     const textLabel = document.getElementById('text-label');
-    if (textLabel) textLabel.textContent = `テキスト入力 [${langProps.label}]`;
+    if (textLabel) {
+        const label = isPageBlock
+            ? `テキスト入力 [${langProps.label}]`
+            : `ブロックテキスト [${langProps.label}]`;
+        textLabel.textContent = label;
+    }
 
     // 吹き出し形状セレクタの同期
     const shapeProps = document.getElementById('bubble-shape-props');
     const shapeSelect = document.getElementById('prop-shape');
-    if (state.activeBubbleIdx !== null && s.bubbles[state.activeBubbleIdx]) {
+    if (isPageBlock && state.activeBubbleIdx !== null && s.bubbles[state.activeBubbleIdx]) {
         shapeProps.style.display = 'block';
         shapeSelect.value = s.bubbles[state.activeBubbleIdx].shape || 'speech';
     } else {
@@ -486,6 +633,10 @@ function onThumbTouchCancel() {
 //  セクションプロパティ更新
 // ──────────────────────────────────────
 function update(k, v) {
+    const activeBlock = getActiveBlock();
+    if (activeBlock && activeBlock.kind !== 'page') {
+        return;
+    }
     const s = state.sections[state.activeIdx];
     if (k === 'type' && v === 'text' && s.bubbles && s.bubbles.length > 0) {
         const ok = confirm(`このセクションには${s.bubbles.length}個の吹き出しがあります。\nテキストセクションに切り替えると吹き出しは削除されます。\nよろしいですか？`);
@@ -861,6 +1012,19 @@ function initImageAdjustment() {
 // ──────────────────────────────────────
 let textPushTimer = null;
 function updateActiveText(v, ev) {
+    const activeBlock = getActiveBlock();
+    if (activeBlock && activeBlock.kind !== 'page') {
+        if (!textPushTimer) {
+            pushState();
+        } else {
+            clearTimeout(textPushTimer);
+        }
+        textPushTimer = setTimeout(() => { textPushTimer = null; }, 500);
+        setBlockLocalizedText(activeBlock, v);
+        refresh();
+        triggerAutoSave();
+        return;
+    }
     const s = state.sections[state.activeIdx];
     if (!textPushTimer) {
         pushState();
@@ -911,41 +1075,72 @@ function updateGlobalWritingMode(mode) {
 
     state.languageConfigs[lang].writingMode = mode;
     pushState();
-    const s = state.sections[state.activeIdx];
-    if (s && s.type === 'text') {
-        composeSectionForActiveLang(s);
-    }
+    composeAllTextSectionsForLang(lang);
+    refresh();
+    triggerAutoSave();
+}
+
+function updateGlobalFontPreset(fontPreset) {
+    const lang = state.activeLang;
+    if (!state.languageConfigs) state.languageConfigs = {};
+    if (!state.languageConfigs[lang]) state.languageConfigs[lang] = {};
+
+    state.languageConfigs[lang].fontPreset = fontPreset;
+    pushState();
+    composeAllTextSectionsForLang(lang);
     refresh();
     triggerAutoSave();
 }
 
 
-function onLoadProject(pid, sections, languages, languageConfigs, title, uiPrefs) {
+function onLoadProject(pid, sections, languages, languageConfigs, title, uiPrefs, blocks, version) {
+    const normalized = normalizeProjectData({
+        version,
+        blocks,
+        sections,
+        languages,
+        languageConfigs,
+        title,
+        uiPrefs
+    });
+
     state.projectId = pid;
-    state.title = title || '';
-    state.sections = sections;
-    state.languages = languages && languages.length > 0 ? languages : ['ja'];
+    state.title = normalized.title || '';
+    state.blocks = normalized.blocks;
+    state.sections = normalized.sections;
+    state.languages = normalized.languages;
 
     // languageConfigs Migration
-    if (languageConfigs) {
-        state.languageConfigs = languageConfigs;
+    if (normalized.languageConfigs) {
+        state.languageConfigs = normalized.languageConfigs;
     } else {
         // Old format migration: create configs based on defaults
         state.languageConfigs = {};
         state.languages.forEach(lang => {
             const props = getLangProps(lang);
             state.languageConfigs[lang] = {
-                writingMode: props.defaultWritingMode || 'horizontal-tb'
+                writingMode: props.defaultWritingMode || 'horizontal-tb',
+                fontPreset: 'gothic'
             };
         });
     }
+    state.languages.forEach((lang) => {
+        if (!state.languageConfigs[lang]) state.languageConfigs[lang] = {};
+        if (!state.languageConfigs[lang].writingMode) {
+            state.languageConfigs[lang].writingMode = getLangProps(lang).defaultWritingMode || 'horizontal-tb';
+        }
+        if (!state.languageConfigs[lang].fontPreset) {
+            state.languageConfigs[lang].fontPreset = 'gothic';
+        }
+    });
 
-    state.uiPrefs = uiPrefs || state.uiPrefs || {};
+    state.uiPrefs = normalized.uiPrefs || state.uiPrefs || {};
     ensureUiPrefs();
     applyThumbColumnsFromPrefs();
 
     state.activeLang = state.languages[0];
     state.activeIdx = 0;
+    state.activeBlockIdx = Math.max(0, getBlockIndexFromPageIndex(state.blocks, 0));
     state.activeBubbleIdx = null;
     clearHistory();
     refresh();
@@ -974,6 +1169,15 @@ window.changeSection = (i) => {
     if (Date.now() < suppressThumbClickUntil) return;
     changeSection(i, refresh);
 };
+window.changeBlock = (idx) => {
+    if (Date.now() < suppressThumbClickUntil) return;
+    changeBlock(idx, refresh);
+};
+window.addChapterBlock = () => { pushState(); insertStructureBlock('chapter', refresh); triggerAutoSave(); };
+window.addSubsectionBlock = () => { pushState(); insertStructureBlock('section', refresh); triggerAutoSave(); };
+window.addItemBlock = () => { pushState(); insertStructureBlock('item', refresh); triggerAutoSave(); };
+window.addItemEndBlock = () => { pushState(); insertStructureBlock('item_end', refresh); triggerAutoSave(); };
+window.addTocBlock = () => { pushState(); insertStructureBlock('toc', refresh); triggerAutoSave(); };
 window.insertSectionAtIndex = (idx, e) => {
     if (e) {
         e.preventDefault();
@@ -993,6 +1197,8 @@ window.duplicateSectionByIndex = (idx, e) => {
     triggerAutoSave();
 };
 window.splitOverflowToNextPage = () => {
+    const activeBlock = getActiveBlock();
+    if (activeBlock && activeBlock.kind !== 'page') return;
     const s = state.sections[state.activeIdx];
     if (!s || s.type !== 'text') return;
     const layout = ensureComposedLayoutForActiveLang(s);
@@ -1081,6 +1287,7 @@ window.update = update;
 window.updateActiveText = updateActiveText;
 window.updateBubbleShape = updateBubbleShape;
 window.updateGlobalWritingMode = updateGlobalWritingMode;
+window.updateGlobalFontPreset = updateGlobalFontPreset;
 window.updateTitle = (v) => {
     state.title = v;
     const headerGuideTitle = document.getElementById('header-guide-title');
@@ -1292,10 +1499,13 @@ window.saveProject = () => {
 };
 
 window.exportProject = () => {
+    composeCanonicalLayoutsForSections(state.sections, state.languages, state.languageConfigs);
+    syncBlocksFromState();
     const data = {
-        version: 2,
+        version: BLOCK_SCHEMA_VERSION,
         projectId: state.projectId,
         title: state.title || '',
+        blocks: state.blocks,
         sections: state.sections,
         languages: state.languages,
         languageConfigs: state.languageConfigs,
@@ -1373,6 +1583,11 @@ window.addLang = () => {
     const code = select.value;
     if (!code || state.languages.includes(code)) return;
     state.languages.push(code);
+    if (!state.languageConfigs) state.languageConfigs = {};
+    state.languageConfigs[code] = {
+        writingMode: getLangProps(code).defaultWritingMode || 'horizontal-tb',
+        fontPreset: 'gothic'
+    };
     renderLangSettings();
     renderLangTabs();
     triggerAutoSave();
@@ -1402,7 +1617,7 @@ window.newProject = () => {
     state.title = '';
     state.languages = ['ja'];
     state.languageConfigs = {
-        ja: { writingMode: 'vertical-rl' }
+        ja: { writingMode: 'vertical-rl', fontPreset: 'gothic' }
     };
     state.uiPrefs = {
         desktop: { thumbColumns: 2 },
@@ -1418,7 +1633,9 @@ window.newProject = () => {
         text: '',
         texts: {}
     }];
+    state.blocks = migrateSectionsToBlocks(state.sections, state.languages);
     state.activeIdx = 0;
+    state.activeBlockIdx = Math.max(0, getBlockIndexFromPageIndex(state.blocks, 0));
     state.activeBubbleIdx = null;
     clearHistory();
     refresh();
