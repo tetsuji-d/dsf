@@ -4,7 +4,7 @@
 import { collection, getDocs, deleteDoc, doc } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
 import { state } from './state.js';
 import { db } from './firebase.js';
-import { normalizeProjectData } from './blocks.js';
+import { normalizeProjectDataV5 } from './pages.js';
 
 /**
  * プロジェクト一覧モーダルを開く
@@ -26,14 +26,16 @@ export async function openProjectModal(onLoadProject) {
         const snapshot = await getDocs(collection(db, "users", state.uid, "projects"));
         const projects = [];
         snapshot.forEach(docSnap => {
-            const normalized = normalizeProjectData(docSnap.data() || {});
+            const normalized = normalizeProjectDataV5(docSnap.data() || {});
             projects.push({
                 id: docSnap.id,
                 version: normalized.version,
                 title: normalized.title || '',
+                pages: normalized.pages || [],
                 blocks: normalized.blocks || [],
                 sections: normalized.sections || [],
                 languages: normalized.languages || ['ja'],
+                defaultLang: normalized.defaultLang || (normalized.languages?.[0] || 'ja'),
                 languageConfigs: normalized.languageConfigs || null,
                 uiPrefs: normalized.uiPrefs || null,
                 lastUpdated: normalized.lastUpdated?.toDate?.() || new Date(0)
@@ -49,9 +51,9 @@ export async function openProjectModal(onLoadProject) {
         }
 
         grid.innerHTML = projects.map(p => {
-            const cover = getCoverImage(p.blocks, p.sections);
+            const cover = getCoverImage(p.pages, p.blocks, p.sections);
             const dateStr = p.lastUpdated.toLocaleDateString('ja-JP');
-            const pageCount = getPageCount(p.blocks, p.sections);
+            const pageCount = getPageCount(p.pages, p.blocks, p.sections);
             return `
                 <div class="project-card" data-id="${p.id}">
                     <div class="project-card-thumb">
@@ -77,7 +79,7 @@ export async function openProjectModal(onLoadProject) {
                 const pid = card.dataset.id;
                 const project = projects.find(p => p.id === pid);
                 if (project) {
-                    onLoadProject(pid, project.sections, project.languages, project.languageConfigs, project.title, project.uiPrefs, project.blocks, project.version);
+                    onLoadProject(pid, project.sections, project.languages, project.defaultLang, project.languageConfigs, project.title, project.uiPrefs, project.pages, project.blocks, project.version);
                     closeProjectModal();
                 }
             });
@@ -115,7 +117,13 @@ export function closeProjectModal() {
  * セクション配列から表紙画像URLを取得
  * サムネイルがあれば優先して使用
  */
-function getCoverImage(blocks, sections) {
+function getCoverImage(pages, blocks, sections) {
+    const pageList = Array.isArray(pages) ? pages : [];
+    if (pageList.length > 0) {
+        const firstNormal = pageList.find((p) => p?.pageType === 'normal_image');
+        if (firstNormal?.content?.thumbnail) return firstNormal.content.thumbnail;
+        if (firstNormal?.content?.background) return firstNormal.content.background;
+    }
     const blockList = Array.isArray(blocks) ? blocks : [];
     const page = blockList.find((b) => b?.kind === 'page');
     const content = page?.content;
@@ -142,7 +150,11 @@ function getPreviewText(sections) {
     return 'イメージ';
 }
 
-function getPageCount(blocks, sections) {
+function getPageCount(pages, blocks, sections) {
+    const pageCount = (Array.isArray(pages) ? pages : []).filter((p) =>
+        p?.pageType === 'normal_image' || p?.pageType === 'normal_text'
+    ).length;
+    if (pageCount > 0) return pageCount;
     const blockPages = (Array.isArray(blocks) ? blocks : []).filter((b) => b?.kind === 'page').length;
     if (blockPages > 0) return blockPages;
     return Array.isArray(sections) ? sections.length : 0;

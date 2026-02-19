@@ -4,10 +4,14 @@
 import { state } from './state.js';
 import {
     createStructureBlock,
+    createPageBlockFromSection,
+    extractSectionsFromBlocks,
     getBlockIndexFromPageIndex,
     getPageBlockIndices,
-    getPageIndexFromBlockIndex
+    getPageIndexFromBlockIndex,
+    syncBlocksWithSections
 } from './blocks.js';
+import { blocksToPages } from './pages.js';
 
 function createDefaultSection() {
     return {
@@ -83,6 +87,35 @@ function getBlockSummary(block) {
     return { badge: kind, title: '' };
 }
 
+function isCoverKind(kind) {
+    return kind === 'cover_front' || kind === 'cover_back';
+}
+
+function canInsertNearBlock(block, position) {
+    const pos = position === 'before' ? 'before' : 'after';
+    const kind = block?.kind;
+    if (kind === 'cover_front' && pos === 'before') return false;
+    if (kind === 'cover_back' && pos === 'after') return false;
+    return true;
+}
+
+function syncModelsFromLegacy() {
+    state.blocks = syncBlocksWithSections(state.blocks, state.sections, state.languages);
+    state.pages = blocksToPages(state.blocks);
+    if (!Number.isInteger(state.activePageIdx)) {
+        state.activePageIdx = Number.isInteger(state.activeIdx) ? state.activeIdx : 0;
+    }
+}
+
+function deepClone(value) {
+    if (typeof structuredClone === 'function') return structuredClone(value);
+    return JSON.parse(JSON.stringify(value));
+}
+
+function createNewBlockId(prefix) {
+    return `${prefix}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+}
+
 /**
  * 新しいセクションを追加する
  * @param {function} refresh - 画面更新コールバック
@@ -90,8 +123,10 @@ function getBlockSummary(block) {
 export function addSection(refresh) {
     state.sections.push(createDefaultSection());
     state.activeIdx = state.sections.length - 1;
+    state.activePageIdx = state.activeIdx;
     state.activeBlockIdx = null;
     state.activeBubbleIdx = null;
+    syncModelsFromLegacy();
     refresh();
 }
 
@@ -104,8 +139,10 @@ export function insertSectionAt(insertIndex, refresh) {
     const idx = Math.max(0, Math.min(Number(insertIndex) || 0, state.sections.length));
     state.sections.splice(idx, 0, createDefaultSection());
     state.activeIdx = idx;
+    state.activePageIdx = idx;
     state.activeBlockIdx = null;
     state.activeBubbleIdx = null;
+    syncModelsFromLegacy();
     refresh();
 }
 
@@ -120,8 +157,10 @@ export function duplicateSectionAt(sourceIndex, refresh) {
     const cloned = deepCloneSection(state.sections[idx]);
     state.sections.splice(idx + 1, 0, cloned);
     state.activeIdx = idx + 1;
+    state.activePageIdx = state.activeIdx;
     state.activeBlockIdx = null;
     state.activeBubbleIdx = null;
+    syncModelsFromLegacy();
     refresh();
 }
 
@@ -145,6 +184,7 @@ export function moveSection(fromIndex, insertIndex, refresh) {
     if (to > from) to -= 1;
     state.sections.splice(to, 0, moved);
     state.activeIdx = to;
+    state.activePageIdx = to;
 
     // Keep page block ordering in sync with page DnD reorder.
     const pageBlockIndicesBefore = getPageBlockIndices(state.blocks || []);
@@ -168,6 +208,7 @@ export function moveSection(fromIndex, insertIndex, refresh) {
     }
 
     state.activeBubbleIdx = null;
+    syncModelsFromLegacy();
     refresh();
 }
 
@@ -180,6 +221,7 @@ export function changeSection(i, refresh) {
     const idx = Number(i);
     if (!Number.isInteger(idx) || idx < 0 || idx >= state.sections.length) return;
     state.activeIdx = idx;
+    state.activePageIdx = idx;
     const blockIdx = getBlockIndexFromPageIndex(state.blocks, idx);
     if (blockIdx >= 0) state.activeBlockIdx = blockIdx;
     state.activeBubbleIdx = null;
@@ -193,6 +235,7 @@ export function changeBlock(blockIndex, refresh) {
     const pageIdx = getPageIndexFromBlockIndex(state.blocks, idx);
     if (pageIdx >= 0) {
         state.activeIdx = pageIdx;
+        state.activePageIdx = pageIdx;
     }
     state.activeBubbleIdx = null;
     refresh();
@@ -208,6 +251,65 @@ export function insertStructureBlock(kind, refresh) {
     state.blocks = list;
     state.activeBlockIdx = insertAt;
     state.activeBubbleIdx = null;
+    syncModelsFromLegacy();
+    refresh();
+}
+
+export function insertPageNearBlock(blockIndex, position, refresh) {
+    const idx = Number(blockIndex);
+    const list = state.blocks || [];
+    if (!Number.isInteger(idx) || idx < 0 || idx >= list.length) return;
+    const pos = position === 'before' ? 'before' : 'after';
+    const target = list[idx];
+    if (!canInsertNearBlock(target, pos)) return;
+
+    let insertAt = pos === 'before' ? idx : idx + 1;
+    insertAt = Math.max(1, Math.min(insertAt, Math.max(1, list.length - 1)));
+
+    const pageBlock = createPageBlockFromSection(createDefaultSection());
+    list.splice(insertAt, 0, pageBlock);
+    state.blocks = list;
+    state.sections = extractSectionsFromBlocks(state.blocks);
+    state.activeBlockIdx = insertAt;
+    const pageIdx = getPageIndexFromBlockIndex(state.blocks, insertAt);
+    if (pageIdx >= 0) {
+        state.activeIdx = pageIdx;
+        state.activePageIdx = pageIdx;
+    }
+    state.activeBubbleIdx = null;
+    syncModelsFromLegacy();
+    refresh();
+}
+
+export function duplicateBlockAt(blockIndex, refresh) {
+    const idx = Number(blockIndex);
+    const list = state.blocks || [];
+    if (!Number.isInteger(idx) || idx < 0 || idx >= list.length) return;
+    const target = list[idx];
+    if (!target || target.kind === 'cover_front' || target.kind === 'cover_back') return;
+
+    if (target.kind === 'page') {
+        const pageIdx = getPageIndexFromBlockIndex(state.blocks, idx);
+        if (!Number.isInteger(pageIdx) || pageIdx < 0 || !state.sections[pageIdx]) return;
+        const clonedSection = deepClone(state.sections[pageIdx]);
+        state.sections.splice(pageIdx + 1, 0, clonedSection);
+        syncModelsFromLegacy();
+        const nextBlockIdx = getBlockIndexFromPageIndex(state.blocks, pageIdx + 1);
+        if (nextBlockIdx >= 0) state.activeBlockIdx = nextBlockIdx;
+        state.activeIdx = pageIdx + 1;
+        state.activePageIdx = pageIdx + 1;
+        state.activeBubbleIdx = null;
+        refresh();
+        return;
+    }
+
+    const cloned = deepClone(target);
+    cloned.id = createNewBlockId(target.kind || 'block');
+    list.splice(idx + 1, 0, cloned);
+    state.blocks = list;
+    state.activeBlockIdx = idx + 1;
+    state.activeBubbleIdx = null;
+    syncModelsFromLegacy();
     refresh();
 }
 
@@ -226,69 +328,6 @@ export function renderThumbs() {
 
     container.innerHTML = blocks.map((b, blockIdx) => {
         const selected = blockIdx === state.activeBlockIdx;
-        if (b?.kind === 'page') {
-            const pageIdx = pageIndexByBlock.get(blockIdx) ?? 0;
-            const s = state.sections[pageIdx] || createDefaultSection();
-            if (s.type === 'image') {
-                const preview = (() => {
-                    const pos = s.imagePosition || { x: 0, y: 0, scale: 1 };
-                    const tx = (pos.x / 360) * 100;
-                    const ty = (pos.y / 640) * 100;
-                    const rot = Number.isFinite(Number(pos.rotation)) ? Number(pos.rotation) : 0;
-                    const style = `transform: translate(${tx}%, ${ty}%) scale(${pos.scale}) rotate(${rot}deg); transform-origin: center center; width:100%; height:100%; object-fit:cover;`;
-                    return `<div style="width:100%;height:100%;overflow:hidden;border-radius:4px;"><img class="thumb-canvas" src="${s.background}" style="${style}"></div>`;
-                })();
-                return `
-                    <div class="thumb-wrap thumb-card ${selected ? 'active' : ''}" data-block-index="${blockIdx}"
-                        data-section-index="${pageIdx}"
-                        onclick="changeBlock(${blockIdx})"
-                        ondragstart="startThumbDrag(event, ${pageIdx})"
-                        ondragover="onThumbDragOver(event, ${pageIdx})"
-                        ondragleave="onThumbDragLeave(event, ${pageIdx})"
-                        ondrop="onThumbDrop(event, ${pageIdx})"
-                        ondragend="endThumbDrag()"
-                        ontouchstart="startThumbTouchDrag(event, ${pageIdx})"
-                        aria-current="${selected ? 'true' : 'false'}"
-                        draggable="true">
-                        ${preview}
-                        <button class="thumb-insert-btn before" title="ここにページ挿入" ontouchstart="event.stopPropagation()" onclick="insertSectionAtIndex(${pageIdx}, event)">＋</button>
-                        <button class="thumb-insert-btn after" title="この下にページ挿入" ontouchstart="event.stopPropagation()" onclick="insertSectionAtIndex(${pageIdx + 1}, event)">＋</button>
-                        <button class="thumb-duplicate-btn" title="ページを複製" ontouchstart="event.stopPropagation()" onclick="duplicateSectionByIndex(${pageIdx}, event)">⧉</button>
-                        <div style="position:absolute; top:5px; left:5px; background:white; font-size:10px; padding:2px; border:1px solid #ddd;">#${pageIdx + 1}</div>
-                    </div>
-                `;
-            }
-
-            const depth = context.item ? 3 : (context.section ? 2 : (context.chapter ? 1 : 0));
-            const textLabel = truncateText(s.texts?.[state.activeLang] || s.text || '', 54) || 'テキストページ';
-            return `
-                <div class="thumb-wrap thumb-row thumb-row-page ${selected ? 'active' : ''}" data-block-index="${blockIdx}"
-                    data-section-index="${pageIdx}"
-                    data-tree-depth="${depth}"
-                    onclick="changeBlock(${blockIdx})"
-                    ondragstart="startThumbDrag(event, ${pageIdx})"
-                    ondragover="onThumbDragOver(event, ${pageIdx})"
-                    ondragleave="onThumbDragLeave(event, ${pageIdx})"
-                    ondrop="onThumbDrop(event, ${pageIdx})"
-                    ondragend="endThumbDrag()"
-                    ontouchstart="startThumbTouchDrag(event, ${pageIdx})"
-                    aria-current="${selected ? 'true' : 'false'}"
-                    draggable="true">
-                    <div class="thumb-row-main">
-                        <span class="thumb-tree-indent" style="--tree-depth:${depth};"></span>
-                        <span class="thumb-row-badge">Text #${pageIdx + 1}</span>
-                        <span class="thumb-row-title">${escapeHtml(textLabel)}</span>
-                    </div>
-                    <div class="thumb-row-actions">
-                        <button class="thumb-row-btn" title="ここにページ挿入" ontouchstart="event.stopPropagation()" onclick="insertSectionAtIndex(${pageIdx}, event)">＋</button>
-                        <button class="thumb-row-btn" title="下にページ挿入" ontouchstart="event.stopPropagation()" onclick="insertSectionAtIndex(${pageIdx + 1}, event)">＋</button>
-                        <button class="thumb-row-btn" title="ページを複製" ontouchstart="event.stopPropagation()" onclick="duplicateSectionByIndex(${pageIdx}, event)">⧉</button>
-                    </div>
-                </div>
-            `;
-        }
-
-        const info = getBlockSummary(b);
         let depth = 0;
         if (b?.kind === 'chapter') {
             depth = 0;
@@ -305,20 +344,100 @@ export function renderThumbs() {
         } else if (b?.kind === 'item_end') {
             depth = 2;
             context.item = false;
+        } else if (b?.kind === 'page') {
+            depth = context.item ? 3 : (context.section ? 2 : (context.chapter ? 1 : 0));
         } else {
             depth = 0;
         }
-        return `
-            <div class="thumb-wrap thumb-row ${selected ? 'active' : ''}" data-block-index="${blockIdx}"
-                data-tree-depth="${depth}"
-                onclick="changeBlock(${blockIdx})"
-                draggable="false">
-                <div class="thumb-row-main">
-                    <span class="thumb-tree-indent" style="--tree-depth:${depth};"></span>
-                    <span class="thumb-row-badge">${escapeHtml(info.badge)}</span>
-                    <span class="thumb-row-title">${escapeHtml(info.title || '')}</span>
-                    ${info.subtitle ? `<span class="thumb-row-subtitle">${escapeHtml(info.subtitle)}</span>` : ''}
+
+        if (b?.kind === 'page') {
+            const pageIdx = pageIndexByBlock.get(blockIdx) ?? 0;
+            const s = state.sections[pageIdx] || createDefaultSection();
+            const dataAttrs = `data-block-index="${blockIdx}" data-section-index="${pageIdx}" data-tree-depth="${depth}"`;
+            const dragHandlers = `
+                ondragstart="startThumbDrag(event, ${pageIdx})"
+                ondragover="onThumbDragOver(event, ${pageIdx})"
+                ondragleave="onThumbDragLeave(event, ${pageIdx})"
+                ondrop="onThumbDrop(event, ${pageIdx})"
+                ondragend="endThumbDrag()"
+                ontouchstart="startThumbTouchDrag(event, ${pageIdx})"
+                draggable="true"
+            `;
+
+            if (s.type === 'image') {
+                const pos = s.imagePosition || { x: 0, y: 0, scale: 1 };
+                const tx = (pos.x / 360) * 100;
+                const ty = (pos.y / 640) * 100;
+                const rot = Number.isFinite(Number(pos.rotation)) ? Number(pos.rotation) : 0;
+                const style = `transform: translate(${tx}%, ${ty}%) scale(${pos.scale}) rotate(${rot}deg); transform-origin: center center; width:100%; height:100%; object-fit:cover;`;
+                return `
+                    <div class="thumb-wrap thumb-card ${selected ? 'active' : ''}" ${dataAttrs}
+                        onclick="changeBlock(${blockIdx})"
+                        ${dragHandlers}
+                        aria-current="${selected ? 'true' : 'false'}">
+                        <div class="thumb-canvas">
+                            <img class="thumb-canvas-image" src="${s.background}" style="${style}">
+                        </div>
+                        <div class="thumb-card-top">
+                            <span class="thumb-card-badge">Image #${pageIdx + 1}</span>
+                            <span class="thumb-card-depth">L${depth}</span>
+                        </div>
+                        <button class="thumb-insert-btn before" title="ここにページ挿入" ontouchstart="event.stopPropagation()" onclick="insertSectionAtIndex(${pageIdx}, event)">＋</button>
+                        <button class="thumb-insert-btn after" title="この下にページ挿入" ontouchstart="event.stopPropagation()" onclick="insertSectionAtIndex(${pageIdx + 1}, event)">＋</button>
+                        <button class="thumb-duplicate-btn" title="ページを複製" ontouchstart="event.stopPropagation()" onclick="duplicateSectionByIndex(${pageIdx}, event)">⧉</button>
+                    </div>
+                `;
+            }
+
+            const textLabel = truncateText(s.texts?.[state.activeLang] || s.text || '', 96) || 'テキストページ';
+            return `
+                <div class="thumb-wrap thumb-card ${selected ? 'active' : ''}" ${dataAttrs}
+                    onclick="changeBlock(${blockIdx})"
+                    ${dragHandlers}
+                    aria-current="${selected ? 'true' : 'false'}">
+                    <div class="thumb-canvas thumb-canvas-meta">
+                        <div class="thumb-card-meta">
+                            <span class="thumb-card-badge">Text #${pageIdx + 1}</span>
+                            <span class="thumb-card-title">${escapeHtml(textLabel)}</span>
+                        </div>
+                    </div>
+                    <div class="thumb-card-top">
+                        <span class="thumb-card-depth">L${depth}</span>
+                    </div>
+                    <button class="thumb-insert-btn before" title="ここにページ挿入" ontouchstart="event.stopPropagation()" onclick="insertSectionAtIndex(${pageIdx}, event)">＋</button>
+                    <button class="thumb-insert-btn after" title="この下にページ挿入" ontouchstart="event.stopPropagation()" onclick="insertSectionAtIndex(${pageIdx + 1}, event)">＋</button>
+                    <button class="thumb-duplicate-btn" title="ページを複製" ontouchstart="event.stopPropagation()" onclick="duplicateSectionByIndex(${pageIdx}, event)">⧉</button>
                 </div>
+            `;
+        }
+
+        const info = getBlockSummary(b);
+        const canInsertBefore = canInsertNearBlock(b, 'before');
+        const canInsertAfter = canInsertNearBlock(b, 'after');
+        const coverLock = isCoverKind(b?.kind)
+            ? `<span class="thumb-card-lock" title="位置固定">LOCK</span>`
+            : '';
+        return `
+            <div class="thumb-wrap thumb-card ${selected ? 'active' : ''}" data-block-index="${blockIdx}" data-tree-depth="${depth}"
+                onclick="changeBlock(${blockIdx})"
+                aria-current="${selected ? 'true' : 'false'}"
+                draggable="false">
+                <div class="thumb-canvas thumb-canvas-meta thumb-canvas-structure kind-${escapeHtml(b?.kind || 'unknown')}">
+                    <div class="thumb-card-meta">
+                        <span class="thumb-card-badge">${escapeHtml(info.badge)}</span>
+                        <span class="thumb-card-title">${escapeHtml(info.title || '')}</span>
+                        ${info.subtitle ? `<span class="thumb-card-subtitle">${escapeHtml(info.subtitle)}</span>` : ''}
+                    </div>
+                </div>
+                <div class="thumb-card-top">
+                    ${coverLock}
+                    <span class="thumb-card-depth">L${depth}</span>
+                </div>
+                ${canInsertBefore ? `<button class="thumb-insert-btn before" title="ここにページ挿入" ontouchstart="event.stopPropagation()" onclick="insertPageNearBlock(${blockIdx}, 'before', event)">＋</button>` : ''}
+                ${canInsertAfter ? `<button class="thumb-insert-btn after" title="この下にページ挿入" ontouchstart="event.stopPropagation()" onclick="insertPageNearBlock(${blockIdx}, 'after', event)">＋</button>` : ''}
+                ${!isCoverKind(b?.kind)
+                ? `<button class="thumb-duplicate-btn" title="ブロックを複製" ontouchstart="event.stopPropagation()" onclick="duplicateBlockByIndex(${blockIdx}, event)">⧉</button>`
+                : ''}
             </div>
         `;
     }).join('');
@@ -344,6 +463,7 @@ export function deleteActive(refresh) {
         }
         state.blocks.splice(state.activeBlockIdx, 1);
         state.activeBlockIdx = Math.max(0, state.activeBlockIdx - 1);
+        syncModelsFromLegacy();
         refresh();
         return;
     }
@@ -351,6 +471,8 @@ export function deleteActive(refresh) {
     if (state.sections.length > 1) {
         state.sections.splice(state.activeIdx, 1);
         state.activeIdx = Math.max(0, state.activeIdx - 1);
+        state.activePageIdx = state.activeIdx;
     }
+    syncModelsFromLegacy();
     refresh();
 }

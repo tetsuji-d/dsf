@@ -4,12 +4,13 @@
 import { state } from './state.js';
 import { saveProject, loadProject, uploadToStorage, triggerAutoSave, generateCroppedThumbnail, signInWithGoogle, signOutUser, onAuthChanged, consumeRedirectResult } from './firebase.js';
 import { handleCanvasClick, selectBubble, renderBubbleHTML, getBubbleText, setBubbleText, addBubbleAtCenter, startDrag } from './bubbles.js';
-import { addSection, changeSection, changeBlock, insertStructureBlock, renderThumbs, deleteActive, insertSectionAt, duplicateSectionAt, moveSection } from './sections.js';
+import { addSection, changeSection, changeBlock, insertStructureBlock, renderThumbs, deleteActive, insertSectionAt, duplicateSectionAt, moveSection, insertPageNearBlock, duplicateBlockAt } from './sections.js';
 import { pushState, undo, redo, getHistoryInfo, clearHistory } from './history.js';
 import { openProjectModal, closeProjectModal } from './projects.js';
 import { getLangProps, getAllLangs } from './lang.js';
 import { composeCanonicalLayoutsForSections, composeText, getFontPresetFromConfigs, getFontPresetOptions, LAYOUT_VERSION } from './layout.js';
-import { BLOCK_SCHEMA_VERSION, getBlockIndexFromPageIndex, getPageIndexFromBlockIndex, migrateSectionsToBlocks, normalizeProjectData, syncBlocksWithSections } from './blocks.js';
+import { getBlockIndexFromPageIndex, getPageIndexFromBlockIndex, migrateSectionsToBlocks, syncBlocksWithSections } from './blocks.js';
+import { PAGE_SCHEMA_VERSION, blocksToPages, normalizeProjectDataV5 } from './pages.js';
 
 // ──────────────────────────────────────
 //  ヘルパー: セクションテキストの多言語取得・設定
@@ -73,9 +74,13 @@ function setBlockLocalizedText(block, text) {
 
 function syncBlocksFromState() {
     state.blocks = syncBlocksWithSections(state.blocks, state.sections, state.languages);
+    state.pages = blocksToPages(state.blocks);
     const activeBlock = getActiveBlock();
     const pageIdx = getPageIndexFromBlockIndex(state.blocks, state.activeBlockIdx);
-    if (pageIdx >= 0) state.activeIdx = pageIdx;
+    if (pageIdx >= 0) {
+        state.activeIdx = pageIdx;
+        state.activePageIdx = pageIdx;
+    }
     if (!activeBlock && state.blocks?.length) state.activeBlockIdx = 0;
 }
 
@@ -400,6 +405,22 @@ function refresh() {
         } else {
             propType.disabled = true;
         }
+    }
+    const pageLockNote = document.getElementById('page-lock-note');
+    const deleteBtn = document.getElementById('btn-delete-active');
+    const isCoverBlock = activeBlock?.kind === 'cover_front' || activeBlock?.kind === 'cover_back';
+    if (pageLockNote) {
+        if (isCoverBlock) {
+            pageLockNote.style.display = 'block';
+            pageLockNote.textContent = 'このページは固定です: 位置変更・削除・role変更はできません。';
+        } else {
+            pageLockNote.style.display = 'none';
+            pageLockNote.textContent = '';
+        }
+    }
+    if (deleteBtn) {
+        deleteBtn.disabled = !!isCoverBlock;
+        deleteBtn.title = isCoverBlock ? '表紙/裏表紙は削除できません' : '';
     }
 
     // 言語設定パネル内の書字方向同期
@@ -1093,12 +1114,14 @@ function updateGlobalFontPreset(fontPreset) {
 }
 
 
-function onLoadProject(pid, sections, languages, languageConfigs, title, uiPrefs, blocks, version) {
-    const normalized = normalizeProjectData({
+function onLoadProject(pid, sections, languages, defaultLang, languageConfigs, title, uiPrefs, pages, blocks, version) {
+    const normalized = normalizeProjectDataV5({
         version,
+        pages,
         blocks,
         sections,
         languages,
+        defaultLang,
         languageConfigs,
         title,
         uiPrefs
@@ -1106,9 +1129,11 @@ function onLoadProject(pid, sections, languages, languageConfigs, title, uiPrefs
 
     state.projectId = pid;
     state.title = normalized.title || '';
+    state.pages = normalized.pages || [];
     state.blocks = normalized.blocks;
     state.sections = normalized.sections;
     state.languages = normalized.languages;
+    state.defaultLang = normalized.defaultLang || normalized.languages[0] || 'ja';
 
     // languageConfigs Migration
     if (normalized.languageConfigs) {
@@ -1138,8 +1163,9 @@ function onLoadProject(pid, sections, languages, languageConfigs, title, uiPrefs
     ensureUiPrefs();
     applyThumbColumnsFromPrefs();
 
-    state.activeLang = state.languages[0];
+    state.activeLang = state.defaultLang || state.languages[0];
     state.activeIdx = 0;
+    state.activePageIdx = 0;
     state.activeBlockIdx = Math.max(0, getBlockIndexFromPageIndex(state.blocks, 0));
     state.activeBubbleIdx = null;
     clearHistory();
@@ -1194,6 +1220,24 @@ window.duplicateSectionByIndex = (idx, e) => {
     }
     pushState();
     duplicateSectionAt(idx, refresh);
+    triggerAutoSave();
+};
+window.insertPageNearBlock = (blockIdx, position, e) => {
+    if (e) {
+        e.preventDefault();
+        e.stopPropagation();
+    }
+    pushState();
+    insertPageNearBlock(blockIdx, position, refresh);
+    triggerAutoSave();
+};
+window.duplicateBlockByIndex = (blockIdx, e) => {
+    if (e) {
+        e.preventDefault();
+        e.stopPropagation();
+    }
+    pushState();
+    duplicateBlockAt(blockIdx, refresh);
     triggerAutoSave();
 };
 window.splitOverflowToNextPage = () => {
@@ -1501,13 +1545,16 @@ window.saveProject = () => {
 window.exportProject = () => {
     composeCanonicalLayoutsForSections(state.sections, state.languages, state.languageConfigs);
     syncBlocksFromState();
+    const pages = blocksToPages(state.blocks);
     const data = {
-        version: BLOCK_SCHEMA_VERSION,
+        version: PAGE_SCHEMA_VERSION,
         projectId: state.projectId,
         title: state.title || '',
+        pages,
         blocks: state.blocks,
         sections: state.sections,
         languages: state.languages,
+        defaultLang: state.defaultLang || state.languages?.[0] || 'ja',
         languageConfigs: state.languageConfigs,
         lastUpdated: new Date().toISOString()
     };
@@ -1598,8 +1645,11 @@ window.removeLang = (code) => {
     if (state.languages.length <= 1) return;
     if (!confirm(`${getLangProps(code).label} を削除しますか？\nこの言語のテキストは保持されます。`)) return;
     state.languages = state.languages.filter(c => c !== code);
+    if (state.defaultLang === code) {
+        state.defaultLang = state.languages[0] || 'ja';
+    }
     if (state.activeLang === code) {
-        state.activeLang = state.languages[0];
+        state.activeLang = state.defaultLang || state.languages[0];
     }
     renderLangSettings();
     refresh();
@@ -1616,6 +1666,7 @@ window.newProject = () => {
     state.projectId = null;
     state.title = '';
     state.languages = ['ja'];
+    state.defaultLang = 'ja';
     state.languageConfigs = {
         ja: { writingMode: 'vertical-rl', fontPreset: 'gothic' }
     };
@@ -1634,7 +1685,9 @@ window.newProject = () => {
         texts: {}
     }];
     state.blocks = migrateSectionsToBlocks(state.sections, state.languages);
+    state.pages = blocksToPages(state.blocks);
     state.activeIdx = 0;
+    state.activePageIdx = 0;
     state.activeBlockIdx = Math.max(0, getBlockIndexFromPageIndex(state.blocks, 0));
     state.activeBubbleIdx = null;
     clearHistory();

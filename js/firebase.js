@@ -18,7 +18,8 @@ import {
     onAuthStateChanged
 } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js";
 import { state } from './state.js';
-import { BLOCK_SCHEMA_VERSION, getBlockIndexFromPageIndex, normalizeProjectData, syncBlocksWithSections } from './blocks.js';
+import { getBlockIndexFromPageIndex, syncBlocksWithSections } from './blocks.js';
+import { PAGE_SCHEMA_VERSION, blocksToPages, normalizeProjectDataV5 } from './pages.js';
 import { composeCanonicalLayoutsForSections } from './layout.js';
 
 // --- Firebase Config ---
@@ -210,16 +211,19 @@ async function performSave() {
     if (!state.projectId || !state.uid) return;
     composeCanonicalLayoutsForSections(state.sections, state.languages, state.languageConfigs);
     state.blocks = syncBlocksWithSections(state.blocks, state.sections, state.languages);
+    state.pages = blocksToPages(state.blocks);
 
     updateSaveIndicator('saving', '保存中...');
 
     try {
         await setDoc(projectDocRef(state.projectId), {
-            version: BLOCK_SCHEMA_VERSION,
+            version: PAGE_SCHEMA_VERSION,
             title: state.title || '',
+            pages: state.pages,
             blocks: state.blocks,
             sections: state.sections,
             languages: state.languages,
+            defaultLang: state.defaultLang || state.languages?.[0] || 'ja',
             languageConfigs: state.languageConfigs,
             uiPrefs: state.uiPrefs || null,
             ownerUid: state.uid,
@@ -481,15 +485,18 @@ export async function loadProject(pid, refresh) {
     if (!state.uid) return;
     const snap = await getDoc(projectDocRef(pid));
     if (snap.exists()) {
-        const data = normalizeProjectData(snap.data() || {});
+        const data = normalizeProjectDataV5(snap.data() || {});
         state.projectId = pid;
         state.title = data.title || '';
+        state.pages = data.pages || [];
         state.blocks = data.blocks || [];
         state.sections = data.sections;
         state.languages = data.languages && data.languages.length > 0 ? data.languages : ['ja'];
+        state.defaultLang = data.defaultLang || state.languages[0] || 'ja';
         state.uiPrefs = data.uiPrefs || state.uiPrefs || {};
-        state.activeLang = state.languages[0];
+        state.activeLang = state.defaultLang || state.languages[0];
         state.activeIdx = 0;
+        state.activePageIdx = 0;
         state.activeBlockIdx = Math.max(0, getBlockIndexFromPageIndex(state.blocks, 0));
         state.activeBubbleIdx = null;
         refresh();

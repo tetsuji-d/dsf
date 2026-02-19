@@ -6,8 +6,8 @@ import { renderBubbleHTML } from './bubbles.js';
 import { getLangProps } from './lang.js';
 import { db, signInWithGoogle, signOutUser, onAuthChanged, consumeRedirectResult } from './firebase.js';
 import { doc, getDoc } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
-import { composeText, LAYOUT_VERSION } from './layout.js';
-import { normalizeProjectData } from './blocks.js';
+import { composeText } from './layout.js';
+import { normalizeProjectDataV5 } from './pages.js';
 
 let currentProject = null;
 let sharedProjectRef = null;
@@ -182,11 +182,23 @@ function updateUiVisibility() {
 // ──────────────────────────────────────
 window.jumpToPage = function (val) {
     const page = parseInt(val, 10);
-    if (page >= 1 && page <= state.sections.length) {
+    const total = getViewerPageTotal();
+    if (page >= 1 && page <= total) {
+        state.activePageIdx = page - 1;
         state.activeIdx = page - 1;
         refresh();
     }
 };
+
+function getViewerPages() {
+    return Array.isArray(state.pages) ? state.pages : [];
+}
+
+function getViewerPageTotal() {
+    const pages = getViewerPages();
+    if (pages.length > 0) return pages.length;
+    return Array.isArray(state.sections) ? state.sections.length : 0;
+}
 
 async function loadFromFirestore(pid, uid) {
     try {
@@ -239,7 +251,7 @@ window.loadDsf = (input) => {
 };
 
 function loadProjectData(data) {
-    const normalized = normalizeProjectData(data || {});
+    const normalized = normalizeProjectDataV5(data || {});
     if (!normalized.languageConfigs) {
         normalized.languageConfigs = {};
         (normalized.languages || ['ja']).forEach(lang => {
@@ -261,12 +273,15 @@ function loadProjectData(data) {
 
     state.projectId = normalized.projectId;
     state.title = normalized.title || ''; // Load title
+    state.pages = normalized.pages || [];
     state.blocks = normalized.blocks || [];
     state.sections = normalized.sections || [];
     state.languages = normalized.languages || ['ja'];
+    state.defaultLang = normalized.defaultLang || state.languages[0] || 'ja';
     state.languageConfigs = normalized.languageConfigs;
-    state.activeLang = state.languages[0];
+    state.activeLang = state.defaultLang || state.languages[0];
     state.activeIdx = 0;
+    state.activePageIdx = 0;
     state.activeBlockIdx = 0;
 
     currentProject = data;
@@ -320,6 +335,19 @@ function getComposedLayoutForViewerSection(section, lang) {
     return section.layout[lang];
 }
 
+function getComposedLayoutForViewerPage(page, lang) {
+    if (!page.content || typeof page.content !== 'object') page.content = {};
+    if (!page.content.layout || typeof page.content.layout !== 'object') page.content.layout = {};
+    const cached = page.content.layout[lang];
+    if (cached) return cached;
+
+    const mode = getWritingMode(lang);
+    const fontPreset = state.languageConfigs?.[lang]?.fontPreset || 'gothic';
+    const raw = page.content?.texts?.[lang] !== undefined ? page.content.texts[lang] : (page.content?.text || '');
+    page.content.layout[lang] = composeText(raw, lang, mode, fontPreset);
+    return page.content.layout[lang];
+}
+
 function getVerticalTextPadding(layout) {
     if (!layout || layout.writingMode !== 'vertical-rl') return 0;
     const frameH = Number(layout?.frame?.h) || 0;
@@ -344,10 +372,51 @@ function escapeHtml(text) {
         .replace(/>/g, '&gt;');
 }
 
-function refresh() {
-    if (!state.sections || state.sections.length === 0) return;
+function getPageMetaText(page, lang) {
+    const type = page?.pageType;
+    if (type === 'cover_front') return page?.meta?.title?.[lang] || '';
+    if (type === 'cover_back') return page?.meta?.colophon?.[lang] || '';
+    if (type === 'chapter' || type === 'section' || type === 'item' || type === 'toc') {
+        return page?.meta?.title?.[lang] || '';
+    }
+    return '';
+}
 
-    const s = state.sections[state.activeIdx];
+function renderStructurePage(contentEl, page, lang) {
+    const labels = {
+        cover_front: '表紙',
+        cover_back: '裏表紙',
+        chapter: '章',
+        section: '節',
+        item: '項',
+        toc: '目次'
+    };
+    const label = labels[page?.pageType] || 'ページ';
+    const text = escapeHtml(getPageMetaText(page, lang) || `${label}ページ`);
+    contentEl.innerHTML = `<div class="viewer-text-page">
+        <div class="viewer-text-block"
+             style="left:20px; top:32px; width:320px; height:576px; display:flex; align-items:center; justify-content:center; border:2px dashed #cfd7e3; background:#f8fafc; color:#2f3e52; text-align:center; padding:20px;">
+            <div>
+                <div style="font-size:12px; margin-bottom:8px;">${escapeHtml(label)}</div>
+                <div style="font-size:18px; font-weight:700; line-height:1.5;">${text}</div>
+            </div>
+        </div>
+    </div>`;
+}
+
+function refresh() {
+    const pages = getViewerPages();
+    const hasPages = pages.length > 0;
+    const totalPages = getViewerPageTotal();
+    if (totalPages <= 0) return;
+
+    const pageIndexRaw = Number.isInteger(state.activePageIdx) ? state.activePageIdx : state.activeIdx;
+    const pageIndex = Math.max(0, Math.min(pageIndexRaw || 0, totalPages - 1));
+    state.activePageIdx = pageIndex;
+    state.activeIdx = pageIndex;
+
+    const p = hasPages ? pages[pageIndex] : null;
+    const s = (!hasPages && state.sections) ? state.sections[pageIndex] : null;
     const contentEl = document.getElementById('viewer-content');
     const bubblesEl = document.getElementById('viewer-bubbles');
     const lang = state.activeLang;
@@ -357,7 +426,39 @@ function refresh() {
     resetZoom();
 
     // 1. Content
-    if (s.type === 'image') {
+    if (hasPages && p && p.pageType !== 'normal_image' && p.pageType !== 'normal_text') {
+        renderStructurePage(contentEl, p, lang);
+    } else if (hasPages && p && p.pageType === 'normal_image') {
+        const toNum = (v, fallback) => {
+            const n = Number(v);
+            return Number.isFinite(n) ? n : fallback;
+        };
+        const pos = p.content?.imagePosition || {};
+        const x = toNum(pos.x, 0);
+        const y = toNum(pos.y, 0);
+        const scale = Math.max(0.1, toNum(pos.scale, 1));
+        const rotation = toNum(pos.rotation, 0);
+        const imgStyle = `width:100%; height:100%; object-fit:cover; transform: translate(${x}px, ${y}px) scale(${scale}) rotate(${rotation}deg); transform-origin: center center;`;
+        contentEl.innerHTML = `<img src="${p.content?.background || ''}" style="${imgStyle}">`;
+    } else if (hasPages && p && p.pageType === 'normal_text') {
+        const vtClass = mode === 'vertical-rl' ? 'v-text' : '';
+        const langProps = getLangProps(lang);
+        const align = langProps.sectionAlign;
+        const layout = getComposedLayoutForViewerPage(p, lang);
+        const text = escapeHtml((layout?.lines || []).join('\n'));
+        const frame = layout?.frame || { x: 20, y: 32, w: 320, h: 576 };
+        const font = layout?.font || {};
+        const fontFamily = font.family || '"Noto Sans","Segoe UI",sans-serif';
+        const fontSize = Number(font.size) || 16;
+        const lineHeight = Number(font.lineHeight) || 1.8;
+        const letterSpacing = Number.isFinite(Number(font.letterSpacing)) ? Number(font.letterSpacing) : 0;
+        const verticalPad = getVerticalTextPadding(layout);
+
+        contentEl.innerHTML = `<div class="viewer-text-page">
+            <div class="viewer-text-block ${vtClass}"
+                 style="left:${frame.x}px; top:${frame.y}px; width:${frame.w}px; height:${frame.h}px; padding:${verticalPad}px 0; text-align:${align}; font-family:${fontFamily}; font-size:${fontSize}px; line-height:${lineHeight}; letter-spacing:${letterSpacing}px;">${text}</div>
+        </div>`;
+    } else if (s?.type === 'image') {
         const toNum = (v, fallback) => {
             const n = Number(v);
             return Number.isFinite(n) ? n : fallback;
@@ -390,8 +491,11 @@ function refresh() {
     }
 
     // 2. Bubbles
-    if (s.type !== 'text') {
-        bubblesEl.innerHTML = (s.bubbles || []).map((b, i) =>
+    const bubbleSource = hasPages
+        ? ((p?.pageType === 'normal_image') ? (p.content?.bubbles || []) : [])
+        : (s?.type !== 'text' ? (s?.bubbles || []) : []);
+    if (bubbleSource.length > 0) {
+        bubblesEl.innerHTML = bubbleSource.map((b, i) =>
             renderBubbleHTML(b, i, false, mode)
         ).join('');
     } else {
@@ -399,8 +503,8 @@ function refresh() {
     }
 
     // 3. Update Footer Info
-    const total = state.sections.length;
-    const current = state.activeIdx + 1;
+    const total = totalPages;
+    const current = pageIndex + 1;
     const slider = document.getElementById('page-slider');
     const label = document.getElementById('page-count');
 
@@ -523,17 +627,21 @@ function resizeCanvas() {
 //  Navigation Helpers
 // ──────────────────────────────────────
 function next() {
-    if (!state.sections) return;
-    if (state.activeIdx < state.sections.length - 1) {
-        state.activeIdx++;
+    const total = getViewerPageTotal();
+    if (total <= 0) return;
+    if (state.activePageIdx < total - 1) {
+        state.activePageIdx++;
+        state.activeIdx = state.activePageIdx;
         refresh();
     }
 }
 
 function prev() {
-    if (!state.sections) return;
-    if (state.activeIdx > 0) {
-        state.activeIdx--;
+    const total = getViewerPageTotal();
+    if (total <= 0) return;
+    if (state.activePageIdx > 0) {
+        state.activePageIdx--;
+        state.activeIdx = state.activePageIdx;
         refresh();
     }
 }

@@ -153,3 +153,188 @@ type ProjectV4 = {
 - `js/pages.js`（新規）
 - `js/blocks.js`（移行完了後に縮退または削除）
 - `js/sections.js`（移行完了後に縮退または削除）
+
+## 11. 追加要件（2026-02-19）実装計画
+以下は、今回の追加要件を安全に段階実装するための計画。
+
+### 11.1 仕様確定（今回の合意）
+- 表紙（先頭）/裏表紙（末尾）は位置固定（並び替え不可・削除不可）。
+- 表紙/裏表紙のページタイプは `image` と `theme` の2種類。
+- 表紙入力項目:
+  - `title`（タイトル）
+  - `subtitle`（サブタイトル）
+  - `author`（著者名）
+  - `supervisor`（監修者名）
+  - `publisher`（出版社名）
+- 裏表紙入力項目（奥付）:
+  - `edition`（版）
+  - `contacts[]`（URL / メール等）
+- `theme` は「画像なしでも装丁できる」テンプレート + カラーコレクションを使用。
+- 章/節/項ページは `image` / `text` のどちらでも作成可能。
+- 章/節/項ページは必ず `title` を持ち、TOCはこのタイトルを参照。
+- テキスト編集は選択範囲に `H1 / H2 / 太字 / 斜体 / 下線 / 取り消し線` を適用可能にする。
+
+### 11.2 データモデル拡張（v5）
+- `Project.version = 5` を導入。
+- `Page` に `renderMode` を追加:
+  - `renderMode: 'image' | 'text' | 'theme'`
+- `pageType` は用途（`cover_front` / `chapter` 等）を表し、`renderMode` は見せ方を表す。
+- `cover_front.meta` を拡張:
+  - `title, subtitle, author, supervisor, publisher: LocalizedText`
+- `cover_back.meta` を拡張:
+  - `edition: LocalizedText`
+  - `contacts: Array<{ type: 'url' | 'email' | 'other'; value: string; label?: string }>`
+- `theme` 用フィールド:
+  - `content.theme = { templateId: string; paletteId: string; overrides?: Record<string, string> }`
+- テキスト装飾データ:
+  - `content.richText`（ProseMirror/TipTap JSON互換の簡易スキーマ）を追加
+  - 既存 `text/texts` は互換維持し、段階移行
+
+### 11.3 正規化・移行
+1. `normalizeProjectDataV5()` を追加。
+2. v4→v5:
+   - `cover_front/cover_back` に不足メタを補完
+   - `renderMode` 未設定時は既存 `pageType` から推定
+3. v3/v2→v5:
+   - 既存アダプタ経由で `pages` 化後に v5 正規化
+4. 保存は v5、読込は v2/v3/v4/v5 すべて受け入れ。
+
+### 11.4 UI/操作実装（段階）
+#### Phase A: 表紙/裏表紙の固定化
+- `pages` 先頭/末尾を表紙/裏表紙として固定。
+- D&Dで移動不可（視覚的にロック表示）。
+- 削除ボタン無効化。
+
+#### Phase B: 表紙/裏表紙の `image/theme` UI
+- ページ属性パネルに `renderMode` セレクト追加。
+- `cover_front` 入力フォーム追加（title/subtitle/author/supervisor/publisher）。
+- `cover_back` 入力フォーム追加（edition/contacts）。
+- `theme` 選択UI:
+  - テンプレート一覧（最初は3〜5種）
+  - カラーパレット一覧（最初は8〜12色）
+  - プレビュー即時反映
+
+#### Phase C: 章/節/項の image/text 切替
+- `chapter/section/item` にも `renderMode` 適用（image/text）。
+- 章/節/項共通でタイトル入力欄を表示。
+- サムネイル/Viewerの描画分岐を `pageType + renderMode` に統一。
+
+#### Phase D: TOCの再構築
+- `buildOutlineFromPages()` を v5仕様へ更新。
+- 章/節/項の `title` を優先し、未入力時はフォールバック名を使用。
+
+#### Phase E: リッチテキスト編集
+- エディタを `textarea` から `contenteditable + model` へ段階置換。
+- 最初の対応コマンド:
+  - `H1`, `H2`, `bold`, `italic`, `underline`, `strike`
+- 保存は `content.richText` を正とし、暫定で plain text も同期保持。
+- Viewer は `richText` レンダラを追加（見出し/装飾を反映）。
+
+### 11.5 実装PR分割（推奨）
+1. `v5スキーマ + normalizeProjectDataV5 + 互換移行`
+2. `表紙/裏表紙固定化 + D&D制限`
+3. `cover_front/cover_back フォーム + 保存`
+4. `themeテンプレート/パレット基盤 + 表紙/裏表紙描画`
+5. `chapter/section/item の renderMode(image/text)対応`
+6. `TOC v5再構築`
+7. `リッチテキスト基盤（H1/H2/装飾）`
+8. `Viewerのリッチテキスト描画 + 互換最終調整`
+
+### 11.6 受け入れ条件（追加）
+- 表紙/裏表紙は常に先頭/末尾に存在し、移動/削除不可。
+- 表紙/裏表紙で `image/theme` を切替でき、入力項目が保存・再読込される。
+- 章/節/項で `image/text` を切替でき、タイトルがTOCに反映される。
+- テキスト選択に `H1/H2/太字/斜体/下線/取り消し線` を適用できる。
+- Editor/Viewerで同じ見た目・同じページ解釈になる。
+
+### 11.7 リスクと対策（追加）
+- リッチテキスト導入で既存レイアウト計算が崩れる:
+  - 対策: `plain text fallback` を維持し、段階的に `richText` 優先化
+- theme自由度が増えすぎる:
+  - 対策: 初期はテンプレート固定 + カラー差し替えのみ
+- 表紙固定化で既存D&D実装に影響:
+  - 対策: 移動禁止ルールを `pages` 操作層に集約してUI側分岐を減らす
+
+### 11.8 確定仕様（Q&A反映）
+#### 11.8.1 モデル命名と責務
+- v5では `pageType` を廃止し、`role` と `bodyKind` に分離する。
+- `role` はページの意味のみを表す:
+  - `cover_front | cover_back | chapter | section | item | toc | normal`
+- `bodyKind` は見せ方のみを表す:
+  - `image | text | theme`
+- `project.defaultLang` を導入する（編集で変更可）。
+
+#### 11.8.2 role x bodyKind 制約（厳格）
+- `cover_front`: `image | theme`
+- `cover_back`: `image | theme`
+- `chapter | section | item`: `image | text`
+- `toc`: `text` 固定
+- `normal`: `image | text`
+- `theme` は `cover_front/cover_back` のみ許可。
+
+#### 11.8.3 表紙/裏表紙ルール
+- 表紙は先頭固定、裏表紙は末尾固定。
+- 移動不可、削除不可、`role` 変更不可。
+- `bodyKind` のみ切替可（`image/theme`）。
+- `image/theme` 切替時は両方のデータを保持する（非選択側は破棄しない）。
+
+#### 11.8.4 必須入力と検証タイミング
+- 表紙/裏表紙入力項目は「全言語分」入力必須。
+- 章/節/項のタイトルは「全言語分」入力必須。
+- ただし検証ブロックは保存時ではなく、公開/エクスポート時に行う。
+- エラー表示は一括一覧モーダル（ページジャンプ可能）で提示する。
+
+#### 11.8.5 章/節/項とTOC
+- 章/節/項は本文入力を許可する（`bodyKind=text`時）。
+- TOC表示名は常に `title` を使用する（本文は参照しない）。
+- TOC対象は `chapter/section/item` のみ。
+- TOCは編集ごと自動再生成する。
+- TOCが溢れた場合は `toc` ページを自動増殖する。
+- 自動増殖したTOCページはシステム管理としてロック（ユーザー編集不可）。
+- TOCの配置は既存 `toc` の先頭位置を基準とし、追加分は直後へ連続配置。
+- TOCのページ番号は物理ページ番号（`pages` 配列順、1始まり）を表示する。
+
+#### 11.8.6 richText 方針
+- 保存形式は独自の軽量JSONを採用する。
+  - block: `paragraph | h1 | h2`
+  - mark: `bold | italic | underline | strike`
+- `text/texts` との二重保持は行わない（即時移行、`richText` のみ正）。
+- 初期対応対象は `bodyKind=text` の全ページ（`normal/chapter/section/item`）。
+- 編集UIは上部固定ツールバー（`H1/H2/B/I/U/S`）。
+- 改行ルール:
+  - `Enter`: 新段落
+  - `Shift+Enter`: 同段落改行
+- Undo単位:
+  - 文字入力は一定時間でまとまり化
+  - 書式操作は1操作単位
+
+#### 11.8.7 テーマ方針
+- テンプレート/パレット定義はコード内固定（`js/theme-presets.js` 新設予定）。
+- 初期テンプレート数: 4
+- 初期カラーパレット数: 10
+- 編集自由度は最小（`templateId` / `paletteId` 選択のみ）。
+
+#### 11.8.8 サムネイル表示方針
+- すべて同一サイズのサムネイルカードとして扱う。
+- 章/節/項はタイトル最優先で表示する。
+- サムネイル表示言語は `defaultLang` 優先とする。
+
+#### 11.8.9 連絡先（裏表紙）
+- `contacts[]` は型付き:
+  - `type: 'url' | 'email' | 'other'`
+  - `value: string`（必須）
+  - `label?: string`（任意）
+- 入力検証は厳格:
+  - URLは `http://` または `https://` 必須
+  - メールは一般的な形式チェック
+  - 公開/エクスポート時に不正値をブロック
+
+#### 11.8.10 内部ページリンク（将来実装の予約）
+- 同一プロジェクト内ページへの内部リンク機能を後続で実装する。
+- v5段階で予約フィールドを追加:
+  - `content.interactions[]`
+  - 例: `{ type: 'page_link', source, targetPageId, trigger: 'tap' }`
+- 対応範囲（将来）:
+  - 要素リンク
+  - テキスト範囲リンク
+  - Viewerでの遷移履歴（戻る）

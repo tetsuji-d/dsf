@@ -1,0 +1,376 @@
+/**
+ * pages.js - v5 page model helpers and compatibility adapters.
+ */
+
+const DEFAULT_BG = 'https://picsum.photos/id/10/600/1066';
+export const PAGE_SCHEMA_VERSION = 5;
+
+const ROLE_SET = new Set(['cover_front', 'cover_back', 'chapter', 'section', 'item', 'toc', 'normal']);
+const BODY_KIND_SET = new Set(['image', 'text', 'theme']);
+
+function deepClone(value) {
+    if (typeof structuredClone === 'function') return structuredClone(value);
+    return JSON.parse(JSON.stringify(value));
+}
+
+function createId(prefix) {
+    return `${prefix}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function createDefaultImageSection() {
+    return {
+        type: 'image',
+        background: DEFAULT_BG,
+        writingMode: 'horizontal-tb',
+        bubbles: [],
+        text: '',
+        texts: {},
+        layout: {},
+        imagePosition: { x: 0, y: 0, scale: 1, rotation: 0 },
+        imageBasePosition: { x: 0, y: 0, scale: 1, rotation: 0 }
+    };
+}
+
+function createEmptyRichText() {
+    return { blocks: [{ type: 'paragraph', children: [{ text: '' }] }] };
+}
+
+function normalizeLocalizedTextMap(value) {
+    return value && typeof value === 'object' ? deepClone(value) : {};
+}
+
+function ensureLanguages(data) {
+    return Array.isArray(data.languages) && data.languages.length ? data.languages : ['ja'];
+}
+
+function inferRoleFromLegacyPageType(pageType) {
+    if (pageType === 'cover_front') return 'cover_front';
+    if (pageType === 'cover_back') return 'cover_back';
+    if (pageType === 'chapter') return 'chapter';
+    if (pageType === 'section') return 'section';
+    if (pageType === 'item') return 'item';
+    if (pageType === 'toc') return 'toc';
+    return 'normal';
+}
+
+function inferBodyKindFromLegacyPageType(pageType, content) {
+    if (pageType === 'normal_text') return 'text';
+    if (pageType === 'normal_image') return 'image';
+    if (content?.theme?.templateId || content?.theme?.paletteId) return 'theme';
+    if (content?.richText) return 'text';
+    if (content?.text || (content?.texts && Object.keys(content.texts).length > 0)) return 'text';
+    return 'image';
+}
+
+function inferPageTypeFromRoleBody(role, bodyKind) {
+    if (role === 'normal') return bodyKind === 'text' ? 'normal_text' : 'normal_image';
+    return role;
+}
+
+function normalizeRole(rawRole, rawPageType) {
+    const role = ROLE_SET.has(rawRole) ? rawRole : inferRoleFromLegacyPageType(rawPageType);
+    return ROLE_SET.has(role) ? role : 'normal';
+}
+
+function normalizeBodyKind(role, rawBodyKind, rawPageType, content) {
+    let bodyKind = BODY_KIND_SET.has(rawBodyKind)
+        ? rawBodyKind
+        : inferBodyKindFromLegacyPageType(rawPageType, content);
+
+    // Strict role x bodyKind rules.
+    if (role === 'cover_front' || role === 'cover_back') {
+        if (bodyKind !== 'image' && bodyKind !== 'theme') bodyKind = 'image';
+    } else if (role === 'chapter' || role === 'section' || role === 'item') {
+        if (bodyKind !== 'image' && bodyKind !== 'text') bodyKind = 'text';
+    } else if (role === 'toc') {
+        bodyKind = 'text';
+    } else if (role === 'normal') {
+        if (bodyKind !== 'image' && bodyKind !== 'text') bodyKind = 'image';
+    }
+    return bodyKind;
+}
+
+function normalizeContacts(contacts) {
+    if (!Array.isArray(contacts)) return [];
+    return contacts
+        .map((c) => ({
+            type: (c?.type === 'url' || c?.type === 'email' || c?.type === 'other') ? c.type : 'other',
+            value: String(c?.value || '').trim(),
+            label: c?.label ? String(c.label).trim() : ''
+        }))
+        .filter((c) => c.value);
+}
+
+function normalizeContentByBodyKind(content, bodyKind) {
+    const src = content && typeof content === 'object' ? content : {};
+    const out = {
+        background: src.background || '',
+        thumbnail: src.thumbnail || '',
+        bubbles: deepClone(src.bubbles || []),
+        imagePosition: deepClone(src.imagePosition || { x: 0, y: 0, scale: 1, rotation: 0 }),
+        imageBasePosition: deepClone(src.imageBasePosition || { x: 0, y: 0, scale: 1, rotation: 0 }),
+        theme: {
+            templateId: src.theme?.templateId || '',
+            paletteId: src.theme?.paletteId || ''
+        },
+        richText: deepClone(src.richText || createEmptyRichText()),
+        interactions: Array.isArray(src.interactions) ? deepClone(src.interactions) : [],
+        // Transitional compatibility fields.
+        text: src.text || '',
+        texts: deepClone(src.texts || {}),
+        layout: deepClone(src.layout || {})
+    };
+
+    if (bodyKind === 'theme') {
+        out.background = '';
+        out.bubbles = [];
+    }
+    if (bodyKind === 'image') {
+        out.richText = createEmptyRichText();
+    }
+    return out;
+}
+
+function normalizePageV5(page) {
+    const p = page && typeof page === 'object' ? deepClone(page) : {};
+    const role = normalizeRole(p.role, p.pageType);
+    const bodyKind = normalizeBodyKind(role, p.bodyKind, p.pageType, p.content);
+
+    const out = {
+        id: p.id || createId('page'),
+        role,
+        bodyKind,
+        // Compatibility until consumers move fully to role/bodyKind.
+        pageType: inferPageTypeFromRoleBody(role, bodyKind)
+    };
+
+    out.meta = {
+        title: normalizeLocalizedTextMap(p.meta?.title),
+        subtitle: normalizeLocalizedTextMap(p.meta?.subtitle),
+        author: normalizeLocalizedTextMap(p.meta?.author),
+        supervisor: normalizeLocalizedTextMap(p.meta?.supervisor),
+        publisher: normalizeLocalizedTextMap(p.meta?.publisher),
+        edition: normalizeLocalizedTextMap(p.meta?.edition),
+        contacts: normalizeContacts(p.meta?.contacts),
+        colophon: normalizeLocalizedTextMap(p.meta?.colophon)
+    };
+
+    out.content = normalizeContentByBodyKind(p.content, bodyKind);
+    return out;
+}
+
+function ensureCoverBoundaries(pages) {
+    const list = Array.isArray(pages) ? pages.map(normalizePageV5) : [];
+    const nonCovers = list.filter((p) => p.role !== 'cover_front' && p.role !== 'cover_back');
+    const front = list.find((p) => p.role === 'cover_front') || normalizePageV5({
+        id: createId('cover_front'),
+        role: 'cover_front',
+        bodyKind: 'image',
+        meta: { title: {}, subtitle: {}, author: {}, supervisor: {}, publisher: {} }
+    });
+    const back = list.find((p) => p.role === 'cover_back') || normalizePageV5({
+        id: createId('cover_back'),
+        role: 'cover_back',
+        bodyKind: 'image',
+        meta: { edition: {}, contacts: [] }
+    });
+    return [front, ...nonCovers, back];
+}
+
+function sectionToNormalPage(section) {
+    const src = section || createDefaultImageSection();
+    return normalizePageV5({
+        id: createId('page'),
+        role: 'normal',
+        bodyKind: src.type === 'text' ? 'text' : 'image',
+        content: {
+            background: src.background || '',
+            thumbnail: src.thumbnail || '',
+            bubbles: deepClone(src.bubbles || []),
+            text: src.text || '',
+            texts: deepClone(src.texts || {}),
+            layout: deepClone(src.layout || {}),
+            imagePosition: deepClone(src.imagePosition || { x: 0, y: 0, scale: 1, rotation: 0 }),
+            imageBasePosition: deepClone(src.imageBasePosition || { x: 0, y: 0, scale: 1, rotation: 0 })
+        }
+    });
+}
+
+function pageToSection(page) {
+    const c = page?.content || {};
+    const isText = page?.role === 'normal' && page?.bodyKind === 'text';
+    return {
+        type: isText ? 'text' : 'image',
+        background: c.background || '',
+        thumbnail: c.thumbnail || '',
+        writingMode: 'horizontal-tb',
+        bubbles: deepClone(c.bubbles || []),
+        text: c.text || '',
+        texts: deepClone(c.texts || {}),
+        layout: deepClone(c.layout || {}),
+        imagePosition: deepClone(c.imagePosition || { x: 0, y: 0, scale: 1, rotation: 0 }),
+        imageBasePosition: deepClone(c.imageBasePosition || { x: 0, y: 0, scale: 1, rotation: 0 })
+    };
+}
+
+function blockToPage(block) {
+    if (!block || typeof block !== 'object') return null;
+    if (block.kind === 'cover_front') {
+        return normalizePageV5({
+            id: block.id || createId('cover_front'),
+            role: 'cover_front',
+            bodyKind: 'image',
+            meta: {
+                title: block.meta?.title || {},
+                author: block.meta?.author || {}
+            }
+        });
+    }
+    if (block.kind === 'cover_back') {
+        return normalizePageV5({
+            id: block.id || createId('cover_back'),
+            role: 'cover_back',
+            bodyKind: 'image',
+            meta: {
+                colophon: block.meta?.colophon || {}
+            }
+        });
+    }
+    if (block.kind === 'chapter' || block.kind === 'section' || block.kind === 'item') {
+        return normalizePageV5({
+            id: block.id || createId(block.kind),
+            role: block.kind,
+            bodyKind: 'text',
+            meta: {
+                title: block.meta?.title || {}
+            }
+        });
+    }
+    if (block.kind === 'toc') {
+        return normalizePageV5({
+            id: block.id || createId('toc'),
+            role: 'toc',
+            bodyKind: 'text',
+            meta: {
+                title: block.meta?.title || {}
+            }
+        });
+    }
+    if (block.kind === 'page') {
+        return normalizePageV5({
+            id: block.id || createId('page'),
+            role: 'normal',
+            bodyKind: block.content?.pageKind === 'text' ? 'text' : 'image',
+            content: block.content || {}
+        });
+    }
+    return null;
+}
+
+function pageToBlock(page, languages = ['ja']) {
+    if (!page) return null;
+    if (page.role === 'cover_front') {
+        return {
+            id: page.id || createId('cover_front'),
+            kind: 'cover_front',
+            meta: {
+                title: normalizeLocalizedTextMap(page.meta?.title),
+                author: normalizeLocalizedTextMap(page.meta?.author),
+                langs: Array.isArray(languages) && languages.length ? [...languages] : ['ja']
+            }
+        };
+    }
+    if (page.role === 'cover_back') {
+        return {
+            id: page.id || createId('cover_back'),
+            kind: 'cover_back',
+            meta: {
+                colophon: normalizeLocalizedTextMap(page.meta?.colophon)
+            }
+        };
+    }
+    if (page.role === 'chapter' || page.role === 'section' || page.role === 'item' || page.role === 'toc') {
+        return {
+            id: page.id || createId(page.role),
+            kind: page.role,
+            meta: {
+                title: normalizeLocalizedTextMap(page.meta?.title)
+            }
+        };
+    }
+    return {
+        id: page.id || createId('page'),
+        kind: 'page',
+        content: {
+            pageKind: page.bodyKind === 'text' ? 'text' : 'image',
+            background: page.content?.background || '',
+            thumbnail: page.content?.thumbnail || '',
+            bubbles: deepClone(page.content?.bubbles || []),
+            text: page.content?.text || '',
+            texts: deepClone(page.content?.texts || {}),
+            layout: deepClone(page.content?.layout || {}),
+            imagePosition: deepClone(page.content?.imagePosition || { x: 0, y: 0, scale: 1, rotation: 0 }),
+            imageBasePosition: deepClone(page.content?.imageBasePosition || { x: 0, y: 0, scale: 1, rotation: 0 })
+        }
+    };
+}
+
+export function migrateSectionsToPages(sections) {
+    const src = Array.isArray(sections) && sections.length ? sections : [createDefaultImageSection()];
+    const body = src.map(sectionToNormalPage);
+    return ensureCoverBoundaries(body);
+}
+
+export function extractSectionsFromPages(pages) {
+    const list = Array.isArray(pages) ? pages.map(normalizePageV5) : [];
+    const normalPages = list.filter((p) => p?.role === 'normal' && (p?.bodyKind === 'image' || p?.bodyKind === 'text'));
+    if (!normalPages.length) return [createDefaultImageSection()];
+    return normalPages.map(pageToSection);
+}
+
+export function pagesToLegacyData(pages, languages = ['ja']) {
+    const list = ensureCoverBoundaries(pages || []);
+    const blocks = list.map((p) => pageToBlock(p, languages)).filter(Boolean);
+    const sections = extractSectionsFromPages(list);
+    return { blocks, sections };
+}
+
+export function blocksToPages(blocks) {
+    const list = Array.isArray(blocks) ? blocks : [];
+    const pages = list.map(blockToPage).filter(Boolean);
+    return ensureCoverBoundaries(pages);
+}
+
+export function normalizeProjectDataV5(data = {}) {
+    const languages = ensureLanguages(data);
+    const defaultLang = (typeof data.defaultLang === 'string' && languages.includes(data.defaultLang))
+        ? data.defaultLang
+        : languages[0];
+
+    let pages = [];
+    if (Array.isArray(data.pages) && data.pages.length) {
+        pages = ensureCoverBoundaries(data.pages);
+    } else if (Array.isArray(data.blocks) && data.blocks.length) {
+        pages = blocksToPages(data.blocks);
+    } else {
+        pages = migrateSectionsToPages(data.sections || []);
+    }
+    if (!pages.length) pages = migrateSectionsToPages(data.sections || []);
+
+    const legacy = pagesToLegacyData(pages, languages);
+    return {
+        ...data,
+        version: Math.max(Number(data.version) || 0, PAGE_SCHEMA_VERSION),
+        languages,
+        defaultLang,
+        pages,
+        blocks: legacy.blocks,
+        sections: legacy.sections
+    };
+}
+
+// Compatibility export for existing callers during migration.
+export function normalizeProjectDataV4(data = {}) {
+    return normalizeProjectDataV5(data);
+}
+

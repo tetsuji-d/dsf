@@ -8,6 +8,7 @@ export const state = {
     projectId: null,
     title: '',               // 作品タイトル（ヘッダー表示用）
     languages: ['ja'],       // プロジェクトの対応言語
+    defaultLang: 'ja',
     languageConfigs: {
         ja: { writingMode: 'vertical-rl', fontPreset: 'gothic' }
     },
@@ -35,6 +36,7 @@ export const state = {
             meta: { colophon: {} }
         }
     ],
+    pages: [],
     sections: [
         {
             type: 'image',
@@ -46,6 +48,7 @@ export const state = {
         }
     ],
     activeIdx: 0,
+    activePageIdx: 0,
     activeBlockIdx: 1,
     activeBubbleIdx: null,
     thumbColumns: 2,
