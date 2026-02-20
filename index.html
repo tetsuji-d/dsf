@@ -269,7 +269,16 @@
                         </div>
                         <div id="structure-text-fields" style="display:none;">
                             <label>本文</label>
-                            <textarea id="structure-body-text" rows="5" oninput="updateStructureBodyText(this.value)"></textarea>
+                            <div class="rt-toolbar">
+                                <button type="button" class="btn-sm" onclick="applyStructureRichTextCommand('h1')">H1</button>
+                                <button type="button" class="btn-sm" onclick="applyStructureRichTextCommand('h2')">H2</button>
+                                <button type="button" class="btn-sm" onclick="applyStructureRichTextCommand('bold')"><b>B</b></button>
+                                <button type="button" class="btn-sm" onclick="applyStructureRichTextCommand('italic')"><i>I</i></button>
+                                <button type="button" class="btn-sm" onclick="applyStructureRichTextCommand('underline')"><u>U</u></button>
+                                <button type="button" class="btn-sm" onclick="applyStructureRichTextCommand('strike')"><s>S</s></button>
+                                <button type="button" class="btn-sm" onclick="applyStructureRichTextCommand('paragraph')">P</button>
+                            </div>
+                            <div id="structure-body-rich-editor" class="rt-editor" contenteditable="true" oninput="updateStructureRichTextFromEditor()"></div>
                         </div>
                     </div>
                     <label>タイプ</label>

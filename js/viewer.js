@@ -548,14 +548,29 @@ function renderStructureImagePage(contentEl, page, lang) {
 
 function renderStructureTextPage(contentEl, page, lang) {
     const title = escapeHtml(page?.meta?.title?.[lang] || '');
-    const body = escapeHtml(page?.content?.texts?.[lang] ?? page?.content?.text ?? '');
+    const richDoc = page?.content?.richTextLangs?.[lang] || page?.content?.richText || null;
+    const renderRichInline = (child) => {
+        let out = escapeHtml(child?.text || '').replace(/\n/g, '<br>');
+        if (child?.strike) out = `<s>${out}</s>`;
+        if (child?.underline) out = `<u>${out}</u>`;
+        if (child?.italic) out = `<i>${out}</i>`;
+        if (child?.bold) out = `<b>${out}</b>`;
+        return out;
+    };
+    const bodyHtml = Array.isArray(richDoc?.blocks) && richDoc.blocks.length
+        ? richDoc.blocks.map((b) => {
+            const tag = b?.type === 'h1' ? 'h1' : (b?.type === 'h2' ? 'h2' : 'p');
+            const children = Array.isArray(b?.children) && b.children.length ? b.children : [{ text: '' }];
+            return `<${tag}>${children.map(renderRichInline).join('') || '<br>'}</${tag}>`;
+        }).join('')
+        : `<p>${escapeHtml(page?.content?.texts?.[lang] ?? page?.content?.text ?? '')}</p>`;
     const badge = page?.role === 'chapter' ? '章' : (page?.role === 'section' ? '節' : '項');
     contentEl.innerHTML = `<div class="viewer-text-page">
         <div class="viewer-text-block"
              style="left:20px; top:32px; width:320px; height:576px; box-sizing:border-box; border:2px solid #d8e0ec; border-radius:8px; background:#f9fbff; color:#22314a; padding:20px; white-space:normal; overflow-wrap:anywhere; word-break:break-word;">
             <div style="font-size:11px; color:#6a7b96; margin-bottom:8px;">${badge}</div>
             <div style="font-size:26px; font-weight:800; line-height:1.3; margin-bottom:16px;">${title || ''}</div>
-            <div style="font-size:15px; line-height:1.7; color:#334b6d;">${body || ''}</div>
+            <div style="font-size:15px; line-height:1.7; color:#334b6d;">${bodyHtml || ''}</div>
         </div>
     </div>`;
 }

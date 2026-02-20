@@ -114,6 +114,7 @@ function normalizeContentByBodyKind(content, bodyKind) {
             paletteId: src.theme?.paletteId || ''
         },
         richText: deepClone(src.richText || createEmptyRichText()),
+        richTextLangs: deepClone(src.richTextLangs || {}),
         interactions: Array.isArray(src.interactions) ? deepClone(src.interactions) : [],
         // Transitional compatibility fields.
         text: src.text || '',
@@ -272,7 +273,8 @@ function blockToPage(block) {
                 imageBasePosition: deepClone(block.content?.imageBasePosition || { x: 0, y: 0, scale: 1, rotation: 0 }),
                 text: block.content?.text || '',
                 texts: deepClone(block.content?.texts || {}),
-                richText: deepClone(block.content?.richText || createEmptyRichText())
+                richText: deepClone(block.content?.richText || createEmptyRichText()),
+                richTextLangs: deepClone(block.content?.richTextLangs || {})
             }
         });
     }
@@ -362,7 +364,8 @@ function pageToBlock(page, languages = ['ja']) {
                 imageBasePosition: deepClone(page.content?.imageBasePosition || { x: 0, y: 0, scale: 1, rotation: 0 }),
                 text: page.content?.text || '',
                 texts: deepClone(page.content?.texts || {}),
-                richText: deepClone(page.content?.richText || createEmptyRichText())
+                richText: deepClone(page.content?.richText || createEmptyRichText()),
+                richTextLangs: deepClone(page.content?.richTextLangs || {})
             }
         };
     }

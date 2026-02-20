@@ -259,6 +259,134 @@ function getStructureBodyText(block) {
     return block?.content?.texts?.[lang] ?? block?.content?.text ?? '';
 }
 
+function createEmptyRichTextDoc() {
+    return { blocks: [{ type: 'paragraph', children: [{ text: '' }] }] };
+}
+
+function getStructureRichText(block) {
+    const lang = state.activeLang;
+    const doc = block?.content?.richTextLangs?.[lang] || block?.content?.richText;
+    if (doc && Array.isArray(doc.blocks)) return doc;
+    const text = getStructureBodyText(block);
+    return {
+        blocks: [{ type: 'paragraph', children: [{ text }] }]
+    };
+}
+
+function richTextToPlainText(doc) {
+    const blocks = Array.isArray(doc?.blocks) ? doc.blocks : [];
+    const lines = blocks.map((b) => {
+        const children = Array.isArray(b?.children) ? b.children : [];
+        return children.map((c) => String(c?.text || '')).join('');
+    });
+    return lines.join('\n');
+}
+
+function escapeHtmlText(text) {
+    return String(text || '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;');
+}
+
+function richTextDocToHtml(doc) {
+    const blocks = Array.isArray(doc?.blocks) ? doc.blocks : [];
+    if (!blocks.length) return '<p><br></p>';
+
+    const renderInline = (child) => {
+        let out = escapeHtmlText(child?.text || '').replace(/\n/g, '<br>');
+        if (child?.strike) out = `<s>${out}</s>`;
+        if (child?.underline) out = `<u>${out}</u>`;
+        if (child?.italic) out = `<i>${out}</i>`;
+        if (child?.bold) out = `<b>${out}</b>`;
+        return out || '';
+    };
+
+    return blocks.map((b) => {
+        const type = b?.type === 'h1' ? 'h1' : (b?.type === 'h2' ? 'h2' : 'p');
+        const children = Array.isArray(b?.children) && b.children.length ? b.children : [{ text: '' }];
+        const inner = children.map(renderInline).join('') || '<br>';
+        return `<${type}>${inner}</${type}>`;
+    }).join('');
+}
+
+function richTextHtmlToDoc(html) {
+    const parser = new DOMParser();
+    const parsed = parser.parseFromString(`<div>${String(html || '')}</div>`, 'text/html');
+    const root = parsed.body.firstElementChild || parsed.body;
+    const blocks = [];
+
+    const pushBlockFromNode = (node) => {
+        const name = (node?.nodeName || '').toUpperCase();
+        const type = name === 'H1' ? 'h1' : (name === 'H2' ? 'h2' : 'paragraph');
+
+        const walkInline = (inlineNode, marks = {}) => {
+            if (!inlineNode) return [];
+            if (inlineNode.nodeType === Node.TEXT_NODE) {
+                const txt = inlineNode.textContent || '';
+                if (!txt) return [];
+                return [{ text: txt, ...marks }];
+            }
+            if (inlineNode.nodeName === 'BR') {
+                return [{ text: '\n', ...marks }];
+            }
+            if (inlineNode.nodeType !== Node.ELEMENT_NODE) return [];
+
+            const tag = inlineNode.nodeName.toUpperCase();
+            const nextMarks = { ...marks };
+            if (tag === 'B' || tag === 'STRONG') nextMarks.bold = true;
+            if (tag === 'I' || tag === 'EM') nextMarks.italic = true;
+            if (tag === 'U') nextMarks.underline = true;
+            if (tag === 'S' || tag === 'STRIKE' || tag === 'DEL') nextMarks.strike = true;
+
+            const out = [];
+            inlineNode.childNodes.forEach((c) => out.push(...walkInline(c, nextMarks)));
+            return out;
+        };
+
+        const children = [];
+        node.childNodes.forEach((c) => children.push(...walkInline(c, {})));
+        blocks.push({
+            type,
+            children: children.length ? children : [{ text: '' }]
+        });
+    };
+
+    root.childNodes.forEach((n) => {
+        if (n.nodeType === Node.TEXT_NODE) {
+            const raw = n.textContent || '';
+            if (!raw.trim()) return;
+            blocks.push({ type: 'paragraph', children: [{ text: raw }] });
+            return;
+        }
+        if (n.nodeType !== Node.ELEMENT_NODE) return;
+        const tag = n.nodeName.toUpperCase();
+        if (tag === 'H1' || tag === 'H2' || tag === 'P' || tag === 'DIV') {
+            pushBlockFromNode(n);
+        } else {
+            blocks.push({ type: 'paragraph', children: [{ text: n.textContent || '' }] });
+        }
+    });
+
+    if (!blocks.length) return createEmptyRichTextDoc();
+    return { blocks };
+}
+
+function setStructureRichText(block, doc) {
+    if (!block) return;
+    const lang = state.activeLang;
+    if (!block.content || typeof block.content !== 'object') block.content = {};
+    if (!block.content.richTextLangs || typeof block.content.richTextLangs !== 'object') {
+        block.content.richTextLangs = {};
+    }
+    block.content.richTextLangs[lang] = doc;
+    block.content.richText = doc;
+    const text = richTextToPlainText(doc);
+    if (!block.content.texts || typeof block.content.texts !== 'object') block.content.texts = {};
+    block.content.texts[lang] = text;
+    block.content.text = text;
+}
+
 function setStructureBodyText(block, text) {
     if (!block) return;
     const lang = state.activeLang;
@@ -266,6 +394,9 @@ function setStructureBodyText(block, text) {
     if (!block.content.texts || typeof block.content.texts !== 'object') block.content.texts = {};
     block.content.texts[lang] = text;
     block.content.text = text;
+    setStructureRichText(block, {
+        blocks: [{ type: 'paragraph', children: [{ text: String(text || '') }] }]
+    });
 }
 
 function getStructureTitle(block) {
@@ -1090,8 +1221,10 @@ function refresh() {
         if (modeEl && document.activeElement !== modeEl) modeEl.value = bodyKind;
         if (structureImageFields) structureImageFields.style.display = bodyKind === 'image' ? 'block' : 'none';
         if (structureTextFields) structureTextFields.style.display = bodyKind === 'text' ? 'block' : 'none';
-        const bodyEl = document.getElementById('structure-body-text');
-        if (bodyEl && document.activeElement !== bodyEl) bodyEl.value = getStructureBodyText(activeBlock);
+        const bodyEl = document.getElementById('structure-body-rich-editor');
+        if (bodyEl && document.activeElement !== bodyEl) {
+            bodyEl.innerHTML = richTextDocToHtml(getStructureRichText(activeBlock));
+        }
     }
     if (!isCoverFront && coverFrontImageFields) coverFrontImageFields.style.display = 'none';
     if (!isCoverBack && coverBackImageFields) coverBackImageFields.style.display = 'none';
@@ -2395,6 +2528,45 @@ window.updateStructureBodyText = (value) => {
     touchCoverFieldHistory();
     setStructureBodyText(block, value);
     refresh();
+    triggerAutoSave();
+};
+
+window.updateStructureRichTextFromEditor = () => {
+    const block = getActiveBlock();
+    if (!block || !isStructureKind(block.kind)) return;
+    const editor = document.getElementById('structure-body-rich-editor');
+    if (!editor) return;
+    touchCoverFieldHistory();
+    const doc = richTextHtmlToDoc(editor.innerHTML);
+    setStructureRichText(block, doc);
+    triggerAutoSave();
+};
+
+window.applyStructureRichTextCommand = (cmd) => {
+    const block = getActiveBlock();
+    if (!block || !isStructureKind(block.kind)) return;
+    const editor = document.getElementById('structure-body-rich-editor');
+    if (!editor) return;
+    editor.focus();
+    touchCoverFieldHistory();
+    if (cmd === 'h1') {
+        document.execCommand('formatBlock', false, 'H1');
+    } else if (cmd === 'h2') {
+        document.execCommand('formatBlock', false, 'H2');
+    } else if (cmd === 'paragraph') {
+        document.execCommand('formatBlock', false, 'P');
+    } else if (cmd === 'bold') {
+        document.execCommand('bold');
+    } else if (cmd === 'italic') {
+        document.execCommand('italic');
+    } else if (cmd === 'underline') {
+        document.execCommand('underline');
+    } else if (cmd === 'strike') {
+        document.execCommand('strikeThrough');
+    }
+    const doc = richTextHtmlToDoc(editor.innerHTML);
+    setStructureRichText(block, doc);
+    // Keep caret stable while applying inline format.
     triggerAutoSave();
 };
 
