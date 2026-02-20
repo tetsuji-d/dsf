@@ -4,7 +4,7 @@
 import { state } from './state.js';
 import { saveProject, loadProject, uploadToStorage, uploadCoverToStorage, uploadStructureToStorage, triggerAutoSave, generateCroppedThumbnail, signInWithGoogle, signOutUser, onAuthChanged, consumeRedirectResult } from './firebase.js';
 import { handleCanvasClick, selectBubble, renderBubbleHTML, getBubbleText, setBubbleText, addBubbleAtCenter, startDrag } from './bubbles.js';
-import { addSection, changeSection, changeBlock, insertStructureBlock, renderThumbs, deleteActive, insertSectionAt, duplicateSectionAt, moveSection, insertPageNearBlock, duplicateBlockAt } from './sections.js';
+import { addSection, changeSection, changeBlock, insertStructureBlock, renderThumbs, deleteActive, insertSectionAt, duplicateSectionAt, moveSection, insertPageNearBlock, duplicateBlockAt, moveBlockAt } from './sections.js';
 import { pushState, undo, redo, getHistoryInfo, clearHistory } from './history.js';
 import { openProjectModal, closeProjectModal } from './projects.js';
 import { getLangProps, getAllLangs } from './lang.js';
@@ -195,10 +195,18 @@ function renderCoverImagePreview(block) {
     `;
 }
 
-function renderTocPreview() {
+function renderTocPreview(activeBlock) {
     const lang = state.activeLang;
     const outline = buildOutlineFromPages(state.pages || [], lang, 'item');
-    const rows = outline.slice(0, 18).map((it) => {
+    const blocks = Array.isArray(state.blocks) ? state.blocks : [];
+    const tocIndices = [];
+    for (let i = 0; i < blocks.length; i += 1) {
+        if (blocks[i]?.kind === 'toc') tocIndices.push(i);
+    }
+    const activeIdx = Number.isInteger(state.activeBlockIdx) ? state.activeBlockIdx : -1;
+    const tocPos = Math.max(0, tocIndices.indexOf(activeIdx));
+    const start = tocPos * TOC_ROWS_PER_PAGE;
+    const rows = outline.slice(start, start + TOC_ROWS_PER_PAGE).map((it) => {
         const indent = it.depth === 1 ? 0 : (it.depth === 2 ? 16 : 32);
         return `<div style="display:flex; justify-content:space-between; gap:10px; margin-bottom:6px; margin-left:${indent}px;">
             <span style="white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${it.title}</span>
@@ -347,8 +355,66 @@ function populateThemeSelectOptions() {
     });
 }
 
+const TOC_ROWS_PER_PAGE = 18;
+
+function createRuntimeBlockId(prefix) {
+    return `${prefix}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function isAutoTocBlock(block) {
+    return block?.kind === 'toc' && block?.meta?.systemGenerated === true;
+}
+
+function isLockedBlock(block) {
+    return block?.kind === 'cover_front' || block?.kind === 'cover_back' || isAutoTocBlock(block);
+}
+
+function ensureAutoTocBlocks() {
+    const src = Array.isArray(state.blocks) ? state.blocks : [];
+    if (!src.length) return;
+
+    const before = src.filter((b) => !isAutoTocBlock(b));
+    const manualTocIdx = before.findIndex((b) => b?.kind === 'toc');
+    if (manualTocIdx < 0) {
+        state.blocks = before;
+        return;
+    }
+
+    const pages = blocksToPages(before);
+    const lang = state.defaultLang || state.activeLang || state.languages?.[0] || 'ja';
+    const outline = buildOutlineFromPages(pages, lang, 'item');
+    const requiredCount = Math.max(1, Math.ceil(Math.max(1, outline.length) / TOC_ROWS_PER_PAGE));
+    const addCount = Math.max(0, requiredCount - 1);
+
+    const next = [...before];
+    const seed = next[manualTocIdx];
+    for (let i = 0; i < addCount; i += 1) {
+        next.splice(manualTocIdx + 1 + i, 0, {
+            id: createRuntimeBlockId('toc_auto'),
+            kind: 'toc',
+            meta: {
+                title: { ...(seed?.meta?.title || {}) },
+                systemGenerated: true,
+                tocPageOffset: i + 1
+            }
+        });
+    }
+
+    const activeId = src[state.activeBlockIdx]?.id;
+    state.blocks = next;
+    if (activeId) {
+        const nextActive = next.findIndex((b) => b?.id === activeId);
+        if (nextActive >= 0) {
+            state.activeBlockIdx = nextActive;
+        } else {
+            state.activeBlockIdx = Math.max(0, Math.min(state.activeBlockIdx || 0, next.length - 1));
+        }
+    }
+}
+
 function syncBlocksFromState() {
     state.blocks = syncBlocksWithSections(state.blocks, state.sections, state.languages);
+    ensureAutoTocBlocks();
     state.pages = blocksToPages(state.blocks);
     const activeBlock = getActiveBlock();
     const pageIdx = getPageIndexFromBlockIndex(state.blocks, state.activeBlockIdx);
@@ -780,7 +846,7 @@ function refresh() {
         } else if (isCover && coverBodyKind === 'image') {
             render.innerHTML = renderCoverImagePreview(activeBlock);
         } else if (activeBlock?.kind === 'toc') {
-            render.innerHTML = renderTocPreview();
+            render.innerHTML = renderTocPreview(activeBlock);
         } else if (isStructureKind(activeBlock?.kind) && getStructureBodyKind(activeBlock) === 'image') {
             const bg = activeBlock?.content?.background || '';
             if (bg) {
@@ -930,19 +996,24 @@ function refresh() {
     }
     const pageLockNote = document.getElementById('page-lock-note');
     const deleteBtn = document.getElementById('btn-delete-active');
-    const isCoverBlock = activeBlock?.kind === 'cover_front' || activeBlock?.kind === 'cover_back';
+    const isLocked = isLockedBlock(activeBlock);
     if (pageLockNote) {
-        if (isCoverBlock) {
+        if (activeBlock?.kind === 'cover_front' || activeBlock?.kind === 'cover_back') {
             pageLockNote.style.display = 'block';
             pageLockNote.textContent = 'このページは固定です: 位置変更・削除・role変更はできません。';
+        } else if (isAutoTocBlock(activeBlock)) {
+            pageLockNote.style.display = 'block';
+            pageLockNote.textContent = 'この目次ページは自動生成です: 編集・削除はできません。';
         } else {
             pageLockNote.style.display = 'none';
             pageLockNote.textContent = '';
         }
     }
     if (deleteBtn) {
-        deleteBtn.disabled = !!isCoverBlock;
-        deleteBtn.title = isCoverBlock ? '表紙/裏表紙は削除できません' : '';
+        deleteBtn.disabled = !!isLocked;
+        deleteBtn.title = isLocked
+            ? (isAutoTocBlock(activeBlock) ? '自動生成目次ページは削除できません' : '表紙/裏表紙は削除できません')
+            : '';
     }
     const genericTextEditor = document.getElementById('generic-text-editor');
     const coverFrontFields = document.getElementById('cover-front-fields');
@@ -1050,12 +1121,16 @@ function refresh() {
     }
 
     // テキストエリア: 言語に応じたテキストを表示
+    const propTextEl = document.getElementById('prop-text');
     if (isPageBlock && state.activeBubbleIdx !== null && s.bubbles[state.activeBubbleIdx]) {
-        document.getElementById('prop-text').value = getBubbleText(s.bubbles[state.activeBubbleIdx]);
+        propTextEl.value = getBubbleText(s.bubbles[state.activeBubbleIdx]);
     } else if (isPageBlock) {
-        document.getElementById('prop-text').value = getSectionText(s);
+        propTextEl.value = getSectionText(s);
     } else {
-        document.getElementById('prop-text').value = getBlockLocalizedText(activeBlock);
+        propTextEl.value = getBlockLocalizedText(activeBlock);
+    }
+    if (propTextEl) {
+        propTextEl.readOnly = isAutoTocBlock(activeBlock);
     }
     updateTextFitStatus(isPageBlock ? s : null);
 
@@ -1639,6 +1714,7 @@ let textPushTimer = null;
 function updateActiveText(v, ev) {
     const activeBlock = getActiveBlock();
     if (activeBlock && activeBlock.kind !== 'page') {
+        if (isAutoTocBlock(activeBlock)) return;
         if (!textPushTimer) {
             pushState();
         } else {
@@ -1846,6 +1922,15 @@ window.duplicateBlockByIndex = (blockIdx, e) => {
     pushState();
     duplicateBlockAt(blockIdx, refresh);
     triggerAutoSave();
+};
+window.moveBlockByIndex = (blockIdx, direction, e) => {
+    if (e) {
+        e.preventDefault();
+        e.stopPropagation();
+    }
+    pushState();
+    const moved = moveBlockAt(blockIdx, direction, refresh);
+    if (moved) triggerAutoSave();
 };
 window.splitOverflowToNextPage = () => {
     const activeBlock = getActiveBlock();

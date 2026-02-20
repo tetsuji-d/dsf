@@ -82,7 +82,11 @@ function getBlockSummary(block) {
         return { badge: '項終端', title: 'Item End' };
     }
     if (kind === 'toc') {
-        return { badge: '目次', title: truncateText(getLocalized(block.meta, 'title', lang)) || 'Table of Contents' };
+        return {
+            badge: '目次',
+            title: truncateText(getLocalized(block.meta, 'title', lang)) || 'Table of Contents',
+            subtitle: block?.meta?.systemGenerated ? '自動生成' : ''
+        };
     }
     return { badge: kind, title: '' };
 }
@@ -91,9 +95,37 @@ function isCoverKind(kind) {
     return kind === 'cover_front' || kind === 'cover_back';
 }
 
+function isLockedBlock(block) {
+    if (!block) return false;
+    if (isCoverKind(block.kind)) return true;
+    return block.kind === 'toc' && block.meta?.systemGenerated === true;
+}
+
+function canManualMoveBlock(block) {
+    if (!block || isLockedBlock(block)) return false;
+    return block.kind === 'chapter' || block.kind === 'section' || block.kind === 'item' || block.kind === 'toc';
+}
+
+function findMovableTargetIndex(blocks, fromIndex, direction) {
+    const list = Array.isArray(blocks) ? blocks : [];
+    const step = direction === 'up' ? -1 : 1;
+    let i = Number(fromIndex) + step;
+    while (i >= 0 && i < list.length) {
+        const b = list[i];
+        if (isCoverKind(b?.kind)) return -1;
+        if (b?.kind === 'toc' && b?.meta?.systemGenerated) {
+            i += step;
+            continue;
+        }
+        return i;
+    }
+    return -1;
+}
+
 function canInsertNearBlock(block, position) {
     const pos = position === 'before' ? 'before' : 'after';
     const kind = block?.kind;
+    if (block?.kind === 'toc' && block?.meta?.systemGenerated) return false;
     if (kind === 'cover_front' && pos === 'before') return false;
     if (kind === 'cover_back' && pos === 'after') return false;
     return true;
@@ -313,6 +345,24 @@ export function duplicateBlockAt(blockIndex, refresh) {
     refresh();
 }
 
+export function moveBlockAt(blockIndex, direction, refresh) {
+    const idx = Number(blockIndex);
+    const list = state.blocks || [];
+    if (!Number.isInteger(idx) || idx < 0 || idx >= list.length) return false;
+    const block = list[idx];
+    if (!canManualMoveBlock(block)) return false;
+    const targetIdx = findMovableTargetIndex(list, idx, direction);
+    if (targetIdx < 0 || targetIdx === idx) return false;
+
+    [list[idx], list[targetIdx]] = [list[targetIdx], list[idx]];
+    state.blocks = list;
+    state.activeBlockIdx = targetIdx;
+    state.activeBubbleIdx = null;
+    syncModelsFromLegacy();
+    refresh();
+    return true;
+}
+
 /**
  * サムネイル一覧を描画する
  */
@@ -415,7 +465,10 @@ export function renderThumbs() {
         const info = getBlockSummary(b);
         const canInsertBefore = canInsertNearBlock(b, 'before');
         const canInsertAfter = canInsertNearBlock(b, 'after');
-        const coverLock = isCoverKind(b?.kind)
+        const canMove = canManualMoveBlock(b);
+        const canMoveUp = canMove && findMovableTargetIndex(blocks, blockIdx, 'up') >= 0;
+        const canMoveDown = canMove && findMovableTargetIndex(blocks, blockIdx, 'down') >= 0;
+        const coverLock = isLockedBlock(b)
             ? `<span class="thumb-card-lock" title="位置固定">LOCK</span>`
             : '';
         return `
@@ -436,7 +489,9 @@ export function renderThumbs() {
                 </div>
                 ${canInsertBefore ? `<button class="thumb-insert-btn before" title="ここにページ挿入" ontouchstart="event.stopPropagation()" onclick="insertPageNearBlock(${blockIdx}, 'before', event)">＋</button>` : ''}
                 ${canInsertAfter ? `<button class="thumb-insert-btn after" title="この下にページ挿入" ontouchstart="event.stopPropagation()" onclick="insertPageNearBlock(${blockIdx}, 'after', event)">＋</button>` : ''}
-                ${!isCoverKind(b?.kind)
+                ${canMoveUp ? `<button class="thumb-move-btn up" title="上へ移動" ontouchstart="event.stopPropagation()" onclick="moveBlockByIndex(${blockIdx}, 'up', event)">↑</button>` : ''}
+                ${canMoveDown ? `<button class="thumb-move-btn down" title="下へ移動" ontouchstart="event.stopPropagation()" onclick="moveBlockByIndex(${blockIdx}, 'down', event)">↓</button>` : ''}
+                ${!isLockedBlock(b)
                 ? `<button class="thumb-duplicate-btn" title="ブロックを複製" ontouchstart="event.stopPropagation()" onclick="duplicateBlockByIndex(${blockIdx}, event)">⧉</button>`
                 : ''}
             </div>
@@ -464,7 +519,7 @@ export function deleteActive(refresh) {
     }
 
     if (activeBlock && activeBlock.kind !== 'page') {
-        if (activeBlock.kind === 'cover_front' || activeBlock.kind === 'cover_back') {
+        if (isLockedBlock(activeBlock)) {
             refresh();
             return;
         }
