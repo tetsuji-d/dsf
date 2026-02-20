@@ -560,3 +560,60 @@ export async function uploadCoverToStorage(input, refresh) {
         input.value = '';
     }
 }
+
+/**
+ * 章/節/項ブロック用画像をアップロードしてブロックcontentへ設定する
+ * @param {HTMLInputElement} input
+ * @param {function} refresh
+ */
+export async function uploadStructureToStorage(input, refresh) {
+    const uid = requireUid();
+    const file = input.files[0];
+    if (!file) return;
+
+    const block = (state.blocks || [])[state.activeBlockIdx];
+    if (!block || !['chapter', 'section', 'item'].includes(block.kind)) {
+        input.value = '';
+        return;
+    }
+
+    try {
+        const [mainBlob, thumbBlob] = await Promise.all([
+            compressImage(file, 1280, 0.8),
+            compressImage(file, 320, 0.8)
+        ]);
+        const timestamp = Date.now();
+        const filename = file.name.replace(/\.[^/.]+$/, "");
+        const base = block.kind;
+        const mainPath = `users/${uid}/dsf/structure/${base}_${timestamp}_${filename}.webp`;
+        const thumbPath = `users/${uid}/dsf/structure/thumbs/${base}_${timestamp}_${filename}_thumb.webp`;
+
+        const mainRef = ref(storage, mainPath);
+        const thumbRef = ref(storage, thumbPath);
+        const [mainSnap, thumbSnap] = await Promise.all([
+            uploadBytes(mainRef, mainBlob),
+            uploadBytes(thumbRef, thumbBlob)
+        ]);
+        const [mainUrl, thumbUrl] = await Promise.all([
+            getDownloadURL(mainSnap.ref),
+            getDownloadURL(thumbSnap.ref)
+        ]);
+
+        if (!block.content || typeof block.content !== 'object') block.content = {};
+        block.content.background = mainUrl;
+        block.content.thumbnail = thumbUrl;
+        block.content.imagePosition = { x: 0, y: 0, scale: 1, rotation: 0 };
+        block.content.imageBasePosition = { x: 0, y: 0, scale: 1, rotation: 0 };
+        if (!block.meta || typeof block.meta !== 'object') block.meta = {};
+        block.meta.bodyKind = 'image';
+        block.meta.renderMode = 'image';
+
+        refresh();
+        triggerAutoSave();
+    } catch (e) {
+        console.error(e);
+        alert("保存失敗: " + e.message);
+    } finally {
+        input.value = '';
+    }
+}

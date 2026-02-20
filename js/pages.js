@@ -256,12 +256,23 @@ function blockToPage(block) {
         });
     }
     if (block.kind === 'chapter' || block.kind === 'section' || block.kind === 'item') {
+        const bodyKindRaw = block.meta?.bodyKind || block.meta?.renderMode || 'text';
+        const bodyKind = bodyKindRaw === 'image' ? 'image' : 'text';
         return normalizePageV5({
             id: block.id || createId(block.kind),
             role: block.kind,
-            bodyKind: 'text',
+            bodyKind,
             meta: {
                 title: block.meta?.title || {}
+            },
+            content: {
+                background: block.content?.background || '',
+                thumbnail: block.content?.thumbnail || '',
+                imagePosition: deepClone(block.content?.imagePosition || { x: 0, y: 0, scale: 1, rotation: 0 }),
+                imageBasePosition: deepClone(block.content?.imageBasePosition || { x: 0, y: 0, scale: 1, rotation: 0 }),
+                text: block.content?.text || '',
+                texts: deepClone(block.content?.texts || {}),
+                richText: deepClone(block.content?.richText || createEmptyRichText())
             }
         });
     }
@@ -334,11 +345,24 @@ function pageToBlock(page, languages = ['ja']) {
         };
     }
     if (page.role === 'chapter' || page.role === 'section' || page.role === 'item' || page.role === 'toc') {
+        const isStructure = page.role === 'chapter' || page.role === 'section' || page.role === 'item';
+        const safeBodyKind = isStructure ? (page.bodyKind === 'image' ? 'image' : 'text') : 'text';
         return {
             id: page.id || createId(page.role),
             kind: page.role,
             meta: {
+                bodyKind: safeBodyKind,
+                renderMode: safeBodyKind,
                 title: normalizeLocalizedTextMap(page.meta?.title)
+            },
+            content: {
+                background: page.content?.background || '',
+                thumbnail: page.content?.thumbnail || '',
+                imagePosition: deepClone(page.content?.imagePosition || { x: 0, y: 0, scale: 1, rotation: 0 }),
+                imageBasePosition: deepClone(page.content?.imageBasePosition || { x: 0, y: 0, scale: 1, rotation: 0 }),
+                text: page.content?.text || '',
+                texts: deepClone(page.content?.texts || {}),
+                richText: deepClone(page.content?.richText || createEmptyRichText())
             }
         };
     }
@@ -411,6 +435,27 @@ export function normalizeProjectDataV5(data = {}) {
         blocks: legacy.blocks,
         sections: legacy.sections
     };
+}
+
+export function buildOutlineFromPages(pages, lang, level = 'item') {
+    const list = Array.isArray(pages) ? pages : [];
+    const maxDepth = level === 'chapter' ? 1 : (level === 'section' ? 2 : 3);
+    const depthByRole = { chapter: 1, section: 2, item: 3 };
+    const out = [];
+    for (let i = 0; i < list.length; i += 1) {
+        const p = list[i];
+        const depth = depthByRole[p?.role];
+        if (!depth || depth > maxDepth) continue;
+        const title = p?.meta?.title?.[lang] || '';
+        if (!title) continue;
+        out.push({
+            role: p.role,
+            depth,
+            title,
+            pageNumber: i + 1
+        });
+    }
+    return out;
 }
 
 // Compatibility export for existing callers during migration.

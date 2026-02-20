@@ -7,7 +7,7 @@ import { getLangProps } from './lang.js';
 import { db, signInWithGoogle, signOutUser, onAuthChanged, consumeRedirectResult } from './firebase.js';
 import { doc, getDoc } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
 import { composeText } from './layout.js';
-import { normalizeProjectDataV5 } from './pages.js';
+import { normalizeProjectDataV5, buildOutlineFromPages } from './pages.js';
 import { getThemePalette, getThemeTemplate } from './theme-presets.js';
 
 let currentProject = null;
@@ -423,7 +423,7 @@ function renderCoverThemePage(contentEl, page, lang) {
         if (templateId === 'minimal') {
             contentEl.innerHTML = `<div class="viewer-text-page">
                 <div class="viewer-text-block"
-                     style="left:20px; top:32px; width:320px; height:576px; background:${palette.bg}; color:${palette.fg}; border-left:10px solid ${palette.accent}; padding:28px;">
+                     style="left:20px; top:32px; width:320px; height:576px; background:${palette.bg}; color:${palette.fg}; border-left:10px solid ${palette.accent}; padding:28px; box-sizing:border-box; white-space:normal; overflow-wrap:anywhere; word-break:break-word;">
                     <div style="font-size:15px; line-height:1.8; margin-top:8px;">${escapeHtml(edition || '')}</div>
                     <div style="font-size:12px; line-height:1.7; margin-top:14px; color:${palette.sub};">${escapeHtml(contactText || '連絡先未入力')}</div>
                 </div>
@@ -433,7 +433,7 @@ function renderCoverThemePage(contentEl, page, lang) {
         if (templateId === 'bold') {
             contentEl.innerHTML = `<div class="viewer-text-page">
                 <div class="viewer-text-block"
-                     style="left:20px; top:32px; width:320px; height:576px; border-radius:10px; background:${palette.accent}; color:#fff; padding:18px;">
+                     style="left:20px; top:32px; width:320px; height:576px; border-radius:10px; background:${palette.accent}; color:#fff; padding:18px; box-sizing:border-box; white-space:normal; overflow-wrap:anywhere; word-break:break-word;">
                     <div style="height:100%; border:2px solid rgba(255,255,255,.8); border-radius:8px; padding:18px; background:linear-gradient(160deg, ${palette.accent}, ${palette.fg});">
                         <div style="font-size:16px; line-height:1.7; margin-top:12px;">${escapeHtml(edition || '')}</div>
                         <div style="font-size:12px; line-height:1.8; margin-top:14px; opacity:.9;">${escapeHtml(contactText || '連絡先未入力')}</div>
@@ -445,7 +445,7 @@ function renderCoverThemePage(contentEl, page, lang) {
         if (templateId === 'novel') {
             contentEl.innerHTML = `<div class="viewer-text-page">
                 <div class="viewer-text-block"
-                     style="left:20px; top:32px; width:320px; height:576px; border-radius:6px; background:${palette.bg}; color:${palette.fg}; border:1px solid ${palette.sub}; padding:26px;">
+                     style="left:20px; top:32px; width:320px; height:576px; border-radius:6px; background:${palette.bg}; color:${palette.fg}; border:1px solid ${palette.sub}; padding:26px; box-sizing:border-box; white-space:normal; overflow-wrap:anywhere; word-break:break-word;">
                     <div style="border-top:1px solid ${palette.sub}; margin:12px 0 16px;"></div>
                     <div style="font-size:14px; line-height:1.9; font-family:'Noto Serif JP',serif;">${escapeHtml(edition || '')}</div>
                     <div style="font-size:12px; line-height:1.9; margin-top:12px; color:${palette.sub};">${escapeHtml(contactText || '連絡先未入力')}</div>
@@ -455,7 +455,7 @@ function renderCoverThemePage(contentEl, page, lang) {
         }
         contentEl.innerHTML = `<div class="viewer-text-page">
             <div class="viewer-text-block"
-                 style="left:20px; top:32px; width:320px; height:576px; border-radius:8px; border:2px solid ${palette.accent}; background:${palette.bg}; color:${palette.fg}; padding:22px;">
+                 style="left:20px; top:32px; width:320px; height:576px; border-radius:8px; border:2px solid ${palette.accent}; background:${palette.bg}; color:${palette.fg}; padding:22px; box-sizing:border-box; white-space:normal; overflow-wrap:anywhere; word-break:break-word;">
                 <div style="font-size:15px; line-height:1.7; margin-top:8px;">${escapeHtml(edition || '')}</div>
                 <div style="font-size:13px; line-height:1.6; margin-top:12px; color:${palette.sub};">${escapeHtml(contactText || '連絡先未入力')}</div>
             </div>
@@ -466,7 +466,7 @@ function renderCoverThemePage(contentEl, page, lang) {
     if (templateId === 'minimal') {
         contentEl.innerHTML = `<div class="viewer-text-page">
             <div class="viewer-text-block"
-                 style="left:20px; top:32px; width:320px; height:576px; background:${palette.bg}; color:${palette.fg}; border-left:10px solid ${palette.accent}; padding:28px;">
+                 style="left:20px; top:32px; width:320px; height:576px; background:${palette.bg}; color:${palette.fg}; border-left:10px solid ${palette.accent}; padding:28px; box-sizing:border-box; white-space:normal; overflow-wrap:anywhere; word-break:break-word;">
                 <div style="font-size:34px; font-weight:900; line-height:1.2; margin:26px 0 12px; white-space:normal; overflow-wrap:anywhere; word-break:break-word;">${escapeHtml(title || 'タイトル未入力')}</div>
                 <div style="font-size:16px; color:${palette.sub}; margin-bottom:16px;">${escapeHtml(subtitle || '')}</div>
                 <div style="position:absolute; left:28px; right:28px; bottom:24px; font-size:13px; color:${palette.sub}; line-height:1.6;">
@@ -479,7 +479,7 @@ function renderCoverThemePage(contentEl, page, lang) {
     if (templateId === 'bold') {
         contentEl.innerHTML = `<div class="viewer-text-page">
             <div class="viewer-text-block"
-                 style="left:20px; top:32px; width:320px; height:576px; border-radius:10px; background:${palette.accent}; color:#fff; padding:18px;">
+                 style="left:20px; top:32px; width:320px; height:576px; border-radius:10px; background:${palette.accent}; color:#fff; padding:18px; box-sizing:border-box; white-space:normal; overflow-wrap:anywhere; word-break:break-word;">
                 <div style="height:100%; border:2px solid rgba(255,255,255,.8); border-radius:8px; padding:18px; background:linear-gradient(160deg, ${palette.accent}, ${palette.fg});">
                     <div style="font-size:36px; font-weight:900; line-height:1.15; margin:28px 0 10px; white-space:normal; overflow-wrap:anywhere; word-break:break-word;">${escapeHtml(title || 'タイトル未入力')}</div>
                     <div style="font-size:17px; opacity:.9; margin-bottom:18px;">${escapeHtml(subtitle || '')}</div>
@@ -494,7 +494,7 @@ function renderCoverThemePage(contentEl, page, lang) {
     if (templateId === 'novel') {
         contentEl.innerHTML = `<div class="viewer-text-page">
             <div class="viewer-text-block"
-                 style="left:20px; top:32px; width:320px; height:576px; border-radius:6px; background:${palette.bg}; color:${palette.fg}; border:1px solid ${palette.sub}; padding:26px;">
+                 style="left:20px; top:32px; width:320px; height:576px; border-radius:6px; background:${palette.bg}; color:${palette.fg}; border:1px solid ${palette.sub}; padding:26px; box-sizing:border-box; white-space:normal; overflow-wrap:anywhere; word-break:break-word;">
                 <div style="font-size:34px; font-family:'Noto Serif JP',serif; line-height:1.3; margin:24px 0 12px; white-space:normal; overflow-wrap:anywhere; word-break:break-word;">${escapeHtml(title || 'タイトル未入力')}</div>
                 <div style="font-size:15px; color:${palette.sub}; margin-bottom:20px; font-family:'Noto Serif JP',serif;">${escapeHtml(subtitle || '')}</div>
                 <div style="border-top:1px solid ${palette.sub}; margin-bottom:14px;"></div>
@@ -508,7 +508,7 @@ function renderCoverThemePage(contentEl, page, lang) {
 
     contentEl.innerHTML = `<div class="viewer-text-page">
         <div class="viewer-text-block"
-             style="left:20px; top:32px; width:320px; height:576px; border-radius:8px; border:2px solid ${palette.accent}; background:${palette.bg}; color:${palette.fg}; padding:24px;">
+             style="left:20px; top:32px; width:320px; height:576px; border-radius:8px; border:2px solid ${palette.accent}; background:${palette.bg}; color:${palette.fg}; padding:24px; box-sizing:border-box; white-space:normal; overflow-wrap:anywhere; word-break:break-word;">
             <div style="font-size:30px; font-weight:800; line-height:1.25; margin-bottom:10px; white-space:normal; overflow-wrap:anywhere; word-break:break-word;">${escapeHtml(title || 'タイトル未入力')}</div>
             <div style="font-size:16px; color:${palette.sub}; margin-bottom:20px;">${escapeHtml(subtitle || '')}</div>
             <div style="position:absolute; left:24px; right:24px; bottom:24px;">
@@ -527,6 +527,63 @@ function renderCoverImagePage(contentEl, page) {
         return;
     }
     contentEl.innerHTML = `<img src="${bg}" style="width:100%; height:100%; object-fit:cover;">`;
+}
+
+function renderStructureImagePage(contentEl, page, lang) {
+    const bg = page?.content?.background || '';
+    if (!bg) {
+        renderStructurePage(contentEl, page, lang);
+        return;
+    }
+    const title = escapeHtml(page?.meta?.title?.[lang] || '');
+    const badge = page?.role === 'chapter' ? '章' : (page?.role === 'section' ? '節' : '項');
+    contentEl.innerHTML = `<div style="position:relative; width:100%; height:100%;">
+        <img src="${bg}" style="width:100%; height:100%; object-fit:cover;">
+        <div style="position:absolute; left:20px; right:20px; bottom:20px; background:rgba(0,0,0,.45); color:#fff; border-radius:8px; padding:10px 12px;">
+            <div style="font-size:11px; opacity:.85;">${badge}</div>
+            <div style="font-size:20px; font-weight:700; line-height:1.35; white-space:normal; overflow-wrap:anywhere; word-break:break-word;">${title || ''}</div>
+        </div>
+    </div>`;
+}
+
+function renderStructureTextPage(contentEl, page, lang) {
+    const title = escapeHtml(page?.meta?.title?.[lang] || '');
+    const body = escapeHtml(page?.content?.texts?.[lang] ?? page?.content?.text ?? '');
+    const badge = page?.role === 'chapter' ? '章' : (page?.role === 'section' ? '節' : '項');
+    contentEl.innerHTML = `<div class="viewer-text-page">
+        <div class="viewer-text-block"
+             style="left:20px; top:32px; width:320px; height:576px; box-sizing:border-box; border:2px solid #d8e0ec; border-radius:8px; background:#f9fbff; color:#22314a; padding:20px; white-space:normal; overflow-wrap:anywhere; word-break:break-word;">
+            <div style="font-size:11px; color:#6a7b96; margin-bottom:8px;">${badge}</div>
+            <div style="font-size:26px; font-weight:800; line-height:1.3; margin-bottom:16px;">${title || ''}</div>
+            <div style="font-size:15px; line-height:1.7; color:#334b6d;">${body || ''}</div>
+        </div>
+    </div>`;
+}
+
+function renderTocPage(contentEl, pages, lang, pageIndex = 0) {
+    const outline = buildOutlineFromPages(pages, lang, 'item');
+    const tocPageIndices = [];
+    for (let i = 0; i < pages.length; i += 1) {
+        if (pages[i]?.role === 'toc') tocPageIndices.push(i);
+    }
+    const tocPos = Math.max(0, tocPageIndices.indexOf(pageIndex));
+    const rowsPerPage = 18;
+    const start = tocPos * rowsPerPage;
+    const end = start + rowsPerPage;
+    const rows = outline.slice(start, end).map((it) => {
+        const indent = it.depth === 1 ? 0 : (it.depth === 2 ? 16 : 32);
+        return `<div style="display:flex; justify-content:space-between; gap:10px; margin-bottom:6px; margin-left:${indent}px;">
+            <span style="white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${escapeHtml(it.title)}</span>
+            <span style="opacity:.7;">${it.pageNumber}</span>
+        </div>`;
+    }).join('');
+    contentEl.innerHTML = `<div class="viewer-text-page">
+        <div class="viewer-text-block"
+             style="left:20px; top:32px; width:320px; height:576px; box-sizing:border-box; border:2px solid #d8e0ec; border-radius:8px; background:#fff; color:#22314a; padding:16px; white-space:normal; overflow:hidden;">
+            <div style="font-size:20px; font-weight:800; margin-bottom:12px;">${lang === 'ja' ? '目次' : 'Contents'}</div>
+            <div style="font-size:13px; line-height:1.5;">${rows || '<div style="opacity:.6;">No headings</div>'}</div>
+        </div>
+    </div>`;
 }
 
 function refresh() {
@@ -559,6 +616,12 @@ function refresh() {
         renderCoverImagePage(contentEl, p);
     } else if (hasPages && p && p.role === 'cover_back' && p.bodyKind === 'image') {
         renderCoverImagePage(contentEl, p);
+    } else if (hasPages && p && p.role === 'toc') {
+        renderTocPage(contentEl, pages, lang, pageIndex);
+    } else if (hasPages && p && (p.role === 'chapter' || p.role === 'section' || p.role === 'item') && p.bodyKind === 'image') {
+        renderStructureImagePage(contentEl, p, lang);
+    } else if (hasPages && p && (p.role === 'chapter' || p.role === 'section' || p.role === 'item') && p.bodyKind === 'text') {
+        renderStructureTextPage(contentEl, p, lang);
     } else if (hasPages && p && p.pageType !== 'normal_image' && p.pageType !== 'normal_text') {
         renderStructurePage(contentEl, p, lang);
     } else if (hasPages && p && p.pageType === 'normal_image') {
