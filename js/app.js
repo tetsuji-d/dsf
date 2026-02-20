@@ -2,7 +2,7 @@
  * app.js — メインエントリポイント・描画・UI同期
  */
 import { state } from './state.js';
-import { saveProject, loadProject, uploadToStorage, uploadCoverToStorage, triggerAutoSave, generateCroppedThumbnail, signInWithGoogle, signOutUser, onAuthChanged, consumeRedirectResult } from './firebase.js';
+import { saveProject, loadProject, uploadToStorage, uploadCoverToStorage, uploadStructureToStorage, triggerAutoSave, generateCroppedThumbnail, signInWithGoogle, signOutUser, onAuthChanged, consumeRedirectResult } from './firebase.js';
 import { handleCanvasClick, selectBubble, renderBubbleHTML, getBubbleText, setBubbleText, addBubbleAtCenter, startDrag } from './bubbles.js';
 import { addSection, changeSection, changeBlock, insertStructureBlock, renderThumbs, deleteActive, insertSectionAt, duplicateSectionAt, moveSection, insertPageNearBlock, duplicateBlockAt } from './sections.js';
 import { pushState, undo, redo, getHistoryInfo, clearHistory } from './history.js';
@@ -10,7 +10,7 @@ import { openProjectModal, closeProjectModal } from './projects.js';
 import { getLangProps, getAllLangs } from './lang.js';
 import { composeCanonicalLayoutsForSections, composeText, getFontPresetFromConfigs, getFontPresetOptions, LAYOUT_VERSION } from './layout.js';
 import { getBlockIndexFromPageIndex, getPageIndexFromBlockIndex, migrateSectionsToBlocks, syncBlocksWithSections } from './blocks.js';
-import { PAGE_SCHEMA_VERSION, blocksToPages, normalizeProjectDataV5 } from './pages.js';
+import { PAGE_SCHEMA_VERSION, blocksToPages, normalizeProjectDataV5, buildOutlineFromPages } from './pages.js';
 import { THEME_TEMPLATES, THEME_PALETTES, getThemePalette, getThemeTemplate } from './theme-presets.js';
 
 // ──────────────────────────────────────
@@ -195,6 +195,24 @@ function renderCoverImagePreview(block) {
     `;
 }
 
+function renderTocPreview() {
+    const lang = state.activeLang;
+    const outline = buildOutlineFromPages(state.pages || [], lang, 'item');
+    const rows = outline.slice(0, 18).map((it) => {
+        const indent = it.depth === 1 ? 0 : (it.depth === 2 ? 16 : 32);
+        return `<div style="display:flex; justify-content:space-between; gap:10px; margin-bottom:6px; margin-left:${indent}px;">
+            <span style="white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${it.title}</span>
+            <span style="opacity:.7;">${it.pageNumber}</span>
+        </div>`;
+    }).join('');
+    return `
+        <div class="fixed-text-frame" style="position:absolute; left:20px; top:32px; width:320px; height:576px; border:2px solid #d8e0ec; border-radius:8px; background:#fff; color:#22314a; padding:16px; overflow:hidden;">
+            <div style="font-size:20px; font-weight:800; margin-bottom:12px;">目次</div>
+            <div style="font-size:13px; line-height:1.5;">${rows || '<div style="opacity:.6;">見出し未設定</div>'}</div>
+        </div>
+    `;
+}
+
 function getBlockLocalizedMetaField(block, key) {
     const lang = state.activeLang;
     if (!block?.meta) return '';
@@ -209,6 +227,50 @@ function setBlockLocalizedMetaField(block, key, value) {
     if (!block.meta) block.meta = {};
     if (!block.meta[key] || typeof block.meta[key] !== 'object') block.meta[key] = {};
     block.meta[key][lang] = value;
+}
+
+function isStructureKind(kind) {
+    return kind === 'chapter' || kind === 'section' || kind === 'item';
+}
+
+function getStructureBodyKind(block) {
+    const raw = block?.meta?.bodyKind || block?.meta?.renderMode || 'text';
+    return raw === 'image' ? 'image' : 'text';
+}
+
+function setStructureBodyKind(block, bodyKind) {
+    if (!block) return;
+    if (!block.meta) block.meta = {};
+    const mode = bodyKind === 'image' ? 'image' : 'text';
+    block.meta.bodyKind = mode;
+    block.meta.renderMode = mode;
+}
+
+function getStructureBodyText(block) {
+    const lang = state.activeLang;
+    return block?.content?.texts?.[lang] ?? block?.content?.text ?? '';
+}
+
+function setStructureBodyText(block, text) {
+    if (!block) return;
+    const lang = state.activeLang;
+    if (!block.content || typeof block.content !== 'object') block.content = {};
+    if (!block.content.texts || typeof block.content.texts !== 'object') block.content.texts = {};
+    block.content.texts[lang] = text;
+    block.content.text = text;
+}
+
+function getStructureTitle(block) {
+    const lang = state.activeLang;
+    return block?.meta?.title?.[lang] || '';
+}
+
+function setStructureTitle(block, text) {
+    if (!block) return;
+    const lang = state.activeLang;
+    if (!block.meta) block.meta = {};
+    if (!block.meta.title || typeof block.meta.title !== 'object') block.meta.title = {};
+    block.meta.title[lang] = text;
 }
 
 function getCoverBodyKind(block) {
@@ -477,6 +539,114 @@ function setCurrentDeviceThumbColumns(cols) {
     state.thumbColumns = normalized;
 }
 
+function inferRoleFromAnyPage(page) {
+    if (page?.role) return page.role;
+    const pt = page?.pageType;
+    if (pt === 'cover_front') return 'cover_front';
+    if (pt === 'cover_back') return 'cover_back';
+    if (pt === 'chapter') return 'chapter';
+    if (pt === 'section') return 'section';
+    if (pt === 'item') return 'item';
+    if (pt === 'toc') return 'toc';
+    return 'normal';
+}
+
+function hasLocalizedValue(map, lang) {
+    const v = map?.[lang];
+    return typeof v === 'string' && v.trim().length > 0;
+}
+
+function isValidHttpUrl(value) {
+    try {
+        const u = new URL(String(value || ''));
+        return u.protocol === 'http:' || u.protocol === 'https:';
+    } catch (_) {
+        return false;
+    }
+}
+
+function isValidEmail(value) {
+    return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(value || '').trim());
+}
+
+function validateProjectForPublishOrExport() {
+    syncBlocksFromState();
+    const pages = Array.isArray(state.pages) ? state.pages : [];
+    const langs = Array.isArray(state.languages) && state.languages.length ? state.languages : ['ja'];
+    const issues = [];
+
+    const addIssue = (pageIdx, message) => {
+        issues.push(`P${pageIdx + 1}: ${message}`);
+    };
+
+    for (let i = 0; i < pages.length; i += 1) {
+        const p = pages[i];
+        const role = inferRoleFromAnyPage(p);
+        const meta = p?.meta || {};
+
+        if (role === 'cover_front') {
+            for (const lang of langs) {
+                if (!hasLocalizedValue(meta.title, lang)) addIssue(i, `表紙 タイトル[${lang}] が未入力`);
+                if (!hasLocalizedValue(meta.subtitle, lang)) addIssue(i, `表紙 サブタイトル[${lang}] が未入力`);
+                if (!hasLocalizedValue(meta.author, lang)) addIssue(i, `表紙 著者名[${lang}] が未入力`);
+                if (!hasLocalizedValue(meta.supervisor, lang)) addIssue(i, `表紙 監修者名[${lang}] が未入力`);
+                if (!hasLocalizedValue(meta.publisher, lang)) addIssue(i, `表紙 出版社名[${lang}] が未入力`);
+            }
+        }
+
+        if (role === 'cover_back') {
+            for (const lang of langs) {
+                if (!hasLocalizedValue(meta.edition, lang)) addIssue(i, `裏表紙 版[${lang}] が未入力`);
+            }
+            const contacts = Array.isArray(meta.contacts) ? meta.contacts : [];
+            if (!contacts.length) {
+                addIssue(i, '裏表紙 連絡先が未入力');
+            } else {
+                contacts.forEach((c, idx) => {
+                    const type = c?.type || 'other';
+                    const value = String(c?.value || '').trim();
+                    if (!value) {
+                        addIssue(i, `裏表紙 連絡先#${idx + 1} が未入力`);
+                        return;
+                    }
+                    if (type === 'url' && !isValidHttpUrl(value)) {
+                        addIssue(i, `裏表紙 連絡先#${idx + 1} URL形式が不正 (http/https必須)`);
+                    }
+                    if (type === 'email' && !isValidEmail(value)) {
+                        addIssue(i, `裏表紙 連絡先#${idx + 1} メール形式が不正`);
+                    }
+                });
+            }
+        }
+
+        if (role === 'chapter' || role === 'section' || role === 'item') {
+            for (const lang of langs) {
+                if (!hasLocalizedValue(meta.title, lang)) {
+                    const label = role === 'chapter' ? '章' : (role === 'section' ? '節' : '項');
+                    addIssue(i, `${label} タイトル[${lang}] が未入力`);
+                }
+            }
+        }
+    }
+
+    return {
+        ok: issues.length === 0,
+        issues
+    };
+}
+
+function showPublishValidationErrors(issues, contextLabel) {
+    const lines = [
+        `${contextLabel}できません。`,
+        '必須項目を入力してください:',
+        ...issues.slice(0, 60)
+    ];
+    if (issues.length > 60) {
+        lines.push(`...他 ${issues.length - 60} 件`);
+    }
+    alert(lines.join('\n'));
+}
+
 // ──────────────────────────────────────
 //  refresh — 画面全体を再描画する
 // ──────────────────────────────────────
@@ -512,6 +682,39 @@ function refresh() {
             render.innerHTML = renderCoverThemePreview(activeBlock);
         } else if (isCover && coverBodyKind === 'image') {
             render.innerHTML = renderCoverImagePreview(activeBlock);
+        } else if (activeBlock?.kind === 'toc') {
+            render.innerHTML = renderTocPreview();
+        } else if (isStructureKind(activeBlock?.kind) && getStructureBodyKind(activeBlock) === 'image') {
+            const bg = activeBlock?.content?.background || '';
+            if (bg) {
+                render.innerHTML = `
+                    <div style="position:absolute; left:20px; top:32px; width:320px; height:576px; overflow:hidden; border-radius:8px; border:1px solid #d7deea;">
+                        <img src="${bg}" style="width:100%; height:100%; object-fit:cover;">
+                        <div style="position:absolute; left:12px; right:12px; bottom:12px; background:rgba(0,0,0,.45); color:#fff; border-radius:8px; padding:8px 10px;">
+                            <div style="font-size:11px; opacity:.85;">${label}</div>
+                            <div style="font-size:20px; font-weight:700; line-height:1.35; white-space:normal; overflow-wrap:anywhere; word-break:break-word;">${text || ''}</div>
+                        </div>
+                    </div>
+                `;
+            } else {
+                render.innerHTML = `
+                    <div class="fixed-text-frame" style="position:absolute; left:20px; top:32px; width:320px; height:576px; display:flex; align-items:center; justify-content:center; border:2px dashed #cfd7e3; background:#f8fafc; color:#2f3e52; padding:20px; text-align:center;">
+                        <div>
+                            <div style="font-size:12px; margin-bottom:8px;">${label}</div>
+                            <div style="font-size:14px; font-weight:700;">画像を設定してください</div>
+                        </div>
+                    </div>
+                `;
+            }
+        } else if (isStructureKind(activeBlock?.kind) && getStructureBodyKind(activeBlock) === 'text') {
+            const body = getStructureBodyText(activeBlock);
+            render.innerHTML = `
+                <div class="fixed-text-frame" style="position:absolute; left:20px; top:32px; width:320px; height:576px; border:2px solid #d8e0ec; border-radius:8px; background:#f9fbff; color:#22314a; padding:20px;">
+                    <div style="font-size:11px; color:#6a7b96; margin-bottom:8px;">${label}</div>
+                    <div style="font-size:26px; font-weight:800; line-height:1.3; margin-bottom:16px; white-space:normal; overflow-wrap:anywhere; word-break:break-word;">${text || ''}</div>
+                    <div style="font-size:15px; line-height:1.7; color:#334b6d; white-space:pre-wrap;">${body || ''}</div>
+                </div>
+            `;
         } else {
             render.innerHTML = `
             <div class="fixed-text-frame" style="position:absolute; left:20px; top:32px; width:320px; height:576px; display:flex; align-items:center; justify-content:center; border:2px dashed #cfd7e3; background:#f8fafc; color:#2f3e52; padding:20px; text-align:center;">
@@ -647,13 +850,18 @@ function refresh() {
     const genericTextEditor = document.getElementById('generic-text-editor');
     const coverFrontFields = document.getElementById('cover-front-fields');
     const coverBackFields = document.getElementById('cover-back-fields');
+    const structureFields = document.getElementById('structure-fields');
+    const structureImageFields = document.getElementById('structure-image-fields');
+    const structureTextFields = document.getElementById('structure-text-fields');
     const coverFrontImageFields = document.getElementById('cover-front-image-fields');
     const coverBackImageFields = document.getElementById('cover-back-image-fields');
     const isCoverFront = activeBlock?.kind === 'cover_front';
     const isCoverBack = activeBlock?.kind === 'cover_back';
+    const isStructureBlock = isStructureKind(activeBlock?.kind);
     if (coverFrontFields) coverFrontFields.style.display = isCoverFront ? 'block' : 'none';
     if (coverBackFields) coverBackFields.style.display = isCoverBack ? 'block' : 'none';
-    if (genericTextEditor) genericTextEditor.style.display = (isCoverFront || isCoverBack) ? 'none' : 'block';
+    if (structureFields) structureFields.style.display = isStructureBlock ? 'block' : 'none';
+    if (genericTextEditor) genericTextEditor.style.display = (isCoverFront || isCoverBack || isStructureBlock) ? 'none' : 'block';
 
     if (isCoverFront) {
         const bodyKind = getCoverBodyKind(activeBlock);
@@ -706,9 +914,21 @@ function refresh() {
             const contacts = Array.isArray(activeBlock?.meta?.contacts) ? activeBlock.meta.contacts : [];
             contactsEl.value = contacts.map((c) => c?.value || '').filter(Boolean).join('\n');
         }
+    } else if (isStructureBlock) {
+        const bodyKind = getStructureBodyKind(activeBlock);
+        const titleEl = document.getElementById('structure-title');
+        const modeEl = document.getElementById('structure-body-kind');
+        if (titleEl && document.activeElement !== titleEl) titleEl.value = getStructureTitle(activeBlock);
+        if (modeEl && document.activeElement !== modeEl) modeEl.value = bodyKind;
+        if (structureImageFields) structureImageFields.style.display = bodyKind === 'image' ? 'block' : 'none';
+        if (structureTextFields) structureTextFields.style.display = bodyKind === 'text' ? 'block' : 'none';
+        const bodyEl = document.getElementById('structure-body-text');
+        if (bodyEl && document.activeElement !== bodyEl) bodyEl.value = getStructureBodyText(activeBlock);
     }
     if (!isCoverFront && coverFrontImageFields) coverFrontImageFields.style.display = 'none';
     if (!isCoverBack && coverBackImageFields) coverBackImageFields.style.display = 'none';
+    if (!isStructureBlock && structureImageFields) structureImageFields.style.display = 'none';
+    if (!isStructureBlock && structureTextFields) structureTextFields.style.display = 'none';
 
     // 言語設定パネル内の書字方向同期
     const langModeSelect = document.getElementById('lang-writing-mode');
@@ -1633,6 +1853,7 @@ window.setThumbColumns = (cols) => {
 window.setThumbSize = window.setThumbColumns;
 window.uploadToStorage = (input) => { pushState(); uploadToStorage(input, refresh); };
 window.uploadCoverToStorage = (input) => { pushState(); uploadCoverToStorage(input, refresh); };
+window.uploadStructureToStorage = (input) => { pushState(); uploadStructureToStorage(input, refresh); };
 
 window.performUndo = () => { undo(refresh); triggerAutoSave(); };
 window.performRedo = () => { redo(refresh); triggerAutoSave(); };
@@ -1831,6 +2052,11 @@ window.saveProject = () => {
 };
 
 window.exportProject = () => {
+    const validation = validateProjectForPublishOrExport();
+    if (!validation.ok) {
+        showPublishValidationErrors(validation.issues, 'エクスポート');
+        return;
+    }
     composeCanonicalLayoutsForSections(state.sections, state.languages, state.languageConfigs);
     syncBlocksFromState();
     const pages = blocksToPages(state.blocks);
@@ -1865,6 +2091,11 @@ window.shareProject = async () => {
     }
     if (!state.uid) {
         alert("ログインしてください。");
+        return;
+    }
+    const validation = validateProjectForPublishOrExport();
+    if (!validation.ok) {
+        showPublishValidationErrors(validation.issues, '共有');
         return;
     }
     // Ensure save
@@ -1954,6 +2185,39 @@ window.updateCoverThemeField = (key, value) => {
         theme[key] = String(value || '');
     }
     block.meta.theme = theme;
+    refresh();
+    triggerAutoSave();
+};
+
+window.updateStructureBodyKind = (bodyKind) => {
+    const block = getActiveBlock();
+    if (!block || !isStructureKind(block.kind)) return;
+    touchCoverFieldHistory();
+    setStructureBodyKind(block, bodyKind);
+    if (!block.content || typeof block.content !== 'object') block.content = {};
+    if (bodyKind === 'image') {
+        if (!block.content.background) block.content.background = '';
+        if (!block.content.imagePosition) block.content.imagePosition = { x: 0, y: 0, scale: 1, rotation: 0 };
+        if (!block.content.imageBasePosition) block.content.imageBasePosition = { x: 0, y: 0, scale: 1, rotation: 0 };
+    }
+    refresh();
+    triggerAutoSave();
+};
+
+window.updateStructureBodyText = (value) => {
+    const block = getActiveBlock();
+    if (!block || !isStructureKind(block.kind)) return;
+    touchCoverFieldHistory();
+    setStructureBodyText(block, value);
+    refresh();
+    triggerAutoSave();
+};
+
+window.updateStructureTitle = (value) => {
+    const block = getActiveBlock();
+    if (!block || !isStructureKind(block.kind)) return;
+    touchCoverFieldHistory();
+    setStructureTitle(block, value);
     refresh();
     triggerAutoSave();
 };
