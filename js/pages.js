@@ -219,10 +219,20 @@ function blockToPage(block) {
         return normalizePageV5({
             id: block.id || createId('cover_front'),
             role: 'cover_front',
-            bodyKind: 'image',
+            bodyKind: block.meta?.bodyKind || block.meta?.renderMode || 'image',
             meta: {
                 title: block.meta?.title || {},
-                author: block.meta?.author || {}
+                subtitle: block.meta?.subtitle || {},
+                author: block.meta?.author || {},
+                supervisor: block.meta?.supervisor || {},
+                publisher: block.meta?.publisher || {}
+            },
+            content: {
+                background: block.content?.background || '',
+                thumbnail: block.content?.thumbnail || '',
+                imagePosition: deepClone(block.content?.imagePosition || { x: 0, y: 0, scale: 1, rotation: 0 }),
+                imageBasePosition: deepClone(block.content?.imageBasePosition || { x: 0, y: 0, scale: 1, rotation: 0 }),
+                theme: block.content?.theme || block.meta?.theme || {}
             }
         });
     }
@@ -230,9 +240,18 @@ function blockToPage(block) {
         return normalizePageV5({
             id: block.id || createId('cover_back'),
             role: 'cover_back',
-            bodyKind: 'image',
+            bodyKind: block.meta?.bodyKind || block.meta?.renderMode || 'image',
             meta: {
-                colophon: block.meta?.colophon || {}
+                colophon: block.meta?.colophon || {},
+                edition: block.meta?.edition || {},
+                contacts: block.meta?.contacts || []
+            },
+            content: {
+                background: block.content?.background || '',
+                thumbnail: block.content?.thumbnail || '',
+                imagePosition: deepClone(block.content?.imagePosition || { x: 0, y: 0, scale: 1, rotation: 0 }),
+                imageBasePosition: deepClone(block.content?.imageBasePosition || { x: 0, y: 0, scale: 1, rotation: 0 }),
+                theme: block.content?.theme || block.meta?.theme || {}
             }
         });
     }
@@ -274,9 +293,22 @@ function pageToBlock(page, languages = ['ja']) {
             id: page.id || createId('cover_front'),
             kind: 'cover_front',
             meta: {
+                bodyKind: page.bodyKind || 'image',
+                renderMode: page.bodyKind || 'image',
                 title: normalizeLocalizedTextMap(page.meta?.title),
+                subtitle: normalizeLocalizedTextMap(page.meta?.subtitle),
                 author: normalizeLocalizedTextMap(page.meta?.author),
+                supervisor: normalizeLocalizedTextMap(page.meta?.supervisor),
+                publisher: normalizeLocalizedTextMap(page.meta?.publisher),
+                theme: deepClone(page.content?.theme || {}),
                 langs: Array.isArray(languages) && languages.length ? [...languages] : ['ja']
+            },
+            content: {
+                background: page.content?.background || '',
+                thumbnail: page.content?.thumbnail || '',
+                imagePosition: deepClone(page.content?.imagePosition || { x: 0, y: 0, scale: 1, rotation: 0 }),
+                imageBasePosition: deepClone(page.content?.imageBasePosition || { x: 0, y: 0, scale: 1, rotation: 0 }),
+                theme: deepClone(page.content?.theme || {})
             }
         };
     }
@@ -285,7 +317,19 @@ function pageToBlock(page, languages = ['ja']) {
             id: page.id || createId('cover_back'),
             kind: 'cover_back',
             meta: {
-                colophon: normalizeLocalizedTextMap(page.meta?.colophon)
+                bodyKind: page.bodyKind || 'image',
+                renderMode: page.bodyKind || 'image',
+                colophon: normalizeLocalizedTextMap(page.meta?.colophon),
+                edition: normalizeLocalizedTextMap(page.meta?.edition),
+                contacts: deepClone(page.meta?.contacts || []),
+                theme: deepClone(page.content?.theme || {})
+            },
+            content: {
+                background: page.content?.background || '',
+                thumbnail: page.content?.thumbnail || '',
+                imagePosition: deepClone(page.content?.imagePosition || { x: 0, y: 0, scale: 1, rotation: 0 }),
+                imageBasePosition: deepClone(page.content?.imageBasePosition || { x: 0, y: 0, scale: 1, rotation: 0 }),
+                theme: deepClone(page.content?.theme || {})
             }
         };
     }
@@ -373,4 +417,3 @@ export function normalizeProjectDataV5(data = {}) {
 export function normalizeProjectDataV4(data = {}) {
     return normalizeProjectDataV5(data);
 }
-

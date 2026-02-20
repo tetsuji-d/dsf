@@ -2,7 +2,7 @@
  * app.js — メインエントリポイント・描画・UI同期
  */
 import { state } from './state.js';
-import { saveProject, loadProject, uploadToStorage, triggerAutoSave, generateCroppedThumbnail, signInWithGoogle, signOutUser, onAuthChanged, consumeRedirectResult } from './firebase.js';
+import { saveProject, loadProject, uploadToStorage, uploadCoverToStorage, triggerAutoSave, generateCroppedThumbnail, signInWithGoogle, signOutUser, onAuthChanged, consumeRedirectResult } from './firebase.js';
 import { handleCanvasClick, selectBubble, renderBubbleHTML, getBubbleText, setBubbleText, addBubbleAtCenter, startDrag } from './bubbles.js';
 import { addSection, changeSection, changeBlock, insertStructureBlock, renderThumbs, deleteActive, insertSectionAt, duplicateSectionAt, moveSection, insertPageNearBlock, duplicateBlockAt } from './sections.js';
 import { pushState, undo, redo, getHistoryInfo, clearHistory } from './history.js';
@@ -11,6 +11,7 @@ import { getLangProps, getAllLangs } from './lang.js';
 import { composeCanonicalLayoutsForSections, composeText, getFontPresetFromConfigs, getFontPresetOptions, LAYOUT_VERSION } from './layout.js';
 import { getBlockIndexFromPageIndex, getPageIndexFromBlockIndex, migrateSectionsToBlocks, syncBlocksWithSections } from './blocks.js';
 import { PAGE_SCHEMA_VERSION, blocksToPages, normalizeProjectDataV5 } from './pages.js';
+import { THEME_TEMPLATES, THEME_PALETTES, getThemePalette, getThemeTemplate } from './theme-presets.js';
 
 // ──────────────────────────────────────
 //  ヘルパー: セクションテキストの多言語取得・設定
@@ -70,6 +71,218 @@ function setBlockLocalizedText(block, text) {
         if (!block.meta.title) block.meta.title = {};
         block.meta.title[lang] = text;
     }
+}
+
+function getCoverBodyKindFromBlock(block) {
+    const raw = block?.meta?.bodyKind || block?.meta?.renderMode || 'image';
+    return raw === 'theme' ? 'theme' : 'image';
+}
+
+function renderCoverThemePreview(block) {
+    const lang = state.activeLang;
+    const theme = block?.content?.theme || block?.meta?.theme || {};
+    const palette = getThemePalette(theme.paletteId);
+    const template = getThemeTemplate(theme.templateId);
+    const title = block?.meta?.title?.[lang] || 'Title';
+    const subtitle = block?.meta?.subtitle?.[lang] || '';
+    const author = block?.meta?.author?.[lang] || '';
+    const supervisor = block?.meta?.supervisor?.[lang] || '';
+    const publisher = block?.meta?.publisher?.[lang] || '';
+    const edition = block?.meta?.edition?.[lang] || '';
+    const contacts = Array.isArray(block?.meta?.contacts) ? block.meta.contacts : [];
+    const contactText = contacts.map((c) => c?.value || '').filter(Boolean).join(' / ');
+    const templateId = template.id || 'classic';
+
+    if (block?.kind === 'cover_back') {
+        if (templateId === 'minimal') {
+            return `
+                <div class="fixed-text-frame" style="position:absolute; left:20px; top:32px; width:320px; height:576px; background:${palette.bg}; color:${palette.fg}; border-left:10px solid ${palette.accent}; padding:28px;">
+                    <div style="font-size:15px; line-height:1.8; margin-top:8px;">${edition || ''}</div>
+                    <div style="font-size:12px; line-height:1.7; margin-top:14px; color:${palette.sub};">${contactText || '連絡先未入力'}</div>
+                </div>
+            `;
+        }
+        if (templateId === 'bold') {
+            return `
+                <div class="fixed-text-frame" style="position:absolute; left:20px; top:32px; width:320px; height:576px; border-radius:10px; background:${palette.accent}; color:#fff; padding:18px;">
+                    <div style="height:100%; border:2px solid rgba(255,255,255,.8); border-radius:8px; padding:18px; background:linear-gradient(160deg, ${palette.accent}, ${palette.fg});">
+                        <div style="font-size:16px; line-height:1.7; margin-top:12px;">${edition || ''}</div>
+                        <div style="font-size:12px; line-height:1.8; margin-top:14px; opacity:.9;">${contactText || '連絡先未入力'}</div>
+                    </div>
+                </div>
+            `;
+        }
+        if (templateId === 'novel') {
+            return `
+                <div class="fixed-text-frame" style="position:absolute; left:20px; top:32px; width:320px; height:576px; border-radius:6px; background:${palette.bg}; color:${palette.fg}; border:1px solid ${palette.sub}; padding:26px;">
+                    <div style="border-top:1px solid ${palette.sub}; margin:12px 0 16px;"></div>
+                    <div style="font-size:14px; line-height:1.9; font-family:'Noto Serif JP',serif;">${edition || ''}</div>
+                    <div style="font-size:12px; line-height:1.9; margin-top:12px; color:${palette.sub};">${contactText || '連絡先未入力'}</div>
+                </div>
+            `;
+        }
+        return `
+            <div class="fixed-text-frame" style="position:absolute; left:20px; top:32px; width:320px; height:576px; border-radius:8px; background:${palette.bg}; color:${palette.fg}; border:2px solid ${palette.accent}; padding:22px;">
+                <div style="font-size:15px; line-height:1.7; margin-top:14px;">${edition || ''}</div>
+                <div style="font-size:13px; line-height:1.6; margin-top:12px; color:${palette.sub};">${contactText || '連絡先未入力'}</div>
+            </div>
+        `;
+    }
+
+    if (templateId === 'minimal') {
+        return `
+            <div class="fixed-text-frame" style="position:absolute; left:20px; top:32px; width:320px; height:576px; background:${palette.bg}; color:${palette.fg}; border-left:10px solid ${palette.accent}; padding:28px;">
+                <div style="font-size:34px; font-weight:900; line-height:1.2; margin:26px 0 12px; white-space:normal; overflow-wrap:anywhere; word-break:break-word;">${title || 'タイトル未入力'}</div>
+                <div style="font-size:16px; color:${palette.sub}; margin-bottom:16px;">${subtitle || ''}</div>
+                <div style="position:absolute; left:28px; right:28px; bottom:24px; font-size:13px; color:${palette.sub}; line-height:1.6;">
+                    <div>${author || ''}</div><div>${supervisor || ''}</div><div>${publisher || ''}</div>
+                </div>
+            </div>
+        `;
+    }
+    if (templateId === 'bold') {
+        return `
+            <div class="fixed-text-frame" style="position:absolute; left:20px; top:32px; width:320px; height:576px; border-radius:10px; background:${palette.accent}; color:#fff; padding:18px;">
+                <div style="height:100%; border:2px solid rgba(255,255,255,.8); border-radius:8px; padding:18px; background:linear-gradient(160deg, ${palette.accent}, ${palette.fg});">
+                    <div style="font-size:36px; font-weight:900; line-height:1.15; margin:28px 0 10px; white-space:normal; overflow-wrap:anywhere; word-break:break-word;">${title || 'タイトル未入力'}</div>
+                    <div style="font-size:17px; opacity:.9; margin-bottom:18px;">${subtitle || ''}</div>
+                    <div style="position:absolute; left:36px; right:36px; bottom:30px; font-size:13px; line-height:1.6; opacity:.9;">
+                        <div>${author || ''}</div><div>${supervisor || ''}</div><div>${publisher || ''}</div>
+                    </div>
+                </div>
+            </div>
+        `;
+    }
+    if (templateId === 'novel') {
+        return `
+            <div class="fixed-text-frame" style="position:absolute; left:20px; top:32px; width:320px; height:576px; border-radius:6px; background:${palette.bg}; color:${palette.fg}; border:1px solid ${palette.sub}; padding:26px;">
+                <div style="font-size:34px; font-family:'Noto Serif JP',serif; line-height:1.3; margin:24px 0 12px; white-space:normal; overflow-wrap:anywhere; word-break:break-word;">${title || 'タイトル未入力'}</div>
+                <div style="font-size:15px; color:${palette.sub}; margin-bottom:20px; font-family:'Noto Serif JP',serif;">${subtitle || ''}</div>
+                <div style="border-top:1px solid ${palette.sub}; margin-bottom:14px;"></div>
+                <div style="position:absolute; left:26px; right:26px; bottom:24px; font-size:13px; color:${palette.sub}; line-height:1.8; font-family:'Noto Serif JP',serif;">
+                    <div>${author || ''}</div><div>${supervisor || ''}</div><div>${publisher || ''}</div>
+                </div>
+            </div>
+        `;
+    }
+
+    return `
+        <div class="fixed-text-frame" style="position:absolute; left:20px; top:32px; width:320px; height:576px; border-radius:8px; background:${palette.bg}; color:${palette.fg}; border:2px solid ${palette.accent}; padding:24px;">
+            <div style="font-size:30px; font-weight:800; line-height:1.25; margin-bottom:10px; white-space:normal; overflow-wrap:anywhere; word-break:break-word;">${title || 'タイトル未入力'}</div>
+            <div style="font-size:16px; color:${palette.sub}; margin-bottom:20px;">${subtitle || ''}</div>
+            <div style="position:absolute; left:24px; right:24px; bottom:24px;">
+                <div style="font-size:14px; margin-bottom:6px;">${author || ''}</div>
+                <div style="font-size:13px; color:${palette.sub}; margin-bottom:6px;">${supervisor || ''}</div>
+                <div style="font-size:13px; color:${palette.sub};">${publisher || ''}</div>
+            </div>
+        </div>
+    `;
+}
+
+function renderCoverImagePreview(block) {
+    const bg = block?.content?.background || '';
+    if (!bg) {
+        return `
+            <div class="fixed-text-frame" style="position:absolute; left:20px; top:32px; width:320px; height:576px; display:flex; align-items:center; justify-content:center; border:2px dashed #cfd7e3; background:#f8fafc; color:#2f3e52; padding:20px; text-align:center;">
+                <div style="font-size:14px; font-weight:700;">画像を設定してください</div>
+            </div>
+        `;
+    }
+    return `
+        <div style="position:absolute; left:20px; top:32px; width:320px; height:576px; overflow:hidden; border-radius:8px; border:1px solid #d7deea;">
+            <img src="${bg}" style="width:100%; height:100%; object-fit:cover;">
+        </div>
+    `;
+}
+
+function getBlockLocalizedMetaField(block, key) {
+    const lang = state.activeLang;
+    if (!block?.meta) return '';
+    const map = block.meta[key];
+    if (!map || typeof map !== 'object') return '';
+    return map[lang] || '';
+}
+
+function setBlockLocalizedMetaField(block, key, value) {
+    if (!block) return;
+    const lang = state.activeLang;
+    if (!block.meta) block.meta = {};
+    if (!block.meta[key] || typeof block.meta[key] !== 'object') block.meta[key] = {};
+    block.meta[key][lang] = value;
+}
+
+function getCoverBodyKind(block) {
+    const raw = block?.meta?.bodyKind || block?.meta?.renderMode || 'image';
+    return raw === 'theme' ? 'theme' : 'image';
+}
+
+function setCoverBodyKind(block, bodyKind) {
+    if (!block) return;
+    const mode = bodyKind === 'theme' ? 'theme' : 'image';
+    if (!block.meta) block.meta = {};
+    block.meta.bodyKind = mode;
+    block.meta.renderMode = mode;
+}
+
+function ensureCoverTheme(block) {
+    if (!block) return { templateId: 'classic', paletteId: 'ocean' };
+    if (!block.content || typeof block.content !== 'object') block.content = {};
+    if (!block.content.theme || typeof block.content.theme !== 'object') {
+        block.content.theme = {};
+    }
+    if (!block.content.theme.templateId) block.content.theme.templateId = 'classic';
+    if (!block.content.theme.paletteId) block.content.theme.paletteId = 'ocean';
+    if (!block.meta) block.meta = {};
+    block.meta.theme = block.content.theme;
+    return block.content.theme;
+}
+
+function parseContactsFromText(raw) {
+    const lines = String(raw || '')
+        .split(/\r?\n/)
+        .map((line) => line.trim())
+        .filter(Boolean);
+    return lines.map((value) => {
+        if (/^https?:\/\//i.test(value)) return { type: 'url', value };
+        if (/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value)) return { type: 'email', value };
+        return { type: 'other', value };
+    });
+}
+
+let coverFieldPushTimer = null;
+function touchCoverFieldHistory() {
+    if (!coverFieldPushTimer) {
+        pushState();
+    } else {
+        clearTimeout(coverFieldPushTimer);
+    }
+    coverFieldPushTimer = setTimeout(() => { coverFieldPushTimer = null; }, 500);
+}
+
+function populateThemeSelectOptions() {
+    const templateOptions = Object.values(THEME_TEMPLATES)
+        .map((t) => `<option value="${t.id}">${t.label}</option>`)
+        .join('');
+    const paletteOptions = Object.entries(THEME_PALETTES)
+        .map(([id, p]) => `<option value="${id}">${id.charAt(0).toUpperCase()}${id.slice(1)}</option>`)
+        .join('');
+
+    const templateIds = ['cover-front-theme-template', 'cover-back-theme-template'];
+    const paletteIds = ['cover-front-theme-palette', 'cover-back-theme-palette'];
+    templateIds.forEach((id) => {
+        const el = document.getElementById(id);
+        if (el && el.dataset.loaded !== '1') {
+            el.innerHTML = templateOptions;
+            el.dataset.loaded = '1';
+        }
+    });
+    paletteIds.forEach((id) => {
+        const el = document.getElementById(id);
+        if (el && el.dataset.loaded !== '1') {
+            el.innerHTML = paletteOptions;
+            el.dataset.loaded = '1';
+        }
+    });
 }
 
 function syncBlocksFromState() {
@@ -268,6 +481,7 @@ function setCurrentDeviceThumbColumns(cols) {
 //  refresh — 画面全体を再描画する
 // ──────────────────────────────────────
 function refresh() {
+    populateThemeSelectOptions();
     syncBlocksFromState();
     const activeBlock = getActiveBlock();
     const isPageBlock = activeBlock?.kind === 'page';
@@ -292,7 +506,14 @@ function refresh() {
         };
         const label = labels[activeBlock?.kind] || (activeBlock?.kind || 'ブロック');
         const text = getBlockLocalizedText(activeBlock);
-        render.innerHTML = `
+        const isCover = activeBlock?.kind === 'cover_front' || activeBlock?.kind === 'cover_back';
+        const coverBodyKind = getCoverBodyKindFromBlock(activeBlock);
+        if (isCover && coverBodyKind === 'theme') {
+            render.innerHTML = renderCoverThemePreview(activeBlock);
+        } else if (isCover && coverBodyKind === 'image') {
+            render.innerHTML = renderCoverImagePreview(activeBlock);
+        } else {
+            render.innerHTML = `
             <div class="fixed-text-frame" style="position:absolute; left:20px; top:32px; width:320px; height:576px; display:flex; align-items:center; justify-content:center; border:2px dashed #cfd7e3; background:#f8fafc; color:#2f3e52; padding:20px; text-align:center;">
                 <div>
                     <div style="font-size:12px; margin-bottom:8px;">${label}</div>
@@ -300,6 +521,7 @@ function refresh() {
                 </div>
             </div>
         `;
+        }
         document.getElementById('image-only-props').style.display = 'none';
         document.getElementById('bubble-layer').style.display = 'none';
         document.getElementById('bubble-shape-props').style.display = 'none';
@@ -422,6 +644,71 @@ function refresh() {
         deleteBtn.disabled = !!isCoverBlock;
         deleteBtn.title = isCoverBlock ? '表紙/裏表紙は削除できません' : '';
     }
+    const genericTextEditor = document.getElementById('generic-text-editor');
+    const coverFrontFields = document.getElementById('cover-front-fields');
+    const coverBackFields = document.getElementById('cover-back-fields');
+    const coverFrontImageFields = document.getElementById('cover-front-image-fields');
+    const coverBackImageFields = document.getElementById('cover-back-image-fields');
+    const isCoverFront = activeBlock?.kind === 'cover_front';
+    const isCoverBack = activeBlock?.kind === 'cover_back';
+    if (coverFrontFields) coverFrontFields.style.display = isCoverFront ? 'block' : 'none';
+    if (coverBackFields) coverBackFields.style.display = isCoverBack ? 'block' : 'none';
+    if (genericTextEditor) genericTextEditor.style.display = (isCoverFront || isCoverBack) ? 'none' : 'block';
+
+    if (isCoverFront) {
+        const bodyKind = getCoverBodyKind(activeBlock);
+        const modeEl = document.getElementById('cover-front-body-kind');
+        if (modeEl && document.activeElement !== modeEl) {
+            modeEl.value = bodyKind;
+        }
+        const frontThemeFields = document.getElementById('cover-front-theme-fields');
+        if (frontThemeFields) frontThemeFields.style.display = bodyKind === 'theme' ? 'block' : 'none';
+        if (coverFrontImageFields) coverFrontImageFields.style.display = bodyKind === 'image' ? 'block' : 'none';
+        const theme = ensureCoverTheme(activeBlock);
+        const tplEl = document.getElementById('cover-front-theme-template');
+        const palEl = document.getElementById('cover-front-theme-palette');
+        if (tplEl && document.activeElement !== tplEl) tplEl.value = theme.templateId || 'classic';
+        if (palEl && document.activeElement !== palEl) palEl.value = theme.paletteId || 'ocean';
+
+        const mapping = [
+            ['cover-front-title', 'title'],
+            ['cover-front-subtitle', 'subtitle'],
+            ['cover-front-author', 'author'],
+            ['cover-front-supervisor', 'supervisor'],
+            ['cover-front-publisher', 'publisher']
+        ];
+        mapping.forEach(([id, key]) => {
+            const el = document.getElementById(id);
+            if (!el || document.activeElement === el) return;
+            el.value = getBlockLocalizedMetaField(activeBlock, key);
+        });
+    } else if (isCoverBack) {
+        const bodyKind = getCoverBodyKind(activeBlock);
+        const modeEl = document.getElementById('cover-back-body-kind');
+        if (modeEl && document.activeElement !== modeEl) {
+            modeEl.value = bodyKind;
+        }
+        const backThemeFields = document.getElementById('cover-back-theme-fields');
+        if (backThemeFields) backThemeFields.style.display = bodyKind === 'theme' ? 'block' : 'none';
+        if (coverBackImageFields) coverBackImageFields.style.display = bodyKind === 'image' ? 'block' : 'none';
+        const theme = ensureCoverTheme(activeBlock);
+        const tplEl = document.getElementById('cover-back-theme-template');
+        const palEl = document.getElementById('cover-back-theme-palette');
+        if (tplEl && document.activeElement !== tplEl) tplEl.value = theme.templateId || 'classic';
+        if (palEl && document.activeElement !== palEl) palEl.value = theme.paletteId || 'ocean';
+
+        const editionEl = document.getElementById('cover-back-edition');
+        const contactsEl = document.getElementById('cover-back-contacts');
+        if (editionEl && document.activeElement !== editionEl) {
+            editionEl.value = getBlockLocalizedMetaField(activeBlock, 'edition');
+        }
+        if (contactsEl && document.activeElement !== contactsEl) {
+            const contacts = Array.isArray(activeBlock?.meta?.contacts) ? activeBlock.meta.contacts : [];
+            contactsEl.value = contacts.map((c) => c?.value || '').filter(Boolean).join('\n');
+        }
+    }
+    if (!isCoverFront && coverFrontImageFields) coverFrontImageFields.style.display = 'none';
+    if (!isCoverBack && coverBackImageFields) coverBackImageFields.style.display = 'none';
 
     // 言語設定パネル内の書字方向同期
     const langModeSelect = document.getElementById('lang-writing-mode');
@@ -1345,6 +1632,7 @@ window.setThumbColumns = (cols) => {
 };
 window.setThumbSize = window.setThumbColumns;
 window.uploadToStorage = (input) => { pushState(); uploadToStorage(input, refresh); };
+window.uploadCoverToStorage = (input) => { pushState(); uploadCoverToStorage(input, refresh); };
 
 window.performUndo = () => { undo(refresh); triggerAutoSave(); };
 window.performRedo = () => { redo(refresh); triggerAutoSave(); };
@@ -1615,6 +1903,59 @@ window.onBubbleTextInput = (e, i) => {
 };
 window.onBubbleTextBlur = () => {
     setTimeout(() => refresh(), 10);
+};
+
+window.updateCoverField = (field, value) => {
+    const block = getActiveBlock();
+    if (!block || block.kind !== 'cover_front') return;
+    touchCoverFieldHistory();
+    setBlockLocalizedMetaField(block, field, value);
+    refresh();
+    triggerAutoSave();
+};
+
+window.updateCoverBackField = (field, value) => {
+    const block = getActiveBlock();
+    if (!block || block.kind !== 'cover_back') return;
+    touchCoverFieldHistory();
+    setBlockLocalizedMetaField(block, field, value);
+    refresh();
+    triggerAutoSave();
+};
+
+window.updateCoverBackContacts = (raw) => {
+    const block = getActiveBlock();
+    if (!block || block.kind !== 'cover_back') return;
+    touchCoverFieldHistory();
+    if (!block.meta) block.meta = {};
+    block.meta.contacts = parseContactsFromText(raw);
+    refresh();
+    triggerAutoSave();
+};
+
+window.updateCoverBodyKind = (bodyKind) => {
+    const block = getActiveBlock();
+    if (!block || (block.kind !== 'cover_front' && block.kind !== 'cover_back')) return;
+    touchCoverFieldHistory();
+    setCoverBodyKind(block, bodyKind);
+    if (getCoverBodyKind(block) === 'theme') {
+        ensureCoverTheme(block);
+    }
+    refresh();
+    triggerAutoSave();
+};
+
+window.updateCoverThemeField = (key, value) => {
+    const block = getActiveBlock();
+    if (!block || (block.kind !== 'cover_front' && block.kind !== 'cover_back')) return;
+    touchCoverFieldHistory();
+    const theme = ensureCoverTheme(block);
+    if (key === 'templateId' || key === 'paletteId') {
+        theme[key] = String(value || '');
+    }
+    block.meta.theme = theme;
+    refresh();
+    triggerAutoSave();
 };
 
 // 言語切替

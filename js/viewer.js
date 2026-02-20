@@ -8,6 +8,7 @@ import { db, signInWithGoogle, signOutUser, onAuthChanged, consumeRedirectResult
 import { doc, getDoc } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
 import { composeText } from './layout.js';
 import { normalizeProjectDataV5 } from './pages.js';
+import { getThemePalette, getThemeTemplate } from './theme-presets.js';
 
 let currentProject = null;
 let sharedProjectRef = null;
@@ -404,6 +405,130 @@ function renderStructurePage(contentEl, page, lang) {
     </div>`;
 }
 
+function renderCoverThemePage(contentEl, page, lang) {
+    const theme = page?.content?.theme || {};
+    const palette = getThemePalette(theme.paletteId);
+    const template = getThemeTemplate(theme.templateId);
+    const title = page?.meta?.title?.[lang] || 'Title';
+    const subtitle = page?.meta?.subtitle?.[lang] || '';
+    const author = page?.meta?.author?.[lang] || '';
+    const supervisor = page?.meta?.supervisor?.[lang] || '';
+    const publisher = page?.meta?.publisher?.[lang] || '';
+    const edition = page?.meta?.edition?.[lang] || '';
+    const contacts = Array.isArray(page?.meta?.contacts) ? page.meta.contacts : [];
+    const contactText = contacts.map((c) => c?.value || '').filter(Boolean).join(' / ');
+    const templateId = template.id || 'classic';
+
+    if (page?.role === 'cover_back') {
+        if (templateId === 'minimal') {
+            contentEl.innerHTML = `<div class="viewer-text-page">
+                <div class="viewer-text-block"
+                     style="left:20px; top:32px; width:320px; height:576px; background:${palette.bg}; color:${palette.fg}; border-left:10px solid ${palette.accent}; padding:28px;">
+                    <div style="font-size:15px; line-height:1.8; margin-top:8px;">${escapeHtml(edition || '')}</div>
+                    <div style="font-size:12px; line-height:1.7; margin-top:14px; color:${palette.sub};">${escapeHtml(contactText || '連絡先未入力')}</div>
+                </div>
+            </div>`;
+            return;
+        }
+        if (templateId === 'bold') {
+            contentEl.innerHTML = `<div class="viewer-text-page">
+                <div class="viewer-text-block"
+                     style="left:20px; top:32px; width:320px; height:576px; border-radius:10px; background:${palette.accent}; color:#fff; padding:18px;">
+                    <div style="height:100%; border:2px solid rgba(255,255,255,.8); border-radius:8px; padding:18px; background:linear-gradient(160deg, ${palette.accent}, ${palette.fg});">
+                        <div style="font-size:16px; line-height:1.7; margin-top:12px;">${escapeHtml(edition || '')}</div>
+                        <div style="font-size:12px; line-height:1.8; margin-top:14px; opacity:.9;">${escapeHtml(contactText || '連絡先未入力')}</div>
+                    </div>
+                </div>
+            </div>`;
+            return;
+        }
+        if (templateId === 'novel') {
+            contentEl.innerHTML = `<div class="viewer-text-page">
+                <div class="viewer-text-block"
+                     style="left:20px; top:32px; width:320px; height:576px; border-radius:6px; background:${palette.bg}; color:${palette.fg}; border:1px solid ${palette.sub}; padding:26px;">
+                    <div style="border-top:1px solid ${palette.sub}; margin:12px 0 16px;"></div>
+                    <div style="font-size:14px; line-height:1.9; font-family:'Noto Serif JP',serif;">${escapeHtml(edition || '')}</div>
+                    <div style="font-size:12px; line-height:1.9; margin-top:12px; color:${palette.sub};">${escapeHtml(contactText || '連絡先未入力')}</div>
+                </div>
+            </div>`;
+            return;
+        }
+        contentEl.innerHTML = `<div class="viewer-text-page">
+            <div class="viewer-text-block"
+                 style="left:20px; top:32px; width:320px; height:576px; border-radius:8px; border:2px solid ${palette.accent}; background:${palette.bg}; color:${palette.fg}; padding:22px;">
+                <div style="font-size:15px; line-height:1.7; margin-top:8px;">${escapeHtml(edition || '')}</div>
+                <div style="font-size:13px; line-height:1.6; margin-top:12px; color:${palette.sub};">${escapeHtml(contactText || '連絡先未入力')}</div>
+            </div>
+        </div>`;
+        return;
+    }
+
+    if (templateId === 'minimal') {
+        contentEl.innerHTML = `<div class="viewer-text-page">
+            <div class="viewer-text-block"
+                 style="left:20px; top:32px; width:320px; height:576px; background:${palette.bg}; color:${palette.fg}; border-left:10px solid ${palette.accent}; padding:28px;">
+                <div style="font-size:34px; font-weight:900; line-height:1.2; margin:26px 0 12px; white-space:normal; overflow-wrap:anywhere; word-break:break-word;">${escapeHtml(title || 'タイトル未入力')}</div>
+                <div style="font-size:16px; color:${palette.sub}; margin-bottom:16px;">${escapeHtml(subtitle || '')}</div>
+                <div style="position:absolute; left:28px; right:28px; bottom:24px; font-size:13px; color:${palette.sub}; line-height:1.6;">
+                    <div>${escapeHtml(author || '')}</div><div>${escapeHtml(supervisor || '')}</div><div>${escapeHtml(publisher || '')}</div>
+                </div>
+            </div>
+        </div>`;
+        return;
+    }
+    if (templateId === 'bold') {
+        contentEl.innerHTML = `<div class="viewer-text-page">
+            <div class="viewer-text-block"
+                 style="left:20px; top:32px; width:320px; height:576px; border-radius:10px; background:${palette.accent}; color:#fff; padding:18px;">
+                <div style="height:100%; border:2px solid rgba(255,255,255,.8); border-radius:8px; padding:18px; background:linear-gradient(160deg, ${palette.accent}, ${palette.fg});">
+                    <div style="font-size:36px; font-weight:900; line-height:1.15; margin:28px 0 10px; white-space:normal; overflow-wrap:anywhere; word-break:break-word;">${escapeHtml(title || 'タイトル未入力')}</div>
+                    <div style="font-size:17px; opacity:.9; margin-bottom:18px;">${escapeHtml(subtitle || '')}</div>
+                    <div style="position:absolute; left:36px; right:36px; bottom:30px; font-size:13px; line-height:1.6; opacity:.9;">
+                        <div>${escapeHtml(author || '')}</div><div>${escapeHtml(supervisor || '')}</div><div>${escapeHtml(publisher || '')}</div>
+                    </div>
+                </div>
+            </div>
+        </div>`;
+        return;
+    }
+    if (templateId === 'novel') {
+        contentEl.innerHTML = `<div class="viewer-text-page">
+            <div class="viewer-text-block"
+                 style="left:20px; top:32px; width:320px; height:576px; border-radius:6px; background:${palette.bg}; color:${palette.fg}; border:1px solid ${palette.sub}; padding:26px;">
+                <div style="font-size:34px; font-family:'Noto Serif JP',serif; line-height:1.3; margin:24px 0 12px; white-space:normal; overflow-wrap:anywhere; word-break:break-word;">${escapeHtml(title || 'タイトル未入力')}</div>
+                <div style="font-size:15px; color:${palette.sub}; margin-bottom:20px; font-family:'Noto Serif JP',serif;">${escapeHtml(subtitle || '')}</div>
+                <div style="border-top:1px solid ${palette.sub}; margin-bottom:14px;"></div>
+                <div style="position:absolute; left:26px; right:26px; bottom:24px; font-size:13px; color:${palette.sub}; line-height:1.8; font-family:'Noto Serif JP',serif;">
+                    <div>${escapeHtml(author || '')}</div><div>${escapeHtml(supervisor || '')}</div><div>${escapeHtml(publisher || '')}</div>
+                </div>
+            </div>
+        </div>`;
+        return;
+    }
+
+    contentEl.innerHTML = `<div class="viewer-text-page">
+        <div class="viewer-text-block"
+             style="left:20px; top:32px; width:320px; height:576px; border-radius:8px; border:2px solid ${palette.accent}; background:${palette.bg}; color:${palette.fg}; padding:24px;">
+            <div style="font-size:30px; font-weight:800; line-height:1.25; margin-bottom:10px; white-space:normal; overflow-wrap:anywhere; word-break:break-word;">${escapeHtml(title || 'タイトル未入力')}</div>
+            <div style="font-size:16px; color:${palette.sub}; margin-bottom:20px;">${escapeHtml(subtitle || '')}</div>
+            <div style="position:absolute; left:24px; right:24px; bottom:24px;">
+                <div style="font-size:14px; margin-bottom:6px;">${escapeHtml(author || '')}</div>
+                <div style="font-size:13px; color:${palette.sub}; margin-bottom:6px;">${escapeHtml(supervisor || '')}</div>
+                <div style="font-size:13px; color:${palette.sub};">${escapeHtml(publisher || '')}</div>
+            </div>
+        </div>
+    </div>`;
+}
+
+function renderCoverImagePage(contentEl, page) {
+    const bg = page?.content?.background || '';
+    if (!bg) {
+        renderStructurePage(contentEl, page, state.activeLang);
+        return;
+    }
+    contentEl.innerHTML = `<img src="${bg}" style="width:100%; height:100%; object-fit:cover;">`;
+}
+
 function refresh() {
     const pages = getViewerPages();
     const hasPages = pages.length > 0;
@@ -426,7 +551,15 @@ function refresh() {
     resetZoom();
 
     // 1. Content
-    if (hasPages && p && p.pageType !== 'normal_image' && p.pageType !== 'normal_text') {
+    if (hasPages && p && p.role === 'cover_front' && p.bodyKind === 'theme') {
+        renderCoverThemePage(contentEl, p, lang);
+    } else if (hasPages && p && p.role === 'cover_back' && p.bodyKind === 'theme') {
+        renderCoverThemePage(contentEl, p, lang);
+    } else if (hasPages && p && p.role === 'cover_front' && p.bodyKind === 'image') {
+        renderCoverImagePage(contentEl, p);
+    } else if (hasPages && p && p.role === 'cover_back' && p.bodyKind === 'image') {
+        renderCoverImagePage(contentEl, p);
+    } else if (hasPages && p && p.pageType !== 'normal_image' && p.pageType !== 'normal_text') {
         renderStructurePage(contentEl, p, lang);
     } else if (hasPages && p && p.pageType === 'normal_image') {
         const toNum = (v, fallback) => {

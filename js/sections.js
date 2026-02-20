@@ -318,6 +318,7 @@ export function duplicateBlockAt(blockIndex, refresh) {
  */
 export function renderThumbs() {
     const container = document.getElementById('thumb-container');
+    const prevScrollTop = container ? container.scrollTop : 0;
     const cols = Number(state.thumbColumns) || 2;
     container.setAttribute('data-cols', String(cols));
 
@@ -441,6 +442,12 @@ export function renderThumbs() {
             </div>
         `;
     }).join('');
+
+    // Keep sidebar position stable while typing/editing.
+    if (container) {
+        const maxScroll = Math.max(0, container.scrollHeight - container.clientHeight);
+        container.scrollTop = Math.max(0, Math.min(prevScrollTop, maxScroll));
+    }
 }
 
 /**

@@ -502,3 +502,61 @@ export async function loadProject(pid, refresh) {
         refresh();
     }
 }
+
+/**
+ * 表紙/裏表紙の画像をFirebase Storageにアップロードし、cover blockに設定する
+ * @param {HTMLInputElement} input - ファイル入力要素
+ * @param {function} refresh - 画面更新コールバック
+ */
+export async function uploadCoverToStorage(input, refresh) {
+    const uid = requireUid();
+    const file = input.files[0];
+    if (!file) return;
+
+    const block = (state.blocks || [])[state.activeBlockIdx];
+    if (!block || (block.kind !== 'cover_front' && block.kind !== 'cover_back')) {
+        input.value = '';
+        return;
+    }
+
+    try {
+        const [mainBlob, thumbBlob] = await Promise.all([
+            compressImage(file, 1280, 0.8),
+            compressImage(file, 320, 0.8)
+        ]);
+
+        const timestamp = Date.now();
+        const filename = file.name.replace(/\.[^/.]+$/, "");
+        const base = block.kind === 'cover_front' ? 'cover_front' : 'cover_back';
+        const mainPath = `users/${uid}/dsf/covers/${base}_${timestamp}_${filename}.webp`;
+        const thumbPath = `users/${uid}/dsf/covers/thumbs/${base}_${timestamp}_${filename}_thumb.webp`;
+
+        const mainRef = ref(storage, mainPath);
+        const thumbRef = ref(storage, thumbPath);
+        const [mainSnap, thumbSnap] = await Promise.all([
+            uploadBytes(mainRef, mainBlob),
+            uploadBytes(thumbRef, thumbBlob)
+        ]);
+        const [mainUrl, thumbUrl] = await Promise.all([
+            getDownloadURL(mainSnap.ref),
+            getDownloadURL(thumbSnap.ref)
+        ]);
+
+        if (!block.content || typeof block.content !== 'object') block.content = {};
+        block.content.background = mainUrl;
+        block.content.thumbnail = thumbUrl;
+        if (!block.content.imagePosition) block.content.imagePosition = { x: 0, y: 0, scale: 1, rotation: 0 };
+        if (!block.content.imageBasePosition) block.content.imageBasePosition = { x: 0, y: 0, scale: 1, rotation: 0 };
+        if (!block.meta || typeof block.meta !== 'object') block.meta = {};
+        block.meta.bodyKind = 'image';
+        block.meta.renderMode = 'image';
+
+        refresh();
+        triggerAutoSave();
+    } catch (e) {
+        console.error(e);
+        alert("保存失敗: " + e.message);
+    } finally {
+        input.value = '';
+    }
+}

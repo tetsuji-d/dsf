@@ -160,6 +160,20 @@ body.auth-guest .auth-warning-badge {
     line-height: 1.4;
 }
 
+.panel-subform {
+    margin: 0 0 10px 0;
+    padding: 8px 10px;
+    border: 1px solid #e2e8f2;
+    border-radius: 8px;
+    background: #f8fbff;
+}
+
+.panel-subform input,
+.panel-subform textarea {
+    width: 100%;
+    margin-bottom: 6px;
+}
+
 .zoom-select {
     min-width: 96px;
     border: 1px solid #cfd7e5;
