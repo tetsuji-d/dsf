@@ -27,6 +27,31 @@ function setSectionText(s, text) {
     if (!s.texts) s.texts = {};
     s.texts[lang] = text;
     s.text = text;
+    if (!s.richTextLangs || typeof s.richTextLangs !== 'object') s.richTextLangs = {};
+    const doc = { blocks: [{ type: 'paragraph', children: [{ text: String(text || '') }] }] };
+    s.richTextLangs[lang] = doc;
+    s.richText = doc;
+}
+
+function getSectionRichText(s) {
+    const lang = state.activeLang;
+    const doc = s?.richTextLangs?.[lang] || s?.richText;
+    if (doc && Array.isArray(doc.blocks)) return doc;
+    return {
+        blocks: [{ type: 'paragraph', children: [{ text: getSectionText(s) }] }]
+    };
+}
+
+function setSectionRichText(s, doc) {
+    if (!s) return;
+    const lang = state.activeLang;
+    if (!s.richTextLangs || typeof s.richTextLangs !== 'object') s.richTextLangs = {};
+    s.richTextLangs[lang] = doc;
+    s.richText = doc;
+    if (!s.texts) s.texts = {};
+    const plain = richTextToPlainText(doc);
+    s.texts[lang] = plain;
+    s.text = plain;
 }
 
 function getActiveBlock() {
@@ -954,6 +979,12 @@ function refresh() {
     const lang = state.activeLang;
     const langProps = getLangProps(lang);
 
+    // Normalize stale bubble selection before rendering text/rich-text mode.
+    if (isPageBlock && state.activeBubbleIdx !== null && (!s?.bubbles || !s.bubbles[state.activeBubbleIdx])) {
+        state.activeBubbleIdx = null;
+    }
+    const shouldUseRichTextPanelForPage = isPageBlock && s?.type === 'text' && state.activeBubbleIdx === null;
+
     // Global Writing Mode
     const effectiveMode = getWritingMode(lang);
 
@@ -1065,32 +1096,55 @@ function refresh() {
         document.getElementById('image-only-props').style.display = 'block';
         document.getElementById('bubble-layer').style.display = 'block';
     } else {
-        const layout = ensureComposedLayoutForActiveLang(s);
-        const sectionText = (layout?.lines || []).join('\n');
-        const vtClass = effectiveMode === 'vertical-rl' ? 'v-text' : '';
-        const align = langProps.sectionAlign;
-        const frame = layout?.frame || { x: 20, y: 32, w: 320, h: 576 };
-        const font = layout?.font || {};
-        const family = font.family || '"Noto Sans","Segoe UI",sans-serif';
-        const size = Number(font.size) || 16;
-        const lineHeight = Number(font.lineHeight) || 1.8;
-        const letterSpacing = Number.isFinite(Number(font.letterSpacing)) ? Number(font.letterSpacing) : 0;
-        const verticalPad = getVerticalTextPadding(layout);
-
-        // フォーカス維持判定
-        const existing = document.getElementById('main-text-area');
-        if (existing && document.activeElement === existing) {
-            if (existing.value !== sectionText) existing.value = sectionText;
-        } else {
+        if (shouldUseRichTextPanelForPage) {
+            const layout = ensureComposedLayoutForActiveLang(s);
+            const vtClass = effectiveMode === 'vertical-rl' ? 'v-text' : '';
+            const align = langProps.sectionAlign;
+            const frame = layout?.frame || { x: 20, y: 32, w: 320, h: 576 };
+            const font = layout?.font || {};
+            const family = font.family || '"Noto Sans","Segoe UI",sans-serif';
+            const size = Number(font.size) || 16;
+            const lineHeight = Number(font.lineHeight) || 1.8;
+            const letterSpacing = Number.isFinite(Number(font.letterSpacing)) ? Number(font.letterSpacing) : 0;
+            const verticalPad = getVerticalTextPadding(layout);
+            const richHtml = richTextDocToHtml(getSectionRichText(s));
             render.innerHTML = `<div class="fixed-text-frame"
                 style="position:absolute; left:${frame.x}px; top:${frame.y}px; width:${frame.w}px; height:${frame.h}px; overflow:hidden;">
-                <textarea id="main-text-area" class="text-layer ${vtClass}" wrap="off"
-                    style="width:100%; height:100%; padding:${verticalPad}px 0; background:transparent; text-align:${align}; white-space:pre; word-break:normal; overflow-wrap:normal; overflow:hidden; font-family:${family}; font-size:${size}px; line-height:${lineHeight}; letter-spacing:${letterSpacing}px;"
+                <div id="main-richtext-area" class="canvas-rich-view ${vtClass} text-layer" contenteditable="true"
                     onmousedown="event.stopPropagation()"
                     onclick="event.stopPropagation()"
                     ontouchstart="event.stopPropagation()"
-                    oninput="updateActiveText(this.value, event)">${sectionText}</textarea>
+                    oninput="updatePageRichTextFromCanvas(this)"
+                    style="width:100%; height:100%; padding:${verticalPad}px 0; overflow:hidden; text-align:${align}; font-family:${family}; font-size:${size}px; line-height:${lineHeight}; letter-spacing:${letterSpacing}px;">${richHtml}</div>
             </div>`;
+        } else {
+            const layout = ensureComposedLayoutForActiveLang(s);
+            const sectionText = (layout?.lines || []).join('\n');
+            const vtClass = effectiveMode === 'vertical-rl' ? 'v-text' : '';
+            const align = langProps.sectionAlign;
+            const frame = layout?.frame || { x: 20, y: 32, w: 320, h: 576 };
+            const font = layout?.font || {};
+            const family = font.family || '"Noto Sans","Segoe UI",sans-serif';
+            const size = Number(font.size) || 16;
+            const lineHeight = Number(font.lineHeight) || 1.8;
+            const letterSpacing = Number.isFinite(Number(font.letterSpacing)) ? Number(font.letterSpacing) : 0;
+            const verticalPad = getVerticalTextPadding(layout);
+
+            // フォーカス維持判定
+            const existing = document.getElementById('main-text-area');
+            if (existing && document.activeElement === existing) {
+                if (existing.value !== sectionText) existing.value = sectionText;
+            } else {
+                render.innerHTML = `<div class="fixed-text-frame"
+                    style="position:absolute; left:${frame.x}px; top:${frame.y}px; width:${frame.w}px; height:${frame.h}px; overflow:hidden;">
+                    <textarea id="main-text-area" class="text-layer ${vtClass}" wrap="off"
+                        style="width:100%; height:100%; padding:${verticalPad}px 0; background:transparent; text-align:${align}; white-space:pre; word-break:normal; overflow-wrap:normal; overflow:hidden; font-family:${family}; font-size:${size}px; line-height:${lineHeight}; letter-spacing:${letterSpacing}px;"
+                        onmousedown="event.stopPropagation()"
+                        onclick="event.stopPropagation()"
+                        ontouchstart="event.stopPropagation()"
+                        oninput="updateActiveText(this.value, event)">${sectionText}</textarea>
+                </div>`;
+            }
         }
         document.getElementById('image-only-props').style.display = 'none';
         document.getElementById('bubble-layer').style.display = 'none';
@@ -1108,11 +1162,6 @@ function refresh() {
         ).join('');
     } else if (!isPageBlock) {
         document.getElementById('bubble-layer').innerHTML = '';
-    }
-
-    // activeBubbleIdxが無効な場合はリセット
-    if (isPageBlock && state.activeBubbleIdx !== null && (!s.bubbles || !s.bubbles[state.activeBubbleIdx])) {
-        state.activeBubbleIdx = null;
     }
 
     // パネルUIの同期
@@ -1147,6 +1196,8 @@ function refresh() {
             : '';
     }
     const genericTextEditor = document.getElementById('generic-text-editor');
+    const pageRichTools = document.getElementById('page-richtext-tools');
+    const pageRichEditor = document.getElementById('page-richtext-editor');
     const coverFrontFields = document.getElementById('cover-front-fields');
     const coverBackFields = document.getElementById('cover-back-fields');
     const structureFields = document.getElementById('structure-fields');
@@ -1157,6 +1208,7 @@ function refresh() {
     const isCoverFront = activeBlock?.kind === 'cover_front';
     const isCoverBack = activeBlock?.kind === 'cover_back';
     const isStructureBlock = isStructureKind(activeBlock?.kind);
+    const showPageRichText = shouldUseRichTextPanelForPage;
     if (coverFrontFields) coverFrontFields.style.display = isCoverFront ? 'block' : 'none';
     if (coverBackFields) coverBackFields.style.display = isCoverBack ? 'block' : 'none';
     if (structureFields) structureFields.style.display = isStructureBlock ? 'block' : 'none';
@@ -1230,6 +1282,13 @@ function refresh() {
     if (!isCoverBack && coverBackImageFields) coverBackImageFields.style.display = 'none';
     if (!isStructureBlock && structureImageFields) structureImageFields.style.display = 'none';
     if (!isStructureBlock && structureTextFields) structureTextFields.style.display = 'none';
+    if (pageRichTools) pageRichTools.style.display = showPageRichText ? 'flex' : 'none';
+    if (pageRichEditor) {
+        pageRichEditor.style.display = showPageRichText ? 'block' : 'none';
+        if (showPageRichText && document.activeElement !== pageRichEditor) {
+            pageRichEditor.innerHTML = richTextDocToHtml(getSectionRichText(s));
+        }
+    }
 
     // 言語設定パネル内の書字方向同期
     const langModeSelect = document.getElementById('lang-writing-mode');
@@ -1263,8 +1322,13 @@ function refresh() {
         propTextEl.value = getBlockLocalizedText(activeBlock);
     }
     if (propTextEl) {
+        propTextEl.style.display = showPageRichText ? 'none' : 'block';
         propTextEl.readOnly = isAutoTocBlock(activeBlock);
     }
+    const fitEl = document.getElementById('text-fit-status');
+    if (fitEl) fitEl.style.display = showPageRichText ? 'none' : 'block';
+    const splitEl = document.getElementById('btn-split-overflow');
+    if (splitEl && showPageRichText) splitEl.style.display = 'none';
     updateTextFitStatus(isPageBlock ? s : null);
 
     // テキストラベルに現在の言語を表示
@@ -2567,6 +2631,84 @@ window.applyStructureRichTextCommand = (cmd) => {
     const doc = richTextHtmlToDoc(editor.innerHTML);
     setStructureRichText(block, doc);
     // Keep caret stable while applying inline format.
+    triggerAutoSave();
+};
+
+window.updatePageRichTextFromEditor = () => {
+    const activeBlock = getActiveBlock();
+    if (!activeBlock || activeBlock.kind !== 'page') return;
+    const s = state.sections[state.activeIdx];
+    if (!s || s.type !== 'text' || state.activeBubbleIdx !== null) return;
+    const editor = document.getElementById('page-richtext-editor');
+    if (!editor) return;
+    if (!textPushTimer) {
+        pushState();
+    } else {
+        clearTimeout(textPushTimer);
+    }
+    textPushTimer = setTimeout(() => { textPushTimer = null; }, 500);
+    const doc = richTextHtmlToDoc(editor.innerHTML);
+    setSectionRichText(s, doc);
+    composeSectionForActiveLang(s);
+    refresh();
+    triggerAutoSave();
+};
+
+window.updatePageRichTextFromCanvas = (el) => {
+    const activeBlock = getActiveBlock();
+    if (!activeBlock || activeBlock.kind !== 'page') return;
+    const s = state.sections[state.activeIdx];
+    if (!s || s.type !== 'text' || state.activeBubbleIdx !== null) return;
+    if (!el) return;
+    if (!textPushTimer) {
+        pushState();
+    } else {
+        clearTimeout(textPushTimer);
+    }
+    textPushTimer = setTimeout(() => { textPushTimer = null; }, 500);
+    const doc = richTextHtmlToDoc(el.innerHTML);
+    setSectionRichText(s, doc);
+    composeSectionForActiveLang(s);
+    const panelEditor = document.getElementById('page-richtext-editor');
+    if (panelEditor && document.activeElement !== panelEditor) {
+        panelEditor.innerHTML = el.innerHTML;
+    }
+    triggerAutoSave();
+};
+
+window.applyPageRichTextCommand = (cmd) => {
+    const activeBlock = getActiveBlock();
+    if (!activeBlock || activeBlock.kind !== 'page') return;
+    const s = state.sections[state.activeIdx];
+    if (!s || s.type !== 'text' || state.activeBubbleIdx !== null) return;
+    const editor = document.getElementById('page-richtext-editor');
+    if (!editor) return;
+    editor.focus();
+    if (!textPushTimer) {
+        pushState();
+    } else {
+        clearTimeout(textPushTimer);
+    }
+    textPushTimer = setTimeout(() => { textPushTimer = null; }, 500);
+    if (cmd === 'h1') {
+        document.execCommand('formatBlock', false, 'H1');
+    } else if (cmd === 'h2') {
+        document.execCommand('formatBlock', false, 'H2');
+    } else if (cmd === 'paragraph') {
+        document.execCommand('formatBlock', false, 'P');
+    } else if (cmd === 'bold') {
+        document.execCommand('bold');
+    } else if (cmd === 'italic') {
+        document.execCommand('italic');
+    } else if (cmd === 'underline') {
+        document.execCommand('underline');
+    } else if (cmd === 'strike') {
+        document.execCommand('strikeThrough');
+    }
+    const doc = richTextHtmlToDoc(editor.innerHTML);
+    setSectionRichText(s, doc);
+    composeSectionForActiveLang(s);
+    refresh();
     triggerAutoSave();
 };
 

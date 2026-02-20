@@ -84,6 +84,8 @@ export function createPageBlockFromSection(section) {
             bubbles: deepClone(src.bubbles || []),
             text: src.text || '',
             texts: deepClone(src.texts || {}),
+            richText: deepClone(src.richText || { blocks: [{ type: 'paragraph', children: [{ text: src.text || '' }] }] }),
+            richTextLangs: deepClone(src.richTextLangs || {}),
             layout: deepClone(src.layout || {}),
             imagePosition: deepClone(src.imagePosition || { x: 0, y: 0, scale: 1, rotation: 0 }),
             imageBasePosition: deepClone(src.imageBasePosition || { x: 0, y: 0, scale: 1, rotation: 0 })
@@ -101,6 +103,8 @@ export function createSectionFromPageBlock(block) {
         bubbles: deepClone(c.bubbles || []),
         text: c.text || '',
         texts: deepClone(c.texts || {}),
+        richText: deepClone(c.richText || { blocks: [{ type: 'paragraph', children: [{ text: c.text || '' }] }] }),
+        richTextLangs: deepClone(c.richTextLangs || {}),
         layout: deepClone(c.layout || {}),
         imagePosition: deepClone(c.imagePosition || { x: 0, y: 0, scale: 1, rotation: 0 }),
         imageBasePosition: deepClone(c.imageBasePosition || { x: 0, y: 0, scale: 1, rotation: 0 })

@@ -575,6 +575,22 @@ function renderStructureTextPage(contentEl, page, lang) {
     </div>`;
 }
 
+function renderRichDocHtml(doc) {
+    const renderInline = (child) => {
+        let out = escapeHtml(child?.text || '').replace(/\n/g, '<br>');
+        if (child?.strike) out = `<s>${out}</s>`;
+        if (child?.underline) out = `<u>${out}</u>`;
+        if (child?.italic) out = `<i>${out}</i>`;
+        if (child?.bold) out = `<b>${out}</b>`;
+        return out;
+    };
+    return (doc?.blocks || []).map((b) => {
+        const tag = b?.type === 'h1' ? 'h1' : (b?.type === 'h2' ? 'h2' : 'p');
+        const children = Array.isArray(b?.children) && b.children.length ? b.children : [{ text: '' }];
+        return `<${tag}>${children.map(renderInline).join('') || '<br>'}</${tag}>`;
+    }).join('');
+}
+
 function renderTocPage(contentEl, pages, lang, pageIndex = 0) {
     const outline = buildOutlineFromPages(pages, lang, 'item');
     const tocPageIndices = [];
@@ -652,6 +668,38 @@ function refresh() {
         const imgStyle = `width:100%; height:100%; object-fit:cover; transform: translate(${x}px, ${y}px) scale(${scale}) rotate(${rotation}deg); transform-origin: center center;`;
         contentEl.innerHTML = `<img src="${p.content?.background || ''}" style="${imgStyle}">`;
     } else if (hasPages && p && p.pageType === 'normal_text') {
+        const richDoc = p.content?.richTextLangs?.[lang] || p.content?.richText || null;
+        if (Array.isArray(richDoc?.blocks) && richDoc.blocks.length) {
+            const vtClass = mode === 'vertical-rl' ? 'v-text' : '';
+            const langProps = getLangProps(lang);
+            const align = langProps.sectionAlign;
+            const layout = getComposedLayoutForViewerPage(p, lang);
+            const frame = layout?.frame || { x: 20, y: 32, w: 320, h: 576 };
+            const font = layout?.font || {};
+            const fontFamily = font.family || '"Noto Sans","Segoe UI",sans-serif';
+            const fontSize = Number(font.size) || 16;
+            const lineHeight = Number(font.lineHeight) || 1.8;
+            const letterSpacing = Number.isFinite(Number(font.letterSpacing)) ? Number(font.letterSpacing) : 0;
+            const verticalPad = getVerticalTextPadding(layout);
+            const richHtml = renderRichDocHtml(richDoc);
+            contentEl.innerHTML = `<div class="viewer-text-page">
+                <div class="viewer-text-block ${vtClass}"
+                    style="left:${frame.x}px; top:${frame.y}px; width:${frame.w}px; height:${frame.h}px; box-sizing:border-box; overflow:hidden; white-space:normal; overflow-wrap:anywhere; word-break:break-word; padding:${verticalPad}px 0; text-align:${align}; font-family:${fontFamily}; font-size:${fontSize}px; line-height:${lineHeight}; letter-spacing:${letterSpacing}px;">
+                    ${richHtml}
+                </div>
+            </div>`;
+            bubblesEl.innerHTML = '';
+            updateViewerFrameOutline(mode, {
+                x: frame.x,
+                y: frame.y,
+                w: frame.w,
+                h: frame.h
+            });
+            updateNavDirectionByMode(mode);
+            updatePageCounter(pageIndex, totalPages);
+            updateLangTabsUI();
+            return;
+        }
         const vtClass = mode === 'vertical-rl' ? 'v-text' : '';
         const langProps = getLangProps(lang);
         const align = langProps.sectionAlign;

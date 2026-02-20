@@ -311,6 +311,16 @@
 
                     <div id="generic-text-editor">
                         <label id="text-label">テキスト入力 (選択中の吹き出し or 背景テキスト)</label>
+                        <div id="page-richtext-tools" class="rt-toolbar" style="display:none;">
+                            <button type="button" class="btn-sm" onclick="applyPageRichTextCommand('h1')">H1</button>
+                            <button type="button" class="btn-sm" onclick="applyPageRichTextCommand('h2')">H2</button>
+                            <button type="button" class="btn-sm" onclick="applyPageRichTextCommand('bold')"><b>B</b></button>
+                            <button type="button" class="btn-sm" onclick="applyPageRichTextCommand('italic')"><i>I</i></button>
+                            <button type="button" class="btn-sm" onclick="applyPageRichTextCommand('underline')"><u>U</u></button>
+                            <button type="button" class="btn-sm" onclick="applyPageRichTextCommand('strike')"><s>S</s></button>
+                            <button type="button" class="btn-sm" onclick="applyPageRichTextCommand('paragraph')">P</button>
+                        </div>
+                        <div id="page-richtext-editor" class="rt-editor" style="display:none;" contenteditable="true" oninput="updatePageRichTextFromEditor()"></div>
                         <textarea id="prop-text" rows="5" oninput="updateActiveText(this.value, event)"></textarea>
                         <div id="text-fit-status" class="field-label" style="margin:-4px 0 8px 0;"></div>
                         <button id="btn-split-overflow" class="btn-sm" style="display:none; margin-bottom:10px;" onclick="splitOverflowToNextPage()">残りを次ページに分割</button>
