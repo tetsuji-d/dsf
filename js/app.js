@@ -569,14 +569,71 @@ function isValidEmail(value) {
     return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(value || '').trim());
 }
 
+let validationIssueStore = [];
+let validationIssueFilter = 'all';
+let validationIssueContextLabel = '公開';
+
+function applyValidationIssueFilter(list, filter) {
+    if (filter === 'cover_front') return list.filter((issue) => issue?.role === 'cover_front');
+    if (filter === 'cover_back') return list.filter((issue) => issue?.role === 'cover_back');
+    if (filter === 'structure') return list.filter((issue) => issue?.role === 'chapter' || issue?.role === 'section' || issue?.role === 'item');
+    return list;
+}
+
+function renderValidationIssueList() {
+    const listEl = document.getElementById('validation-issues');
+    const summaryEl = document.getElementById('validation-summary');
+    const filterEls = document.querySelectorAll('[data-validation-filter]');
+    if (!listEl || !summaryEl) return;
+
+    filterEls.forEach((el) => {
+        el.classList.toggle('active', el.dataset.validationFilter === validationIssueFilter);
+    });
+
+    const all = Array.isArray(validationIssueStore) ? validationIssueStore : [];
+    const filtered = applyValidationIssueFilter(all, validationIssueFilter);
+    summaryEl.textContent = `${validationIssueContextLabel}できません。必須項目を入力してください（${filtered.length}/${all.length}件）。`;
+    listEl.innerHTML = '';
+    if (!filtered.length) {
+        const note = document.createElement('div');
+        note.className = 'validation-note';
+        note.textContent = 'このフィルタに該当するエラーはありません。';
+        listEl.appendChild(note);
+        return;
+    }
+
+    filtered.slice(0, 300).forEach((issue, i) => {
+        const row = document.createElement('button');
+        row.type = 'button';
+        row.className = 'validation-issue';
+        row.textContent = `P${(issue?.pageIdx ?? 0) + 1}: ${issue?.message || ''}`;
+        row.onclick = () => jumpToValidationIssuePage(issue?.pageIdx ?? 0);
+        listEl.appendChild(row);
+        if (i === 0) {
+            setTimeout(() => row.focus(), 0);
+        }
+    });
+    if (filtered.length > 300) {
+        const note = document.createElement('div');
+        note.className = 'validation-note';
+        note.textContent = `...他 ${filtered.length - 300} 件`;
+        listEl.appendChild(note);
+    }
+}
+
+function setValidationIssueFilter(filter) {
+    validationIssueFilter = ['all', 'cover_front', 'cover_back', 'structure'].includes(filter) ? filter : 'all';
+    renderValidationIssueList();
+}
+
 function validateProjectForPublishOrExport() {
     syncBlocksFromState();
     const pages = Array.isArray(state.pages) ? state.pages : [];
     const langs = Array.isArray(state.languages) && state.languages.length ? state.languages : ['ja'];
     const issues = [];
 
-    const addIssue = (pageIdx, message) => {
-        issues.push(`P${pageIdx + 1}: ${message}`);
+    const addIssue = (pageIdx, role, message) => {
+        issues.push({ pageIdx, role, message });
     };
 
     for (let i = 0; i < pages.length; i += 1) {
@@ -586,34 +643,34 @@ function validateProjectForPublishOrExport() {
 
         if (role === 'cover_front') {
             for (const lang of langs) {
-                if (!hasLocalizedValue(meta.title, lang)) addIssue(i, `表紙 タイトル[${lang}] が未入力`);
-                if (!hasLocalizedValue(meta.subtitle, lang)) addIssue(i, `表紙 サブタイトル[${lang}] が未入力`);
-                if (!hasLocalizedValue(meta.author, lang)) addIssue(i, `表紙 著者名[${lang}] が未入力`);
-                if (!hasLocalizedValue(meta.supervisor, lang)) addIssue(i, `表紙 監修者名[${lang}] が未入力`);
-                if (!hasLocalizedValue(meta.publisher, lang)) addIssue(i, `表紙 出版社名[${lang}] が未入力`);
+                if (!hasLocalizedValue(meta.title, lang)) addIssue(i, role, `表紙 タイトル[${lang}] が未入力`);
+                if (!hasLocalizedValue(meta.subtitle, lang)) addIssue(i, role, `表紙 サブタイトル[${lang}] が未入力`);
+                if (!hasLocalizedValue(meta.author, lang)) addIssue(i, role, `表紙 著者名[${lang}] が未入力`);
+                if (!hasLocalizedValue(meta.supervisor, lang)) addIssue(i, role, `表紙 監修者名[${lang}] が未入力`);
+                if (!hasLocalizedValue(meta.publisher, lang)) addIssue(i, role, `表紙 出版社名[${lang}] が未入力`);
             }
         }
 
         if (role === 'cover_back') {
             for (const lang of langs) {
-                if (!hasLocalizedValue(meta.edition, lang)) addIssue(i, `裏表紙 版[${lang}] が未入力`);
+                if (!hasLocalizedValue(meta.edition, lang)) addIssue(i, role, `裏表紙 版[${lang}] が未入力`);
             }
             const contacts = Array.isArray(meta.contacts) ? meta.contacts : [];
             if (!contacts.length) {
-                addIssue(i, '裏表紙 連絡先が未入力');
+                addIssue(i, role, '裏表紙 連絡先が未入力');
             } else {
                 contacts.forEach((c, idx) => {
                     const type = c?.type || 'other';
                     const value = String(c?.value || '').trim();
                     if (!value) {
-                        addIssue(i, `裏表紙 連絡先#${idx + 1} が未入力`);
+                        addIssue(i, role, `裏表紙 連絡先#${idx + 1} が未入力`);
                         return;
                     }
                     if (type === 'url' && !isValidHttpUrl(value)) {
-                        addIssue(i, `裏表紙 連絡先#${idx + 1} URL形式が不正 (http/https必須)`);
+                        addIssue(i, role, `裏表紙 連絡先#${idx + 1} URL形式が不正 (http/https必須)`);
                     }
                     if (type === 'email' && !isValidEmail(value)) {
-                        addIssue(i, `裏表紙 連絡先#${idx + 1} メール形式が不正`);
+                        addIssue(i, role, `裏表紙 連絡先#${idx + 1} メール形式が不正`);
                     }
                 });
             }
@@ -623,7 +680,7 @@ function validateProjectForPublishOrExport() {
             for (const lang of langs) {
                 if (!hasLocalizedValue(meta.title, lang)) {
                     const label = role === 'chapter' ? '章' : (role === 'section' ? '節' : '項');
-                    addIssue(i, `${label} タイトル[${lang}] が未入力`);
+                    addIssue(i, role, `${label} タイトル[${lang}] が未入力`);
                 }
             }
         }
@@ -635,14 +692,54 @@ function validateProjectForPublishOrExport() {
     };
 }
 
+function jumpToValidationIssuePage(pageIdx) {
+    const pages = Array.isArray(state.pages) ? state.pages : [];
+    if (!pages.length) return;
+    const idx = Math.max(0, Math.min(Number(pageIdx) || 0, pages.length - 1));
+    state.activeIdx = idx;
+    state.activePageIdx = idx;
+    const blockIdx = getBlockIndexFromPageIndex(state.blocks || [], idx);
+    if (blockIdx >= 0) state.activeBlockIdx = blockIdx;
+    state.activeBubbleIdx = null;
+    closePublishValidationModal();
+    refresh();
+    const thumbEl = getThumbElement(idx);
+    if (thumbEl) thumbEl.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+}
+
+function closePublishValidationModal() {
+    const modal = document.getElementById('validation-modal');
+    if (!modal) return;
+    modal.classList.remove('visible');
+}
+
 function showPublishValidationErrors(issues, contextLabel) {
+    const list = Array.isArray(issues) ? issues : [];
+    const modal = document.getElementById('validation-modal');
+    const summaryEl = document.getElementById('validation-summary');
+    const listEl = document.getElementById('validation-issues');
+    const filterWrap = document.getElementById('validation-filters');
+
+    if (modal && summaryEl && listEl && filterWrap) {
+        validationIssueStore = list.map((issue) => ({
+            pageIdx: issue?.pageIdx ?? 0,
+            role: issue?.role || 'other',
+            message: issue?.message || ''
+        }));
+        validationIssueContextLabel = contextLabel;
+        validationIssueFilter = 'all';
+        renderValidationIssueList();
+        modal.classList.add('visible');
+        return;
+    }
+
     const lines = [
         `${contextLabel}できません。`,
         '必須項目を入力してください:',
-        ...issues.slice(0, 60)
+        ...list.slice(0, 60).map((issue) => `P${(issue?.pageIdx ?? 0) + 1}: ${issue?.message || ''}`)
     ];
-    if (issues.length > 60) {
-        lines.push(`...他 ${issues.length - 60} 件`);
+    if (list.length > 60) {
+        lines.push(`...他 ${list.length - 60} 件`);
     }
     alert(lines.join('\n'));
 }
@@ -1682,6 +1779,9 @@ function onLoadProject(pid, sections, languages, defaultLang, languageConfigs, t
 
 // --- キーボードショートカット ---
 document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') {
+        closePublishValidationModal();
+    }
     if ((e.ctrlKey || e.metaKey) && !e.shiftKey && e.key === 'z') {
         e.preventDefault();
         undo(refresh);
@@ -2264,6 +2364,8 @@ window.removeLang = (code) => {
 // プロジェクトモーダル
 window.openProjectModal = () => openProjectModal(onLoadProject);
 window.closeProjectModal = closeProjectModal;
+window.closePublishValidationModal = closePublishValidationModal;
+window.setValidationIssueFilter = setValidationIssueFilter;
 
 // 新規プロジェクト
 window.newProject = () => {

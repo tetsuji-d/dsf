@@ -251,6 +251,27 @@
                         <label>連絡先（1行1件）</label>
                         <textarea id="cover-back-contacts" rows="4" oninput="updateCoverBackContacts(this.value)"></textarea>
                     </div>
+                    <div id="structure-fields" class="panel-subform" style="display:none;">
+                        <label>タイトル</label>
+                        <input id="structure-title" type="text" oninput="updateStructureTitle(this.value)">
+                        <label>見出しタイプ</label>
+                        <select id="structure-body-kind" onchange="updateStructureBodyKind(this.value)">
+                            <option value="text">テキスト</option>
+                            <option value="image">イメージ</option>
+                        </select>
+                        <div id="structure-image-fields" style="display:none;">
+                            <label>見出し画像</label>
+                            <div class="inline-actions">
+                                <button class="btn-sm" onclick="document.getElementById('file-upload-structure').click()" data-auth-required>
+                                    <span class="material-icons inline-icon">image</span> 画像変更
+                                </button>
+                            </div>
+                        </div>
+                        <div id="structure-text-fields" style="display:none;">
+                            <label>本文</label>
+                            <textarea id="structure-body-text" rows="5" oninput="updateStructureBodyText(this.value)"></textarea>
+                        </div>
+                    </div>
                     <label>タイプ</label>
                     <select id="prop-type" onchange="update('type', this.value)">
                         <option value="image">イメージセクション</option>
@@ -287,6 +308,7 @@
                     </div>
                     <button id="btn-delete-active" class="btn btn-danger" onclick="deleteActive()">削除</button>
                     <input type="file" id="file-upload-cover" accept="image/*" onchange="uploadCoverToStorage(this)" data-auth-required style="display:none;">
+                    <input type="file" id="file-upload-structure" accept="image/*" onchange="uploadStructureToStorage(this)" data-auth-required style="display:none;">
                 </div>
 
                 <div class="control-group">
@@ -373,6 +395,29 @@
             </div>
             <div class="modal-body">
                 <div id="project-grid"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 公開/エクスポート検証モーダル -->
+    <div id="validation-modal">
+        <div class="modal-overlay" onclick="closePublishValidationModal()"></div>
+        <div class="modal-content validation-modal-content">
+            <div class="modal-header">
+                <h2>⚠ 必須項目チェック</h2>
+                <div class="modal-header-actions">
+                    <button class="btn-modal" onclick="closePublishValidationModal()">閉じる</button>
+                </div>
+            </div>
+            <div class="modal-body validation-modal-body">
+                <p id="validation-summary"></p>
+                <div id="validation-filters">
+                    <button type="button" class="validation-filter active" data-validation-filter="all" onclick="setValidationIssueFilter('all')">全件</button>
+                    <button type="button" class="validation-filter" data-validation-filter="cover_front" onclick="setValidationIssueFilter('cover_front')">表紙</button>
+                    <button type="button" class="validation-filter" data-validation-filter="cover_back" onclick="setValidationIssueFilter('cover_back')">裏表紙</button>
+                    <button type="button" class="validation-filter" data-validation-filter="structure" onclick="setValidationIssueFilter('structure')">章/節/項</button>
+                </div>
+                <div id="validation-issues"></div>
             </div>
         </div>
     </div>

@@ -1067,14 +1067,16 @@ body.right-collapsed #panel-right {
 }
 
 /* === project modal === */
-#project-modal {
+#project-modal,
+#validation-modal {
     display: none;
     position: fixed;
     inset: 0;
     z-index: 3000;
 }
 
-#project-modal.visible {
+#project-modal.visible,
+#validation-modal.visible {
     display: flex;
     align-items: center;
     justify-content: center;
@@ -1134,6 +1136,72 @@ body.right-collapsed #panel-right {
 .modal-body {
     padding: 18px 20px;
     overflow-y: auto;
+}
+
+.validation-modal-content {
+    width: min(760px, 94vw);
+}
+
+.validation-modal-body {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+#validation-summary {
+    margin: 0;
+    font-size: 14px;
+    color: #32445f;
+}
+
+#validation-filters {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+.validation-filter {
+    border: 1px solid #ccd5e2;
+    background: #fff;
+    color: #2d4261;
+    border-radius: 999px;
+    padding: 6px 12px;
+    font-size: 12px;
+    cursor: pointer;
+}
+
+.validation-filter.active {
+    border-color: var(--primary);
+    background: rgba(57, 111, 189, 0.12);
+    color: var(--primary-dark);
+}
+
+#validation-issues {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.validation-issue {
+    width: 100%;
+    text-align: left;
+    border: 1px solid #d5dfec;
+    background: #fff;
+    color: #22314a;
+    border-radius: 8px;
+    padding: 10px 12px;
+    cursor: pointer;
+}
+
+.validation-issue:hover {
+    background: #f7faff;
+    border-color: #98b3df;
+}
+
+.validation-note {
+    margin-top: 4px;
+    font-size: 12px;
+    color: #627594;
 }
 
 #project-grid {
