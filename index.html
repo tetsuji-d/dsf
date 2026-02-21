@@ -334,8 +334,7 @@
                     <div id="image-only-props">
                         <label>背景画像変更 / 位置調整</label>
                         <div class="inline-actions">
-                            <button class="btn-sm" onclick="document.getElementById('file-upload').click()"
-                                data-auth-required>
+                            <button class="btn-sm" onclick="document.getElementById('file-upload').click()">
                                 <span class="material-icons inline-icon">image</span> 画像変更
                             </button>
                             <button class="btn-sm" onclick="toggleImageAdjustment()" id="btn-adjust-img-panel"
@@ -344,7 +343,7 @@
                             </button>
                         </div>
                         <input type="file" id="file-upload" accept="image/*" onchange="uploadToStorage(this)"
-                            data-auth-required style="display:none;">
+                            style="display:none;">
                     </div>
 
                     <div id="bubble-shape-props">

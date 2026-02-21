@@ -256,6 +256,7 @@ export async function parseAndLoadDSP(file) {
     return {
         projectId: projectData.projectId || "local_import",
         title: meta.title || "Untitled",
+        languages: meta.languages || ["ja"],
         languageConfigs: projectData.languageConfigs || { ja: { writingMode: 'vertical-rl', fontPreset: 'gothic' } },
         uiPrefs: projectData.uiPrefs || null,
         sections: projectData.sections || [],

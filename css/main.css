@@ -307,6 +307,23 @@ body.auth-guest .auth-warning-badge {
     z-index: 50;
     background-color: transparent;
     transition: background-color 0.2s ease;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+#panel-right .resizer::after {
+    content: "";
+    width: 2px;
+    height: 32px;
+    background-color: var(--line);
+    border-radius: 2px;
+    transition: background-color 0.2s ease;
+}
+
+#panel-right .resizer:hover::after,
+#panel-right .resizer.dragging::after {
+    background-color: #fff;
 }
 
 #panel-right .resizer:hover,

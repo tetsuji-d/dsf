@@ -3229,30 +3229,40 @@ function initSidebarResizer() {
 
     let isResizing = false;
 
-    resizer.addEventListener('mousedown', (e) => {
+    const startResize = (e) => {
         isResizing = true;
         resizer.classList.add('dragging');
         document.body.style.cursor = 'col-resize';
         document.body.style.userSelect = 'none';
-        e.preventDefault();
-    });
+        if (e.type === 'mousedown') e.preventDefault();
+    };
 
-    window.addEventListener('mousemove', (e) => {
+    const doResize = (e) => {
         if (!isResizing) return;
-        let newWidth = window.innerWidth - e.clientX;
+        const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+        let newWidth = window.innerWidth - clientX;
         if (newWidth < 200) newWidth = 200;
         if (newWidth > 800) newWidth = 800;
         document.body.style.setProperty('--right-panel-width', `${newWidth}px`);
-    });
+    };
 
-    window.addEventListener('mouseup', () => {
+    const stopResize = () => {
         if (isResizing) {
             isResizing = false;
             resizer.classList.remove('dragging');
             document.body.style.cursor = '';
             document.body.style.userSelect = '';
         }
-    });
+    };
+
+    resizer.addEventListener('mousedown', startResize);
+    resizer.addEventListener('touchstart', startResize, { passive: true });
+
+    window.addEventListener('mousemove', doResize);
+    window.addEventListener('touchmove', doResize, { passive: true });
+
+    window.addEventListener('mouseup', stopResize);
+    window.addEventListener('touchend', stopResize);
 }
 
 initCanvasZoom(); // Initialize zoom/pan
