@@ -109,11 +109,24 @@ export async function buildDSP() {
 
     zip.file("project.json", JSON.stringify(projectData, null, 2));
 
-    // 4. Generate ZIP ArrayBuffer
+    // 4. Determine Filename
+    const safeTitle = (meta.title || 'project').replace(/[\\/:*?"<>|]/g, '_');
+    const defaultFilename = `${safeTitle}.dsp`;
+    let filename = prompt("保存するファイル名を入力してください:", defaultFilename);
+
+    if (filename === null) {
+        return; // User cancelled
+    }
+    if (!filename.trim()) {
+        filename = defaultFilename;
+    } else if (!filename.toLowerCase().endsWith('.dsp')) {
+        filename += '.dsp';
+    }
+
+    // 5. Generate ZIP ArrayBuffer
     const content = await zip.generateAsync({ type: "blob" });
 
-    // 5. Trigger Download
-    const filename = `${meta.title.replace(/[^a-z0-9]/gi, '_').toLowerCase() || 'project'}.dsp`;
+    // 6. Trigger Download
     saveAs(content, filename);
 }
 
@@ -168,11 +181,24 @@ export async function buildDSF() {
 
     zip.file("content.json", JSON.stringify(contentData, null, 2));
 
-    // 4. Generate ZIP ArrayBuffer
+    // 4. Determine Filename
+    const safeTitle = (meta.title || 'comic').replace(/[\\/:*?"<>|]/g, '_');
+    const defaultFilename = `${safeTitle}.dsf`;
+    let filename = prompt("配信データのエクスポート名を入力してください:", defaultFilename);
+
+    if (filename === null) {
+        return; // User cancelled
+    }
+    if (!filename.trim()) {
+        filename = defaultFilename;
+    } else if (!filename.toLowerCase().endsWith('.dsf')) {
+        filename += '.dsf';
+    }
+
+    // 5. Generate ZIP ArrayBuffer
     const content = await zip.generateAsync({ type: "blob" });
 
-    // 5. Trigger Download
-    const filename = `${meta.title.replace(/[^a-z0-9]/gi, '_').toLowerCase() || 'comic'}.dsf`;
+    // 6. Trigger Download
     saveAs(content, filename);
 }
 
