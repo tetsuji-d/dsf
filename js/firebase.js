@@ -18,9 +18,12 @@ import {
     onAuthStateChanged
 } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js";
 import { state, dispatch, actionTypes } from './state.js';
-import { getBlockIndexFromPageIndex, syncBlocksWithSections } from './blocks.js';
+import { getBlockIndexFromPageIndex } from './blocks.js';
 import { PAGE_SCHEMA_VERSION, blocksToPages, normalizeProjectDataV5 } from './pages.js';
 import { composeCanonicalLayoutsForSections } from './layout.js';
+import { set as idbSet } from 'idb-keyval';
+
+window.localImageMap = window.localImageMap || {};
 
 // --- Firebase Config ---
 const firebaseConfig = {
@@ -193,8 +196,6 @@ function updateSaveIndicator(status, message) {
  * 自動保存をトリガーする（2秒デバウンス）
  */
 export function triggerAutoSave() {
-    if (!state.projectId || !state.uid) return;
-
     if (autoSaveTimer) clearTimeout(autoSaveTimer);
 
     updateSaveIndicator('idle', '未保存');
@@ -208,33 +209,46 @@ export function triggerAutoSave() {
  * 実際の保存処理
  */
 async function performSave() {
-    if (!state.projectId || !state.uid) return;
     composeCanonicalLayoutsForSections(state.sections, state.languages, state.languageConfigs);
     state.blocks = syncBlocksWithSections(state.blocks, state.sections, state.languages);
     state.pages = blocksToPages(state.blocks);
 
     updateSaveIndicator('saving', '保存中...');
 
+    // 1. ローカルバックアップ (常に実行)
     try {
-        await setDoc(projectDocRef(state.projectId), {
-            version: PAGE_SCHEMA_VERSION,
-            title: state.title || '',
-            pages: state.pages,
-            blocks: state.blocks,
-            sections: state.sections,
-            languages: state.languages,
-            defaultLang: state.defaultLang || state.languages?.[0] || 'ja',
-            languageConfigs: state.languageConfigs,
-            uiPrefs: state.uiPrefs || null,
-            ownerUid: state.uid,
-            ownerEmail: state.user?.email || '',
-            lastUpdated: new Date()
+        await idbSet('dsf_autosave', {
+            state: JSON.parse(JSON.stringify(state)),
+            imageMap: window.localImageMap
         });
-        updateSaveIndicator('saved', '保存済み');
-        console.log(`[DSF] Auto-saved project: ${state.projectId}`);
+        updateSaveIndicator('saved', '保存済み (Local)');
     } catch (e) {
-        console.error("[DSF] Auto-save failed:", e);
-        updateSaveIndicator('error', '保存失敗');
+        console.warn("[DSF] Local auto-save to IndexedDB failed:", e);
+    }
+
+    // 2. クラウドバックアップ (ログイン時のみ)
+    if (state.projectId && state.uid) {
+        try {
+            await setDoc(projectDocRef(state.projectId), {
+                version: PAGE_SCHEMA_VERSION,
+                title: state.title || '',
+                pages: state.pages,
+                blocks: state.blocks,
+                sections: state.sections,
+                languages: state.languages,
+                defaultLang: state.defaultLang || state.languages?.[0] || 'ja',
+                languageConfigs: state.languageConfigs,
+                uiPrefs: state.uiPrefs || null,
+                ownerUid: state.uid,
+                ownerEmail: state.user?.email || '',
+                lastUpdated: new Date()
+            });
+            updateSaveIndicator('saved', '保存済み (Cloud)');
+            console.log(`[DSF] Auto-saved project to cloud: ${state.projectId}`);
+        } catch (e) {
+            console.error("[DSF] Cloud auto-save failed:", e);
+            updateSaveIndicator('error', '保存失敗 (Cloud)');
+        }
     }
 }
 
@@ -411,13 +425,13 @@ export async function generateCroppedThumbnail(bgUrl, pos, refresh) {
 }
 
 /**
- * 画像をFirebase Storageにアップロードし、セクションの背景に設定する
+ * 画像をアップロードし、セクションの背景に設定する
  * クライアント側でWebP変換・サムネイル生成を行う
+ * 未ログイン(Guest)の場合は IndexedDB に一時保存して ObjectURL を返す
  * @param {HTMLInputElement} input - ファイル入力要素
  * @param {function} refresh - 画面更新コールバック
  */
 export async function uploadToStorage(input, refresh) {
-    const uid = requireUid();
     const file = input.files[0];
     if (!file) return;
 
@@ -434,6 +448,43 @@ export async function uploadToStorage(input, refresh) {
         const timestamp = Date.now();
         const filename = file.name.replace(/\.[^/.]+$/, "");
 
+        // --- ゲスト（未ログイン）モード時のローカル保存処理 ---
+        if (!state.uid) {
+            document.getElementById('text-label').innerText = "ローカル保存中...";
+
+            const mainKey = `local_img_main_${timestamp}`;
+            const thumbKey = `local_img_thumb_${timestamp}`;
+
+            await Promise.all([
+                idbSet(mainKey, mainBlob),
+                idbSet(thumbKey, thumbBlob)
+            ]);
+
+            const mainUrl = URL.createObjectURL(mainBlob);
+            const thumbUrl = URL.createObjectURL(thumbBlob);
+
+            // マッピングを保持 (IndexedDBのキーとURLを紐づける)
+            window.localImageMap[mainUrl] = mainKey;
+            window.localImageMap[thumbUrl] = thumbKey;
+
+            // ステート更新
+            const newSections = [...state.sections];
+            newSections[state.activeIdx].background = mainUrl;
+            newSections[state.activeIdx].thumbnail = thumbUrl;
+            newSections[state.activeIdx].imagePosition = { x: 0, y: 0, scale: 1, rotation: 0 };
+            newSections[state.activeIdx].imageBasePosition = { x: 0, y: 0, scale: 1, rotation: 0 };
+            dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'sections', value: newSections } });
+
+            refresh();
+            triggerAutoSave();
+
+            document.getElementById('text-label').innerText = "完了！";
+            setTimeout(() => { document.getElementById('text-label').innerText = originalText; }, 2000);
+            return;
+        }
+
+        // --- ログイン時の Firebase Storage 保存処理 ---
+        const uid = state.uid;
         const mainPath = `users/${uid}/dsf/${timestamp}_${filename}.webp`;
         const thumbPath = `users/${uid}/dsf/thumbs/${timestamp}_${filename}_thumb.webp`;
 

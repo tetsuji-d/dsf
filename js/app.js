@@ -13,6 +13,7 @@ import { getBlockIndexFromPageIndex, getPageIndexFromBlockIndex, migrateSections
 import { PAGE_SCHEMA_VERSION, blocksToPages, normalizeProjectDataV5, buildOutlineFromPages } from './pages.js';
 import { THEME_TEMPLATES, THEME_PALETTES, getThemePalette, getThemeTemplate } from './theme-presets.js';
 import { buildDSP, buildDSF, parseAndLoadDSP } from './export.js';
+import { get as idbGet } from 'idb-keyval';
 
 // ──────────────────────────────────────
 //  ヘルパー: セクションテキストの多言語取得・設定
@@ -3161,22 +3162,66 @@ onAuthChanged((user) => {
 });
 
 // --- 初回描画 ---
-initUIChrome();
-ensureUiPrefs();
-applyThumbColumnsFromPrefs();
-consumeRedirectResult().catch((e) => {
-    const code = e?.code || '';
-    let detail = e?.message || 'unknown error';
-    if (code === 'auth/unauthorized-domain') {
-        detail = 'Firebase AuthのAuthorized domainsに現在のホストが未登録です。';
-    } else if (code === 'auth/redirect-state-lost') {
-        detail = 'iPhoneでリダイレクト後の認証状態が復元できませんでした。Cookie/トラッキング設定を確認してください。';
+async function bootstrapApp() {
+    initUIChrome();
+    ensureUiPrefs();
+    applyThumbColumnsFromPrefs();
+
+    // Prevent local restore if we are explicitly loading a cloud project via URL
+    const urlParams = new URLSearchParams(window.location.search);
+    const hasCloudId = urlParams.has('id');
+
+    consumeRedirectResult().catch((e) => {
+        const code = e?.code || '';
+        let detail = e?.message || 'unknown error';
+        if (code === 'auth/unauthorized-domain') {
+            detail = 'Firebase AuthのAuthorized domainsに現在のホストが未登録です。';
+        } else if (code === 'auth/redirect-state-lost') {
+            detail = 'iPhoneでリダイレクト後の認証状態が復元できませんでした。Cookie/トラッキング設定を確認してください。';
+        }
+        alert(`ログイン復帰に失敗しました (${code || 'no-code'}): ${detail}`);
+    });
+
+    if (!hasCloudId) {
+        try {
+            const backup = await idbGet('dsf_autosave');
+            if (backup && backup.state) {
+                console.log("[DSF] Found local auto-save backup. Restoring...");
+
+                // Restore object URLs for unsaved guest images
+                let stateStr = JSON.stringify(backup.state);
+                const restoredMap = {};
+
+                if (backup.imageMap) {
+                    for (const [oldUrl, localId] of Object.entries(backup.imageMap)) {
+                        const blob = await idbGet(localId);
+                        if (blob) {
+                            const newUrl = URL.createObjectURL(blob);
+                            restoredMap[newUrl] = localId; // keep the new mapping alive
+                            stateStr = stateStr.split(oldUrl).join(newUrl);
+                        }
+                    }
+                }
+
+                window.localImageMap = restoredMap;
+                const restoredState = JSON.parse(stateStr);
+
+                // Only dispatch state keys that exist in our actual store
+                dispatch({ type: actionTypes.LOAD_PROJECT, payload: restoredState });
+                console.log("[DSF] Auto-save restored successfully.");
+            }
+        } catch (err) {
+            console.warn("[DSF] Error restoring local auto-save:", err);
+        }
     }
-    alert(`ログイン復帰に失敗しました (${code || 'no-code'}): ${detail}`);
-});
-refresh();
-renderLangSettings();
-updateAuthUI();
+
+    refresh();
+    renderLangSettings();
+    updateAuthUI();
+}
+
+bootstrapApp();
+
 // --- 右サイドバーリサイザー初期化 ---
 function initSidebarResizer() {
     const resizer = document.getElementById('resizer-right');

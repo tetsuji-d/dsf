@@ -15,6 +15,7 @@
   "dependencies": {
     "file-saver": "^2.0.5",
     "firebase": "^10.7.1",
+    "idb-keyval": "^6.2.2",
     "jszip": "^3.10.1"
   }
 }
