@@ -1030,9 +1030,10 @@ function closePublishValidationModal() {
 }
 
 window.proceedWithValidationWarnings = () => {
+    const cb = validationProceedCallback;
     closePublishValidationModal();
-    if (typeof validationProceedCallback === 'function') {
-        validationProceedCallback();
+    if (typeof cb === 'function') {
+        cb();
     }
 };
 
