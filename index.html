@@ -120,8 +120,9 @@
                         <button class="btn-tool" onclick="openProjectModal()" data-auth-required>☁ クラウドから開く</button>
                         <button class="btn-tool" onclick="document.getElementById('dsp-upload').click()"
                             title=".dspファイルを読み込みます">📁 ローカルから開く</button>
-                        <input type="file" id="dsp-upload" accept=".dsp" style="display: none;"
-                            onchange="importDSP(event)">
+                        <input type="file" id="dsp-upload"
+                            accept=".dsp,.dsf,.zip,application/zip,application/x-zip-compressed,multipart/x-zip"
+                            style="display: none;" onchange="importDSP(event)">
                     </div>
                     <div class="ribbon-group">
                         <span class="field-label">Language</span>
@@ -440,6 +441,11 @@
             <div id="mobile-sheet-export" class="mobile-sheet-content">
                 <button class="btn-tool" onclick="saveProject()" data-auth-required>☁ クラウド保存</button>
                 <button class="btn-tool" onclick="shareProject()" data-auth-required>🔗 Share</button>
+                <button class="btn-tool" onclick="document.getElementById('dsp-upload-mobile').click()">📁 ローカルから開く
+                    (.dsp)</button>
+                <input type="file" id="dsp-upload-mobile"
+                    accept=".dsp,.dsf,.zip,application/zip,application/x-zip-compressed,multipart/x-zip"
+                    style="display: none;" onchange="importDSP(event)">
                 <button class="btn-tool" onclick="exportDSP()">⬇ Project (.dsp)</button>
                 <button class="btn-tool" onclick="exportDSF()">⬇ Publish (.dsf)</button>
                 <button class="btn-tool" onclick="openProjectModal()" data-auth-required>📂 プロジェクト一覧</button>

@@ -2562,6 +2562,10 @@ window.importDSP = async (event) => {
     const file = event.target.files[0];
     if (!file) return;
 
+    if (typeof closeMobileSheet === 'function') {
+        closeMobileSheet();
+    }
+
     // Show loading? Optional since it might be fast, but let's just do it
     const originalCursor = document.body.style.cursor;
     document.body.style.cursor = 'wait';
