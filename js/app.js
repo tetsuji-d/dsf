@@ -12,7 +12,7 @@ import { composeCanonicalLayoutsForSections, composeText, getFontPresetFromConfi
 import { getBlockIndexFromPageIndex, getPageIndexFromBlockIndex, migrateSectionsToBlocks, syncBlocksWithSections } from './blocks.js';
 import { PAGE_SCHEMA_VERSION, blocksToPages, normalizeProjectDataV5, buildOutlineFromPages } from './pages.js';
 import { THEME_TEMPLATES, THEME_PALETTES, getThemePalette, getThemeTemplate } from './theme-presets.js';
-import { buildDSP, buildDSF } from './export.js';
+import { buildDSP, buildDSF, parseAndLoadDSP } from './export.js';
 
 // ──────────────────────────────────────
 //  ヘルパー: セクションテキストの多言語取得・設定
@@ -939,8 +939,8 @@ function validateProjectForPublishOrExport() {
     const langs = Array.isArray(state.languages) && state.languages.length ? state.languages : ['ja'];
     const issues = [];
 
-    const addIssue = (pageIdx, role, message) => {
-        issues.push({ pageIdx, role, message });
+    const addIssue = (pageIdx, role, message, level = 'warning') => {
+        issues.push({ pageIdx, role, message, level });
     };
 
     for (let i = 0; i < pages.length; i += 1) {
@@ -950,34 +950,37 @@ function validateProjectForPublishOrExport() {
 
         if (role === 'cover_front') {
             for (const lang of langs) {
-                if (!hasLocalizedValue(meta.title, lang)) addIssue(i, role, `表紙 タイトル[${lang}] が未入力`);
-                if (!hasLocalizedValue(meta.subtitle, lang)) addIssue(i, role, `表紙 サブタイトル[${lang}] が未入力`);
-                if (!hasLocalizedValue(meta.author, lang)) addIssue(i, role, `表紙 著者名[${lang}] が未入力`);
-                if (!hasLocalizedValue(meta.supervisor, lang)) addIssue(i, role, `表紙 監修者名[${lang}] が未入力`);
-                if (!hasLocalizedValue(meta.publisher, lang)) addIssue(i, role, `表紙 出版社名[${lang}] が未入力`);
+                // Mandatory fields
+                if (!hasLocalizedValue(meta.title, lang)) addIssue(i, role, `表紙 タイトル[${lang}] が未入力`, 'error');
+                if (!hasLocalizedValue(meta.author, lang)) addIssue(i, role, `表紙 著者名[${lang}] が未入力`, 'error');
+
+                // Warning fields
+                if (!hasLocalizedValue(meta.subtitle, lang)) addIssue(i, role, `表紙 サブタイトル[${lang}] が未入力`, 'warning');
+                if (!hasLocalizedValue(meta.supervisor, lang)) addIssue(i, role, `表紙 監修者名[${lang}] が未入力`, 'warning');
+                if (!hasLocalizedValue(meta.publisher, lang)) addIssue(i, role, `表紙 出版社名[${lang}] が未入力`, 'warning');
             }
         }
 
         if (role === 'cover_back') {
             for (const lang of langs) {
-                if (!hasLocalizedValue(meta.edition, lang)) addIssue(i, role, `裏表紙 版[${lang}] が未入力`);
+                if (!hasLocalizedValue(meta.edition, lang)) addIssue(i, role, `裏表紙 版[${lang}] が未入力`, 'warning');
             }
             const contacts = Array.isArray(meta.contacts) ? meta.contacts : [];
             if (!contacts.length) {
-                addIssue(i, role, '裏表紙 連絡先が未入力');
+                addIssue(i, role, '裏表紙 連絡先が未入力', 'warning');
             } else {
                 contacts.forEach((c, idx) => {
                     const type = c?.type || 'other';
                     const value = String(c?.value || '').trim();
                     if (!value) {
-                        addIssue(i, role, `裏表紙 連絡先#${idx + 1} が未入力`);
+                        addIssue(i, role, `裏表紙 連絡先#${idx + 1} が未入力`, 'warning');
                         return;
                     }
                     if (type === 'url' && !isValidHttpUrl(value)) {
-                        addIssue(i, role, `裏表紙 連絡先#${idx + 1} URL形式が不正 (http/https必須)`);
+                        addIssue(i, role, `裏表紙 連絡先#${idx + 1} URL形式が不正 (http/https必須)`, 'warning');
                     }
                     if (type === 'email' && !isValidEmail(value)) {
-                        addIssue(i, role, `裏表紙 連絡先#${idx + 1} メール形式が不正`);
+                        addIssue(i, role, `裏表紙 連絡先#${idx + 1} メール形式が不正`, 'warning');
                     }
                 });
             }
@@ -987,14 +990,18 @@ function validateProjectForPublishOrExport() {
             for (const lang of langs) {
                 if (!hasLocalizedValue(meta.title, lang)) {
                     const label = role === 'chapter' ? '章' : (role === 'section' ? '節' : '項');
-                    addIssue(i, role, `${label} タイトル[${lang}] が未入力`);
+                    addIssue(i, role, `${label} タイトル[${lang}] が未入力`, 'warning');
                 }
             }
         }
     }
 
+    const errors = issues.filter(i => i.level === 'error');
+    const warnings = issues.filter(i => i.level === 'warning');
+
     return {
-        ok: issues.length === 0,
+        ok: errors.length === 0,
+        hasWarnings: warnings.length > 0,
         issues
     };
 }
@@ -1013,27 +1020,45 @@ function jumpToValidationIssuePage(pageIdx) {
     if (thumbEl) thumbEl.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
 }
 
+let validationProceedCallback = null;
+
 function closePublishValidationModal() {
     const modal = document.getElementById('validation-modal');
     if (!modal) return;
     modal.classList.remove('visible');
+    validationProceedCallback = null; // Clear callback when closing
 }
 
-function showPublishValidationErrors(issues, contextLabel) {
+window.proceedWithValidationWarnings = () => {
+    closePublishValidationModal();
+    if (typeof validationProceedCallback === 'function') {
+        validationProceedCallback();
+    }
+};
+
+function showPublishValidationErrors(issues, contextLabel, isWarningOnly = false, onProceed = null) {
     const list = Array.isArray(issues) ? issues : [];
     const modal = document.getElementById('validation-modal');
     const summaryEl = document.getElementById('validation-summary');
     const listEl = document.getElementById('validation-issues');
     const filterWrap = document.getElementById('validation-filters');
+    const proceedBtn = document.getElementById('btn-validation-proceed');
 
     if (modal && summaryEl && listEl && filterWrap) {
         validationIssueStore = list.map((issue) => ({
             pageIdx: issue?.pageIdx ?? 0,
             role: issue?.role || 'other',
-            message: issue?.message || ''
+            message: issue?.message || '',
+            level: issue?.level || 'warning'
         }));
         validationIssueContextLabel = contextLabel;
         validationIssueFilter = 'all';
+        validationProceedCallback = onProceed;
+
+        if (proceedBtn) {
+            proceedBtn.style.display = isWarningOnly ? 'inline-block' : 'none';
+        }
+
         renderValidationIssueList();
         modal.classList.add('visible');
         return;
@@ -1042,12 +1067,20 @@ function showPublishValidationErrors(issues, contextLabel) {
     const lines = [
         `${contextLabel}できません。`,
         '必須項目を入力してください:',
-        ...list.slice(0, 60).map((issue) => `P${(issue?.pageIdx ?? 0) + 1}: ${issue?.message || ''}`)
+        ...list.slice(0, 60).map((issue) => `[${issue.level === 'error' ? '必須' : '警告'}] P${(issue?.pageIdx ?? 0) + 1}: ${issue?.message || ''}`)
     ];
     if (list.length > 60) {
         lines.push(`...他 ${list.length - 60} 件`);
     }
-    alert(lines.join('\n'));
+
+    if (isWarningOnly) {
+        const proceed = confirm(lines.join('\n') + '\n\n無視して強制的に続行しますか？');
+        if (proceed && typeof onProceed === 'function') {
+            onProceed();
+        }
+    } else {
+        alert(lines.join('\n'));
+    }
 }
 
 // ──────────────────────────────────────
@@ -2524,46 +2557,91 @@ window.saveProject = () => {
     triggerAutoSave();
 };
 
-window.exportDSP = async () => {
-    const validation = validateProjectForPublishOrExport();
-    if (!validation.ok) {
-        showPublishValidationErrors(validation.issues, 'エクスポート (.dsp)');
-        return;
-    }
+window.importDSP = async (event) => {
+    const file = event.target.files[0];
+    if (!file) return;
 
-    // UI Feedback
-    const btnDataList = document.querySelectorAll('button[onclick="exportDSP()"]');
-    btnDataList.forEach(btn => btn.textContent = '⏳ ZIP生成中...');
+    // Show loading? Optional since it might be fast, but let's just do it
+    const originalCursor = document.body.style.cursor;
+    document.body.style.cursor = 'wait';
 
     try {
-        await buildDSP();
+        const loadedState = await parseAndLoadDSP(file);
+
+        dispatch({
+            type: actionTypes.LOAD_PROJECT,
+            payload: loadedState
+        });
+
+        // Update title UI
+        const pt = document.getElementById('project-title');
+        if (pt) pt.textContent = state.title || 'Untitled';
+        const inputTitle = document.getElementById('prop-title');
+        if (inputTitle) inputTitle.value = state.title || '';
+
+        refresh();
+        alert("プロジェクトを読み込みました (ローカル)");
     } catch (e) {
-        console.error("Export DSP failed:", e);
-        alert("エクスポート中にエラーが発生しました。\n" + e.message);
+        console.error("DSP Import failed", e);
+        alert("読み込みエラー: " + e.message);
     } finally {
-        btnDataList.forEach(btn => btn.textContent = '⬇ プロジェクト保存 (.dsp)');
+        document.body.style.cursor = originalCursor;
+        event.target.value = ''; // Reset input
     }
 };
 
-window.exportDSF = async () => {
+window.exportDSP = async () => {
+    const doExport = async () => {
+        // UI Feedback
+        const btnDataList = document.querySelectorAll('button[onclick="exportDSP()"]');
+        btnDataList.forEach(btn => btn.textContent = '⏳ ZIP生成中...');
+        try {
+            await buildDSP();
+        } catch (e) {
+            console.error("Export DSP failed:", e);
+            alert("エクスポート中にエラーが発生しました。\n" + e.message);
+        } finally {
+            btnDataList.forEach(btn => btn.textContent = '⬇ プロジェクト保存 (.dsp)');
+        }
+    };
+
     const validation = validateProjectForPublishOrExport();
     if (!validation.ok) {
-        showPublishValidationErrors(validation.issues, 'エクスポート (.dsf)');
+        showPublishValidationErrors(validation.issues, 'エクスポート (.dsp)', false);
         return;
     }
-
-    // UI Feedback
-    const btnDataList = document.querySelectorAll('button[onclick="exportDSF()"]');
-    btnDataList.forEach(btn => btn.textContent = '⏳ ZIP生成中...');
-
-    try {
-        await buildDSF();
-    } catch (e) {
-        console.error("Export DSF failed:", e);
-        alert("エクスポート中にエラーが発生しました。\n" + e.message);
-    } finally {
-        btnDataList.forEach(btn => btn.textContent = '⬇ 配信データ出力 (.dsf)');
+    if (validation.hasWarnings) {
+        showPublishValidationErrors(validation.issues, 'エクスポート (.dsp)', true, doExport);
+        return;
     }
+    await doExport();
+};
+
+window.exportDSF = async () => {
+    const doExport = async () => {
+        // UI Feedback
+        const btnDataList = document.querySelectorAll('button[onclick="exportDSF()"]');
+        btnDataList.forEach(btn => btn.textContent = '⏳ ZIP生成中...');
+        try {
+            await buildDSF();
+        } catch (e) {
+            console.error("Export DSF failed:", e);
+            alert("エクスポート中にエラーが発生しました。\n" + e.message);
+        } finally {
+            btnDataList.forEach(btn => btn.textContent = '⬇ 配信データ出力 (.dsf)');
+        }
+    };
+
+    const validation = validateProjectForPublishOrExport();
+    if (!validation.ok) {
+        showPublishValidationErrors(validation.issues, 'エクスポート (.dsf)', false);
+        return;
+    }
+    if (validation.hasWarnings) {
+        showPublishValidationErrors(validation.issues, 'エクスポート (.dsf)', true, doExport);
+        return;
+    }
+    await doExport();
 };
 
 window.shareProject = async () => {
@@ -2575,25 +2653,34 @@ window.shareProject = async () => {
         alert("ログインしてください。");
         return;
     }
+
+    const doShare = async () => {
+        // Ensure save
+        await triggerAutoSave();
+
+        // Construct URL
+        const host = window.location.host;
+        const url = `${window.location.protocol}//${host}/viewer.html?id=${encodeURIComponent(state.projectId)}&uid=${encodeURIComponent(state.uid)}`;
+
+        // Copy to clipboard
+        try {
+            await navigator.clipboard.writeText(url);
+            alert(`スマホ用URLをコピーしました！\n\n${url}`);
+        } catch (e) {
+            prompt("ビューワー用URL (コピーしてください):", url);
+        }
+    };
+
     const validation = validateProjectForPublishOrExport();
     if (!validation.ok) {
-        showPublishValidationErrors(validation.issues, '共有');
+        showPublishValidationErrors(validation.issues, '共有', false);
         return;
     }
-    // Ensure save
-    await triggerAutoSave();
-
-    // Construct URL
-    const host = window.location.host;
-    const url = `${window.location.protocol}//${host}/viewer.html?id=${encodeURIComponent(state.projectId)}&uid=${encodeURIComponent(state.uid)}`;
-
-    // Copy to clipboard
-    try {
-        await navigator.clipboard.writeText(url);
-        alert(`スマホ用URLをコピーしました！\n\n${url}`);
-    } catch (e) {
-        prompt("ビューワー用URL (コピーしてください):", url);
+    if (validation.hasWarnings) {
+        showPublishValidationErrors(validation.issues, '共有', true, doShare);
+        return;
     }
+    await doShare();
 };
 
 // 吹き出し直接編集（多言語対応）

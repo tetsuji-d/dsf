@@ -41,8 +41,8 @@
                             disabled>↪ Redo</button>
                     </div>
                     <div class="ribbon-group">
-                        <button id="btn-save" class="btn-tool" onclick="saveProject()" title="保存" data-auth-required>💾
-                            Save</button>
+                        <button id="btn-save" class="btn-tool" onclick="saveProject()" title="保存" data-auth-required>☁
+                            クラウド保存</button>
                         <button id="btn-share" class="btn-tool" onclick="shareProject()" title="ビューワーURLを共有"
                             data-auth-required>🔗 Share</button>
                     </div>
@@ -66,8 +66,8 @@
                     <div class="ribbon-group">
                         <button class="btn-tool" onclick="addSection()">＋ セクション追加</button>
                         <button class="btn-tool" onclick="addBubbleFab()">💬 吹き出し追加</button>
-                        <button class="btn-tool" onclick="document.getElementById('file-upload').click()"
-                            data-auth-required>🖼 画像追加</button>
+                        <button class="btn-tool" onclick="document.getElementById('file-upload').click()">🖼
+                            画像追加</button>
                         <button class="btn-tool" onclick="addChapterBlock()">📘 章</button>
                         <button class="btn-tool" onclick="addSubsectionBlock()">📑 節</button>
                         <button class="btn-tool" onclick="addItemBlock()">🔹 項</button>
@@ -117,7 +117,11 @@
                 <div class="ribbon-panel" data-ribbon-panel="project">
                     <div class="ribbon-group">
                         <button class="btn-tool" onclick="newProject()">📄 新規プロジェクト</button>
-                        <button class="btn-tool" onclick="openProjectModal()" data-auth-required>📁 開く</button>
+                        <button class="btn-tool" onclick="openProjectModal()" data-auth-required>☁ クラウドから開く</button>
+                        <button class="btn-tool" onclick="document.getElementById('dsp-upload').click()"
+                            title=".dspファイルを読み込みます">📁 ローカルから開く</button>
+                        <input type="file" id="dsp-upload" accept=".dsp" style="display: none;"
+                            onchange="importDSP(event)">
                     </div>
                     <div class="ribbon-group">
                         <span class="field-label">Language</span>
@@ -427,15 +431,14 @@
             <div id="mobile-sheet-add" class="mobile-sheet-content">
                 <button class="btn-tool" onclick="addSection()">＋ セクション追加</button>
                 <button class="btn-tool" onclick="addBubbleFab()">💬 吹き出し追加</button>
-                <button class="btn-tool" onclick="document.getElementById('file-upload').click()" data-auth-required>🖼
-                    画像追加</button>
+                <button class="btn-tool" onclick="document.getElementById('file-upload').click()">🖼 画像追加</button>
                 <button class="btn-tool" onclick="addChapterBlock()">📘 章</button>
                 <button class="btn-tool" onclick="addSubsectionBlock()">📑 節</button>
                 <button class="btn-tool" onclick="addItemBlock()">🔹 項</button>
                 <button class="btn-tool" onclick="addTocBlock()">📚 目次</button>
             </div>
             <div id="mobile-sheet-export" class="mobile-sheet-content">
-                <button class="btn-tool" onclick="saveProject()" data-auth-required>💾 Save</button>
+                <button class="btn-tool" onclick="saveProject()" data-auth-required>☁ クラウド保存</button>
                 <button class="btn-tool" onclick="shareProject()" data-auth-required>🔗 Share</button>
                 <button class="btn-tool" onclick="exportDSP()">⬇ Project (.dsp)</button>
                 <button class="btn-tool" onclick="exportDSF()">⬇ Publish (.dsf)</button>
@@ -486,6 +489,8 @@
             <div class="modal-header">
                 <h2>⚠ 必須項目チェック</h2>
                 <div class="modal-header-actions">
+                    <button class="btn-modal btn-primary" id="btn-validation-proceed"
+                        onclick="proceedWithValidationWarnings()" style="display:none;">無視して続行</button>
                     <button class="btn-modal" onclick="closePublishValidationModal()">閉じる</button>
                 </div>
             </div>

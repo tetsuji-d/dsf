@@ -175,3 +175,131 @@ export async function buildDSF() {
     const filename = `${meta.title.replace(/[^a-z0-9]/gi, '_').toLowerCase() || 'comic'}.dsf`;
     saveAs(content, filename);
 }
+
+// --- Parse .dsp (Project Import) ---
+export async function parseAndLoadDSP(file) {
+    const zip = await JSZip.loadAsync(file);
+
+    // Read meta.json
+    const metaFile = zip.file("meta.json");
+    if (!metaFile) throw new Error("Invalid .dsp file: meta.json missing");
+    const metaStr = await metaFile.async("text");
+    const meta = JSON.parse(metaStr);
+    if (meta.format !== "dsp") throw new Error("Invalid format: not a .dsp file");
+
+    // Read project.json
+    const projectFile = zip.file("project.json");
+    if (!projectFile) throw new Error("Invalid .dsp file: project.json missing");
+    const projectStr = await projectFile.async("text");
+    const projectData = JSON.parse(projectStr);
+
+    // Reconstruct Object URLs for assets
+    const assetMap = new Map();
+    for (const [relativePath, zipEntry] of Object.entries(zip.files)) {
+        if (!zipEntry.dir && relativePath.startsWith("assets/")) {
+            // Determine Mime Type
+            const ext = relativePath.split('.').pop().toLowerCase();
+            let mime = "image/webp";
+            if (ext === "jpg" || ext === "jpeg") mime = "image/jpeg";
+            else if (ext === "png") mime = "image/png";
+            else if (ext === "gif") mime = "image/gif";
+
+            // Generate Local Object URL
+            const blob = await zipEntry.async("blob");
+            const typedBlob = new Blob([blob], { type: mime });
+            const url = URL.createObjectURL(typedBlob);
+            assetMap.set(relativePath, url);
+        }
+    }
+
+    // Replace paths in state objects
+    if (projectData.sections) {
+        for (const section of projectData.sections) {
+            if (section.background && assetMap.has(section.background)) section.background = assetMap.get(section.background);
+            if (section.thumbnail && assetMap.has(section.thumbnail)) section.thumbnail = assetMap.get(section.thumbnail);
+        }
+    }
+    if (projectData.blocks) {
+        for (const block of projectData.blocks) {
+            if (block.type === 'image' && block.background && assetMap.has(block.background)) {
+                block.background = assetMap.get(block.background);
+            }
+        }
+    }
+
+    return {
+        projectId: projectData.projectId || "local_import",
+        title: meta.title || "Untitled",
+        languageConfigs: projectData.languageConfigs || { ja: { writingMode: 'vertical-rl', fontPreset: 'gothic' } },
+        uiPrefs: projectData.uiPrefs || null,
+        sections: projectData.sections || [],
+        blocks: projectData.blocks || []
+    };
+}
+
+// --- Parse .dsf (Content/Publish Import) ---
+export async function parseAndLoadDSF(file) {
+    const zip = await JSZip.loadAsync(file);
+
+    // Read meta.json
+    const metaFile = zip.file("meta.json");
+    if (!metaFile) throw new Error("Invalid .dsf/.dsp file: meta.json missing");
+    const metaStr = await metaFile.async("text");
+    const meta = JSON.parse(metaStr);
+
+    // Read content.json (DSF) or fallback to project.json (DSP)
+    let contentData = null;
+    const contentFile = zip.file("content.json");
+    if (contentFile) {
+        const contentStr = await contentFile.async("text");
+        contentData = JSON.parse(contentStr);
+    } else {
+        const projectFile = zip.file("project.json");
+        if (projectFile) {
+            const projectStr = await projectFile.async("text");
+            contentData = JSON.parse(projectStr);
+        } else {
+            throw new Error("Invalid file: missing content.json or project.json");
+        }
+    }
+
+    // Reconstruct Object URLs for assets
+    const assetMap = new Map();
+    for (const [relativePath, zipEntry] of Object.entries(zip.files)) {
+        if (!zipEntry.dir && relativePath.startsWith("assets/")) {
+            // Determine Mime Type
+            const ext = relativePath.split('.').pop().toLowerCase();
+            let mime = "image/webp";
+            if (ext === "jpg" || ext === "jpeg") mime = "image/jpeg";
+            else if (ext === "png") mime = "image/png";
+            else if (ext === "gif") mime = "image/gif";
+
+            // Generate Local Object URL
+            const blob = await zipEntry.async("blob");
+            const typedBlob = new Blob([blob], { type: mime });
+            const url = URL.createObjectURL(typedBlob);
+            assetMap.set(relativePath, url);
+        }
+    }
+
+    // Replace paths in pages
+    if (contentData.pages) {
+        for (const page of contentData.pages) {
+            if (page.background && assetMap.has(page.background)) {
+                page.background = assetMap.get(page.background);
+            }
+            if (page.data && page.data.background && assetMap.has(page.data.background)) {
+                page.data.background = assetMap.get(page.data.background);
+            }
+        }
+    }
+
+    return {
+        projectId: contentData.projectId || "local_import",
+        title: meta.title || "Untitled",
+        languageConfigs: contentData.languageConfigs || { ja: { writingMode: 'vertical-rl', fontPreset: 'gothic' } },
+        languages: meta.languages || ["ja"],
+        defaultLang: meta.defaultLang || "ja",
+        pages: contentData.pages || []
+    };
+}

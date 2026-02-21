@@ -9,6 +9,7 @@ import { doc, getDoc } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-
 import { composeText } from './layout.js';
 import { normalizeProjectDataV5, buildOutlineFromPages } from './pages.js';
 import { getThemePalette, getThemeTemplate } from './theme-presets.js';
+import { parseAndLoadDSF } from './export.js';
 
 let currentProject = null;
 let sharedProjectRef = null;
@@ -234,20 +235,37 @@ async function loadFromFirestore(pid, uid) {
 // ──────────────────────────────────────
 //  File Loading
 // ──────────────────────────────────────
-window.loadDsf = (input) => {
+window.loadDsf = async (input) => {
     const file = input.files[0];
     if (!file) return;
 
-    const reader = new FileReader();
-    reader.onload = (e) => {
+    if (file.name.toLowerCase().endsWith('.dsf') || file.name.toLowerCase().endsWith('.dsp') || file.name.toLowerCase().endsWith('.zip')) {
+        const originalCursor = document.body.style.cursor;
+        document.body.style.cursor = 'wait';
         try {
-            const data = JSON.parse(e.target.result);
+            const data = await parseAndLoadDSF(file);
             loadProjectData(data);
         } catch (err) {
-            alert('ファイルの読み込みに失敗しました: ' + err.message);
+            console.error(err);
+            alert('DSFファイルの読み込みに失敗しました: ' + err.message);
+        } finally {
+            document.body.style.cursor = originalCursor;
+            input.value = ''; // Reset
         }
-    };
-    reader.readAsText(file);
+    } else {
+        // Fallback for old .json files
+        const reader = new FileReader();
+        reader.onload = (e) => {
+            try {
+                const data = JSON.parse(e.target.result);
+                loadProjectData(data);
+            } catch (err) {
+                alert('JSONの読み込みに失敗しました: ' + err.message);
+            }
+        };
+        reader.readAsText(file);
+        input.value = ''; // Reset
+    }
 };
 
 function loadProjectData(data) {
