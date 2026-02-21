@@ -1,7 +1,7 @@
 /**
  * app.js — メインエントリポイント・描画・UI同期
  */
-import { state } from './state.js';
+import { state, dispatch, actionTypes } from './state.js';
 import { saveProject, loadProject, uploadToStorage, uploadCoverToStorage, uploadStructureToStorage, triggerAutoSave, generateCroppedThumbnail, signInWithGoogle, signOutUser, onAuthChanged, consumeRedirectResult } from './firebase.js';
 import { handleCanvasClick, selectBubble, renderBubbleHTML, getBubbleText, setBubbleText, addBubbleAtCenter, startDrag } from './bubbles.js';
 import { addSection, changeSection, changeBlock, insertStructureBlock, renderThumbs, deleteActive, insertSectionAt, duplicateSectionAt, moveSection, insertPageNearBlock, duplicateBlockAt, moveBlockAt } from './sections.js';
@@ -12,6 +12,7 @@ import { composeCanonicalLayoutsForSections, composeText, getFontPresetFromConfi
 import { getBlockIndexFromPageIndex, getPageIndexFromBlockIndex, migrateSectionsToBlocks, syncBlocksWithSections } from './blocks.js';
 import { PAGE_SCHEMA_VERSION, blocksToPages, normalizeProjectDataV5, buildOutlineFromPages } from './pages.js';
 import { THEME_TEMPLATES, THEME_PALETTES, getThemePalette, getThemeTemplate } from './theme-presets.js';
+import { buildDSP, buildDSF } from './export.js';
 
 // ──────────────────────────────────────
 //  ヘルパー: セクションテキストの多言語取得・設定
@@ -28,28 +29,66 @@ function setSectionText(s, text) {
     s.texts[lang] = text;
     s.text = text;
     if (!s.richTextLangs || typeof s.richTextLangs !== 'object') s.richTextLangs = {};
-    const doc = { blocks: [{ type: 'paragraph', children: [{ text: String(text || '') }] }] };
+    const doc = plainTextToRichDoc(String(text || ''));
     s.richTextLangs[lang] = doc;
     s.richText = doc;
+}
+
+function plainTextToRichDoc(text) {
+    const lines = String(text || '').split(/\r?\n/);
+    if (!lines.length) return createEmptyRichTextDoc();
+    return {
+        blocks: lines.map((line) => ({
+            type: 'paragraph',
+            children: [{ text: line }]
+        }))
+    };
+}
+
+function normalizeRichDoc(doc) {
+    const blocks = Array.isArray(doc?.blocks) ? doc.blocks : null;
+    if (!blocks || !blocks.length) return createEmptyRichTextDoc();
+
+    const normalized = [];
+    blocks.forEach((b) => {
+        const type = b?.type === 'h1' ? 'h1' : (b?.type === 'h2' ? 'h2' : 'paragraph');
+        const children = Array.isArray(b?.children) ? b.children : [];
+        if (children.length === 1 && typeof children[0]?.text === 'string' && children[0].text.includes('\n')) {
+            children[0].text.split('\n').forEach((line) => {
+                normalized.push({
+                    type,
+                    children: [{ ...children[0], text: line }]
+                });
+            });
+        } else {
+            normalized.push({
+                type,
+                children: children.length ? children : [{ text: '' }]
+            });
+        }
+    });
+
+    return { blocks: normalized.length ? normalized : createEmptyRichTextDoc().blocks };
 }
 
 function getSectionRichText(s) {
     const lang = state.activeLang;
     const doc = s?.richTextLangs?.[lang] || s?.richText;
-    if (doc && Array.isArray(doc.blocks)) return doc;
+    if (doc && Array.isArray(doc.blocks)) return normalizeRichDoc(doc);
     return {
-        blocks: [{ type: 'paragraph', children: [{ text: getSectionText(s) }] }]
+        blocks: normalizeRichDoc(plainTextToRichDoc(getSectionText(s))).blocks
     };
 }
 
 function setSectionRichText(s, doc) {
     if (!s) return;
     const lang = state.activeLang;
+    const normalizedDoc = normalizeRichDoc(doc);
     if (!s.richTextLangs || typeof s.richTextLangs !== 'object') s.richTextLangs = {};
-    s.richTextLangs[lang] = doc;
-    s.richText = doc;
+    s.richTextLangs[lang] = normalizedDoc;
+    s.richText = normalizedDoc;
     if (!s.texts) s.texts = {};
-    const plain = richTextToPlainText(doc);
+    const plain = richTextToPlainText(normalizedDoc);
     s.texts[lang] = plain;
     s.text = plain;
 }
@@ -61,7 +100,7 @@ function getActiveBlock() {
     }
     const fallbackBlockIdx = getBlockIndexFromPageIndex(blocks, state.activeIdx);
     if (fallbackBlockIdx >= 0) {
-        state.activeBlockIdx = fallbackBlockIdx;
+        dispatch({ type: actionTypes.SET_ACTIVE_BLOCK_INDEX, payload: fallbackBlockIdx });
         return blocks[fallbackBlockIdx];
     }
     return null;
@@ -291,10 +330,10 @@ function createEmptyRichTextDoc() {
 function getStructureRichText(block) {
     const lang = state.activeLang;
     const doc = block?.content?.richTextLangs?.[lang] || block?.content?.richText;
-    if (doc && Array.isArray(doc.blocks)) return doc;
+    if (doc && Array.isArray(doc.blocks)) return normalizeRichDoc(doc);
     const text = getStructureBodyText(block);
     return {
-        blocks: [{ type: 'paragraph', children: [{ text }] }]
+        blocks: normalizeRichDoc(plainTextToRichDoc(text)).blocks
     };
 }
 
@@ -303,7 +342,7 @@ function richTextToPlainText(doc) {
     const lines = blocks.map((b) => {
         const children = Array.isArray(b?.children) ? b.children : [];
         return children.map((c) => String(c?.text || '')).join('');
-    });
+    }).filter((line) => line.length > 0);
     return lines.join('\n');
 }
 
@@ -393,20 +432,69 @@ function richTextHtmlToDoc(html) {
         }
     });
 
-    if (!blocks.length) return createEmptyRichTextDoc();
-    return { blocks };
+    const normalized = blocks.filter((b) => {
+        const children = Array.isArray(b?.children) ? b.children : [];
+        const text = children.map((c) => String(c?.text || '')).join('').trim();
+        return text.length > 0;
+    });
+    if (!normalized.length) return createEmptyRichTextDoc();
+    return { blocks: normalized };
+}
+
+function findEditableBlockInEditor(editor, node) {
+    if (!editor || !node) return null;
+    const start = node.nodeType === Node.ELEMENT_NODE ? node : node.parentElement;
+    if (!start) return null;
+    const semanticBlock = start.closest('p,h1,h2');
+    if (semanticBlock && editor.contains(semanticBlock)) return semanticBlock;
+
+    // Fallback: direct child block under editor (e.g. browser inserted DIV line blocks)
+    let cur = start;
+    while (cur && cur !== editor) {
+        if (cur.parentElement === editor && cur.nodeType === Node.ELEMENT_NODE) {
+            const tag = cur.tagName?.toUpperCase();
+            if (tag === 'DIV' || tag === 'P' || tag === 'H1' || tag === 'H2') return cur;
+            return null;
+        }
+        cur = cur.parentElement;
+    }
+    return null;
+}
+
+function applyBlockTagToCurrentParagraph(editor, tagName) {
+    const sel = window.getSelection();
+    if (!editor || !sel || sel.rangeCount === 0) return false;
+    const range = sel.getRangeAt(0);
+    const block = findEditableBlockInEditor(editor, range.commonAncestorContainer);
+    if (!block) return false;
+    const targetTag = String(tagName || '').toUpperCase();
+    if (!['P', 'H1', 'H2'].includes(targetTag)) return false;
+    if (block.tagName === targetTag) return true;
+    if (block === editor) return false;
+
+    const replacement = document.createElement(targetTag.toLowerCase());
+    replacement.innerHTML = block.innerHTML;
+    block.replaceWith(replacement);
+
+    const newRange = document.createRange();
+    newRange.selectNodeContents(replacement);
+    newRange.collapse(false);
+    sel.removeAllRanges();
+    sel.addRange(newRange);
+    return true;
 }
 
 function setStructureRichText(block, doc) {
     if (!block) return;
     const lang = state.activeLang;
+    const normalizedDoc = normalizeRichDoc(doc);
     if (!block.content || typeof block.content !== 'object') block.content = {};
     if (!block.content.richTextLangs || typeof block.content.richTextLangs !== 'object') {
         block.content.richTextLangs = {};
     }
-    block.content.richTextLangs[lang] = doc;
-    block.content.richText = doc;
-    const text = richTextToPlainText(doc);
+    block.content.richTextLangs[lang] = normalizedDoc;
+    block.content.richText = normalizedDoc;
+    const text = richTextToPlainText(normalizedDoc);
     if (!block.content.texts || typeof block.content.texts !== 'object') block.content.texts = {};
     block.content.texts[lang] = text;
     block.content.text = text;
@@ -419,9 +507,7 @@ function setStructureBodyText(block, text) {
     if (!block.content.texts || typeof block.content.texts !== 'object') block.content.texts = {};
     block.content.texts[lang] = text;
     block.content.text = text;
-    setStructureRichText(block, {
-        blocks: [{ type: 'paragraph', children: [{ text: String(text || '') }] }]
-    });
+    setStructureRichText(block, plainTextToRichDoc(String(text || '')));
 }
 
 function getStructureTitle(block) {
@@ -532,7 +618,7 @@ function ensureAutoTocBlocks() {
     const before = src.filter((b) => !isAutoTocBlock(b));
     const manualTocIdx = before.findIndex((b) => b?.kind === 'toc');
     if (manualTocIdx < 0) {
-        state.blocks = before;
+        dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'blocks', value: before } });
         return;
     }
 
@@ -557,28 +643,29 @@ function ensureAutoTocBlocks() {
     }
 
     const activeId = src[state.activeBlockIdx]?.id;
-    state.blocks = next;
+    dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'blocks', value: next } });
     if (activeId) {
         const nextActive = next.findIndex((b) => b?.id === activeId);
         if (nextActive >= 0) {
-            state.activeBlockIdx = nextActive;
+            dispatch({ type: actionTypes.SET_ACTIVE_BLOCK_INDEX, payload: nextActive });
         } else {
-            state.activeBlockIdx = Math.max(0, Math.min(state.activeBlockIdx || 0, next.length - 1));
+            dispatch({ type: actionTypes.SET_ACTIVE_BLOCK_INDEX, payload: Math.max(0, Math.min(state.activeBlockIdx || 0, next.length - 1)) });
         }
     }
 }
 
 function syncBlocksFromState() {
-    state.blocks = syncBlocksWithSections(state.blocks, state.sections, state.languages);
+    dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'blocks', value: syncBlocksWithSections(state.blocks, state.sections, state.languages) } });
     ensureAutoTocBlocks();
-    state.pages = blocksToPages(state.blocks);
+    dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'pages', value: blocksToPages(state.blocks) } });
     const activeBlock = getActiveBlock();
     const pageIdx = getPageIndexFromBlockIndex(state.blocks, state.activeBlockIdx);
     if (pageIdx >= 0) {
-        state.activeIdx = pageIdx;
-        state.activePageIdx = pageIdx;
+        dispatch({ type: actionTypes.SET_ACTIVE_INDEX, payload: pageIdx });
     }
-    if (!activeBlock && state.blocks?.length) state.activeBlockIdx = 0;
+    if (!activeBlock && state.blocks?.length) {
+        dispatch({ type: actionTypes.SET_ACTIVE_BLOCK_INDEX, payload: 0 });
+    }
 }
 
 function ensureSectionLayout(s) {
@@ -742,7 +829,7 @@ function ensureUiPrefs() {
 function applyThumbColumnsFromPrefs() {
     ensureUiPrefs();
     const key = getDeviceKey();
-    state.thumbColumns = sanitizeThumbColumns(state.uiPrefs[key].thumbColumns);
+    dispatch({ type: actionTypes.SET_THUMB_COLUMNS, payload: { columns: state.uiPrefs[key].thumbColumns, device: key } });
 }
 
 function syncThumbColumnButtons() {
@@ -756,9 +843,7 @@ function syncThumbColumnButtons() {
 function setCurrentDeviceThumbColumns(cols) {
     ensureUiPrefs();
     const key = getDeviceKey();
-    const normalized = sanitizeThumbColumns(cols);
-    state.uiPrefs[key].thumbColumns = normalized;
-    state.thumbColumns = normalized;
+    dispatch({ type: actionTypes.SET_THUMB_COLUMNS, payload: { columns: cols, device: key } });
 }
 
 function inferRoleFromAnyPage(page) {
@@ -915,14 +1000,13 @@ function validateProjectForPublishOrExport() {
 }
 
 function jumpToValidationIssuePage(pageIdx) {
-    const pages = Array.isArray(state.pages) ? state.pages : [];
+    const pages = Array.isArray(state.pages) ? pages : [];
     if (!pages.length) return;
     const idx = Math.max(0, Math.min(Number(pageIdx) || 0, pages.length - 1));
-    state.activeIdx = idx;
-    state.activePageIdx = idx;
+    dispatch({ type: actionTypes.SET_ACTIVE_INDEX, payload: idx });
     const blockIdx = getBlockIndexFromPageIndex(state.blocks || [], idx);
-    if (blockIdx >= 0) state.activeBlockIdx = blockIdx;
-    state.activeBubbleIdx = null;
+    if (blockIdx >= 0) dispatch({ type: actionTypes.SET_ACTIVE_BLOCK_INDEX, payload: blockIdx });
+    dispatch({ type: actionTypes.SET_ACTIVE_BUBBLE_INDEX, payload: null });
     closePublishValidationModal();
     refresh();
     const thumbEl = getThumbElement(idx);
@@ -981,7 +1065,7 @@ function refresh() {
 
     // Normalize stale bubble selection before rendering text/rich-text mode.
     if (isPageBlock && state.activeBubbleIdx !== null && (!s?.bubbles || !s.bubbles[state.activeBubbleIdx])) {
-        state.activeBubbleIdx = null;
+        dispatch({ type: actionTypes.SET_ACTIVE_BUBBLE_INDEX, payload: null });
     }
     const shouldUseRichTextPanelForPage = isPageBlock && s?.type === 'text' && state.activeBubbleIdx === null;
 
@@ -1110,12 +1194,12 @@ function refresh() {
             const richHtml = richTextDocToHtml(getSectionRichText(s));
             render.innerHTML = `<div class="fixed-text-frame"
                 style="position:absolute; left:${frame.x}px; top:${frame.y}px; width:${frame.w}px; height:${frame.h}px; overflow:hidden;">
-                <div id="main-richtext-area" class="canvas-rich-view ${vtClass} text-layer" contenteditable="true"
+                <div id="main-richtext-area" class="canvas-rich-view ${vtClass}" contenteditable="true"
                     onmousedown="event.stopPropagation()"
                     onclick="event.stopPropagation()"
                     ontouchstart="event.stopPropagation()"
                     oninput="updatePageRichTextFromCanvas(this)"
-                    style="width:100%; height:100%; padding:${verticalPad}px 0; overflow:hidden; text-align:${align}; font-family:${family}; font-size:${size}px; line-height:${lineHeight}; letter-spacing:${letterSpacing}px;">${richHtml}</div>
+                    style="width:100%; height:100%; padding:${verticalPad}px 0; overflow:hidden; text-align:${align}; white-space:normal; overflow-wrap:anywhere; word-break:break-word; font-family:${family}; font-size:${size}px; line-height:${lineHeight}; letter-spacing:${letterSpacing}px;">${richHtml}</div>
             </div>`;
         } else {
             const layout = ensureComposedLayoutForActiveLang(s);
@@ -2222,7 +2306,7 @@ window.updateBubbleShape = updateBubbleShape;
 window.updateGlobalWritingMode = updateGlobalWritingMode;
 window.updateGlobalFontPreset = updateGlobalFontPreset;
 window.updateTitle = (v) => {
-    state.title = v;
+    dispatch({ type: actionTypes.SET_TITLE, payload: v });
     const headerGuideTitle = document.getElementById('header-guide-title');
     if (headerGuideTitle) headerGuideTitle.textContent = v || 'タイトル未設定';
     triggerAutoSave();
@@ -2328,7 +2412,10 @@ function initCanvasZoom() {
         if (isImageAdjusting) return;
 
         // バブルやテキストレイヤー以外ならPan開始
-        if (e.target.id === 'canvas-view' || e.target.id === 'content-render' || e.target.classList.contains('text-layer')) {
+        if (e.target.id === 'canvas-view'
+            || e.target.id === 'content-render'
+            || e.target.id === 'main-richtext-area'
+            || e.target.classList.contains('text-layer')) {
             isPanning = true;
             startPan = { x: e.clientX, y: e.clientY };
             startTranslate = { ...canvasTranslate };
@@ -2359,7 +2446,11 @@ function initCanvasZoom() {
         // 画像調整中はCanvasパン無効
         if (isImageAdjusting) return;
 
-        if (e.touches.length === 1 && (e.target.id === 'canvas-view' || e.target.classList.contains('text-layer'))) {
+        if (e.touches.length === 1 && (
+            e.target.id === 'canvas-view'
+            || e.target.id === 'main-richtext-area'
+            || e.target.classList.contains('text-layer')
+        )) {
             isPanning = true;
             startPan = { x: e.touches[0].clientX, y: e.touches[0].clientY };
             startTranslate = { ...canvasTranslate };
@@ -2398,7 +2489,7 @@ window.onProjectTitleInput = () => {
     if (el) {
         const name = (el.textContent || '').trim();
         if (name && name !== '新規プロジェクト') {
-            state.projectId = name;
+            dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'projectId', value: name } });
         }
     }
 };
@@ -2433,37 +2524,46 @@ window.saveProject = () => {
     triggerAutoSave();
 };
 
-window.exportProject = () => {
+window.exportDSP = async () => {
     const validation = validateProjectForPublishOrExport();
     if (!validation.ok) {
-        showPublishValidationErrors(validation.issues, 'エクスポート');
+        showPublishValidationErrors(validation.issues, 'エクスポート (.dsp)');
         return;
     }
-    composeCanonicalLayoutsForSections(state.sections, state.languages, state.languageConfigs);
-    syncBlocksFromState();
-    const pages = blocksToPages(state.blocks);
-    const data = {
-        version: PAGE_SCHEMA_VERSION,
-        projectId: state.projectId,
-        title: state.title || '',
-        pages,
-        blocks: state.blocks,
-        sections: state.sections,
-        languages: state.languages,
-        defaultLang: state.defaultLang || state.languages?.[0] || 'ja',
-        languageConfigs: state.languageConfigs,
-        lastUpdated: new Date().toISOString()
-    };
-    const json = JSON.stringify(data, null, 2);
-    const blob = new Blob([json], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `${state.projectId || 'project'}.dsf`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
+
+    // UI Feedback
+    const btnDataList = document.querySelectorAll('button[onclick="exportDSP()"]');
+    btnDataList.forEach(btn => btn.textContent = '⏳ ZIP生成中...');
+
+    try {
+        await buildDSP();
+    } catch (e) {
+        console.error("Export DSP failed:", e);
+        alert("エクスポート中にエラーが発生しました。\n" + e.message);
+    } finally {
+        btnDataList.forEach(btn => btn.textContent = '⬇ プロジェクト保存 (.dsp)');
+    }
+};
+
+window.exportDSF = async () => {
+    const validation = validateProjectForPublishOrExport();
+    if (!validation.ok) {
+        showPublishValidationErrors(validation.issues, 'エクスポート (.dsf)');
+        return;
+    }
+
+    // UI Feedback
+    const btnDataList = document.querySelectorAll('button[onclick="exportDSF()"]');
+    btnDataList.forEach(btn => btn.textContent = '⏳ ZIP生成中...');
+
+    try {
+        await buildDSF();
+    } catch (e) {
+        console.error("Export DSF failed:", e);
+        alert("エクスポート中にエラーが発生しました。\n" + e.message);
+    } finally {
+        btnDataList.forEach(btn => btn.textContent = '⬇ 配信データ出力 (.dsf)');
+    }
 };
 
 window.shareProject = async () => {
@@ -2614,11 +2714,11 @@ window.applyStructureRichTextCommand = (cmd) => {
     editor.focus();
     touchCoverFieldHistory();
     if (cmd === 'h1') {
-        document.execCommand('formatBlock', false, 'H1');
+        if (!applyBlockTagToCurrentParagraph(editor, 'h1')) return;
     } else if (cmd === 'h2') {
-        document.execCommand('formatBlock', false, 'H2');
+        if (!applyBlockTagToCurrentParagraph(editor, 'h2')) return;
     } else if (cmd === 'paragraph') {
-        document.execCommand('formatBlock', false, 'P');
+        if (!applyBlockTagToCurrentParagraph(editor, 'p')) return;
     } else if (cmd === 'bold') {
         document.execCommand('bold');
     } else if (cmd === 'italic') {
@@ -2682,8 +2782,10 @@ window.applyPageRichTextCommand = (cmd) => {
     const s = state.sections[state.activeIdx];
     if (!s || s.type !== 'text' || state.activeBubbleIdx !== null) return;
     const editor = document.getElementById('page-richtext-editor');
-    if (!editor) return;
-    editor.focus();
+    const canvasEditor = document.getElementById('main-richtext-area');
+    const targetEditor = (document.activeElement === canvasEditor && canvasEditor) ? canvasEditor : editor;
+    if (!targetEditor) return;
+    targetEditor.focus();
     if (!textPushTimer) {
         pushState();
     } else {
@@ -2691,11 +2793,11 @@ window.applyPageRichTextCommand = (cmd) => {
     }
     textPushTimer = setTimeout(() => { textPushTimer = null; }, 500);
     if (cmd === 'h1') {
-        document.execCommand('formatBlock', false, 'H1');
+        if (!applyBlockTagToCurrentParagraph(targetEditor, 'h1')) return;
     } else if (cmd === 'h2') {
-        document.execCommand('formatBlock', false, 'H2');
+        if (!applyBlockTagToCurrentParagraph(targetEditor, 'h2')) return;
     } else if (cmd === 'paragraph') {
-        document.execCommand('formatBlock', false, 'P');
+        if (!applyBlockTagToCurrentParagraph(targetEditor, 'p')) return;
     } else if (cmd === 'bold') {
         document.execCommand('bold');
     } else if (cmd === 'italic') {
@@ -2705,9 +2807,10 @@ window.applyPageRichTextCommand = (cmd) => {
     } else if (cmd === 'strike') {
         document.execCommand('strikeThrough');
     }
-    const doc = richTextHtmlToDoc(editor.innerHTML);
+    const doc = richTextHtmlToDoc(targetEditor.innerHTML);
     setSectionRichText(s, doc);
     composeSectionForActiveLang(s);
+    if (editor && editor !== targetEditor) editor.innerHTML = targetEditor.innerHTML;
     refresh();
     triggerAutoSave();
 };
@@ -2769,33 +2872,29 @@ window.setValidationIssueFilter = setValidationIssueFilter;
 // 新規プロジェクト
 window.newProject = () => {
     if (state.projectId && !confirm('現在のプロジェクトを閉じて新しいプロジェクトを作成しますか？')) return;
-    state.projectId = null;
-    state.title = '';
-    state.languages = ['ja'];
-    state.defaultLang = 'ja';
-    state.languageConfigs = {
-        ja: { writingMode: 'vertical-rl', fontPreset: 'gothic' }
-    };
-    state.uiPrefs = {
-        desktop: { thumbColumns: 2 },
-        mobile: { thumbColumns: 2 }
-    };
+    dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'projectId', value: null } });
+    dispatch({ type: actionTypes.SET_TITLE, payload: '' });
+    dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'languages', value: ['ja'] } });
+    dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'defaultLang', value: 'ja' } });
+    dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'languageConfigs', value: { ja: { writingMode: 'vertical-rl', fontPreset: 'gothic' } } } });
+    dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'uiPrefs', value: { desktop: { thumbColumns: 2 }, mobile: { thumbColumns: 2 } } } });
     applyThumbColumnsFromPrefs();
-    state.activeLang = 'ja';
-    state.sections = [{
+    dispatch({ type: actionTypes.SET_ACTIVE_LANGUAGE, payload: 'ja' });
+    const initialSections = [{
         type: 'image',
         background: 'https://picsum.photos/id/10/600/1066',
-        writingMode: 'horizontal-tb', // Legacy usage, ignored
+        writingMode: 'horizontal-tb',
         bubbles: [],
         text: '',
         texts: {}
     }];
-    state.blocks = migrateSectionsToBlocks(state.sections, state.languages);
-    state.pages = blocksToPages(state.blocks);
-    state.activeIdx = 0;
-    state.activePageIdx = 0;
-    state.activeBlockIdx = Math.max(0, getBlockIndexFromPageIndex(state.blocks, 0));
-    state.activeBubbleIdx = null;
+    const initialBlocks = migrateSectionsToBlocks(initialSections, ['ja']);
+    dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'sections', value: initialSections } });
+    dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'blocks', value: initialBlocks } });
+    dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'pages', value: blocksToPages(initialBlocks) } });
+    dispatch({ type: actionTypes.SET_ACTIVE_INDEX, payload: 0 });
+    dispatch({ type: actionTypes.SET_ACTIVE_BLOCK_INDEX, payload: Math.max(0, getBlockIndexFromPageIndex(initialBlocks, 0)) });
+    dispatch({ type: actionTypes.SET_ACTIVE_BUBBLE_INDEX, payload: null });
     clearHistory();
     refresh();
     renderLangSettings();
@@ -2986,5 +3085,39 @@ consumeRedirectResult().catch((e) => {
 refresh();
 renderLangSettings();
 updateAuthUI();
+// --- 右サイドバーリサイザー初期化 ---
+function initSidebarResizer() {
+    const resizer = document.getElementById('resizer-right');
+    if (!resizer) return;
+
+    let isResizing = false;
+
+    resizer.addEventListener('mousedown', (e) => {
+        isResizing = true;
+        resizer.classList.add('dragging');
+        document.body.style.cursor = 'col-resize';
+        document.body.style.userSelect = 'none';
+        e.preventDefault();
+    });
+
+    window.addEventListener('mousemove', (e) => {
+        if (!isResizing) return;
+        let newWidth = window.innerWidth - e.clientX;
+        if (newWidth < 200) newWidth = 200;
+        if (newWidth > 800) newWidth = 800;
+        document.body.style.setProperty('--right-panel-width', `${newWidth}px`);
+    });
+
+    window.addEventListener('mouseup', () => {
+        if (isResizing) {
+            isResizing = false;
+            resizer.classList.remove('dragging');
+            document.body.style.cursor = '';
+            document.body.style.userSelect = '';
+        }
+    });
+}
+
 initCanvasZoom(); // Initialize zoom/pan
 initImageAdjustment(); // Initialize image adjustment events
+initSidebarResizer(); // Initialize sidebar resizer

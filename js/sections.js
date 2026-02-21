@@ -1,7 +1,7 @@
 /**
  * sections.js — page block operations + thumbnail rendering
  */
-import { state } from './state.js';
+import { state, dispatch, actionTypes } from './state.js';
 import {
     createStructureBlock,
     createPageBlockFromSection,
@@ -132,10 +132,10 @@ function canInsertNearBlock(block, position) {
 }
 
 function syncModelsFromLegacy() {
-    state.blocks = syncBlocksWithSections(state.blocks, state.sections, state.languages);
-    state.pages = blocksToPages(state.blocks);
+    dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'blocks', value: syncBlocksWithSections(state.blocks, state.sections, state.languages) } });
+    dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'pages', value: blocksToPages(state.blocks) } });
     if (!Number.isInteger(state.activePageIdx)) {
-        state.activePageIdx = Number.isInteger(state.activeIdx) ? state.activeIdx : 0;
+        dispatch({ type: actionTypes.SET_ACTIVE_INDEX, payload: Number.isInteger(state.activeIdx) ? state.activeIdx : 0 });
     }
 }
 
@@ -153,11 +153,11 @@ function createNewBlockId(prefix) {
  * @param {function} refresh - 画面更新コールバック
  */
 export function addSection(refresh) {
-    state.sections.push(createDefaultSection());
-    state.activeIdx = state.sections.length - 1;
-    state.activePageIdx = state.activeIdx;
-    state.activeBlockIdx = null;
-    state.activeBubbleIdx = null;
+    const list = [...state.sections, createDefaultSection()];
+    dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'sections', value: list } });
+    dispatch({ type: actionTypes.SET_ACTIVE_INDEX, payload: list.length - 1 });
+    dispatch({ type: actionTypes.SET_ACTIVE_BLOCK_INDEX, payload: null });
+    dispatch({ type: actionTypes.SET_ACTIVE_BUBBLE_INDEX, payload: null });
     syncModelsFromLegacy();
     refresh();
 }
@@ -169,11 +169,12 @@ export function addSection(refresh) {
  */
 export function insertSectionAt(insertIndex, refresh) {
     const idx = Math.max(0, Math.min(Number(insertIndex) || 0, state.sections.length));
-    state.sections.splice(idx, 0, createDefaultSection());
-    state.activeIdx = idx;
-    state.activePageIdx = idx;
-    state.activeBlockIdx = null;
-    state.activeBubbleIdx = null;
+    const list = [...state.sections];
+    list.splice(idx, 0, createDefaultSection());
+    dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'sections', value: list } });
+    dispatch({ type: actionTypes.SET_ACTIVE_INDEX, payload: idx });
+    dispatch({ type: actionTypes.SET_ACTIVE_BLOCK_INDEX, payload: null });
+    dispatch({ type: actionTypes.SET_ACTIVE_BUBBLE_INDEX, payload: null });
     syncModelsFromLegacy();
     refresh();
 }
@@ -187,11 +188,12 @@ export function duplicateSectionAt(sourceIndex, refresh) {
     const idx = Number(sourceIndex);
     if (!Number.isInteger(idx) || !state.sections[idx]) return;
     const cloned = deepCloneSection(state.sections[idx]);
-    state.sections.splice(idx + 1, 0, cloned);
-    state.activeIdx = idx + 1;
-    state.activePageIdx = state.activeIdx;
-    state.activeBlockIdx = null;
-    state.activeBubbleIdx = null;
+    const list = [...state.sections];
+    list.splice(idx + 1, 0, cloned);
+    dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'sections', value: list } });
+    dispatch({ type: actionTypes.SET_ACTIVE_INDEX, payload: idx + 1 });
+    dispatch({ type: actionTypes.SET_ACTIVE_BLOCK_INDEX, payload: null });
+    dispatch({ type: actionTypes.SET_ACTIVE_BUBBLE_INDEX, payload: null });
     syncModelsFromLegacy();
     refresh();
 }
@@ -212,34 +214,37 @@ export function moveSection(fromIndex, insertIndex, refresh) {
     if (to === from || to === from + 1) return;
 
     const moved = state.sections[from];
-    state.sections.splice(from, 1);
+    const newSections = [...state.sections];
+    newSections.splice(from, 1);
     if (to > from) to -= 1;
-    state.sections.splice(to, 0, moved);
-    state.activeIdx = to;
-    state.activePageIdx = to;
+    newSections.splice(to, 0, moved);
+    dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'sections', value: newSections } });
+    dispatch({ type: actionTypes.SET_ACTIVE_INDEX, payload: to });
 
     // Keep page block ordering in sync with page DnD reorder.
     const pageBlockIndicesBefore = getPageBlockIndices(state.blocks || []);
     const fromBlockIdx = pageBlockIndicesBefore[from];
     if (Number.isInteger(fromBlockIdx) && (state.blocks || [])[fromBlockIdx]?.kind === 'page') {
         const movedBlock = state.blocks[fromBlockIdx];
-        state.blocks.splice(fromBlockIdx, 1);
+        const newBlocks = [...state.blocks];
+        newBlocks.splice(fromBlockIdx, 1);
 
-        const pageBlockIndicesAfter = getPageBlockIndices(state.blocks || []);
+        const pageBlockIndicesAfter = getPageBlockIndices(newBlocks);
         let targetBlockIdx;
         if (to >= pageBlockIndicesAfter.length) {
-            targetBlockIdx = state.blocks.findIndex((b) => b?.kind === 'cover_back');
-            if (targetBlockIdx < 0) targetBlockIdx = state.blocks.length;
+            targetBlockIdx = newBlocks.findIndex((b) => b?.kind === 'cover_back');
+            if (targetBlockIdx < 0) targetBlockIdx = newBlocks.length;
         } else {
             targetBlockIdx = pageBlockIndicesAfter[to];
         }
-        state.blocks.splice(targetBlockIdx, 0, movedBlock);
-        state.activeBlockIdx = targetBlockIdx;
+        newBlocks.splice(targetBlockIdx, 0, movedBlock);
+        dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'blocks', value: newBlocks } });
+        dispatch({ type: actionTypes.SET_ACTIVE_BLOCK_INDEX, payload: targetBlockIdx });
     } else {
-        state.activeBlockIdx = null;
+        dispatch({ type: actionTypes.SET_ACTIVE_BLOCK_INDEX, payload: null });
     }
 
-    state.activeBubbleIdx = null;
+    dispatch({ type: actionTypes.SET_ACTIVE_BUBBLE_INDEX, payload: null });
     syncModelsFromLegacy();
     refresh();
 }
@@ -252,44 +257,42 @@ export function moveSection(fromIndex, insertIndex, refresh) {
 export function changeSection(i, refresh) {
     const idx = Number(i);
     if (!Number.isInteger(idx) || idx < 0 || idx >= state.sections.length) return;
-    state.activeIdx = idx;
-    state.activePageIdx = idx;
+    dispatch({ type: actionTypes.SET_ACTIVE_INDEX, payload: idx });
     const blockIdx = getBlockIndexFromPageIndex(state.blocks, idx);
-    if (blockIdx >= 0) state.activeBlockIdx = blockIdx;
-    state.activeBubbleIdx = null;
+    if (blockIdx >= 0) dispatch({ type: actionTypes.SET_ACTIVE_BLOCK_INDEX, payload: blockIdx });
+    dispatch({ type: actionTypes.SET_ACTIVE_BUBBLE_INDEX, payload: null });
     refresh();
 }
 
 export function changeBlock(blockIndex, refresh) {
     const idx = Number(blockIndex);
     if (!Number.isInteger(idx) || idx < 0 || idx >= (state.blocks || []).length) return;
-    state.activeBlockIdx = idx;
+    dispatch({ type: actionTypes.SET_ACTIVE_BLOCK_INDEX, payload: idx });
     const pageIdx = getPageIndexFromBlockIndex(state.blocks, idx);
     if (pageIdx >= 0) {
-        state.activeIdx = pageIdx;
-        state.activePageIdx = pageIdx;
+        dispatch({ type: actionTypes.SET_ACTIVE_INDEX, payload: pageIdx });
     }
-    state.activeBubbleIdx = null;
+    dispatch({ type: actionTypes.SET_ACTIVE_BUBBLE_INDEX, payload: null });
     refresh();
 }
 
 export function insertStructureBlock(kind, refresh) {
     const block = createStructureBlock(kind);
     if (!block) return;
-    const list = state.blocks || [];
+    const list = [...(state.blocks || [])];
     const baseIndex = Number.isInteger(state.activeBlockIdx) ? state.activeBlockIdx : (list.length - 2);
     const insertAt = Math.max(1, Math.min(baseIndex + 1, Math.max(1, list.length - 1)));
     list.splice(insertAt, 0, block);
-    state.blocks = list;
-    state.activeBlockIdx = insertAt;
-    state.activeBubbleIdx = null;
+    dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'blocks', value: list } });
+    dispatch({ type: actionTypes.SET_ACTIVE_BLOCK_INDEX, payload: insertAt });
+    dispatch({ type: actionTypes.SET_ACTIVE_BUBBLE_INDEX, payload: null });
     syncModelsFromLegacy();
     refresh();
 }
 
 export function insertPageNearBlock(blockIndex, position, refresh) {
     const idx = Number(blockIndex);
-    const list = state.blocks || [];
+    const list = [...(state.blocks || [])];
     if (!Number.isInteger(idx) || idx < 0 || idx >= list.length) return;
     const pos = position === 'before' ? 'before' : 'after';
     const target = list[idx];
@@ -300,22 +303,21 @@ export function insertPageNearBlock(blockIndex, position, refresh) {
 
     const pageBlock = createPageBlockFromSection(createDefaultSection());
     list.splice(insertAt, 0, pageBlock);
-    state.blocks = list;
-    state.sections = extractSectionsFromBlocks(state.blocks);
-    state.activeBlockIdx = insertAt;
-    const pageIdx = getPageIndexFromBlockIndex(state.blocks, insertAt);
+    dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'blocks', value: list } });
+    dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'sections', value: extractSectionsFromBlocks(list) } });
+    dispatch({ type: actionTypes.SET_ACTIVE_BLOCK_INDEX, payload: insertAt });
+    const pageIdx = getPageIndexFromBlockIndex(list, insertAt);
     if (pageIdx >= 0) {
-        state.activeIdx = pageIdx;
-        state.activePageIdx = pageIdx;
+        dispatch({ type: actionTypes.SET_ACTIVE_INDEX, payload: pageIdx });
     }
-    state.activeBubbleIdx = null;
+    dispatch({ type: actionTypes.SET_ACTIVE_BUBBLE_INDEX, payload: null });
     syncModelsFromLegacy();
     refresh();
 }
 
 export function duplicateBlockAt(blockIndex, refresh) {
     const idx = Number(blockIndex);
-    const list = state.blocks || [];
+    const list = [...(state.blocks || [])];
     if (!Number.isInteger(idx) || idx < 0 || idx >= list.length) return;
     const target = list[idx];
     if (!target || target.kind === 'cover_front' || target.kind === 'cover_back') return;
@@ -324,13 +326,14 @@ export function duplicateBlockAt(blockIndex, refresh) {
         const pageIdx = getPageIndexFromBlockIndex(state.blocks, idx);
         if (!Number.isInteger(pageIdx) || pageIdx < 0 || !state.sections[pageIdx]) return;
         const clonedSection = deepClone(state.sections[pageIdx]);
-        state.sections.splice(pageIdx + 1, 0, clonedSection);
+        const newSections = [...state.sections];
+        newSections.splice(pageIdx + 1, 0, clonedSection);
+        dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'sections', value: newSections } });
         syncModelsFromLegacy();
         const nextBlockIdx = getBlockIndexFromPageIndex(state.blocks, pageIdx + 1);
-        if (nextBlockIdx >= 0) state.activeBlockIdx = nextBlockIdx;
-        state.activeIdx = pageIdx + 1;
-        state.activePageIdx = pageIdx + 1;
-        state.activeBubbleIdx = null;
+        if (nextBlockIdx >= 0) dispatch({ type: actionTypes.SET_ACTIVE_BLOCK_INDEX, payload: nextBlockIdx });
+        dispatch({ type: actionTypes.SET_ACTIVE_INDEX, payload: pageIdx + 1 });
+        dispatch({ type: actionTypes.SET_ACTIVE_BUBBLE_INDEX, payload: null });
         refresh();
         return;
     }
@@ -338,9 +341,9 @@ export function duplicateBlockAt(blockIndex, refresh) {
     const cloned = deepClone(target);
     cloned.id = createNewBlockId(target.kind || 'block');
     list.splice(idx + 1, 0, cloned);
-    state.blocks = list;
-    state.activeBlockIdx = idx + 1;
-    state.activeBubbleIdx = null;
+    dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'blocks', value: list } });
+    dispatch({ type: actionTypes.SET_ACTIVE_BLOCK_INDEX, payload: idx + 1 });
+    dispatch({ type: actionTypes.SET_ACTIVE_BUBBLE_INDEX, payload: null });
     syncModelsFromLegacy();
     refresh();
 }
@@ -355,9 +358,9 @@ export function moveBlockAt(blockIndex, direction, refresh) {
     if (targetIdx < 0 || targetIdx === idx) return false;
 
     [list[idx], list[targetIdx]] = [list[targetIdx], list[idx]];
-    state.blocks = list;
-    state.activeBlockIdx = targetIdx;
-    state.activeBubbleIdx = null;
+    dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'blocks', value: list } });
+    dispatch({ type: actionTypes.SET_ACTIVE_BLOCK_INDEX, payload: targetIdx });
+    dispatch({ type: actionTypes.SET_ACTIVE_BUBBLE_INDEX, payload: null });
     syncModelsFromLegacy();
     refresh();
     return true;
@@ -512,8 +515,10 @@ export function renderThumbs() {
 export function deleteActive(refresh) {
     const activeBlock = (state.blocks || [])[state.activeBlockIdx];
     if (state.activeBubbleIdx !== null) {
-        state.sections[state.activeIdx].bubbles.splice(state.activeBubbleIdx, 1);
-        state.activeBubbleIdx = null;
+        const newSections = [...state.sections];
+        newSections[state.activeIdx].bubbles.splice(state.activeBubbleIdx, 1);
+        dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'sections', value: newSections } });
+        dispatch({ type: actionTypes.SET_ACTIVE_BUBBLE_INDEX, payload: null });
         refresh();
         return;
     }
@@ -523,17 +528,20 @@ export function deleteActive(refresh) {
             refresh();
             return;
         }
-        state.blocks.splice(state.activeBlockIdx, 1);
-        state.activeBlockIdx = Math.max(0, state.activeBlockIdx - 1);
+        const newBlocks = [...state.blocks];
+        newBlocks.splice(state.activeBlockIdx, 1);
+        dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'blocks', value: newBlocks } });
+        dispatch({ type: actionTypes.SET_ACTIVE_BLOCK_INDEX, payload: Math.max(0, state.activeBlockIdx - 1) });
         syncModelsFromLegacy();
         refresh();
         return;
     }
 
     if (state.sections.length > 1) {
-        state.sections.splice(state.activeIdx, 1);
-        state.activeIdx = Math.max(0, state.activeIdx - 1);
-        state.activePageIdx = state.activeIdx;
+        const newSections = [...state.sections];
+        newSections.splice(state.activeIdx, 1);
+        dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'sections', value: newSections } });
+        dispatch({ type: actionTypes.SET_ACTIVE_INDEX, payload: Math.max(0, state.activeIdx - 1) });
     }
     syncModelsFromLegacy();
     refresh();

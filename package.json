@@ -13,6 +13,8 @@
     "vite": "^5.0.0"
   },
   "dependencies": {
-    "firebase": "^10.7.1"
+    "file-saver": "^2.0.5",
+    "firebase": "^10.7.1",
+    "jszip": "^3.10.1"
   }
 }

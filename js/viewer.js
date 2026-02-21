@@ -1,7 +1,7 @@
 /**
  * viewer.js — DSF Viewer Logic
  */
-import { state } from './state.js';
+import { state, dispatch, actionTypes } from './state.js';
 import { renderBubbleHTML } from './bubbles.js';
 import { getLangProps } from './lang.js';
 import { db, signInWithGoogle, signOutUser, onAuthChanged, consumeRedirectResult } from './firebase.js';
@@ -111,8 +111,8 @@ function initAuthHandlers() {
     });
 
     onAuthChanged((user) => {
-        state.user = user || null;
-        state.uid = user?.uid || null;
+        dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'user', value: user || null } });
+        dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'uid', value: user?.uid || null } });
         updateViewerAuthUI(user);
 
         const shouldRetryLoad = sharedProjectRef
@@ -185,8 +185,7 @@ window.jumpToPage = function (val) {
     const page = parseInt(val, 10);
     const total = getViewerPageTotal();
     if (page >= 1 && page <= total) {
-        state.activePageIdx = page - 1;
-        state.activeIdx = page - 1;
+        dispatch({ type: actionTypes.SET_ACTIVE_INDEX, payload: page - 1 });
         refresh();
     }
 };
@@ -272,18 +271,17 @@ function loadProjectData(data) {
         }
     });
 
-    state.projectId = normalized.projectId;
-    state.title = normalized.title || ''; // Load title
-    state.pages = normalized.pages || [];
-    state.blocks = normalized.blocks || [];
-    state.sections = normalized.sections || [];
-    state.languages = normalized.languages || ['ja'];
-    state.defaultLang = normalized.defaultLang || state.languages[0] || 'ja';
-    state.languageConfigs = normalized.languageConfigs;
-    state.activeLang = state.defaultLang || state.languages[0];
-    state.activeIdx = 0;
-    state.activePageIdx = 0;
-    state.activeBlockIdx = 0;
+    dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'projectId', value: normalized.projectId } });
+    dispatch({ type: actionTypes.SET_TITLE, payload: normalized.title || '' });
+    dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'pages', value: normalized.pages || [] } });
+    dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'blocks', value: normalized.blocks || [] } });
+    dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'sections', value: normalized.sections || [] } });
+    dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'languages', value: normalized.languages || ['ja'] } });
+    dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'defaultLang', value: normalized.defaultLang || normalized.languages[0] || 'ja' } });
+    dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'languageConfigs', value: normalized.languageConfigs } });
+    dispatch({ type: actionTypes.SET_ACTIVE_LANGUAGE, payload: state.defaultLang || state.languages[0] });
+    dispatch({ type: actionTypes.SET_ACTIVE_INDEX, payload: 0 });
+    dispatch({ type: actionTypes.SET_ACTIVE_BLOCK_INDEX, payload: 0 });
 
     currentProject = data;
 
@@ -306,7 +304,7 @@ function loadProjectData(data) {
 }
 
 window.switchViewerLang = (code) => {
-    state.activeLang = code;
+    dispatch({ type: actionTypes.SET_ACTIVE_LANGUAGE, payload: code });
     refresh();
 };
 
@@ -625,8 +623,7 @@ function refresh() {
 
     const pageIndexRaw = Number.isInteger(state.activePageIdx) ? state.activePageIdx : state.activeIdx;
     const pageIndex = Math.max(0, Math.min(pageIndexRaw || 0, totalPages - 1));
-    state.activePageIdx = pageIndex;
-    state.activeIdx = pageIndex;
+    dispatch({ type: actionTypes.SET_ACTIVE_INDEX, payload: pageIndex });
 
     const p = hasPages ? pages[pageIndex] : null;
     const s = (!hasPages && state.sections) ? state.sections[pageIndex] : null;
@@ -889,8 +886,7 @@ function next() {
     const total = getViewerPageTotal();
     if (total <= 0) return;
     if (state.activePageIdx < total - 1) {
-        state.activePageIdx++;
-        state.activeIdx = state.activePageIdx;
+        dispatch({ type: actionTypes.SET_ACTIVE_INDEX, payload: state.activePageIdx + 1 });
         refresh();
     }
 }
@@ -899,8 +895,7 @@ function prev() {
     const total = getViewerPageTotal();
     if (total <= 0) return;
     if (state.activePageIdx > 0) {
-        state.activePageIdx--;
-        state.activeIdx = state.activePageIdx;
+        dispatch({ type: actionTypes.SET_ACTIVE_INDEX, payload: state.activePageIdx - 1 });
         refresh();
     }
 }

@@ -294,6 +294,24 @@ body.auth-guest .auth-warning-badge {
     border-left: 1px solid var(--line);
     padding: 14px;
     overflow-y: auto;
+    position: relative;
+}
+
+#panel-right .resizer {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 6px;
+    height: 100%;
+    cursor: col-resize;
+    z-index: 50;
+    background-color: transparent;
+    transition: background-color 0.2s ease;
+}
+
+#panel-right .resizer:hover,
+#panel-right .resizer.dragging {
+    background-color: var(--primary);
 }
 
 body.left-collapsed #sidebar,

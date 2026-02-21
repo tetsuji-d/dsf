@@ -17,20 +17,20 @@ import {
     signOut,
     onAuthStateChanged
 } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js";
-import { state } from './state.js';
+import { state, dispatch, actionTypes } from './state.js';
 import { getBlockIndexFromPageIndex, syncBlocksWithSections } from './blocks.js';
 import { PAGE_SCHEMA_VERSION, blocksToPages, normalizeProjectDataV5 } from './pages.js';
 import { composeCanonicalLayoutsForSections } from './layout.js';
 
 // --- Firebase Config ---
 const firebaseConfig = {
-  apiKey: "AIzaSyBj3U-wFKnsWlwId4OHAyerEGMiRYhQN0o",
-  authDomain: "vmnn-26345.firebaseapp.com",
-  projectId: "vmnn-26345",
-  storageBucket: "vmnn-26345.firebasestorage.app",
-  messagingSenderId: "166808261830",
-  appId: "1:166808261830:web:c218463dd04297749eb3c7",
-  measurementId: "G-N639C3XCVQ"
+    apiKey: "AIzaSyBj3U-wFKnsWlwId4OHAyerEGMiRYhQN0o",
+    authDomain: "vmnn-26345.firebaseapp.com",
+    projectId: "vmnn-26345",
+    storageBucket: "vmnn-26345.firebasestorage.app",
+    messagingSenderId: "166808261830",
+    appId: "1:166808261830:web:c218463dd04297749eb3c7",
+    measurementId: "G-N639C3XCVQ"
 };
 
 const app = initializeApp(firebaseConfig);
@@ -238,6 +238,7 @@ async function performSave() {
     }
 }
 
+
 /**
  * 手動保存（プロジェクトIDを新規設定して保存）
  */
@@ -246,7 +247,7 @@ export async function saveAsProject() {
     const pid = prompt("プロジェクト名を入力してください:", state.projectId || "");
     if (!pid) return;
 
-    state.projectId = pid;
+    dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'projectId', value: pid } });
     await performSave();
 }
 
@@ -256,7 +257,7 @@ export async function saveAsProject() {
  */
 export async function saveProject(pid) {
     requireUid();
-    if (pid) state.projectId = pid;
+    if (pid) dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'projectId', value: pid } });
     await performSave();
 }
 
@@ -395,7 +396,9 @@ export async function generateCroppedThumbnail(bgUrl, pos, refresh) {
         const snap = await uploadBytes(thumbRef, blob);
         const thumbUrl = await getDownloadURL(snap.ref);
 
-        state.sections[state.activeIdx].thumbnail = thumbUrl;
+        const newSections = [...state.sections];
+        newSections[state.activeIdx].thumbnail = thumbUrl;
+        dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'sections', value: newSections } });
         console.log("[DSF] Thumbnail updated:", thumbUrl);
 
         refresh(); // update thumbnails if logical
@@ -423,14 +426,12 @@ export async function uploadToStorage(input, refresh) {
 
     try {
         // 1. 画像圧縮 (メイン: max 1280px, サムネイル: max 320px)
-        // 並列処理で高速化
         const [mainBlob, thumbBlob] = await Promise.all([
             compressImage(file, 1280, 0.8),
             compressImage(file, 320, 0.8)
         ]);
 
         const timestamp = Date.now();
-        // オリジナル拡張子は無視して .webp に統一
         const filename = file.name.replace(/\.[^/.]+$/, "");
 
         const mainPath = `users/${uid}/dsf/${timestamp}_${filename}.webp`;
@@ -454,10 +455,12 @@ export async function uploadToStorage(input, refresh) {
         ]);
 
         // 4. ステート更新
-        state.sections[state.activeIdx].background = mainUrl;
-        state.sections[state.activeIdx].thumbnail = thumbUrl; // サムネイル保存
-        state.sections[state.activeIdx].imagePosition = { x: 0, y: 0, scale: 1, rotation: 0 };
-        state.sections[state.activeIdx].imageBasePosition = { x: 0, y: 0, scale: 1, rotation: 0 };
+        const newSections = [...state.sections];
+        newSections[state.activeIdx].background = mainUrl;
+        newSections[state.activeIdx].thumbnail = thumbUrl; // サムネイル保存
+        newSections[state.activeIdx].imagePosition = { x: 0, y: 0, scale: 1, rotation: 0 };
+        newSections[state.activeIdx].imageBasePosition = { x: 0, y: 0, scale: 1, rotation: 0 };
+        dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'sections', value: newSections } });
 
         refresh();
         triggerAutoSave();
@@ -486,19 +489,18 @@ export async function loadProject(pid, refresh) {
     const snap = await getDoc(projectDocRef(pid));
     if (snap.exists()) {
         const data = normalizeProjectDataV5(snap.data() || {});
-        state.projectId = pid;
-        state.title = data.title || '';
-        state.pages = data.pages || [];
-        state.blocks = data.blocks || [];
-        state.sections = data.sections;
-        state.languages = data.languages && data.languages.length > 0 ? data.languages : ['ja'];
-        state.defaultLang = data.defaultLang || state.languages[0] || 'ja';
-        state.uiPrefs = data.uiPrefs || state.uiPrefs || {};
-        state.activeLang = state.defaultLang || state.languages[0];
-        state.activeIdx = 0;
-        state.activePageIdx = 0;
-        state.activeBlockIdx = Math.max(0, getBlockIndexFromPageIndex(state.blocks, 0));
-        state.activeBubbleIdx = null;
+        dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'projectId', value: pid } });
+        dispatch({ type: actionTypes.SET_TITLE, payload: data.title || '' });
+        dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'pages', value: data.pages || [] } });
+        dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'blocks', value: data.blocks || [] } });
+        dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'sections', value: data.sections } });
+        dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'languages', value: data.languages && data.languages.length > 0 ? data.languages : ['ja'] } });
+        dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'defaultLang', value: data.defaultLang || (data.languages && data.languages.length > 0 ? data.languages[0] : 'ja') } });
+        dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'uiPrefs', value: data.uiPrefs || state.uiPrefs || {} } });
+        dispatch({ type: actionTypes.SET_ACTIVE_LANGUAGE, payload: data.defaultLang || (data.languages && data.languages.length > 0 ? data.languages[0] : 'ja') });
+        dispatch({ type: actionTypes.SET_ACTIVE_INDEX, payload: 0 });
+        dispatch({ type: actionTypes.SET_ACTIVE_BLOCK_INDEX, payload: Math.max(0, getBlockIndexFromPageIndex(data.blocks || [], 0)) });
+        dispatch({ type: actionTypes.SET_ACTIVE_BUBBLE_INDEX, payload: null });
         refresh();
     }
 }

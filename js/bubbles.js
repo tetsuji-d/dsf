@@ -3,7 +3,7 @@
  * テキスト外形に合わせてバブル形状を動的に生成する
  * 多言語対応: texts[lang] からテキストを取得し言語別配置を適用
  */
-import { state } from './state.js';
+import { state, dispatch, actionTypes } from './state.js';
 import { pushState } from './history.js';
 import { triggerAutoSave } from './firebase.js';
 import { getShape, getShapeNames } from './shapes.js';
@@ -149,7 +149,7 @@ export function handleCanvasClick(e, refresh) {
     if (e.target.id === 'main-img' || e.target.classList.contains('text-layer')) {
         // 背景クリックで選択解除
         pushState();
-        state.activeBubbleIdx = null;
+        dispatch({ type: actionTypes.SET_ACTIVE_BUBBLE_INDEX, payload: null });
         refresh();
         triggerAutoSave();
     }
@@ -176,8 +176,11 @@ export function addBubbleAtCenter(refresh) {
 
     // pushStateは呼び出し元(app.js)で行うか、ここで
     // app.jsで呼び出すので、ここではデータ操作のみ
-    state.sections[state.activeIdx].bubbles.push(newBubble);
-    state.activeBubbleIdx = state.sections[state.activeIdx].bubbles.length - 1;
+    const newBubbles = [...state.sections[state.activeIdx].bubbles, newBubble];
+    const newSections = [...state.sections];
+    newSections[state.activeIdx] = { ...newSections[state.activeIdx], bubbles: newBubbles };
+    dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'sections', value: newSections } });
+    dispatch({ type: actionTypes.SET_ACTIVE_BUBBLE_INDEX, payload: newBubbles.length - 1 });
     refresh();
 }
 
@@ -189,7 +192,7 @@ export function addBubbleAtCenter(refresh) {
  */
 export function selectBubble(e, i, refresh) {
     e.stopPropagation();
-    state.activeBubbleIdx = i;
+    dispatch({ type: actionTypes.SET_ACTIVE_BUBBLE_INDEX, payload: i });
     refresh();
     // ドラッグはハンドルで行うため、ここでは開始しない
 }
