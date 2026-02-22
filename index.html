@@ -19,11 +19,11 @@
         <header id="ribbon-bar">
             <div class="ribbon-row ribbon-top-row">
                 <div class="ribbon-tabs">
-                    <button class="ribbon-tab active" data-ribbon-tab="home">Home</button>
-                    <button class="ribbon-tab" data-ribbon-tab="insert">Insert</button>
-                    <button class="ribbon-tab" data-ribbon-tab="arrange">Arrange</button>
-                    <button class="ribbon-tab" data-ribbon-tab="export">Export</button>
-                    <button class="ribbon-tab" data-ribbon-tab="project">Project</button>
+                    <button class="ribbon-tab active" data-ribbon-tab="home" aria-label="ホームタブ">Home</button>
+                    <button class="ribbon-tab" data-ribbon-tab="insert" aria-label="挿入タブ">Insert</button>
+                    <button class="ribbon-tab" data-ribbon-tab="arrange" aria-label="配置タブ">Arrange</button>
+                    <button class="ribbon-tab" data-ribbon-tab="export" aria-label="出力タブ">Export</button>
+                    <button class="ribbon-tab" data-ribbon-tab="project" aria-label="プロジェクトタブ">Project</button>
                 </div>
                 <div class="ribbon-auth">
                     <span id="auth-warning-badge" class="auth-warning-badge">ログインでクラウド機能が有効化されます</span>
@@ -47,42 +47,45 @@
                             data-auth-required>🔗 Share</button>
                     </div>
                     <div class="ribbon-group grow">
-                        <span class="field-label">Project</span>
+                        <span class="field-label" aria-hidden="true">Project</span>
                         <span id="project-title" class="project-title" contenteditable="true"
                             oninput="onProjectTitleInput()" onkeydown="onProjectTitleKeydown(event)"
-                            onblur="onProjectTitleBlur()">新規プロジェクト</span>
-                        <span class="field-label">Title</span>
+                            onblur="onProjectTitleBlur()" aria-label="プロジェクト名" title="プロジェクト名を編集">新規プロジェクト</span>
+                        <span class="field-label" aria-hidden="true">Title</span>
                         <input type="text" id="prop-title" class="ribbon-title-input" placeholder="作品タイトルを入力"
-                            oninput="updateTitle(this.value)">
-                        <span id="save-status" class="save-status"></span>
+                            oninput="updateTitle(this.value)" aria-label="作品タイトル" title="作品のタイトル">
+                        <span id="save-status" class="save-status" aria-live="polite"></span>
                     </div>
                     <div class="ribbon-group">
-                        <button id="btn-toggle-sidebar" class="btn-tool" type="button" title="ページ一覧の表示切替">📚
+                        <button id="btn-toggle-sidebar" class="btn-tool" type="button" title="ページ一覧の表示切替"
+                            aria-label="ページ一覧表示切り替え">📚
                             Pages</button>
-                        <button id="btn-toggle-panel" class="btn-tool" type="button" title="設定パネルの表示切替">⚙ Edit</button>
+                        <button id="btn-toggle-panel" class="btn-tool" type="button" title="設定パネルの表示切替"
+                            aria-label="設定パネル表示切り替え">⚙ Edit</button>
                     </div>
                 </div>
                 <div class="ribbon-panel" data-ribbon-panel="insert">
                     <div class="ribbon-group">
-                        <button class="btn-tool" onclick="addSection()">＋ セクション追加</button>
-                        <button class="btn-tool" onclick="addBubbleFab()">💬 吹き出し追加</button>
-                        <button class="btn-tool" onclick="document.getElementById('file-upload').click()">🖼
-                            画像追加</button>
-                        <button class="btn-tool" onclick="addChapterBlock()">📘 章</button>
-                        <button class="btn-tool" onclick="addSubsectionBlock()">📑 節</button>
-                        <button class="btn-tool" onclick="addItemBlock()">🔹 項</button>
-                        <button class="btn-tool" onclick="addTocBlock()">📚 目次</button>
+                        <button class="btn-tool" onclick="addSection()" aria-label="セクションを追加">＋ セクション追加</button>
+                        <button class="btn-tool" onclick="addBubbleFab()" aria-label="吹き出しを追加">💬 吹き出し追加</button>
+                        <button class="btn-tool" onclick="document.getElementById('file-upload').click()"
+                            aria-label="画像を追加">🖼 画像追加</button>
+                        <button class="btn-tool" onclick="addChapterBlock()" aria-label="章見出しを追加">📘 章</button>
+                        <button class="btn-tool" onclick="addSubsectionBlock()" aria-label="節見出しを追加">📑 節</button>
+                        <button class="btn-tool" onclick="addItemBlock()" aria-label="項見出しを追加">🔹 項</button>
+                        <button class="btn-tool" onclick="addTocBlock()" aria-label="目次を追加">📚 目次</button>
                     </div>
                 </div>
                 <div class="ribbon-panel" data-ribbon-panel="arrange">
                     <div class="ribbon-group">
-                        <button class="btn-tool" onclick="resetCanvasView()">🔍 全体表示</button>
+                        <button class="btn-tool" onclick="resetCanvasView()" aria-label="キャンバスを全体表示">🔍 全体表示</button>
                         <button class="btn-tool" onclick="toggleImageAdjustment()" id="btn-adjust-img"
-                            title="位置・サイズ調整">✥ 画像調整</button>
+                            title="画像の位置・サイズを調整" aria-label="画像の位置・サイズを調整">✥ 画像調整</button>
                     </div>
                     <div class="ribbon-group ribbon-canvas-zoom">
-                        <span class="field-label">Canvas</span>
-                        <select id="canvas-zoom-select" class="zoom-select" onchange="setCanvasZoomPercent(this.value)">
+                        <span class="field-label" aria-hidden="true">Canvas</span>
+                        <select id="canvas-zoom-select" class="zoom-select" onchange="setCanvasZoomPercent(this.value)"
+                            aria-label="キャンバスの拡大率">
                             <option value="25">25%</option>
                             <option value="33">33%</option>
                             <option value="50">50%</option>
@@ -99,8 +102,9 @@
                             <option value="400">400%</option>
                             <option value="custom" hidden>100%</option>
                         </select>
-                        <button class="btn-tool" onclick="resetCanvasView()">Fit</button>
-                        <button class="btn-tool" onclick="setCanvasZoomPercent(100)">100%</button>
+                        <button class="btn-tool" onclick="resetCanvasView()" aria-label="キャンバスを画面に合わせる">Fit</button>
+                        <button class="btn-tool" onclick="setCanvasZoomPercent(100)"
+                            aria-label="キャンバスを100パーセントで表示">100%</button>
                     </div>
                     <div class="ribbon-group">
                         <div id="lang-tabs" class="lang-tabs"></div>

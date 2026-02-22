@@ -187,12 +187,12 @@
                 <div id="viewer-bubbles"></div>
             </div>
         </div>
-        <!-- Click layer for interaction -->
-        <div id="click-layer" style="position:absolute; inset:0; z-index:100;"></div>
-
-        <!-- Touch area to trigger footer (bottom 15%) -->
-        <div id="footer-trigger" style="position:absolute; bottom:0; left:0; width:100%; height:15%; z-index:101;"
-            onclick="toggleUi()"></div>
+        <!-- UD Touch Zones for navigation -->
+        <div id="click-layer" style="position:absolute; inset:0; z-index:100; display:flex;">
+            <div id="zone-prev" style="flex: 0 0 30%; height:100%; cursor:pointer;" onclick="viewerNavLeft()" title="前のページ"></div>
+            <div id="zone-menu" style="flex: 1; height:100%; cursor:pointer;" onclick="toggleUi()" title="メニュー表示/非表示"></div>
+            <div id="zone-next" style="flex: 0 0 30%; height:100%; cursor:pointer;" onclick="viewerNavRight()" title="次のページ"></div>
+        </div>
     </div>
 
     <div id="viewer-ui">

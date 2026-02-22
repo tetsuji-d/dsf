@@ -18,7 +18,7 @@ import {
     onAuthStateChanged
 } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js";
 import { state, dispatch, actionTypes } from './state.js';
-import { getBlockIndexFromPageIndex } from './blocks.js';
+import { getBlockIndexFromPageIndex, syncBlocksWithSections } from './blocks.js';
 import { PAGE_SCHEMA_VERSION, blocksToPages, normalizeProjectDataV5 } from './pages.js';
 import { composeCanonicalLayoutsForSections } from './layout.js';
 import { set as idbSet } from 'idb-keyval';

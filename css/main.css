@@ -57,26 +57,33 @@ body.right-collapsed {
 }
 
 .ribbon-top-row {
-    border-bottom: 1px solid #edf0f4;
+    border-bottom: 1px solid var(--line);
 }
 
 .ribbon-tabs {
     display: flex;
-    gap: 4px;
+    gap: 8px;
 }
 
 .ribbon-tab {
     border: 1px solid transparent;
     background: transparent;
-    color: #2a3342;
+    color: #4a5568;
+    /* Less harsh but legible */
     border-radius: 8px;
-    padding: 7px 12px;
+    padding: 10px 16px;
+    /* Larger tap targets */
     cursor: pointer;
-    font-size: 13px;
+    font-size: 14px;
+    font-weight: 600;
+    min-height: 44px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
 }
 
 .ribbon-tab.active {
-    border-color: #d6e4ff;
+    border-color: #9fc1ff;
     background: #eef4ff;
     color: #0b4bb3;
 }
@@ -128,10 +135,13 @@ body.auth-guest .auth-warning-badge {
 .ribbon-group {
     display: flex;
     align-items: center;
-    gap: 6px;
-    padding-right: 10px;
-    border-right: 1px solid #edf0f4;
-    min-height: 34px;
+    gap: 8px;
+    /* More spacing between buttons */
+    padding-right: 16px;
+    /* More spacing between groups */
+    border-right: 1px solid #d0d7e5;
+    /* Higher contrast divider */
+    min-height: 44px;
 }
 
 .ribbon-group:last-child {
@@ -161,8 +171,10 @@ body.auth-guest .auth-warning-badge {
 }
 
 .panel-subform {
-    margin: 0 0 10px 0;
-    padding: 8px 10px;
+    margin: 0 0 16px 0;
+    /* Increased margin for UD separation */
+    padding: 12px 14px;
+    /* Increased padding */
     border: 1px solid #e2e8f2;
     border-radius: 8px;
     background: #f8fbff;
@@ -187,25 +199,54 @@ body.auth-guest .auth-warning-badge {
 .btn-tool {
     border: 1px solid var(--line);
     background: #fff;
-    border-radius: 7px;
-    padding: 7px 10px;
-    line-height: 1;
+    border-radius: 8px;
+    /* Slightly rounder */
+    padding: 10px 14px;
+    /* Larger hit area */
+    line-height: 1.2;
     cursor: pointer;
-    font-size: 13px;
-    color: #243144;
+    font-size: 14px;
+    /* Increase base font size */
+    font-weight: 500;
+    color: #1a1f29;
+    /* High contrast text */
+    min-width: 44px;
+    /* UD minimum tap target */
+    min-height: 44px;
+    /* UD minimum tap target */
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    transition: all 0.2s ease;
+}
+
+/* Keyboard accessibility focus */
+.btn-tool:focus-visible,
+.btn-sm:focus-visible,
+.btn:focus-visible,
+button:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible {
+    outline: 3px solid var(--primary);
+    outline-offset: 2px;
 }
 
 .btn-tool:hover:not(:disabled),
 .btn-sm:hover:not(:disabled),
 .btn:hover:not(:disabled) {
-    background: #f5f8fc;
+    background: #f0f4f8;
+    /* Darker hover for better visibility */
+    border-color: #bbc3d2;
 }
 
 .btn-tool:disabled,
 .btn-sm:disabled,
 .btn:disabled {
-    opacity: 0.45;
+    opacity: 0.5;
     cursor: not-allowed;
+    background: #f8fafc;
 }
 
 .project-title {
@@ -506,24 +547,28 @@ body.right-collapsed #panel-right {
 }
 
 .thumb-card-title {
-    font-size: 12px;
+    font-size: 13px;
+    /* Slightly larger */
     font-weight: 700;
-    color: #2f3e52;
+    color: #1a1f29;
+    /* Highest contrast */
     line-height: 1.4;
     max-width: 100%;
     display: -webkit-box;
     -webkit-line-clamp: 4;
+    line-clamp: 4;
     -webkit-box-orient: vertical;
     overflow: hidden;
 }
 
 .thumb-card-subtitle {
-    font-size: 11px;
-    color: #637089;
+    font-size: 12px;
+    color: #4a5568;
     line-height: 1.35;
     max-width: 100%;
     display: -webkit-box;
     -webkit-line-clamp: 2;
+    line-clamp: 2;
     -webkit-box-orient: vertical;
     overflow: hidden;
 }
@@ -1085,12 +1130,21 @@ body.right-collapsed #panel-right {
 }
 
 .btn-sm {
-    border: 1px solid #cfd7e5;
+    border: 1px solid var(--line);
     background: #fff;
-    border-radius: 7px;
-    padding: 6px 10px;
-    font-size: 12px;
+    border-radius: 6px;
+    padding: 8px 12px;
+    /* Increased for UD (was 5px 8px) */
+    font-size: 13px;
+    /* Slightly larger base */
+    color: #243144;
     cursor: pointer;
+    line-height: 1.2;
+    min-height: 36px;
+    /* Ensure a decent tap height even if smaller than 44px global standard */
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
 }
 
 .btn {

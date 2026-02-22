@@ -290,14 +290,14 @@ function loadProjectData(data) {
     });
 
     dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'projectId', value: normalized.projectId } });
-    dispatch({ type: actionTypes.SET_TITLE, payload: normalized.title || '' });
+    dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'title', value: normalized.title || '' } });
     dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'pages', value: normalized.pages || [] } });
     dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'blocks', value: normalized.blocks || [] } });
     dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'sections', value: normalized.sections || [] } });
     dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'languages', value: normalized.languages || ['ja'] } });
     dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'defaultLang', value: normalized.defaultLang || normalized.languages[0] || 'ja' } });
     dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'languageConfigs', value: normalized.languageConfigs } });
-    dispatch({ type: actionTypes.SET_ACTIVE_LANGUAGE, payload: state.defaultLang || state.languages[0] });
+    dispatch({ type: actionTypes.SET_ACTIVE_LANG, payload: state.defaultLang || state.languages[0] });
     dispatch({ type: actionTypes.SET_ACTIVE_INDEX, payload: 0 });
     dispatch({ type: actionTypes.SET_ACTIVE_BLOCK_INDEX, payload: 0 });
 
@@ -322,7 +322,7 @@ function loadProjectData(data) {
 }
 
 window.switchViewerLang = (code) => {
-    dispatch({ type: actionTypes.SET_ACTIVE_LANGUAGE, payload: code });
+    dispatch({ type: actionTypes.SET_ACTIVE_LANG, payload: code });
     refresh();
 };
 
@@ -704,16 +704,6 @@ function refresh() {
                 </div>
             </div>`;
             bubblesEl.innerHTML = '';
-            updateViewerFrameOutline(mode, {
-                x: frame.x,
-                y: frame.y,
-                w: frame.w,
-                h: frame.h
-            });
-            updateNavDirectionByMode(mode);
-            updatePageCounter(pageIndex, totalPages);
-            updateLangTabsUI();
-            return;
         }
         const vtClass = mode === 'vertical-rl' ? 'v-text' : '';
         const langProps = getLangProps(lang);
@@ -797,10 +787,15 @@ function refresh() {
 function updateNavigationUI() {
     const nextDir = getNextPageDirection();
     const slider = document.getElementById('page-slider');
+
+    // Preload next and previous images
+    preloadSurroundingImages();
+
     const leftBtn = document.getElementById('viewer-nav-left');
     const rightBtn = document.getElementById('viewer-nav-right');
     if (slider) {
         slider.style.direction = nextDir === 'left' ? 'rtl' : 'ltr';
+        slider.style.transform = 'none';
     }
     if (leftBtn) {
         leftBtn.title = nextDir === 'left' ? '次へ' : '前へ';
@@ -808,6 +803,42 @@ function updateNavigationUI() {
     if (rightBtn) {
         rightBtn.title = nextDir === 'left' ? '前へ' : '次へ';
     }
+}
+
+// ──────────────────────────────────────
+//  Image Preloading
+// ──────────────────────────────────────
+function extractImageUrlFromPageOrSection(pageObj, sectionObj) {
+    if (pageObj) {
+        if (pageObj.content?.background) return pageObj.content.background;
+        if (pageObj.bodyKind === 'image' || pageObj.pageType === 'normal_image') return pageObj.content?.background;
+    }
+    if (sectionObj) {
+        if (sectionObj.background) return sectionObj.background;
+    }
+    return null;
+}
+
+function preloadSurroundingImages() {
+    const pages = getViewerPages();
+    const hasPages = pages.length > 0;
+    const totalPages = getViewerPageTotal();
+    const pageIndexRaw = Number.isInteger(state.activePageIdx) ? state.activePageIdx : state.activeIdx;
+    const currentIndex = Math.max(0, Math.min(pageIndexRaw || 0, totalPages - 1));
+
+    // Define which indices to preload: Next 2 pages, Prev 1 page
+    const indicesToLoad = [currentIndex + 1, currentIndex + 2, currentIndex - 1].filter(i => i >= 0 && i < totalPages);
+
+    indicesToLoad.forEach(idx => {
+        const p = hasPages ? pages[idx] : null;
+        const s = (!hasPages && state.sections) ? state.sections[idx] : null;
+        const url = extractImageUrlFromPageOrSection(p, s);
+        if (url && typeof url === 'string' && url.trim() !== '') {
+            // Initiate background load
+            const img = new Image();
+            img.src = url;
+        }
+    });
 }
 
 // ──────────────────────────────────────
@@ -1098,32 +1129,35 @@ function handleTouchEnd(e) {
         if (Math.abs(diffX) < 30 && Math.abs(diffY) < 30) {
             const currentTime = new Date().getTime();
             const tapLength = currentTime - lastTapTime;
+            lastTapTime = currentTime;
 
             if (tapLength < 300 && tapLength > 0) {
                 // Double Tap Detected!
-                e.preventDefault(); // Prevent Click/Nav
-                toggleUi();
-                lastTapTime = 0; // Reset
+                // We can reset zoom or something.
+                if (viewState.scale > 1.05) {
+                    resetZoom();
+                } else {
+                    viewState.scale = 2; // double tap to zoom? Or just ignore
+                    updateTransform();
+                }
+                e.preventDefault();
             } else {
-                lastTapTime = currentTime;
-                // Allow click to pass through (it will trigger navigation via handleClick)
+                // Let the click event handle the tap zones
             }
-            return;
-        }
-
-        if (Math.abs(diffY) > Math.abs(diffX)) {
-            // Vertical
-            if (diffY < 0) next();
-            else prev();
         } else {
-            // Horizontal
-            const nextDir = getNextPageDirection();
-            if (nextDir === 'left') {
-                if (diffX > 0) next();
-                else prev();
-            } else {
-                if (diffX < 0) next();
-                else prev();
+            // Swipe Detection
+            if (Math.abs(diffX) > Math.abs(diffY) && Math.abs(diffX) > 50) {
+                // Horizontal Swipe
+                const nextDir = getNextPageDirection();
+                if (diffX > 0) {
+                    // Swiped Right
+                    if (nextDir === 'left') next();
+                    else prev();
+                } else {
+                    // Swiped Left
+                    if (nextDir === 'left') prev();
+                    else next();
+                }
             }
         }
     }
