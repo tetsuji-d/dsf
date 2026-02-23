@@ -2,7 +2,7 @@
  * firebase.js — Firebase初期化・クラウド保存/読込・自動保存
  */
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
-import { getFirestore, doc, setDoc, getDoc } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
+import { getFirestore, doc, setDoc, getDoc, deleteDoc, serverTimestamp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
 import { getStorage, ref, uploadBytes, getDownloadURL } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-storage.js";
 import {
     getAuth,
@@ -229,6 +229,8 @@ async function performSave() {
     // 2. クラウドバックアップ (ログイン時のみ)
     if (state.projectId && state.uid) {
         try {
+            const visibility = state.visibility || 'private';
+
             await setDoc(projectDocRef(state.projectId), {
                 version: PAGE_SCHEMA_VERSION,
                 title: state.title || '',
@@ -239,10 +241,27 @@ async function performSave() {
                 defaultLang: state.defaultLang || state.languages?.[0] || 'ja',
                 languageConfigs: state.languageConfigs,
                 uiPrefs: state.uiPrefs || null,
+                visibility: visibility,
                 ownerUid: state.uid,
                 ownerEmail: state.user?.email || '',
                 lastUpdated: new Date()
             });
+
+            // 3. public_projects コレクションへの同期
+            const publicProjectRef = doc(db, 'public_projects', state.projectId);
+            if (visibility === 'public') {
+                await setDoc(publicProjectRef, {
+                    title: state.title || '無題のプロジェクト',
+                    authorName: state.user?.displayName || state.user?.email?.split('@')[0] || '名無し',
+                    authorUid: state.uid,
+                    thumbnail: state.sections?.[0]?.thumbnail || state.sections?.[0]?.background || '',
+                    publishedAt: serverTimestamp() // Bumps to top on save
+                }, { merge: true });
+            } else {
+                // private や unlisted になった場合は一覧から削除
+                await deleteDoc(publicProjectRef).catch(() => { });
+            }
+
             updateSaveIndicator('saved', '保存済み (Cloud)');
             console.log(`[DSF] Auto-saved project to cloud: ${state.projectId}`);
         } catch (e) {
@@ -548,6 +567,7 @@ export async function loadProject(pid, refresh) {
         dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'languages', value: data.languages && data.languages.length > 0 ? data.languages : ['ja'] } });
         dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'defaultLang', value: data.defaultLang || (data.languages && data.languages.length > 0 ? data.languages[0] : 'ja') } });
         dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'uiPrefs', value: data.uiPrefs || state.uiPrefs || {} } });
+        dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'visibility', value: data.visibility || 'private' } });
         dispatch({ type: actionTypes.SET_ACTIVE_LANGUAGE, payload: data.defaultLang || (data.languages && data.languages.length > 0 ? data.languages[0] : 'ja') });
         dispatch({ type: actionTypes.SET_ACTIVE_INDEX, payload: 0 });
         dispatch({ type: actionTypes.SET_ACTIVE_BLOCK_INDEX, payload: Math.max(0, getBlockIndexFromPageIndex(data.blocks || [], 0)) });

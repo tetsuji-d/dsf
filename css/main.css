@@ -11,6 +11,28 @@
     -webkit-tap-highlight-color: transparent;
 }
 
+/* Base form elements - UD Touch Targets */
+input,
+select,
+textarea {
+    font-family: inherit;
+    font-size: 14px;
+    padding: 10px 12px;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background-color: #fff;
+    color: #1a1f29;
+    min-height: 44px;
+    /* UD minimum tap target */
+    transition: outline 0.2s ease, border-color 0.2s ease;
+}
+
+/* Adjust textarea specifically since it might need more height */
+textarea {
+    resize: vertical;
+    min-height: 80px;
+}
+
 html,
 body {
     width: 100%;
@@ -171,19 +193,27 @@ body.auth-guest .auth-warning-badge {
 }
 
 .panel-subform {
-    margin: 0 0 16px 0;
+    margin: 0 0 20px 0;
     /* Increased margin for UD separation */
-    padding: 12px 14px;
+    padding: 16px;
     /* Increased padding */
     border: 1px solid #e2e8f2;
     border-radius: 8px;
     background: #f8fbff;
 }
 
+.panel-subform>label {
+    display: block;
+    margin-bottom: 6px;
+    font-weight: 500;
+    color: #4a5568;
+}
+
 .panel-subform input,
+.panel-subform select,
 .panel-subform textarea {
     width: 100%;
-    margin-bottom: 6px;
+    margin-bottom: 12px;
 }
 
 .zoom-select {
@@ -330,12 +360,79 @@ textarea:focus-visible {
     flex-direction: column;
 }
 
+/* ==========================================================
+   Context Menu (Right-Click)
+   ========================================================== */
+.context-menu {
+    position: fixed;
+    z-index: 10000;
+    width: 220px;
+    max-height: 80vh;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    background: #ffffff;
+    border-radius: 8px;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15);
+    border: 1px solid var(--line);
+    padding: 8px 0;
+    font-family: inherit;
+    font-size: 14px;
+    color: #333;
+}
+
+.context-menu-item {
+    padding: 8px 16px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    cursor: pointer;
+    transition: background 0.1s;
+    flex-shrink: 0;
+}
+
+.context-menu-item:hover {
+    background: #f0f2f5;
+}
+
+.context-menu-item .material-icons {
+    font-size: 18px;
+    color: #666;
+}
+
+.context-menu-divider {
+    height: 1px;
+    background: var(--line);
+    margin: 4px 0;
+    flex-shrink: 0;
+}
+
+
 #panel-right {
     width: var(--right-panel-width);
     border-left: 1px solid var(--line);
-    padding: 14px;
+    padding: 16px 20px;
+    /* Increased padding */
     overflow-y: auto;
     position: relative;
+}
+
+/* Added for UD: Better spacing in the right panel */
+#panel-right label {
+    display: inline-block;
+    margin-bottom: 6px;
+    margin-top: 8px;
+    /* Space above labels */
+    font-weight: 500;
+    color: #4a5568;
+    font-size: 13px;
+}
+
+#panel-right input,
+#panel-right select,
+#panel-right textarea {
+    width: 100%;
+    margin-bottom: 12px;
 }
 
 #panel-right .resizer {
@@ -774,7 +871,8 @@ body.right-collapsed #panel-right {
     height: 100%;
     min-height: 0;
     background: #2a2d35;
-    overflow: hidden;
+    overflow: clip;
+    /* スクロールバーを出さず、子要素のオーバーフロー表示も占めない */
     touch-action: none;
     border-radius: 10px;
 }
@@ -788,7 +886,8 @@ body.right-collapsed #panel-right {
     transform-origin: center center;
     background: #fff;
     box-shadow: 0 0 50px rgba(0, 0, 0, 0.5);
-    overflow: hidden;
+    overflow: visible;
+    /* ハンドルがキャンバス境界に近い時も表示する */
 }
 
 #content-render,
@@ -1019,7 +1118,8 @@ body.right-collapsed #panel-right {
     font-size: 12px;
     line-height: 1.4;
     color: #000;
-    white-space: pre-line;
+    white-space: pre;
+    /* 自動改行を禁止し、強制改行(\n)のみを尊重する */
     outline: none;
 }
 
@@ -1027,8 +1127,9 @@ body.right-collapsed #panel-right {
     position: absolute;
     top: -20px;
     right: -20px;
-    width: 24px;
-    height: 24px;
+    width: 32px;
+    /* Edge case: make handle slightly larger/easier to grab */
+    height: 32px;
     border-radius: 50%;
     background: var(--primary);
     color: #fff;
@@ -1038,6 +1139,112 @@ body.right-collapsed #panel-right {
     cursor: grab;
     z-index: 1000;
     pointer-events: auto;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+    /* Ensure it's visually separated from background */
+}
+
+.bubble-tail-handle {
+    position: absolute;
+    width: 24px;
+    height: 24px;
+    border-radius: 50%;
+    background: #00bcd4;
+    border: 2px solid white;
+    cursor: grab;
+    z-index: 1000;
+    pointer-events: auto;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+    transform: translate(-50%, -50%);
+}
+
+.bubble-spike-handle {
+    position: absolute;
+    width: 20px;
+    height: 20px;
+    border-radius: 50%;
+    background: #ff9800;
+    border: 2px solid white;
+    cursor: ew-resize;
+    z-index: 1001;
+    pointer-events: auto;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+    transform: translate(-50%, -50%);
+}
+
+/* フキダシカラーピッカー行（右パネル） */
+.bubble-color-row {
+    display: flex;
+    gap: 10px;
+    margin-top: 8px;
+    align-items: center;
+}
+
+.bubble-color-item {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 2px;
+    font-size: 10px;
+    color: #666;
+}
+
+.bubble-color-item input[type="color"] {
+    width: 32px;
+    height: 28px;
+    border: 1px solid #ced5e0;
+    border-radius: 4px;
+    cursor: pointer;
+    padding: 1px;
+}
+
+/* 最近使った色パレット */
+.recent-colors-section {
+    margin-top: 8px;
+}
+
+.recent-colors-label {
+    font-size: 10px;
+    color: #888;
+    display: block;
+    margin-bottom: 4px;
+}
+
+.recent-colors-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    min-height: 20px;
+}
+
+.recent-color-swatch {
+    width: 20px;
+    height: 20px;
+    border-radius: 3px;
+    border: 1px solid rgba(0, 0, 0, 0.15);
+    cursor: pointer;
+    padding: 0;
+    transition: transform 0.1s, box-shadow 0.1s;
+}
+
+.recent-color-swatch:hover {
+    transform: scale(1.2);
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.25);
+}
+
+/* 右クリックメニュー内の形状セレクト */
+.context-menu-shape {
+    gap: 6px;
+}
+
+.context-shape-select {
+    flex: 1;
+    border: 1px solid #ced5e0;
+    border-radius: 6px;
+    padding: 4px 6px;
+    font-size: 12px;
+    background: #fff;
+    cursor: pointer;
+    outline: none;
 }
 
 .fab-btn {
@@ -1132,16 +1339,17 @@ body.right-collapsed #panel-right {
 .btn-sm {
     border: 1px solid var(--line);
     background: #fff;
-    border-radius: 6px;
-    padding: 8px 12px;
-    /* Increased for UD (was 5px 8px) */
-    font-size: 13px;
-    /* Slightly larger base */
+    border-radius: 8px;
+    /* Slightly rounder */
+    padding: 10px 14px;
+    /* Increased padding */
+    font-size: 14px;
+    /* Larger base size */
     color: #243144;
     cursor: pointer;
     line-height: 1.2;
-    min-height: 36px;
-    /* Ensure a decent tap height even if smaller than 44px global standard */
+    min-height: 44px;
+    /* UD minimum tap target */
     display: inline-flex;
     align-items: center;
     justify-content: center;
@@ -1153,9 +1361,17 @@ body.right-collapsed #panel-right {
     background: #edf3ff;
     color: #1248a1;
     border-radius: 8px;
-    padding: 10px 12px;
+    padding: 12px 14px;
+    /* Increased padding */
+    font-size: 14px;
+    /* Larger base size */
     font-weight: 600;
     cursor: pointer;
+    min-height: 44px;
+    /* UD minimum tap target */
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
 }
 
 .btn-danger {
@@ -1227,9 +1443,16 @@ body.right-collapsed #panel-right {
 .btn-modal {
     border: 1px solid #ccd5e2;
     background: #fff;
-    border-radius: 7px;
-    padding: 7px 12px;
+    border-radius: 8px;
+    padding: 10px 16px;
+    /* Increased padding */
+    font-size: 14px;
     cursor: pointer;
+    min-height: 44px;
+    /* UD minimum tap target */
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
 }
 
 .btn-modal.primary {

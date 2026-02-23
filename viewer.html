@@ -26,7 +26,8 @@
 
         #viewer-canvas {
             position: relative;
-            background: transparent;
+            background: #000;
+            /* Set to black to kill any white bleed on subpixel gaps */
             overflow: hidden;
             box-shadow: 0 0 20px rgba(0, 0, 0, 0.5);
             /* Dimensions set by JS for perfect fit */
@@ -149,6 +150,17 @@
             flex: 1;
             margin: 0 10px;
             cursor: pointer;
+            width: 100%;
+            height: 44px;
+            /* Ensure UD touch target size without expanding the visual track */
+            min-height: 44px;
+            padding: 0;
+            /* Reset global input padding */
+            border: none;
+            /* Reset global input border */
+            background: transparent;
+            /* Reset global input background */
+            accent-color: var(--primary, #1248a1);
         }
 
         .page-count {
@@ -189,9 +201,12 @@
         </div>
         <!-- UD Touch Zones for navigation -->
         <div id="click-layer" style="position:absolute; inset:0; z-index:100; display:flex;">
-            <div id="zone-prev" style="flex: 0 0 30%; height:100%; cursor:pointer;" onclick="viewerNavLeft()" title="前のページ"></div>
-            <div id="zone-menu" style="flex: 1; height:100%; cursor:pointer;" onclick="toggleUi()" title="メニュー表示/非表示"></div>
-            <div id="zone-next" style="flex: 0 0 30%; height:100%; cursor:pointer;" onclick="viewerNavRight()" title="次のページ"></div>
+            <div id="zone-prev" style="flex: 0 0 30%; height:100%; cursor:pointer;" onclick="viewerNavLeft()"
+                title="前のページ"></div>
+            <div id="zone-menu" style="flex: 1; height:100%; cursor:pointer;" onclick="toggleUi()" title="メニュー表示/非表示">
+            </div>
+            <div id="zone-next" style="flex: 0 0 30%; height:100%; cursor:pointer;" onclick="viewerNavRight()"
+                title="次のページ"></div>
         </div>
     </div>
 

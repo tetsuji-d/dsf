@@ -58,8 +58,8 @@ function init() {
 
     // Check URL Param
     const params = new URLSearchParams(window.location.search);
-    const pid = params.get('id');
-    const uid = params.get('uid');
+    const pid = params.get('project') || params.get('id');
+    const uid = params.get('author') || params.get('uid');
     if (pid) {
         sharedProjectRef = { pid, uid };
         attemptLoadSharedProject();
@@ -222,7 +222,7 @@ async function loadFromFirestore(pid, uid) {
         console.error(e);
         lastLoadErrorCode = e?.code || '';
         if (isPermissionDeniedError(lastLoadErrorCode)) {
-            alert('読み込みエラー: 閲覧にはログインが必要です。右上の Sign in を押してください。');
+            alert('読み込みエラー: この作品は「非公開」に設定されているか、閲覧権限がありません。');
             isUiVisible = true;
             updateUiVisibility();
             return false;
@@ -536,13 +536,43 @@ function renderCoverThemePage(contentEl, page, lang) {
     </div>`;
 }
 
+function getOptimizedImageUrl(originalUrl) {
+    if (!originalUrl || typeof originalUrl !== 'string') return '';
+
+    // --- Cloudflare Integration ---
+    // Feature flag for CDN Delivery (can be toggled via config in the future)
+    // ⚠️ NOTE: Cloudflare Image Resizingがdsf.inkで有効化されるまでは false にしておく
+    const ENABLE_CLOUDFLARE_IMAGE_DELIVERY = false;
+    const CF_DOMAIN = 'https://dsf.ink';
+
+    if (ENABLE_CLOUDFLARE_IMAGE_DELIVERY && originalUrl.includes('firebasestorage.googleapis.com')) {
+        // Calculate optimized width based on device screen and pixel ratio
+        const screenWidth = window.innerWidth || window.screen?.width || 800;
+        const dpr = window.devicePixelRatio || 1;
+        const logicalWidth = screenWidth * dpr;
+
+        // Snap to standard breakpoints for better CDN cache hit ratios
+        let targetWidth = 400;
+        if (logicalWidth > 1600) targetWidth = 2000;
+        else if (logicalWidth > 1200) targetWidth = 1600;
+        else if (logicalWidth > 800) targetWidth = 1200;
+        else if (logicalWidth > 400) targetWidth = 800;
+
+        // Note: For this to work, Cloudflare Image Resizing must be enabled on dsf.ink
+        // and configured to allow fetching from Firebase Storage origins.
+        return `${CF_DOMAIN}/cdn-cgi/image/width=${targetWidth},format=auto,quality=80/${originalUrl}`;
+    }
+
+    return originalUrl;
+}
+
 function renderCoverImagePage(contentEl, page) {
     const bg = page?.content?.background || '';
     if (!bg) {
         renderStructurePage(contentEl, page, state.activeLang);
         return;
     }
-    contentEl.innerHTML = `<img src="${bg}" style="width:100%; height:100%; object-fit:cover;">`;
+    contentEl.innerHTML = `<img src="${escapeHtml(getOptimizedImageUrl(bg))}" style="width:100%; height:100%; object-fit:cover;">`;
 }
 
 function renderStructureImagePage(contentEl, page, lang) {
@@ -554,7 +584,7 @@ function renderStructureImagePage(contentEl, page, lang) {
     const title = escapeHtml(page?.meta?.title?.[lang] || '');
     const badge = page?.role === 'chapter' ? '章' : (page?.role === 'section' ? '節' : '項');
     contentEl.innerHTML = `<div style="position:relative; width:100%; height:100%;">
-        <img src="${bg}" style="width:100%; height:100%; object-fit:cover;">
+        <img src="${escapeHtml(getOptimizedImageUrl(bg))}" style="width:100%; height:100%; object-fit:cover;">
         <div style="position:absolute; left:20px; right:20px; bottom:20px; background:rgba(0,0,0,.45); color:#fff; border-radius:8px; padding:10px 12px;">
             <div style="font-size:11px; opacity:.85;">${badge}</div>
             <div style="font-size:20px; font-weight:700; line-height:1.35; white-space:normal; overflow-wrap:anywhere; word-break:break-word;">${title || ''}</div>
@@ -681,7 +711,7 @@ function refresh() {
         const scale = Math.max(0.1, toNum(pos.scale, 1));
         const rotation = toNum(pos.rotation, 0);
         const imgStyle = `width:100%; height:100%; object-fit:cover; transform: translate(${x}px, ${y}px) scale(${scale}) rotate(${rotation}deg); transform-origin: center center;`;
-        contentEl.innerHTML = `<img src="${p.content?.background || ''}" style="${imgStyle}">`;
+        contentEl.innerHTML = `<img src="${escapeHtml(getOptimizedImageUrl(p.content?.background || ''))}" style="${imgStyle}">`;
     } else if (hasPages && p && p.pageType === 'normal_text') {
         const richDoc = p.content?.richTextLangs?.[lang] || p.content?.richText || null;
         if (Array.isArray(richDoc?.blocks) && richDoc.blocks.length) {
@@ -733,7 +763,7 @@ function refresh() {
         const scale = Math.max(0.1, toNum(pos.scale, 1));
         const rotation = toNum(pos.rotation, 0);
         const imgStyle = `width:100%; height:100%; object-fit:cover; transform: translate(${x}px, ${y}px) scale(${scale}) rotate(${rotation}deg); transform-origin: center center;`;
-        contentEl.innerHTML = `<img src="${s.background}" style="${imgStyle}">`;
+        contentEl.innerHTML = `<img src="${escapeHtml(getOptimizedImageUrl(s.background))}" style="${imgStyle}">`;
     } else {
         const vtClass = mode === 'vertical-rl' ? 'v-text' : '';
         const langProps = getLangProps(lang);
@@ -796,6 +826,7 @@ function updateNavigationUI() {
     if (slider) {
         slider.style.direction = nextDir === 'left' ? 'rtl' : 'ltr';
         slider.style.transform = 'none';
+        slider.style.background = ''; // Clear custom background
     }
     if (leftBtn) {
         leftBtn.title = nextDir === 'left' ? '次へ' : '前へ';
@@ -878,11 +909,13 @@ function resizeCanvas() {
         }
     }
 
-    // Force full width if close match to avoid gaps
-    if (Math.abs(finalW - w) < 1) finalW = w;
+    // Force full viewport dimensions if close match to avoid fractional gaps
+    if (Math.abs(finalW - w) < 2) finalW = w;
+    if (Math.abs(finalH - h) < 2) finalH = h;
 
-    canvas.style.width = `${Math.ceil(finalW)}px`;
-    canvas.style.height = `${Math.ceil(finalH)}px`;
+    // For pixel perfect, just round, don't blindly ceil which can cause overflow
+    canvas.style.width = `${Math.round(finalW)}px`;
+    canvas.style.height = `${Math.round(finalH)}px`;
 
     // Scale `#content-stage` (360x640 base) to fit `#viewer-canvas`
     const stage = document.getElementById('content-stage');
@@ -913,18 +946,15 @@ function resizeCanvas() {
             // ty is 0
         }
 
-        // Add tiny epsilon for safety against rounding gaps? 
-        // If we strictly used finalW = w, then baseW * (finalW/baseW) === finalW.
-        // So tx should be exact 0.
-        // Let's add slight buffer only if we are scaling UP or largely separate? 
-        // Actually, let's stick to exact math first, but ceil the canvas size.
-        fitScale = fitScale * 1.001; // Tiny overlap to kill gaps
+        // Let the browser handle subpixel anti-aliasing. Do not floor the translation
+        // or artificially inflate the scale, which causes blurred edges and fractional gaps.
+        fitScale = fitScale;
 
-        // Recalculate offsets with new scale
+        // Recalculate offsets with precise scale
         tx = (finalW - (baseW * fitScale)) / 2;
         ty = (finalH - (baseH * fitScale)) / 2;
 
-        stage.style.transform = `translate(${Math.floor(tx)}px, ${Math.floor(ty)}px) scale(${fitScale})`;
+        stage.style.transform = `translate(${tx}px, ${ty}px) scale(${fitScale})`;
     }
 }
 

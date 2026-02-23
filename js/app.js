@@ -3,7 +3,7 @@
  */
 import { state, dispatch, actionTypes } from './state.js';
 import { saveProject, loadProject, uploadToStorage, uploadCoverToStorage, uploadStructureToStorage, triggerAutoSave, generateCroppedThumbnail, signInWithGoogle, signOutUser, onAuthChanged, consumeRedirectResult } from './firebase.js';
-import { handleCanvasClick, selectBubble, renderBubbleHTML, getBubbleText, setBubbleText, addBubbleAtCenter, startDrag } from './bubbles.js';
+import { handleCanvasClick, selectBubble, renderBubbleHTML, getBubbleText, setBubbleText, addBubbleAtCenter, startDrag, startTailDrag, startSpikeDrag } from './bubbles.js';
 import { addSection, changeSection, changeBlock, insertStructureBlock, renderThumbs, deleteActive, insertSectionAt, duplicateSectionAt, moveSection, insertPageNearBlock, duplicateBlockAt, moveBlockAt } from './sections.js';
 import { pushState, undo, redo, getHistoryInfo, clearHistory } from './history.js';
 import { openProjectModal, closeProjectModal } from './projects.js';
@@ -1089,6 +1089,11 @@ function showPublishValidationErrors(issues, contextLabel, isWarningOnly = false
 //  refresh — 画面全体を再描画する
 // ──────────────────────────────────────
 function refresh() {
+    const visSelect = document.getElementById('prop-visibility');
+    if (visSelect && document.activeElement !== visSelect) {
+        visSelect.value = state.visibility || 'private';
+    }
+
     populateThemeSelectOptions();
     syncBlocksFromState();
     const activeBlock = getActiveBlock();
@@ -1459,14 +1464,14 @@ function refresh() {
         textLabel.textContent = label;
     }
 
-    // 吹き出し形状セレクタの同期
+    // 吹き出し形状＆カラーセレクタの同期
     const shapeProps = document.getElementById('bubble-shape-props');
-    const shapeSelect = document.getElementById('prop-shape');
-    if (isPageBlock && state.activeBubbleIdx !== null && s.bubbles[state.activeBubbleIdx]) {
-        shapeProps.style.display = 'block';
-        shapeSelect.value = s.bubbles[state.activeBubbleIdx].shape || 'speech';
+    if (isPageBlock && state.activeBubbleIdx !== null && s.bubbles && s.bubbles[state.activeBubbleIdx]) {
+        if (shapeProps) shapeProps.style.display = 'block';
+        updateBubblePropPanel(s.bubbles[state.activeBubbleIdx]);
     } else {
-        shapeProps.style.display = 'none';
+        if (shapeProps) shapeProps.style.display = 'none';
+        updateBubblePropPanel(null);
     }
 
     // プロジェクト名表示
@@ -1876,6 +1881,7 @@ window.toggleImageAdjustment = () => {
     // 調整モード終了時に値を確定して保存＋サムネイル再生成
     if (!isImageAdjusting) {
         triggerAutoSave();
+        refresh(); // Ensure handles disappear immediately
         // サムネイル更新
         if (s.background && state.uid) {
             generateCroppedThumbnail(
@@ -2079,6 +2085,92 @@ function updateBubbleShape(shapeName) {
         triggerAutoSave();
     }
 }
+
+// ──────────────────────────────────────
+//  最近使った色パレット
+// ──────────────────────────────────────
+const RECENT_COLORS_KEY = 'dsf_bubble_recent_colors';
+const RECENT_COLORS_MAX = 16;
+
+function loadRecentColors() {
+    try {
+        return JSON.parse(localStorage.getItem(RECENT_COLORS_KEY) || '[]');
+    } catch { return []; }
+}
+
+function addRecentColor(color) {
+    const hex = (color || '').toLowerCase();
+    if (!hex.match(/^#[0-9a-f]{6}$/)) return;
+    let list = loadRecentColors();
+    list = [hex, ...list.filter(c => c !== hex)].slice(0, RECENT_COLORS_MAX);
+    try { localStorage.setItem(RECENT_COLORS_KEY, JSON.stringify(list)); } catch { }
+    renderRecentColors();
+}
+
+function renderRecentColors() {
+    const container = document.getElementById('bubble-recent-colors');
+    if (!container) return;
+    const list = loadRecentColors();
+    if (list.length === 0) {
+        container.innerHTML = '<span style="font-size:11px;color:#aaa;">まだありません</span>';
+        return;
+    }
+    container.innerHTML = list.map(c =>
+        `<button class="recent-color-swatch" style="background:${c};" title="${c}"
+            onclick="applyRecentColor('${c}')" type="button"></button>`
+    ).join('');
+}
+
+// 最後にアクティブだったカラープロップを記憶
+let _lastColorProp = 'strokeColor';
+
+function applyRecentColor(hex) {
+    const propEls = {
+        strokeColor: 'prop-stroke-color',
+        fillColor: 'prop-fill-color',
+        fontColor: 'prop-font-color'
+    };
+    // 選択中のカラーピッカーに適用
+    const el = document.getElementById(propEls[_lastColorProp]);
+    if (el) el.value = hex;
+    updateBubbleColor(_lastColorProp, hex);
+}
+window.applyRecentColor = applyRecentColor;
+
+function updateBubbleColor(prop, value) {
+    _lastColorProp = prop;
+    const s = state.sections[state.activeIdx];
+    if (state.activeBubbleIdx !== null && s.bubbles && s.bubbles[state.activeBubbleIdx]) {
+        s.bubbles[state.activeBubbleIdx][prop] = value;
+        addRecentColor(value);
+        refresh();
+        triggerAutoSave();
+    }
+}
+window.updateBubbleColor = updateBubbleColor;
+
+// フキダシ選択時に右パネルの値を同期する
+function updateBubblePropPanel(bubble) {
+    const shapeEl = document.getElementById('prop-shape');
+    const strokeEl = document.getElementById('prop-stroke-color');
+    const fillEl = document.getElementById('prop-fill-color');
+    const fontEl = document.getElementById('prop-font-color');
+    if (!bubble) {
+        if (shapeEl) shapeEl.value = 'speech';
+        if (strokeEl) strokeEl.value = '#000000';
+        if (fillEl) fillEl.value = '#ffffff';
+        if (fontEl) fontEl.value = '#000000';
+        renderRecentColors();
+        return;
+    }
+    if (shapeEl) shapeEl.value = bubble.shape || 'speech';
+    if (strokeEl) strokeEl.value = bubble.strokeColor || '#000000';
+    if (fillEl) fillEl.value = bubble.fillColor || '#ffffff';
+    const defaultFont = (bubble.shape === 'urchin') ? '#ffffff' : '#000000';
+    if (fontEl) fontEl.value = bubble.fontColor || defaultFont;
+    renderRecentColors();
+}
+window.updateBubblePropPanel = updateBubblePropPanel;
 
 
 
@@ -2338,6 +2430,17 @@ window.deleteActive = () => { pushState(); deleteActive(refresh); triggerAutoSav
 window.update = update;
 window.updateActiveText = updateActiveText;
 window.updateBubbleShape = updateBubbleShape;
+window.changeBubbleShapeFromMenu = (idx, shapeName) => {
+    const s = state.sections[state.activeIdx];
+    if (s?.bubbles?.[idx]) {
+        pushState();
+        s.bubbles[idx].shape = shapeName;
+        refresh();
+        triggerAutoSave();
+        const menu = document.getElementById('context-menu');
+        if (menu) menu.style.display = 'none';
+    }
+};
 window.updateGlobalWritingMode = updateGlobalWritingMode;
 window.updateGlobalFontPreset = updateGlobalFontPreset;
 window.updateTitle = (v) => {
@@ -2369,6 +2472,16 @@ window.addBubbleFab = () => {
 // バブル移動ハンドル用
 window.onHandleDown = (e, i) => {
     startDrag(e, i, refresh);
+};
+
+// しっぽ移動ハンドル用
+window.onTailHandleDown = (e, i) => {
+    startTailDrag(e, i, refresh);
+};
+
+// ウニ・スパイク長ハンドル用
+window.onSpikeHandleDown = (e, i) => {
+    startSpikeDrag(e, i, refresh);
 };
 
 // ズーム・パン機能
@@ -2666,7 +2779,13 @@ window.shareProject = async () => {
 
         // Construct URL
         const host = window.location.host;
-        const url = `${window.location.protocol}//${host}/viewer.html?id=${encodeURIComponent(state.projectId)}&uid=${encodeURIComponent(state.uid)}`;
+        const visibility = state.visibility || 'private';
+        if (visibility === 'private') {
+            alert('現在の状態は「🔒 非公開」です。\nこのままでは作品を共有できません。上部メニューから「🔗 限定公開」か「🌍 公開」に変更してください。');
+            return; // 共有を中断
+        }
+        // ポータル連携向けの新しいURLパラメータ
+        const url = `${window.location.protocol}//${host}/viewer.html?project=${encodeURIComponent(state.projectId)}&author=${encodeURIComponent(state.uid)}`;
 
         // Copy to clipboard
         try {
@@ -2687,6 +2806,17 @@ window.shareProject = async () => {
         return;
     }
     await doShare();
+};
+
+window.updateVisibility = async (val) => {
+    dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'visibility', value: val } });
+    await triggerAutoSave();
+    const map = {
+        'private': '🔒 非公開（自分だけの状態）',
+        'unlisted': '🔗 限定公開（URLを知っている人のみ閲覧可能）',
+        'public': '🌍 公開（ポータルに掲載され誰でも閲覧可能）'
+    };
+    console.log(`[DSF] Visibility updated to ${val}`);
 };
 
 // 吹き出し直接編集（多言語対応）
@@ -3268,3 +3398,186 @@ function initSidebarResizer() {
 initCanvasZoom(); // Initialize zoom/pan
 initImageAdjustment(); // Initialize image adjustment events
 initSidebarResizer(); // Initialize sidebar resizer
+initContextMenu(); // Initialize right-click context menu
+
+// ============================================================
+// Context Menu (Right-Click) Logic
+// ============================================================
+function initContextMenu() {
+    const contextMenu = document.getElementById('context-menu');
+    if (!contextMenu) return;
+
+    // キャンバスおよび吹き出し上の右クリックをフック
+    document.addEventListener('contextmenu', (e) => {
+        // Only intercept if we are in the editor area
+        const canvasView = document.getElementById('canvas-view');
+        if (!canvasView || !canvasView.contains(e.target)) return;
+
+        e.preventDefault(); // デフォルトメニューを禁止
+
+        // どこがクリックされたか判定
+        const bubbleSvg = e.target.closest('.bubble-svg');
+        const bubbleText = e.target.closest('.bubble-text');
+        const isBubble = bubbleSvg || bubbleText;
+
+        // メニュー内容を動的に生成
+        contextMenu.innerHTML = '';
+
+        if (isBubble) {
+            // 吹き出しの上で右クリックした場合
+            // 要素IDからインデックスを逆引き
+            let bubbleIndex = -1;
+            const targetEl = bubbleSvg || bubbleText;
+            if (targetEl && targetEl.id) {
+                const match = targetEl.id.match(/^bubble-(?:svg|text)-(\d+)$/);
+                if (match) bubbleIndex = parseInt(match[1], 10);
+            }
+
+            if (bubbleIndex !== -1) {
+                // select it first (pass refresh so UI updates)
+                selectBubble(e, bubbleIndex, refresh);
+
+                const currentShape = (() => {
+                    const s2 = state.sections[state.activeIdx];
+                    return s2?.bubbles?.[bubbleIndex]?.shape || 'speech';
+                })();
+
+                const shapeOptions = [
+                    ['speech', '💬 角丸'], ['oval', '⭕ 楕円'], ['rect', '📄 四角'],
+                    ['cloud', '☁️ 雲'], ['wave', '🌊 波'], ['thought', '💭 思考'],
+                    ['explosion', '💥 爆発'], ['digital', '📡 電子音'],
+                    ['shout', '⚡ ギザギザ'], ['flash', '✨ フラッシュ'], ['urchin', '🦔 ウニフラッシュ']
+                ].map(([v, l]) =>
+                    `<option value="${v}"${v === currentShape ? ' selected' : ''}>${l}</option>`
+                ).join('');
+
+                contextMenu.innerHTML = `
+                    <div class="context-menu-item context-menu-shape">
+                        <span class="material-icons">auto_fix_high</span>
+                        <select class="context-shape-select" onchange="changeBubbleShapeFromMenu(${bubbleIndex}, this.value)" onclick="event.stopPropagation()">
+                            ${shapeOptions}
+                        </select>
+                    </div>
+                    <div class="context-menu-item" onclick="duplicateSelectedBubble(${bubbleIndex})">
+                        <span class="material-icons">content_copy</span> 複製
+                    </div>
+                    <div class="context-menu-item" onclick="deleteSelectedBubble(${bubbleIndex})" style="color: #d32f2f;">
+                        <span class="material-icons">delete</span> 削除
+                    </div>
+                `;
+            }
+        } else {
+            // キャンバス（何もない場所）で右クリックした場合
+            contextMenu.innerHTML = `
+                <div class="context-menu-item" onclick="addBubbleAtPointer(event)">
+                    <span class="material-icons">chat_bubble_outline</span> ここに吹き出しを追加
+                </div>
+            `;
+            // ポインター座標を一時保存（addBubbleAtPointerで使う）
+            contextMenu.dataset.pointerX = e.clientX;
+            contextMenu.dataset.pointerY = e.clientY;
+        }
+
+        // メニューの表示位置を計算 (画面外にはみ出ないように調整)
+        contextMenu.style.display = 'flex';
+        const rect = contextMenu.getBoundingClientRect();
+        let x = e.clientX;
+        let y = e.clientY;
+
+        if (x + rect.width > window.innerWidth) x = window.innerWidth - rect.width - 8;
+        if (y + rect.height > window.innerHeight) y = window.innerHeight - rect.height - 8;
+
+        contextMenu.style.left = `${x}px`;
+        contextMenu.style.top = `${y}px`;
+    });
+
+    // 画面のどこかをクリックしたらコンテキストメニューを閉じる
+    document.addEventListener('click', (e) => {
+        if (!contextMenu.contains(e.target)) {
+            contextMenu.style.display = 'none';
+        }
+    });
+}
+
+// Global functions for context menu actions
+window.addBubbleAtPointer = function (e) {
+    const contextMenu = document.getElementById('context-menu');
+    if (!contextMenu) return;
+    contextMenu.style.display = 'none';
+
+    const clientX = parseFloat(contextMenu.dataset.pointerX);
+    const clientY = parseFloat(contextMenu.dataset.pointerY);
+
+    if (isNaN(clientX) || isNaN(clientY)) return;
+
+    const layer = document.getElementById('canvas-transform-layer');
+    if (!layer) return;
+
+    const rect = layer.getBoundingClientRect();
+
+    // Convert screen coordinates to canvas % coordinates
+    let x = ((clientX - rect.left) / rect.width) * 100;
+    let y = ((clientY - rect.top) / rect.height) * 100;
+
+    // Clamp
+    x = Math.max(5, Math.min(95, x));
+    y = Math.max(5, Math.min(95, y));
+
+    pushState();
+    const newBubble = {
+        id: 'bubble_' + Date.now(),
+        shape: 'speech',
+        text: 'テキスト',
+        x: x.toFixed(1),
+        y: y.toFixed(1),
+        tailX: 0,
+        tailY: 20
+    };
+
+    if (!state.sections[state.activeIdx].bubbles) {
+        state.sections[state.activeIdx].bubbles = [];
+    }
+    state.sections[state.activeIdx].bubbles.push(newBubble);
+
+    // Select the newly created bubble
+    state.activeBubbleIdx = state.sections[state.activeIdx].bubbles.length - 1;
+
+    refresh();
+    triggerAutoSave();
+};
+
+window.duplicateSelectedBubble = function (bubbleIndex) {
+    const contextMenu = document.getElementById('context-menu');
+    if (contextMenu) contextMenu.style.display = 'none';
+
+    const section = state.sections[state.activeIdx];
+    if (!section || !section.bubbles || !section.bubbles[bubbleIndex]) return;
+
+    pushState();
+    const source = section.bubbles[bubbleIndex];
+    const clone = JSON.parse(JSON.stringify(source));
+    clone.id = 'bubble_' + Date.now();
+    clone.x = (parseFloat(source.x) + 5).toFixed(1); // slightly offset
+    clone.y = (parseFloat(source.y) + 5).toFixed(1);
+
+    section.bubbles.push(clone);
+    state.activeBubbleIdx = section.bubbles.length - 1;
+
+    refresh();
+    triggerAutoSave();
+};
+
+window.deleteSelectedBubble = function (bubbleIndex) {
+    const contextMenu = document.getElementById('context-menu');
+    if (contextMenu) contextMenu.style.display = 'none';
+
+    const section = state.sections[state.activeIdx];
+    if (!section || !section.bubbles || !section.bubbles[bubbleIndex]) return;
+
+    pushState();
+    section.bubbles.splice(bubbleIndex, 1);
+    state.activeBubbleIdx = null;
+
+    refresh();
+    triggerAutoSave();
+};
