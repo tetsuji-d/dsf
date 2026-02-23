@@ -863,11 +863,12 @@ function preloadSurroundingImages() {
     indicesToLoad.forEach(idx => {
         const p = hasPages ? pages[idx] : null;
         const s = (!hasPages && state.sections) ? state.sections[idx] : null;
-        const url = extractImageUrlFromPageOrSection(p, s);
-        if (url && typeof url === 'string' && url.trim() !== '') {
-            // Initiate background load
+        const originalUrl = extractImageUrlFromPageOrSection(p, s);
+        if (originalUrl && typeof originalUrl === 'string' && originalUrl.trim() !== '') {
+            // Initiate background load with the same optimized URL used for display
+            const optimizedUrl = getOptimizedImageUrl(originalUrl);
             const img = new Image();
-            img.src = url;
+            img.src = optimizedUrl;
         }
     });
 }

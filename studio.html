@@ -43,12 +43,11 @@
                     <div class="ribbon-group">
                         <button id="btn-save" class="btn-tool" onclick="saveProject()" title="保存" data-auth-required>☁
                             クラウド保存</button>
-                        <select id="prop-visibility" class="rt-toolbar"
-                            style="margin-left:8px; border-radius:4px; padding:4px 8px; font-size:12px; background:rgba(255,255,255,0.1); color:#fff; border:1px solid rgba(255,255,255,0.2);"
+                        <select id="prop-visibility" class="rt-toolbar visibility-select"
                             onchange="updateVisibility(this.value)" data-auth-required title="公開範囲の設定">
-                            <option value="private" style="color:#000;">🔒 非公開</option>
-                            <option value="unlisted" style="color:#000;">🔗 限定公開</option>
-                            <option value="public" style="color:#000;">🌍 公開</option>
+                            <option value="private">🔒 非公開</option>
+                            <option value="unlisted">🔗 限定公開</option>
+                            <option value="public">🌍 公開</option>
                         </select>
                         <button id="btn-share" class="btn-tool" onclick="shareProject()" title="ビューワーURLをコピー"
                             data-auth-required>🔗 URLコピー</button>
