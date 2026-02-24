@@ -19,6 +19,12 @@
         <header id="ribbon-bar">
             <div class="ribbon-row ribbon-top-row">
                 <div class="ribbon-tabs">
+                    <a href="/" class="ribbon-tab" aria-label="ポータルへ戻る" title="DSFポータルへ戻る"
+                        style="text-decoration:none; color:inherit;">
+                        <span class="material-icons"
+                            style="font-size: 16px; margin-right: 4px; vertical-align: text-bottom;">home</span>
+                        Portal
+                    </a>
                     <button class="ribbon-tab active" data-ribbon-tab="home" aria-label="ホームタブ">Home</button>
                     <button class="ribbon-tab" data-ribbon-tab="insert" aria-label="挿入タブ">Insert</button>
                     <button class="ribbon-tab" data-ribbon-tab="arrange" aria-label="配置タブ">Arrange</button>
@@ -52,8 +58,15 @@
                         <button id="btn-share" class="btn-tool" onclick="shareProject()" title="ビューワーURLをコピー"
                             data-auth-required>🔗 URLコピー</button>
                     </div>
-                    <div class="ribbon-group grow">
-                        <span class="field-label" aria-hidden="true">Project</span>
+                    <div class="ribbon-group grow" style="display:flex; align-items:center;">
+                        <!-- Unified DSF Logo -->
+                        <a href="/" aria-label="DSF Portal" title="DSF Portal"
+                            style="text-decoration:none; display:flex; align-items:baseline; margin-right: 8px;">
+                            <span
+                                style="font-family:'Outfit',sans-serif; font-size:18px; font-weight:800; letter-spacing:-0.5px; background:linear-gradient(135deg, #60a5fa, #818cf8); -webkit-background-clip:text; background-clip:text; -webkit-text-fill-color:transparent;">DSF</span>
+                            <span
+                                style="font-family:'Inter',sans-serif; font-size:10px; font-weight:600; color:#64748b; letter-spacing:0.5px; margin-left:2px;">Studio</span>
+                        </a>
                         <span id="project-title" class="project-title" contenteditable="true"
                             oninput="onProjectTitleInput()" onkeydown="onProjectTitleKeydown(event)"
                             onblur="onProjectTitleBlur()" aria-label="プロジェクト名" title="プロジェクト名を編集">新規プロジェクト</span>

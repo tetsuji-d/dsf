@@ -51,21 +51,30 @@
 
         .logo-area {
             display: flex;
-            align-items: center;
-            gap: 12px;
+            align-items: baseline;
+            gap: 8px;
             text-decoration: none;
             color: #fff;
         }
 
         .logo-text {
             font-family: 'Outfit', sans-serif;
-            font-size: 24px;
+            font-size: 26px;
             font-weight: 800;
             letter-spacing: -0.5px;
             background: linear-gradient(135deg, #60a5fa, #818cf8);
             -webkit-background-clip: text;
             background-clip: text;
             -webkit-text-fill-color: transparent;
+        }
+
+        .logo-subtext {
+            font-family: 'Inter', sans-serif;
+            font-size: 13px;
+            font-weight: 600;
+            color: #94a3b8;
+            letter-spacing: 0.5px;
+            margin-left: 2px;
         }
 
         /* --- Search Bar (Mock for now) --- */
@@ -235,8 +244,9 @@
 
 <body>
     <header id="portal-header">
-        <a href="/" class="logo-area">
-            <span class="logo-text">DSF STUDIO</span>
+        <a href="/" class="logo-area" title="DSF Portal">
+            <span class="logo-text">DSF</span>
+            <span class="logo-subtext">Digital Smart Format</span>
         </a>
 
         <div class="search-container">
@@ -247,7 +257,8 @@
         <div class="header-actions">
             <!-- Studio Access Btn -->
             <a href="/studio.html" class="btn-studio">
-                <span>Create</span>
+                <span class="material-icons" style="font-size: 18px;">edit</span>
+                <span>Studioを起動</span>
             </a>
         </div>
     </header>
