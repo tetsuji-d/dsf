@@ -108,6 +108,8 @@ function clearRedirectPending() {
 // --- 自動保存 ---
 let autoSaveTimer = null;
 let saveStatus = 'idle'; // 'idle' | 'saving' | 'saved' | 'error'
+let isSaving = false;
+let isThumbnailGenerating = false;
 
 function requireUid() {
     if (!state.uid) throw new Error("ログインしてください");
@@ -206,9 +208,24 @@ export function triggerAutoSave() {
 }
 
 /**
+ * 即時保存（タイマーをキャンセルして直ちに保存する）
+ * await が必要な場面（共有URL生成・公開設定変更など）で使用する
+ */
+export async function flushSave() {
+    if (autoSaveTimer) {
+        clearTimeout(autoSaveTimer);
+        autoSaveTimer = null;
+    }
+    await performSave();
+}
+
+/**
  * 実際の保存処理
  */
 async function performSave() {
+    if (isSaving) return;
+    isSaving = true;
+    try {
     composeCanonicalLayoutsForSections(state.sections, state.languages, state.languageConfigs);
     state.blocks = syncBlocksWithSections(state.blocks, state.sections, state.languages);
     state.pages = blocksToPages(state.blocks);
@@ -268,6 +285,9 @@ async function performSave() {
             console.error("[DSF] Cloud auto-save failed:", e);
             updateSaveIndicator('error', '保存失敗 (Cloud)');
         }
+    }
+    } finally {
+        isSaving = false;
     }
 }
 
@@ -343,6 +363,8 @@ function compressImage(file, maxWidth, quality) {
  */
 export async function generateCroppedThumbnail(bgUrl, pos, refresh) {
     if (!bgUrl) return;
+    if (isThumbnailGenerating) return;
+    isThumbnailGenerating = true;
     const uid = requireUid();
 
     try {
@@ -440,6 +462,8 @@ export async function generateCroppedThumbnail(bgUrl, pos, refresh) {
     } catch (e) {
         console.warn("[DSF] Thumbnail generation failed (likely CORS):", e);
         // エラーでも処理は止めない（サムネ生成失敗だけなので）
+    } finally {
+        isThumbnailGenerating = false;
     }
 }
 

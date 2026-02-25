@@ -141,6 +141,7 @@ Architect からの全エージェントへの通達。
 | 日付 | 要求者 | 内容 | ステータス |
 |------|-------|------|-----------|
 | 2026-02-25 | Gemini (Viewer) | AR VIEW機能に向けた Page Object へのプロパティ追加: `arMode` ("none"\|"gyro-map"\|"xr-space"), `arScale` (number), `geolocation` ({lat,lng})。詳細: `docs/future-ar-view-plan.md` | 承認待ち |
+| 2026-02-25 | Claude (Editor) (Break-glass) | `js/firebase.js`: Race condition 対応で `isSaving` mutex / `flushSave()` export / `isThumbnailGenerating` を追加。Architect 口頭承認済（直接依頼）| 承認済（口頭） |
 
 ---
 
@@ -157,13 +158,13 @@ Architect からの全エージェントへの通達。
 **合意した方針:**
 1. Portal / Editor / Viewer の3分割構成を採用
 2. `docs/data-model.md` と `docs/file-format-spec.md` をデータ憲法として凍結
-3. CSS を `variables.css` + 担当別 CSS に分割（未着手）
+3. CSS を `variables.css` + 担当別 CSS に分割（未着手）<!-- 当時の記録: 2026-02-25 に完了済み → セクション3参照 -->
 4. `state.js` と `firebase.js` は Architect（人間）管理下に置く
 5. データ形式変更は Architect 承認フローを必ず通す
 
 **未解決の課題:**
 - `app.js`（~147KB）の将来的な分割方針 → Editor Agent の担当だが Architect と設計を合意してから着手
-- CSS 分割の具体的なタイミングと担当の決定
+- CSS 分割の具体的なタイミングと担当の決定 <!-- 当時の記録: 2026-02-25 に実施・完了済み -->
 
 **Gemini の意見:** 3分割は「影響範囲の限定」と「コンテキスト節約」の観点から有効。プロンプトでのスコープ制限が実装の鍵。
 

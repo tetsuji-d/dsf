@@ -2,7 +2,7 @@
  * app.js — メインエントリポイント・描画・UI同期
  */
 import { state, dispatch, actionTypes } from './state.js';
-import { saveProject, loadProject, uploadToStorage, uploadCoverToStorage, uploadStructureToStorage, triggerAutoSave, generateCroppedThumbnail, signInWithGoogle, signOutUser, onAuthChanged, consumeRedirectResult } from './firebase.js';
+import { saveProject, loadProject, uploadToStorage, uploadCoverToStorage, uploadStructureToStorage, triggerAutoSave, flushSave, generateCroppedThumbnail, signInWithGoogle, signOutUser, onAuthChanged, consumeRedirectResult } from './firebase.js';
 import { handleCanvasClick, selectBubble, renderBubbleHTML, getBubbleText, setBubbleText, addBubbleAtCenter, startDrag, startTailDrag, startSpikeDrag } from './bubbles.js';
 import { addSection, changeSection, changeBlock, insertStructureBlock, renderThumbs, deleteActive, insertSectionAt, duplicateSectionAt, moveSection, insertPageNearBlock, duplicateBlockAt, moveBlockAt, getOptimizedImageUrl } from './sections.js';
 import { pushState, undo, redo, getHistoryInfo, clearHistory } from './history.js';
@@ -2774,8 +2774,8 @@ window.shareProject = async () => {
     }
 
     const doShare = async () => {
-        // Ensure save
-        await triggerAutoSave();
+        // Ensure save completes before constructing share URL
+        await flushSave();
 
         // Construct URL
         const host = window.location.host;
@@ -2810,7 +2810,7 @@ window.shareProject = async () => {
 
 window.updateVisibility = async (val) => {
     dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'visibility', value: val } });
-    await triggerAutoSave();
+    await flushSave();
     const map = {
         'private': '🔒 非公開（自分だけの状態）',
         'unlisted': '🔗 限定公開（URLを知っている人のみ閲覧可能）',
