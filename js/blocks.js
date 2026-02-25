@@ -4,14 +4,7 @@
 
 export const BLOCK_SCHEMA_VERSION = 3;
 
-function deepClone(value) {
-    if (typeof structuredClone === 'function') return structuredClone(value);
-    return JSON.parse(JSON.stringify(value));
-}
-
-function createId(prefix) {
-    return `${prefix}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
-}
+import { deepClone, createId } from './utils.js';
 
 function createDefaultSection() {
     return {

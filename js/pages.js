@@ -2,20 +2,13 @@
  * pages.js - v5 page model helpers and compatibility adapters.
  */
 
+import { deepClone, createId } from './utils.js';
+
 const DEFAULT_BG = 'https://picsum.photos/id/10/600/1066';
 export const PAGE_SCHEMA_VERSION = 5;
 
 const ROLE_SET = new Set(['cover_front', 'cover_back', 'chapter', 'section', 'item', 'toc', 'normal']);
 const BODY_KIND_SET = new Set(['image', 'text', 'theme']);
-
-function deepClone(value) {
-    if (typeof structuredClone === 'function') return structuredClone(value);
-    return JSON.parse(JSON.stringify(value));
-}
-
-function createId(prefix) {
-    return `${prefix}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
-}
 
 function createDefaultImageSection() {
     return {

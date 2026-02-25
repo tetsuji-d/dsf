@@ -2,6 +2,7 @@
  * sections.js — page block operations + thumbnail rendering
  */
 import { state, dispatch, actionTypes } from './state.js';
+import { deepClone, createId } from './utils.js';
 
 // ──────────────────────────────────────────────────────────────
 //  画像 URL 最適化（将来の Cloudflare CDN 配信に対応）
@@ -47,13 +48,6 @@ function createDefaultSection() {
         imagePosition: { x: 0, y: 0, scale: 1, rotation: 0 },
         imageBasePosition: { x: 0, y: 0, scale: 1, rotation: 0 }
     };
-}
-
-function deepCloneSection(section) {
-    if (typeof structuredClone === 'function') {
-        return structuredClone(section);
-    }
-    return JSON.parse(JSON.stringify(section));
 }
 
 function truncateText(v, max = 22) {
@@ -162,15 +156,6 @@ function syncModelsFromLegacy() {
     }
 }
 
-function deepClone(value) {
-    if (typeof structuredClone === 'function') return structuredClone(value);
-    return JSON.parse(JSON.stringify(value));
-}
-
-function createNewBlockId(prefix) {
-    return `${prefix}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
-}
-
 /**
  * 新しいセクションを追加する
  * @param {function} refresh - 画面更新コールバック
@@ -210,7 +195,7 @@ export function insertSectionAt(insertIndex, refresh) {
 export function duplicateSectionAt(sourceIndex, refresh) {
     const idx = Number(sourceIndex);
     if (!Number.isInteger(idx) || !state.sections[idx]) return;
-    const cloned = deepCloneSection(state.sections[idx]);
+    const cloned = deepClone(state.sections[idx]);
     const list = [...state.sections];
     list.splice(idx + 1, 0, cloned);
     dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'sections', value: list } });
@@ -362,7 +347,7 @@ export function duplicateBlockAt(blockIndex, refresh) {
     }
 
     const cloned = deepClone(target);
-    cloned.id = createNewBlockId(target.kind || 'block');
+    cloned.id = createId(target.kind || 'block');
     list.splice(idx + 1, 0, cloned);
     dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'blocks', value: list } });
     dispatch({ type: actionTypes.SET_ACTIVE_BLOCK_INDEX, payload: idx + 1 });
