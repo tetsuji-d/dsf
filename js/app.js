@@ -1810,7 +1810,7 @@ function onImageHandleDragEnd() {
             s.background,
             s.imagePosition || { x: 0, y: 0, scale: 1, rotation: 0 },
             refresh
-        ).catch(() => { });
+        ).catch(e => console.warn('[DSF] Thumbnail update skipped (onImageHandleDragEnd):', e));
     }
     triggerAutoSave();
 }
@@ -1888,7 +1888,7 @@ window.toggleImageAdjustment = () => {
                 s.background,
                 s.imagePosition || { x: 0, y: 0, scale: 1, rotation: 0 },
                 refresh
-            ).catch(() => { });
+            ).catch(e => console.warn('[DSF] Thumbnail update skipped (toggleImageAdjustment):', e));
         }
     }
 };
@@ -1947,7 +1947,7 @@ function initImageAdjustment() {
                     s.background,
                     s.imagePosition || { x: 0, y: 0, scale: 1, rotation: 0 },
                     refresh
-                ).catch(() => { });
+                ).catch(e => console.warn('[DSF] Thumbnail update skipped (onEnd):', e));
             }
             triggerAutoSave();
         }

@@ -276,7 +276,7 @@ async function performSave() {
                 }, { merge: true });
             } else {
                 // private や unlisted になった場合は一覧から削除
-                await deleteDoc(publicProjectRef).catch(() => { });
+                await deleteDoc(publicProjectRef).catch(e => console.warn('[DSF] Failed to remove from public_projects:', e));
             }
 
             updateSaveIndicator('saved', '保存済み (Cloud)');
