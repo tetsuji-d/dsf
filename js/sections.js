@@ -2,6 +2,29 @@
  * sections.js — page block operations + thumbnail rendering
  */
 import { state, dispatch, actionTypes } from './state.js';
+
+// ──────────────────────────────────────────────────────────────
+//  画像 URL 最適化（将来の Cloudflare CDN 配信に対応）
+//  app.js・sections.js 両方で使用するため、ここで定義してエクスポート
+// ──────────────────────────────────────────────────────────────
+export function getOptimizedImageUrl(originalUrl) {
+    if (!originalUrl || typeof originalUrl !== 'string') return '';
+    // ⚠️ NOTE: Cloudflare Image Resizing が dsf.ink で有効化されるまでは false
+    const ENABLE_CLOUDFLARE_IMAGE_DELIVERY = false;
+    const CF_DOMAIN = 'https://dsf.ink';
+    if (ENABLE_CLOUDFLARE_IMAGE_DELIVERY && originalUrl.includes('firebasestorage.googleapis.com')) {
+        const screenWidth = window.innerWidth || window.screen?.width || 800;
+        const dpr = window.devicePixelRatio || 1;
+        const logicalWidth = screenWidth * dpr;
+        let targetWidth = 400;
+        if (logicalWidth > 1600) targetWidth = 2000;
+        else if (logicalWidth > 1200) targetWidth = 1600;
+        else if (logicalWidth > 800) targetWidth = 1200;
+        else if (logicalWidth > 400) targetWidth = 800;
+        return `${CF_DOMAIN}/cdn-cgi/image/width=${targetWidth},format=auto,quality=80/${originalUrl}`;
+    }
+    return originalUrl;
+}
 import {
     createStructureBlock,
     createPageBlockFromSection,
@@ -430,7 +453,7 @@ export function renderThumbs() {
                         ${dragHandlers}
                         aria-current="${selected ? 'true' : 'false'}">
                         <div class="thumb-canvas">
-                            <img class="thumb-canvas-image" src="${s.background}" style="${style}">
+                            <img class="thumb-canvas-image" src="${getOptimizedImageUrl(s.background)}" style="${style}">
                         </div>
                         <div class="thumb-card-top">
                             <span class="thumb-card-badge">Image #${pageIdx + 1}</span>

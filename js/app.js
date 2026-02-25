@@ -4,7 +4,7 @@
 import { state, dispatch, actionTypes } from './state.js';
 import { saveProject, loadProject, uploadToStorage, uploadCoverToStorage, uploadStructureToStorage, triggerAutoSave, generateCroppedThumbnail, signInWithGoogle, signOutUser, onAuthChanged, consumeRedirectResult } from './firebase.js';
 import { handleCanvasClick, selectBubble, renderBubbleHTML, getBubbleText, setBubbleText, addBubbleAtCenter, startDrag, startTailDrag, startSpikeDrag } from './bubbles.js';
-import { addSection, changeSection, changeBlock, insertStructureBlock, renderThumbs, deleteActive, insertSectionAt, duplicateSectionAt, moveSection, insertPageNearBlock, duplicateBlockAt, moveBlockAt } from './sections.js';
+import { addSection, changeSection, changeBlock, insertStructureBlock, renderThumbs, deleteActive, insertSectionAt, duplicateSectionAt, moveSection, insertPageNearBlock, duplicateBlockAt, moveBlockAt, getOptimizedImageUrl } from './sections.js';
 import { pushState, undo, redo, getHistoryInfo, clearHistory } from './history.js';
 import { openProjectModal, closeProjectModal } from './projects.js';
 import { getLangProps, getAllLangs } from './lang.js';
@@ -255,7 +255,7 @@ function renderCoverImagePreview(block) {
     }
     return `
         <div style="position:absolute; left:20px; top:32px; width:320px; height:576px; overflow:hidden; border-radius:8px; border:1px solid #d7deea;">
-            <img src="${bg}" style="width:100%; height:100%; object-fit:cover;">
+            <img src="${getOptimizedImageUrl(bg)}" style="width:100%; height:100%; object-fit:cover;">
         </div>
     `;
 }
@@ -1138,7 +1138,7 @@ function refresh() {
             if (bg) {
                 render.innerHTML = `
                     <div style="position:absolute; left:20px; top:32px; width:320px; height:576px; overflow:hidden; border-radius:8px; border:1px solid #d7deea;">
-                        <img src="${bg}" style="width:100%; height:100%; object-fit:cover;">
+                        <img src="${getOptimizedImageUrl(bg)}" style="width:100%; height:100%; object-fit:cover;">
                         <div style="position:absolute; left:12px; right:12px; bottom:12px; background:rgba(0,0,0,.45); color:#fff; border-radius:8px; padding:8px 10px;">
                             <div style="font-size:11px; opacity:.85;">${label}</div>
                             <div style="font-size:20px; font-weight:700; line-height:1.35; white-space:normal; overflow-wrap:anywhere; word-break:break-word;">${text || ''}</div>
@@ -1213,7 +1213,7 @@ function refresh() {
         render.innerHTML = `
             <div id="image-adjust-stage">
                 <div id="image-adjust-target" style="${targetStyle}">
-                    <img id="main-img" src="${s.background}">
+                    <img id="main-img" src="${getOptimizedImageUrl(s.background)}">
                     ${overlayInTarget}
                 </div>
             </div>`;
