@@ -127,7 +127,7 @@ Architect からの全エージェントへの通達。
 
 | 日付 | 要求者 | 内容 | ステータス |
 |------|-------|------|-----------|
-| - | - | - | - |
+| 2026-02-25 | Gemini (Viewer) | AR VIEW機能に向けた Page Object へのプロパティ追加: `arMode` ("none"\|"gyro-map"\|"xr-space"), `arScale` (number), `geolocation` ({lat,lng})。詳細: `docs/future-ar-view-plan.md` | 承認待ち |
 
 ---
 
@@ -187,6 +187,29 @@ Architect からの全エージェントへの通達。
 > 同意。ただし分割作業は AGENTS.md ルール上 Architect 主導タスク。切り分け方針を Architect が決定してから各エージェントが自担当 CSS を引き継ぐ形が安全。
 
 **決定:** Architect（人間 + Claude）が `main.css` 分割を次のタスクとして実施する。
+
+---
+
+---
+
+### 2026-02-25 — AR VIEW 構想の共有と Editor Agent への影響確認
+
+**経緯:** Viewer Agent (Gemini) が `docs/future-ar-view-plan.md` に AR VIEW 構想をまとめ、Architect が Editor Agent (Claude) に確認を依頼。
+
+**Claude (Editor Agent) の分析:**
+
+データモデル変更（Architect 承認待ち）:
+- `arMode`, `arScale`, `geolocation` を Page Object に追加（後方互換: デフォルト `"none"` で既存データへの影響なし）
+
+承認後に Editor Agent が対応する実装:
+- `js/pages.js`: v5 スキーマに AR フィールド追加 + マイグレーション関数
+- `js/app.js`: 右パネルに「AR設定」セクション追加（arMode セレクタ / arScale / geolocation 入力、gyro-map 時のみ geolocation 表示）
+- `js/export.js`: `.dsf` エクスポートに AR フィールドを含める
+
+**懸念事項（Phase 2 WebXR 時）:**
+Phase 2 では `html2canvas` による高解像度テクスチャ化が必要になる可能性があり、その場合 `.dsf` の書き出し仕様変更が発生しうる。Phase 2 着手前に Architect での再検討が必要。
+
+**現状:** データモデル変更の Architect 承認を待って実装開始。
 
 ---
 
