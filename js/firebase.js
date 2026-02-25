@@ -226,16 +226,18 @@ async function performSave() {
     if (isSaving) return;
     isSaving = true;
     try {
+    // レイアウト確定: テキストセクションの layout[lang] を計算して state.sections に書き込む（意図的な mutation）
     composeCanonicalLayoutsForSections(state.sections, state.languages, state.languageConfigs);
-    state.blocks = syncBlocksWithSections(state.blocks, state.sections, state.languages);
-    state.pages = blocksToPages(state.blocks);
+    // blocks / pages は保存専用のローカル変数に計算し、グローバル state を dispatch なしに書き換えない
+    const blocksToSave = syncBlocksWithSections(state.blocks, state.sections, state.languages);
+    const pagesToSave = blocksToPages(blocksToSave);
 
     updateSaveIndicator('saving', '保存中...');
 
     // 1. ローカルバックアップ (常に実行)
     try {
         await idbSet('dsf_autosave', {
-            state: JSON.parse(JSON.stringify(state)),
+            state: JSON.parse(JSON.stringify({ ...state, blocks: blocksToSave, pages: pagesToSave })),
             imageMap: window.localImageMap
         });
         updateSaveIndicator('saved', '保存済み (Local)');
@@ -251,8 +253,8 @@ async function performSave() {
             await setDoc(projectDocRef(state.projectId), {
                 version: PAGE_SCHEMA_VERSION,
                 title: state.title || '',
-                pages: state.pages,
-                blocks: state.blocks,
+                pages: pagesToSave,
+                blocks: blocksToSave,
                 sections: state.sections,
                 languages: state.languages,
                 defaultLang: state.defaultLang || state.languages?.[0] || 'ja',
