@@ -53,8 +53,8 @@ css/
 └── viewer.css      ← ビューワ専用 [Viewer Agent管理]
 ```
 
-**現状**: 未分割（`css/main.css` のみ）
-**対応状況**: 未着手
+**現状**: 分割完了 ✅ (2026-02-25)
+**対応状況**: 完了
 
 ---
 
@@ -117,6 +117,7 @@ Architect からの全エージェントへの通達。
 |------|------|----------------|
 | 2026-02-24 | AGENTS.md 初版作成。マルチエージェント開発体制開始 | All |
 | 2026-02-24 | 担当割り当て確定: Portal→Codex / Editor→Claude / Viewer→Gemini / Architect→人間+Claude | All |
+| 2026-02-25 | CSS分割完了: variables.css / studio.css / viewer.css / portal.css。main.css は studio.css に移行 | All |
 
 ---
 
@@ -169,6 +170,23 @@ Architect からの全エージェントへの通達。
 | Viewer | Gemini | マルチモーダルでスクリーンショット確認しながら視覚的UI/UXを最適化 |
 | Portal | Codex | 定型パターン（Auth・CRUD・Firebase）を高速・正確に実装 |
 | Architect | 人間 + Claude(相談役) | Editor担当のため共有インフラへの影響を最も把握している |
+
+---
+
+### 2026-02-25 — Gemini (Viewer Agent) による AGENTS.md レビュー
+
+**Gemini の評価:**
+- AIの特性を活かした適材適所のキャスティングを高評価
+- 「データ憲法」と「Architect」設置を「プロジェクト崩壊を防ぐ最高の防波堤」と評価
+- Viewer担当として、マルチモーダル能力がビューワー領域に最も活きると同意
+
+**Gemini からの提案:**
+> `main.css` 分割を最優先タスクとして推奨。現状では Viewer のデザイン調整が Editor・Portal に波及するリスクがある。各エージェント本格稼働前に Architect 主導で実施すべき。
+
+**Claude (Editor Agent) の見解:**
+> 同意。ただし分割作業は AGENTS.md ルール上 Architect 主導タスク。切り分け方針を Architect が決定してから各エージェントが自担当 CSS を引き継ぐ形が安全。
+
+**決定:** Architect（人間 + Claude）が `main.css` 分割を次のタスクとして実施する。
 
 ---
 

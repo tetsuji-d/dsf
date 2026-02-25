@@ -1,0 +1,196 @@
+/* ============================================================
+   viewer.css — DSF Viewer 専用スタイル
+   Viewer Agent (Gemini) 管理
+   ============================================================ */
+
+/* ── Base reset (studio.css から独立するために必要な最小限) ── */
+* {
+    box-sizing: border-box;
+    -webkit-tap-highlight-color: transparent;
+}
+
+/* ── Shared component: .btn-sm (studio.css に依存しないよう再定義) ── */
+.btn-sm {
+    border: 1px solid var(--line, #d8dce3);
+    background: #fff;
+    border-radius: 8px;
+    padding: 10px 14px;
+    font-size: 14px;
+    color: #243144;
+    cursor: pointer;
+    line-height: 1.2;
+    min-height: 44px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+
+/* ── Viewer specific styles ───────────────────────────────── */
+body {
+    background: #000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+    margin: 0;
+    height: 100dvh;
+    width: 100%;
+}
+
+#viewer-canvas {
+    position: relative;
+    background: #000;
+    overflow: hidden;
+    box-shadow: 0 0 20px rgba(0, 0, 0, 0.5);
+}
+
+#viewer-content,
+#viewer-bubbles {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    pointer-events: none;
+}
+
+.viewer-text-page {
+    width: 100%;
+    height: 100%;
+    position: relative;
+    padding: 0;
+    box-sizing: border-box;
+    background: #fafafa;
+    overflow: hidden;
+}
+
+.viewer-text-block {
+    position: absolute;
+    white-space: pre;
+    word-break: normal;
+    overflow-wrap: normal;
+    overflow: hidden;
+}
+
+/* text-layer: viewer では read-only として使用 */
+.text-layer {
+    width: 100%;
+    min-height: 100%;
+    display: block;
+    background: #fafafa;
+    font-size: 16px;
+    line-height: 1.8;
+    text-align: left;
+    padding: 20px;
+    padding-top: 5vh;
+    padding-bottom: 5vh;
+    height: 100%;
+    white-space: pre-wrap;
+    word-break: break-all;
+    border: none;
+    outline: none;
+    resize: none;
+    font-family: inherit;
+    pointer-events: none;
+}
+
+#viewer-ui {
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    z-index: 1000;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+}
+
+.ui-bar {
+    background: rgba(255, 255, 255, 0.9);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    padding: 0 20px;
+    display: flex;
+    align-items: center;
+    transition: transform 0.3s ease-in-out;
+    pointer-events: auto;
+    box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+    height: 60px;
+    height: 8vh;
+    box-sizing: border-box;
+}
+
+#viewer-header {
+    transform: translateY(-100%);
+    justify-content: space-between;
+    border-bottom: 1px solid rgba(0, 0, 0, 0.1);
+}
+
+#viewer-footer {
+    transform: translateY(100%);
+    justify-content: space-between;
+    gap: 15px;
+    border-top: 1px solid rgba(0, 0, 0, 0.1);
+}
+
+#viewer-ui.visible #viewer-header,
+#viewer-ui.visible #viewer-footer {
+    transform: translateY(0);
+}
+
+.ui-title {
+    font-weight: bold;
+    font-size: 16px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    color: #333;
+}
+
+.ui-controls {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.btn-icon {
+    background: none;
+    border: none;
+    font-size: 20px;
+    cursor: pointer;
+    padding: 8px;
+    border-radius: 50%;
+    transition: background 0.2s;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #333;
+}
+
+.btn-icon:hover {
+    background: rgba(0, 0, 0, 0.05);
+}
+
+#page-slider {
+    flex: 1;
+    margin: 0 10px;
+    cursor: pointer;
+    width: 100%;
+    height: 44px;
+    min-height: 44px;
+    padding: 0;
+    border: none;
+    background: transparent;
+    accent-color: var(--primary, #1248a1);
+}
+
+.page-count {
+    font-size: 14px;
+    font-variant-numeric: tabular-nums;
+    color: #666;
+    min-width: 40px;
+    text-align: center;
+}
+
+#file-input {
+    display: none;
+}
