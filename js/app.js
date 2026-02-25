@@ -1776,6 +1776,8 @@ window.startImageHandleDrag = (e, handleType) => {
         startDist: Math.hypot(p.x - cx, p.y - cy) || 1
     };
     pushState();
+    window.addEventListener('mousemove', onImageHandleDragMove);
+    window.addEventListener('mouseup', onImageHandleDragEnd);
 };
 
 function onImageHandleDragMove(e) {
@@ -1804,6 +1806,8 @@ function onImageHandleDragMove(e) {
 function onImageHandleDragEnd() {
     if (!imageHandleDrag) return;
     imageHandleDrag = null;
+    window.removeEventListener('mousemove', onImageHandleDragMove);
+    window.removeEventListener('mouseup', onImageHandleDragEnd);
     const s = state.sections[state.activeIdx];
     if (s && s.background && state.uid) {
         generateCroppedThumbnail(
@@ -1912,31 +1916,16 @@ function initImageAdjustment() {
     };
 
     // Events
-    const onStart = (clientX, clientY) => {
-        if (!isImageAdjusting) return;
-        isDraggingImg = true;
-        startPos = { x: clientX, y: clientY };
-        const pos = getImgState();
-        startTransform = { x: pos.x, y: pos.y };
-    };
-
     const onMove = (clientX, clientY) => {
-        if (!isImageAdjusting || !isDraggingImg) return;
         const dx = clientX - startPos.x;
         const dy = clientY - startPos.y;
-
-        // Canvasのズームレベルを考慮して移動量を補正
-        // canvasScale is global from initCanvasZoom scope... wait, we need access to it.
-        // It's defined below. We might need to move this logic or access it.
-        // For now, let's assume we can access 'canvasScale' variable if it's in outer scope or module scope.
-        // Actually canvasScale is defined in outer scope in this file. Good.
-
         const pos = getImgState();
         pos.x = startTransform.x + dx / canvasScale;
         pos.y = startTransform.y + dy / canvasScale;
-
         refresh(); // Re-render transform
     };
+
+    const onMoveWrap = (e) => onMove(e.clientX, e.clientY);
 
     const onEnd = () => {
         if (isDraggingImg) {
@@ -1951,6 +1940,18 @@ function initImageAdjustment() {
             }
             triggerAutoSave();
         }
+        window.removeEventListener('mousemove', onMoveWrap);
+        window.removeEventListener('mouseup', onEnd);
+    };
+
+    const onStart = (clientX, clientY) => {
+        if (!isImageAdjusting) return;
+        isDraggingImg = true;
+        startPos = { x: clientX, y: clientY };
+        const pos = getImgState();
+        startTransform = { x: pos.x, y: pos.y };
+        window.addEventListener('mousemove', onMoveWrap);
+        window.addEventListener('mouseup', onEnd);
     };
 
     // Mouse
@@ -1962,10 +1963,6 @@ function initImageAdjustment() {
             onStart(e.clientX, e.clientY);
         }
     });
-    window.addEventListener('mousemove', (e) => onMove(e.clientX, e.clientY));
-    window.addEventListener('mouseup', onEnd);
-    window.addEventListener('mousemove', onImageHandleDragMove);
-    window.addEventListener('mouseup', onImageHandleDragEnd);
 
     // Touch
     view.addEventListener('touchstart', (e) => {
@@ -2555,6 +2552,21 @@ function initCanvasZoom() {
     let startPan = { x: 0, y: 0 };
     let startTranslate = { x: 0, y: 0 };
 
+    const onPanMove = (e) => {
+        const dx = e.clientX - startPan.x;
+        const dy = e.clientY - startPan.y;
+        canvasTranslate.x = startTranslate.x + dx;
+        canvasTranslate.y = startTranslate.y + dy;
+        updateCanvasTransform();
+    };
+
+    const onPanEnd = () => {
+        isPanning = false;
+        view.style.cursor = 'default';
+        window.removeEventListener('mousemove', onPanMove);
+        window.removeEventListener('mouseup', onPanEnd);
+    };
+
     view.addEventListener('mousedown', (e) => {
         // 画像調整中はCanvas全体のパンを無効化
         if (isImageAdjusting) return;
@@ -2568,22 +2580,8 @@ function initCanvasZoom() {
             startPan = { x: e.clientX, y: e.clientY };
             startTranslate = { ...canvasTranslate };
             view.style.cursor = 'grabbing';
-        }
-    });
-
-    window.addEventListener('mousemove', (e) => {
-        if (!isPanning) return;
-        const dx = e.clientX - startPan.x;
-        const dy = e.clientY - startPan.y;
-        canvasTranslate.x = startTranslate.x + dx;
-        canvasTranslate.y = startTranslate.y + dy;
-        updateCanvasTransform();
-    });
-
-    window.addEventListener('mouseup', () => {
-        if (isPanning) {
-            isPanning = false;
-            view.style.cursor = 'default';
+            window.addEventListener('mousemove', onPanMove);
+            window.addEventListener('mouseup', onPanEnd);
         }
     });
 
@@ -3357,18 +3355,7 @@ function initSidebarResizer() {
     const resizer = document.getElementById('resizer-right');
     if (!resizer) return;
 
-    let isResizing = false;
-
-    const startResize = (e) => {
-        isResizing = true;
-        resizer.classList.add('dragging');
-        document.body.style.cursor = 'col-resize';
-        document.body.style.userSelect = 'none';
-        if (e.type === 'mousedown') e.preventDefault();
-    };
-
     const doResize = (e) => {
-        if (!isResizing) return;
         const clientX = e.touches ? e.touches[0].clientX : e.clientX;
         let newWidth = window.innerWidth - clientX;
         if (newWidth < 200) newWidth = 200;
@@ -3377,22 +3364,28 @@ function initSidebarResizer() {
     };
 
     const stopResize = () => {
-        if (isResizing) {
-            isResizing = false;
-            resizer.classList.remove('dragging');
-            document.body.style.cursor = '';
-            document.body.style.userSelect = '';
-        }
+        resizer.classList.remove('dragging');
+        document.body.style.cursor = '';
+        document.body.style.userSelect = '';
+        window.removeEventListener('mousemove', doResize);
+        window.removeEventListener('touchmove', doResize);
+        window.removeEventListener('mouseup', stopResize);
+        window.removeEventListener('touchend', stopResize);
+    };
+
+    const startResize = (e) => {
+        resizer.classList.add('dragging');
+        document.body.style.cursor = 'col-resize';
+        document.body.style.userSelect = 'none';
+        if (e.type === 'mousedown') e.preventDefault();
+        window.addEventListener('mousemove', doResize);
+        window.addEventListener('touchmove', doResize, { passive: true });
+        window.addEventListener('mouseup', stopResize);
+        window.addEventListener('touchend', stopResize);
     };
 
     resizer.addEventListener('mousedown', startResize);
     resizer.addEventListener('touchstart', startResize, { passive: true });
-
-    window.addEventListener('mousemove', doResize);
-    window.addEventListener('touchmove', doResize, { passive: true });
-
-    window.addEventListener('mouseup', stopResize);
-    window.addEventListener('touchend', stopResize);
 }
 
 initCanvasZoom(); // Initialize zoom/pan
