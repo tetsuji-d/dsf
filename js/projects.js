@@ -1,29 +1,10 @@
 /**
  * projects.js — プロジェクト一覧モーダル管理
  */
-import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
-import { getFirestore, collection, getDocs, deleteDoc, doc } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
+import { collection, getDocs, deleteDoc, doc } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
 import { state } from './state.js';
-
-// Firebase は firebase.js で既に初期化済みなので、同じ設定を使う
-const firebaseConfig = {
-    apiKey: "AIzaSyBj3U-wFkNsWlW1d4OHayerECMIRyhQ40o",
-    authDomain: "vmnn-26345.firebaseapp.com",
-    projectId: "vmnn-26345",
-    storageBucket: "vmnn-26345.firebasestorage.app",
-    messagingSenderId: "16688261830",
-    appId: "1:16688261830:web:c218463dd6429774eb3c77",
-    measurementId: "G-N6J9C3XCVQ"
-};
-
-let db;
-try {
-    const app = initializeApp(firebaseConfig, 'projects');
-    db = getFirestore(app);
-} catch (e) {
-    // 既に初期化済みの場合
-    db = getFirestore();
-}
+import { db } from './firebase.js';
+import { normalizeProjectDataV5 } from './pages.js';
 
 /**
  * プロジェクト一覧モーダルを開く
@@ -36,18 +17,28 @@ export async function openProjectModal(onLoadProject) {
     modal.classList.add('visible');
     grid.innerHTML = '<div class="project-loading">読み込み中...</div>';
 
+    if (!state.uid) {
+        grid.innerHTML = '<div class="project-loading">ログインしてください</div>';
+        return;
+    }
+
     try {
-        const snapshot = await getDocs(collection(db, "works"));
+        const snapshot = await getDocs(collection(db, "users", state.uid, "projects"));
         const projects = [];
         snapshot.forEach(docSnap => {
-            const data = docSnap.data();
+            const normalized = normalizeProjectDataV5(docSnap.data() || {});
             projects.push({
                 id: docSnap.id,
-                title: data.title || '',
-                sections: data.sections || [],
-                languages: data.languages || ['ja'],
-                languageConfigs: data.languageConfigs || null,
-                lastUpdated: data.lastUpdated?.toDate?.() || new Date(0)
+                version: normalized.version,
+                title: normalized.title || '',
+                pages: normalized.pages || [],
+                blocks: normalized.blocks || [],
+                sections: normalized.sections || [],
+                languages: normalized.languages || ['ja'],
+                defaultLang: normalized.defaultLang || (normalized.languages?.[0] || 'ja'),
+                languageConfigs: normalized.languageConfigs || null,
+                uiPrefs: normalized.uiPrefs || null,
+                lastUpdated: normalized.lastUpdated?.toDate?.() || new Date(0)
             });
         });
 
@@ -60,9 +51,9 @@ export async function openProjectModal(onLoadProject) {
         }
 
         grid.innerHTML = projects.map(p => {
-            const cover = getCoverImage(p.sections);
+            const cover = getCoverImage(p.pages, p.blocks, p.sections);
             const dateStr = p.lastUpdated.toLocaleDateString('ja-JP');
-            const pageCount = p.sections.length;
+            const pageCount = getPageCount(p.pages, p.blocks, p.sections);
             return `
                 <div class="project-card" data-id="${p.id}">
                     <div class="project-card-thumb">
@@ -88,7 +79,7 @@ export async function openProjectModal(onLoadProject) {
                 const pid = card.dataset.id;
                 const project = projects.find(p => p.id === pid);
                 if (project) {
-                    onLoadProject(pid, project.sections, project.languages, project.languageConfigs, project.title);
+                    onLoadProject(pid, project.sections, project.languages, project.defaultLang, project.languageConfigs, project.title, project.uiPrefs, project.pages, project.blocks, project.version);
                     closeProjectModal();
                 }
             });
@@ -101,7 +92,7 @@ export async function openProjectModal(onLoadProject) {
                 const pid = btn.dataset.deleteId;
                 if (!confirm(`「${pid}」を削除しますか？`)) return;
                 try {
-                    await deleteDoc(doc(db, "works", pid));
+                    await deleteDoc(doc(db, "users", state.uid, "projects", pid));
                     btn.closest('.project-card').remove();
                 } catch (err) {
                     alert("削除に失敗しました: " + err.message);
@@ -126,10 +117,23 @@ export function closeProjectModal() {
  * セクション配列から表紙画像URLを取得
  * サムネイルがあれば優先して使用
  */
-function getCoverImage(sections) {
+function getCoverImage(pages, blocks, sections) {
+    const pageList = Array.isArray(pages) ? pages : [];
+    if (pageList.length > 0) {
+        const firstNormal = pageList.find((p) => p?.pageType === 'normal_image');
+        if (firstNormal?.content?.thumbnail) return firstNormal.content.thumbnail;
+        if (firstNormal?.content?.background) return firstNormal.content.background;
+    }
+    const blockList = Array.isArray(blocks) ? blocks : [];
+    const page = blockList.find((b) => b?.kind === 'page');
+    const content = page?.content;
+    if (content?.pageKind === 'image') {
+        if (content.thumbnail) return content.thumbnail;
+        if (content.background) return content.background;
+    }
     if (!sections || sections.length === 0) return null;
     const first = sections[0];
-    if (first.type === 'image') {
+    if (first?.type === 'image') {
         if (first.thumbnail) return first.thumbnail;
         if (first.background) return first.background;
     }
@@ -144,4 +148,14 @@ function getPreviewText(sections) {
     const first = sections[0];
     if (first.text) return first.text.substring(0, 30);
     return 'イメージ';
+}
+
+function getPageCount(pages, blocks, sections) {
+    const pageCount = (Array.isArray(pages) ? pages : []).filter((p) =>
+        p?.pageType === 'normal_image' || p?.pageType === 'normal_text'
+    ).length;
+    if (pageCount > 0) return pageCount;
+    const blockPages = (Array.isArray(blocks) ? blocks : []).filter((b) => b?.kind === 'page').length;
+    if (blockPages > 0) return blockPages;
+    return Array.isArray(sections) ? sections.length : 0;
 }

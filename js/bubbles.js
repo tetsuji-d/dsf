@@ -3,7 +3,7 @@
  * テキスト外形に合わせてバブル形状を動的に生成する
  * 多言語対応: texts[lang] からテキストを取得し言語別配置を適用
  */
-import { state } from './state.js';
+import { state, dispatch, actionTypes } from './state.js';
 import { pushState } from './history.js';
 import { triggerAutoSave } from './firebase.js';
 import { getShape, getShapeNames } from './shapes.js';
@@ -112,30 +112,48 @@ export function renderBubbleHTML(b, i, isSelected, sectionWritingMode) {
 
     // 選択中: 直接編集可能
     const editAttrs = isSelected
-        ? `contenteditable="true" onmousedown="event.stopPropagation()" oninput="onBubbleTextInput(event, ${i})" onblur="onBubbleTextBlur()"`
-        : '';
+        ? `id="bubble-text-${i}" contenteditable="true" onmousedown="event.stopPropagation()" oninput="onBubbleTextInput(event, ${i})" onblur="onBubbleTextBlur()"`
+        : `id="bubble-text-${i}"`;
     const editStyle = isSelected
         ? 'pointer-events:auto; cursor:text;'
         : 'pointer-events:none;';
 
     const vtClass = isVertical ? 'v-text' : '';
 
+    // フォントカラー（ウニフラッシュはデフォルト白、他は黒）
+    const shapeName2 = b.shape || 'speech';
+    const defaultFontColor = (shapeName2 === 'urchin' && !b.fontColor) ? '#ffffff' : '#000000';
+    const fontColor = b.fontColor || defaultFontColor;
+
     // 選択中: 移動ハンドルを表示
     const handleHTML = isSelected
         ? `<div class="bubble-handle" onmousedown="onHandleDown(event, ${i})" ontouchstart="onHandleDown(event, ${i})"><span class="material-icons">open_with</span></div>`
         : '';
 
+    // しっぽなし形状ではしっぽハンドルを非表示
+    const noTail = ['flash', 'urchin', 'rect'].includes(shapeName2);
+    const tailHandleHTML = isSelected && !noTail
+        ? `<div class="bubble-tail-handle" style="left:${layout.tailTipX}px; top:${layout.tailTipY}px;" onmousedown="onTailHandleDown(event, ${i})" ontouchstart="onTailHandleDown(event, ${i})"></div>`
+        : '';
+
+    // ウニ用スパイク長ハンドル
+    const spikeHandleHTML = isSelected && shapeName2 === 'urchin' && layout.spikeHandleX !== undefined
+        ? `<div class="bubble-spike-handle" style="left:${layout.spikeHandleX}px; top:${layout.spikeHandleY}px;" onmousedown="onSpikeHandleDown(event, ${i})" ontouchstart="onSpikeHandleDown(event, ${i})" title="スパイク長"></div>`
+        : '';
+
     return `
-        <div class="bubble-svg"
+        <div id="bubble-svg-${i}" class="bubble-svg"
              style="top:${pos.y}%; left:${pos.x}%;"
              onmousedown="selectBubble(event, ${i})">
             <svg width="${layout.svgWidth}" height="${layout.svgHeight}" viewBox="${layout.viewBox}">
                 ${layout.svgContent}
             </svg>
             <div class="bubble-text ${vtClass}"
-                 style="font-size:${FONT_SIZE}px; left:${layout.textCenterX}px; top:${layout.textCenterY}px; text-align:${textAlign}; ${editStyle}"
+                 style="font-size:${FONT_SIZE}px; color:${fontColor}; left:${layout.textCenterX}px; top:${layout.textCenterY}px; text-align:${textAlign}; ${editStyle}"
                  ${editAttrs}>${displayText}</div>
             ${handleHTML}
+            ${tailHandleHTML}
+            ${spikeHandleHTML}
         </div>
     `;
 }
@@ -143,15 +161,20 @@ export function renderBubbleHTML(b, i, isSelected, sectionWritingMode) {
 /** 利用可能な形状名の一覧を返す */
 export { getShapeNames };
 
-// クリックでの追加は廃止（Zoom/Panと競合するため）
-// 選択解除のみ行う
 export function handleCanvasClick(e, refresh) {
-    if (e.target.id === 'main-img' || e.target.classList.contains('text-layer')) {
-        // 背景クリックで選択解除
-        pushState();
-        state.activeBubbleIdx = null;
-        refresh();
-        triggerAutoSave();
+    // 吹き出し関連要素（本体、テキスト、ハンドル類）以外をクリックしたら選択解除
+    const isBubbleEl = e.target.closest('.bubble-svg')
+        || e.target.closest('.bubble-text')
+        || e.target.closest('.bubble-handle')
+        || e.target.closest('.bubble-tail-handle');
+
+    if (!isBubbleEl) {
+        // アクティブな吹き出しがある場合のみ解除
+        if (state.activeBubbleIdx !== null && state.activeBubbleIdx !== undefined) {
+            dispatch({ type: actionTypes.SET_ACTIVE_BUBBLE_INDEX, payload: null });
+            refresh();
+            triggerAutoSave();
+        }
     }
 }
 
@@ -176,8 +199,11 @@ export function addBubbleAtCenter(refresh) {
 
     // pushStateは呼び出し元(app.js)で行うか、ここで
     // app.jsで呼び出すので、ここではデータ操作のみ
-    state.sections[state.activeIdx].bubbles.push(newBubble);
-    state.activeBubbleIdx = state.sections[state.activeIdx].bubbles.length - 1;
+    const newBubbles = [...state.sections[state.activeIdx].bubbles, newBubble];
+    const newSections = [...state.sections];
+    newSections[state.activeIdx] = { ...newSections[state.activeIdx], bubbles: newBubbles };
+    dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'sections', value: newSections } });
+    dispatch({ type: actionTypes.SET_ACTIVE_BUBBLE_INDEX, payload: newBubbles.length - 1 });
     refresh();
 }
 
@@ -189,7 +215,7 @@ export function addBubbleAtCenter(refresh) {
  */
 export function selectBubble(e, i, refresh) {
     e.stopPropagation();
-    state.activeBubbleIdx = i;
+    dispatch({ type: actionTypes.SET_ACTIVE_BUBBLE_INDEX, payload: i });
     refresh();
     // ドラッグはハンドルで行うため、ここでは開始しない
 }
@@ -233,10 +259,15 @@ export function startDrag(e, i, refresh) {
         // レイヤー内での相対座標(%)を計算
         // rect.left, rect.top はウィンドウ座標系でのレイヤー位置
         // rect.width, rect.height はスケール適用後のサイズ
-        const x = ((pos.x - rect.left) / rect.width * 100).toFixed(1);
-        const y = ((pos.y - rect.top) / rect.height * 100).toFixed(1);
+        let x = (pos.x - rect.left) / rect.width * 100;
+        let y = (pos.y - rect.top) / rect.height * 100;
 
-        setBubblePos(state.sections[state.activeIdx].bubbles[i], x, y);
+        // 境界外への潜り込みによる操作不能を防ぐため数値をクランプする
+        // 完全に外に出ないよう 2% 〜 98% 程度に制限
+        x = Math.max(2, Math.min(98, x));
+        y = Math.max(2, Math.min(98, y));
+
+        setBubblePos(state.sections[state.activeIdx].bubbles[i], x.toFixed(1), y.toFixed(1));
         refresh();
     };
     const up = () => {
@@ -245,6 +276,124 @@ export function startDrag(e, i, refresh) {
         window.removeEventListener('touchmove', move);
         window.removeEventListener('touchend', up);
     };
+    window.addEventListener('mousemove', move);
+    window.addEventListener('mouseup', up);
+    window.addEventListener('touchmove', move, { passive: false });
+    window.addEventListener('touchend', up);
+}
+
+/**
+ * しっぽのドラッグ開始（ハンドルから呼ばれる）
+ */
+export function onTailHandleDown(e, i) {
+    e.stopPropagation();
+    // ここから startTailDrag() が呼ばれるのは app.js に委譲されるか window を介す
+}
+
+/**
+ * 吹き出しのしっぽ（Tail）ドラッグ処理
+ */
+export function startTailDrag(e, i, refresh) {
+    e.stopPropagation();
+    e.preventDefault();
+
+    const layer = document.getElementById('canvas-transform-layer');
+    if (!layer) return;
+
+    // 現在のバブル要素自体を取得
+    const bubbleEl = document.getElementById(`bubble-svg-${i}`);
+    if (!bubbleEl) return;
+
+    // SVGの中心位置（画面上）から、しっぽの相対オフセットを計算する
+    const bRect = bubbleEl.getBoundingClientRect();
+    const cx = bRect.left + bRect.width / 2;
+    const cy = bRect.top + bRect.height / 2;
+
+    const getClientPos = (evt) => {
+        if (evt.touches && evt.touches.length > 0) {
+            return { x: evt.touches[0].clientX, y: evt.touches[0].clientY };
+        }
+        return { x: evt.clientX, y: evt.clientY };
+    };
+
+    const move = (me) => {
+        if (me.type === 'touchmove') me.preventDefault();
+
+        const pos = getClientPos(me);
+
+        // バブル中心からポインティング座標への差分
+        const dx = pos.x - cx;
+        const dy = pos.y - cy;
+
+        // ズーム率に反比例させる（見た目の移動量を正しくデータに反映する）
+        const layerWidth = layer.getBoundingClientRect().width;
+        // canvasの幅(width)に対する現在のスケール比率
+        // offsetWidth はオリジナルのCSSサイズ (例: 480 等)
+        const scale = layerWidth / layer.offsetWidth;
+
+        // shape.js内では tailX, tailY は中心からの絶対ピクセル差分として保持される
+        const bubble = state.sections[state.activeIdx].bubbles[i];
+        bubble.tailX = Math.round(dx / scale);
+        bubble.tailY = Math.round(dy / scale);
+
+        refresh();
+    };
+
+    const up = () => {
+        window.removeEventListener('mousemove', move);
+        window.removeEventListener('mouseup', up);
+        window.removeEventListener('touchmove', move);
+        window.removeEventListener('touchend', up);
+    };
+
+    window.addEventListener('mousemove', move);
+    window.addEventListener('mouseup', up);
+    window.addEventListener('touchmove', move, { passive: false });
+    window.addEventListener('touchend', up);
+}
+
+/**
+ * スパイク長ハンドルのドラッグ（ウニフラッシュ用）
+ */
+export function onSpikeHandleDown(e, i) {
+    e.stopPropagation();
+    // app.js の window.onSpikeHandleDown に委譲
+}
+
+export function startSpikeDrag(e, i, refresh) {
+    e.stopPropagation();
+    e.preventDefault();
+
+    const layer = document.getElementById('canvas-transform-layer');
+    if (!layer) return;
+    const bubbleEl = document.getElementById(`bubble-svg-${i}`);
+    if (!bubbleEl) return;
+
+    const bRect = bubbleEl.getBoundingClientRect();
+    // バブル中心（画面座標）
+    const originX = bRect.left + bRect.width / 2;
+    const layerScale = layer.getBoundingClientRect().width / layer.offsetWidth;
+
+    const bubble = state.sections[state.activeIdx].bubbles[i];
+    const startLen = bubble.spikeLength || 22;
+    const startClientX = e.touches ? e.touches[0].clientX : e.clientX;
+
+    const getClientX = (evt) => evt.touches ? evt.touches[0].clientX : evt.clientX;
+
+    const move = (me) => {
+        if (me.type === 'touchmove') me.preventDefault();
+        const dx = (getClientX(me) - startClientX) / layerScale;
+        bubble.spikeLength = Math.max(4, Math.min(60, Math.round(startLen + dx)));
+        refresh();
+    };
+
+    const up = () => {
+        window.removeEventListener('mousemove', move);
+        window.removeEventListener('mouseup', up);
+        window.removeEventListener('touchmove', move);
+        window.removeEventListener('touchend', up);
+    };
+
     window.addEventListener('mousemove', move);
     window.addEventListener('mouseup', up);
     window.addEventListener('touchmove', move, { passive: false });

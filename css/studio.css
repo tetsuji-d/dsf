@@ -1,10 +1,7 @@
-:root {
-    --primary: #0a6cff;
-    --bg: #1f2126;
-    --panel-bg: #ffffff;
-    --line: #d8dce3;
-    --muted: #738091;
-}
+/* ============================================================
+   studio.css — DSF Studio Pro エディタ専用スタイル
+   Editor Agent (Claude) 管理
+   ============================================================ */
 
 * {
     box-sizing: border-box;

@@ -1,0 +1,576 @@
+<!DOCTYPE html>
+<html lang="ja">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0">
+    <title>DSF Studio Pro - Ultimate Edition</title>
+    <link rel="stylesheet" href="css/variables.css">
+    <link rel="stylesheet" href="css/studio.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link
+        href="https://fonts.googleapis.com/css2?family=Noto+Sans:wght@400;700&family=Noto+Sans+JP:wght@400;700&family=Noto+Serif:wght@400;700&family=Noto+Serif+JP:wght@400;700&display=swap"
+        rel="stylesheet">
+    <link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet">
+</head>
+
+<body>
+    <div id="app-shell">
+        <header id="ribbon-bar">
+            <div class="ribbon-row ribbon-top-row">
+                <div class="ribbon-tabs">
+                    <a href="/" class="ribbon-tab" aria-label="ポータルへ戻る" title="DSFポータルへ戻る"
+                        style="text-decoration:none; color:inherit;">
+                        <span class="material-icons"
+                            style="font-size: 16px; margin-right: 4px; vertical-align: text-bottom;">home</span>
+                        Portal
+                    </a>
+                    <button class="ribbon-tab active" data-ribbon-tab="home" aria-label="ホームタブ">Home</button>
+                    <button class="ribbon-tab" data-ribbon-tab="insert" aria-label="挿入タブ">Insert</button>
+                    <button class="ribbon-tab" data-ribbon-tab="arrange" aria-label="配置タブ">Arrange</button>
+                    <button class="ribbon-tab" data-ribbon-tab="export" aria-label="出力タブ">Export</button>
+                    <button class="ribbon-tab" data-ribbon-tab="project" aria-label="プロジェクトタブ">Project</button>
+                </div>
+                <div class="ribbon-auth">
+                    <span id="auth-warning-badge" class="auth-warning-badge">ログインでクラウド機能が有効化されます</span>
+                    <span id="auth-status" class="auth-status"></span>
+                    <button id="btn-auth" class="btn-tool" onclick="toggleAuth()" title="Googleでログイン">Sign in with
+                        Google</button>
+                </div>
+            </div>
+            <div class="ribbon-row ribbon-panel-row">
+                <div class="ribbon-panel active" data-ribbon-panel="home">
+                    <div class="ribbon-group">
+                        <button id="btn-undo" class="btn-tool" onclick="performUndo()" title="元に戻す (Ctrl+Z)" disabled>↩
+                            Undo</button>
+                        <button id="btn-redo" class="btn-tool" onclick="performRedo()" title="やり直す (Ctrl+Shift+Z)"
+                            disabled>↪ Redo</button>
+                    </div>
+                    <div class="ribbon-group">
+                        <button id="btn-save" class="btn-tool" onclick="saveProject()" title="保存" data-auth-required>☁
+                            クラウド保存</button>
+                        <select id="prop-visibility" class="rt-toolbar visibility-select"
+                            onchange="updateVisibility(this.value)" data-auth-required title="公開範囲の設定">
+                            <option value="private">🔒 非公開</option>
+                            <option value="unlisted">🔗 限定公開</option>
+                            <option value="public">🌍 公開</option>
+                        </select>
+                        <button id="btn-share" class="btn-tool" onclick="shareProject()" title="ビューワーURLをコピー"
+                            data-auth-required>🔗 URLコピー</button>
+                    </div>
+                    <div class="ribbon-group grow" style="display:flex; align-items:center;">
+                        <!-- Unified DSF Logo -->
+                        <a href="/" aria-label="DSF Portal" title="DSF Portal"
+                            style="text-decoration:none; display:flex; align-items:baseline; margin-right: 8px;">
+                            <span
+                                style="font-family:'Outfit',sans-serif; font-size:18px; font-weight:800; letter-spacing:-0.5px; background:linear-gradient(135deg, #60a5fa, #818cf8); -webkit-background-clip:text; background-clip:text; -webkit-text-fill-color:transparent;">DSF</span>
+                            <span
+                                style="font-family:'Inter',sans-serif; font-size:10px; font-weight:600; color:#64748b; letter-spacing:0.5px; margin-left:2px;">Studio</span>
+                        </a>
+                        <span id="project-title" class="project-title" contenteditable="true"
+                            oninput="onProjectTitleInput()" onkeydown="onProjectTitleKeydown(event)"
+                            onblur="onProjectTitleBlur()" aria-label="プロジェクト名" title="プロジェクト名を編集">新規プロジェクト</span>
+                        <span class="field-label" aria-hidden="true">Title</span>
+                        <input type="text" id="prop-title" class="ribbon-title-input" placeholder="作品タイトルを入力"
+                            oninput="updateTitle(this.value)" aria-label="作品タイトル" title="作品のタイトル">
+                        <span id="save-status" class="save-status" aria-live="polite"></span>
+                    </div>
+                    <div class="ribbon-group">
+                        <button id="btn-toggle-sidebar" class="btn-tool" type="button" title="ページ一覧の表示切替"
+                            aria-label="ページ一覧表示切り替え">📚
+                            Pages</button>
+                        <button id="btn-toggle-panel" class="btn-tool" type="button" title="設定パネルの表示切替"
+                            aria-label="設定パネル表示切り替え">⚙ Edit</button>
+                    </div>
+                </div>
+                <div class="ribbon-panel" data-ribbon-panel="insert">
+                    <div class="ribbon-group">
+                        <button class="btn-tool" onclick="addSection()" aria-label="セクションを追加">＋ セクション追加</button>
+                        <button class="btn-tool" onclick="addBubbleFab()" aria-label="吹き出しを追加">💬 吹き出し追加</button>
+                        <button class="btn-tool" onclick="document.getElementById('file-upload').click()"
+                            aria-label="画像を追加">🖼 画像追加</button>
+                        <button class="btn-tool" onclick="addChapterBlock()" aria-label="章見出しを追加">📘 章</button>
+                        <button class="btn-tool" onclick="addSubsectionBlock()" aria-label="節見出しを追加">📑 節</button>
+                        <button class="btn-tool" onclick="addItemBlock()" aria-label="項見出しを追加">🔹 項</button>
+                        <button class="btn-tool" onclick="addTocBlock()" aria-label="目次を追加">📚 目次</button>
+                    </div>
+                </div>
+                <div class="ribbon-panel" data-ribbon-panel="arrange">
+                    <div class="ribbon-group">
+                        <button class="btn-tool" onclick="resetCanvasView()" aria-label="キャンバスを全体表示">🔍 全体表示</button>
+                        <button class="btn-tool" onclick="toggleImageAdjustment()" id="btn-adjust-img"
+                            title="画像の位置・サイズを調整" aria-label="画像の位置・サイズを調整">✥ 画像調整</button>
+                    </div>
+                    <div class="ribbon-group ribbon-canvas-zoom">
+                        <span class="field-label" aria-hidden="true">Canvas</span>
+                        <select id="canvas-zoom-select" class="zoom-select" onchange="setCanvasZoomPercent(this.value)"
+                            aria-label="キャンバスの拡大率">
+                            <option value="25">25%</option>
+                            <option value="33">33%</option>
+                            <option value="50">50%</option>
+                            <option value="67">67%</option>
+                            <option value="75">75%</option>
+                            <option value="90">90%</option>
+                            <option value="100" selected>100%</option>
+                            <option value="110">110%</option>
+                            <option value="125">125%</option>
+                            <option value="150">150%</option>
+                            <option value="175">175%</option>
+                            <option value="200">200%</option>
+                            <option value="300">300%</option>
+                            <option value="400">400%</option>
+                            <option value="custom" hidden>100%</option>
+                        </select>
+                        <button class="btn-tool" onclick="resetCanvasView()" aria-label="キャンバスを画面に合わせる">Fit</button>
+                        <button class="btn-tool" onclick="setCanvasZoomPercent(100)"
+                            aria-label="キャンバスを100パーセントで表示">100%</button>
+                    </div>
+                    <div class="ribbon-group">
+                        <div id="lang-tabs" class="lang-tabs"></div>
+                    </div>
+                </div>
+                <div class="ribbon-panel" data-ribbon-panel="export">
+                    <div class="ribbon-group">
+                        <button class="btn-tool" onclick="exportDSP()">⬇ プロジェクト保存 (.dsp)</button>
+                        <button class="btn-tool" onclick="exportDSF()">⬇ 配信データ出力 (.dsf)</button>
+                        <button class="btn-tool" onclick="openProjectModal()" id="btn-projects" data-auth-required>📂
+                            プロジェクト一覧</button>
+                    </div>
+                </div>
+                <div class="ribbon-panel" data-ribbon-panel="project">
+                    <div class="ribbon-group">
+                        <button class="btn-tool" onclick="newProject()">📄 新規プロジェクト</button>
+                        <button class="btn-tool" onclick="openProjectModal()" data-auth-required>☁ クラウドから開く</button>
+                        <button class="btn-tool" onclick="document.getElementById('dsp-upload').click()"
+                            title=".dspファイルを読み込みます">📁 ローカルから開く</button>
+                        <input type="file" id="dsp-upload" style="display: none;" onchange="importDSP(event)">
+                    </div>
+                    <div class="ribbon-group">
+                        <span class="field-label">Language</span>
+                        <div id="lang-tabs-project" class="lang-tabs"></div>
+                    </div>
+                </div>
+            </div>
+        </header>
+
+        <div id="workspace">
+            <aside id="sidebar">
+                <div class="panel-head">
+                    <h3>Pages</h3>
+                    <button class="btn-sm" type="button" onclick="togglePagesPanel()">閉じる</button>
+                </div>
+                <div class="thumb-tools">
+                    <label>列数:</label>
+                    <div class="thumb-size-buttons">
+                        <button class="btn-sm" data-thumb-cols="8" onclick="setThumbColumns(8)">8</button>
+                        <button class="btn-sm" data-thumb-cols="5" onclick="setThumbColumns(5)">5</button>
+                        <button class="btn-sm" data-thumb-cols="4" onclick="setThumbColumns(4)">4</button>
+                        <button class="btn-sm" data-thumb-cols="2" onclick="setThumbColumns(2)">2</button>
+                        <button class="btn-sm" data-thumb-cols="1" onclick="setThumbColumns(1)">1</button>
+                    </div>
+                </div>
+                <div id="thumb-container"></div>
+                <div class="panel-footer"><button class="btn" onclick="addSection()">+ セクション追加</button></div>
+            </aside>
+
+            <main id="editor-main">
+                <div id="canvas-view" onmousedown="handleCanvasClick(event)" ontouchstart="handleCanvasClick(event)">
+                    <div id="canvas-transform-layer">
+                        <div id="content-render"></div>
+                        <div id="bubble-layer"></div>
+                        <div id="header-guide" class="canvas-guide header-guide"><span id="header-guide-title"></span>
+                        </div>
+                        <div id="footer-guide" class="canvas-guide footer-guide"><span
+                                class="footer-guide-label">フッター領域</span></div>
+                    </div>
+                    <div id="image-zoom-controls-floating">
+                        <button class="btn-sm zoom-btn img-zoom-btn" onmousedown="event.stopPropagation()"
+                            ontouchstart="event.stopPropagation()" onclick="adjustImageZoom(0.1)" title="拡大">＋</button>
+                        <button class="btn-sm zoom-btn img-zoom-btn" onmousedown="event.stopPropagation()"
+                            ontouchstart="event.stopPropagation()" onclick="adjustImageZoom(-0.1)" title="縮小">－</button>
+                        <button class="btn-sm zoom-btn img-zoom-btn reset" onmousedown="event.stopPropagation()"
+                            ontouchstart="event.stopPropagation()" onclick="resetImageTransform()"
+                            title="画像調整を初期化">⟲</button>
+                    </div>
+                    <button id="fab-add-bubble" class="fab-btn" onclick="addBubbleFab()" title="吹き出し追加">
+                        <span class="material-icons">add_comment</span>
+                    </button>
+                    <button id="btn-reset-view" class="reset-view-btn" onclick="resetCanvasView()" title="全体表示">
+                        <span class="material-icons">restart_alt</span>
+                    </button>
+                </div>
+            </main>
+
+            <aside id="panel-right">
+                <div id="resizer-right" class="resizer"></div>
+                <div class="panel-head">
+                    <h3>Edit</h3>
+                    <button class="btn-sm" type="button" onclick="toggleEditPanel()">閉じる</button>
+                </div>
+                <div class="control-group">
+                    <h4>セクション設定</h4>
+                    <div id="page-lock-note" class="panel-lock-note" style="display:none;"></div>
+                    <div id="cover-front-fields" class="panel-subform" style="display:none;">
+                        <label>装丁タイプ</label>
+                        <select id="cover-front-body-kind" onchange="updateCoverBodyKind(this.value)">
+                            <option value="image">イメージ</option>
+                            <option value="theme">テーマ</option>
+                        </select>
+                        <div id="cover-front-theme-fields" style="display:none;">
+                            <label>テーマテンプレート</label>
+                            <select id="cover-front-theme-template"
+                                onchange="updateCoverThemeField('templateId', this.value)">
+                                <option value="classic">Classic</option>
+                                <option value="minimal">Minimal</option>
+                                <option value="bold">Bold</option>
+                                <option value="novel">Novel</option>
+                            </select>
+                            <label>カラーパレット</label>
+                            <select id="cover-front-theme-palette"
+                                onchange="updateCoverThemeField('paletteId', this.value)">
+                                <option value="ocean">Ocean</option>
+                                <option value="sunset">Sunset</option>
+                                <option value="forest">Forest</option>
+                                <option value="amber">Amber</option>
+                                <option value="mono">Mono</option>
+                                <option value="sakura">Sakura</option>
+                                <option value="navy">Navy</option>
+                                <option value="mint">Mint</option>
+                                <option value="stone">Stone</option>
+                                <option value="crimson">Crimson</option>
+                            </select>
+                        </div>
+                        <div id="cover-front-image-fields" style="display:none;">
+                            <label>表紙画像</label>
+                            <div class="inline-actions">
+                                <button class="btn-sm" onclick="document.getElementById('file-upload-cover').click()"
+                                    data-auth-required>
+                                    <span class="material-icons inline-icon">image</span> 画像変更
+                                </button>
+                            </div>
+                        </div>
+                        <label>タイトル</label>
+                        <input id="cover-front-title" type="text" oninput="updateCoverField('title', this.value)">
+                        <label>サブタイトル</label>
+                        <input id="cover-front-subtitle" type="text" oninput="updateCoverField('subtitle', this.value)">
+                        <label>著者名</label>
+                        <input id="cover-front-author" type="text" oninput="updateCoverField('author', this.value)">
+                        <label>監修者名</label>
+                        <input id="cover-front-supervisor" type="text"
+                            oninput="updateCoverField('supervisor', this.value)">
+                        <label>出版社名</label>
+                        <input id="cover-front-publisher" type="text"
+                            oninput="updateCoverField('publisher', this.value)">
+                    </div>
+                    <div id="cover-back-fields" class="panel-subform" style="display:none;">
+                        <label>装丁タイプ</label>
+                        <select id="cover-back-body-kind" onchange="updateCoverBodyKind(this.value)">
+                            <option value="image">イメージ</option>
+                            <option value="theme">テーマ</option>
+                        </select>
+                        <div id="cover-back-theme-fields" style="display:none;">
+                            <label>テーマテンプレート</label>
+                            <select id="cover-back-theme-template"
+                                onchange="updateCoverThemeField('templateId', this.value)">
+                                <option value="classic">Classic</option>
+                                <option value="minimal">Minimal</option>
+                                <option value="bold">Bold</option>
+                                <option value="novel">Novel</option>
+                            </select>
+                            <label>カラーパレット</label>
+                            <select id="cover-back-theme-palette"
+                                onchange="updateCoverThemeField('paletteId', this.value)">
+                                <option value="ocean">Ocean</option>
+                                <option value="sunset">Sunset</option>
+                                <option value="forest">Forest</option>
+                                <option value="amber">Amber</option>
+                                <option value="mono">Mono</option>
+                                <option value="sakura">Sakura</option>
+                                <option value="navy">Navy</option>
+                                <option value="mint">Mint</option>
+                                <option value="stone">Stone</option>
+                                <option value="crimson">Crimson</option>
+                            </select>
+                        </div>
+                        <div id="cover-back-image-fields" style="display:none;">
+                            <label>裏表紙画像</label>
+                            <div class="inline-actions">
+                                <button class="btn-sm" onclick="document.getElementById('file-upload-cover').click()"
+                                    data-auth-required>
+                                    <span class="material-icons inline-icon">image</span> 画像変更
+                                </button>
+                            </div>
+                        </div>
+                        <label>版</label>
+                        <input id="cover-back-edition" type="text"
+                            oninput="updateCoverBackField('edition', this.value)">
+                        <label>連絡先（1行1件）</label>
+                        <textarea id="cover-back-contacts" rows="4"
+                            oninput="updateCoverBackContacts(this.value)"></textarea>
+                    </div>
+                    <div id="structure-fields" class="panel-subform" style="display:none;">
+                        <label>タイトル</label>
+                        <input id="structure-title" type="text" oninput="updateStructureTitle(this.value)">
+                        <label>見出しタイプ</label>
+                        <select id="structure-body-kind" onchange="updateStructureBodyKind(this.value)">
+                            <option value="text">テキスト</option>
+                            <option value="image">イメージ</option>
+                        </select>
+                        <div id="structure-image-fields" style="display:none;">
+                            <label>見出し画像</label>
+                            <div class="inline-actions">
+                                <button class="btn-sm"
+                                    onclick="document.getElementById('file-upload-structure').click()"
+                                    data-auth-required>
+                                    <span class="material-icons inline-icon">image</span> 画像変更
+                                </button>
+                            </div>
+                        </div>
+                        <div id="structure-text-fields" style="display:none;">
+                            <label>本文</label>
+                            <div class="rt-toolbar">
+                                <button type="button" class="btn-sm"
+                                    onclick="applyStructureRichTextCommand('h1')">H1</button>
+                                <button type="button" class="btn-sm"
+                                    onclick="applyStructureRichTextCommand('h2')">H2</button>
+                                <button type="button" class="btn-sm"
+                                    onclick="applyStructureRichTextCommand('bold')"><b>B</b></button>
+                                <button type="button" class="btn-sm"
+                                    onclick="applyStructureRichTextCommand('italic')"><i>I</i></button>
+                                <button type="button" class="btn-sm"
+                                    onclick="applyStructureRichTextCommand('underline')"><u>U</u></button>
+                                <button type="button" class="btn-sm"
+                                    onclick="applyStructureRichTextCommand('strike')"><s>S</s></button>
+                                <button type="button" class="btn-sm"
+                                    onclick="applyStructureRichTextCommand('paragraph')">P</button>
+                            </div>
+                            <div id="structure-body-rich-editor" class="rt-editor" contenteditable="true"
+                                oninput="updateStructureRichTextFromEditor()"></div>
+                        </div>
+                    </div>
+                    <label>タイプ</label>
+                    <select id="prop-type" onchange="update('type', this.value)">
+                        <option value="image">イメージセクション</option>
+                        <option value="text">テキストセクション</option>
+                    </select>
+
+                    <div id="image-only-props">
+                        <label>背景画像変更 / 位置調整</label>
+                        <div class="inline-actions">
+                            <button class="btn-sm" onclick="document.getElementById('file-upload').click()">
+                                <span class="material-icons inline-icon">image</span> 画像変更
+                            </button>
+                            <button class="btn-sm" onclick="toggleImageAdjustment()" id="btn-adjust-img-panel"
+                                title="位置・サイズ調整">
+                                <span class="material-icons inline-icon">crop_free</span> 調整
+                            </button>
+                        </div>
+                        <input type="file" id="file-upload" accept="image/*" onchange="uploadToStorage(this)"
+                            style="display:none;">
+                    </div>
+
+                    <div id="bubble-shape-props">
+                        <label>フキダシ形状</label>
+                        <select id="prop-shape" onchange="updateBubbleShape(this.value)">
+                            <option value="speech">💬 角丸フキダシ</option>
+                            <option value="oval">⭕ 楕円フキダシ</option>
+                            <option value="rect">📄 四角フキダシ</option>
+                            <option value="cloud">☁️ 雲フキダシ</option>
+                            <option value="wave">🌊 波フキダシ</option>
+                            <option value="thought">💭 思考フキダシ</option>
+                            <option value="explosion">💥 爆発フキダシ</option>
+                            <option value="digital">📡 電子音フキダシ</option>
+                            <option value="shout">⚡ ギザギザフキダシ</option>
+                            <option value="flash">✨ フラッシュフキダシ</option>
+                            <option value="urchin">🦔 ウニフラッシュフキダシ</option>
+                        </select>
+                        <div class="bubble-color-row">
+                            <div class="bubble-color-item">
+                                <label>外形線</label>
+                                <input type="color" id="prop-stroke-color" value="#000000"
+                                    oninput="updateBubbleColor('strokeColor', this.value)">
+                            </div>
+                            <div class="bubble-color-item">
+                                <label>塗り</label>
+                                <input type="color" id="prop-fill-color" value="#ffffff"
+                                    oninput="updateBubbleColor('fillColor', this.value)">
+                            </div>
+                            <div class="bubble-color-item">
+                                <label>文字色</label>
+                                <input type="color" id="prop-font-color" value="#000000"
+                                    oninput="updateBubbleColor('fontColor', this.value)">
+                            </div>
+                        </div>
+                        <div class="recent-colors-section">
+                            <label class="recent-colors-label">最近使った色</label>
+                            <div id="bubble-recent-colors" class="recent-colors-row"></div>
+                        </div>
+                    </div>
+
+                    <div id="generic-text-editor">
+                        <label id="text-label">テキスト入力 (選択中の吹き出し or 背景テキスト)</label>
+                        <div id="page-richtext-tools" class="rt-toolbar" style="display:none;">
+                            <button type="button" class="btn-sm" onclick="applyPageRichTextCommand('h1')">H1</button>
+                            <button type="button" class="btn-sm" onclick="applyPageRichTextCommand('h2')">H2</button>
+                            <button type="button" class="btn-sm"
+                                onclick="applyPageRichTextCommand('bold')"><b>B</b></button>
+                            <button type="button" class="btn-sm"
+                                onclick="applyPageRichTextCommand('italic')"><i>I</i></button>
+                            <button type="button" class="btn-sm"
+                                onclick="applyPageRichTextCommand('underline')"><u>U</u></button>
+                            <button type="button" class="btn-sm"
+                                onclick="applyPageRichTextCommand('strike')"><s>S</s></button>
+                            <button type="button" class="btn-sm"
+                                onclick="applyPageRichTextCommand('paragraph')">P</button>
+                        </div>
+                        <div id="page-richtext-editor" class="rt-editor" style="display:none;" contenteditable="true"
+                            oninput="updatePageRichTextFromEditor()"></div>
+                        <textarea id="prop-text" rows="5" oninput="updateActiveText(this.value, event)"></textarea>
+                        <div id="text-fit-status" class="field-label" style="margin:-4px 0 8px 0;"></div>
+                        <button id="btn-split-overflow" class="btn-sm" style="display:none; margin-bottom:10px;"
+                            onclick="splitOverflowToNextPage()">残りを次ページに分割</button>
+                    </div>
+                    <button id="btn-delete-active" class="btn btn-danger" onclick="deleteActive()">削除</button>
+                    <input type="file" id="file-upload-cover" accept="image/*" onchange="uploadCoverToStorage(this)"
+                        data-auth-required style="display:none;">
+                    <input type="file" id="file-upload-structure" accept="image/*"
+                        onchange="uploadStructureToStorage(this)" data-auth-required style="display:none;">
+                </div>
+
+                <div class="control-group">
+                    <h4>言語設定</h4>
+                    <div id="lang-list"></div>
+                    <label>文字の向き (現在の言語)</label>
+                    <select id="lang-writing-mode" onchange="updateGlobalWritingMode(this.value)">
+                        <option value="horizontal-tb">横書き (→)</option>
+                        <option value="vertical-rl">縦書き (↓)</option>
+                    </select>
+                    <label>フォント (現在の言語)</label>
+                    <select id="lang-font-preset" onchange="updateGlobalFontPreset(this.value)">
+                        <option value="gothic">ゴシック</option>
+                        <option value="mincho">明朝</option>
+                        <option value="ui">UI Sans</option>
+                    </select>
+
+                    <div class="inline-actions">
+                        <select id="lang-add-select">
+                            <option value="en">English</option>
+                            <option value="ja">日本語</option>
+                        </select>
+                        <button class="btn-sm" onclick="addLang()">＋追加</button>
+                    </div>
+                </div>
+            </aside>
+        </div>
+
+        <div id="mobile-header">
+            <span class="mobile-title">DSF Studio</span>
+            <button id="btn-auth-mobile" class="btn-sm" onclick="toggleAuth()">Sign in</button>
+        </div>
+
+        <div id="mobile-overlay-backdrop" onclick="closeMobileSheet()"></div>
+
+        <div id="mobile-action-sheet">
+            <div id="mobile-sheet-home" class="mobile-sheet-content">
+                <button class="btn-tool" onclick="performUndo()">↩ Undo</button>
+                <button class="btn-tool" onclick="performRedo()">↪ Redo</button>
+                <button class="btn-tool" onclick="saveProject()" data-auth-required>💾 Save</button>
+                <button class="btn-tool" onclick="shareProject()" data-auth-required>🔗 Share</button>
+                <button class="btn-tool" onclick="toggleAuth()">👤 Auth</button>
+            </div>
+            <div id="mobile-sheet-add" class="mobile-sheet-content">
+                <button class="btn-tool" onclick="addSection()">＋ セクション追加</button>
+                <button class="btn-tool" onclick="addBubbleFab()">💬 吹き出し追加</button>
+                <button class="btn-tool" onclick="document.getElementById('file-upload').click()">🖼 画像追加</button>
+                <button class="btn-tool" onclick="addChapterBlock()">📘 章</button>
+                <button class="btn-tool" onclick="addSubsectionBlock()">📑 節</button>
+                <button class="btn-tool" onclick="addItemBlock()">🔹 項</button>
+                <button class="btn-tool" onclick="addTocBlock()">📚 目次</button>
+            </div>
+            <div id="mobile-sheet-export" class="mobile-sheet-content">
+                <button class="btn-tool" onclick="saveProject()" data-auth-required>☁ クラウド保存</button>
+                <button class="btn-tool" onclick="shareProject()" data-auth-required>🔗 Share</button>
+                <button class="btn-tool" onclick="document.getElementById('dsp-upload-mobile').click()">📁 ローカルから開く
+                    (.dsp)</button>
+                <input type="file" id="dsp-upload-mobile" style="display: none;" onchange="importDSP(event)">
+                <button class="btn-tool" onclick="exportDSP()">⬇ Project (.dsp)</button>
+                <button class="btn-tool" onclick="exportDSF()">⬇ Publish (.dsf)</button>
+                <button class="btn-tool" onclick="openProjectModal()" data-auth-required>📂 プロジェクト一覧</button>
+            </div>
+            <div id="mobile-sheet-lang" class="mobile-sheet-content">
+                <div id="lang-tabs-mobile" class="lang-tabs"></div>
+            </div>
+        </div>
+
+        <nav id="bottom-bar">
+            <button class="bottom-item" data-mobile-action="home"><span
+                    class="material-icons">home</span><span>Home</span></button>
+            <button class="bottom-item" data-mobile-action="pages"><span
+                    class="material-icons">view_carousel</span><span>Pages</span></button>
+            <button class="bottom-item" data-mobile-action="add"><span
+                    class="material-icons">add_circle</span><span>Add</span></button>
+            <button class="bottom-item" data-mobile-action="edit"><span
+                    class="material-icons">tune</span><span>Edit</span></button>
+            <button class="bottom-item" data-mobile-action="export"><span
+                    class="material-icons">ios_share</span><span>Export</span></button>
+            <button class="bottom-item" data-mobile-action="lang"><span
+                    class="material-icons">language</span><span>Lang</span></button>
+        </nav>
+    </div>
+
+    <!-- プロジェクト一覧モーダル -->
+    <div id="project-modal">
+        <div class="modal-overlay" onclick="closeProjectModal()"></div>
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>📂 プロジェクト一覧</h2>
+                <div class="modal-header-actions">
+                    <button class="btn-modal primary" onclick="newProject()">＋ 新規プロジェクト</button>
+                    <button class="btn-modal" onclick="closeProjectModal()">閉じる</button>
+                </div>
+            </div>
+            <div class="modal-body">
+                <div id="project-grid"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 右クリック コンテキストメニュー -->
+    <div id="context-menu" class="context-menu" style="display: none;">
+        <!-- Javascriptで動的に中身を生成する -->
+    </div>
+
+    <!-- 公開/エクスポート検証モーダル -->
+    <div id="validation-modal">
+        <div class="modal-overlay" onclick="closePublishValidationModal()"></div>
+        <div class="modal-content validation-modal-content">
+            <div class="modal-header">
+                <h2>⚠ 必須項目チェック</h2>
+                <div class="modal-header-actions">
+                    <button class="btn-modal btn-primary" id="btn-validation-proceed"
+                        onclick="proceedWithValidationWarnings()" style="display:none;">無視して続行</button>
+                    <button class="btn-modal" onclick="closePublishValidationModal()">閉じる</button>
+                </div>
+            </div>
+            <div class="modal-body validation-modal-body">
+                <p id="validation-summary"></p>
+                <div id="validation-filters">
+                    <button type="button" class="validation-filter active" data-validation-filter="all"
+                        onclick="setValidationIssueFilter('all')">全件</button>
+                    <button type="button" class="validation-filter" data-validation-filter="cover_front"
+                        onclick="setValidationIssueFilter('cover_front')">表紙</button>
+                    <button type="button" class="validation-filter" data-validation-filter="cover_back"
+                        onclick="setValidationIssueFilter('cover_back')">裏表紙</button>
+                    <button type="button" class="validation-filter" data-validation-filter="structure"
+                        onclick="setValidationIssueFilter('structure')">章/節/項</button>
+                </div>
+                <div id="validation-issues"></div>
+            </div>
+        </div>
+    </div>
+
+    <script type="module" src="js/app.js"></script>
+</body>
+
+</html>
