@@ -73,11 +73,13 @@ function init() {
     // UI Toggle Listeners
     // Removed body click handler, replaced with explicit triggers
 
-    // Mobile Double Tap
+    // Mobile / Touch / Mouse Unified Pointer Events
     if (layer) {
-        layer.addEventListener('touchstart', handleTouchStart_Fixed, { passive: false });
-        layer.addEventListener('touchmove', handleTouchMove_Fixed, { passive: false });
-        layer.addEventListener('touchend', handleTouchEnd);
+        layer.addEventListener('pointerdown', handlePointerDown);
+        layer.addEventListener('pointermove', handlePointerMove);
+        layer.addEventListener('pointerup', handlePointerUp);
+        layer.addEventListener('pointercancel', handlePointerUp);
+        layer.addEventListener('pointerleave', handlePointerUp);
     }
 
     updateUiVisibility();
@@ -183,8 +185,17 @@ function updateUiVisibility() {
 //  Page Navigation (Slider)
 // ──────────────────────────────────────
 window.jumpToPage = function (val) {
-    const page = parseInt(val, 10);
+    let page = parseInt(val, 10);
     const total = getViewerPageTotal();
+    const dir = typeof getNextPageDirection === 'function' ? getNextPageDirection() : 'right';
+
+    // If RTL mode is active, the slider is visually flipped via CSS `scaleX(-1)`.
+    // The visual "left" edge actually maps to the native slider's `max` value, 
+    // and the visual "right" edge maps to the native slider's `min` value.
+    if (dir === 'left') {
+        page = (total + 1) - page;
+    }
+
     if (page >= 1 && page <= total) {
         dispatch({ type: actionTypes.SET_ACTIVE_INDEX, payload: page - 1 });
         refresh();
@@ -197,8 +208,7 @@ function getViewerPages() {
 
 function getViewerPageTotal() {
     const pages = getViewerPages();
-    if (pages.length > 0) return pages.length;
-    return Array.isArray(state.sections) ? state.sections.length : 0;
+    return pages.length;
 }
 
 async function loadFromFirestore(pid, uid) {
@@ -338,11 +348,12 @@ function getWritingMode(lang) {
 }
 
 function getComposedLayoutForViewerSection(section, lang) {
+    // This function is kept temporarily to avoid breaking changes if there are lingering references,
+    // although `refresh()` will no longer pass legacy sections to it.
     if (!section.layout || typeof section.layout !== 'object') section.layout = {};
     const cached = section.layout[lang];
-    if (cached) return cached; // Canonical layout is authored in editor and rendered as-is.
+    if (cached) return cached;
 
-    // Backward compatibility for old projects without precomposed layout.
     const mode = getWritingMode(lang);
     const fontPreset = state.languageConfigs?.[lang]?.fontPreset || 'gothic';
     if (!section.layout[lang]) {
@@ -673,8 +684,9 @@ function refresh() {
     const pageIndex = Math.max(0, Math.min(pageIndexRaw || 0, totalPages - 1));
     dispatch({ type: actionTypes.SET_ACTIVE_INDEX, payload: pageIndex });
 
-    const p = hasPages ? pages[pageIndex] : null;
-    const s = (!hasPages && state.sections) ? state.sections[pageIndex] : null;
+    const p = pages[pageIndex];
+    if (!p) return;
+
     const contentEl = document.getElementById('viewer-content');
     const bubblesEl = document.getElementById('viewer-bubbles');
     const lang = state.activeLang;
@@ -684,23 +696,23 @@ function refresh() {
     resetZoom();
 
     // 1. Content
-    if (hasPages && p && p.role === 'cover_front' && p.bodyKind === 'theme') {
+    if (p.role === 'cover_front' && p.bodyKind === 'theme') {
         renderCoverThemePage(contentEl, p, lang);
-    } else if (hasPages && p && p.role === 'cover_back' && p.bodyKind === 'theme') {
+    } else if (p.role === 'cover_back' && p.bodyKind === 'theme') {
         renderCoverThemePage(contentEl, p, lang);
-    } else if (hasPages && p && p.role === 'cover_front' && p.bodyKind === 'image') {
+    } else if (p.role === 'cover_front' && p.bodyKind === 'image') {
         renderCoverImagePage(contentEl, p);
-    } else if (hasPages && p && p.role === 'cover_back' && p.bodyKind === 'image') {
+    } else if (p.role === 'cover_back' && p.bodyKind === 'image') {
         renderCoverImagePage(contentEl, p);
-    } else if (hasPages && p && p.role === 'toc') {
+    } else if (p.role === 'toc') {
         renderTocPage(contentEl, pages, lang, pageIndex);
-    } else if (hasPages && p && (p.role === 'chapter' || p.role === 'section' || p.role === 'item') && p.bodyKind === 'image') {
+    } else if ((p.role === 'chapter' || p.role === 'section' || p.role === 'item') && p.bodyKind === 'image') {
         renderStructureImagePage(contentEl, p, lang);
-    } else if (hasPages && p && (p.role === 'chapter' || p.role === 'section' || p.role === 'item') && p.bodyKind === 'text') {
+    } else if ((p.role === 'chapter' || p.role === 'section' || p.role === 'item') && p.bodyKind === 'text') {
         renderStructureTextPage(contentEl, p, lang);
-    } else if (hasPages && p && p.pageType !== 'normal_image' && p.pageType !== 'normal_text') {
+    } else if (p.pageType !== 'normal_image' && p.pageType !== 'normal_text') {
         renderStructurePage(contentEl, p, lang);
-    } else if (hasPages && p && p.pageType === 'normal_image') {
+    } else if (p.pageType === 'normal_image') {
         const toNum = (v, fallback) => {
             const n = Number(v);
             return Number.isFinite(n) ? n : fallback;
@@ -712,7 +724,7 @@ function refresh() {
         const rotation = toNum(pos.rotation, 0);
         const imgStyle = `width:100%; height:100%; object-fit:cover; transform: translate(${x}px, ${y}px) scale(${scale}) rotate(${rotation}deg); transform-origin: center center;`;
         contentEl.innerHTML = `<img src="${escapeHtml(getOptimizedImageUrl(p.content?.background || ''))}" style="${imgStyle}">`;
-    } else if (hasPages && p && p.pageType === 'normal_text') {
+    } else if (p.pageType === 'normal_text') {
         const richDoc = p.content?.richTextLangs?.[lang] || p.content?.richText || null;
         if (Array.isArray(richDoc?.blocks) && richDoc.blocks.length) {
             const vtClass = mode === 'vertical-rl' ? 'v-text' : '';
@@ -752,42 +764,10 @@ function refresh() {
             <div class="viewer-text-block ${vtClass}"
                  style="left:${frame.x}px; top:${frame.y}px; width:${frame.w}px; height:${frame.h}px; padding:${verticalPad}px 0; text-align:${align}; font-family:${fontFamily}; font-size:${fontSize}px; line-height:${lineHeight}; letter-spacing:${letterSpacing}px;">${text}</div>
         </div>`;
-    } else if (s?.type === 'image') {
-        const toNum = (v, fallback) => {
-            const n = Number(v);
-            return Number.isFinite(n) ? n : fallback;
-        };
-        const pos = s.imagePosition || {};
-        const x = toNum(pos.x, 0);
-        const y = toNum(pos.y, 0);
-        const scale = Math.max(0.1, toNum(pos.scale, 1));
-        const rotation = toNum(pos.rotation, 0);
-        const imgStyle = `width:100%; height:100%; object-fit:cover; transform: translate(${x}px, ${y}px) scale(${scale}) rotate(${rotation}deg); transform-origin: center center;`;
-        contentEl.innerHTML = `<img src="${escapeHtml(getOptimizedImageUrl(s.background))}" style="${imgStyle}">`;
-    } else {
-        const vtClass = mode === 'vertical-rl' ? 'v-text' : '';
-        const langProps = getLangProps(lang);
-        const align = langProps.sectionAlign;
-        const layout = getComposedLayoutForViewerSection(s, lang);
-        const text = escapeHtml((layout?.lines || []).join('\n'));
-        const frame = layout?.frame || { x: 20, y: 32, w: 320, h: 576 };
-        const font = layout?.font || {};
-        const fontFamily = font.family || '"Noto Sans","Segoe UI",sans-serif';
-        const fontSize = Number(font.size) || 16;
-        const lineHeight = Number(font.lineHeight) || 1.8;
-        const letterSpacing = Number.isFinite(Number(font.letterSpacing)) ? Number(font.letterSpacing) : 0;
-        const verticalPad = getVerticalTextPadding(layout);
-
-        contentEl.innerHTML = `<div class="viewer-text-page">
-            <div class="viewer-text-block ${vtClass}"
-                 style="left:${frame.x}px; top:${frame.y}px; width:${frame.w}px; height:${frame.h}px; padding:${verticalPad}px 0; text-align:${align}; font-family:${fontFamily}; font-size:${fontSize}px; line-height:${lineHeight}; letter-spacing:${letterSpacing}px;">${text}</div>
-        </div>`;
     }
 
     // 2. Bubbles
-    const bubbleSource = hasPages
-        ? ((p?.pageType === 'normal_image') ? (p.content?.bubbles || []) : [])
-        : (s?.type !== 'text' ? (s?.bubbles || []) : []);
+    const bubbleSource = (p.pageType === 'normal_image') ? (p.content?.bubbles || []) : [];
     if (bubbleSource.length > 0) {
         bubblesEl.innerHTML = bubbleSource.map((b, i) =>
             renderBubbleHTML(b, i, false, mode)
@@ -818,14 +798,21 @@ function updateNavigationUI() {
     const nextDir = getNextPageDirection();
     const slider = document.getElementById('page-slider');
 
-    // Preload next and previous images
-    preloadSurroundingImages();
+    // Preload next and previous assets (images and fonts)
+    preloadSurroundingAssets();
 
     const leftBtn = document.getElementById('viewer-nav-left');
     const rightBtn = document.getElementById('viewer-nav-right');
     if (slider) {
-        slider.style.direction = nextDir === 'left' ? 'rtl' : 'ltr';
-        slider.style.transform = 'none';
+        // We use a CSS transform to visually flip the slider.
+        // We handle the mathematical coordinate inversion directly in jumpToPage().
+        if (nextDir === 'left') {
+            slider.style.direction = 'ltr';
+            slider.style.transform = 'scaleX(-1)';
+        } else {
+            slider.style.direction = 'ltr';
+            slider.style.transform = 'none';
+        }
         slider.style.background = ''; // Clear custom background
     }
     if (leftBtn) {
@@ -837,20 +824,40 @@ function updateNavigationUI() {
 }
 
 // ──────────────────────────────────────
-//  Image Preloading
+//  Image & Font Preloading
 // ──────────────────────────────────────
-function extractImageUrlFromPageOrSection(pageObj, sectionObj) {
+function extractImageUrlFromPage(pageObj) {
     if (pageObj) {
         if (pageObj.content?.background) return pageObj.content.background;
         if (pageObj.bodyKind === 'image' || pageObj.pageType === 'normal_image') return pageObj.content?.background;
     }
-    if (sectionObj) {
-        if (sectionObj.background) return sectionObj.background;
-    }
     return null;
 }
 
-function preloadSurroundingImages() {
+function extractFontsFromPage(pageObj) {
+    const fontsToLoad = new Set();
+    if (!pageObj) return fontsToLoad;
+
+    // Check text lines
+    const texts = pageObj.content?.texts;
+    if (Array.isArray(texts)) {
+        texts.forEach(t => {
+            if (t.font?.fontFamily) fontsToLoad.add(t.font.fontFamily);
+        });
+    }
+
+    // Check bubbles
+    const bubbles = pageObj.content?.bubbles;
+    if (Array.isArray(bubbles)) {
+        bubbles.forEach(b => {
+            if (b.textInfo?.fontFamily) fontsToLoad.add(b.textInfo.fontFamily);
+        });
+    }
+
+    return Array.from(fontsToLoad);
+}
+
+function preloadSurroundingAssets() {
     const pages = getViewerPages();
     const hasPages = pages.length > 0;
     const totalPages = getViewerPageTotal();
@@ -861,15 +868,33 @@ function preloadSurroundingImages() {
     const indicesToLoad = [currentIndex + 1, currentIndex + 2, currentIndex - 1].filter(i => i >= 0 && i < totalPages);
 
     indicesToLoad.forEach(idx => {
-        const p = hasPages ? pages[idx] : null;
-        const s = (!hasPages && state.sections) ? state.sections[idx] : null;
-        const originalUrl = extractImageUrlFromPageOrSection(p, s);
+        const p = pages[idx];
+
+        // 1. Preload Images
+        const originalUrl = extractImageUrlFromPage(p);
         if (originalUrl && typeof originalUrl === 'string' && originalUrl.trim() !== '') {
             // Initiate background load with the same optimized URL used for display
             const optimizedUrl = getOptimizedImageUrl(originalUrl);
             const img = new Image();
             img.src = optimizedUrl;
         }
+
+        // 2. Preload Fonts (Prevent FOUT)
+        const fonts = extractFontsFromPage(p);
+        fonts.forEach(fontFamily => {
+            // Use CSS Font Loading API if available. e.g. "16px 'Noto Sans JP'"
+            if (document.fonts && document.fonts.load) {
+                // If the font string doesn't contain quotes and has spaces, wrap it
+                const safeFontStr = fontFamily.includes('-') || fontFamily.includes(' ')
+                    ? `16px "${fontFamily.replace(/["']/g, '')}"`
+                    : `16px ${fontFamily}`;
+
+                document.fonts.load(safeFontStr).catch(err => {
+                    // Ignore font load errors (e.g., system fonts or already loaded)
+                    console.debug('[Viewer] Font preload info:', err);
+                });
+            }
+        });
     });
 }
 
@@ -1073,121 +1098,134 @@ function handleWheel(e) {
     }
 }
 
-// Touch (Mobile: Swipe & Pinch)
-let touchStartDist = 0;
-let isPinch = false;
+// ──────────────────────────────────────
+//  Pointer Events (Unified Touch/Mouse)
+// ──────────────────────────────────────
+const pointerCache = [];
+let pinchStartDist = 0;
 let pinchStartScale = 1;
-
-// For separate swipe detection variables
-let touchStartX = 0;
-let touchStartY = 0;
-
-function getDist(t1, t2) {
-    return Math.hypot(t1.clientX - t2.clientX, t1.clientY - t2.clientY);
-}
-
-function handleTouchStart_Fixed(e) {
-    if (e.touches.length === 2) {
-        // PINCH Start
-        isPinch = true;
-        touchStartDist = getDist(e.touches[0], e.touches[1]);
-        pinchStartScale = viewState.scale;
-    } else {
-        // PAN / SWIPE Start
-        isPinch = false;
-        // Panning setup
-        viewState.lastX = e.touches[0].clientX;
-        viewState.lastY = e.touches[0].clientY;
-
-        // Swipe detection setup
-        touchStartX = e.touches[0].clientX;
-        touchStartY = e.touches[0].clientY;
-    }
-}
-
-function handleTouchMove_Fixed(e) {
-    e.preventDefault();
-
-    if (e.touches.length === 2 && isPinch) {
-        // PINCH Move
-        const dist = getDist(e.touches[0], e.touches[1]);
-        if (touchStartDist > 0) {
-            const newScale = pinchStartScale * (dist / touchStartDist);
-            viewState.scale = Math.min(Math.max(1, newScale), 5);
-            updateTransform();
-        }
-    } else if (e.touches.length === 1 && !isPinch) {
-        // PAN (only if zoomed)
-        if (viewState.scale > 1.05) {
-            const cx = e.touches[0].clientX;
-            const cy = e.touches[0].clientY;
-
-            const dx = cx - viewState.lastX;
-            const dy = cy - viewState.lastY;
-
-            viewState.currX += dx;
-            viewState.currY += dy;
-            viewState.lastX = cx;
-            viewState.lastY = cy;
-
-            updateTransform();
-        }
-    }
-}
-
-// DOUBLE TAP State
 let lastTapTime = 0;
+let pointerStartX = 0;
+let pointerStartY = 0;
+let isPinching = false;
+let isPanning = false;
 
-function handleTouchEnd(e) {
-    if (isPinch) {
-        isPinch = false;
-        // Snap back if zoomed out too far
-        if (viewState.scale < 1) {
+function getPinchDist(p1, p2) {
+    return Math.hypot(p1.clientX - p2.clientX, p1.clientY - p2.clientY);
+}
+
+function handlePointerDown(e) {
+    pointerCache.push(e);
+
+    if (pointerCache.length === 2) {
+        // PINCH Start
+        isPinching = true;
+        isPanning = false;
+        pinchStartDist = getPinchDist(pointerCache[0], pointerCache[1]);
+        pinchStartScale = viewState.scale;
+    } else if (pointerCache.length === 1) {
+        // PAN / SWIPE / CLICK Setup
+        isPinching = false;
+        isPanning = viewState.scale > 1.05;
+
+        viewState.lastX = e.clientX;
+        viewState.lastY = e.clientY;
+        pointerStartX = e.clientX;
+        pointerStartY = e.clientY;
+
+        if (e.pointerType === 'mouse' && isPanning) {
+            e.target.setPointerCapture(e.pointerId);
+        }
+    }
+}
+
+function handlePointerMove(e) {
+    // Update cache
+    const index = pointerCache.findIndex(p => p.pointerId === e.pointerId);
+    if (index !== -1) {
+        pointerCache[index] = e;
+    }
+
+    if (isPinching && pointerCache.length === 2) {
+        e.preventDefault(); // Prevent native scroll while pinching
+        const dist = getPinchDist(pointerCache[0], pointerCache[1]);
+        if (pinchStartDist > 0) {
+            const newScale = pinchStartScale * (dist / pinchStartDist);
+            viewState.scale = Math.min(Math.max(1, newScale), 5); // 1x to 5x
+            updateTransform();
+        }
+    } else if (isPanning && pointerCache.length === 1) {
+        e.preventDefault(); // Prevent native scroll while panning zoomed image
+        const dx = e.clientX - viewState.lastX;
+        const dy = e.clientY - viewState.lastY;
+        viewState.currX += dx;
+        viewState.currY += dy;
+        viewState.lastX = e.clientX;
+        viewState.lastY = e.clientY;
+        updateTransform();
+    }
+}
+
+function handlePointerUp(e) {
+    // Remove from cache
+    const index = pointerCache.findIndex(p => p.pointerId === e.pointerId);
+    if (index !== -1) {
+        pointerCache.splice(index, 1);
+    }
+
+    if (isPinching && pointerCache.length < 2) {
+        isPinching = false;
+        if (viewState.scale < 1.05) {
             resetZoom();
         }
         return;
     }
 
-    // SWIPE / TAP Detection (only if NOT zoomed)
-    if (viewState.scale <= 1.05) {
-        const touchEndX = e.changedTouches[0].clientX;
-        const touchEndY = e.changedTouches[0].clientY;
+    if (pointerCache.length === 0) {
+        if (isPanning) {
+            isPanning = false;
+            return; // If we were panning, don't trigger clicks or swipes
+        }
 
-        const diffX = touchEndX - touchStartX;
-        const diffY = touchEndY - touchStartY;
+        // SWIPE / TAP Detection (only if NOT zoomed)
+        if (viewState.scale <= 1.05) {
+            const diffX = e.clientX - pointerStartX;
+            const diffY = e.clientY - pointerStartY;
 
-        // Tap Detection (< 30px move)
-        if (Math.abs(diffX) < 30 && Math.abs(diffY) < 30) {
-            const currentTime = new Date().getTime();
-            const tapLength = currentTime - lastTapTime;
-            lastTapTime = currentTime;
+            // Tap Detection (< 10px move is considered a tap/click)
+            if (Math.abs(diffX) < 10 && Math.abs(diffY) < 10) {
+                const currentTime = new Date().getTime();
+                const tapLength = currentTime - lastTapTime;
+                lastTapTime = currentTime;
 
-            if (tapLength < 300 && tapLength > 0) {
-                // Double Tap Detected!
-                // We can reset zoom or something.
-                if (viewState.scale > 1.05) {
-                    resetZoom();
+                // Double tap handling
+                if (tapLength < 300 && tapLength > 0 && e.pointerType !== 'mouse') {
+                    // Double Tap Detected (usually mobile). Zoom in slightly.
+                    if (viewState.scale > 1.05) {
+                        resetZoom();
+                    } else {
+                        viewState.scale = 2;
+                        updateTransform();
+                    }
+                    e.preventDefault();
                 } else {
-                    viewState.scale = 2; // double tap to zoom? Or just ignore
-                    updateTransform();
+                    // Let the standard click handler (`handleClick` or `onclick` on zones) handle normal taps.
+                    // We DO NOT call UI toggle or next/prev here to avoid double-firing with native click events.
                 }
-                e.preventDefault();
             } else {
-                // Let the click event handle the tap zones
-            }
-        } else {
-            // Swipe Detection
-            if (Math.abs(diffX) > Math.abs(diffY) && Math.abs(diffX) > 50) {
-                // Horizontal Swipe
-                const nextDir = getNextPageDirection();
-                if (diffX > 0) {
-                    // Swiped Right
-                    if (nextDir === 'left') next();
-                    else prev();
-                } else {
-                    // Swiped Left
-                    if (nextDir === 'left') prev();
-                    else next();
+                // Swipe Detection
+                if (Math.abs(diffX) > Math.abs(diffY) && Math.abs(diffX) > 40) {
+                    // Horizontal Swipe
+                    const nextDir = getNextPageDirection();
+                    if (diffX > 0) {
+                        // Swiped Right
+                        if (nextDir === 'left') next();
+                        else prev();
+                    } else {
+                        // Swiped Left
+                        if (nextDir === 'left') prev();
+                        else next();
+                    }
                 }
             }
         }

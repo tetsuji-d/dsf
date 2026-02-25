@@ -44,6 +44,11 @@ body {
     box-shadow: 0 0 20px rgba(0, 0, 0, 0.5);
 }
 
+#click-layer {
+    touch-action: none;
+    /* Crucial for custom PointerEvent pinch/pan logic */
+}
+
 #viewer-content,
 #viewer-bubbles {
     position: absolute;
@@ -175,9 +180,11 @@ body {
     margin: 0 10px;
     cursor: pointer;
     width: 100%;
-    height: 44px;
-    min-height: 44px;
-    padding: 0;
+    /* Remove `height: 44px` which causes native range inputs to stretch bizarrely on some browsers */
+    margin-top: 10px;
+    margin-bottom: 10px;
+    padding: 10px 0;
+    /* Increase tap area natively without stretching the track */
     border: none;
     background: transparent;
     accent-color: var(--primary, #1248a1);
@@ -193,4 +200,34 @@ body {
 
 #file-input {
     display: none;
+}
+
+/* ── Restored Text & Bubble Rendering Styles ── */
+/* 
+ * These were accidentally removed from the viewer context when main.css 
+ * was split into studio.css. The viewer still needs them to render content! 
+ */
+
+.v-text {
+    writing-mode: vertical-rl;
+    text-orientation: upright;
+}
+
+.bubble-svg {
+    position: absolute;
+    transform: translate(-50%, -50%);
+    pointer-events: none;
+    /* Viewers shouldn't interact */
+}
+
+.bubble-text {
+    position: absolute;
+    transform: translate(-50%, -50%);
+    text-align: center;
+    font-size: 12px;
+    line-height: 1.4;
+    color: #000;
+    white-space: pre;
+    outline: none;
+    pointer-events: none;
 }

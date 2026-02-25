@@ -142,6 +142,7 @@ Architect からの全エージェントへの通達。
 |------|-------|------|-----------|
 | 2026-02-25 | Gemini (Viewer) | AR VIEW機能に向けた Page Object へのプロパティ追加: `arMode` ("none"\|"gyro-map"\|"xr-space"), `arScale` (number), `geolocation` ({lat,lng})。詳細: `docs/future-ar-view-plan.md` | 承認待ち |
 | 2026-02-25 | Claude (Editor) (Break-glass) | `js/firebase.js`: Race condition 対応で `isSaving` mutex / `flushSave()` export / `isThumbnailGenerating` を追加。Architect 口頭承認済（直接依頼）| 承認済（口頭） |
+| 2026-02-25 | Claude (Architect代行) | `firestore.rules` / `storage.rules` 新規作成・`firebase.json` に rules エントリ追加。Portal Agent (Codex) からの `public_projects` permission-denied 報告を受け対応。Architect 口頭承認済（直接依頼） | 承認済（口頭） |
 
 ---
 
@@ -226,6 +227,24 @@ Phase 2 では `html2canvas` による高解像度テクスチャ化が必要に
 **現状:** データモデル変更の Architect 承認を待って実装開始。
 
 ---
+
+### 2026-02-25 — 🚨 注意喚起: CSS分割に伴うレンダリング崩れ
+
+**報告者:** Gemini (Viewer Agent)
+
+**事象:** 
+Editor Agent (Claude) 主導で行われた `main.css` の分割作業において、ビューワーのコア描画に必要な以下のクラス群が `studio.css` 側に片寄せされ、`viewer.css` から完全に欠落する事故が発生しました。
+*   `.v-text` (縦書き制御)
+*   `.bubble-svg`, `.bubble-text` (フキダシの形状指定)
+*   `#page-slider` (プログレスバー) の高さ指定によるブラウザネイティブの伸長バグ
+
+これにより、テストサーバー上で日本語縦書きが横表示になり、フキダシがズレて表示されるなどの致命的なリグレッションが発生しました。
+
+**対応:**
+Viewer Agent にて、上記必須クラスを `main.css` 履歴から抽出し、`css/viewer.css` へ復元・修正しました。
+
+**Editor Agent への要請:**
+コンポーネントをEditor/Studio専用と思い込んで CSS 分割を行うと、Viewer 側の描画が破壊されます。共有要素のCSSを変更・移動する際は、必ず Viewer のプレビューを優先的に確認し、影響範囲を限定してください。
 
 ---
 

@@ -12,6 +12,7 @@
     <link
         href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=Noto+Sans+JP:wght@400;500;700;900&family=Outfit:wght@400;500;700;800&display=swap"
         rel="stylesheet">
+    <link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet">
     <link rel="stylesheet" href="css/variables.css">
     <link rel="stylesheet" href="css/portal.css">
 </head>
@@ -23,15 +24,17 @@
             <span class="logo-subtext">Digital Smart Format</span>
         </a>
 
-        <div class="search-container">
-            <input type="text" class="search-input" placeholder="Search stories...">
-            <span class="search-icon">🔍</span>
+        <div class="search-container" role="search">
+            <label for="portal-search" class="visually-hidden">作品を検索</label>
+            <input type="text" id="portal-search" class="search-input" placeholder="作品タイトル・作者名で検索"
+                aria-label="作品を検索" autocomplete="off">
+            <span class="search-icon material-icons" aria-hidden="true">search</span>
         </div>
 
         <div class="header-actions">
             <!-- Studio Access Btn -->
-            <a href="/studio.html" class="btn-studio">
-                <span class="material-icons" style="font-size: 18px;">edit</span>
+            <a href="/studio.html" class="btn-studio" aria-label="Studioを起動">
+                <span class="material-icons" aria-hidden="true">edit</span>
                 <span>Studioを起動</span>
             </a>
         </div>
@@ -39,18 +42,15 @@
 
     <main>
         <h2 class="section-title">Latest & Featured</h2>
+        <p id="feed-status" class="feed-status" aria-live="polite">作品を読み込み中...</p>
+        <div id="portal-feedback" class="portal-feedback" aria-live="polite"></div>
 
-        <div class="project-grid" id="public-feed">
-            <!-- Cards will be dynamically injected here by portal.js -->
-            <!-- Loading skeleton mock -->
-            <div style="color:var(--portal-sub); padding:40px; text-align:center; width: 100%; grid-column: 1 / -1;">
-                Fetching public gallery...
-            </div>
-        </div>
+        <div class="project-grid" id="public-feed" aria-live="polite"></div>
     </main>
 
     <!-- Portal Logic -->
     <script type="module" src="js/portal.js"></script>
+    <noscript>このページを利用するにはJavaScriptを有効にしてください。</noscript>
 </body>
 
 </html>
