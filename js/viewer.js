@@ -168,8 +168,12 @@ async function attemptLoadSharedProject() {
 // ──────────────────────────────────────
 let isUiVisible = true;
 
-window.toggleUi = function () {
-    isUiVisible = !isUiVisible;
+window.toggleUi = function (forceState) {
+    if (typeof forceState === 'boolean') {
+        isUiVisible = forceState;
+    } else {
+        isUiVisible = !isUiVisible;
+    }
     updateUiVisibility();
 };
 
@@ -180,6 +184,26 @@ function updateUiVisibility() {
         else ui.classList.remove('visible');
     }
 }
+
+// Close UI if clicking outside of header/footer elements
+document.addEventListener('click', (e) => {
+    // Only process if UI is visible
+    if (!isUiVisible) return;
+
+    // Ignore clicks on specific touch zones as they have their own handlers
+    if (e.target.id === 'zone-prev' || e.target.id === 'zone-next' || e.target.id === 'zone-menu') {
+        return;
+    }
+
+    const header = document.getElementById('viewer-header');
+    const footer = document.getElementById('viewer-footer');
+    const isInsideUi = (header && header.contains(e.target)) || (footer && footer.contains(e.target));
+
+    // If the click is not inside the UI bars, close the UI
+    if (!isInsideUi) {
+        window.toggleUi(false);
+    }
+});
 
 // ──────────────────────────────────────
 //  Page Navigation (Slider)

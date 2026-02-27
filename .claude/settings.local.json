@@ -1,0 +1,40 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(find:*)",
+      "Bash(ls -lh /c/Users/tetsu/projects/dsf/js/*.js)",
+      "Bash(git add AGENTS.md CLAUDE.md)",
+      "Bash(git commit:*)",
+      "Bash(npm run build)",
+      "Bash(git add css/variables.css css/studio.css css/viewer.css css/portal.css studio.html viewer.html index.html AGENTS.md)",
+      "Bash(git add AGENTS.md docs/future-ar-view-plan.md)",
+      "Bash(git add js/sections.js js/app.js)",
+      "Bash(git add AGENTS.md)",
+      "Bash(git add js/firebase.js js/app.js AGENTS.md)",
+      "Bash(git add js/app.js js/firebase.js)",
+      "Bash(git add js/utils.js js/blocks.js js/pages.js js/sections.js)",
+      "Bash(git add js/app.js)",
+      "Bash(git add js/firebase.js)",
+      "Bash(npx firebase projects:list)",
+      "Bash(npx firebase deploy --only firestore:rules,storage)",
+      "Bash(git push -u origin codex-task-02)",
+      "Bash(gh pr:*)",
+      "Bash(where gh)",
+      "Bash(npx gh --version)",
+      "Bash(git remote get-url origin)",
+      "Bash(git checkout main)",
+      "Bash(git merge:*)",
+      "Bash(git add AGENTS.md firebase.json firestore.rules storage.rules docs/viewer-improvements-plan.md css/portal.css css/viewer.css index.html js/portal.js js/viewer.js)",
+      "Bash(git push origin codex-task-02)",
+      "Bash(git push origin main)",
+      "Bash(git branch -d codex-task-01)",
+      "Bash(git push origin --delete codex-task-01)",
+      "Bash(git branch -d codex-task-02)",
+      "Bash(git push origin --delete codex-task-02)",
+      "Bash(git worktree add ../dsf-viewer viewer/ui-modernization)",
+      "Bash(git worktree add ../dsf-editor -b editor/next main)",
+      "Bash(git worktree add ../dsf-portal -b portal/next main)",
+      "Bash(git cherry-pick d8a4b2d)"
+    ]
+  }
+}

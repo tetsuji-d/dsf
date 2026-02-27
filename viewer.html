@@ -27,11 +27,12 @@
             </div>
         </div>
         <!-- UD Touch Zones for navigation -->
+        <!-- Center zone is 40% to prevent mis-clicks near the edges -->
         <div id="click-layer" style="position:absolute; inset:0; z-index:100; display:flex;">
             <div id="zone-prev" style="flex: 0 0 30%; height:100%; cursor:pointer;" onclick="viewerNavLeft()"
                 title="前のページ"></div>
-            <div id="zone-menu" style="flex: 1; height:100%; cursor:pointer;" onclick="toggleUi()" title="メニュー表示/非表示">
-            </div>
+            <div id="zone-menu" style="flex: 0 0 40%; height:100%; cursor:pointer;" onclick="toggleUi()"
+                title="メニュー表示/非表示"></div>
             <div id="zone-next" style="flex: 0 0 30%; height:100%; cursor:pointer;" onclick="viewerNavRight()"
                 title="次のページ"></div>
         </div>
@@ -39,37 +40,40 @@
 
     <div id="viewer-ui">
         <div id="viewer-header" class="ui-bar">
+            <!-- Left: Close Button -->
+            <button class="btn-icon header-btn" onclick="toggleUi()" title="閉じる">✕</button>
+
+            <!-- Center: Title -->
             <div class="ui-title" id="ui-title"></div>
+
+            <!-- Right: Controls & Branding -->
             <div class="ui-controls">
-                <!-- Branding Link back to portal -->
+                <select id="lang-select" onchange="switchViewerLang(this.value)"
+                    style="padding:4px; border-radius:4px; border:1px solid #ccc; font-size:12px; display:none;">
+                </select>
+                <button class="btn-icon header-btn" onclick="document.getElementById('file-input').click()"
+                    title="ファイルを開く">📂</button>
+            </div>
+        </div>
+
+        <div id="viewer-footer" class="ui-bar">
+            <div class="ui-controls footer-controls">
+                <!-- Branding Link back to portal (Moved to footer for less distraction) -->
                 <a href="/" title="DSF Portal"
-                    style="text-decoration:none; display:flex; align-items:baseline; margin-right: 12px; pointer-events:auto;">
+                    style="text-decoration:none; display:flex; align-items:baseline; margin-right: 8px; pointer-events:auto;">
                     <span
                         style="font-family:'Inter',sans-serif; font-size:10px; color:#64748b; margin-right:4px;">Powered
                         by</span>
                     <span
                         style="font-family:'Outfit',sans-serif; font-size:14px; font-weight:800; letter-spacing:-0.5px; background:linear-gradient(135deg, #60a5fa, #818cf8); -webkit-background-clip:text; background-clip:text; -webkit-text-fill-color:transparent;">DSF</span>
                 </a>
-                <span id="viewer-auth-status" class="page-count" style="min-width:72px;">ゲスト</span>
-                <button id="viewer-auth-btn" class="btn-sm" onclick="viewerToggleAuth()">Sign in</button>
-                <!-- Language Select (Styled) -->
-                <select id="lang-select" onchange="switchViewerLang(this.value)"
-                    style="padding:4px; border-radius:4px; border:1px solid #ccc; font-size:12px; display:none;">
-                </select>
-            </div>
-        </div>
 
-        <div id="viewer-footer" class="ui-bar">
-            <div class="ui-controls" style="flex:1;">
-                <button id="viewer-nav-left" class="btn-icon" onclick="viewerNavLeft()">◀</button>
-                <input type="range" id="page-slider" min="1" max="1" value="1" oninput="jumpToPage(this.value)">
+                <button id="viewer-nav-left" class="nav-btn" onclick="viewerNavLeft()">◀</button>
+                <div class="slider-wrapper">
+                    <input type="range" id="page-slider" min="1" max="1" value="1" oninput="jumpToPage(this.value)">
+                </div>
+                <button id="viewer-nav-right" class="nav-btn" onclick="viewerNavRight()">▶</button>
                 <span id="page-count" class="page-count">1 / 1</span>
-                <button id="viewer-nav-right" class="btn-icon" onclick="viewerNavRight()">▶</button>
-            </div>
-            <div class="ui-controls">
-                <button class="btn-icon" onclick="document.getElementById('file-input').click()"
-                    title="ファイルを開く">📂</button>
-                <button class="btn-icon" onclick="toggleUi()" title="閉じる">✕</button>
             </div>
         </div>
     </div>
