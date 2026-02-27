@@ -133,6 +133,7 @@ Architect からの全エージェントへの通達。
 | 2026-02-25 | **ブランチ整理完了**: codex-task-02 → main にマージ済み。codex-task-01 削除済み。今後のブランチ命名ルールはセクション10参照 | All |
 | 2026-02-25 | **Firestore/Storage rules デプロイ済み**: public_projects 公開読み取り解放。Portal Agent の permission-denied は解消されているはず。動作確認を依頼 | Portal (Codex) |
 | 2026-02-25 | **Git Worktree 導入**: 各エージェントに独立した作業フォルダを割り当て。セクション10「Worktree パス」参照。**各エージェントは今後、自分専用フォルダで VS Code を開いて作業すること** | All |
+| 2026-02-27 | **開発運用変更**: フェーズ単位シリアル進行を標準化。独立タスクのみ並列可。**Firebase Staging 環境を導入予定**（`prod`/`staging` 分離、Preview Channel 活用）。詳細: セクション8「2026-02-27」参照 | All |
 
 ---
 
@@ -146,6 +147,7 @@ Architect からの全エージェントへの通達。
 | 2026-02-25 | Claude (Editor) + Gemini (Viewer) | WebGL ARビューワー全面実装。Three.js導入・テクスチャ描画・ジャイロ・WebXR。詳細: `docs/webgl-ar-viewer-plan.md` | **Architect 承認済み (2026-02-25)** |
 | 2026-02-25 | Claude (Editor) (Break-glass) | `js/firebase.js`: Race condition 対応で `isSaving` mutex / `flushSave()` export / `isThumbnailGenerating` を追加。Architect 口頭承認済（直接依頼）| 承認済（口頭） |
 | 2026-02-25 | Claude (Architect代行) | `firestore.rules` / `storage.rules` 新規作成・`firebase.json` に rules エントリ追加。Portal Agent (Codex) からの `public_projects` permission-denied 報告を受け対応。Architect 口頭承認済（直接依頼） | 承認済（口頭） |
+| 2026-02-27 | Architect（人間） | 開発運用の変更決定: 「フェーズ単位シリアルマルチエージェント」を標準運用とし、並行作業は独立タスクに限定。あわせて Firebase Staging（本番分離）導入と `prod/staging` 環境切替手順を正式運用化する。詳細: セクション8「2026-02-27」参照 | **Architect 決定済み（2026-02-27）** |
 
 ---
 
@@ -300,6 +302,42 @@ VITE_USE_STAGING=true
 Staging プロジェクト作成と `firebase.js` への環境切り替えロジック追加は Architect 作業。準備ができたら Editor Agent にも共有を。
 
 **現状:** Architect が最終判断・実装予定。
+
+---
+
+### 2026-02-27 — フェーズ単位シリアル運用 + Firebase Staging 導入方針（決定）
+
+**決定者:** Architect（人間）
+**レビュー参加:** Claude (Editor), Gemini (Viewer)
+
+**背景:**
+- 3エージェント並列運用で、仕様同期・結合確認・ローカル起動調整のオーバーヘッドが増加
+- 現状規模では「完全並列」より「フェーズ単位シリアル」の方が品質と速度のバランスが良いと判断
+
+**決定方針（運用）:**
+1. 週/フェーズ単位では **シリアル進行**（Architect 主導の1本レーン）
+2. **独立性が高い小タスクのみ並列**（例: 文言、軽微なCSS、単機能UI）
+3. マージ前に必ず統合確認（Editor → Portal → Viewer の実フロー）でBlob URLバグのような境界問題を早期検出
+
+**決定方針（環境）:**
+1. Firebase を `prod` / `staging` で完全分離
+2. Staging を結合テストの標準環境にする（本番データを汚さない）
+3. フェーズごとに Hosting Preview Channel を発行してレビューURLを固定
+4. サンプルデータ（golden dataset）を再投入可能な形で管理 → **Architect タスク（スクリプト作成・管理）**
+
+**最小導入手順（叩き台）:**
+- `firebase use --add` で alias 作成（`prod` / `staging`）
+- `.env.staging` / `.env.production` で接続先を分離
+- `build --mode staging` を追加
+- `firebase deploy --project staging` と `hosting:channel:deploy` をフェーズ検証に利用
+
+**ブランチ・Worktree 運用との整合性（Gemini 指摘）:**
+フェーズシリアルに移行した場合、セクション10の Worktree 分割（dsf-editor/ / dsf-viewer/ / dsf-portal/）は
+厳密には不要になりうる（全員が dsf/ の main から作業可）。ただし現時点では:
+- Worktree を維持することでエージェント間の作業フォルダの混在を防ぐ実用上のメリットがある
+- 削除は Architect 判断で随時可能
+
+**現状:** 決定済み。Firebase Staging 環境構築は Architect が次フェーズで実施（セクション7 参照）
 
 ---
 
