@@ -150,6 +150,20 @@ function normalizePageV5(page) {
     };
 
     out.content = normalizeContentByBodyKind(p.content, bodyKind);
+
+    // AR fields — optional, defaults to mode:'none' (backward compatible)
+    const AR_MODES = new Set(['none', 'gyro', 'webxr']);
+    const rawAr = p.ar && typeof p.ar === 'object' ? p.ar : {};
+    out.ar = {
+        mode:   AR_MODES.has(rawAr.mode) ? rawAr.mode : 'none',
+        scale:  typeof rawAr.scale === 'number' && rawAr.scale > 0 ? rawAr.scale : 1.0,
+        anchor: {
+            x: typeof rawAr.anchor?.x === 'number' ? rawAr.anchor.x : 0,
+            y: typeof rawAr.anchor?.y === 'number' ? rawAr.anchor.y : 0,
+            z: typeof rawAr.anchor?.z === 'number' ? rawAr.anchor.z : -1.5
+        }
+    };
+
     return out;
 }
 
@@ -186,7 +200,8 @@ function sectionToNormalPage(section) {
             layout: deepClone(src.layout || {}),
             imagePosition: deepClone(src.imagePosition || { x: 0, y: 0, scale: 1, rotation: 0 }),
             imageBasePosition: deepClone(src.imageBasePosition || { x: 0, y: 0, scale: 1, rotation: 0 })
-        }
+        },
+        ar: src.ar ? deepClone(src.ar) : undefined
     });
 }
 
@@ -203,7 +218,8 @@ function pageToSection(page) {
         texts: deepClone(c.texts || {}),
         layout: deepClone(c.layout || {}),
         imagePosition: deepClone(c.imagePosition || { x: 0, y: 0, scale: 1, rotation: 0 }),
-        imageBasePosition: deepClone(c.imageBasePosition || { x: 0, y: 0, scale: 1, rotation: 0 })
+        imageBasePosition: deepClone(c.imageBasePosition || { x: 0, y: 0, scale: 1, rotation: 0 }),
+        ...(page?.ar ? { ar: deepClone(page.ar) } : {})
     };
 }
 

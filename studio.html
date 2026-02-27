@@ -438,6 +438,32 @@
                         onchange="uploadStructureToStorage(this)" data-auth-required style="display:none;">
                 </div>
 
+                <div class="control-group" id="ar-settings-group" style="display:none;">
+                    <h4>AR設定</h4>
+                    <label>ARモード</label>
+                    <select id="ar-mode-select" onchange="updateArMode(this.value)">
+                        <option value="none">なし</option>
+                        <option value="gyro">ジャイロ（スマホを傾けて視点移動）</option>
+                        <option value="webxr">WebXR AR（カメラ越しに重畳）</option>
+                    </select>
+                    <div id="ar-scale-row" style="display:none;">
+                        <label>実世界サイズ (m)</label>
+                        <input type="number" id="ar-scale-input" min="0.1" max="10" step="0.1" value="1.0"
+                            oninput="updateArScale(parseFloat(this.value))">
+                    </div>
+                    <div id="ar-anchor-row" style="display:none;">
+                        <label>アンカー位置 (x / y / z m)</label>
+                        <div style="display:flex; gap:6px;">
+                            <input type="number" id="ar-anchor-x" step="0.1" placeholder="X" style="flex:1;"
+                                oninput="updateArAnchor('x', parseFloat(this.value))">
+                            <input type="number" id="ar-anchor-y" step="0.1" placeholder="Y" style="flex:1;"
+                                oninput="updateArAnchor('y', parseFloat(this.value))">
+                            <input type="number" id="ar-anchor-z" step="0.1" placeholder="Z" style="flex:1;"
+                                oninput="updateArAnchor('z', parseFloat(this.value))">
+                        </div>
+                    </div>
+                </div>
+
                 <div class="control-group">
                     <h4>言語設定</h4>
                     <div id="lang-list"></div>
