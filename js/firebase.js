@@ -21,7 +21,7 @@ import { state, dispatch, actionTypes } from './state.js';
 import { getBlockIndexFromPageIndex, syncBlocksWithSections } from './blocks.js';
 import { PAGE_SCHEMA_VERSION, blocksToPages, normalizeProjectDataV5 } from './pages.js';
 import { composeCanonicalLayoutsForSections } from './layout.js';
-import { set as idbSet } from 'idb-keyval';
+import { set as idbSet, get as idbGet } from 'idb-keyval';
 
 window.localImageMap = window.localImageMap || {};
 
@@ -219,6 +219,93 @@ export async function flushSave() {
     await performSave();
 }
 
+// ─── Blob URL 解決ヘルパー ─────────────────────────────────────────────────────
+
+/**
+ * blob: URL を Firebase Storage にアップロードして実 URL を返す。
+ * localImageMap にエントリがなければ '' を返す（ゲストセッション切れなど）。
+ */
+async function _uploadBlobUrlToStorage(blobUrl, uid) {
+    const localId = window.localImageMap?.[blobUrl];
+    if (!localId) return '';
+    try {
+        const blob = await idbGet(localId);
+        if (!blob) return '';
+        const timestamp = Date.now();
+        const storageRef = ref(storage, `users/${uid}/dsf/recovered/${timestamp}.webp`);
+        const snap = await uploadBytes(storageRef, blob);
+        const downloadUrl = await getDownloadURL(snap.ref);
+        window.localImageMap[downloadUrl] = localId;
+        delete window.localImageMap[blobUrl];
+        return downloadUrl;
+    } catch (e) {
+        console.warn('[DSF] blob: URL のアップロードに失敗、破棄します:', e);
+        return '';
+    }
+}
+
+/**
+ * sections 配列の background / thumbnail に含まれる blob: URL を
+ * Storage URL に変換した新しい配列を返す。保存前に呼び出す。
+ */
+async function resolveBlobUrlsInSections(sections, uid) {
+    const resolved = JSON.parse(JSON.stringify(sections));
+    for (const s of resolved) {
+        if (typeof s.background === 'string' && s.background.startsWith('blob:')) {
+            s.background = await _uploadBlobUrlToStorage(s.background, uid);
+        }
+        if (typeof s.thumbnail === 'string' && s.thumbnail.startsWith('blob:')) {
+            s.thumbnail = await _uploadBlobUrlToStorage(s.thumbnail, uid);
+        }
+    }
+    return resolved;
+}
+
+/**
+ * blocks 配列の content.background / content.thumbnail に含まれる blob: URL を
+ * Storage URL に変換した新しい配列を返す。保存前に呼び出す。
+ */
+async function resolveBlobUrlsInBlocks(blocks, uid) {
+    const resolved = JSON.parse(JSON.stringify(blocks));
+    const resolveContent = async (content) => {
+        if (!content) return;
+        if (typeof content.background === 'string' && content.background.startsWith('blob:')) {
+            content.background = await _uploadBlobUrlToStorage(content.background, uid);
+        }
+        if (typeof content.thumbnail === 'string' && content.thumbnail.startsWith('blob:')) {
+            content.thumbnail = await _uploadBlobUrlToStorage(content.thumbnail, uid);
+        }
+    };
+    for (const block of resolved) {
+        await resolveContent(block.content);
+        if (Array.isArray(block.pages)) {
+            for (const page of block.pages) await resolveContent(page.content);
+        }
+    }
+    return resolved;
+}
+
+/**
+ * オブジェクト内のすべての blob: URL を '' に置換する（マイグレーション用）。
+ * loadProject 時に呼び出して既存の破損データによるクラッシュを防ぐ。
+ */
+function stripBlobUrls(obj) {
+    if (!obj || typeof obj !== 'object') return obj;
+    if (Array.isArray(obj)) return obj.map(stripBlobUrls);
+    const out = {};
+    for (const [k, v] of Object.entries(obj)) {
+        if (typeof v === 'string' && v.startsWith('blob:')) {
+            console.warn(`[DSF] 破損した blob: URL を除去 (field: "${k}")`);
+            out[k] = '';
+        } else {
+            out[k] = stripBlobUrls(v);
+        }
+    }
+    return out;
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+
 /**
  * 実際の保存処理
  */
@@ -250,12 +337,16 @@ async function performSave() {
         try {
             const visibility = state.visibility || 'private';
 
+            // blob: URL が残っている場合は Storage にアップロードして実 URL に変換
+            const cleanSections = await resolveBlobUrlsInSections(state.sections, state.uid);
+            const cleanBlocks   = await resolveBlobUrlsInBlocks(blocksToSave, state.uid);
+
             await setDoc(projectDocRef(state.projectId), {
                 version: PAGE_SCHEMA_VERSION,
                 title: state.title || '',
                 pages: pagesToSave,
-                blocks: blocksToSave,
-                sections: state.sections,
+                blocks: cleanBlocks,
+                sections: cleanSections,
                 languages: state.languages,
                 defaultLang: state.defaultLang || state.languages?.[0] || 'ja',
                 languageConfigs: state.languageConfigs,
@@ -584,7 +675,9 @@ export async function loadProject(pid, refresh) {
     if (!state.uid) return;
     const snap = await getDoc(projectDocRef(pid));
     if (snap.exists()) {
-        const data = normalizeProjectDataV5(snap.data() || {});
+        const raw = normalizeProjectDataV5(snap.data() || {});
+        // 既存データに残存する blob: URL を除去（マイグレーション・クラッシュ防止）
+        const data = stripBlobUrls(raw);
         dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'projectId', value: pid } });
         dispatch({ type: actionTypes.SET_TITLE, payload: data.title || '' });
         dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'pages', value: data.pages || [] } });

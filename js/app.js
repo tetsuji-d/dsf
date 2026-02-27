@@ -1494,6 +1494,9 @@ function refresh() {
     // 言語タブの更新
     renderLangTabs();
 
+    // AR設定パネルの同期
+    syncArPanel();
+
     updateHistoryButtons();
     renderThumbs();
     syncThumbColumnButtons();
@@ -2145,6 +2148,70 @@ function updateBubbleColor(prop, value) {
     }
 }
 window.updateBubbleColor = updateBubbleColor;
+
+// ─── AR 設定パネル ───────────────────────────────────────────────────────────
+
+function _getActiveAr() {
+    const s = state.sections[state.activeIdx];
+    if (!s) return null;
+    if (!s.ar || typeof s.ar !== 'object') s.ar = { mode: 'none', scale: 1.0, anchor: { x: 0, y: 0, z: -1.5 } };
+    return s.ar;
+}
+
+function syncArPanel() {
+    const group = document.getElementById('ar-settings-group');
+    if (!group) return;
+    const s = state.sections[state.activeIdx];
+    // AR パネルは通常ページ（type:image / type:text）のみ表示
+    if (!s || state.activeIdx === null) { group.style.display = 'none'; return; }
+    group.style.display = '';
+
+    const ar = _getActiveAr();
+    const modeEl = document.getElementById('ar-mode-select');
+    const scaleRow = document.getElementById('ar-scale-row');
+    const anchorRow = document.getElementById('ar-anchor-row');
+    if (modeEl) modeEl.value = ar.mode;
+    scaleRow.style.display = ar.mode !== 'none' ? '' : 'none';
+    anchorRow.style.display = ar.mode === 'webxr' ? '' : 'none';
+    if (ar.mode !== 'none') {
+        const scaleEl = document.getElementById('ar-scale-input');
+        if (scaleEl) scaleEl.value = ar.scale ?? 1.0;
+    }
+    if (ar.mode === 'webxr') {
+        const ax = document.getElementById('ar-anchor-x');
+        const ay = document.getElementById('ar-anchor-y');
+        const az = document.getElementById('ar-anchor-z');
+        if (ax) ax.value = ar.anchor?.x ?? 0;
+        if (ay) ay.value = ar.anchor?.y ?? 0;
+        if (az) az.value = ar.anchor?.z ?? -1.5;
+    }
+}
+
+function updateArMode(mode) {
+    const ar = _getActiveAr();
+    if (!ar) return;
+    ar.mode = mode;
+    syncArPanel();
+    triggerAutoSave();
+}
+window.updateArMode = updateArMode;
+
+function updateArScale(value) {
+    const ar = _getActiveAr();
+    if (!ar || !Number.isFinite(value) || value <= 0) return;
+    ar.scale = value;
+    triggerAutoSave();
+}
+window.updateArScale = updateArScale;
+
+function updateArAnchor(axis, value) {
+    const ar = _getActiveAr();
+    if (!ar || !['x', 'y', 'z'].includes(axis) || !Number.isFinite(value)) return;
+    if (!ar.anchor) ar.anchor = { x: 0, y: 0, z: -1.5 };
+    ar.anchor[axis] = value;
+    triggerAutoSave();
+}
+window.updateArAnchor = updateArAnchor;
 
 // フキダシ選択時に右パネルの値を同期する
 function updateBubblePropPanel(bubble) {
