@@ -26,14 +26,18 @@ import { set as idbSet, get as idbGet } from 'idb-keyval';
 window.localImageMap = window.localImageMap || {};
 
 // --- Firebase Config ---
+// 環境は .env.development / .env.staging / .env.production で切り替え
+// npm run dev       → .env.development（staging 接続）
+// npm run build     → .env.production（本番 接続）
+// npm run build:staging → .env.staging（staging 接続）
 const firebaseConfig = {
-    apiKey: "AIzaSyBj3U-wFKnsWlwId4OHAyerEGMiRYhQN0o",
-    authDomain: "vmnn-26345.firebaseapp.com",
-    projectId: "vmnn-26345",
-    storageBucket: "vmnn-26345.firebasestorage.app",
-    messagingSenderId: "166808261830",
-    appId: "1:166808261830:web:c218463dd04297749eb3c7",
-    measurementId: "G-N639C3XCVQ"
+    apiKey:            import.meta.env.VITE_FIREBASE_API_KEY,
+    authDomain:        import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
+    projectId:         import.meta.env.VITE_FIREBASE_PROJECT_ID,
+    storageBucket:     import.meta.env.VITE_FIREBASE_STORAGE_BUCKET,
+    messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID,
+    appId:             import.meta.env.VITE_FIREBASE_APP_ID,
+    measurementId:     import.meta.env.VITE_FIREBASE_MEASUREMENT_ID,
 };
 
 const app = initializeApp(firebaseConfig);

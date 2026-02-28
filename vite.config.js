@@ -1,7 +1,7 @@
 import { defineConfig } from 'vite';
 import { resolve } from 'path';
 
-export default defineConfig({
+export default defineConfig(({ mode }) => ({
     build: {
         rollupOptions: {
             input: {
@@ -11,4 +11,8 @@ export default defineConfig({
             },
         },
     },
-});
+    // VITE_ENV をクライアントコードで参照可能にする
+    define: {
+        __APP_ENV__: JSON.stringify(mode),
+    },
+}));

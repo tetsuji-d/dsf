@@ -1,5 +1,7 @@
 {
   "projects": {
-    "default": "vmnn-26345"
+    "default": "vmnn-26345",
+    "prod": "vmnn-26345",
+    "staging": "vmnn-26345-stg"
   }
 }
