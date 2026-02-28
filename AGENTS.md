@@ -395,18 +395,24 @@ main（常に安定・マージ済みコードのみ）
 4. **作業完了したブランチは Architect に通知する（セクション7に記載）**
 5. **マージ済みブランチは削除する**
 
-### Worktree パス（2026-02-25 設定）
+### Worktree パス（2026-02-28 更新）
 
-各エージェントは **自分専用のフォルダを VS Code で開いて作業**すること。
+| フォルダ | 用途 | ブランチ |
+|---------|------|---------|
+| `C:/Users/tetsu/projects/dsf/` | **Architect ワークスペース**（レビュー・デプロイ・インフラ変更） | 常に `main` |
+| `C:/Users/tetsu/projects/dsf-dev/` | **開発ワークスペース**（全エージェント共用） | タスク開始時に `git checkout -b <agent>/<説明>` で切る |
 
-| エージェント | 作業フォルダ | ブランチ |
-|------------|------------|---------|
-| **Architect** | `C:/Users/tetsu/projects/dsf/` | `main` |
-| **Editor (Claude)** | `C:/Users/tetsu/projects/dsf-editor/` | `editor/next` → 新タスクごとに切り替え |
-| **Portal (Codex)** | `C:/Users/tetsu/projects/dsf-portal/` | `portal/next` → 新タスクごとに切り替え |
-| **Viewer (Gemini)** | `C:/Users/tetsu/projects/dsf-viewer/` | `viewer/ui-modernization` |
+**タスク開始手順（dsf-dev/）:**
+```bash
+cd dsf-dev/
+git fetch origin
+git checkout -b editor/xxx origin/main  # main の最新から作業ブランチを切る
+# ... 作業 ...
+git push origin editor/xxx
+# → Architect が dsf/ でレビュー・マージ
+```
 
-> **注意**: 各フォルダは独立した作業ツリー。同じ `.git` を共有しているので、コミット・プッシュは普通通り使える。
+> 旧フォルダ（dsf-editor/, dsf-portal/, dsf-viewer/）は git 管理から解除済み。VS Code で開いていなければ手動削除可。
 
 ### 現在のブランチ状態 (2026-02-28)
 
