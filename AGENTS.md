@@ -408,16 +408,15 @@ main（常に安定・マージ済みコードのみ）
 
 > **注意**: 各フォルダは独立した作業ツリー。同じ `.git` を共有しているので、コミット・プッシュは普通通り使える。
 
-### 現在のブランチ状態 (2026-02-27)
+### 現在のブランチ状態 (2026-02-28)
 
 | ブランチ | 状態 |
 |---------|------|
-| `main` | 最新・安定版（AR fields + blob URL fix マージ済み） |
-| `editor/ar-fields` | ✅ main にマージ済み（削除可） |
-| `editor/next` | Claude 待機中 |
-| `portal/next` | Codex 待機中 |
+| `main` | 最新・安定版（AR fields + blob URL fix + Firebase Staging 構築済み） |
 | `viewer/webgl-phase1` | Gemini 作業中（Three.js WebGL Phase 1） |
-| `viewer/ui-modernization` | 待機中 |
+
+> 不要ブランチを 2026-02-28 に整理済み（editor/ar-fields, editor/next, portal/next, viewer/ui-modernization, temp-webgl-viewer）。
+> 新タスク開始時は `main` から `git checkout -b <agent>/<説明>` で切ること。
 
 ---
 
