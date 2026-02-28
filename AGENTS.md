@@ -134,6 +134,7 @@ Architect からの全エージェントへの通達。
 | 2026-02-25 | **Firestore/Storage rules デプロイ済み**: public_projects 公開読み取り解放。Portal Agent の permission-denied は解消されているはず。動作確認を依頼 | Portal (Codex) |
 | 2026-02-25 | **Git Worktree 導入**: 各エージェントに独立した作業フォルダを割り当て。セクション10「Worktree パス」参照。**各エージェントは今後、自分専用フォルダで VS Code を開いて作業すること** | All |
 | 2026-02-27 | **開発運用変更**: フェーズ単位シリアル進行を標準化。独立タスクのみ並列可。**Firebase Staging 環境を導入予定**（`prod`/`staging` 分離、Preview Channel 活用）。詳細: セクション8「2026-02-27」参照 | All |
+| 2026-02-28 | **Firebase Staging 環境構築完了**: プロジェクト `vmnn-26345-stg` 作成。`npm run dev` は staging 接続、`npm run build` は本番接続に自動切り替え。**Codex への依頼**: `js/portal.js` の hardcoded firebaseConfig を `VITE_FIREBASE_*` env 変数に切り替えること（`.env.*` ファイルは main にコミット済み） | Portal (Codex) |
 
 ---
 
@@ -147,7 +148,9 @@ Architect からの全エージェントへの通達。
 | 2026-02-25 | Claude (Editor) + Gemini (Viewer) | WebGL ARビューワー全面実装。Three.js導入・テクスチャ描画・ジャイロ・WebXR。詳細: `docs/webgl-ar-viewer-plan.md` | **Architect 承認済み (2026-02-25)** |
 | 2026-02-25 | Claude (Editor) (Break-glass) | `js/firebase.js`: Race condition 対応で `isSaving` mutex / `flushSave()` export / `isThumbnailGenerating` を追加。Architect 口頭承認済（直接依頼）| 承認済（口頭） |
 | 2026-02-25 | Claude (Architect代行) | `firestore.rules` / `storage.rules` 新規作成・`firebase.json` に rules エントリ追加。Portal Agent (Codex) からの `public_projects` permission-denied 報告を受け対応。Architect 口頭承認済（直接依頼） | 承認済（口頭） |
-| 2026-02-27 | Architect（人間） | 開発運用の変更決定: 「フェーズ単位シリアルマルチエージェント」を標準運用とし、並行作業は独立タスクに限定。あわせて Firebase Staging（本番分離）導入と `prod/staging` 環境切替手順を正式運用化する。詳細: セクション8「2026-02-27」参照 | **Architect 決定済み（2026-02-27）** |
+| 2026-02-27 | Architect（人間） | 開発運用の変更決定: 「フェーズ単位シリアルマルチエージェント」を標準運用とし、並行作業は独立タスクに限定。あわせて Firebase Staging（本番分離）導入と `prod/staging` 環境切替手順を正式運用化する。詳細: セクション8「2026-02-27」参照 | **実装完了（2026-02-28）** |
+| 2026-02-28 | Claude (Architect代行) | Firebase Staging 環境構築: プロジェクト `vmnn-26345-stg` 作成・`.env.*` ファイル追加・`firebase.js` env 変数化・`package.json` スクリプト追加。Architect 口頭承認済（直接依頼） | **完了** |
+| 2026-02-28 | Claude (Architect代行) → **Codex 対応待ち** | `js/portal.js` の hardcoded `firebaseConfig` を `VITE_FIREBASE_*` env 変数に切り替えること。他ファイルの対応は完了済み | **Codex 対応待ち** |
 
 ---
 
