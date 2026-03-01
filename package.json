@@ -10,7 +10,11 @@
     "deploy:prod": "npm run build && firebase deploy --project prod",
     "deploy:staging": "npm run build:staging && firebase deploy --project staging",
     "preview:staging": "npm run build:staging && firebase hosting:channel:deploy staging-review --project staging",
-    "test:firebase": "node scripts/verify-firebase.js"
+    "test:firebase": "node scripts/verify-firebase.js --env=staging",
+    "test:firebase:prod": "node scripts/verify-firebase.js --env=production",
+    "verify:e2e:staging": "node scripts/verify-firebase.js --env=staging --min-public=1",
+    "smoke:staging": "npm run test:firebase && npm run build:staging",
+    "smoke:prod": "npm run test:firebase:prod && npm run build"
   },
   "devDependencies": {
     "firebase-tools": "^15.5.1",

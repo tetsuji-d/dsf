@@ -30,3 +30,22 @@ npx http-server .
 ```
 
 ブラウザで `http://127.0.0.1:8080` を開いてください。
+
+## Staging / Production 確認コマンド
+
+Firebase 接続とルールの最低限スモークテストを実行できます。
+
+```bash
+# staging (.env.staging)
+npm run test:firebase
+
+# production (.env.production)
+npm run test:firebase:prod
+```
+
+ビルド込みの一括確認:
+
+```bash
+npm run smoke:staging
+npm run smoke:prod
+```
