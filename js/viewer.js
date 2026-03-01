@@ -10,6 +10,7 @@ import { composeText } from './layout.js';
 import { normalizeProjectDataV5, buildOutlineFromPages } from './pages.js';
 import { getThemePalette, getThemeTemplate } from './theme-presets.js';
 import { parseAndLoadDSF } from './export.js';
+import * as THREE from 'three';
 
 let currentProject = null;
 let sharedProjectRef = null;
@@ -31,6 +32,207 @@ let viewState = {
     lastY: 0
 };
 
+// ──────────────────────────────────────
+//  WebGL State (Three.js)
+// ──────────────────────────────────────
+let renderer, scene, camera;
+let pageMeshes = [];
+let WebGLReady = false;
+let isGyroEnabled = false;
+let baseGyroGamma = 0;
+let baseGyroBeta = 0;
+let smoothedGyroX = 0;
+let smoothedGyroY = 0;
+const PAGE_WIDTH = 360;
+const PAGE_HEIGHT = 640;
+const PAGE_GAP = 50;
+const textureLoader = new THREE.TextureLoader();
+textureLoader.setCrossOrigin('anonymous');
+
+function initWebGL() {
+    const canvas = document.getElementById('webgl-canvas');
+    if (!canvas) return;
+
+    // Setup Renderer
+    renderer = new THREE.WebGLRenderer({ canvas, alpha: true, antialias: true });
+    renderer.setPixelRatio(window.devicePixelRatio);
+    renderer.setSize(window.innerWidth, window.innerHeight);
+
+    // Setup Scene & Camera
+    scene = new THREE.Scene();
+
+    const fov = 45;
+    camera = new THREE.PerspectiveCamera(fov, window.innerWidth / window.innerHeight, 0.1, 10000);
+
+    // Calculate the camera Z distance to fit 640px height exactly
+    const distToFitHeight = (PAGE_HEIGHT / 2) / Math.tan(THREE.MathUtils.degToRad(fov / 2));
+    camera.position.z = distToFitHeight;
+    camera.position.x = 0;
+    camera.position.y = 0;
+    camera.lookAt(0, 0, 0);
+
+    WebGLReady = true;
+
+    // Window resize handler
+    window.addEventListener('resize', () => {
+        camera.aspect = window.innerWidth / window.innerHeight;
+        camera.updateProjectionMatrix();
+        renderer.setSize(window.innerWidth, window.innerHeight);
+    });
+
+    // Start animation loop
+    renderer.setAnimationLoop(() => {
+        updateWebGLCamera();
+        renderer.render(scene, camera);
+    });
+}
+
+function extractImageUrlFromPage(p) {
+    if (p.pageType === 'cover_image' || p.pageType === 'image') return p.bgImage || p.imageUrl;
+    return null;
+}
+
+function clearWebGLScene() {
+    if (!scene) return;
+    pageMeshes.forEach(({ mesh }) => {
+        if (mesh.material.map) mesh.material.map.dispose();
+        mesh.material.dispose();
+        mesh.geometry.dispose();
+        scene.remove(mesh);
+    });
+    pageMeshes = [];
+}
+
+function buildWebGLScene() {
+    if (!WebGLReady || !state.pages || state.pages.length === 0) return;
+    clearWebGLScene();
+
+    const pages = state.pages;
+    const directionMultiplier = state.readDirection === 'rtl' ? -1 : 1;
+
+    // Scale down pages visually to match DOM overlay exactly
+    // WebGL units = CSS pixels because of the camera distance calculation
+    const fitScale = 1.0;
+
+    pages.forEach((p, i) => {
+        const bg = extractImageUrlFromPage(p);
+        const isTextOnly = !bg && p.pageType === 'normal_text';
+
+        const geometry = new THREE.PlaneGeometry(PAGE_WIDTH, PAGE_HEIGHT);
+        // Default to #fafafa for text pages without background, else white
+        const material = new THREE.MeshBasicMaterial({
+            color: isTextOnly ? 0xfafafa : 0xffffff,
+            transparent: true,
+            opacity: 1
+        });
+        const mesh = new THREE.Mesh(geometry, material);
+
+        mesh.scale.set(fitScale, fitScale, 1);
+        mesh.position.x = i * (PAGE_WIDTH + PAGE_GAP) * fitScale * directionMultiplier;
+        scene.add(mesh);
+        pageMeshes.push({ mesh, pageIndex: i, loaded: false });
+
+        if (bg) {
+            textureLoader.load(getOptimizedImageUrl(bg), (tex) => {
+                tex.generateMipmaps = true;
+                tex.minFilter = THREE.LinearMipmapLinearFilter;
+                material.map = tex;
+                material.color.setHex(0xffffff);
+                material.needsUpdate = true;
+                pageMeshes[i].loaded = true;
+            });
+        }
+    });
+
+    if (pages.length > 0) {
+        jumpToPageForWebGL(state.currentPage);
+    }
+}
+
+function jumpToPageForWebGL(pageIndex) {
+    if (!WebGLReady || !camera) return;
+    const directionMultiplier = state.readDirection === 'rtl' ? -1 : 1;
+    const targetX = pageIndex * (PAGE_WIDTH + PAGE_GAP) * directionMultiplier;
+
+    // Update viewState base pan to jump to this page
+    viewState.currX = -targetX; // Invert for camera
+    updateTransform();
+}
+
+function updateWebGLCamera() {
+    if (!WebGLReady || !camera) return;
+
+    // Apply scaling / zooming
+    // DOM scale 2x = Camera gets closer (divide distance by 2)
+    const baseZ = (PAGE_HEIGHT / 2) / Math.tan(THREE.MathUtils.degToRad(camera.fov / 2));
+    const targetZ = baseZ / viewState.scale;
+    camera.position.z += (targetZ - camera.position.z) * 0.2; // Smooth zoom
+
+    // Apply panning
+    // Calculate the camera target X/Y based on viewState
+    // DOM X pan = Camera moving opposite direction
+    const targetX = -viewState.currX / viewState.scale;
+    const targetY = viewState.currY / viewState.scale;
+
+    // Add gyro Parallax (if enabled)
+    let gyroOffsetX = 0;
+    let gyroOffsetY = 0;
+
+    if (isGyroEnabled) {
+        gyroOffsetX = smoothedGyroX * 100; // max 100px shift
+        gyroOffsetY = smoothedGyroY * 100;
+    }
+
+    camera.position.x += (targetX + gyroOffsetX - camera.position.x) * 0.3; // Smooth pan
+    camera.position.y += (targetY - gyroOffsetY - camera.position.y) * 0.3;
+}
+
+// Gyro Control Functions
+function requestGyroPermission() {
+    if (typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function') {
+        DeviceOrientationEvent.requestPermission()
+            .then(permissionState => {
+                if (permissionState === 'granted') {
+                    enableGyro();
+                } else {
+                    alert('ジャイロセンサーの許可が拒否されました。');
+                }
+            })
+            .catch(console.error);
+    } else {
+        enableGyro(); // Non-iOS 13+ devices
+    }
+}
+
+function enableGyro() {
+    isGyroEnabled = true;
+    window.addEventListener('deviceorientation', handleOrientation);
+}
+
+function handleOrientation(event) {
+    let gamma = event.gamma; // -90 to 90
+    let beta = event.beta;   // -180 to 180 (front/back tilt)
+
+    if (gamma === null || beta === null) return;
+
+    // Quick and dirty calibration on first reading
+    if (baseGyroGamma === 0 && baseGyroBeta === 0) {
+        baseGyroGamma = gamma;
+        baseGyroBeta = beta;
+    }
+
+    // Calculate relative shift
+    let shiftX = gamma - baseGyroGamma;
+    let shiftY = beta - baseGyroBeta;
+
+    // Clamp
+    shiftX = Math.max(-30, Math.min(30, shiftX)) / 30; // -1 to 1
+    shiftY = Math.max(-30, Math.min(30, shiftY)) / 30; // -1 to 1
+
+    smoothedGyroX += (shiftX - smoothedGyroX) * 0.1;
+    smoothedGyroY += (shiftY - smoothedGyroY) * 0.1;
+}
+
 function resetZoom() {
     viewState = { scale: 1, panning: false, startX: 0, startY: 0, currX: 0, currY: 0, lastX: 0, lastY: 0 };
     updateTransform();
@@ -41,12 +243,15 @@ function updateTransform() {
     if (stage) {
         stage.style.transform = `translate(${viewState.currX}px, ${viewState.currY}px) scale(${viewState.scale})`;
     }
+    // WebGL camera will sync automatically via updateWebGLCamera() in the render loop
 }
 
 // ──────────────────────────────────────
 //  Initialization
 // ──────────────────────────────────────
 function init() {
+    initWebGL(); // Initialize Three.js first
+
     const layer = document.getElementById('click-layer');
     if (layer) {
         layer.addEventListener('click', handleClick);
@@ -602,29 +807,22 @@ function getOptimizedImageUrl(originalUrl) {
 }
 
 function renderCoverImagePage(contentEl, page) {
-    const bg = page?.content?.background || '';
-    if (!bg) {
-        renderStructurePage(contentEl, page, state.activeLang);
-        return;
-    }
-    contentEl.innerHTML = `<img src="${escapeHtml(getOptimizedImageUrl(bg))}" style="width:100%; height:100%; object-fit:cover;">`;
+    // DOM cleared; image map is handled by WebGL in buildWebGLScene()
+    contentEl.innerHTML = '';
 }
 
 function renderStructureImagePage(contentEl, page, lang) {
-    const bg = page?.content?.background || '';
-    if (!bg) {
-        renderStructurePage(contentEl, page, lang);
-        return;
-    }
     const title = escapeHtml(page?.meta?.title?.[lang] || '');
     const badge = page?.role === 'chapter' ? '章' : (page?.role === 'section' ? '節' : '項');
-    contentEl.innerHTML = `<div style="position:relative; width:100%; height:100%;">
-        <img src="${escapeHtml(getOptimizedImageUrl(bg))}" style="width:100%; height:100%; object-fit:cover;">
-        <div style="position:absolute; left:20px; right:20px; bottom:20px; background:rgba(0,0,0,.45); color:#fff; border-radius:8px; padding:10px 12px;">
-            <div style="font-size:11px; opacity:.85;">${badge}</div>
-            <div style="font-size:20px; font-weight:700; line-height:1.35; white-space:normal; overflow-wrap:anywhere; word-break:break-word;">${title || ''}</div>
-        </div>
-    </div>`;
+
+    // The background image is handled by WebGL.
+    // We only render the overlay title in DOM.
+    let titleHtml = title ? `<div style="position:absolute; left:20px; right:20px; bottom:20px; background:rgba(0,0,0,.45); color:#fff; border-radius:8px; padding:10px 12px; pointer-events: none;">
+        <div style="font-size:11px; opacity:.85;">${badge}</div>
+        <div style="font-size:20px; font-weight:700; line-height:1.35; white-space:normal; overflow-wrap:anywhere; word-break:break-word;">${title}</div>
+    </div>` : '';
+
+    contentEl.innerHTML = `<div style="position:relative; width:100%; height:100%; pointer-events: none;">${titleHtml}</div>`;
 }
 
 function renderStructureTextPage(contentEl, page, lang) {
@@ -646,9 +844,11 @@ function renderStructureTextPage(contentEl, page, lang) {
         }).join('')
         : `<p>${escapeHtml(page?.content?.texts?.[lang] ?? page?.content?.text ?? '')}</p>`;
     const badge = page?.role === 'chapter' ? '章' : (page?.role === 'section' ? '節' : '項');
+
+    // Background #f9fbff is now handled by WebGL if no background image is set
     contentEl.innerHTML = `<div class="viewer-text-page">
         <div class="viewer-text-block"
-             style="left:20px; top:32px; width:320px; height:576px; box-sizing:border-box; border:2px solid #d8e0ec; border-radius:8px; background:#f9fbff; color:#22314a; padding:20px; white-space:normal; overflow-wrap:anywhere; word-break:break-word;">
+             style="left:20px; top:32px; width:320px; height:576px; box-sizing:border-box; border:2px solid #d8e0ec; border-radius:8px; color:#22314a; padding:20px; white-space:normal; overflow-wrap:anywhere; word-break:break-word; pointer-events:none;">
             <div style="font-size:11px; color:#6a7b96; margin-bottom:8px;">${badge}</div>
             <div style="font-size:26px; font-weight:800; line-height:1.3; margin-bottom:16px;">${title || ''}</div>
             <div style="font-size:15px; line-height:1.7; color:#334b6d;">${bodyHtml || ''}</div>
@@ -689,9 +889,10 @@ function renderTocPage(contentEl, pages, lang, pageIndex = 0) {
             <span style="opacity:.7;">${it.pageNumber}</span>
         </div>`;
     }).join('');
+    // Background #fff is now handled by WebGL if no background image is set
     contentEl.innerHTML = `<div class="viewer-text-page">
         <div class="viewer-text-block"
-             style="left:20px; top:32px; width:320px; height:576px; box-sizing:border-box; border:2px solid #d8e0ec; border-radius:8px; background:#fff; color:#22314a; padding:16px; white-space:normal; overflow:hidden;">
+             style="left:20px; top:32px; width:320px; height:576px; box-sizing:border-box; border:2px solid #d8e0ec; border-radius:8px; color:#22314a; padding:16px; white-space:normal; overflow:hidden; pointer-events:none;">
             <div style="font-size:20px; font-weight:800; margin-bottom:12px;">${lang === 'ja' ? '目次' : 'Contents'}</div>
             <div style="font-size:13px; line-height:1.5;">${rows || '<div style="opacity:.6;">No headings</div>'}</div>
         </div>
@@ -737,17 +938,7 @@ function refresh() {
     } else if (p.pageType !== 'normal_image' && p.pageType !== 'normal_text') {
         renderStructurePage(contentEl, p, lang);
     } else if (p.pageType === 'normal_image') {
-        const toNum = (v, fallback) => {
-            const n = Number(v);
-            return Number.isFinite(n) ? n : fallback;
-        };
-        const pos = p.content?.imagePosition || {};
-        const x = toNum(pos.x, 0);
-        const y = toNum(pos.y, 0);
-        const scale = Math.max(0.1, toNum(pos.scale, 1));
-        const rotation = toNum(pos.rotation, 0);
-        const imgStyle = `width:100%; height:100%; object-fit:cover; transform: translate(${x}px, ${y}px) scale(${scale}) rotate(${rotation}deg); transform-origin: center center;`;
-        contentEl.innerHTML = `<img src="${escapeHtml(getOptimizedImageUrl(p.content?.background || ''))}" style="${imgStyle}">`;
+        // The background image is handled by WebGL.
     } else if (p.pageType === 'normal_text') {
         const richDoc = p.content?.richTextLangs?.[lang] || p.content?.richText || null;
         if (Array.isArray(richDoc?.blocks) && richDoc.blocks.length) {
@@ -763,31 +954,34 @@ function refresh() {
             const letterSpacing = Number.isFinite(Number(font.letterSpacing)) ? Number(font.letterSpacing) : 0;
             const verticalPad = getVerticalTextPadding(layout);
             const richHtml = renderRichDocHtml(richDoc);
+
+            // Background is now a WebGL #fafafa plane
             contentEl.innerHTML = `<div class="viewer-text-page">
                 <div class="viewer-text-block ${vtClass}"
-                    style="left:${frame.x}px; top:${frame.y}px; width:${frame.w}px; height:${frame.h}px; box-sizing:border-box; overflow:hidden; white-space:normal; overflow-wrap:anywhere; word-break:break-word; padding:${verticalPad}px 0; text-align:${align}; font-family:${fontFamily}; font-size:${fontSize}px; line-height:${lineHeight}; letter-spacing:${letterSpacing}px;">
+                    style="left:${frame.x}px; top:${frame.y}px; width:${frame.w}px; height:${frame.h}px; box-sizing:border-box; overflow:hidden; white-space:normal; overflow-wrap:anywhere; word-break:break-word; padding:${verticalPad}px 0; text-align:${align}; font-family:${fontFamily}; font-size:${fontSize}px; line-height:${lineHeight}; letter-spacing:${letterSpacing}px; pointer-events:none;">
                     ${richHtml}
                 </div>
             </div>`;
             bubblesEl.innerHTML = '';
-        }
-        const vtClass = mode === 'vertical-rl' ? 'v-text' : '';
-        const langProps = getLangProps(lang);
-        const align = langProps.sectionAlign;
-        const layout = getComposedLayoutForViewerPage(p, lang);
-        const text = escapeHtml((layout?.lines || []).join('\n'));
-        const frame = layout?.frame || { x: 20, y: 32, w: 320, h: 576 };
-        const font = layout?.font || {};
-        const fontFamily = font.family || '"Noto Sans","Segoe UI",sans-serif';
-        const fontSize = Number(font.size) || 16;
-        const lineHeight = Number(font.lineHeight) || 1.8;
-        const letterSpacing = Number.isFinite(Number(font.letterSpacing)) ? Number(font.letterSpacing) : 0;
-        const verticalPad = getVerticalTextPadding(layout);
+        } else {
+            const vtClass = mode === 'vertical-rl' ? 'v-text' : '';
+            const langProps = getLangProps(lang);
+            const align = langProps.sectionAlign;
+            const layout = getComposedLayoutForViewerPage(p, lang);
+            const text = escapeHtml((layout?.lines || []).join('\n'));
+            const frame = layout?.frame || { x: 20, y: 32, w: 320, h: 576 };
+            const font = layout?.font || {};
+            const fontFamily = font.family || '"Noto Sans","Segoe UI",sans-serif';
+            const fontSize = Number(font.size) || 16;
+            const lineHeight = Number(font.lineHeight) || 1.8;
+            const letterSpacing = Number.isFinite(Number(font.letterSpacing)) ? Number(font.letterSpacing) : 0;
+            const verticalPad = getVerticalTextPadding(layout);
 
-        contentEl.innerHTML = `<div class="viewer-text-page">
-            <div class="viewer-text-block ${vtClass}"
-                 style="left:${frame.x}px; top:${frame.y}px; width:${frame.w}px; height:${frame.h}px; padding:${verticalPad}px 0; text-align:${align}; font-family:${fontFamily}; font-size:${fontSize}px; line-height:${lineHeight}; letter-spacing:${letterSpacing}px;">${text}</div>
-        </div>`;
+            contentEl.innerHTML = `<div class="viewer-text-page">
+                <div class="viewer-text-block ${vtClass}"
+                     style="left:${frame.x}px; top:${frame.y}px; width:${frame.w}px; height:${frame.h}px; padding:${verticalPad}px 0; text-align:${align}; font-family:${fontFamily}; font-size:${fontSize}px; line-height:${lineHeight}; letter-spacing:${letterSpacing}px; pointer-events:none;">${text}</div>
+            </div>`;
+        }
     }
 
     // 2. Bubbles
@@ -850,13 +1044,7 @@ function updateNavigationUI() {
 // ──────────────────────────────────────
 //  Image & Font Preloading
 // ──────────────────────────────────────
-function extractImageUrlFromPage(pageObj) {
-    if (pageObj) {
-        if (pageObj.content?.background) return pageObj.content.background;
-        if (pageObj.bodyKind === 'image' || pageObj.pageType === 'normal_image') return pageObj.content?.background;
-    }
-    return null;
-}
+
 
 function extractFontsFromPage(pageObj) {
     const fontsToLoad = new Set();
@@ -1256,5 +1444,68 @@ function handlePointerUp(e) {
     }
 }
 
-// Start
-init();
+// ──────────────────────────────────────
+//  File Loading (Local .dsfb support for testing)
+// ──────────────────────────────────────
+window.loadDsf = async function (input) {
+    if (!input.files || input.files.length === 0) return;
+    const file = input.files[0];
+    try {
+        const buffer = await file.arrayBuffer();
+        const { state: newState } = await parseAndLoadDSF(buffer);
+        dispatch({ type: actionTypes.OVERWRITE_STATE, payload: newState });
+
+        window.toggleUi(true);
+        refresh();
+        document.getElementById('ui-title').textContent = newState.projectName || '名称未設定';
+
+    } catch (e) {
+        console.error("DSF Load Error:", e);
+        alert("ファイルの読み込みに失敗しました。");
+    }
+    input.value = '';
+};
+
+// ──────────────────────────────────────
+//  Bootstrap
+// ──────────────────────────────────────
+
+function getQueryParam(name) {
+    const params = new URLSearchParams(window.location.search);
+    return params.get(name);
+}
+
+document.addEventListener('DOMContentLoaded', async () => {
+    init(); // Will also initWebGL()
+
+    let loaded = false;
+    let dsfbPath = getQueryParam('file');
+
+    let hashId = getQueryParam('id') || getQueryParam('project');
+    if (hashId) {
+        // Shared project load is handled implicitly by attemptLoadSharedProject 
+        // in init() when login state resolves, if author/uid is present.
+        // For testing locally without UID, rely on local file or fallback logic.
+    }
+
+    // If we have a direct file param, fetch it immediately
+    if (dsfbPath && !loaded) {
+        try {
+            const res = await fetch(dsfbPath);
+            if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
+            const buffer = await res.arrayBuffer();
+            const { state: newState } = await parseAndLoadDSF(buffer);
+            dispatch({ type: actionTypes.OVERWRITE_STATE, payload: newState });
+
+            document.getElementById('ui-title').textContent = newState.projectName || '名称未設定';
+            refresh();
+            loaded = true;
+        } catch (e) {
+            console.error("Failed to load initial DSFB from URL:", e);
+        }
+    }
+
+    // Fallback Initial Render of empty state 
+    // Data sync from Firestore happens asynchronously via onAuthChanged if uid/id present
+    refresh();
+});

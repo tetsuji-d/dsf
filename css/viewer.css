@@ -65,7 +65,7 @@ body {
     position: relative;
     padding: 0;
     box-sizing: border-box;
-    background: #fafafa;
+    background: transparent;
     overflow: hidden;
 }
 
@@ -82,7 +82,7 @@ body {
     width: 100%;
     min-height: 100%;
     display: block;
-    background: #fafafa;
+    background: transparent;
     font-size: 16px;
     line-height: 1.8;
     text-align: left;
