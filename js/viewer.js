@@ -785,6 +785,10 @@ function refresh() {
                 </div>
             </div>`;
             bubblesEl.innerHTML = '';
+            // Rich text is fully rendered above; avoid overriding with legacy text fallback.
+            updateFooterForCurrentPage(totalPages, pageIndex);
+            updateNavigationUI();
+            return;
         }
         const vtClass = mode === 'vertical-rl' ? 'v-text' : '';
         const langProps = getLangProps(lang);
@@ -816,6 +820,12 @@ function refresh() {
     }
 
     // 3. Update Footer Info
+    updateFooterForCurrentPage(totalPages, pageIndex);
+
+    updateNavigationUI();
+}
+
+function updateFooterForCurrentPage(totalPages, pageIndex) {
     const total = totalPages;
     const current = pageIndex + 1;
     const slider = document.getElementById('page-slider');
@@ -829,8 +839,6 @@ function refresh() {
     if (label) {
         label.textContent = `${current} / ${total}`;
     }
-
-    updateNavigationUI();
 }
 
 function updateNavigationUI() {
