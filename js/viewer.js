@@ -16,6 +16,14 @@ let sharedProjectRef = null;
 let isProjectLoading = false;
 let projectLoaded = false;
 let lastLoadErrorCode = '';
+let requestedViewerLang = '';
+
+function normalizeLangCode(value, fallback = 'ja') {
+    if (typeof value !== 'string') return fallback;
+    const trimmed = value.trim().toLowerCase();
+    if (!trimmed) return fallback;
+    return trimmed.split('-')[0] || fallback;
+}
 
 // ──────────────────────────────────────
 //  Zoom & Pan State
@@ -60,6 +68,7 @@ function init() {
     const params = new URLSearchParams(window.location.search);
     const pid = params.get('project') || params.get('id');
     const uid = params.get('author') || params.get('uid');
+    requestedViewerLang = normalizeLangCode(params.get('lang') || '', '');
     if (pid) {
         sharedProjectRef = { pid, uid };
         attemptLoadSharedProject();
@@ -348,6 +357,12 @@ function loadProjectData(data) {
             const props = getLangProps(code);
             return `<option value="${code}">${props.label}</option>`;
         }).join('');
+        const nextLang = (requestedViewerLang && state.languages.includes(requestedViewerLang))
+            ? requestedViewerLang
+            : state.activeLang;
+        if (nextLang && nextLang !== state.activeLang) {
+            dispatch({ type: actionTypes.SET_ACTIVE_LANG, payload: nextLang });
+        }
         langSelect.value = state.activeLang;
         langSelect.style.display = state.languages.length > 1 ? 'inline-block' : 'none';
     }
@@ -1055,6 +1070,9 @@ function getNextPageDirection() {
 function handleClick(e) {
     // If zoomed, ignore navigation click
     if (viewState.scale > 1.05) return;
+    const targetId = e?.target?.id || '';
+    // zone 要素は onclick 側で処理済み。ここで重複してページ送りしない。
+    if (targetId === 'zone-prev' || targetId === 'zone-next' || targetId === 'zone-menu') return;
 
     const w = window.innerWidth;
     const x = e.clientX;
@@ -1238,7 +1256,7 @@ function handlePointerUp(e) {
                 }
             } else {
                 // Swipe Detection
-                if (Math.abs(diffX) > Math.abs(diffY) && Math.abs(diffX) > 40) {
+                if (Math.abs(diffX) > Math.abs(diffY) && Math.abs(diffX) > 28) {
                     // Horizontal Swipe
                     const nextDir = getNextPageDirection();
                     if (diffX > 0) {

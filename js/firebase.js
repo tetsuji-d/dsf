@@ -310,6 +310,68 @@ function stripBlobUrls(obj) {
 
 // ──────────────────────────────────────────────────────────────────────────────
 
+function normalizeLocalizedMap(value) {
+    if (!value || typeof value !== 'object') return {};
+    const out = {};
+    for (const [lang, text] of Object.entries(value)) {
+        if (typeof text !== 'string') continue;
+        const trimmed = text.trim();
+        if (trimmed) out[lang] = trimmed;
+    }
+    return out;
+}
+
+function pickLocalizedValue(map, preferredLang, fallbackLangs = [], fallback = '') {
+    if (preferredLang && typeof map[preferredLang] === 'string' && map[preferredLang]) {
+        return map[preferredLang];
+    }
+    for (const lang of fallbackLangs) {
+        if (typeof map[lang] === 'string' && map[lang]) return map[lang];
+    }
+    const first = Object.values(map).find((v) => typeof v === 'string' && v);
+    return first || fallback;
+}
+
+function buildPublicProjectPayload(pages, cleanSections) {
+    const coverPage = (Array.isArray(pages) ? pages : []).find((p) => p?.role === 'cover_front' || p?.pageType === 'cover_front') || null;
+    const langListRaw = Array.isArray(state.languages) && state.languages.length ? state.languages : ['ja'];
+    const langList = [...new Set(langListRaw.filter((lang) => typeof lang === 'string' && lang))];
+    const defaultLang = (typeof state.defaultLang === 'string' && langList.includes(state.defaultLang))
+        ? state.defaultLang
+        : (langList[0] || 'ja');
+
+    const titles = normalizeLocalizedMap(coverPage?.meta?.title);
+    const subtitles = normalizeLocalizedMap(coverPage?.meta?.subtitle);
+    const authors = normalizeLocalizedMap(coverPage?.meta?.author);
+    const fallbackTitle = (typeof state.title === 'string' && state.title.trim())
+        ? state.title.trim()
+        : (state.projectId || '無題のプロジェクト');
+    const fallbackAuthor = state.user?.displayName || state.user?.email?.split('@')[0] || '名無し';
+    const title = pickLocalizedValue(titles, defaultLang, langList, fallbackTitle);
+    const subtitle = pickLocalizedValue(subtitles, defaultLang, langList, '');
+    const authorName = pickLocalizedValue(authors, defaultLang, langList, fallbackAuthor);
+    const thumbnail = coverPage?.content?.thumbnail
+        || coverPage?.content?.background
+        || cleanSections?.[0]?.thumbnail
+        || cleanSections?.[0]?.background
+        || '';
+
+    return {
+        title,
+        subtitle,
+        titles,
+        subtitles,
+        authorName,
+        authors,
+        authorUid: state.uid,
+        thumbnail,
+        languages: langList,
+        defaultLang
+    };
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+
 /**
  * 実際の保存処理
  */
@@ -364,11 +426,9 @@ async function performSave() {
             // 3. public_projects コレクションへの同期
             const publicProjectRef = doc(db, 'public_projects', state.projectId);
             if (visibility === 'public') {
+                const publicPayload = buildPublicProjectPayload(pagesToSave, cleanSections);
                 await setDoc(publicProjectRef, {
-                    title: state.title || '無題のプロジェクト',
-                    authorName: state.user?.displayName || state.user?.email?.split('@')[0] || '名無し',
-                    authorUid: state.uid,
-                    thumbnail: state.sections?.[0]?.thumbnail || state.sections?.[0]?.background || '',
+                    ...publicPayload,
                     publishedAt: serverTimestamp() // Bumps to top on save
                 }, { merge: true });
             } else {

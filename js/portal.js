@@ -5,13 +5,13 @@ import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebas
 import { getFirestore, collection, query, orderBy, limit, getDocs } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
 
 const firebaseConfig = {
-    apiKey: "AIzaSyBj3U-wFKnsWlwId4OHAyerEGMiRYhQN0o",
-    authDomain: "vmnn-26345.firebaseapp.com",
-    projectId: "vmnn-26345",
-    storageBucket: "vmnn-26345.firebasestorage.app",
-    messagingSenderId: "166808261830",
-    appId: "1:166808261830:web:c218463dd04297749eb3c7",
-    measurementId: "G-N639C3XCVQ"
+    apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
+    authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
+    projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID,
+    storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET,
+    messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID,
+    appId: import.meta.env.VITE_FIREBASE_APP_ID,
+    measurementId: import.meta.env.VITE_FIREBASE_MEASUREMENT_ID
 };
 
 const DEFAULT_THUMB_URL = "https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?q=80&w=400&auto=format&fit=crop";
@@ -25,14 +25,35 @@ const db = getFirestore(app);
 
 const feedContainer = document.getElementById("public-feed");
 const searchInput = document.getElementById("portal-search");
+const languageSelect = document.getElementById("portal-lang");
 const feedbackContainer = document.getElementById("portal-feedback");
 const statusText = document.getElementById("feed-status");
+const PORTAL_LANG_STORAGE_KEY = "dsf-portal-lang";
+
+function normalizeLangCode(value, fallback = "ja") {
+    if (typeof value !== "string") return fallback;
+    const trimmed = value.trim().toLowerCase();
+    if (!trimmed) return fallback;
+    return trimmed.split("-")[0] || fallback;
+}
+
+function getInitialPortalLang() {
+    try {
+        const saved = localStorage.getItem(PORTAL_LANG_STORAGE_KEY);
+        if (saved) return normalizeLangCode(saved);
+    } catch (_) {
+        // ignore
+    }
+    return normalizeLangCode(navigator.language || "ja");
+}
 
 const portalState = {
     isLoading: false,
     hasError: false,
     query: "",
-    projects: []
+    projects: [],
+    activeLang: getInitialPortalLang(),
+    availableLangs: ["ja", "en"]
 };
 
 let searchDebounceTimer = null;
@@ -51,6 +72,74 @@ function normalizeText(value, fallback = "") {
     if (typeof value !== "string") return fallback;
     const trimmed = value.trim();
     return trimmed || fallback;
+}
+
+function normalizeLocalizedMap(value) {
+    if (!value || typeof value !== "object") return {};
+    const out = {};
+    for (const [lang, text] of Object.entries(value)) {
+        if (typeof text !== "string") continue;
+        const trimmed = text.trim();
+        if (trimmed) out[normalizeLangCode(lang)] = trimmed;
+    }
+    return out;
+}
+
+function getLocalizedValue(map, preferredLang, fallbackLangs = [], fallback = "") {
+    if (preferredLang && typeof map[preferredLang] === "string" && map[preferredLang]) {
+        return map[preferredLang];
+    }
+    for (const lang of fallbackLangs) {
+        if (typeof map[lang] === "string" && map[lang]) return map[lang];
+    }
+    const first = Object.values(map).find((v) => typeof v === "string" && v);
+    return first || fallback;
+}
+
+function uniqueLangs(values) {
+    return [...new Set((Array.isArray(values) ? values : [])
+        .map((v) => normalizeLangCode(v, ""))
+        .filter(Boolean))];
+}
+
+function getLangLabel(code) {
+    const labels = {
+        ja: "日本語",
+        en: "English",
+        zh: "中文",
+        ko: "한국어",
+        fr: "Français",
+        de: "Deutsch",
+        es: "Español"
+    };
+    return labels[code] || code.toUpperCase();
+}
+
+function getProjectDisplayTitle(project) {
+    return getLocalizedValue(
+        project.titles || {},
+        portalState.activeLang,
+        [project.defaultLang, ...(project.languages || [])],
+        project.title || "無題のプロジェクト"
+    );
+}
+
+function getProjectDisplaySubtitle(project) {
+    return getLocalizedValue(
+        project.subtitles || {},
+        portalState.activeLang,
+        [project.defaultLang, ...(project.languages || [])],
+        project.subtitle || ""
+    );
+}
+
+function getProjectDisplayAuthor(project) {
+    return getLocalizedValue(
+        project.authors || {},
+        portalState.activeLang,
+        [project.defaultLang, ...(project.languages || [])],
+        project.authorName || "名無し"
+    );
 }
 
 function getOptimizedThumbUrl(originalUrl) {
@@ -111,12 +200,14 @@ function renderLoadingSkeleton(count = 6) {
 }
 
 function buildViewerUrl(projectId, authorUid) {
-    return `/viewer.html?project=${encodeURIComponent(projectId)}&author=${encodeURIComponent(authorUid)}`;
+    const lang = normalizeLangCode(portalState.activeLang || "ja");
+    return `/viewer.html?project=${encodeURIComponent(projectId)}&author=${encodeURIComponent(authorUid)}&lang=${encodeURIComponent(lang)}`;
 }
 
 function cardMarkup(project) {
-    const safeTitle = escapeHtml(project.title);
-    const safeAuthor = escapeHtml(project.authorName);
+    const safeTitle = escapeHtml(getProjectDisplayTitle(project));
+    const safeSubtitle = escapeHtml(getProjectDisplaySubtitle(project));
+    const safeAuthor = escapeHtml(getProjectDisplayAuthor(project));
     const safeDate = escapeHtml(project.publishedDate);
     const thumbUrl = escapeHtml(getOptimizedThumbUrl(project.thumbnail || DEFAULT_THUMB_URL));
     const cardBody = `
@@ -132,6 +223,7 @@ function cardMarkup(project) {
         </div>
         <div class="card-info">
             <div class="card-title">${safeTitle}</div>
+            ${safeSubtitle ? `<div class="card-subtitle">${safeSubtitle}</div>` : ""}
             <div class="card-author">${safeAuthor}</div>
             <div class="card-meta">${safeDate}</div>
         </div>
@@ -159,9 +251,28 @@ function renderEmptyState(title, description, ctaLabel = "", ctaHref = "") {
 function getFilteredProjects() {
     const queryText = portalState.query.trim().toLowerCase();
     if (!queryText) return portalState.projects;
-    return portalState.projects.filter((project) =>
-        project.titleSearch.includes(queryText) || project.authorSearch.includes(queryText)
-    );
+    return portalState.projects.filter((project) => project.searchText.includes(queryText));
+}
+
+function syncAvailableLanguages() {
+    const set = new Set(["ja", "en"]);
+    portalState.projects.forEach((project) => {
+        (project.languages || []).forEach((lang) => set.add(normalizeLangCode(lang)));
+        if (project.defaultLang) set.add(normalizeLangCode(project.defaultLang));
+    });
+    portalState.availableLangs = [...set];
+    if (!portalState.availableLangs.includes(portalState.activeLang)) {
+        portalState.activeLang = portalState.availableLangs[0] || "ja";
+    }
+}
+
+function renderLanguageOptions() {
+    if (!languageSelect) return;
+    const langs = portalState.availableLangs.length ? portalState.availableLangs : ["ja", "en"];
+    languageSelect.innerHTML = langs
+        .map((lang) => `<option value="${escapeHtml(lang)}">${escapeHtml(getLangLabel(lang))}</option>`)
+        .join("");
+    languageSelect.value = portalState.activeLang;
 }
 
 function renderProjects() {
@@ -201,15 +312,51 @@ function renderProjects() {
 
 function normalizeProject(docSnap) {
     const data = docSnap.data() || {};
-    const title = normalizeText(data.title, "無題のプロジェクト");
+    const titles = normalizeLocalizedMap(data.titles);
+    const subtitles = normalizeLocalizedMap(data.subtitles);
+    const fallbackLang = normalizeLangCode(data.defaultLang || "ja");
+    const languages = uniqueLangs([
+        ...(Array.isArray(data.languages) ? data.languages : []),
+        ...Object.keys(titles),
+        ...Object.keys(subtitles),
+        fallbackLang
+    ]);
+    const defaultLang = languages.includes(fallbackLang) ? fallbackLang : (languages[0] || "ja");
+    const title = getLocalizedValue(
+        titles,
+        defaultLang,
+        languages,
+        normalizeText(data.title, "無題のプロジェクト")
+    );
+    const subtitle = getLocalizedValue(
+        subtitles,
+        defaultLang,
+        languages,
+        normalizeText(data.subtitle, "")
+    );
     const authorName = normalizeText(data.authorName, "名無し");
+    const authors = normalizeLocalizedMap(data.authors);
+    const authorDisplay = getLocalizedValue(authors, defaultLang, languages, authorName);
     const authorUid = normalizeText(data.authorUid, "");
+    const searchText = [
+        title,
+        subtitle,
+        authorDisplay,
+        ...Object.values(titles),
+        ...Object.values(subtitles),
+        ...Object.values(authors)
+    ].join(" ").toLowerCase();
     return {
         id: docSnap.id,
         title,
-        titleSearch: title.toLowerCase(),
-        authorName,
-        authorSearch: authorName.toLowerCase(),
+        subtitle,
+        titles,
+        subtitles,
+        languages,
+        defaultLang,
+        searchText,
+        authorName: authorDisplay,
+        authors,
         authorUid,
         canOpen: !!authorUid,
         thumbnail: normalizeText(data.thumbnail, DEFAULT_THUMB_URL),
@@ -234,6 +381,8 @@ async function loadPublicProjects() {
         );
         const snapshot = await getDocs(q);
         portalState.projects = snapshot.docs.map(normalizeProject);
+        syncAvailableLanguages();
+        renderLanguageOptions();
         portalState.isLoading = false;
         renderProjects();
     } catch (error) {
@@ -260,6 +409,19 @@ function bindEvents() {
             if (event.key !== "Escape") return;
             searchInput.value = "";
             portalState.query = "";
+            renderProjects();
+        });
+    }
+
+    if (languageSelect) {
+        languageSelect.value = portalState.activeLang;
+        languageSelect.addEventListener("change", () => {
+            portalState.activeLang = normalizeLangCode(languageSelect.value, "ja");
+            try {
+                localStorage.setItem(PORTAL_LANG_STORAGE_KEY, portalState.activeLang);
+            } catch (_) {
+                // ignore
+            }
             renderProjects();
         });
     }
