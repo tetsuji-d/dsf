@@ -101,9 +101,9 @@ state.activeLang, state.languages
 
 ### Portal Agent — Codex
 - **担当AI**: Codex
-- **現在の状態**: 待機中
-- **最終作業**: -
-- **既知の問題**: -
+- **現在の状態**: アクティブ
+- **最終作業**: `js/portal.js` の Firebase 設定を `VITE_FIREBASE_*` env 変数参照へ切替（hardcoded config 除去）
+- **既知の問題**: Firebase Staging の Console 手作業（Firestore/Hosting 最終確認）が進行中
 - **強み**: パターン定義された Auth フロー・CRUD・Firebase 連携の高速実装
 
 ### Editor Agent — Claude
@@ -344,6 +344,76 @@ Staging プロジェクト作成と `firebase.js` への環境切り替えロジ
 
 ---
 
+### 2026-03-01 — Firebase Staging 手作業セットアップ進捗（Portal 観点）
+
+**共有者:** Codex (Portal Agent)
+
+**確認済み（Console 手作業）:**
+- Authentication:
+  - Google ログイン: 有効
+  - メール/パスワード: 有効
+  - メールリンク（パスワードなし）: 無効
+- Storage:
+  - デフォルトバケット作成完了
+  - ロケーション: `US-CENTRAL1`
+  - セキュリティ開始モード: 本番環境モード
+
+**補足:**
+- Portal 側 `js/portal.js` の `firebaseConfig` は env 参照化済み（`VITE_FIREBASE_*`）
+- Staging の残作業は Firestore/Hosting の最終確認と rules/hosting デプロイ確認
+
+---
+
+### 2026-03-01 — 開発優先順位（フェーズ進行・最新版）
+
+**共有者:** Architect（人間）+ Codex  
+**前提:** 担当固定を外し、フェーズ単位で順次開発する
+
+**優先順位:**
+1. **P0: E2E最短動線の安定化**
+   - 対象フロー: `ログイン -> 新規作成 -> 保存 -> 公開 -> Portal表示 -> Viewer表示`
+   - 完了条件: staging で上記フローを連続3回通して失敗なし
+2. **P0: Golden Dataset（サンプル作品）投入**
+   - 目標件数: 5〜10件（縦書き/画像多め/長文/軽量データを含む）
+   - 完了条件: Portal の一覧と Viewer で全件表示確認
+3. **P1: Portal 基礎品質**
+   - 対象: 検索、並び順、エラー復帰、欠損データ耐性
+   - 完了条件: 主要操作で致命エラーなし、再試行で復帰可能
+4. **P1: Editor 信頼性**
+   - 対象: 自動保存、復元、Undo/Redo、Export/Import の事故防止
+   - 完了条件: データ消失につながる既知不具合がない状態
+5. **P2: Viewer 最適化**
+   - 対象: モバイル操作性、初回表示速度、描画安定性
+   - 完了条件: 実機確認で操作遅延・描画崩れが許容範囲
+
+**着手順（当面）:**
+1. P0-1（E2E最短動線）
+2. P0-2（サンプル投入）
+3. P1-Portal
+4. P1-Editor
+5. P2-Viewer
+
+**運用メモ（2026-03-01 追加）:**
+- 事前スモーク実行: `npm run smoke:staging`
+- 手順書: `docs/e2e-smoke-checklist.md`
+
+---
+
+### 2026-03-01 — ワークスペース運用を `dsf` 一本化
+
+**決定者:** Architect（人間）  
+**背景:** `dsf` と `dsf-dev` の差分同期コストが高く、運用負荷が増加していたため。
+
+**決定内容:**
+1. 開発・レビュー・デプロイを `C:/Users/tetsu/projects/dsf/` に一本化する
+2. 安定性はフォルダ分離ではなく `main` 保護（ブランチ運用）で担保する
+3. staging デプロイは作業ブランチから実施可、本番デプロイは `main` マージ後のみ実施する
+
+**補足:**
+- `dsf-dev` は当面は参照用に保持し、不要確認後に手動削除可
+
+---
+
 ## 9. 🚨 緊急時手順（Break-glass）
 
 **通常ルール**（許可ファイル以外の編集禁止）が障害対応で守れない場合の例外経路。
@@ -395,24 +465,25 @@ main（常に安定・マージ済みコードのみ）
 4. **作業完了したブランチは Architect に通知する（セクション7に記載）**
 5. **マージ済みブランチは削除する**
 
-### Worktree パス（2026-02-28 更新）
+### Worktree パス（2026-03-01 更新）
 
 | フォルダ | 用途 | ブランチ |
 |---------|------|---------|
-| `C:/Users/tetsu/projects/dsf/` | **Architect ワークスペース**（レビュー・デプロイ・インフラ変更） | 常に `main` |
-| `C:/Users/tetsu/projects/dsf-dev/` | **開発ワークスペース**（全エージェント共用） | タスク開始時に `git checkout -b <agent>/<説明>` で切る |
+| `C:/Users/tetsu/projects/dsf/` | **統合ワークスペース**（開発・レビュー・デプロイ） | タスク開始時に `main` から作業ブランチを作成 |
 
-**タスク開始手順（dsf-dev/）:**
+**タスク開始手順（dsf/）:**
 ```bash
-cd dsf-dev/
+cd dsf/
 git fetch origin
-git checkout -b editor/xxx origin/main  # main の最新から作業ブランチを切る
+git checkout main
+git pull origin main
+git checkout -b <agent>/<説明>  # 例: portal/search-hardening
 # ... 作業 ...
-git push origin editor/xxx
-# → Architect が dsf/ でレビュー・マージ
+git push origin <agent>/<説明>
+# → レビュー後に main へマージ
 ```
 
-> 旧フォルダ（dsf-editor/, dsf-portal/, dsf-viewer/）は git 管理から解除済み。VS Code で開いていなければ手動削除可。
+> `dsf-dev/` および旧フォルダ（dsf-editor/, dsf-portal/, dsf-viewer/）は運用対象外。不要であれば手動削除可。
 
 ### 現在のブランチ状態 (2026-02-28)
 

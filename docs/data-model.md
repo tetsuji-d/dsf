@@ -1,6 +1,6 @@
 # Data Model Documentation
 
-**最終更新**: 2026-02-25
+**最終更新**: 2026-03-01
 **ステータス**: Architect 管理下（変更には Architect 承認が必要）
 
 ---
@@ -122,14 +122,25 @@
 
 ```json
 {
-  "title": "String",
+  "title": "String (表示用タイトル。defaultLang 優先で解決済み)",
+  "subtitle": "String (表示用サブタイトル。defaultLang 優先で解決済み)",
+  "titles": { "ja": "String", "en": "String" },
+  "subtitles": { "ja": "String", "en": "String" },
   "authorUid": "String (Firebase Auth UID)",
-  "authorName": "String",
+  "authorName": "String (表示用著者名。defaultLang 優先で解決済み)",
+  "authors": { "ja": "String", "en": "String" },
+  "languages": ["String (言語コード)"],
+  "defaultLang": "String (既定言語コード)",
   "thumbnail": "String (カバー画像URL)",
-  "updatedAt": "Timestamp",
-  "visibility": "'public' | 'unlisted'"
+  "publishedAt": "Timestamp (公開一覧の並び順キー)"
 }
 ```
+
+補足:
+
+1. `title/subtitle/authorName` は表示用の解決済みフィールド（互換性維持）
+2. `titles/subtitles/authors` はポータル多言語切替で参照する辞書
+3. 既存データで辞書がない場合は表示用フィールドへフォールバック
 
 ---
 
@@ -174,26 +185,29 @@ users/{uid}/dsf/
 
 ## Security Rules
 
-### Firestore Rules（`firestore.rules` — デプロイ済み 2026-02-25）
+### Firestore Rules（`firestore.rules` — staging 運用反映 2026-03-01）
 
 ```
 users/{uid}/projects/{pid}:
-  - read/write: 認証済みオーナー (auth.uid == uid)
+  - read/write: staging 管理者 UID かつ auth.uid == uid
   - read: visibility が 'public' または 'unlisted' の場合は誰でも可
 
 public_projects/{pid}:
   - read: 誰でも可（未認証含む）
-  - create/update: 認証済みユーザーが authorUid == auth.uid の場合のみ
-  - delete: authorUid == auth.uid の場合のみ
+  - create/update: staging 管理者 UID かつ authorUid == auth.uid の場合のみ
+  - delete: staging 管理者 UID かつ authorUid == auth.uid の場合のみ
 ```
 
-### Storage Rules（`storage.rules` — デプロイ済み 2026-02-25）
+### Storage Rules（`storage.rules` — staging 運用反映 2026-03-01）
 
 ```
 users/{uid}/dsf/**:
   - read: 誰でも可（公開画像）
-  - write: 認証済みオーナー (auth.uid == uid) のみ
+  - write: staging 管理者 UID かつ auth.uid == uid のみ
 ```
+
+> 注記: 上記は staging の暫定運用（単一管理者書き込み）を反映。  
+> 本番向けの一般化ルールは Press Room / Channel RBAC 導入時に再定義する。
 
 ---
 
@@ -212,8 +226,26 @@ state.pages    ← ビューワー出力（v5 Page Object の配列）
 
 ---
 
+## 確定事項（未実装設計）
+
+以下は Architect 合意済みだが、現時点では実装前の設計項目。
+
+1. v1 は free-only 運用（課金・請求書/領収書・投げ銭連携は v2 以降）
+2. `Press Room` 新設（公開運用を Studio から分離）
+3. User と Channel の分離、および RBAC（owner/admin/publisher/editor/viewer）
+4. 退会時は owner 不在チャンネルを作らない（最後の owner のまま退会不可）
+
+参照ドキュメント:
+
+1. `docs/press-room-plan.md`
+2. `docs/channel-rbac-plan.md`
+3. `docs/billing-quota-plan.md`
+
+---
+
 ## 変更履歴
 
 | 日付 | 変更内容 |
 |------|---------|
 | 2026-02-25 | 全面改訂: `works` → `users/{uid}/projects/{pid}` に修正、v5 Page スキーマ追加、AR フィールド追加、Security Rules を実態に更新 |
+| 2026-03-01 | `public_projects` の多言語メタ（titles/subtitles/authors, languages/defaultLang）を反映。staging の単一管理者ルールを追記。Press Room / Channel RBAC / Billing の確定方針（未実装）を追記 |
