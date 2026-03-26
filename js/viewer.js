@@ -9,9 +9,10 @@ import { state, dispatch, actionTypes } from './state.js';
 import { renderBubbleHTML } from './bubbles.js';
 import { getLangProps } from './lang.js';
 import {
-    db, getOptimizedImageUrl,
+    db,
     signInWithGoogle, signOutUser, onAuthChanged, consumeRedirectResult
 } from './firebase.js';
+import { getOptimizedImageUrl } from './sections.js';
 import { doc, getDoc } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
 import { parseAndLoadDSF } from './export.js';
 

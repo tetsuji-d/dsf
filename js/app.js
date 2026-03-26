@@ -7,92 +7,11 @@ import { handleCanvasClick, selectBubble, renderBubbleHTML, getBubbleText, setBu
 import { addSection, changeSection, changeBlock, insertStructureBlock, renderThumbs, deleteActive, insertSectionAt, duplicateSectionAt, moveSection, insertPageNearBlock, duplicateBlockAt, moveBlockAt, getOptimizedImageUrl } from './sections.js';
 import { pushState, undo, redo, getHistoryInfo, clearHistory } from './history.js';
 import { openProjectModal, closeProjectModal } from './projects.js';
-import { getLangProps, getAllLangs } from './lang.js';
-import { composeCanonicalLayoutsForSections, composeText, getFontPresetFromConfigs, getFontPresetOptions, LAYOUT_VERSION } from './layout.js';
+import { getLangProps } from './lang.js';
 import { getBlockIndexFromPageIndex, getPageIndexFromBlockIndex, migrateSectionsToBlocks, syncBlocksWithSections } from './blocks.js';
-import { PAGE_SCHEMA_VERSION, blocksToPages, normalizeProjectDataV5, buildOutlineFromPages } from './pages.js';
-import { THEME_TEMPLATES, THEME_PALETTES, getThemePalette, getThemeTemplate } from './theme-presets.js';
+import { blocksToPages, normalizeProjectDataV5 } from './pages.js';
 import { buildDSP, buildDSF, parseAndLoadDSP } from './export.js';
 import { get as idbGet } from 'idb-keyval';
-
-// ──────────────────────────────────────
-//  ヘルパー: セクションテキストの多言語取得・設定
-// ──────────────────────────────────────
-function getSectionText(s) {
-    const lang = state.activeLang;
-    if (s.texts && s.texts[lang] !== undefined) return s.texts[lang];
-    return s.text || '';
-}
-
-function setSectionText(s, text) {
-    const lang = state.activeLang;
-    if (!s.texts) s.texts = {};
-    s.texts[lang] = text;
-    s.text = text;
-    if (!s.richTextLangs || typeof s.richTextLangs !== 'object') s.richTextLangs = {};
-    const doc = plainTextToRichDoc(String(text || ''));
-    s.richTextLangs[lang] = doc;
-    s.richText = doc;
-}
-
-function plainTextToRichDoc(text) {
-    const lines = String(text || '').split(/\r?\n/);
-    if (!lines.length) return createEmptyRichTextDoc();
-    return {
-        blocks: lines.map((line) => ({
-            type: 'paragraph',
-            children: [{ text: line }]
-        }))
-    };
-}
-
-function normalizeRichDoc(doc) {
-    const blocks = Array.isArray(doc?.blocks) ? doc.blocks : null;
-    if (!blocks || !blocks.length) return createEmptyRichTextDoc();
-
-    const normalized = [];
-    blocks.forEach((b) => {
-        const type = b?.type === 'h1' ? 'h1' : (b?.type === 'h2' ? 'h2' : 'paragraph');
-        const children = Array.isArray(b?.children) ? b.children : [];
-        if (children.length === 1 && typeof children[0]?.text === 'string' && children[0].text.includes('\n')) {
-            children[0].text.split('\n').forEach((line) => {
-                normalized.push({
-                    type,
-                    children: [{ ...children[0], text: line }]
-                });
-            });
-        } else {
-            normalized.push({
-                type,
-                children: children.length ? children : [{ text: '' }]
-            });
-        }
-    });
-
-    return { blocks: normalized.length ? normalized : createEmptyRichTextDoc().blocks };
-}
-
-function getSectionRichText(s) {
-    const lang = state.activeLang;
-    const doc = s?.richTextLangs?.[lang] || s?.richText;
-    if (doc && Array.isArray(doc.blocks)) return normalizeRichDoc(doc);
-    return {
-        blocks: normalizeRichDoc(plainTextToRichDoc(getSectionText(s))).blocks
-    };
-}
-
-function setSectionRichText(s, doc) {
-    if (!s) return;
-    const lang = state.activeLang;
-    const normalizedDoc = normalizeRichDoc(doc);
-    if (!s.richTextLangs || typeof s.richTextLangs !== 'object') s.richTextLangs = {};
-    s.richTextLangs[lang] = normalizedDoc;
-    s.richText = normalizedDoc;
-    if (!s.texts) s.texts = {};
-    const plain = richTextToPlainText(normalizedDoc);
-    s.texts[lang] = plain;
-    s.text = plain;
-}
 
 function getActiveBlock() {
     const blocks = state.blocks || [];
@@ -107,557 +26,9 @@ function getActiveBlock() {
     return null;
 }
 
-function getBlockLocalizedText(block) {
-    const lang = state.activeLang;
-    if (!block) return '';
-    if (block.kind === 'cover_front') return block.meta?.title?.[lang] || '';
-    if (block.kind === 'cover_back') return block.meta?.colophon?.[lang] || '';
-    if (block.kind === 'chapter' || block.kind === 'section' || block.kind === 'item' || block.kind === 'toc') {
-        return block.meta?.title?.[lang] || '';
-    }
-    return '';
-}
-
-function setBlockLocalizedText(block, text) {
-    const lang = state.activeLang;
-    if (!block) return;
-    if (!block.meta) block.meta = {};
-    if (block.kind === 'cover_front') {
-        if (!block.meta.title) block.meta.title = {};
-        block.meta.title[lang] = text;
-        return;
-    }
-    if (block.kind === 'cover_back') {
-        if (!block.meta.colophon) block.meta.colophon = {};
-        block.meta.colophon[lang] = text;
-        return;
-    }
-    if (block.kind === 'chapter' || block.kind === 'section' || block.kind === 'item' || block.kind === 'toc') {
-        if (!block.meta.title) block.meta.title = {};
-        block.meta.title[lang] = text;
-    }
-}
-
-function getCoverBodyKindFromBlock(block) {
-    const raw = block?.meta?.bodyKind || block?.meta?.renderMode || 'image';
-    return raw === 'theme' ? 'theme' : 'image';
-}
-
-function renderCoverThemePreview(block) {
-    const lang = state.activeLang;
-    const theme = block?.content?.theme || block?.meta?.theme || {};
-    const palette = getThemePalette(theme.paletteId);
-    const template = getThemeTemplate(theme.templateId);
-    const title = block?.meta?.title?.[lang] || 'Title';
-    const subtitle = block?.meta?.subtitle?.[lang] || '';
-    const author = block?.meta?.author?.[lang] || '';
-    const supervisor = block?.meta?.supervisor?.[lang] || '';
-    const publisher = block?.meta?.publisher?.[lang] || '';
-    const edition = block?.meta?.edition?.[lang] || '';
-    const contacts = Array.isArray(block?.meta?.contacts) ? block.meta.contacts : [];
-    const contactText = contacts.map((c) => c?.value || '').filter(Boolean).join(' / ');
-    const templateId = template.id || 'classic';
-
-    if (block?.kind === 'cover_back') {
-        if (templateId === 'minimal') {
-            return `
-                <div class="fixed-text-frame" style="position:absolute; left:20px; top:32px; width:320px; height:576px; background:${palette.bg}; color:${palette.fg}; border-left:10px solid ${palette.accent}; padding:28px;">
-                    <div style="font-size:15px; line-height:1.8; margin-top:8px;">${edition || ''}</div>
-                    <div style="font-size:12px; line-height:1.7; margin-top:14px; color:${palette.sub};">${contactText || '連絡先未入力'}</div>
-                </div>
-            `;
-        }
-        if (templateId === 'bold') {
-            return `
-                <div class="fixed-text-frame" style="position:absolute; left:20px; top:32px; width:320px; height:576px; border-radius:10px; background:${palette.accent}; color:#fff; padding:18px;">
-                    <div style="height:100%; border:2px solid rgba(255,255,255,.8); border-radius:8px; padding:18px; background:linear-gradient(160deg, ${palette.accent}, ${palette.fg});">
-                        <div style="font-size:16px; line-height:1.7; margin-top:12px;">${edition || ''}</div>
-                        <div style="font-size:12px; line-height:1.8; margin-top:14px; opacity:.9;">${contactText || '連絡先未入力'}</div>
-                    </div>
-                </div>
-            `;
-        }
-        if (templateId === 'novel') {
-            return `
-                <div class="fixed-text-frame" style="position:absolute; left:20px; top:32px; width:320px; height:576px; border-radius:6px; background:${palette.bg}; color:${palette.fg}; border:1px solid ${palette.sub}; padding:26px;">
-                    <div style="border-top:1px solid ${palette.sub}; margin:12px 0 16px;"></div>
-                    <div style="font-size:14px; line-height:1.9; font-family:'Noto Serif JP',serif;">${edition || ''}</div>
-                    <div style="font-size:12px; line-height:1.9; margin-top:12px; color:${palette.sub};">${contactText || '連絡先未入力'}</div>
-                </div>
-            `;
-        }
-        return `
-            <div class="fixed-text-frame" style="position:absolute; left:20px; top:32px; width:320px; height:576px; border-radius:8px; background:${palette.bg}; color:${palette.fg}; border:2px solid ${palette.accent}; padding:22px;">
-                <div style="font-size:15px; line-height:1.7; margin-top:14px;">${edition || ''}</div>
-                <div style="font-size:13px; line-height:1.6; margin-top:12px; color:${palette.sub};">${contactText || '連絡先未入力'}</div>
-            </div>
-        `;
-    }
-
-    if (templateId === 'minimal') {
-        return `
-            <div class="fixed-text-frame" style="position:absolute; left:20px; top:32px; width:320px; height:576px; background:${palette.bg}; color:${palette.fg}; border-left:10px solid ${palette.accent}; padding:28px;">
-                <div style="font-size:34px; font-weight:900; line-height:1.2; margin:26px 0 12px; white-space:normal; overflow-wrap:anywhere; word-break:break-word;">${title || 'タイトル未入力'}</div>
-                <div style="font-size:16px; color:${palette.sub}; margin-bottom:16px;">${subtitle || ''}</div>
-                <div style="position:absolute; left:28px; right:28px; bottom:24px; font-size:13px; color:${palette.sub}; line-height:1.6;">
-                    <div>${author || ''}</div><div>${supervisor || ''}</div><div>${publisher || ''}</div>
-                </div>
-            </div>
-        `;
-    }
-    if (templateId === 'bold') {
-        return `
-            <div class="fixed-text-frame" style="position:absolute; left:20px; top:32px; width:320px; height:576px; border-radius:10px; background:${palette.accent}; color:#fff; padding:18px;">
-                <div style="height:100%; border:2px solid rgba(255,255,255,.8); border-radius:8px; padding:18px; background:linear-gradient(160deg, ${palette.accent}, ${palette.fg});">
-                    <div style="font-size:36px; font-weight:900; line-height:1.15; margin:28px 0 10px; white-space:normal; overflow-wrap:anywhere; word-break:break-word;">${title || 'タイトル未入力'}</div>
-                    <div style="font-size:17px; opacity:.9; margin-bottom:18px;">${subtitle || ''}</div>
-                    <div style="position:absolute; left:36px; right:36px; bottom:30px; font-size:13px; line-height:1.6; opacity:.9;">
-                        <div>${author || ''}</div><div>${supervisor || ''}</div><div>${publisher || ''}</div>
-                    </div>
-                </div>
-            </div>
-        `;
-    }
-    if (templateId === 'novel') {
-        return `
-            <div class="fixed-text-frame" style="position:absolute; left:20px; top:32px; width:320px; height:576px; border-radius:6px; background:${palette.bg}; color:${palette.fg}; border:1px solid ${palette.sub}; padding:26px;">
-                <div style="font-size:34px; font-family:'Noto Serif JP',serif; line-height:1.3; margin:24px 0 12px; white-space:normal; overflow-wrap:anywhere; word-break:break-word;">${title || 'タイトル未入力'}</div>
-                <div style="font-size:15px; color:${palette.sub}; margin-bottom:20px; font-family:'Noto Serif JP',serif;">${subtitle || ''}</div>
-                <div style="border-top:1px solid ${palette.sub}; margin-bottom:14px;"></div>
-                <div style="position:absolute; left:26px; right:26px; bottom:24px; font-size:13px; color:${palette.sub}; line-height:1.8; font-family:'Noto Serif JP',serif;">
-                    <div>${author || ''}</div><div>${supervisor || ''}</div><div>${publisher || ''}</div>
-                </div>
-            </div>
-        `;
-    }
-
-    return `
-        <div class="fixed-text-frame" style="position:absolute; left:20px; top:32px; width:320px; height:576px; border-radius:8px; background:${palette.bg}; color:${palette.fg}; border:2px solid ${palette.accent}; padding:24px;">
-            <div style="font-size:30px; font-weight:800; line-height:1.25; margin-bottom:10px; white-space:normal; overflow-wrap:anywhere; word-break:break-word;">${title || 'タイトル未入力'}</div>
-            <div style="font-size:16px; color:${palette.sub}; margin-bottom:20px;">${subtitle || ''}</div>
-            <div style="position:absolute; left:24px; right:24px; bottom:24px;">
-                <div style="font-size:14px; margin-bottom:6px;">${author || ''}</div>
-                <div style="font-size:13px; color:${palette.sub}; margin-bottom:6px;">${supervisor || ''}</div>
-                <div style="font-size:13px; color:${palette.sub};">${publisher || ''}</div>
-            </div>
-        </div>
-    `;
-}
-
-function renderCoverImagePreview(block) {
-    const bg = block?.content?.background || '';
-    if (!bg) {
-        return `
-            <div class="fixed-text-frame" style="position:absolute; left:20px; top:32px; width:320px; height:576px; display:flex; align-items:center; justify-content:center; border:2px dashed #cfd7e3; background:#f8fafc; color:#2f3e52; padding:20px; text-align:center;">
-                <div style="font-size:14px; font-weight:700;">画像を設定してください</div>
-            </div>
-        `;
-    }
-    return `
-        <div style="position:absolute; left:20px; top:32px; width:320px; height:576px; overflow:hidden; border-radius:8px; border:1px solid #d7deea;">
-            <img src="${getOptimizedImageUrl(bg)}" style="width:100%; height:100%; object-fit:cover;">
-        </div>
-    `;
-}
-
-function renderTocPreview(activeBlock) {
-    const lang = state.activeLang;
-    const outline = buildOutlineFromPages(state.pages || [], lang, 'item');
-    const blocks = Array.isArray(state.blocks) ? state.blocks : [];
-    const tocIndices = [];
-    for (let i = 0; i < blocks.length; i += 1) {
-        if (blocks[i]?.kind === 'toc') tocIndices.push(i);
-    }
-    const activeIdx = Number.isInteger(state.activeBlockIdx) ? state.activeBlockIdx : -1;
-    const tocPos = Math.max(0, tocIndices.indexOf(activeIdx));
-    const start = tocPos * TOC_ROWS_PER_PAGE;
-    const rows = outline.slice(start, start + TOC_ROWS_PER_PAGE).map((it) => {
-        const indent = it.depth === 1 ? 0 : (it.depth === 2 ? 16 : 32);
-        return `<div style="display:flex; justify-content:space-between; gap:10px; margin-bottom:6px; margin-left:${indent}px;">
-            <span style="white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${it.title}</span>
-            <span style="opacity:.7;">${it.pageNumber}</span>
-        </div>`;
-    }).join('');
-    return `
-        <div class="fixed-text-frame" style="position:absolute; left:20px; top:32px; width:320px; height:576px; border:2px solid #d8e0ec; border-radius:8px; background:#fff; color:#22314a; padding:16px; overflow:hidden;">
-            <div style="font-size:20px; font-weight:800; margin-bottom:12px;">目次</div>
-            <div style="font-size:13px; line-height:1.5;">${rows || '<div style="opacity:.6;">見出し未設定</div>'}</div>
-        </div>
-    `;
-}
-
-function getBlockLocalizedMetaField(block, key) {
-    const lang = state.activeLang;
-    if (!block?.meta) return '';
-    const map = block.meta[key];
-    if (!map || typeof map !== 'object') return '';
-    return map[lang] || '';
-}
-
-function setBlockLocalizedMetaField(block, key, value) {
-    if (!block) return;
-    const lang = state.activeLang;
-    if (!block.meta) block.meta = {};
-    if (!block.meta[key] || typeof block.meta[key] !== 'object') block.meta[key] = {};
-    block.meta[key][lang] = value;
-}
-
-function isStructureKind(kind) {
-    return kind === 'chapter' || kind === 'section' || kind === 'item';
-}
-
-function getStructureBodyKind(block) {
-    const raw = block?.meta?.bodyKind || block?.meta?.renderMode || 'text';
-    return raw === 'image' ? 'image' : 'text';
-}
-
-function setStructureBodyKind(block, bodyKind) {
-    if (!block) return;
-    if (!block.meta) block.meta = {};
-    const mode = bodyKind === 'image' ? 'image' : 'text';
-    block.meta.bodyKind = mode;
-    block.meta.renderMode = mode;
-}
-
-function getStructureBodyText(block) {
-    const lang = state.activeLang;
-    return block?.content?.texts?.[lang] ?? block?.content?.text ?? '';
-}
-
-function createEmptyRichTextDoc() {
-    return { blocks: [{ type: 'paragraph', children: [{ text: '' }] }] };
-}
-
-function getStructureRichText(block) {
-    const lang = state.activeLang;
-    const doc = block?.content?.richTextLangs?.[lang] || block?.content?.richText;
-    if (doc && Array.isArray(doc.blocks)) return normalizeRichDoc(doc);
-    const text = getStructureBodyText(block);
-    return {
-        blocks: normalizeRichDoc(plainTextToRichDoc(text)).blocks
-    };
-}
-
-function richTextToPlainText(doc) {
-    const blocks = Array.isArray(doc?.blocks) ? doc.blocks : [];
-    const lines = blocks.map((b) => {
-        const children = Array.isArray(b?.children) ? b.children : [];
-        return children.map((c) => String(c?.text || '')).join('');
-    }).filter((line) => line.length > 0);
-    return lines.join('\n');
-}
-
-function escapeHtmlText(text) {
-    return String(text || '')
-        .replace(/&/g, '&amp;')
-        .replace(/</g, '&lt;')
-        .replace(/>/g, '&gt;');
-}
-
-function richTextDocToHtml(doc) {
-    const blocks = Array.isArray(doc?.blocks) ? doc.blocks : [];
-    if (!blocks.length) return '<p><br></p>';
-
-    const renderInline = (child) => {
-        let out = escapeHtmlText(child?.text || '').replace(/\n/g, '<br>');
-        if (child?.strike) out = `<s>${out}</s>`;
-        if (child?.underline) out = `<u>${out}</u>`;
-        if (child?.italic) out = `<i>${out}</i>`;
-        if (child?.bold) out = `<b>${out}</b>`;
-        return out || '';
-    };
-
-    return blocks.map((b) => {
-        const type = b?.type === 'h1' ? 'h1' : (b?.type === 'h2' ? 'h2' : 'p');
-        const children = Array.isArray(b?.children) && b.children.length ? b.children : [{ text: '' }];
-        const inner = children.map(renderInline).join('') || '<br>';
-        return `<${type}>${inner}</${type}>`;
-    }).join('');
-}
-
-function richTextHtmlToDoc(html) {
-    const parser = new DOMParser();
-    const parsed = parser.parseFromString(`<div>${String(html || '')}</div>`, 'text/html');
-    const root = parsed.body.firstElementChild || parsed.body;
-    const blocks = [];
-
-    const pushBlockFromNode = (node) => {
-        const name = (node?.nodeName || '').toUpperCase();
-        const type = name === 'H1' ? 'h1' : (name === 'H2' ? 'h2' : 'paragraph');
-
-        const walkInline = (inlineNode, marks = {}) => {
-            if (!inlineNode) return [];
-            if (inlineNode.nodeType === Node.TEXT_NODE) {
-                const txt = inlineNode.textContent || '';
-                if (!txt) return [];
-                return [{ text: txt, ...marks }];
-            }
-            if (inlineNode.nodeName === 'BR') {
-                return [{ text: '\n', ...marks }];
-            }
-            if (inlineNode.nodeType !== Node.ELEMENT_NODE) return [];
-
-            const tag = inlineNode.nodeName.toUpperCase();
-            const nextMarks = { ...marks };
-            if (tag === 'B' || tag === 'STRONG') nextMarks.bold = true;
-            if (tag === 'I' || tag === 'EM') nextMarks.italic = true;
-            if (tag === 'U') nextMarks.underline = true;
-            if (tag === 'S' || tag === 'STRIKE' || tag === 'DEL') nextMarks.strike = true;
-
-            const out = [];
-            inlineNode.childNodes.forEach((c) => out.push(...walkInline(c, nextMarks)));
-            return out;
-        };
-
-        const children = [];
-        node.childNodes.forEach((c) => children.push(...walkInline(c, {})));
-        blocks.push({
-            type,
-            children: children.length ? children : [{ text: '' }]
-        });
-    };
-
-    root.childNodes.forEach((n) => {
-        if (n.nodeType === Node.TEXT_NODE) {
-            const raw = n.textContent || '';
-            if (!raw.trim()) return;
-            blocks.push({ type: 'paragraph', children: [{ text: raw }] });
-            return;
-        }
-        if (n.nodeType !== Node.ELEMENT_NODE) return;
-        const tag = n.nodeName.toUpperCase();
-        if (tag === 'H1' || tag === 'H2' || tag === 'P' || tag === 'DIV') {
-            pushBlockFromNode(n);
-        } else {
-            blocks.push({ type: 'paragraph', children: [{ text: n.textContent || '' }] });
-        }
-    });
-
-    const normalized = blocks.filter((b) => {
-        const children = Array.isArray(b?.children) ? b.children : [];
-        const text = children.map((c) => String(c?.text || '')).join('').trim();
-        return text.length > 0;
-    });
-    if (!normalized.length) return createEmptyRichTextDoc();
-    return { blocks: normalized };
-}
-
-function findEditableBlockInEditor(editor, node) {
-    if (!editor || !node) return null;
-    const start = node.nodeType === Node.ELEMENT_NODE ? node : node.parentElement;
-    if (!start) return null;
-    const semanticBlock = start.closest('p,h1,h2');
-    if (semanticBlock && editor.contains(semanticBlock)) return semanticBlock;
-
-    // Fallback: direct child block under editor (e.g. browser inserted DIV line blocks)
-    let cur = start;
-    while (cur && cur !== editor) {
-        if (cur.parentElement === editor && cur.nodeType === Node.ELEMENT_NODE) {
-            const tag = cur.tagName?.toUpperCase();
-            if (tag === 'DIV' || tag === 'P' || tag === 'H1' || tag === 'H2') return cur;
-            return null;
-        }
-        cur = cur.parentElement;
-    }
-    return null;
-}
-
-function applyBlockTagToCurrentParagraph(editor, tagName) {
-    const sel = window.getSelection();
-    if (!editor || !sel || sel.rangeCount === 0) return false;
-    const range = sel.getRangeAt(0);
-    const block = findEditableBlockInEditor(editor, range.commonAncestorContainer);
-    if (!block) return false;
-    const targetTag = String(tagName || '').toUpperCase();
-    if (!['P', 'H1', 'H2'].includes(targetTag)) return false;
-    if (block.tagName === targetTag) return true;
-    if (block === editor) return false;
-
-    const replacement = document.createElement(targetTag.toLowerCase());
-    replacement.innerHTML = block.innerHTML;
-    block.replaceWith(replacement);
-
-    const newRange = document.createRange();
-    newRange.selectNodeContents(replacement);
-    newRange.collapse(false);
-    sel.removeAllRanges();
-    sel.addRange(newRange);
-    return true;
-}
-
-function setStructureRichText(block, doc) {
-    if (!block) return;
-    const lang = state.activeLang;
-    const normalizedDoc = normalizeRichDoc(doc);
-    if (!block.content || typeof block.content !== 'object') block.content = {};
-    if (!block.content.richTextLangs || typeof block.content.richTextLangs !== 'object') {
-        block.content.richTextLangs = {};
-    }
-    block.content.richTextLangs[lang] = normalizedDoc;
-    block.content.richText = normalizedDoc;
-    const text = richTextToPlainText(normalizedDoc);
-    if (!block.content.texts || typeof block.content.texts !== 'object') block.content.texts = {};
-    block.content.texts[lang] = text;
-    block.content.text = text;
-}
-
-function setStructureBodyText(block, text) {
-    if (!block) return;
-    const lang = state.activeLang;
-    if (!block.content || typeof block.content !== 'object') block.content = {};
-    if (!block.content.texts || typeof block.content.texts !== 'object') block.content.texts = {};
-    block.content.texts[lang] = text;
-    block.content.text = text;
-    setStructureRichText(block, plainTextToRichDoc(String(text || '')));
-}
-
-function getStructureTitle(block) {
-    const lang = state.activeLang;
-    return block?.meta?.title?.[lang] || '';
-}
-
-function setStructureTitle(block, text) {
-    if (!block) return;
-    const lang = state.activeLang;
-    if (!block.meta) block.meta = {};
-    if (!block.meta.title || typeof block.meta.title !== 'object') block.meta.title = {};
-    block.meta.title[lang] = text;
-}
-
-function getCoverBodyKind(block) {
-    const raw = block?.meta?.bodyKind || block?.meta?.renderMode || 'image';
-    return raw === 'theme' ? 'theme' : 'image';
-}
-
-function setCoverBodyKind(block, bodyKind) {
-    if (!block) return;
-    const mode = bodyKind === 'theme' ? 'theme' : 'image';
-    if (!block.meta) block.meta = {};
-    block.meta.bodyKind = mode;
-    block.meta.renderMode = mode;
-}
-
-function ensureCoverTheme(block) {
-    if (!block) return { templateId: 'classic', paletteId: 'ocean' };
-    if (!block.content || typeof block.content !== 'object') block.content = {};
-    if (!block.content.theme || typeof block.content.theme !== 'object') {
-        block.content.theme = {};
-    }
-    if (!block.content.theme.templateId) block.content.theme.templateId = 'classic';
-    if (!block.content.theme.paletteId) block.content.theme.paletteId = 'ocean';
-    if (!block.meta) block.meta = {};
-    block.meta.theme = block.content.theme;
-    return block.content.theme;
-}
-
-function parseContactsFromText(raw) {
-    const lines = String(raw || '')
-        .split(/\r?\n/)
-        .map((line) => line.trim())
-        .filter(Boolean);
-    return lines.map((value) => {
-        if (/^https?:\/\//i.test(value)) return { type: 'url', value };
-        if (/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value)) return { type: 'email', value };
-        return { type: 'other', value };
-    });
-}
-
-let coverFieldPushTimer = null;
-function touchCoverFieldHistory() {
-    if (!coverFieldPushTimer) {
-        pushState();
-    } else {
-        clearTimeout(coverFieldPushTimer);
-    }
-    coverFieldPushTimer = setTimeout(() => { coverFieldPushTimer = null; }, 500);
-}
-
-function populateThemeSelectOptions() {
-    const templateOptions = Object.values(THEME_TEMPLATES)
-        .map((t) => `<option value="${t.id}">${t.label}</option>`)
-        .join('');
-    const paletteOptions = Object.entries(THEME_PALETTES)
-        .map(([id, p]) => `<option value="${id}">${id.charAt(0).toUpperCase()}${id.slice(1)}</option>`)
-        .join('');
-
-    const templateIds = ['cover-front-theme-template', 'cover-back-theme-template'];
-    const paletteIds = ['cover-front-theme-palette', 'cover-back-theme-palette'];
-    templateIds.forEach((id) => {
-        const el = document.getElementById(id);
-        if (el && el.dataset.loaded !== '1') {
-            el.innerHTML = templateOptions;
-            el.dataset.loaded = '1';
-        }
-    });
-    paletteIds.forEach((id) => {
-        const el = document.getElementById(id);
-        if (el && el.dataset.loaded !== '1') {
-            el.innerHTML = paletteOptions;
-            el.dataset.loaded = '1';
-        }
-    });
-}
-
-const TOC_ROWS_PER_PAGE = 18;
-
-function createRuntimeBlockId(prefix) {
-    return `${prefix}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
-}
-
-function isAutoTocBlock(block) {
-    return block?.kind === 'toc' && block?.meta?.systemGenerated === true;
-}
-
-function isLockedBlock(block) {
-    return block?.kind === 'cover_front' || block?.kind === 'cover_back' || isAutoTocBlock(block);
-}
-
-function ensureAutoTocBlocks() {
-    const src = Array.isArray(state.blocks) ? state.blocks : [];
-    if (!src.length) return;
-
-    const before = src.filter((b) => !isAutoTocBlock(b));
-    const manualTocIdx = before.findIndex((b) => b?.kind === 'toc');
-    if (manualTocIdx < 0) {
-        dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'blocks', value: before } });
-        return;
-    }
-
-    const pages = blocksToPages(before);
-    const lang = state.defaultLang || state.activeLang || state.languages?.[0] || 'ja';
-    const outline = buildOutlineFromPages(pages, lang, 'item');
-    const requiredCount = Math.max(1, Math.ceil(Math.max(1, outline.length) / TOC_ROWS_PER_PAGE));
-    const addCount = Math.max(0, requiredCount - 1);
-
-    const next = [...before];
-    const seed = next[manualTocIdx];
-    for (let i = 0; i < addCount; i += 1) {
-        next.splice(manualTocIdx + 1 + i, 0, {
-            id: createRuntimeBlockId('toc_auto'),
-            kind: 'toc',
-            meta: {
-                title: { ...(seed?.meta?.title || {}) },
-                systemGenerated: true,
-                tocPageOffset: i + 1
-            }
-        });
-    }
-
-    const activeId = src[state.activeBlockIdx]?.id;
-    dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'blocks', value: next } });
-    if (activeId) {
-        const nextActive = next.findIndex((b) => b?.id === activeId);
-        if (nextActive >= 0) {
-            dispatch({ type: actionTypes.SET_ACTIVE_BLOCK_INDEX, payload: nextActive });
-        } else {
-            dispatch({ type: actionTypes.SET_ACTIVE_BLOCK_INDEX, payload: Math.max(0, Math.min(state.activeBlockIdx || 0, next.length - 1)) });
-        }
-    }
-}
 
 function syncBlocksFromState() {
     dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'blocks', value: syncBlocksWithSections(state.blocks, state.sections, state.languages) } });
-    ensureAutoTocBlocks();
     dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'pages', value: blocksToPages(state.blocks) } });
     const activeBlock = getActiveBlock();
     const pageIdx = getPageIndexFromBlockIndex(state.blocks, state.activeBlockIdx);
@@ -667,106 +38,6 @@ function syncBlocksFromState() {
     if (!activeBlock && state.blocks?.length) {
         dispatch({ type: actionTypes.SET_ACTIVE_BLOCK_INDEX, payload: 0 });
     }
-}
-
-function ensureSectionLayout(s) {
-    if (!s.layout || typeof s.layout !== 'object') s.layout = {};
-}
-
-function getSectionLayout(s) {
-    const lang = state.activeLang;
-    ensureSectionLayout(s);
-    return s.layout[lang] || null;
-}
-
-function composeSectionForActiveLang(s) {
-    const lang = state.activeLang;
-    const raw = getSectionText(s);
-    const mode = getWritingMode(lang);
-    const fontPreset = getFontPreset(lang);
-    ensureSectionLayout(s);
-    const layout = composeText(raw, lang, mode, fontPreset);
-    s.layout[lang] = layout;
-    return layout;
-}
-
-function ensureComposedLayoutForActiveLang(s) {
-    const lang = state.activeLang;
-    const raw = getSectionText(s);
-    const mode = getWritingMode(lang);
-    const fontPreset = getFontPreset(lang);
-    const existing = getSectionLayout(s);
-    if (!existing || existing.writingMode !== mode || existing.fontPreset !== fontPreset || Number(existing.version) !== LAYOUT_VERSION) {
-        return composeSectionForActiveLang(s);
-    }
-    return existing;
-}
-
-function composeAllTextSectionsForLang(lang) {
-    const mode = getWritingMode(lang);
-    const fontPreset = getFontPreset(lang);
-    for (const s of state.sections || []) {
-        if (!s || s.type !== 'text') continue;
-        if (!s.texts) s.texts = {};
-        if (!s.layout || typeof s.layout !== 'object') s.layout = {};
-        const raw = s.texts[lang] !== undefined ? s.texts[lang] : (s.text || '');
-        s.layout[lang] = composeText(raw, lang, mode, fontPreset);
-    }
-}
-
-function updateTextFitStatus(s) {
-    const statusEl = document.getElementById('text-fit-status');
-    const splitBtn = document.getElementById('btn-split-overflow');
-    if (!statusEl || !splitBtn) return;
-    if (!s || s.type !== 'text') {
-        statusEl.textContent = '';
-        splitBtn.style.display = 'none';
-        return;
-    }
-    const layout = ensureComposedLayoutForActiveLang(s);
-    const lines = layout?.lines?.length || 0;
-    const maxLines = layout?.rules?.maxLines || 0;
-    const chars = Array.from(getSectionText(s) || '').length;
-    const maxChars = layout?.rules?.maxChars || 0;
-    statusEl.textContent = `収まり: ${lines}/${maxLines}行  文字数: ${chars}/${maxChars}`;
-    statusEl.style.color = layout?.overflow ? '#c0392b' : '#2f3e52';
-    splitBtn.style.display = layout?.overflow ? 'inline-flex' : 'none';
-}
-
-function getVerticalTextPadding(layout) {
-    if (!layout || layout.writingMode !== 'vertical-rl') return 0;
-    const frameH = Number(layout?.frame?.h) || 0;
-    const fontSize = Number(layout?.font?.size) || 16;
-    const letterSpacing = Number(layout?.font?.letterSpacing) || 0;
-    const lines = Array.isArray(layout?.lines) ? layout.lines : [];
-    let maxChars = 0;
-    for (const line of lines) {
-        const count = Array.from(String(line || '')).length;
-        if (count > maxChars) maxChars = count;
-    }
-    if (maxChars <= 0 || frameH <= 0) return 0;
-    const usedH = maxChars * Math.max(1, fontSize + letterSpacing);
-    const pad = Math.floor((frameH - usedH) / 2);
-    return Math.max(0, Math.min(40, pad));
-}
-
-// ──────────────────────────────────────
-//  refresh — 画面全体を再描画する
-// ──────────────────────────────────────
-// ──────────────────────────────────────
-//  ヘルパー: 書字方向の取得
-// ──────────────────────────────────────
-function getWritingMode(lang) {
-    if (state.languageConfigs && state.languageConfigs[lang]) {
-        return state.languageConfigs[lang].writingMode;
-    }
-    // Fallback / Default
-    const props = getLangProps(lang);
-    return props.defaultWritingMode || 'horizontal-tb';
-}
-
-function getFontPreset(lang) {
-    return getFontPresetFromConfigs(lang, state.languageConfigs);
 }
 
 function updateAuthUI() {
@@ -847,246 +118,10 @@ function setCurrentDeviceThumbColumns(cols) {
     dispatch({ type: actionTypes.SET_THUMB_COLUMNS, payload: { columns: cols, device: key } });
 }
 
-function inferRoleFromAnyPage(page) {
-    if (page?.role) return page.role;
-    const pt = page?.pageType;
-    if (pt === 'cover_front') return 'cover_front';
-    if (pt === 'cover_back') return 'cover_back';
-    if (pt === 'chapter') return 'chapter';
-    if (pt === 'section') return 'section';
-    if (pt === 'item') return 'item';
-    if (pt === 'toc') return 'toc';
-    return 'normal';
-}
 
-function hasLocalizedValue(map, lang) {
-    const v = map?.[lang];
-    return typeof v === 'string' && v.trim().length > 0;
-}
-
-function isValidHttpUrl(value) {
-    try {
-        const u = new URL(String(value || ''));
-        return u.protocol === 'http:' || u.protocol === 'https:';
-    } catch (_) {
-        return false;
-    }
-}
-
-function isValidEmail(value) {
-    return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(value || '').trim());
-}
-
-let validationIssueStore = [];
-let validationIssueFilter = 'all';
-let validationIssueContextLabel = '公開';
-
-function applyValidationIssueFilter(list, filter) {
-    if (filter === 'cover_front') return list.filter((issue) => issue?.role === 'cover_front');
-    if (filter === 'cover_back') return list.filter((issue) => issue?.role === 'cover_back');
-    if (filter === 'structure') return list.filter((issue) => issue?.role === 'chapter' || issue?.role === 'section' || issue?.role === 'item');
-    return list;
-}
-
-function renderValidationIssueList() {
-    const listEl = document.getElementById('validation-issues');
-    const summaryEl = document.getElementById('validation-summary');
-    const filterEls = document.querySelectorAll('[data-validation-filter]');
-    if (!listEl || !summaryEl) return;
-
-    filterEls.forEach((el) => {
-        el.classList.toggle('active', el.dataset.validationFilter === validationIssueFilter);
-    });
-
-    const all = Array.isArray(validationIssueStore) ? validationIssueStore : [];
-    const filtered = applyValidationIssueFilter(all, validationIssueFilter);
-    summaryEl.textContent = `${validationIssueContextLabel}できません。必須項目を入力してください（${filtered.length}/${all.length}件）。`;
-    listEl.innerHTML = '';
-    if (!filtered.length) {
-        const note = document.createElement('div');
-        note.className = 'validation-note';
-        note.textContent = 'このフィルタに該当するエラーはありません。';
-        listEl.appendChild(note);
-        return;
-    }
-
-    filtered.slice(0, 300).forEach((issue, i) => {
-        const row = document.createElement('button');
-        row.type = 'button';
-        row.className = 'validation-issue';
-        row.textContent = `P${(issue?.pageIdx ?? 0) + 1}: ${issue?.message || ''}`;
-        row.onclick = () => jumpToValidationIssuePage(issue?.pageIdx ?? 0);
-        listEl.appendChild(row);
-        if (i === 0) {
-            setTimeout(() => row.focus(), 0);
-        }
-    });
-    if (filtered.length > 300) {
-        const note = document.createElement('div');
-        note.className = 'validation-note';
-        note.textContent = `...他 ${filtered.length - 300} 件`;
-        listEl.appendChild(note);
-    }
-}
-
-function setValidationIssueFilter(filter) {
-    validationIssueFilter = ['all', 'cover_front', 'cover_back', 'structure'].includes(filter) ? filter : 'all';
-    renderValidationIssueList();
-}
-
-function validateProjectForPublishOrExport() {
-    syncBlocksFromState();
-    const pages = Array.isArray(state.pages) ? state.pages : [];
-    const langs = Array.isArray(state.languages) && state.languages.length ? state.languages : ['ja'];
-    const issues = [];
-
-    const addIssue = (pageIdx, role, message, level = 'warning') => {
-        issues.push({ pageIdx, role, message, level });
-    };
-
-    for (let i = 0; i < pages.length; i += 1) {
-        const p = pages[i];
-        const role = inferRoleFromAnyPage(p);
-        const meta = p?.meta || {};
-
-        if (role === 'cover_front') {
-            for (const lang of langs) {
-                // Mandatory fields
-                if (!hasLocalizedValue(meta.title, lang)) addIssue(i, role, `表紙 タイトル[${lang}] が未入力`, 'error');
-                if (!hasLocalizedValue(meta.author, lang)) addIssue(i, role, `表紙 著者名[${lang}] が未入力`, 'error');
-
-                // Warning fields
-                if (!hasLocalizedValue(meta.subtitle, lang)) addIssue(i, role, `表紙 サブタイトル[${lang}] が未入力`, 'warning');
-                if (!hasLocalizedValue(meta.supervisor, lang)) addIssue(i, role, `表紙 監修者名[${lang}] が未入力`, 'warning');
-                if (!hasLocalizedValue(meta.publisher, lang)) addIssue(i, role, `表紙 出版社名[${lang}] が未入力`, 'warning');
-            }
-        }
-
-        if (role === 'cover_back') {
-            for (const lang of langs) {
-                if (!hasLocalizedValue(meta.edition, lang)) addIssue(i, role, `裏表紙 版[${lang}] が未入力`, 'warning');
-            }
-            const contacts = Array.isArray(meta.contacts) ? meta.contacts : [];
-            if (!contacts.length) {
-                addIssue(i, role, '裏表紙 連絡先が未入力', 'warning');
-            } else {
-                contacts.forEach((c, idx) => {
-                    const type = c?.type || 'other';
-                    const value = String(c?.value || '').trim();
-                    if (!value) {
-                        addIssue(i, role, `裏表紙 連絡先#${idx + 1} が未入力`, 'warning');
-                        return;
-                    }
-                    if (type === 'url' && !isValidHttpUrl(value)) {
-                        addIssue(i, role, `裏表紙 連絡先#${idx + 1} URL形式が不正 (http/https必須)`, 'warning');
-                    }
-                    if (type === 'email' && !isValidEmail(value)) {
-                        addIssue(i, role, `裏表紙 連絡先#${idx + 1} メール形式が不正`, 'warning');
-                    }
-                });
-            }
-        }
-
-        if (role === 'chapter' || role === 'section' || role === 'item') {
-            for (const lang of langs) {
-                if (!hasLocalizedValue(meta.title, lang)) {
-                    const label = role === 'chapter' ? '章' : (role === 'section' ? '節' : '項');
-                    addIssue(i, role, `${label} タイトル[${lang}] が未入力`, 'warning');
-                }
-            }
-        }
-    }
-
-    const errors = issues.filter(i => i.level === 'error');
-    const warnings = issues.filter(i => i.level === 'warning');
-
-    return {
-        ok: errors.length === 0,
-        hasWarnings: warnings.length > 0,
-        issues
-    };
-}
-
-function jumpToValidationIssuePage(pageIdx) {
-    const pages = Array.isArray(state.pages) ? pages : [];
-    if (!pages.length) return;
-    const idx = Math.max(0, Math.min(Number(pageIdx) || 0, pages.length - 1));
-    dispatch({ type: actionTypes.SET_ACTIVE_INDEX, payload: idx });
-    const blockIdx = getBlockIndexFromPageIndex(state.blocks || [], idx);
-    if (blockIdx >= 0) dispatch({ type: actionTypes.SET_ACTIVE_BLOCK_INDEX, payload: blockIdx });
-    dispatch({ type: actionTypes.SET_ACTIVE_BUBBLE_INDEX, payload: null });
-    closePublishValidationModal();
-    refresh();
-    const thumbEl = getThumbElement(idx);
-    if (thumbEl) thumbEl.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
-}
-
-let validationProceedCallback = null;
-
-function closePublishValidationModal() {
-    const modal = document.getElementById('validation-modal');
-    if (!modal) return;
-    modal.classList.remove('visible');
-    validationProceedCallback = null; // Clear callback when closing
-}
-
-window.proceedWithValidationWarnings = () => {
-    const cb = validationProceedCallback;
-    closePublishValidationModal();
-    if (typeof cb === 'function') {
-        cb();
-    }
-};
-
-function showPublishValidationErrors(issues, contextLabel, isWarningOnly = false, onProceed = null) {
-    const list = Array.isArray(issues) ? issues : [];
-    const modal = document.getElementById('validation-modal');
-    const summaryEl = document.getElementById('validation-summary');
-    const listEl = document.getElementById('validation-issues');
-    const filterWrap = document.getElementById('validation-filters');
-    const proceedBtn = document.getElementById('btn-validation-proceed');
-
-    if (modal && summaryEl && listEl && filterWrap) {
-        validationIssueStore = list.map((issue) => ({
-            pageIdx: issue?.pageIdx ?? 0,
-            role: issue?.role || 'other',
-            message: issue?.message || '',
-            level: issue?.level || 'warning'
-        }));
-        validationIssueContextLabel = contextLabel;
-        validationIssueFilter = 'all';
-        validationProceedCallback = onProceed;
-
-        if (proceedBtn) {
-            proceedBtn.style.display = isWarningOnly ? 'inline-block' : 'none';
-        }
-
-        renderValidationIssueList();
-        modal.classList.add('visible');
-        return;
-    }
-
-    const lines = [
-        `${contextLabel}できません。`,
-        '必須項目を入力してください:',
-        ...list.slice(0, 60).map((issue) => `[${issue.level === 'error' ? '必須' : '警告'}] P${(issue?.pageIdx ?? 0) + 1}: ${issue?.message || ''}`)
-    ];
-    if (list.length > 60) {
-        lines.push(`...他 ${list.length - 60} 件`);
-    }
-
-    if (isWarningOnly) {
-        const proceed = confirm(lines.join('\n') + '\n\n無視して強制的に続行しますか？');
-        if (proceed && typeof onProceed === 'function') {
-            onProceed();
-        }
-    } else {
-        alert(lines.join('\n'));
-    }
-}
 
 // ──────────────────────────────────────
-//  refresh — 画面全体を再描画する
+//  refresh — 画面全体を再描画する (Gen3: image pages only)
 // ──────────────────────────────────────
 function refresh() {
     const visSelect = document.getElementById('prop-visibility');
@@ -1094,90 +129,20 @@ function refresh() {
         visSelect.value = state.visibility || 'private';
     }
 
-    populateThemeSelectOptions();
     syncBlocksFromState();
     const activeBlock = getActiveBlock();
-    const isPageBlock = activeBlock?.kind === 'page';
     const s = state.sections[state.activeIdx];
     const render = document.getElementById('content-render');
     const lang = state.activeLang;
     const langProps = getLangProps(lang);
 
-    // Normalize stale bubble selection before rendering text/rich-text mode.
-    if (isPageBlock && state.activeBubbleIdx !== null && (!s?.bubbles || !s.bubbles[state.activeBubbleIdx])) {
+    // Normalize stale bubble selection
+    if (state.activeBubbleIdx !== null && (!s?.bubbles || !s.bubbles[state.activeBubbleIdx])) {
         dispatch({ type: actionTypes.SET_ACTIVE_BUBBLE_INDEX, payload: null });
     }
-    const shouldUseRichTextPanelForPage = isPageBlock && s?.type === 'text' && state.activeBubbleIdx === null;
 
-    // Global Writing Mode
-    const effectiveMode = getWritingMode(lang);
-
-    // メインキャンバスの描画切り替え
-    if (!isPageBlock) {
-        const labels = {
-            cover_front: '表紙ブロック',
-            cover_back: '裏表紙ブロック',
-            chapter: '章ブロック',
-            section: '節ブロック',
-            item: '項ブロック',
-            item_end: '項終了ブロック',
-            toc: '目次ブロック'
-        };
-        const label = labels[activeBlock?.kind] || (activeBlock?.kind || 'ブロック');
-        const text = getBlockLocalizedText(activeBlock);
-        const isCover = activeBlock?.kind === 'cover_front' || activeBlock?.kind === 'cover_back';
-        const coverBodyKind = getCoverBodyKindFromBlock(activeBlock);
-        if (isCover && coverBodyKind === 'theme') {
-            render.innerHTML = renderCoverThemePreview(activeBlock);
-        } else if (isCover && coverBodyKind === 'image') {
-            render.innerHTML = renderCoverImagePreview(activeBlock);
-        } else if (activeBlock?.kind === 'toc') {
-            render.innerHTML = renderTocPreview(activeBlock);
-        } else if (isStructureKind(activeBlock?.kind) && getStructureBodyKind(activeBlock) === 'image') {
-            const bg = activeBlock?.content?.background || '';
-            if (bg) {
-                render.innerHTML = `
-                    <div style="position:absolute; left:20px; top:32px; width:320px; height:576px; overflow:hidden; border-radius:8px; border:1px solid #d7deea;">
-                        <img src="${getOptimizedImageUrl(bg)}" style="width:100%; height:100%; object-fit:cover;">
-                        <div style="position:absolute; left:12px; right:12px; bottom:12px; background:rgba(0,0,0,.45); color:#fff; border-radius:8px; padding:8px 10px;">
-                            <div style="font-size:11px; opacity:.85;">${label}</div>
-                            <div style="font-size:20px; font-weight:700; line-height:1.35; white-space:normal; overflow-wrap:anywhere; word-break:break-word;">${text || ''}</div>
-                        </div>
-                    </div>
-                `;
-            } else {
-                render.innerHTML = `
-                    <div class="fixed-text-frame" style="position:absolute; left:20px; top:32px; width:320px; height:576px; display:flex; align-items:center; justify-content:center; border:2px dashed #cfd7e3; background:#f8fafc; color:#2f3e52; padding:20px; text-align:center;">
-                        <div>
-                            <div style="font-size:12px; margin-bottom:8px;">${label}</div>
-                            <div style="font-size:14px; font-weight:700;">画像を設定してください</div>
-                        </div>
-                    </div>
-                `;
-            }
-        } else if (isStructureKind(activeBlock?.kind) && getStructureBodyKind(activeBlock) === 'text') {
-            const body = getStructureBodyText(activeBlock);
-            render.innerHTML = `
-                <div class="fixed-text-frame" style="position:absolute; left:20px; top:32px; width:320px; height:576px; border:2px solid #d8e0ec; border-radius:8px; background:#f9fbff; color:#22314a; padding:20px;">
-                    <div style="font-size:11px; color:#6a7b96; margin-bottom:8px;">${label}</div>
-                    <div style="font-size:26px; font-weight:800; line-height:1.3; margin-bottom:16px; white-space:normal; overflow-wrap:anywhere; word-break:break-word;">${text || ''}</div>
-                    <div style="font-size:15px; line-height:1.7; color:#334b6d; white-space:pre-wrap;">${body || ''}</div>
-                </div>
-            `;
-        } else {
-            render.innerHTML = `
-            <div class="fixed-text-frame" style="position:absolute; left:20px; top:32px; width:320px; height:576px; display:flex; align-items:center; justify-content:center; border:2px dashed #cfd7e3; background:#f8fafc; color:#2f3e52; padding:20px; text-align:center;">
-                <div>
-                    <div style="font-size:12px; margin-bottom:8px;">${label}</div>
-                    <div style="font-size:14px; font-weight:700;">${text || '右パネルのテキスト入力で編集'}</div>
-                </div>
-            </div>
-        `;
-        }
-        document.getElementById('image-only-props').style.display = 'none';
-        document.getElementById('bubble-layer').style.display = 'none';
-        document.getElementById('bubble-shape-props').style.display = 'none';
-    } else if (s.type === 'image') {
+    // メインキャンバスの描画 — image pages only
+    if (s && s.type === 'image') {
         if (!s.imagePosition) s.imagePosition = {};
         const toNum = (v, fallback) => {
             const n = Number(v);
@@ -1191,10 +156,6 @@ function refresh() {
         if (!s.imageBasePosition) {
             s.imageBasePosition = { x: 0, y: 0, scale: 1, rotation: 0 };
         }
-        // 画像自体にtransformを適用。
-        // object-fit: cover とバッティングしないよう、width/heightを維持しつつCSS transformで動かす
-        // ただし cover だと中心基準で切り取られるため、transform translate は中心からのオフセットとして機能する。
-        // これで直感的な挙動になるはず。
         const targetStyle = `transform: translate(${pos.x}px, ${pos.y}px) scale(${pos.scale}) rotate(${pos.rotation}deg);`;
 
         const invScale = 1 / Math.max(pos.scale || 1, 0.1);
@@ -1219,57 +180,8 @@ function refresh() {
             </div>`;
         document.getElementById('image-only-props').style.display = 'block';
         document.getElementById('bubble-layer').style.display = 'block';
-    } else {
-        if (shouldUseRichTextPanelForPage) {
-            const layout = ensureComposedLayoutForActiveLang(s);
-            const vtClass = effectiveMode === 'vertical-rl' ? 'v-text' : '';
-            const align = langProps.sectionAlign;
-            const frame = layout?.frame || { x: 20, y: 32, w: 320, h: 576 };
-            const font = layout?.font || {};
-            const family = font.family || '"Noto Sans","Segoe UI",sans-serif';
-            const size = Number(font.size) || 16;
-            const lineHeight = Number(font.lineHeight) || 1.8;
-            const letterSpacing = Number.isFinite(Number(font.letterSpacing)) ? Number(font.letterSpacing) : 0;
-            const verticalPad = getVerticalTextPadding(layout);
-            const richHtml = richTextDocToHtml(getSectionRichText(s));
-            render.innerHTML = `<div class="fixed-text-frame"
-                style="position:absolute; left:${frame.x}px; top:${frame.y}px; width:${frame.w}px; height:${frame.h}px; overflow:hidden;">
-                <div id="main-richtext-area" class="canvas-rich-view ${vtClass}" contenteditable="true"
-                    onmousedown="event.stopPropagation()"
-                    onclick="event.stopPropagation()"
-                    ontouchstart="event.stopPropagation()"
-                    oninput="updatePageRichTextFromCanvas(this)"
-                    style="width:100%; height:100%; padding:${verticalPad}px 0; overflow:hidden; text-align:${align}; white-space:normal; overflow-wrap:anywhere; word-break:break-word; font-family:${family}; font-size:${size}px; line-height:${lineHeight}; letter-spacing:${letterSpacing}px;">${richHtml}</div>
-            </div>`;
-        } else {
-            const layout = ensureComposedLayoutForActiveLang(s);
-            const sectionText = (layout?.lines || []).join('\n');
-            const vtClass = effectiveMode === 'vertical-rl' ? 'v-text' : '';
-            const align = langProps.sectionAlign;
-            const frame = layout?.frame || { x: 20, y: 32, w: 320, h: 576 };
-            const font = layout?.font || {};
-            const family = font.family || '"Noto Sans","Segoe UI",sans-serif';
-            const size = Number(font.size) || 16;
-            const lineHeight = Number(font.lineHeight) || 1.8;
-            const letterSpacing = Number.isFinite(Number(font.letterSpacing)) ? Number(font.letterSpacing) : 0;
-            const verticalPad = getVerticalTextPadding(layout);
-
-            // フォーカス維持判定
-            const existing = document.getElementById('main-text-area');
-            if (existing && document.activeElement === existing) {
-                if (existing.value !== sectionText) existing.value = sectionText;
-            } else {
-                render.innerHTML = `<div class="fixed-text-frame"
-                    style="position:absolute; left:${frame.x}px; top:${frame.y}px; width:${frame.w}px; height:${frame.h}px; overflow:hidden;">
-                    <textarea id="main-text-area" class="text-layer ${vtClass}" wrap="off"
-                        style="width:100%; height:100%; padding:${verticalPad}px 0; background:transparent; text-align:${align}; white-space:pre; word-break:normal; overflow-wrap:normal; overflow:hidden; font-family:${family}; font-size:${size}px; line-height:${lineHeight}; letter-spacing:${letterSpacing}px;"
-                        onmousedown="event.stopPropagation()"
-                        onclick="event.stopPropagation()"
-                        ontouchstart="event.stopPropagation()"
-                        oninput="updateActiveText(this.value, event)">${sectionText}</textarea>
-                </div>`;
-            }
-        }
+    } else if (s) {
+        render.innerHTML = '';
         document.getElementById('image-only-props').style.display = 'none';
         document.getElementById('bubble-layer').style.display = 'none';
         document.getElementById('bubble-shape-props').style.display = 'none';
@@ -1280,193 +192,47 @@ function refresh() {
     const isDirectEditing = editingEl && editingEl.classList.contains('bubble-text')
         && editingEl.getAttribute('contenteditable') === 'true';
 
-    if (isPageBlock && !isDirectEditing && s.type !== 'text') {
+    if (s && s.type === 'image' && !isDirectEditing) {
         document.getElementById('bubble-layer').innerHTML = (s.bubbles || []).map((b, i) =>
-            renderBubbleHTML(b, i, i === state.activeBubbleIdx, effectiveMode) // Pass effectiveMode
+            renderBubbleHTML(b, i, i === state.activeBubbleIdx, langProps.defaultWritingMode || 'horizontal-tb')
         ).join('');
-    } else if (!isPageBlock) {
-        document.getElementById('bubble-layer').innerHTML = '';
     }
 
     // パネルUIの同期
     const propType = document.getElementById('prop-type');
     if (propType) {
-        if (isPageBlock) {
-            propType.disabled = false;
-            propType.value = s.type;
-        } else {
-            propType.disabled = true;
-        }
+        propType.disabled = false;
+        propType.value = s?.type || 'image';
     }
-    const pageLockNote = document.getElementById('page-lock-note');
     const deleteBtn = document.getElementById('btn-delete-active');
-    const isLocked = isLockedBlock(activeBlock);
-    if (pageLockNote) {
-        if (activeBlock?.kind === 'cover_front' || activeBlock?.kind === 'cover_back') {
-            pageLockNote.style.display = 'block';
-            pageLockNote.textContent = 'このページは固定です: 位置変更・削除・role変更はできません。';
-        } else if (isAutoTocBlock(activeBlock)) {
-            pageLockNote.style.display = 'block';
-            pageLockNote.textContent = 'この目次ページは自動生成です: 編集・削除はできません。';
-        } else {
-            pageLockNote.style.display = 'none';
-            pageLockNote.textContent = '';
-        }
-    }
     if (deleteBtn) {
-        deleteBtn.disabled = !!isLocked;
-        deleteBtn.title = isLocked
-            ? (isAutoTocBlock(activeBlock) ? '自動生成目次ページは削除できません' : '表紙/裏表紙は削除できません')
-            : '';
+        deleteBtn.disabled = false;
+        deleteBtn.title = '';
     }
     const genericTextEditor = document.getElementById('generic-text-editor');
-    const pageRichTools = document.getElementById('page-richtext-tools');
-    const pageRichEditor = document.getElementById('page-richtext-editor');
-    const coverFrontFields = document.getElementById('cover-front-fields');
-    const coverBackFields = document.getElementById('cover-back-fields');
-    const structureFields = document.getElementById('structure-fields');
-    const structureImageFields = document.getElementById('structure-image-fields');
-    const structureTextFields = document.getElementById('structure-text-fields');
-    const coverFrontImageFields = document.getElementById('cover-front-image-fields');
-    const coverBackImageFields = document.getElementById('cover-back-image-fields');
-    const isCoverFront = activeBlock?.kind === 'cover_front';
-    const isCoverBack = activeBlock?.kind === 'cover_back';
-    const isStructureBlock = isStructureKind(activeBlock?.kind);
-    const showPageRichText = shouldUseRichTextPanelForPage;
-    if (coverFrontFields) coverFrontFields.style.display = isCoverFront ? 'block' : 'none';
-    if (coverBackFields) coverBackFields.style.display = isCoverBack ? 'block' : 'none';
-    if (structureFields) structureFields.style.display = isStructureBlock ? 'block' : 'none';
-    if (genericTextEditor) genericTextEditor.style.display = (isCoverFront || isCoverBack || isStructureBlock) ? 'none' : 'block';
+    if (genericTextEditor) genericTextEditor.style.display = 'block';
 
-    if (isCoverFront) {
-        const bodyKind = getCoverBodyKind(activeBlock);
-        const modeEl = document.getElementById('cover-front-body-kind');
-        if (modeEl && document.activeElement !== modeEl) {
-            modeEl.value = bodyKind;
-        }
-        const frontThemeFields = document.getElementById('cover-front-theme-fields');
-        if (frontThemeFields) frontThemeFields.style.display = bodyKind === 'theme' ? 'block' : 'none';
-        if (coverFrontImageFields) coverFrontImageFields.style.display = bodyKind === 'image' ? 'block' : 'none';
-        const theme = ensureCoverTheme(activeBlock);
-        const tplEl = document.getElementById('cover-front-theme-template');
-        const palEl = document.getElementById('cover-front-theme-palette');
-        if (tplEl && document.activeElement !== tplEl) tplEl.value = theme.templateId || 'classic';
-        if (palEl && document.activeElement !== palEl) palEl.value = theme.paletteId || 'ocean';
-
-        const mapping = [
-            ['cover-front-title', 'title'],
-            ['cover-front-subtitle', 'subtitle'],
-            ['cover-front-author', 'author'],
-            ['cover-front-supervisor', 'supervisor'],
-            ['cover-front-publisher', 'publisher']
-        ];
-        mapping.forEach(([id, key]) => {
-            const el = document.getElementById(id);
-            if (!el || document.activeElement === el) return;
-            el.value = getBlockLocalizedMetaField(activeBlock, key);
-        });
-    } else if (isCoverBack) {
-        const bodyKind = getCoverBodyKind(activeBlock);
-        const modeEl = document.getElementById('cover-back-body-kind');
-        if (modeEl && document.activeElement !== modeEl) {
-            modeEl.value = bodyKind;
-        }
-        const backThemeFields = document.getElementById('cover-back-theme-fields');
-        if (backThemeFields) backThemeFields.style.display = bodyKind === 'theme' ? 'block' : 'none';
-        if (coverBackImageFields) coverBackImageFields.style.display = bodyKind === 'image' ? 'block' : 'none';
-        const theme = ensureCoverTheme(activeBlock);
-        const tplEl = document.getElementById('cover-back-theme-template');
-        const palEl = document.getElementById('cover-back-theme-palette');
-        if (tplEl && document.activeElement !== tplEl) tplEl.value = theme.templateId || 'classic';
-        if (palEl && document.activeElement !== palEl) palEl.value = theme.paletteId || 'ocean';
-
-        const editionEl = document.getElementById('cover-back-edition');
-        const contactsEl = document.getElementById('cover-back-contacts');
-        if (editionEl && document.activeElement !== editionEl) {
-            editionEl.value = getBlockLocalizedMetaField(activeBlock, 'edition');
-        }
-        if (contactsEl && document.activeElement !== contactsEl) {
-            const contacts = Array.isArray(activeBlock?.meta?.contacts) ? activeBlock.meta.contacts : [];
-            contactsEl.value = contacts.map((c) => c?.value || '').filter(Boolean).join('\n');
-        }
-    } else if (isStructureBlock) {
-        const bodyKind = getStructureBodyKind(activeBlock);
-        const titleEl = document.getElementById('structure-title');
-        const modeEl = document.getElementById('structure-body-kind');
-        if (titleEl && document.activeElement !== titleEl) titleEl.value = getStructureTitle(activeBlock);
-        if (modeEl && document.activeElement !== modeEl) modeEl.value = bodyKind;
-        if (structureImageFields) structureImageFields.style.display = bodyKind === 'image' ? 'block' : 'none';
-        if (structureTextFields) structureTextFields.style.display = bodyKind === 'text' ? 'block' : 'none';
-        const bodyEl = document.getElementById('structure-body-rich-editor');
-        if (bodyEl && document.activeElement !== bodyEl) {
-            bodyEl.innerHTML = richTextDocToHtml(getStructureRichText(activeBlock));
-        }
-    }
-    if (!isCoverFront && coverFrontImageFields) coverFrontImageFields.style.display = 'none';
-    if (!isCoverBack && coverBackImageFields) coverBackImageFields.style.display = 'none';
-    if (!isStructureBlock && structureImageFields) structureImageFields.style.display = 'none';
-    if (!isStructureBlock && structureTextFields) structureTextFields.style.display = 'none';
-    if (pageRichTools) pageRichTools.style.display = showPageRichText ? 'flex' : 'none';
-    if (pageRichEditor) {
-        pageRichEditor.style.display = showPageRichText ? 'block' : 'none';
-        if (showPageRichText && document.activeElement !== pageRichEditor) {
-            pageRichEditor.innerHTML = richTextDocToHtml(getSectionRichText(s));
-        }
-    }
-
-    // 言語設定パネル内の書字方向同期
-    const langModeSelect = document.getElementById('lang-writing-mode');
-    if (langModeSelect) {
-        langModeSelect.value = effectiveMode;
-        // 言語が縦書き非対応なら無効化などの制御も可能だが、
-        // lang.js の writingModes に従うべき
-        const allowed = langProps.writingModes;
-        Array.from(langModeSelect.options).forEach(opt => {
-            opt.disabled = !allowed.includes(opt.value);
-        });
-    }
-
-    const langFontSelect = document.getElementById('lang-font-preset');
-    if (langFontSelect) {
-        const current = getFontPreset(lang);
-        const options = getFontPresetOptions();
-        langFontSelect.innerHTML = options.map((opt) =>
-            `<option value="${opt.value}">${opt.label}</option>`
-        ).join('');
-        langFontSelect.value = current;
-    }
-
-    // テキストエリア: 言語に応じたテキストを表示
+    // テキストエリア: バブル選択時のテキスト表示
     const propTextEl = document.getElementById('prop-text');
-    if (isPageBlock && state.activeBubbleIdx !== null && s.bubbles[state.activeBubbleIdx]) {
-        propTextEl.value = getBubbleText(s.bubbles[state.activeBubbleIdx]);
-    } else if (isPageBlock) {
-        propTextEl.value = getSectionText(s);
-    } else {
-        propTextEl.value = getBlockLocalizedText(activeBlock);
-    }
     if (propTextEl) {
-        propTextEl.style.display = showPageRichText ? 'none' : 'block';
-        propTextEl.readOnly = isAutoTocBlock(activeBlock);
+        if (state.activeBubbleIdx !== null && s?.bubbles?.[state.activeBubbleIdx]) {
+            propTextEl.value = getBubbleText(s.bubbles[state.activeBubbleIdx]);
+        } else {
+            propTextEl.value = '';
+        }
+        propTextEl.style.display = 'block';
+        propTextEl.readOnly = false;
     }
-    const fitEl = document.getElementById('text-fit-status');
-    if (fitEl) fitEl.style.display = showPageRichText ? 'none' : 'block';
-    const splitEl = document.getElementById('btn-split-overflow');
-    if (splitEl && showPageRichText) splitEl.style.display = 'none';
-    updateTextFitStatus(isPageBlock ? s : null);
 
     // テキストラベルに現在の言語を表示
     const textLabel = document.getElementById('text-label');
     if (textLabel) {
-        const label = isPageBlock
-            ? `テキスト入力 [${langProps.label}]`
-            : `ブロックテキスト [${langProps.label}]`;
-        textLabel.textContent = label;
+        textLabel.textContent = `テキスト入力 [${langProps.label}]`;
     }
 
     // 吹き出し形状＆カラーセレクタの同期
     const shapeProps = document.getElementById('bubble-shape-props');
-    if (isPageBlock && state.activeBubbleIdx !== null && s.bubbles && s.bubbles[state.activeBubbleIdx]) {
+    if (state.activeBubbleIdx !== null && s?.bubbles?.[state.activeBubbleIdx]) {
         if (shapeProps) shapeProps.style.display = 'block';
         updateBubblePropPanel(s.bubbles[state.activeBubbleIdx]);
     } else {
@@ -2033,22 +799,9 @@ function initImageAdjustment() {
 //  テキスト更新（多言語対応）
 // ──────────────────────────────────────
 let textPushTimer = null;
-function updateActiveText(v, ev) {
-    const activeBlock = getActiveBlock();
-    if (activeBlock && activeBlock.kind !== 'page') {
-        if (isAutoTocBlock(activeBlock)) return;
-        if (!textPushTimer) {
-            pushState();
-        } else {
-            clearTimeout(textPushTimer);
-        }
-        textPushTimer = setTimeout(() => { textPushTimer = null; }, 500);
-        setBlockLocalizedText(activeBlock, v);
-        refresh();
-        triggerAutoSave();
-        return;
-    }
+function updateActiveText(v) {
     const s = state.sections[state.activeIdx];
+    if (!s) return;
     if (!textPushTimer) {
         pushState();
     } else {
@@ -2058,21 +811,8 @@ function updateActiveText(v, ev) {
 
     if (state.activeBubbleIdx !== null && s.bubbles && s.bubbles[state.activeBubbleIdx]) {
         setBubbleText(s.bubbles[state.activeBubbleIdx], v);
-    } else {
-        setSectionText(s, v);
-        composeSectionForActiveLang(s);
     }
-    if (ev?.isComposing) {
-        updateTextFitStatus(s);
-    } else {
-        const activeEl = document.activeElement;
-        const editingMainText = activeEl && activeEl.id === 'main-text-area';
-        if (editingMainText) {
-            updateTextFitStatus(s);
-        } else {
-            refresh();
-        }
-    }
+    refresh();
     triggerAutoSave();
 }
 
@@ -2245,10 +985,8 @@ function updateGlobalWritingMode(mode) {
     const lang = state.activeLang;
     if (!state.languageConfigs) state.languageConfigs = {};
     if (!state.languageConfigs[lang]) state.languageConfigs[lang] = {};
-
     state.languageConfigs[lang].writingMode = mode;
     pushState();
-    composeAllTextSectionsForLang(lang);
     refresh();
     triggerAutoSave();
 }
@@ -2257,10 +995,8 @@ function updateGlobalFontPreset(fontPreset) {
     const lang = state.activeLang;
     if (!state.languageConfigs) state.languageConfigs = {};
     if (!state.languageConfigs[lang]) state.languageConfigs[lang] = {};
-
     state.languageConfigs[lang].fontPreset = fontPreset;
     pushState();
-    composeAllTextSectionsForLang(lang);
     refresh();
     triggerAutoSave();
 }
@@ -2327,9 +1063,6 @@ function onLoadProject(pid, sections, languages, defaultLang, languageConfigs, t
 
 // --- キーボードショートカット ---
 document.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape') {
-        closePublishValidationModal();
-    }
     if ((e.ctrlKey || e.metaKey) && !e.shiftKey && e.key === 'z') {
         e.preventDefault();
         undo(refresh);
@@ -2403,36 +1136,6 @@ window.moveBlockByIndex = (blockIdx, direction, e) => {
     pushState();
     const moved = moveBlockAt(blockIdx, direction, refresh);
     if (moved) triggerAutoSave();
-};
-window.splitOverflowToNextPage = () => {
-    const activeBlock = getActiveBlock();
-    if (activeBlock && activeBlock.kind !== 'page') return;
-    const s = state.sections[state.activeIdx];
-    if (!s || s.type !== 'text') return;
-    const layout = ensureComposedLayoutForActiveLang(s);
-    if (!layout?.overflow || !layout?.overflowText) return;
-    const lang = state.activeLang;
-
-    pushState();
-    setSectionText(s, layout.lines.join('\n'));
-    composeSectionForActiveLang(s);
-
-    const insertIdx = state.activeIdx + 1;
-    insertSectionAt(insertIdx, refresh);
-    const next = state.sections[insertIdx];
-    next.type = 'text';
-    next.background = '';
-    next.bubbles = [];
-    next.texts = next.texts || {};
-    next.layout = next.layout || {};
-    next.languageConfigs = next.languageConfigs || {};
-    next.texts[lang] = layout.overflowText;
-    next.text = layout.overflowText;
-    state.activeIdx = insertIdx;
-    composeSectionForActiveLang(next);
-
-    refresh();
-    triggerAutoSave();
 };
 window.startThumbDrag = (e, idx) => {
     thumbDragSourceIdx = idx;
@@ -2775,57 +1478,29 @@ window.importDSP = async (event) => {
 };
 
 window.exportDSP = async () => {
-    const doExport = async () => {
-        // UI Feedback
-        const btnDataList = document.querySelectorAll('button[onclick="exportDSP()"]');
-        btnDataList.forEach(btn => btn.textContent = '⏳ ZIP生成中...');
-        try {
-            await buildDSP();
-        } catch (e) {
-            console.error("Export DSP failed:", e);
-            alert("エクスポート中にエラーが発生しました。\n" + e.message);
-        } finally {
-            btnDataList.forEach(btn => btn.textContent = '⬇ プロジェクト保存 (.dsp)');
-        }
-    };
-
-    const validation = validateProjectForPublishOrExport();
-    if (!validation.ok) {
-        showPublishValidationErrors(validation.issues, 'エクスポート (.dsp)', false);
-        return;
+    const btnDataList = document.querySelectorAll('button[onclick="exportDSP()"]');
+    btnDataList.forEach(btn => btn.textContent = '⏳ ZIP生成中...');
+    try {
+        await buildDSP();
+    } catch (e) {
+        console.error("Export DSP failed:", e);
+        alert("エクスポート中にエラーが発生しました。\n" + e.message);
+    } finally {
+        btnDataList.forEach(btn => btn.textContent = '⬇ プロジェクト保存 (.dsp)');
     }
-    if (validation.hasWarnings) {
-        showPublishValidationErrors(validation.issues, 'エクスポート (.dsp)', true, doExport);
-        return;
-    }
-    await doExport();
 };
 
 window.exportDSF = async () => {
-    const doExport = async () => {
-        // UI Feedback
-        const btnDataList = document.querySelectorAll('button[onclick="exportDSF()"]');
-        btnDataList.forEach(btn => btn.textContent = '⏳ ZIP生成中...');
-        try {
-            await buildDSF();
-        } catch (e) {
-            console.error("Export DSF failed:", e);
-            alert("エクスポート中にエラーが発生しました。\n" + e.message);
-        } finally {
-            btnDataList.forEach(btn => btn.textContent = '⬇ 配信データ出力 (.dsf)');
-        }
-    };
-
-    const validation = validateProjectForPublishOrExport();
-    if (!validation.ok) {
-        showPublishValidationErrors(validation.issues, 'エクスポート (.dsf)', false);
-        return;
+    const btnDataList = document.querySelectorAll('button[onclick="exportDSF()"]');
+    btnDataList.forEach(btn => btn.textContent = '⏳ ZIP生成中...');
+    try {
+        await buildDSF();
+    } catch (e) {
+        console.error("Export DSF failed:", e);
+        alert("エクスポート中にエラーが発生しました。\n" + e.message);
+    } finally {
+        btnDataList.forEach(btn => btn.textContent = '⬇ 配信データ出力 (.dsf)');
     }
-    if (validation.hasWarnings) {
-        showPublishValidationErrors(validation.issues, 'エクスポート (.dsf)', true, doExport);
-        return;
-    }
-    await doExport();
 };
 
 window.shareProject = async () => {
@@ -2838,39 +1513,22 @@ window.shareProject = async () => {
         return;
     }
 
-    const doShare = async () => {
-        // Ensure save completes before constructing share URL
-        await flushSave();
+    await flushSave();
 
-        // Construct URL
-        const host = window.location.host;
-        const visibility = state.visibility || 'private';
-        if (visibility === 'private') {
-            alert('現在の状態は「🔒 非公開」です。\nこのままでは作品を共有できません。上部メニューから「🔗 限定公開」か「🌍 公開」に変更してください。');
-            return; // 共有を中断
-        }
-        // ポータル連携向けの新しいURLパラメータ
-        const url = `${window.location.protocol}//${host}/viewer.html?project=${encodeURIComponent(state.projectId)}&author=${encodeURIComponent(state.uid)}`;
-
-        // Copy to clipboard
-        try {
-            await navigator.clipboard.writeText(url);
-            alert(`スマホ用URLをコピーしました！\n\n${url}`);
-        } catch (e) {
-            prompt("ビューワー用URL (コピーしてください):", url);
-        }
-    };
-
-    const validation = validateProjectForPublishOrExport();
-    if (!validation.ok) {
-        showPublishValidationErrors(validation.issues, '共有', false);
+    const host = window.location.host;
+    const visibility = state.visibility || 'private';
+    if (visibility === 'private') {
+        alert('現在の状態は「🔒 非公開」です。\nこのままでは作品を共有できません。上部メニューから「🔗 限定公開」か「🌍 公開」に変更してください。');
         return;
     }
-    if (validation.hasWarnings) {
-        showPublishValidationErrors(validation.issues, '共有', true, doShare);
-        return;
+    const url = `${window.location.protocol}//${host}/viewer.html?project=${encodeURIComponent(state.projectId)}&author=${encodeURIComponent(state.uid)}`;
+
+    try {
+        await navigator.clipboard.writeText(url);
+        alert(`スマホ用URLをコピーしました！\n\n${url}`);
+    } catch (e) {
+        prompt("ビューワー用URL (コピーしてください):", url);
     }
-    await doShare();
 };
 
 window.updateVisibility = async (val) => {
@@ -2904,212 +1562,6 @@ window.onBubbleTextInput = (e, i) => {
 };
 window.onBubbleTextBlur = () => {
     setTimeout(() => refresh(), 10);
-};
-
-window.updateCoverField = (field, value) => {
-    const block = getActiveBlock();
-    if (!block || block.kind !== 'cover_front') return;
-    touchCoverFieldHistory();
-    setBlockLocalizedMetaField(block, field, value);
-    refresh();
-    triggerAutoSave();
-};
-
-window.updateCoverBackField = (field, value) => {
-    const block = getActiveBlock();
-    if (!block || block.kind !== 'cover_back') return;
-    touchCoverFieldHistory();
-    setBlockLocalizedMetaField(block, field, value);
-    refresh();
-    triggerAutoSave();
-};
-
-window.updateCoverBackContacts = (raw) => {
-    const block = getActiveBlock();
-    if (!block || block.kind !== 'cover_back') return;
-    touchCoverFieldHistory();
-    if (!block.meta) block.meta = {};
-    block.meta.contacts = parseContactsFromText(raw);
-    refresh();
-    triggerAutoSave();
-};
-
-window.updateCoverBodyKind = (bodyKind) => {
-    const block = getActiveBlock();
-    if (!block || (block.kind !== 'cover_front' && block.kind !== 'cover_back')) return;
-    touchCoverFieldHistory();
-    setCoverBodyKind(block, bodyKind);
-    if (getCoverBodyKind(block) === 'theme') {
-        ensureCoverTheme(block);
-    }
-    refresh();
-    triggerAutoSave();
-};
-
-window.updateCoverThemeField = (key, value) => {
-    const block = getActiveBlock();
-    if (!block || (block.kind !== 'cover_front' && block.kind !== 'cover_back')) return;
-    touchCoverFieldHistory();
-    const theme = ensureCoverTheme(block);
-    if (key === 'templateId' || key === 'paletteId') {
-        theme[key] = String(value || '');
-    }
-    block.meta.theme = theme;
-    refresh();
-    triggerAutoSave();
-};
-
-window.updateStructureBodyKind = (bodyKind) => {
-    const block = getActiveBlock();
-    if (!block || !isStructureKind(block.kind)) return;
-    touchCoverFieldHistory();
-    setStructureBodyKind(block, bodyKind);
-    if (!block.content || typeof block.content !== 'object') block.content = {};
-    if (bodyKind === 'image') {
-        if (!block.content.background) block.content.background = '';
-        if (!block.content.imagePosition) block.content.imagePosition = { x: 0, y: 0, scale: 1, rotation: 0 };
-        if (!block.content.imageBasePosition) block.content.imageBasePosition = { x: 0, y: 0, scale: 1, rotation: 0 };
-    }
-    refresh();
-    triggerAutoSave();
-};
-
-window.updateStructureBodyText = (value) => {
-    const block = getActiveBlock();
-    if (!block || !isStructureKind(block.kind)) return;
-    touchCoverFieldHistory();
-    setStructureBodyText(block, value);
-    refresh();
-    triggerAutoSave();
-};
-
-window.updateStructureRichTextFromEditor = () => {
-    const block = getActiveBlock();
-    if (!block || !isStructureKind(block.kind)) return;
-    const editor = document.getElementById('structure-body-rich-editor');
-    if (!editor) return;
-    touchCoverFieldHistory();
-    const doc = richTextHtmlToDoc(editor.innerHTML);
-    setStructureRichText(block, doc);
-    triggerAutoSave();
-};
-
-window.applyStructureRichTextCommand = (cmd) => {
-    const block = getActiveBlock();
-    if (!block || !isStructureKind(block.kind)) return;
-    const editor = document.getElementById('structure-body-rich-editor');
-    if (!editor) return;
-    editor.focus();
-    touchCoverFieldHistory();
-    if (cmd === 'h1') {
-        if (!applyBlockTagToCurrentParagraph(editor, 'h1')) return;
-    } else if (cmd === 'h2') {
-        if (!applyBlockTagToCurrentParagraph(editor, 'h2')) return;
-    } else if (cmd === 'paragraph') {
-        if (!applyBlockTagToCurrentParagraph(editor, 'p')) return;
-    } else if (cmd === 'bold') {
-        document.execCommand('bold');
-    } else if (cmd === 'italic') {
-        document.execCommand('italic');
-    } else if (cmd === 'underline') {
-        document.execCommand('underline');
-    } else if (cmd === 'strike') {
-        document.execCommand('strikeThrough');
-    }
-    const doc = richTextHtmlToDoc(editor.innerHTML);
-    setStructureRichText(block, doc);
-    // Keep caret stable while applying inline format.
-    triggerAutoSave();
-};
-
-window.updatePageRichTextFromEditor = () => {
-    const activeBlock = getActiveBlock();
-    if (!activeBlock || activeBlock.kind !== 'page') return;
-    const s = state.sections[state.activeIdx];
-    if (!s || s.type !== 'text' || state.activeBubbleIdx !== null) return;
-    const editor = document.getElementById('page-richtext-editor');
-    if (!editor) return;
-    if (!textPushTimer) {
-        pushState();
-    } else {
-        clearTimeout(textPushTimer);
-    }
-    textPushTimer = setTimeout(() => { textPushTimer = null; }, 500);
-    const doc = richTextHtmlToDoc(editor.innerHTML);
-    setSectionRichText(s, doc);
-    composeSectionForActiveLang(s);
-    refresh();
-    triggerAutoSave();
-};
-
-window.updatePageRichTextFromCanvas = (el) => {
-    const activeBlock = getActiveBlock();
-    if (!activeBlock || activeBlock.kind !== 'page') return;
-    const s = state.sections[state.activeIdx];
-    if (!s || s.type !== 'text' || state.activeBubbleIdx !== null) return;
-    if (!el) return;
-    if (!textPushTimer) {
-        pushState();
-    } else {
-        clearTimeout(textPushTimer);
-    }
-    textPushTimer = setTimeout(() => { textPushTimer = null; }, 500);
-    const doc = richTextHtmlToDoc(el.innerHTML);
-    setSectionRichText(s, doc);
-    composeSectionForActiveLang(s);
-    const panelEditor = document.getElementById('page-richtext-editor');
-    if (panelEditor && document.activeElement !== panelEditor) {
-        panelEditor.innerHTML = el.innerHTML;
-    }
-    triggerAutoSave();
-};
-
-window.applyPageRichTextCommand = (cmd) => {
-    const activeBlock = getActiveBlock();
-    if (!activeBlock || activeBlock.kind !== 'page') return;
-    const s = state.sections[state.activeIdx];
-    if (!s || s.type !== 'text' || state.activeBubbleIdx !== null) return;
-    const editor = document.getElementById('page-richtext-editor');
-    const canvasEditor = document.getElementById('main-richtext-area');
-    const targetEditor = (document.activeElement === canvasEditor && canvasEditor) ? canvasEditor : editor;
-    if (!targetEditor) return;
-    targetEditor.focus();
-    if (!textPushTimer) {
-        pushState();
-    } else {
-        clearTimeout(textPushTimer);
-    }
-    textPushTimer = setTimeout(() => { textPushTimer = null; }, 500);
-    if (cmd === 'h1') {
-        if (!applyBlockTagToCurrentParagraph(targetEditor, 'h1')) return;
-    } else if (cmd === 'h2') {
-        if (!applyBlockTagToCurrentParagraph(targetEditor, 'h2')) return;
-    } else if (cmd === 'paragraph') {
-        if (!applyBlockTagToCurrentParagraph(targetEditor, 'p')) return;
-    } else if (cmd === 'bold') {
-        document.execCommand('bold');
-    } else if (cmd === 'italic') {
-        document.execCommand('italic');
-    } else if (cmd === 'underline') {
-        document.execCommand('underline');
-    } else if (cmd === 'strike') {
-        document.execCommand('strikeThrough');
-    }
-    const doc = richTextHtmlToDoc(targetEditor.innerHTML);
-    setSectionRichText(s, doc);
-    composeSectionForActiveLang(s);
-    if (editor && editor !== targetEditor) editor.innerHTML = targetEditor.innerHTML;
-    refresh();
-    triggerAutoSave();
-};
-
-window.updateStructureTitle = (value) => {
-    const block = getActiveBlock();
-    if (!block || !isStructureKind(block.kind)) return;
-    touchCoverFieldHistory();
-    setStructureTitle(block, value);
-    refresh();
-    triggerAutoSave();
 };
 
 // 言語切替
@@ -3154,8 +1606,6 @@ window.removeLang = (code) => {
 // プロジェクトモーダル
 window.openProjectModal = () => openProjectModal(onLoadProject);
 window.closeProjectModal = closeProjectModal;
-window.closePublishValidationModal = closePublishValidationModal;
-window.setValidationIssueFilter = setValidationIssueFilter;
 
 // 新規プロジェクト
 window.newProject = () => {
