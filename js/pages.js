@@ -98,6 +98,7 @@ function normalizeContentByBodyKind(content, bodyKind) {
     const src = content && typeof content === 'object' ? content : {};
     const out = {
         background: src.background || '',
+        backgrounds: deepClone(src.backgrounds || {}),
         thumbnail: src.thumbnail || '',
         bubbles: deepClone(src.bubbles || []),
         imagePosition: deepClone(src.imagePosition || { x: 0, y: 0, scale: 1, rotation: 0 }),
@@ -193,6 +194,7 @@ function sectionToNormalPage(section) {
         bodyKind: src.type === 'text' ? 'text' : 'image',
         content: {
             background: src.background || '',
+            backgrounds: deepClone(src.backgrounds || {}),
             thumbnail: src.thumbnail || '',
             bubbles: deepClone(src.bubbles || []),
             text: src.text || '',
@@ -211,6 +213,7 @@ function pageToSection(page) {
     return {
         type: isText ? 'text' : 'image',
         background: c.background || '',
+        backgrounds: deepClone(c.backgrounds || {}),
         thumbnail: c.thumbnail || '',
         writingMode: 'horizontal-tb',
         bubbles: deepClone(c.bubbles || []),
@@ -384,6 +387,7 @@ function pageToBlock(page, languages = ['ja']) {
         content: {
             pageKind: page.bodyKind === 'text' ? 'text' : 'image',
             background: page.content?.background || '',
+            backgrounds: deepClone(page.content?.backgrounds || {}),
             thumbnail: page.content?.thumbnail || '',
             bubbles: deepClone(page.content?.bubbles || []),
             text: page.content?.text || '',
