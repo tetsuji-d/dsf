@@ -174,7 +174,7 @@ function refresh() {
         render.innerHTML = `
             <div id="image-adjust-stage">
                 <div id="image-adjust-target" style="${targetStyle}">
-                    <img id="main-img" src="${getOptimizedImageUrl(s.background)}">
+                    <img id="main-img" src="${getOptimizedImageUrl(s.backgrounds?.[state.activeLang] || s.background || '')}">
                     ${overlayInTarget}
                 </div>
             </div>`;

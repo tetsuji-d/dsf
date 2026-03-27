@@ -261,6 +261,13 @@ async function resolveBlobUrlsInSections(sections, uid) {
         if (typeof s.thumbnail === 'string' && s.thumbnail.startsWith('blob:')) {
             s.thumbnail = await _uploadBlobUrlToStorage(s.thumbnail, uid);
         }
+        if (s.backgrounds && typeof s.backgrounds === 'object') {
+            for (const lang of Object.keys(s.backgrounds)) {
+                if (typeof s.backgrounds[lang] === 'string' && s.backgrounds[lang].startsWith('blob:')) {
+                    s.backgrounds[lang] = await _uploadBlobUrlToStorage(s.backgrounds[lang], uid);
+                }
+            }
+        }
     }
     return resolved;
 }
@@ -278,6 +285,13 @@ async function resolveBlobUrlsInBlocks(blocks, uid) {
         }
         if (typeof content.thumbnail === 'string' && content.thumbnail.startsWith('blob:')) {
             content.thumbnail = await _uploadBlobUrlToStorage(content.thumbnail, uid);
+        }
+        if (content.backgrounds && typeof content.backgrounds === 'object') {
+            for (const lang of Object.keys(content.backgrounds)) {
+                if (typeof content.backgrounds[lang] === 'string' && content.backgrounds[lang].startsWith('blob:')) {
+                    content.backgrounds[lang] = await _uploadBlobUrlToStorage(content.backgrounds[lang], uid);
+                }
+            }
         }
     };
     for (const block of resolved) {
@@ -608,8 +622,11 @@ export async function uploadToStorage(input, refresh) {
             window.localImageMap[thumbUrl] = thumbKey;
 
             // ステート更新
+            const lang = state.activeLang || state.defaultLang || 'ja';
             const newSections = [...state.sections];
-            newSections[state.activeIdx].background = mainUrl;
+            if (!newSections[state.activeIdx].backgrounds) newSections[state.activeIdx].backgrounds = {};
+            newSections[state.activeIdx].backgrounds[lang] = mainUrl;
+            newSections[state.activeIdx].background = mainUrl; // 後方互換
             newSections[state.activeIdx].thumbnail = thumbUrl;
             newSections[state.activeIdx].imagePosition = { x: 0, y: 0, scale: 1, rotation: 0 };
             newSections[state.activeIdx].imageBasePosition = { x: 0, y: 0, scale: 1, rotation: 0 };
@@ -646,9 +663,12 @@ export async function uploadToStorage(input, refresh) {
         ]);
 
         // 4. ステート更新
+        const lang = state.activeLang || state.defaultLang || 'ja';
         const newSections = [...state.sections];
-        newSections[state.activeIdx].background = mainUrl;
-        newSections[state.activeIdx].thumbnail = thumbUrl; // サムネイル保存
+        if (!newSections[state.activeIdx].backgrounds) newSections[state.activeIdx].backgrounds = {};
+        newSections[state.activeIdx].backgrounds[lang] = mainUrl;
+        newSections[state.activeIdx].background = mainUrl; // 後方互換
+        newSections[state.activeIdx].thumbnail = thumbUrl;
         newSections[state.activeIdx].imagePosition = { x: 0, y: 0, scale: 1, rotation: 0 };
         newSections[state.activeIdx].imageBasePosition = { x: 0, y: 0, scale: 1, rotation: 0 };
         dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'sections', value: newSections } });

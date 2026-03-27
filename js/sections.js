@@ -438,7 +438,7 @@ export function renderThumbs() {
                         ${dragHandlers}
                         aria-current="${selected ? 'true' : 'false'}">
                         <div class="thumb-canvas">
-                            <img class="thumb-canvas-image" src="${getOptimizedImageUrl(s.background)}" style="${style}">
+                            <img class="thumb-canvas-image" src="${getOptimizedImageUrl(s.backgrounds?.[state.activeLang] || s.background || '')}" style="${style}">
                         </div>
                         <div class="thumb-card-top">
                             <span class="thumb-card-badge">Image #${pageIdx + 1}</span>
