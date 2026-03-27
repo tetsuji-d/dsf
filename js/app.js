@@ -1201,8 +1201,6 @@ window.changeBubbleShapeFromMenu = (idx, shapeName) => {
         if (menu) menu.style.display = 'none';
     }
 };
-window.updateGlobalWritingMode = updateGlobalWritingMode;
-window.updateGlobalFontPreset = updateGlobalFontPreset;
 window.updateTitle = (v) => {
     dispatch({ type: actionTypes.SET_TITLE, payload: v });
     const headerGuideTitle = document.getElementById('header-guide-title');
@@ -1216,8 +1214,6 @@ window.setThumbColumns = (cols) => {
 };
 window.setThumbSize = window.setThumbColumns;
 window.uploadToStorage = (input) => { pushState(); uploadToStorage(input, refresh); };
-window.uploadCoverToStorage = (input) => { pushState(); uploadCoverToStorage(input, refresh); };
-window.uploadStructureToStorage = (input) => { pushState(); uploadStructureToStorage(input, refresh); };
 
 window.performUndo = () => { undo(refresh); triggerAutoSave(); };
 window.performRedo = () => { redo(refresh); triggerAutoSave(); };
