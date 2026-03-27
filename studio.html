@@ -310,10 +310,10 @@
                 <div class="control-group">
                     <h4>言語設定</h4>
                     <div id="lang-list"></div>
-                    <label>文字の向き (現在の言語)</label>
-                    <select id="lang-writing-mode" onchange="updateGlobalWritingMode(this.value)">
-                        <option value="horizontal-tb">横書き (→)</option>
-                        <option value="vertical-rl">縦書き (↓)</option>
+                    <label>ページ送り方向 (現在の言語)</label>
+                    <select id="lang-page-direction" onchange="updatePageDirection(this.value)">
+                        <option value="ltr">左から右 (→)</option>
+                        <option value="rtl">右から左 (←)</option>
                     </select>
                     <div class="inline-actions">
                         <select id="lang-add-select">

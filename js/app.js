@@ -262,6 +262,8 @@ function refresh() {
 
     // AR設定パネルの同期
     syncArPanel();
+    // 言語パネルの同期
+    syncLangPanel();
 
     updateHistoryButtons();
     renderThumbs();
@@ -979,26 +981,24 @@ window.updateBubblePropPanel = updateBubblePropPanel;
 
 
 // ──────────────────────────────────────
-//  グローバル書字方向更新
+//  ページ送り方向更新
 // ──────────────────────────────────────
-function updateGlobalWritingMode(mode) {
+function updatePageDirection(dir) {
     const lang = state.activeLang;
     if (!state.languageConfigs) state.languageConfigs = {};
     if (!state.languageConfigs[lang]) state.languageConfigs[lang] = {};
-    state.languageConfigs[lang].writingMode = mode;
+    state.languageConfigs[lang].pageDirection = dir;
     pushState();
     refresh();
     triggerAutoSave();
 }
+window.updatePageDirection = updatePageDirection;
 
-function updateGlobalFontPreset(fontPreset) {
-    const lang = state.activeLang;
-    if (!state.languageConfigs) state.languageConfigs = {};
-    if (!state.languageConfigs[lang]) state.languageConfigs[lang] = {};
-    state.languageConfigs[lang].fontPreset = fontPreset;
-    pushState();
-    refresh();
-    triggerAutoSave();
+function syncLangPanel() {
+    const sel = document.getElementById('lang-page-direction');
+    if (!sel) return;
+    const dir = state.languageConfigs?.[state.activeLang]?.pageDirection || 'ltr';
+    sel.value = dir;
 }
 
 
@@ -1024,26 +1024,19 @@ function onLoadProject(pid, sections, languages, defaultLang, languageConfigs, t
     state.defaultLang = normalized.defaultLang || normalized.languages[0] || 'ja';
 
     // languageConfigs Migration
-    if (normalized.languageConfigs) {
-        state.languageConfigs = normalized.languageConfigs;
-    } else {
-        // Old format migration: create configs based on defaults
-        state.languageConfigs = {};
-        state.languages.forEach(lang => {
-            const props = getLangProps(lang);
-            state.languageConfigs[lang] = {
-                writingMode: props.defaultWritingMode || 'horizontal-tb',
-                fontPreset: 'gothic'
-            };
-        });
-    }
-    state.languages.forEach((lang) => {
+    state.languageConfigs = normalized.languageConfigs || {};
+    state.languages.forEach(lang => {
         if (!state.languageConfigs[lang]) state.languageConfigs[lang] = {};
-        if (!state.languageConfigs[lang].writingMode) {
-            state.languageConfigs[lang].writingMode = getLangProps(lang).defaultWritingMode || 'horizontal-tb';
-        }
-        if (!state.languageConfigs[lang].fontPreset) {
-            state.languageConfigs[lang].fontPreset = 'gothic';
+        const cfg = state.languageConfigs[lang];
+        // Gen3: pageDirection が未設定なら旧 writingMode から変換、またはデフォルト値を設定
+        if (!cfg.pageDirection) {
+            if (cfg.writingMode === 'vertical-rl') {
+                cfg.pageDirection = 'rtl';
+            } else if (cfg.writingMode === 'horizontal-tb') {
+                cfg.pageDirection = 'ltr';
+            } else {
+                cfg.pageDirection = lang === 'ja' ? 'rtl' : 'ltr';
+            }
         }
     });
 
@@ -1579,8 +1572,7 @@ window.addLang = () => {
     state.languages.push(code);
     if (!state.languageConfigs) state.languageConfigs = {};
     state.languageConfigs[code] = {
-        writingMode: getLangProps(code).defaultWritingMode || 'horizontal-tb',
-        fontPreset: 'gothic'
+        pageDirection: code === 'ja' ? 'rtl' : 'ltr'
     };
     renderLangSettings();
     renderLangTabs();
