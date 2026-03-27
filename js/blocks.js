@@ -104,16 +104,10 @@ export function createSectionFromPageBlock(block) {
     };
 }
 
-export function ensureBoundaryBlocks(blocks, languages = ['ja']) {
+export function ensureBoundaryBlocks(blocks, _languages = ['ja']) {
     const inBlocks = Array.isArray(blocks) ? deepClone(blocks) : [];
-    const normalized = inBlocks.filter(Boolean);
-    if (!normalized.length || normalized[0]?.kind !== 'cover_front') {
-        normalized.unshift(createCoverFrontBlock(languages));
-    }
-    if (normalized[normalized.length - 1]?.kind !== 'cover_back') {
-        normalized.push(createCoverBackBlock());
-    }
-    return normalized;
+    // Gen3: no cover_front/cover_back — return page blocks only
+    return inBlocks.filter((b) => b && b.kind !== 'cover_front' && b.kind !== 'cover_back');
 }
 
 export function ensurePageBlocks(blocks) {
@@ -154,18 +148,13 @@ export function getPageIndexFromBlockIndex(blocks, blockIndex) {
     return indices.indexOf(bi);
 }
 
-export function migrateSectionsToBlocks(sections, languages = ['ja']) {
+export function migrateSectionsToBlocks(sections, _languages = ['ja']) {
     const src = Array.isArray(sections) && sections.length ? sections : [createDefaultSection()];
-    const body = src.map(createPageBlockFromSection);
-    return ensureBoundaryBlocks([
-        createCoverFrontBlock(languages),
-        ...body,
-        createCoverBackBlock()
-    ], languages);
+    return src.map(createPageBlockFromSection);
 }
 
-export function syncBlocksWithSections(existingBlocks, sections, languages = ['ja']) {
-    let blocks = ensureBoundaryBlocks(existingBlocks, languages);
+export function syncBlocksWithSections(existingBlocks, sections, _languages = ['ja']) {
+    const blocks = ensureBoundaryBlocks(existingBlocks);
     const srcSections = Array.isArray(sections) && sections.length ? sections : [createDefaultSection()];
     let sectionIdx = 0;
 
@@ -181,25 +170,15 @@ export function syncBlocksWithSections(existingBlocks, sections, languages = ['j
             }
             continue;
         }
-        if (block.kind === 'cover_front') {
-            const langList = Array.isArray(languages) && languages.length ? [...languages] : ['ja'];
-            block.meta = block.meta || {};
-            block.meta.title = block.meta.title || {};
-            block.meta.author = block.meta.author || {};
-            block.meta.langs = langList;
-        }
         synced.push(block);
     }
 
     if (sectionIdx < srcSections.length) {
         const tail = srcSections.slice(sectionIdx).map(createPageBlockFromSection);
-        const backIdx = Math.max(0, synced.length - 1);
-        synced.splice(backIdx, 0, ...tail);
+        synced.push(...tail);
     }
 
-    blocks = ensureBoundaryBlocks(synced, languages);
-    blocks = ensurePageBlocks(blocks);
-    return blocks;
+    return ensurePageBlocks(synced);
 }
 
 export function normalizeProjectData(data = {}) {

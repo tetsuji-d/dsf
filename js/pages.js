@@ -169,21 +169,9 @@ function normalizePageV5(page) {
 }
 
 function ensureCoverBoundaries(pages) {
+    // Gen3: no cover pages — filter out any legacy cover_front/cover_back
     const list = Array.isArray(pages) ? pages.map(normalizePageV5) : [];
-    const nonCovers = list.filter((p) => p.role !== 'cover_front' && p.role !== 'cover_back');
-    const front = list.find((p) => p.role === 'cover_front') || normalizePageV5({
-        id: createId('cover_front'),
-        role: 'cover_front',
-        bodyKind: 'image',
-        meta: { title: {}, subtitle: {}, author: {}, supervisor: {}, publisher: {} }
-    });
-    const back = list.find((p) => p.role === 'cover_back') || normalizePageV5({
-        id: createId('cover_back'),
-        role: 'cover_back',
-        bodyKind: 'image',
-        meta: { edition: {}, contacts: [] }
-    });
-    return [front, ...nonCovers, back];
+    return list.filter((p) => p.role !== 'cover_front' && p.role !== 'cover_back');
 }
 
 function sectionToNormalPage(section) {
