@@ -90,10 +90,6 @@
                         <button class="btn-tool" onclick="addBubbleFab()" aria-label="吹き出しを追加">💬 吹き出し追加</button>
                         <button class="btn-tool" onclick="document.getElementById('file-upload').click()"
                             aria-label="画像を追加">🖼 画像追加</button>
-                        <button class="btn-tool" onclick="addChapterBlock()" aria-label="章見出しを追加">📘 章</button>
-                        <button class="btn-tool" onclick="addSubsectionBlock()" aria-label="節見出しを追加">📑 節</button>
-                        <button class="btn-tool" onclick="addItemBlock()" aria-label="項見出しを追加">🔹 項</button>
-                        <button class="btn-tool" onclick="addTocBlock()" aria-label="目次を追加">📚 目次</button>
                     </div>
                 </div>
                 <div class="ribbon-panel" data-ribbon-panel="arrange">
@@ -211,144 +207,9 @@
                 <div class="control-group">
                     <h4>セクション設定</h4>
                     <div id="page-lock-note" class="panel-lock-note" style="display:none;"></div>
-                    <div id="cover-front-fields" class="panel-subform" style="display:none;">
-                        <label>装丁タイプ</label>
-                        <select id="cover-front-body-kind" onchange="updateCoverBodyKind(this.value)">
-                            <option value="image">イメージ</option>
-                            <option value="theme">テーマ</option>
-                        </select>
-                        <div id="cover-front-theme-fields" style="display:none;">
-                            <label>テーマテンプレート</label>
-                            <select id="cover-front-theme-template"
-                                onchange="updateCoverThemeField('templateId', this.value)">
-                                <option value="classic">Classic</option>
-                                <option value="minimal">Minimal</option>
-                                <option value="bold">Bold</option>
-                                <option value="novel">Novel</option>
-                            </select>
-                            <label>カラーパレット</label>
-                            <select id="cover-front-theme-palette"
-                                onchange="updateCoverThemeField('paletteId', this.value)">
-                                <option value="ocean">Ocean</option>
-                                <option value="sunset">Sunset</option>
-                                <option value="forest">Forest</option>
-                                <option value="amber">Amber</option>
-                                <option value="mono">Mono</option>
-                                <option value="sakura">Sakura</option>
-                                <option value="navy">Navy</option>
-                                <option value="mint">Mint</option>
-                                <option value="stone">Stone</option>
-                                <option value="crimson">Crimson</option>
-                            </select>
-                        </div>
-                        <div id="cover-front-image-fields" style="display:none;">
-                            <label>表紙画像</label>
-                            <div class="inline-actions">
-                                <button class="btn-sm" onclick="document.getElementById('file-upload-cover').click()"
-                                    data-auth-required>
-                                    <span class="material-icons inline-icon">image</span> 画像変更
-                                </button>
-                            </div>
-                        </div>
-                        <label>タイトル</label>
-                        <input id="cover-front-title" type="text" oninput="updateCoverField('title', this.value)">
-                        <label>サブタイトル</label>
-                        <input id="cover-front-subtitle" type="text" oninput="updateCoverField('subtitle', this.value)">
-                        <label>著者名</label>
-                        <input id="cover-front-author" type="text" oninput="updateCoverField('author', this.value)">
-                        <label>監修者名</label>
-                        <input id="cover-front-supervisor" type="text"
-                            oninput="updateCoverField('supervisor', this.value)">
-                        <label>出版社名</label>
-                        <input id="cover-front-publisher" type="text"
-                            oninput="updateCoverField('publisher', this.value)">
-                    </div>
-                    <div id="cover-back-fields" class="panel-subform" style="display:none;">
-                        <label>装丁タイプ</label>
-                        <select id="cover-back-body-kind" onchange="updateCoverBodyKind(this.value)">
-                            <option value="image">イメージ</option>
-                            <option value="theme">テーマ</option>
-                        </select>
-                        <div id="cover-back-theme-fields" style="display:none;">
-                            <label>テーマテンプレート</label>
-                            <select id="cover-back-theme-template"
-                                onchange="updateCoverThemeField('templateId', this.value)">
-                                <option value="classic">Classic</option>
-                                <option value="minimal">Minimal</option>
-                                <option value="bold">Bold</option>
-                                <option value="novel">Novel</option>
-                            </select>
-                            <label>カラーパレット</label>
-                            <select id="cover-back-theme-palette"
-                                onchange="updateCoverThemeField('paletteId', this.value)">
-                                <option value="ocean">Ocean</option>
-                                <option value="sunset">Sunset</option>
-                                <option value="forest">Forest</option>
-                                <option value="amber">Amber</option>
-                                <option value="mono">Mono</option>
-                                <option value="sakura">Sakura</option>
-                                <option value="navy">Navy</option>
-                                <option value="mint">Mint</option>
-                                <option value="stone">Stone</option>
-                                <option value="crimson">Crimson</option>
-                            </select>
-                        </div>
-                        <div id="cover-back-image-fields" style="display:none;">
-                            <label>裏表紙画像</label>
-                            <div class="inline-actions">
-                                <button class="btn-sm" onclick="document.getElementById('file-upload-cover').click()"
-                                    data-auth-required>
-                                    <span class="material-icons inline-icon">image</span> 画像変更
-                                </button>
-                            </div>
-                        </div>
-                        <label>版</label>
-                        <input id="cover-back-edition" type="text"
-                            oninput="updateCoverBackField('edition', this.value)">
-                        <label>連絡先（1行1件）</label>
-                        <textarea id="cover-back-contacts" rows="4"
-                            oninput="updateCoverBackContacts(this.value)"></textarea>
-                    </div>
-                    <div id="structure-fields" class="panel-subform" style="display:none;">
-                        <label>タイトル</label>
-                        <input id="structure-title" type="text" oninput="updateStructureTitle(this.value)">
-                        <label>見出しタイプ</label>
-                        <select id="structure-body-kind" onchange="updateStructureBodyKind(this.value)">
-                            <option value="text">テキスト</option>
-                            <option value="image">イメージ</option>
-                        </select>
-                        <div id="structure-image-fields" style="display:none;">
-                            <label>見出し画像</label>
-                            <div class="inline-actions">
-                                <button class="btn-sm"
-                                    onclick="document.getElementById('file-upload-structure').click()"
-                                    data-auth-required>
-                                    <span class="material-icons inline-icon">image</span> 画像変更
-                                </button>
-                            </div>
-                        </div>
-                        <div id="structure-text-fields" style="display:none;">
-                            <label>本文</label>
-                            <div class="rt-toolbar">
-                                <button type="button" class="btn-sm"
-                                    onclick="applyStructureRichTextCommand('h1')">H1</button>
-                                <button type="button" class="btn-sm"
-                                    onclick="applyStructureRichTextCommand('h2')">H2</button>
-                                <button type="button" class="btn-sm"
-                                    onclick="applyStructureRichTextCommand('bold')"><b>B</b></button>
-                                <button type="button" class="btn-sm"
-                                    onclick="applyStructureRichTextCommand('italic')"><i>I</i></button>
-                                <button type="button" class="btn-sm"
-                                    onclick="applyStructureRichTextCommand('underline')"><u>U</u></button>
-                                <button type="button" class="btn-sm"
-                                    onclick="applyStructureRichTextCommand('strike')"><s>S</s></button>
-                                <button type="button" class="btn-sm"
-                                    onclick="applyStructureRichTextCommand('paragraph')">P</button>
-                            </div>
-                            <div id="structure-body-rich-editor" class="rt-editor" contenteditable="true"
-                                oninput="updateStructureRichTextFromEditor()"></div>
-                        </div>
-                    </div>
+
+
+
                     <label>タイプ</label>
                     <select id="prop-type" onchange="update('type', this.value)">
                         <option value="image">イメージセクション</option>
@@ -410,26 +271,8 @@
 
                     <div id="generic-text-editor">
                         <label id="text-label">テキスト入力 (選択中の吹き出し or 背景テキスト)</label>
-                        <div id="page-richtext-tools" class="rt-toolbar" style="display:none;">
-                            <button type="button" class="btn-sm" onclick="applyPageRichTextCommand('h1')">H1</button>
-                            <button type="button" class="btn-sm" onclick="applyPageRichTextCommand('h2')">H2</button>
-                            <button type="button" class="btn-sm"
-                                onclick="applyPageRichTextCommand('bold')"><b>B</b></button>
-                            <button type="button" class="btn-sm"
-                                onclick="applyPageRichTextCommand('italic')"><i>I</i></button>
-                            <button type="button" class="btn-sm"
-                                onclick="applyPageRichTextCommand('underline')"><u>U</u></button>
-                            <button type="button" class="btn-sm"
-                                onclick="applyPageRichTextCommand('strike')"><s>S</s></button>
-                            <button type="button" class="btn-sm"
-                                onclick="applyPageRichTextCommand('paragraph')">P</button>
-                        </div>
-                        <div id="page-richtext-editor" class="rt-editor" style="display:none;" contenteditable="true"
-                            oninput="updatePageRichTextFromEditor()"></div>
                         <textarea id="prop-text" rows="5" oninput="updateActiveText(this.value, event)"></textarea>
                         <div id="text-fit-status" class="field-label" style="margin:-4px 0 8px 0;"></div>
-                        <button id="btn-split-overflow" class="btn-sm" style="display:none; margin-bottom:10px;"
-                            onclick="splitOverflowToNextPage()">残りを次ページに分割</button>
                     </div>
                     <button id="btn-delete-active" class="btn btn-danger" onclick="deleteActive()">削除</button>
                     <input type="file" id="file-upload-cover" accept="image/*" onchange="uploadCoverToStorage(this)"
@@ -472,13 +315,6 @@
                         <option value="horizontal-tb">横書き (→)</option>
                         <option value="vertical-rl">縦書き (↓)</option>
                     </select>
-                    <label>フォント (現在の言語)</label>
-                    <select id="lang-font-preset" onchange="updateGlobalFontPreset(this.value)">
-                        <option value="gothic">ゴシック</option>
-                        <option value="mincho">明朝</option>
-                        <option value="ui">UI Sans</option>
-                    </select>
-
                     <div class="inline-actions">
                         <select id="lang-add-select">
                             <option value="en">English</option>
@@ -509,10 +345,6 @@
                 <button class="btn-tool" onclick="addSection()">＋ セクション追加</button>
                 <button class="btn-tool" onclick="addBubbleFab()">💬 吹き出し追加</button>
                 <button class="btn-tool" onclick="document.getElementById('file-upload').click()">🖼 画像追加</button>
-                <button class="btn-tool" onclick="addChapterBlock()">📘 章</button>
-                <button class="btn-tool" onclick="addSubsectionBlock()">📑 節</button>
-                <button class="btn-tool" onclick="addItemBlock()">🔹 項</button>
-                <button class="btn-tool" onclick="addTocBlock()">📚 目次</button>
             </div>
             <div id="mobile-sheet-export" class="mobile-sheet-content">
                 <button class="btn-tool" onclick="saveProject()" data-auth-required>☁ クラウド保存</button>
@@ -565,35 +397,6 @@
     <!-- 右クリック コンテキストメニュー -->
     <div id="context-menu" class="context-menu" style="display: none;">
         <!-- Javascriptで動的に中身を生成する -->
-    </div>
-
-    <!-- 公開/エクスポート検証モーダル -->
-    <div id="validation-modal">
-        <div class="modal-overlay" onclick="closePublishValidationModal()"></div>
-        <div class="modal-content validation-modal-content">
-            <div class="modal-header">
-                <h2>⚠ 必須項目チェック</h2>
-                <div class="modal-header-actions">
-                    <button class="btn-modal btn-primary" id="btn-validation-proceed"
-                        onclick="proceedWithValidationWarnings()" style="display:none;">無視して続行</button>
-                    <button class="btn-modal" onclick="closePublishValidationModal()">閉じる</button>
-                </div>
-            </div>
-            <div class="modal-body validation-modal-body">
-                <p id="validation-summary"></p>
-                <div id="validation-filters">
-                    <button type="button" class="validation-filter active" data-validation-filter="all"
-                        onclick="setValidationIssueFilter('all')">全件</button>
-                    <button type="button" class="validation-filter" data-validation-filter="cover_front"
-                        onclick="setValidationIssueFilter('cover_front')">表紙</button>
-                    <button type="button" class="validation-filter" data-validation-filter="cover_back"
-                        onclick="setValidationIssueFilter('cover_back')">裏表紙</button>
-                    <button type="button" class="validation-filter" data-validation-filter="structure"
-                        onclick="setValidationIssueFilter('structure')">章/節/項</button>
-                </div>
-                <div id="validation-issues"></div>
-            </div>
-        </div>
     </div>
 
     <script type="module" src="js/app.js"></script>

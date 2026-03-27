@@ -1,7 +1,14 @@
 # Page-Centric Architecture Plan
 
-最終更新: 2026-02-18  
+最終更新: 2026-03-25
 対象: DSF Studio エディター/ビューワーの `sections/blocks` 混在実装を、`pages` 単一モデルへ整理
+
+> **2026-03-25 方針変更**: DSF Gen 3 として「WebP 画像のみ」方針を採用。
+> - `bodyKind:'text'` は**廃止予定**（テキストページは画像化して扱う）
+> - `content.richText` 系は**廃止予定**
+> - `bodyKind:'image'` と `bodyKind:'theme'` のみ継続
+> - 以下のセクション 11.6〜11.8 のうち richText / text 関連仕様は廃案。
+> - `role`・`bodyKind` の分離・表紙/裏表紙固定化・TOC自動生成などの構造は継続有効。
 
 ## 1. 目的
 - ユーザー視点で「すべてページ」として理解できる情報設計に統一する。

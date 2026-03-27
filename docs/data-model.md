@@ -1,7 +1,11 @@
 # Data Model Documentation
 
-**最終更新**: 2026-02-25
+**最終更新**: 2026-03-25
 **ステータス**: Architect 管理下（変更には Architect 承認が必要）
+
+> **2026-03-25 方針変更**: DSF Gen 3 として「WebP 画像のみ」方針を採用。
+> `bodyKind:'text'`・`content.richText`・`content.layout`・`ar` フィールドは**廃止予定**。
+> WebGL / Three.js は使用しない。詳細は `AGENTS.md` 参照。
 
 ---
 
@@ -96,8 +100,13 @@
 }
 ```
 
-> **AR フィールドについて**: `ar` オブジェクト全体が省略可能。未定義時は `ar.mode = 'none'` として扱う（後方互換）。
-> WebGL AR ビューワー実装（Phase 1〜2）に伴い追加。詳細: `docs/webgl-ar-viewer-plan.md`
+> ⚠️ **廃止予定フィールド（2026-03-25）**:
+> - `ar` — WebGL/WebXR 廃止に伴い不要。既存データは無視する。
+> - `content.richText` / `content.richTextLangs` — bodyKind:'text' 廃止に伴い不要。
+> - `content.layout` — テキスト組版廃止に伴い不要。
+> - `content.texts` / `content.text` — テキストページ廃止に伴い不要。
+>
+> Gen 3 では `content.background`（WebP画像URL）と `content.bubbles`・`content.thumbnail` が主要フィールド。
 
 #### Bubble Object（`content.bubbles` の各要素）
 
@@ -217,3 +226,4 @@ state.pages    ← ビューワー出力（v5 Page Object の配列）
 | 日付 | 変更内容 |
 |------|---------|
 | 2026-02-25 | 全面改訂: `works` → `users/{uid}/projects/{pid}` に修正、v5 Page スキーマ追加、AR フィールド追加、Security Rules を実態に更新 |
+| 2026-03-25 | DSF Gen 3 方針確定: WebP 画像のみ。`ar`・`richText`・`layout`・`text` 系フィールドを廃止予定に明記 |
