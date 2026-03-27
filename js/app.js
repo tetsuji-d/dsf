@@ -426,24 +426,10 @@ function onThumbTouchCancel() {
 // ──────────────────────────────────────
 function update(k, v) {
     const activeBlock = getActiveBlock();
-    if (activeBlock && activeBlock.kind !== 'page') {
-        return;
-    }
+    if (activeBlock && activeBlock.kind !== 'page') return;
     const s = state.sections[state.activeIdx];
-    if (k === 'type' && v === 'text' && s.bubbles && s.bubbles.length > 0) {
-        const ok = confirm(`このセクションには${s.bubbles.length}個の吹き出しがあります。\nテキストセクションに切り替えると吹き出しは削除されます。\nよろしいですか？`);
-        if (!ok) {
-            document.getElementById('prop-type').value = s.type;
-            return;
-        }
-        pushState();
-        s.bubbles = [];
-        state.activeBubbleIdx = null;
-    } else {
-        pushState();
-    }
-    s[k] = v;
-    refresh();
+    if (!s) return;
+    pushState();
     s[k] = v;
     refresh();
     triggerAutoSave();
@@ -1080,11 +1066,6 @@ window.changeBlock = (idx) => {
     if (Date.now() < suppressThumbClickUntil) return;
     changeBlock(idx, refresh);
 };
-window.addChapterBlock = () => { pushState(); insertStructureBlock('chapter', refresh); triggerAutoSave(); };
-window.addSubsectionBlock = () => { pushState(); insertStructureBlock('section', refresh); triggerAutoSave(); };
-window.addItemBlock = () => { pushState(); insertStructureBlock('item', refresh); triggerAutoSave(); };
-window.addItemEndBlock = () => { pushState(); insertStructureBlock('item_end', refresh); triggerAutoSave(); };
-window.addTocBlock = () => { pushState(); insertStructureBlock('toc', refresh); triggerAutoSave(); };
 window.insertSectionAtIndex = (idx, e) => {
     if (e) {
         e.preventDefault();
@@ -1602,17 +1583,15 @@ window.newProject = () => {
     dispatch({ type: actionTypes.SET_TITLE, payload: '' });
     dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'languages', value: ['ja'] } });
     dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'defaultLang', value: 'ja' } });
-    dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'languageConfigs', value: { ja: { writingMode: 'vertical-rl', fontPreset: 'gothic' } } } });
+    dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'languageConfigs', value: { ja: { pageDirection: 'rtl' } } } });
     dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'uiPrefs', value: { desktop: { thumbColumns: 2 }, mobile: { thumbColumns: 2 } } } });
     applyThumbColumnsFromPrefs();
     dispatch({ type: actionTypes.SET_ACTIVE_LANGUAGE, payload: 'ja' });
     const initialSections = [{
         type: 'image',
         background: 'https://picsum.photos/id/10/600/1066',
-        writingMode: 'horizontal-tb',
-        bubbles: [],
-        text: '',
-        texts: {}
+        backgrounds: {},
+        bubbles: []
     }];
     const initialBlocks = migrateSectionsToBlocks(initialSections, ['ja']);
     dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'sections', value: initialSections } });

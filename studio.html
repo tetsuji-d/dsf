@@ -210,12 +210,6 @@
 
 
 
-                    <label>タイプ</label>
-                    <select id="prop-type" onchange="update('type', this.value)">
-                        <option value="image">イメージセクション</option>
-                        <option value="text">テキストセクション</option>
-                    </select>
-
                     <div id="image-only-props">
                         <label>背景画像変更 / 位置調整</label>
                         <div class="inline-actions">
@@ -270,7 +264,7 @@
                     </div>
 
                     <div id="generic-text-editor">
-                        <label id="text-label">テキスト入力 (選択中の吹き出し or 背景テキスト)</label>
+                        <label id="text-label">テキスト入力 (選択中の吹き出し)</label>
                         <textarea id="prop-text" rows="5" oninput="updateActiveText(this.value, event)"></textarea>
                         <div id="text-fit-status" class="field-label" style="margin:-4px 0 8px 0;"></div>
                     </div>
