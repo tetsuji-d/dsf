@@ -449,3 +449,103 @@ main {
         font-size: 11px;
     }
 }
+
+/* ── Auth UI ────────────────────────────────────────────────────── */
+#auth-area {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-right: 8px;
+}
+
+.auth-user-name {
+    font-size: 13px;
+    color: var(--text-secondary, #64748b);
+    max-width: 140px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.btn-signin,
+.btn-signout {
+    padding: 6px 14px;
+    border-radius: 8px;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    border: none;
+    transition: opacity 0.15s;
+}
+
+.btn-signin {
+    background: linear-gradient(135deg, #60a5fa, #818cf8);
+    color: #fff;
+}
+
+.btn-signout {
+    background: transparent;
+    border: 1px solid #e2e8f0;
+    color: var(--text-secondary, #64748b);
+}
+
+.btn-signin:hover,
+.btn-signout:hover {
+    opacity: 0.85;
+}
+
+/* ── My Projects ────────────────────────────────────────────────── */
+#my-projects-section {
+    margin-bottom: 40px;
+}
+
+#my-projects-section.hidden {
+    display: none;
+}
+
+.my-project-card {
+    display: flex;
+    flex-direction: column;
+    border-radius: 14px;
+    overflow: hidden;
+    background: var(--surface, #fff);
+    box-shadow: 0 2px 8px rgba(0,0,0,0.07);
+    text-decoration: none;
+    color: inherit;
+    transition: transform 0.18s, box-shadow 0.18s;
+}
+
+.my-project-card:hover {
+    transform: translateY(-3px);
+    box-shadow: 0 6px 20px rgba(0,0,0,0.12);
+}
+
+.my-projects-loading,
+.my-projects-empty {
+    grid-column: 1 / -1;
+    text-align: center;
+    color: var(--text-secondary, #64748b);
+    font-size: 14px;
+    padding: 24px 0;
+}
+
+.visi-badge {
+    position: absolute;
+    bottom: 6px;
+    right: 6px;
+    font-size: 10px;
+    font-weight: 700;
+    padding: 2px 7px;
+    border-radius: 6px;
+    pointer-events: none;
+}
+
+.visi-badge.is-public {
+    background: #22c55e;
+    color: #fff;
+}
+
+.visi-badge.is-private {
+    background: rgba(0,0,0,0.45);
+    color: #fff;
+}

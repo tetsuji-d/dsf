@@ -1771,6 +1771,11 @@ onAuthChanged((user) => {
     state.user = user || null;
     state.uid = user?.uid || null;
     updateAuthUI();
+    // Auto-load project from URL param after login
+    if (user) {
+        const pid = new URLSearchParams(window.location.search).get('id');
+        if (pid) loadProject(pid, refresh);
+    }
 });
 
 // --- 初回描画 ---

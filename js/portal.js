@@ -2,16 +2,30 @@
  * portal.js — DSF Portal (index.html) の一覧表示ロジック
  */
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
-import { getFirestore, collection, query, orderBy, limit, getDocs } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
+import {
+    getFirestore,
+    collection,
+    query,
+    orderBy,
+    limit,
+    getDocs
+} from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
+import {
+    getAuth,
+    GoogleAuthProvider,
+    signInWithPopup,
+    signOut,
+    onAuthStateChanged
+} from "https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js";
 
 const firebaseConfig = {
-    apiKey: "AIzaSyBj3U-wFKnsWlwId4OHAyerEGMiRYhQN0o",
-    authDomain: "vmnn-26345.firebaseapp.com",
-    projectId: "vmnn-26345",
-    storageBucket: "vmnn-26345.firebasestorage.app",
-    messagingSenderId: "166808261830",
-    appId: "1:166808261830:web:c218463dd04297749eb3c7",
-    measurementId: "G-N639C3XCVQ"
+    apiKey:            import.meta.env.VITE_FIREBASE_API_KEY,
+    authDomain:        import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
+    projectId:         import.meta.env.VITE_FIREBASE_PROJECT_ID,
+    storageBucket:     import.meta.env.VITE_FIREBASE_STORAGE_BUCKET,
+    messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID,
+    appId:             import.meta.env.VITE_FIREBASE_APP_ID,
+    measurementId:     import.meta.env.VITE_FIREBASE_MEASUREMENT_ID,
 };
 
 const DEFAULT_THUMB_URL = "https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?q=80&w=400&auto=format&fit=crop";
@@ -22,11 +36,19 @@ const CF_DOMAIN = "https://dsf.ink";
 
 const app = initializeApp(firebaseConfig);
 const db = getFirestore(app);
+const auth = getAuth(app);
+const googleProvider = new GoogleAuthProvider();
+
+let currentUser = null;
+let searchDebounceTimer = null;
 
 const feedContainer = document.getElementById("public-feed");
 const searchInput = document.getElementById("portal-search");
 const feedbackContainer = document.getElementById("portal-feedback");
 const statusText = document.getElementById("feed-status");
+const myProjectsSection = document.getElementById("my-projects-section");
+const myProjectsGrid = document.getElementById("my-projects-grid");
+const authArea = document.getElementById("auth-area");
 
 const portalState = {
     isLoading: false,
@@ -35,7 +57,7 @@ const portalState = {
     projects: []
 };
 
-let searchDebounceTimer = null;
+// ── Utilities ──────────────────────────────────────────────────────────────
 
 function escapeHtml(str) {
     if (!str) return "";
@@ -61,11 +83,11 @@ function getOptimizedThumbUrl(originalUrl) {
     return originalUrl;
 }
 
-function formatPublishedAt(publishedAt) {
-    if (!publishedAt) return "";
-    const dateObj = typeof publishedAt.toDate === "function"
-        ? publishedAt.toDate()
-        : (publishedAt instanceof Date ? publishedAt : null);
+function formatDate(value) {
+    if (!value) return "";
+    const dateObj = typeof value.toDate === "function"
+        ? value.toDate()
+        : (value instanceof Date ? value : null);
     if (!dateObj || Number.isNaN(dateObj.getTime())) return "";
     const yyyy = dateObj.getFullYear();
     const mm = String(dateObj.getMonth() + 1).padStart(2, "0");
@@ -94,6 +116,117 @@ function showFeedback(type, title, description = "", withRetry = false) {
         </div>
     `;
 }
+
+// ── Auth UI ─────────────────────────────────────────────────────────────────
+
+function updateAuthUI() {
+    if (!authArea) return;
+    if (currentUser) {
+        const name = escapeHtml(currentUser.displayName || currentUser.email || "ユーザー");
+        authArea.innerHTML = `
+            <span class="auth-user-name">${name}</span>
+            <button class="btn-signout" id="btn-signout">サインアウト</button>
+        `;
+        document.getElementById("btn-signout")?.addEventListener("click", () => signOut(auth));
+    } else {
+        authArea.innerHTML = `<button class="btn-signin" id="btn-signin">Googleでサインイン</button>`;
+        document.getElementById("btn-signin")?.addEventListener("click", () => {
+            signInWithPopup(auth, googleProvider).catch((err) => {
+                console.error("[Portal] Sign-in error:", err);
+            });
+        });
+    }
+}
+
+// ── My Projects ──────────────────────────────────────────────────────────────
+
+function getMyProjectCover(data) {
+    const blocks = Array.isArray(data.blocks) ? data.blocks : [];
+    for (const b of blocks) {
+        if (b?.kind === 'page' && b.content) {
+            if (b.content.thumbnail) return b.content.thumbnail;
+            if (b.content.background) return b.content.background;
+        }
+    }
+    const sections = Array.isArray(data.sections) ? data.sections : [];
+    if (sections[0]?.thumbnail) return sections[0].thumbnail;
+    if (sections[0]?.background) return sections[0].background;
+    return "";
+}
+
+function getMyProjectPageCount(data) {
+    const blocks = Array.isArray(data.blocks) ? data.blocks : [];
+    const pageBlocks = blocks.filter((b) => b?.kind === 'page').length;
+    if (pageBlocks > 0) return pageBlocks;
+    return Array.isArray(data.sections) ? data.sections.length : 0;
+}
+
+async function loadMyProjects() {
+    if (!myProjectsSection || !myProjectsGrid || !currentUser) return;
+    myProjectsSection.classList.remove("hidden");
+    myProjectsGrid.innerHTML = '<div class="my-projects-loading">読み込み中...</div>';
+
+    try {
+        const snapshot = await getDocs(
+            collection(db, "users", currentUser.uid, "projects")
+        );
+        const projects = [];
+        snapshot.forEach((docSnap) => {
+            const data = docSnap.data() || {};
+            projects.push({
+                id: docSnap.id,
+                title: normalizeText(data.title, "無題"),
+                cover: getMyProjectCover(data),
+                pageCount: getMyProjectPageCount(data),
+                lastUpdated: data.lastUpdated,
+                visibility: data.visibility || "private"
+            });
+        });
+
+        projects.sort((a, b) => {
+            const ta = a.lastUpdated?.toDate?.()?.getTime() ?? 0;
+            const tb = b.lastUpdated?.toDate?.()?.getTime() ?? 0;
+            return tb - ta;
+        });
+
+        if (!projects.length) {
+            myProjectsGrid.innerHTML = '<p class="my-projects-empty">保存済みプロジェクトはありません</p>';
+            return;
+        }
+
+        myProjectsGrid.innerHTML = projects.map((p) => {
+            const thumb = escapeHtml(getOptimizedThumbUrl(p.cover || DEFAULT_THUMB_URL));
+            const editUrl = escapeHtml(`/studio.html?id=${encodeURIComponent(p.id)}`);
+            const visiBadge = p.visibility === 'public'
+                ? '<span class="visi-badge is-public">公開</span>'
+                : '<span class="visi-badge is-private">非公開</span>';
+            return `
+                <a href="${editUrl}" class="my-project-card">
+                    <div class="card-thumb-container">
+                        <img src="${thumb}" class="card-thumb" alt="${escapeHtml(p.title)}" loading="lazy"
+                            onerror="this.src='${DEFAULT_THUMB_URL}'">
+                        ${visiBadge}
+                    </div>
+                    <div class="card-info">
+                        <div class="card-title">${escapeHtml(p.title) || escapeHtml(p.id)}</div>
+                        <div class="card-meta">${p.pageCount}ページ · ${formatDate(p.lastUpdated)}</div>
+                    </div>
+                </a>
+            `;
+        }).join("");
+    } catch (err) {
+        console.error("[Portal] My projects load error:", err);
+        myProjectsGrid.innerHTML = `<p class="my-projects-empty">読み込みに失敗しました</p>`;
+    }
+}
+
+function clearMyProjects() {
+    if (!myProjectsSection) return;
+    myProjectsSection.classList.add("hidden");
+    if (myProjectsGrid) myProjectsGrid.innerHTML = "";
+}
+
+// ── Public Feed ──────────────────────────────────────────────────────────────
 
 function renderLoadingSkeleton(count = 6) {
     if (!feedContainer) return;
@@ -192,11 +325,7 @@ function renderProjects() {
 
     const unavailableCount = filtered.filter((p) => !p.canOpen).length;
     const baseStatus = `${filtered.length}件を表示中`;
-    if (unavailableCount > 0) {
-        setStatus(`${baseStatus}（${unavailableCount}件は公開準備中）`);
-    } else {
-        setStatus(baseStatus);
-    }
+    setStatus(unavailableCount > 0 ? `${baseStatus}（${unavailableCount}件は公開準備中）` : baseStatus);
 }
 
 function normalizeProject(docSnap) {
@@ -213,13 +342,12 @@ function normalizeProject(docSnap) {
         authorUid,
         canOpen: !!authorUid,
         thumbnail: normalizeText(data.thumbnail, DEFAULT_THUMB_URL),
-        publishedDate: formatPublishedAt(data.publishedAt)
+        publishedDate: formatDate(data.publishedAt)
     };
 }
 
 async function loadPublicProjects() {
     if (!feedContainer) return;
-
     portalState.isLoading = true;
     portalState.hasError = false;
     setStatus("作品を読み込み中...");
@@ -247,6 +375,8 @@ async function loadPublicProjects() {
     }
 }
 
+// ── Events ───────────────────────────────────────────────────────────────────
+
 function bindEvents() {
     if (searchInput) {
         searchInput.addEventListener("input", () => {
@@ -271,6 +401,18 @@ function bindEvents() {
         });
     }
 }
+
+// ── Init ─────────────────────────────────────────────────────────────────────
+
+onAuthStateChanged(auth, (user) => {
+    currentUser = user || null;
+    updateAuthUI();
+    if (user) {
+        loadMyProjects();
+    } else {
+        clearMyProjects();
+    }
+});
 
 document.addEventListener("DOMContentLoaded", () => {
     bindEvents();
