@@ -60,12 +60,48 @@ body {
     border-bottom: 1px solid var(--portal-border);
 }
 
+/* ロゴ + 言語スイッチャーをまとめるグループ */
+.logo-group {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-shrink: 0;
+}
+
 .logo-area {
     display: flex;
     align-items: baseline;
     gap: 8px;
     text-decoration: none;
     color: #fff;
+}
+
+/* ── Language Switcher ──────────────────────────────────────── */
+.lang-switcher {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    background: rgba(255,255,255,0.06);
+    border-radius: 8px;
+    padding: 2px;
+}
+
+.lang-btn {
+    padding: 3px 9px;
+    border-radius: 6px;
+    border: none;
+    background: transparent;
+    color: #94a3b8;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.5px;
+    cursor: pointer;
+    transition: background 0.15s, color 0.15s;
+}
+.lang-btn:hover { color: #e2e8f0; }
+.lang-btn.active {
+    background: rgba(99, 120, 255, 0.25);
+    color: #a5b4fc;
 }
 
 .logo-text {
@@ -454,45 +490,101 @@ main {
 #auth-area {
     display: flex;
     align-items: center;
-    gap: 10px;
-    margin-right: 8px;
+    position: relative;
 }
 
-.auth-user-name {
+/* サインインボタン */
+.btn-signin {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 14px;
+    border-radius: 20px;
     font-size: 13px;
-    color: var(--text-secondary, #64748b);
-    max-width: 140px;
+    font-weight: 600;
+    cursor: pointer;
+    border: 1px solid #3d5afe;
+    background: transparent;
+    color: #7c9cff;
+    transition: background 0.15s;
+    white-space: nowrap;
+}
+.btn-signin .material-icons { font-size: 18px; }
+.btn-signin:hover { background: rgba(99,120,255,0.12); }
+
+/* ログイン済み: アバターボタン */
+.auth-user {
+    position: relative;
+}
+
+.auth-avatar-btn {
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    overflow: hidden;
+    cursor: pointer;
+    border: none;
+    padding: 0;
+    background: #334155;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+}
+.auth-avatar-btn img {
+    width: 32px;
+    height: 32px;
+    object-fit: cover;
+    border-radius: 50%;
+    display: block;
+}
+.auth-avatar-btn .auth-initials {
+    font-size: 13px;
+    font-weight: 700;
+    color: #fff;
+    line-height: 1;
+}
+
+/* ドロップダウンメニュー */
+.auth-dropdown {
+    position: absolute;
+    top: calc(100% + 8px);
+    right: 0;
+    background: #1e293b;
+    border: 1px solid #334155;
+    border-radius: 10px;
+    padding: 8px 0;
+    min-width: 180px;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.4);
+    z-index: 200;
+    display: none;
+}
+.auth-dropdown.open { display: block; }
+
+.auth-dropdown-name {
+    padding: 8px 16px 10px;
+    font-size: 13px;
+    color: #94a3b8;
+    border-bottom: 1px solid #334155;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
 }
 
-.btn-signin,
 .btn-signout {
-    padding: 6px 14px;
-    border-radius: 8px;
+    display: block;
+    width: 100%;
+    padding: 8px 16px;
+    text-align: left;
     font-size: 13px;
-    font-weight: 600;
-    cursor: pointer;
-    border: none;
-    transition: opacity 0.15s;
-}
-
-.btn-signin {
-    background: linear-gradient(135deg, #60a5fa, #818cf8);
-    color: #fff;
-}
-
-.btn-signout {
+    font-weight: 500;
+    color: #e2e8f0;
     background: transparent;
-    border: 1px solid #e2e8f0;
-    color: var(--text-secondary, #64748b);
+    border: none;
+    cursor: pointer;
+    transition: background 0.15s;
 }
-
-.btn-signin:hover,
-.btn-signout:hover {
-    opacity: 0.85;
-}
+.btn-signout:hover { background: rgba(255,255,255,0.06); }
 
 /* ── My Projects ────────────────────────────────────────────────── */
 #my-projects-section {

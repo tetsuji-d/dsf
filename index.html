@@ -19,14 +19,23 @@
 
 <body>
     <header id="portal-header">
-        <a href="/" class="logo-area" title="DSF Portal">
-            <span class="logo-text">DSF</span>
-            <span class="logo-subtext">Digital Smart Format</span>
-        </a>
+        <div class="logo-group">
+            <a href="/" class="logo-area" title="DSF Portal">
+                <span class="logo-text">DSF</span>
+                <span class="logo-subtext">Digital Smart Format</span>
+            </a>
+            <!-- Language Switcher -->
+            <div id="lang-switcher" class="lang-switcher" role="group" aria-label="言語切り替え / Language">
+                <button class="lang-btn active" data-lang="ja">JA</button>
+                <button class="lang-btn" data-lang="en">EN</button>
+            </div>
+        </div>
 
         <div class="search-container" role="search">
-            <label for="portal-search" class="visually-hidden">作品を検索</label>
-            <input type="text" id="portal-search" class="search-input" placeholder="作品タイトル・作者名で検索"
+            <label for="portal-search" class="visually-hidden" data-i18n="searchLabel">作品を検索</label>
+            <input type="text" id="portal-search" class="search-input"
+                data-i18n-placeholder="searchPlaceholder"
+                placeholder="作品タイトル・作者名で検索"
                 aria-label="作品を検索" autocomplete="off">
             <span class="search-icon material-icons" aria-hidden="true">search</span>
         </div>
@@ -35,24 +44,17 @@
             <!-- Auth Area -->
             <div id="auth-area"></div>
             <!-- Studio Access Btn -->
-            <a href="/studio.html" class="btn-studio" aria-label="Studioを起動">
+            <a href="/studio.html" class="btn-studio" aria-label="Studio">
                 <span class="material-icons" aria-hidden="true">edit</span>
-                <span>Studio</span>
+                <span data-i18n="studioBtn">Studioを起動</span>
             </a>
         </div>
     </header>
 
     <main>
-        <!-- My Projects (visible when logged in) -->
-        <section id="my-projects-section" class="hidden">
-            <h2 class="section-title">My Projects</h2>
-            <div class="project-grid" id="my-projects-grid"></div>
-        </section>
-
-        <h2 class="section-title">Latest & Featured</h2>
-        <p id="feed-status" class="feed-status" aria-live="polite">作品を読み込み中...</p>
+        <h2 class="section-title" data-i18n="sectionTitle">最新・注目作品</h2>
+        <p id="feed-status" class="feed-status" aria-live="polite"></p>
         <div id="portal-feedback" class="portal-feedback" aria-live="polite"></div>
-
         <div class="project-grid" id="public-feed" aria-live="polite"></div>
     </main>
 

@@ -10,30 +10,19 @@ export const state = {
     languages: ['ja'],       // プロジェクトの対応言語
     defaultLang: 'ja',
     languageConfigs: {
-        ja: { writingMode: 'vertical-rl', fontPreset: 'gothic' }
+        ja: { pageDirection: 'rtl' }
     },
     activeLang: 'ja',        // エディタで表示中の言語
     blocks: [
-        {
-            id: 'cover_front_default',
-            kind: 'cover_front',
-            meta: { title: {}, author: {}, langs: ['ja'] }
-        },
         {
             id: 'page_default',
             kind: 'page',
             content: {
                 pageKind: 'image',
                 background: 'https://picsum.photos/id/10/600/1066',
-                bubbles: [],
-                text: '',
-                texts: {}
+                backgrounds: {},
+                bubbles: []
             }
-        },
-        {
-            id: 'cover_back_default',
-            kind: 'cover_back',
-            meta: { colophon: {} }
         }
     ],
     pages: [],
@@ -41,15 +30,13 @@ export const state = {
         {
             type: 'image',
             background: 'https://picsum.photos/id/10/600/1066',
-            writingMode: 'horizontal-tb',
-            bubbles: [],
-            text: '',
-            texts: {}        // { ja: "...", en: "..." }
+            backgrounds: {},
+            bubbles: []
         }
     ],
     activeIdx: 0,
     activePageIdx: 0,
-    activeBlockIdx: 1,
+    activeBlockIdx: 0,
     activeBubbleIdx: null,
     thumbColumns: 2,
     uiPrefs: {

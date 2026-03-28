@@ -42,6 +42,11 @@
             <div class="ribbon-row ribbon-panel-row">
                 <div class="ribbon-panel active" data-ribbon-panel="home">
                     <div class="ribbon-group">
+                        <button class="btn-tool" onclick="newProject()" title="新規プロジェクト">＋ 新規</button>
+                        <button class="btn-tool" onclick="openProjectModal()" title="プロジェクト一覧" data-auth-required>📂 マイプロジェクト</button>
+                        <button class="btn-tool" onclick="openWorksRoom()" title="発行済み作品の管理" data-auth-required>📚 Works</button>
+                    </div>
+                    <div class="ribbon-group">
                         <button id="btn-undo" class="btn-tool" onclick="performUndo()" title="元に戻す (Ctrl+Z)" disabled>↩
                             Undo</button>
                         <button id="btn-redo" class="btn-tool" onclick="performRedo()" title="やり直す (Ctrl+Shift+Z)"
@@ -365,6 +370,22 @@
             <button class="bottom-item" data-mobile-action="lang"><span
                     class="material-icons">language</span><span>Lang</span></button>
         </nav>
+    </div>
+
+    <!-- Works Room モーダル -->
+    <div id="works-modal">
+        <div class="modal-overlay" onclick="closeWorksRoom()"></div>
+        <div class="modal-content modal-content--wide">
+            <div class="modal-header">
+                <h2>📚 Works Room</h2>
+                <div class="modal-header-actions">
+                    <button class="btn-modal" onclick="closeWorksRoom()">閉じる</button>
+                </div>
+            </div>
+            <div class="modal-body">
+                <div id="works-list"></div>
+            </div>
+        </div>
     </div>
 
     <!-- プロジェクト一覧モーダル -->

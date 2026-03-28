@@ -7,6 +7,7 @@ import { handleCanvasClick, selectBubble, renderBubbleHTML, getBubbleText, setBu
 import { addSection, changeSection, changeBlock, insertStructureBlock, renderThumbs, deleteActive, insertSectionAt, duplicateSectionAt, moveSection, insertPageNearBlock, duplicateBlockAt, moveBlockAt, getOptimizedImageUrl } from './sections.js';
 import { pushState, undo, redo, getHistoryInfo, clearHistory } from './history.js';
 import { openProjectModal, closeProjectModal } from './projects.js';
+import { openWorksRoom, closeWorksRoom } from './works.js';
 import { getLangProps } from './lang.js';
 import { getBlockIndexFromPageIndex, getPageIndexFromBlockIndex, migrateSectionsToBlocks, syncBlocksWithSections } from './blocks.js';
 import { blocksToPages, normalizeProjectDataV5 } from './pages.js';
@@ -1575,6 +1576,14 @@ window.removeLang = (code) => {
 // プロジェクトモーダル
 window.openProjectModal = () => openProjectModal(onLoadProject);
 window.closeProjectModal = closeProjectModal;
+
+// Works Room
+window.openWorksRoom = openWorksRoom;
+window.closeWorksRoom = closeWorksRoom;
+window.loadAndOpenProject = (pid) => {
+    closeWorksRoom();
+    loadProject(pid, refresh);
+};
 
 // 新規プロジェクト
 window.newProject = () => {
