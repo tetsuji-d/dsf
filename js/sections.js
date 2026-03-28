@@ -378,10 +378,19 @@ export function moveBlockAt(blockIndex, direction, refresh) {
  * サムネイル一覧を描画する
  */
 export function renderThumbs() {
-    const container = document.getElementById('thumb-container');
+    const isDesktop = window.innerWidth >= 1024;
+    const container = isDesktop
+        ? document.getElementById('page-strip-thumbs')
+        : document.getElementById('thumb-container');
     const prevScrollTop = container ? container.scrollTop : 0;
     const cols = Number(state.thumbColumns) || 2;
     container.setAttribute('data-cols', String(cols));
+
+    // ページ送り方向を反映（デスクトップのページストリップのみ）
+    if (isDesktop) {
+        const pageDir = state.languageConfigs?.[state.activeLang]?.pageDirection || 'ltr';
+        container.dataset.dir = pageDir;
+    }
 
     const blocks = state.blocks || [];
     const pageBlockIndices = getPageBlockIndices(blocks);
@@ -440,8 +449,8 @@ export function renderThumbs() {
                         <div class="thumb-canvas">
                             <img class="thumb-canvas-image" src="${getOptimizedImageUrl(s.backgrounds?.[state.activeLang] || s.background || '')}" style="${style}">
                         </div>
+                        <span class="thumb-page-num">${pageIdx + 1}</span>
                         <div class="thumb-card-top">
-                            <span class="thumb-card-badge">Image #${pageIdx + 1}</span>
                             <span class="thumb-card-depth">L${depth}</span>
                         </div>
                         <button class="thumb-insert-btn before" title="ここにページ挿入" ontouchstart="event.stopPropagation()" onclick="insertSectionAtIndex(${pageIdx}, event)">＋</button>
@@ -459,10 +468,11 @@ export function renderThumbs() {
                     aria-current="${selected ? 'true' : 'false'}">
                     <div class="thumb-canvas thumb-canvas-meta">
                         <div class="thumb-card-meta">
-                            <span class="thumb-card-badge">Text #${pageIdx + 1}</span>
+                            <span class="thumb-card-badge">Text</span>
                             <span class="thumb-card-title">${escapeHtml(textLabel)}</span>
                         </div>
                     </div>
+                    <span class="thumb-page-num">${pageIdx + 1}</span>
                     <div class="thumb-card-top">
                         <span class="thumb-card-depth">L${depth}</span>
                     </div>
@@ -508,6 +518,15 @@ export function renderThumbs() {
             </div>
         `;
     }).join('');
+
+    // デスクトップのページストリップには最終ページ隣に + ボタンを追加
+    if (isDesktop) {
+        container.innerHTML += `
+            <button class="page-strip-add-btn" onclick="addSection()" title="ページ追加">
+                <span class="material-icons">add</span>
+            </button>
+        `;
+    }
 
     // Keep sidebar position stable while typing/editing.
     if (container) {

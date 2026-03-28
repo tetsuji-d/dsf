@@ -252,10 +252,13 @@ function refresh() {
     if (propTitle && document.activeElement !== propTitle) {
         propTitle.value = state.title || '';
     }
-    // ヘッダーガイドにタイトル表示
-    const headerGuideTitle = document.getElementById('header-guide-title');
-    if (headerGuideTitle) {
-        headerGuideTitle.textContent = state.title || 'タイトル未設定';
+    // キャンバス下部のページ番号ラベルを更新
+    const canvasPageLabel = document.getElementById('canvas-page-label');
+    if (canvasPageLabel) {
+        const totalPages = (state.sections || []).length;
+        const currentPage = (state.activeIdx ?? 0) + 1;
+        const langCode = (state.activeLang || 'ja').toUpperCase();
+        canvasPageLabel.textContent = `${currentPage} / ${totalPages} ${langCode}`;
     }
 
     // 言語タブの更新
@@ -280,7 +283,7 @@ function renderLangTabs() {
         const active = code === state.activeLang ? 'active' : '';
         return `<button class="lang-tab ${active}" onclick="switchLang('${code}')">${props.label}</button>`;
     }).join('');
-    ['lang-tabs', 'lang-tabs-project', 'lang-tabs-mobile'].forEach((id) => {
+    ['lang-tabs', 'lang-tabs-project', 'lang-tabs-mobile', 'lang-tabs-top'].forEach((id) => {
         const container = document.getElementById(id);
         if (container) container.innerHTML = html;
     });
@@ -1285,8 +1288,8 @@ function initCanvasZoom() {
     const view = document.getElementById('canvas-view');
     if (!view) return;
 
-    // 初期化時にリセット
-    resetCanvasView();
+    // 初期化時にリセット（flex レイアウト確定後に実行）
+    requestAnimationFrame(() => resetCanvasView());
 
     // Pan handling
     let isPanning = false;
@@ -1625,18 +1628,15 @@ function setRibbonTab(tabName) {
 }
 
 function syncDesktopToggleButtons() {
-    const leftCollapsed = document.body.classList.contains('left-collapsed');
+    const drawerOpen = document.body.classList.contains('drawer-open');
     const rightCollapsed = document.body.classList.contains('right-collapsed');
     const leftBtn = document.getElementById('btn-toggle-sidebar');
     const rightBtn = document.getElementById('btn-toggle-panel');
-    if (leftBtn) leftBtn.textContent = leftCollapsed ? '📚 Pagesを開く' : '📚 Pages';
+    if (leftBtn) leftBtn.textContent = drawerOpen ? '🖼 Assetsを閉じる' : '🖼 Assets';
     if (rightBtn) rightBtn.textContent = rightCollapsed ? '⚙ Editを開く' : '⚙ Edit';
 }
 
 window.toggleDesktopPanel = (side) => {
-    if (side === 'left') {
-        document.body.classList.toggle('left-collapsed');
-    }
     if (side === 'right') {
         document.body.classList.toggle('right-collapsed');
     }
@@ -1648,7 +1648,7 @@ window.togglePagesPanel = () => {
         closeMobileSheet();
         return;
     }
-    toggleDesktopPanel('left');
+    window.toggleDrawer('pages');
 };
 
 window.toggleEditPanel = () => {
@@ -1657,6 +1657,56 @@ window.toggleEditPanel = () => {
         return;
     }
     toggleDesktopPanel('right');
+};
+
+let activeDrawer = null;
+
+window.toggleDrawer = (drawerName) => {
+    if (window.innerWidth < 1024) return;
+    if (activeDrawer === drawerName && document.body.classList.contains('drawer-open')) {
+        window.closeDrawer();
+        return;
+    }
+    activeDrawer = drawerName;
+    document.body.classList.add('drawer-open');
+    document.querySelectorAll('.sidebar-assets, .sidebar-pages').forEach((el) => {
+        el.style.display = 'none';
+    });
+    const target = document.querySelector(`.sidebar-${drawerName}`);
+    if (target) target.style.display = 'flex';
+    document.querySelectorAll('.icon-bar-btn').forEach((btn) => {
+        btn.classList.toggle('active', btn.dataset.drawer === drawerName);
+    });
+    syncDesktopToggleButtons();
+};
+
+window.closeDrawer = () => {
+    activeDrawer = null;
+    document.body.classList.remove('drawer-open');
+    document.querySelectorAll('.icon-bar-btn').forEach((btn) => btn.classList.remove('active'));
+    syncDesktopToggleButtons();
+};
+
+window.togglePageStrip = () => {
+    document.body.classList.toggle('strip-collapsed');
+    const chevron = document.getElementById('page-strip-chevron');
+    if (chevron) {
+        chevron.textContent = document.body.classList.contains('strip-collapsed') ? 'expand_less' : 'expand_more';
+    }
+};
+
+window.uploadAsset = () => {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = 'image/*';
+    input.multiple = true;
+    input.onchange = async (e) => {
+        const files = Array.from(e.target.files || []);
+        if (!files.length) return;
+        // TODO: implement asset upload to Firebase Storage
+        console.log('uploadAsset: files selected', files.map((f) => f.name));
+    };
+    input.click();
 };
 
 let activeMobileSheet = null;
@@ -1723,7 +1773,7 @@ function initUIChrome() {
         tab.addEventListener('click', () => setRibbonTab(tab.dataset.ribbonTab));
     });
 
-    document.getElementById('btn-toggle-sidebar')?.addEventListener('click', () => toggleDesktopPanel('left'));
+    document.getElementById('btn-toggle-sidebar')?.addEventListener('click', () => window.toggleDrawer('assets'));
     document.getElementById('btn-toggle-panel')?.addEventListener('click', () => toggleDesktopPanel('right'));
 
     document.querySelectorAll('.bottom-item').forEach((item) => {

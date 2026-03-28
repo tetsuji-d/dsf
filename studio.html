@@ -32,6 +32,7 @@
                     <button class="ribbon-tab" data-ribbon-tab="export" aria-label="出力タブ">Export</button>
                     <button class="ribbon-tab" data-ribbon-tab="project" aria-label="プロジェクトタブ">Project</button>
                 </div>
+                <div id="lang-tabs-top" class="lang-tabs lang-tabs-top"></div>
                 <div class="ribbon-auth">
                     <span id="auth-warning-badge" class="auth-warning-badge">ログインでクラウド機能が有効化されます</span>
                     <span id="auth-status" class="auth-status"></span>
@@ -82,9 +83,9 @@
                         <span id="save-status" class="save-status" aria-live="polite"></span>
                     </div>
                     <div class="ribbon-group">
-                        <button id="btn-toggle-sidebar" class="btn-tool" type="button" title="ページ一覧の表示切替"
-                            aria-label="ページ一覧表示切り替え">📚
-                            Pages</button>
+                        <button id="btn-toggle-sidebar" class="btn-tool" type="button" title="アセットパネルの表示切替"
+                            aria-label="アセットパネル表示切り替え">🖼
+                            Assets</button>
                         <button id="btn-toggle-panel" class="btn-tool" type="button" title="設定パネルの表示切替"
                             aria-label="設定パネル表示切り替え">⚙ Edit</button>
                     </div>
@@ -156,23 +157,46 @@
         </header>
 
         <div id="workspace">
+            <div id="icon-bar">
+                <button class="icon-bar-btn" data-panel="assets" onclick="toggleDrawer('assets')" title="アセット">
+                    <span class="material-icons">image</span>
+                    <span class="icon-bar-label">Assets</span>
+                </button>
+            </div>
             <aside id="sidebar">
-                <div class="panel-head">
-                    <h3>Pages</h3>
-                    <button class="btn-sm" type="button" onclick="togglePagesPanel()">閉じる</button>
-                </div>
-                <div class="thumb-tools">
-                    <label>列数:</label>
-                    <div class="thumb-size-buttons">
-                        <button class="btn-sm" data-thumb-cols="8" onclick="setThumbColumns(8)">8</button>
-                        <button class="btn-sm" data-thumb-cols="5" onclick="setThumbColumns(5)">5</button>
-                        <button class="btn-sm" data-thumb-cols="4" onclick="setThumbColumns(4)">4</button>
-                        <button class="btn-sm" data-thumb-cols="2" onclick="setThumbColumns(2)">2</button>
-                        <button class="btn-sm" data-thumb-cols="1" onclick="setThumbColumns(1)">1</button>
+                <!-- Desktop: Asset panel -->
+                <div class="sidebar-assets">
+                    <div class="panel-head">
+                        <h3>Assets</h3>
+                        <button class="btn-sm" type="button" onclick="closeDrawer()">閉じる</button>
                     </div>
+                    <div class="asset-upload-area">
+                        <button class="btn" onclick="document.getElementById('asset-upload').click()">
+                            <span class="material-icons inline-icon">upload</span> 画像をアップロード
+                        </button>
+                        <input type="file" id="asset-upload" accept="image/*" multiple style="display:none;" onchange="uploadAsset(event)">
+                    </div>
+                    <div id="asset-grid" class="asset-grid"></div>
                 </div>
-                <div id="thumb-container"></div>
-                <div class="panel-footer"><button class="btn" onclick="addSection()">+ セクション追加</button></div>
+                <!-- Mobile: Pages panel -->
+                <div class="sidebar-pages">
+                    <div class="panel-head">
+                        <h3>Pages</h3>
+                        <button class="btn-sm" type="button" onclick="togglePagesPanel()">閉じる</button>
+                    </div>
+                    <div class="thumb-tools">
+                        <label>列数:</label>
+                        <div class="thumb-size-buttons">
+                            <button class="btn-sm" data-thumb-cols="8" onclick="setThumbColumns(8)">8</button>
+                            <button class="btn-sm" data-thumb-cols="5" onclick="setThumbColumns(5)">5</button>
+                            <button class="btn-sm" data-thumb-cols="4" onclick="setThumbColumns(4)">4</button>
+                            <button class="btn-sm" data-thumb-cols="2" onclick="setThumbColumns(2)">2</button>
+                            <button class="btn-sm" data-thumb-cols="1" onclick="setThumbColumns(1)">1</button>
+                        </div>
+                    </div>
+                    <div id="thumb-container"></div>
+                    <div class="panel-footer"><button class="btn" onclick="addSection()">+ セクション追加</button></div>
+                </div>
             </aside>
 
             <main id="editor-main">
@@ -180,10 +204,7 @@
                     <div id="canvas-transform-layer">
                         <div id="content-render"></div>
                         <div id="bubble-layer"></div>
-                        <div id="header-guide" class="canvas-guide header-guide"><span id="header-guide-title"></span>
-                        </div>
-                        <div id="footer-guide" class="canvas-guide footer-guide"><span
-                                class="footer-guide-label">フッター領域</span></div>
+                        <div id="canvas-page-label"></div>
                     </div>
                     <div id="image-zoom-controls-floating">
                         <button class="btn-sm zoom-btn img-zoom-btn" onmousedown="event.stopPropagation()"
@@ -200,6 +221,15 @@
                     <button id="btn-reset-view" class="reset-view-btn" onclick="resetCanvasView()" title="全体表示">
                         <span class="material-icons">restart_alt</span>
                     </button>
+                </div>
+                <div id="page-strip">
+                    <div id="page-strip-handle" onclick="togglePageStrip()" title="ページパネルを開閉">
+                        <span class="material-icons" id="page-strip-chevron">expand_more</span>
+                        <span id="page-strip-handle-label">Pages</span>
+                    </div>
+                    <div id="page-strip-body">
+                        <div id="page-strip-thumbs"></div>
+                    </div>
                 </div>
             </main>
 

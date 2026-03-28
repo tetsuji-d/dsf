@@ -39,15 +39,16 @@ body {
 }
 
 body {
-    --left-panel-width: 228px;
+    --left-panel-width: 0px;
     --right-panel-width: 340px;
+    --icon-bar-width: 60px;
     font-family: "Segoe UI", "Yu Gothic UI", sans-serif;
     background: var(--bg);
     color: #1a1f29;
 }
 
-body.left-collapsed {
-    --left-panel-width: 0px;
+body.drawer-open {
+    --left-panel-width: 280px;
 }
 
 body.right-collapsed {
@@ -57,14 +58,18 @@ body.right-collapsed {
 #app-shell {
     display: grid;
     grid-template-rows: auto 1fr;
+    grid-template-columns: 1fr;
     width: 100%;
     height: 100dvh;
+    overflow: hidden;
 }
 
 #ribbon-bar {
     background: #fff;
     border-bottom: 1px solid var(--line);
     z-index: 900;
+    min-width: 0;
+    overflow-x: auto;
 }
 
 .ribbon-row {
@@ -327,8 +332,8 @@ textarea:focus-visible {
 }
 
 .ribbon-title-input {
-    min-width: 220px;
-    max-width: 340px;
+    min-width: 120px;
+    max-width: 240px;
     border: 1px solid #cfd7e5;
     border-radius: 7px;
     padding: 6px 8px;
@@ -366,11 +371,20 @@ textarea:focus-visible {
     color: #0b4bb3;
 }
 
+/* 最上行リボンの言語タブ */
+.lang-tabs-top {
+    margin: 0 8px;
+    flex-shrink: 0;
+}
+
 #workspace {
     display: grid;
-    grid-template-columns: var(--left-panel-width) 1fr var(--right-panel-width);
+    grid-template-columns: var(--icon-bar-width) var(--left-panel-width) 1fr var(--right-panel-width);
     width: 100%;
     min-height: 0;
+    min-width: 0;
+    overflow: hidden;
+    transition: grid-template-columns 0.2s ease;
 }
 
 #sidebar,
@@ -497,10 +511,126 @@ textarea:focus-visible {
     background-color: var(--primary);
 }
 
-body.left-collapsed #sidebar,
 body.right-collapsed #panel-right {
     opacity: 0;
     pointer-events: none;
+}
+
+/* Icon bar — always-visible vertical icon strip */
+#icon-bar {
+    width: var(--icon-bar-width);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 8px 0;
+    gap: 4px;
+    background: var(--panel-bg);
+    border-right: 1px solid var(--line);
+    overflow: hidden;
+}
+
+.icon-bar-btn {
+    width: 44px;
+    height: 44px;
+    border: none;
+    background: transparent;
+    border-radius: 10px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 2px;
+    cursor: pointer;
+    color: #4a5568;
+    transition: background 0.15s ease, color 0.15s ease;
+}
+
+.icon-bar-btn:hover {
+    background: #eef4ff;
+    color: var(--primary);
+}
+
+.icon-bar-btn.active {
+    background: #dbeafe;
+    color: var(--primary);
+}
+
+.icon-bar-btn .material-icons {
+    font-size: 20px;
+}
+
+.icon-bar-label {
+    font-size: 9px;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    line-height: 1;
+}
+
+/* Drawer panels — hidden by default, shown via drawer-open class */
+.sidebar-assets,
+.sidebar-pages {
+    display: none;
+}
+
+body.drawer-open .sidebar-assets,
+body.drawer-open .sidebar-pages {
+    display: flex;
+    flex-direction: column;
+}
+
+/* Asset upload area */
+.asset-upload-area {
+    margin: 10px;
+    border: 2px dashed var(--line);
+    border-radius: 8px;
+    padding: 16px;
+    text-align: center;
+    cursor: pointer;
+    color: #728094;
+    font-size: 13px;
+    transition: border-color 0.2s ease, background 0.2s ease;
+}
+
+.asset-upload-area:hover {
+    border-color: var(--primary);
+    background: #eef4ff;
+    color: var(--primary);
+}
+
+.asset-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 6px;
+    padding: 0 10px 10px;
+    overflow-y: auto;
+}
+
+.asset-item {
+    aspect-ratio: 1;
+    border-radius: 6px;
+    overflow: hidden;
+    cursor: pointer;
+    border: 2px solid transparent;
+    transition: border-color 0.15s ease;
+}
+
+.asset-item:hover,
+.asset-item.selected {
+    border-color: var(--primary);
+}
+
+.asset-item img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+}
+
+.asset-empty {
+    padding: 16px;
+    text-align: center;
+    color: #8a96a8;
+    font-size: 13px;
 }
 
 .panel-head {
@@ -890,19 +1020,193 @@ body.right-collapsed #panel-right {
     min-height: 0;
     display: flex;
     flex-direction: column;
-    padding: 10px;
+    padding: 10px 10px 0 10px;
 }
 
 #canvas-view {
     position: relative;
     width: 100%;
-    height: 100%;
+    flex: 1;
     min-height: 0;
     background: #2a2d35;
     overflow: clip;
     /* スクロールバーを出さず、子要素のオーバーフロー表示も占めない */
     touch-action: none;
-    border-radius: 10px;
+    border-radius: 10px 10px 0 0;
+}
+
+/* Page strip — horizontal thumbnail filmstrip below canvas (desktop only) */
+#page-strip {
+    height: 132px;
+    background: #1e2128;
+    border-radius: 0 0 10px 10px;
+    display: flex;
+    flex-direction: column;
+    flex-shrink: 0;
+    transition: height 0.2s ease;
+    overflow: hidden;
+}
+
+body.strip-collapsed #page-strip {
+    height: 22px;
+    border-radius: 0 0 10px 10px;
+}
+
+body.strip-collapsed #canvas-view {
+    border-radius: 10px 10px 0 0;
+}
+
+body.strip-collapsed #page-strip-chevron {
+    transform: rotate(180deg);
+}
+
+#page-strip-handle {
+    height: 22px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
+    cursor: pointer;
+    color: #888;
+    font-size: 11px;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    flex-shrink: 0;
+    user-select: none;
+    transition: color 0.15s ease;
+}
+
+#page-strip-handle:hover {
+    color: #ccc;
+}
+
+#page-strip-handle .material-icons {
+    font-size: 16px;
+    transition: transform 0.2s ease;
+}
+
+#page-strip-handle-label {
+    font-size: 10px;
+}
+
+#page-strip-body {
+    flex: 1;
+    display: flex;
+    flex-direction: row;
+    min-height: 0;
+    overflow: hidden;
+    align-items: center;
+    padding: 0 6px 6px 6px;
+}
+
+#page-strip-thumbs {
+    display: flex;
+    flex-direction: row;
+    gap: 6px;
+    overflow-x: auto;
+    overflow-y: hidden;
+    flex: 1;
+    min-height: 0;
+    scrollbar-width: thin;
+    scrollbar-color: #444 transparent;
+    /* ページ送り方向: data-dir="rtl" で右から左へ */
+    direction: ltr;
+}
+
+#page-strip-thumbs[data-dir="rtl"] {
+    direction: rtl;
+}
+
+/* RTL内の子要素は ltr に戻す（テキスト等が逆転しないように） */
+#page-strip-thumbs[data-dir="rtl"] .thumb-wrap,
+#page-strip-thumbs[data-dir="rtl"] .page-strip-add-btn {
+    direction: ltr;
+}
+
+#page-strip-thumbs::-webkit-scrollbar {
+    height: 4px;
+}
+
+#page-strip-thumbs::-webkit-scrollbar-thumb {
+    background: #444;
+    border-radius: 2px;
+}
+
+#page-strip-thumbs .thumb-wrap {
+    flex-shrink: 0;
+    width: 50px;
+    height: 94px;
+    border-radius: 4px;
+    overflow: hidden;
+    cursor: pointer;
+    border: 2px solid transparent;
+    transition: border-color 0.15s ease;
+    position: relative;
+    display: flex;
+    flex-direction: column;
+}
+
+#page-strip-thumbs .thumb-page-num {
+    flex-shrink: 0;
+    height: 14px;
+    line-height: 14px;
+    text-align: center;
+    font-size: 9px;
+    color: #aaa;
+    background: #1e2128;
+    font-variant-numeric: tabular-nums;
+    letter-spacing: 0;
+}
+
+#page-strip-thumbs .thumb-wrap.active {
+    border-color: var(--primary);
+}
+
+#page-strip-thumbs .thumb-wrap:hover {
+    border-color: #7aa8ff;
+}
+
+#page-strip-thumbs .thumb-canvas {
+    width: 100%;
+    flex: 1;
+    min-height: 0;
+    overflow: hidden;
+}
+
+#page-strip-thumbs .thumb-canvas-image {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+}
+
+#page-strip-thumbs .thumb-card-top,
+#page-strip-thumbs .thumb-insert-btn,
+#page-strip-thumbs .thumb-duplicate-btn,
+#page-strip-thumbs .thumb-move-btn {
+    display: none;
+}
+
+.page-strip-add-btn {
+    flex-shrink: 0;
+    width: 44px;
+    height: 94px;
+    border-radius: 4px;
+    border: 2px dashed #444;
+    background: transparent;
+    color: #666;
+    font-size: 22px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin-left: 4px;
+    transition: border-color 0.15s ease, color 0.15s ease;
+}
+
+.page-strip-add-btn:hover {
+    border-color: var(--primary);
+    color: var(--primary);
 }
 
 #canvas-transform-layer {
@@ -916,6 +1220,39 @@ body.right-collapsed #panel-right {
     box-shadow: 0 0 50px rgba(0, 0, 0, 0.5);
     overflow: visible;
     /* ハンドルがキャンバス境界に近い時も表示する */
+}
+
+/* ページ枠ボーダー — 画像・吹き出し全レイヤーより前面 */
+#canvas-transform-layer::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    border: 1.5px solid rgba(255, 255, 255, 0.35);
+    z-index: 9999;
+    pointer-events: none;
+    box-sizing: border-box;
+}
+
+/* ページ番号ラベル（ページ枠の下） */
+#canvas-page-label {
+    position: absolute;
+    bottom: -28px;
+    left: 0;
+    right: 0;
+    text-align: center;
+    font-size: 18px;
+    font-weight: 600;
+    color: #fff;
+    background: var(--primary);
+    padding: 2px 0;
+    border-radius: 0 0 4px 4px;
+    text-shadow: none;
+    font-variant-numeric: tabular-nums;
+    letter-spacing: 0.06em;
+    pointer-events: none;
+    user-select: none;
+    white-space: nowrap;
+    z-index: 9999;
 }
 
 #content-render,
@@ -1108,19 +1445,7 @@ body.right-collapsed #panel-right {
 }
 
 .canvas-guide {
-    position: absolute;
-    left: 0;
-    right: 0;
-    height: 5%;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-size: 9px;
-    color: rgba(0, 122, 255, 0.6);
-    pointer-events: none;
-    z-index: 10;
-    border: 1px dashed rgba(0, 122, 255, 0.3);
-    background: rgba(0, 122, 255, 0.04);
+    display: none;
 }
 
 .header-guide {
@@ -1721,6 +2046,14 @@ body.right-collapsed #panel-right {
         font-weight: 700;
     }
 
+    #icon-bar {
+        display: none;
+    }
+
+    #page-strip {
+        display: none;
+    }
+
     #workspace {
         grid-template-columns: 1fr;
     }
@@ -1731,6 +2064,17 @@ body.right-collapsed #panel-right {
 
     #canvas-view {
         border-radius: 0;
+        flex: none;
+        height: 100%;
+    }
+
+    .sidebar-assets {
+        display: none !important;
+    }
+
+    .sidebar-pages {
+        display: flex !important;
+        flex-direction: column;
     }
 
     #sidebar,
@@ -1753,7 +2097,6 @@ body.right-collapsed #panel-right {
         overflow-y: auto;
     }
 
-    body.left-collapsed #sidebar,
     body.right-collapsed #panel-right {
         opacity: 1;
         pointer-events: auto;
