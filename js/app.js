@@ -1671,10 +1671,10 @@ window.closeDrawer = () => {
 // ===== Project Settings Modal =====
 
 const PS_META_FIELDS = [
-    { key: 'title',       label: 'タイトル',  type: 'input',    placeholder: '例: 我が家のヒーロー' },
-    { key: 'author',      label: '著者名',    type: 'input',    placeholder: '例: 山田太郎' },
-    { key: 'description', label: '説明文',    type: 'textarea', placeholder: '作品の概要...' },
-    { key: 'copyright',   label: '著作権',    type: 'input',    placeholder: '例: © 2025 山田太郎' },
+    { key: 'title',       label: 'タイトル',  type: 'input'    },
+    { key: 'author',      label: '著者名',    type: 'input'    },
+    { key: 'description', label: '説明文',    type: 'textarea' },
+    { key: 'copyright',   label: '著作権',    type: 'input'    },
 ];
 
 function renderProjectSettingsTable() {
@@ -1703,10 +1703,11 @@ function renderProjectSettingsTable() {
         html += `<div class="ps-meta-cell ps-meta-row-label">${field.label}</div>`;
         langs.forEach(lang => {
             const val = (meta[lang]?.[field.key] || '').replace(/"/g, '&quot;');
+            const ph = (getLangProps(lang).placeholders?.[field.key] || '').replace(/"/g, '&quot;');
             if (field.type === 'textarea') {
-                html += `<div class="ps-meta-cell"><textarea class="ps-meta-input" data-lang="${lang}" data-key="${field.key}" placeholder="${field.placeholder}">${val}</textarea></div>`;
+                html += `<div class="ps-meta-cell"><textarea class="ps-meta-input" data-lang="${lang}" data-key="${field.key}" placeholder="${ph}">${val}</textarea></div>`;
             } else {
-                html += `<div class="ps-meta-cell"><input type="text" class="ps-meta-input" data-lang="${lang}" data-key="${field.key}" value="${val}" placeholder="${field.placeholder}"></div>`;
+                html += `<div class="ps-meta-cell"><input type="text" class="ps-meta-input" data-lang="${lang}" data-key="${field.key}" value="${val}" placeholder="${ph}"></div>`;
             }
         });
     });
