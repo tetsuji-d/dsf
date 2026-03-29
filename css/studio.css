@@ -3005,6 +3005,53 @@ textarea.ps-meta-input {
     color: #2563c7;
 }
 
+/* Drag-and-drop column reorder */
+.ps-meta-header[draggable="true"] {
+    cursor: grab;
+    user-select: none;
+}
+
+.ps-meta-header[draggable="true"]:active {
+    cursor: grabbing;
+}
+
+.ps-meta-header-drag {
+    display: inline-block;
+    margin-right: 4px;
+    color: #aab;
+    font-size: 13px;
+    vertical-align: middle;
+    line-height: 1;
+}
+
+.ps-col-dragging {
+    opacity: 0.45;
+}
+
+.ps-col-drag-over {
+    outline: 2px solid #3b82f6;
+    outline-offset: -2px;
+    background: #eff6ff !important;
+}
+
+.ps-meta-header--default {
+    background: #e8f0fe !important;
+}
+
+.ps-default-badge {
+    display: inline-block;
+    margin-left: 5px;
+    font-size: 9px;
+    font-weight: 700;
+    color: #fff;
+    background: #3b6ee8;
+    border-radius: 3px;
+    padding: 1px 4px;
+    vertical-align: middle;
+    line-height: 1.5;
+    letter-spacing: 0;
+}
+
 .lang-item-remove {
     font-size: 10px;
     padding: 1px 5px;

@@ -1677,6 +1677,63 @@ const PS_META_FIELDS = [
     { key: 'copyright',   label: '著作権',    type: 'input'    },
 ];
 
+// ── PS テーブル列ドラッグ ──
+let _psDragLang = null;
+
+window.psColDragStart = (e, lang) => {
+    _psDragLang = lang;
+    e.dataTransfer.effectAllowed = 'move';
+    e.currentTarget.classList.add('ps-col-dragging');
+};
+
+window.psColDragEnd = (e) => {
+    e.currentTarget.classList.remove('ps-col-dragging');
+};
+
+window.psColDragOver = (e) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    e.currentTarget.classList.add('ps-col-drag-over');
+};
+
+window.psColDragLeave = (e) => {
+    e.currentTarget.classList.remove('ps-col-drag-over');
+};
+
+window.psColDrop = (e, targetLang) => {
+    e.preventDefault();
+    e.currentTarget.classList.remove('ps-col-drag-over');
+    if (!_psDragLang || _psDragLang === targetLang) { _psDragLang = null; return; }
+
+    // Save current input values before re-render
+    const currentMeta = state.meta ? JSON.parse(JSON.stringify(state.meta)) : {};
+    document.querySelectorAll('#ps-meta-table .ps-meta-input').forEach(input => {
+        const lang = input.dataset.lang;
+        const key  = input.dataset.key;
+        if (lang && key) {
+            if (!currentMeta[lang]) currentMeta[lang] = {};
+            currentMeta[lang][key] = input.value;
+        }
+    });
+    state.meta = currentMeta;
+
+    // Reorder languages
+    const langs = [...state.languages];
+    const fromIdx = langs.indexOf(_psDragLang);
+    const toIdx   = langs.indexOf(targetLang);
+    if (fromIdx === -1 || toIdx === -1) { _psDragLang = null; return; }
+    langs.splice(fromIdx, 1);
+    langs.splice(toIdx, 0, _psDragLang);
+    state.languages = langs;
+    state.defaultLang = langs[0];
+    _psDragLang = null;
+
+    renderProjectSettingsTable();
+    renderLangSettings();
+    renderLangTabs();
+    triggerAutoSave();
+};
+
 function renderProjectSettingsTable() {
     const container = document.getElementById('ps-meta-table');
     if (!container) return;
@@ -1689,13 +1746,29 @@ function renderProjectSettingsTable() {
 
     let html = `<div class="ps-meta-grid" style="grid-template-columns:${colTemplate};">`;
 
-    // Header row: empty label cell + language name + code/direction
-    html += `<div class="ps-meta-cell ps-meta-header"></div>`;
-    langs.forEach(lang => {
+    // Header row: empty label cell + draggable language headers
+    html += `<div class="ps-meta-cell ps-meta-header ps-meta-corner"></div>`;
+    langs.forEach((lang, idx) => {
         const props = getLangProps(lang);
-        const dir = (state.languageConfigs?.[lang]?.pageDirection || 'ltr').toUpperCase();
+        const dir  = (state.languageConfigs?.[lang]?.pageDirection || 'ltr').toUpperCase();
         const code = lang.toUpperCase();
-        html += `<div class="ps-meta-cell ps-meta-header">${props.label}<span class="ps-meta-header-sub">${code} / ${dir}</span></div>`;
+        const isDefault = idx === 0;
+        const defaultBadge = isDefault
+            ? `<span class="ps-default-badge">★ Default</span>`
+            : '';
+        html += `<div class="ps-meta-cell ps-meta-header${isDefault ? ' ps-meta-header--default' : ''}"
+            draggable="true"
+            data-lang="${lang}"
+            ondragstart="psColDragStart(event,'${lang}')"
+            ondragend="psColDragEnd(event)"
+            ondragover="psColDragOver(event)"
+            ondragleave="psColDragLeave(event)"
+            ondrop="psColDrop(event,'${lang}')">
+            <span class="ps-meta-header-drag">⠿</span>
+            ${props.label}
+            <span class="ps-meta-header-sub">${code} / ${dir}</span>
+            ${defaultBadge}
+        </div>`;
     });
 
     // Data rows
@@ -1703,7 +1776,7 @@ function renderProjectSettingsTable() {
         html += `<div class="ps-meta-cell ps-meta-row-label">${field.label}</div>`;
         langs.forEach(lang => {
             const val = (meta[lang]?.[field.key] || '').replace(/"/g, '&quot;');
-            const ph = (getLangProps(lang).placeholders?.[field.key] || '').replace(/"/g, '&quot;');
+            const ph  = (getLangProps(lang).placeholders?.[field.key] || '').replace(/"/g, '&quot;');
             if (field.type === 'textarea') {
                 html += `<div class="ps-meta-cell"><textarea class="ps-meta-input" data-lang="${lang}" data-key="${field.key}" placeholder="${ph}">${val}</textarea></div>`;
             } else {
