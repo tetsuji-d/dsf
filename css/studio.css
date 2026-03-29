@@ -2892,6 +2892,8 @@ body.strip-collapsed #page-strip-chevron {
 /* Project Settings multi-language meta table */
 .ps-meta-grid {
     display: grid;
+    width: max-content;
+    min-width: 100%;
     background: #dde2ea; /* gap color = grid lines */
     gap: 1px;
     border: 1px solid #dde2ea;

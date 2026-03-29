@@ -1741,8 +1741,8 @@ function renderProjectSettingsTable() {
     const langs = state.languages || ['ja'];
     const meta = state.meta || {};
 
-    // grid-template-columns: label col + one col per language
-    const colTemplate = `120px ${langs.map(() => '1fr').join(' ')}`;
+    // grid-template-columns: label col (fixed) + one col per language (fixed 180px each → horizontal scroll)
+    const colTemplate = `120px ${langs.map(() => '180px').join(' ')}`;
 
     let html = `<div class="ps-meta-grid" style="grid-template-columns:${colTemplate};">`;
 
