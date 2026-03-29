@@ -181,39 +181,37 @@ body[data-room="works"] .room-tab[data-room="works"] {
     white-space: nowrap;
 }
 
-/* UI言語スイッチャー (JA / EN) */
+/* UI言語スイッチャー (JA / EN) — ポータルと同デザイン */
 .ui-lang-switcher {
     display: flex;
     align-items: center;
     gap: 2px;
-    background: rgba(0,0,0,0.08);
-    border-radius: 6px;
+    background: rgba(255,255,255,0.06);
+    border-radius: 8px;
     padding: 2px;
 }
 
 .ui-lang-btn {
-    font-size: 10px;
+    font-size: 11px;
     font-weight: 700;
-    letter-spacing: 0.04em;
-    padding: 2px 7px;
+    letter-spacing: 0.5px;
+    padding: 3px 9px;
     border: none;
-    border-radius: 4px;
+    border-radius: 6px;
     background: transparent;
-    color: #6b7280;
+    color: #94a3b8;
     cursor: pointer;
-    transition: background 0.12s, color 0.12s;
-    line-height: 1.6;
+    transition: background 0.15s, color 0.15s;
+    line-height: 1.4;
 }
 
 .ui-lang-btn:hover {
-    background: rgba(0,0,0,0.1);
-    color: #1a2030;
+    color: #e2e8f0;
 }
 
 .ui-lang-btn.active {
-    background: #fff;
-    color: #1a2030;
-    box-shadow: 0 1px 3px rgba(0,0,0,0.15);
+    background: rgba(99,120,255,0.25);
+    color: #a5b4fc;
 }
 
 /* ===== Room Container ===== */
