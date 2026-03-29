@@ -9,6 +9,7 @@ import { pushState, undo, redo, getHistoryInfo, clearHistory } from './history.j
 import { openProjectModal, closeProjectModal } from './projects.js';
 import { openWorksRoom, closeWorksRoom } from './works.js';
 import { getLangProps, getAllLangs } from './lang.js';
+import { t, applyI18n, setUILang, getUILang } from './i18n-studio.js';
 import { getBlockIndexFromPageIndex, getPageIndexFromBlockIndex, migrateSectionsToBlocks, syncBlocksWithSections } from './blocks.js';
 import { blocksToPages, normalizeProjectDataV5 } from './pages.js';
 import { buildDSP, buildDSF, parseAndLoadDSP } from './export.js';
@@ -49,19 +50,18 @@ function updateAuthUI() {
     const saveStatus = document.getElementById('save-status');
 
     if (authBtn) {
-        authBtn.textContent = signedIn ? 'Sign out' : 'Sign in with Google';
-        authBtn.title = signedIn ? 'ログアウト' : 'Googleでログイン';
+        authBtn.textContent = signedIn ? t('btn_signout') : t('btn_signin');
     }
     if (authBtnMobile) {
-        authBtnMobile.textContent = signedIn ? 'Sign out' : 'Sign in';
+        authBtnMobile.textContent = signedIn ? t('btn_signout') : t('btn_auth_mobile');
     }
     if (authStatus) {
         authStatus.textContent = signedIn
             ? `${state.user?.displayName || state.user?.email || 'Signed in'}`
-            : 'ゲスト';
+            : t('guest_label');
     }
     if (!signedIn && saveStatus && !saveStatus.textContent.trim()) {
-        saveStatus.textContent = 'ログインでクラウド保存';
+        saveStatus.textContent = t('login_prompt');
         saveStatus.style.color = '#8a5d00';
     }
     const roomUserDisplay = document.getElementById('room-user-display');
@@ -72,7 +72,7 @@ function updateAuthUI() {
     document.querySelectorAll('[data-auth-required]').forEach((el) => {
         el.disabled = !signedIn;
         if (!signedIn) {
-            el.title = 'ログインすると利用できます';
+            el.title = t('login_required');
         }
     });
 }
@@ -1546,7 +1546,7 @@ window.addLang = () => {
 // 言語削除
 window.removeLang = (code) => {
     if (state.languages.length <= 1) return;
-    if (!confirm(`${getLangProps(code).label} を削除しますか？\nこの言語のテキストは保持されます。`)) return;
+    if (!confirm(t('confirm_remove_lang', { lang: getLangProps(code).label }))) return;
     state.languages = state.languages.filter(c => c !== code);
     if (state.defaultLang === code) state.defaultLang = state.languages[0] || 'ja';
     if (state.activeLang === code) state.activeLang = state.defaultLang || state.languages[0];
@@ -1671,10 +1671,10 @@ window.closeDrawer = () => {
 // ===== Project Settings Modal =====
 
 const PS_META_FIELDS = [
-    { key: 'title',       label: 'タイトル',  type: 'input'    },
-    { key: 'author',      label: '著者名',    type: 'input'    },
-    { key: 'description', label: '説明文',    type: 'textarea' },
-    { key: 'copyright',   label: '著作権',    type: 'input'    },
+    { key: 'title',       get label() { return t('field_title'); },       type: 'input'    },
+    { key: 'author',      get label() { return t('field_author'); },      type: 'input'    },
+    { key: 'description', get label() { return t('field_description'); }, type: 'textarea' },
+    { key: 'copyright',   get label() { return t('field_copyright'); },   type: 'input'    },
 ];
 
 // ── PS テーブル列ドラッグ ──
@@ -1754,7 +1754,7 @@ function renderProjectSettingsTable() {
         const code = lang.toUpperCase();
         const isDefault = idx === 0;
         const defaultBadge = isDefault
-            ? `<span class="ps-default-badge">★ Default</span>`
+            ? `<span class="ps-default-badge">${t('ps_default_badge')}</span>`
             : '';
         html += `<div class="ps-meta-cell ps-meta-header${isDefault ? ' ps-meta-header--default' : ''}"
             draggable="true"
@@ -2021,11 +2021,24 @@ onAuthChanged((user) => {
     }
 });
 
+// ── UI言語スイッチャー（windowに公開） ──────────────────────────
+window.setStudioUILang = (lang) => {
+    setUILang(lang);
+    // 動的レンダリング済みコンポーネントを再描画
+    renderLangTabs();
+    if (document.getElementById('project-settings-modal')?.style.display !== 'none') {
+        renderProjectSettingsTable();
+        renderLangSettings();
+        renderLangAddSelect();
+    }
+};
+
 // --- 初回描画 ---
 async function bootstrapApp() {
     initUIChrome();
     ensureUiPrefs();
     applyThumbColumnsFromPrefs();
+    applyI18n(); // UI言語を適用
 
     // Prevent local restore if we are explicitly loading a cloud project via URL
     const urlParams = new URLSearchParams(window.location.search);
