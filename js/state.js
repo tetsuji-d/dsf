@@ -34,6 +34,12 @@ export const state = {
             bubbles: []
         }
     ],
+    // Project metadata (language-independent)
+    rating: 'all',
+    license: 'all-rights-reserved',
+    // Per-language metadata: { ja: { title, author, description, copyright }, en: { ... } }
+    meta: {},
+
     activeIdx: 0,
     activePageIdx: 0,
     activeBlockIdx: 0,

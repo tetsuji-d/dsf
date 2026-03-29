@@ -8,7 +8,7 @@ import { addSection, changeSection, changeBlock, insertStructureBlock, renderThu
 import { pushState, undo, redo, getHistoryInfo, clearHistory } from './history.js';
 import { openProjectModal, closeProjectModal } from './projects.js';
 import { openWorksRoom, closeWorksRoom } from './works.js';
-import { getLangProps } from './lang.js';
+import { getLangProps, getAllLangs } from './lang.js';
 import { getBlockIndexFromPageIndex, getPageIndexFromBlockIndex, migrateSectionsToBlocks, syncBlocksWithSections } from './blocks.js';
 import { blocksToPages, normalizeProjectDataV5 } from './pages.js';
 import { buildDSP, buildDSF, parseAndLoadDSP } from './export.js';
@@ -63,6 +63,10 @@ function updateAuthUI() {
     if (!signedIn && saveStatus && !saveStatus.textContent.trim()) {
         saveStatus.textContent = 'ログインでクラウド保存';
         saveStatus.style.color = '#8a5d00';
+    }
+    const roomUserDisplay = document.getElementById('room-user-display');
+    if (roomUserDisplay) {
+        roomUserDisplay.textContent = signedIn ? (state.user?.displayName || state.user?.email || '') : '';
     }
     document.body.classList.toggle('auth-guest', !signedIn);
     document.querySelectorAll('[data-auth-required]').forEach((el) => {
@@ -264,10 +268,9 @@ function refresh() {
     // 言語タブの更新
     renderLangTabs();
 
-    // AR設定パネルの同期
-    syncArPanel();
     // 言語パネルの同期
     syncLangPanel();
+    renderLangSettings();
 
     updateHistoryButtons();
     renderThumbs();
@@ -283,7 +286,7 @@ function renderLangTabs() {
         const active = code === state.activeLang ? 'active' : '';
         return `<button class="lang-tab ${active}" onclick="switchLang('${code}')">${props.label}</button>`;
     }).join('');
-    ['lang-tabs', 'lang-tabs-project', 'lang-tabs-mobile', 'lang-tabs-top'].forEach((id) => {
+    ['lang-tabs', 'lang-tabs-mobile', 'lang-tabs-top'].forEach((id) => {
         const container = document.getElementById(id);
         if (container) container.innerHTML = html;
     });
@@ -883,67 +886,6 @@ window.updateBubbleColor = updateBubbleColor;
 
 // ─── AR 設定パネル ───────────────────────────────────────────────────────────
 
-function _getActiveAr() {
-    const s = state.sections[state.activeIdx];
-    if (!s) return null;
-    if (!s.ar || typeof s.ar !== 'object') s.ar = { mode: 'none', scale: 1.0, anchor: { x: 0, y: 0, z: -1.5 } };
-    return s.ar;
-}
-
-function syncArPanel() {
-    const group = document.getElementById('ar-settings-group');
-    if (!group) return;
-    const s = state.sections[state.activeIdx];
-    // AR パネルは通常ページ（type:image / type:text）のみ表示
-    if (!s || state.activeIdx === null) { group.style.display = 'none'; return; }
-    group.style.display = '';
-
-    const ar = _getActiveAr();
-    const modeEl = document.getElementById('ar-mode-select');
-    const scaleRow = document.getElementById('ar-scale-row');
-    const anchorRow = document.getElementById('ar-anchor-row');
-    if (modeEl) modeEl.value = ar.mode;
-    scaleRow.style.display = ar.mode !== 'none' ? '' : 'none';
-    anchorRow.style.display = ar.mode === 'webxr' ? '' : 'none';
-    if (ar.mode !== 'none') {
-        const scaleEl = document.getElementById('ar-scale-input');
-        if (scaleEl) scaleEl.value = ar.scale ?? 1.0;
-    }
-    if (ar.mode === 'webxr') {
-        const ax = document.getElementById('ar-anchor-x');
-        const ay = document.getElementById('ar-anchor-y');
-        const az = document.getElementById('ar-anchor-z');
-        if (ax) ax.value = ar.anchor?.x ?? 0;
-        if (ay) ay.value = ar.anchor?.y ?? 0;
-        if (az) az.value = ar.anchor?.z ?? -1.5;
-    }
-}
-
-function updateArMode(mode) {
-    const ar = _getActiveAr();
-    if (!ar) return;
-    ar.mode = mode;
-    syncArPanel();
-    triggerAutoSave();
-}
-window.updateArMode = updateArMode;
-
-function updateArScale(value) {
-    const ar = _getActiveAr();
-    if (!ar || !Number.isFinite(value) || value <= 0) return;
-    ar.scale = value;
-    triggerAutoSave();
-}
-window.updateArScale = updateArScale;
-
-function updateArAnchor(axis, value) {
-    const ar = _getActiveAr();
-    if (!ar || !['x', 'y', 'z'].includes(axis) || !Number.isFinite(value)) return;
-    if (!ar.anchor) ar.anchor = { x: 0, y: 0, z: -1.5 };
-    ar.anchor[axis] = value;
-    triggerAutoSave();
-}
-window.updateArAnchor = updateArAnchor;
 
 // フキダシ選択時に右パネルの値を同期する
 function updateBubblePropPanel(bubble) {
@@ -1544,19 +1486,39 @@ window.switchLang = (code) => {
     refresh();
 };
 
-// 言語追加
-window.addLang = () => {
+// lang-add-select を現在の追加済み言語を除いて生成する
+function renderLangAddSelect() {
     const select = document.getElementById('lang-add-select');
     if (!select) return;
-    const code = select.value;
+    const added = new Set(state.languages);
+    const allLangs = getAllLangs();
+    const options = [];
+    allLangs.forEach(({ code, label, directions }) => {
+        if (added.has(code)) return; // 既追加はスキップ
+        directions.forEach(({ value: dir, label: dirLabel }) => {
+            const suffix = dirLabel ? ` — ${dirLabel}` : '';
+            const dirStr = dir.toUpperCase();
+            options.push(`<option value="${code}:${dir}">${label}${suffix} (${dirStr})</option>`);
+        });
+    });
+    select.innerHTML = options.length
+        ? options.join('')
+        : '<option value="">— 追加できる言語がありません —</option>';
+}
+
+// 言語追加（セレクト値は "code:dir" 形式）
+window.addLang = () => {
+    const select = document.getElementById('lang-add-select');
+    if (!select || !select.value || select.value.startsWith('—')) return;
+    const [code, dir] = select.value.split(':');
     if (!code || state.languages.includes(code)) return;
     state.languages.push(code);
     if (!state.languageConfigs) state.languageConfigs = {};
-    state.languageConfigs[code] = {
-        pageDirection: code === 'ja' ? 'rtl' : 'ltr'
-    };
+    state.languageConfigs[code] = { pageDirection: dir || 'ltr' };
     renderLangSettings();
     renderLangTabs();
+    renderLangAddSelect();
+    renderProjectSettingsTable();
     triggerAutoSave();
 };
 
@@ -1565,13 +1527,11 @@ window.removeLang = (code) => {
     if (state.languages.length <= 1) return;
     if (!confirm(`${getLangProps(code).label} を削除しますか？\nこの言語のテキストは保持されます。`)) return;
     state.languages = state.languages.filter(c => c !== code);
-    if (state.defaultLang === code) {
-        state.defaultLang = state.languages[0] || 'ja';
-    }
-    if (state.activeLang === code) {
-        state.activeLang = state.defaultLang || state.languages[0];
-    }
+    if (state.defaultLang === code) state.defaultLang = state.languages[0] || 'ja';
+    if (state.activeLang === code) state.activeLang = state.defaultLang || state.languages[0];
     renderLangSettings();
+    renderLangAddSelect();
+    renderProjectSettingsTable();
     refresh();
     triggerAutoSave();
 };
@@ -1685,6 +1645,135 @@ window.closeDrawer = () => {
     document.body.classList.remove('drawer-open');
     document.querySelectorAll('.icon-bar-btn').forEach((btn) => btn.classList.remove('active'));
     syncDesktopToggleButtons();
+};
+
+// ===== Project Settings Modal =====
+
+const PS_META_FIELDS = [
+    { key: 'title',       label: 'タイトル',  type: 'input',    placeholder: '例: 我が家のヒーロー' },
+    { key: 'author',      label: '著者名',    type: 'input',    placeholder: '例: 山田太郎' },
+    { key: 'description', label: '説明文',    type: 'textarea', placeholder: '作品の概要...' },
+    { key: 'copyright',   label: '著作権',    type: 'input',    placeholder: '例: © 2025 山田太郎' },
+];
+
+function renderProjectSettingsTable() {
+    const container = document.getElementById('ps-meta-table');
+    if (!container) return;
+
+    const langs = state.languages || ['ja'];
+    const meta = state.meta || {};
+
+    // grid-template-columns: label col + one col per language
+    const colTemplate = `120px ${langs.map(() => '1fr').join(' ')}`;
+
+    let html = `<div class="ps-meta-grid" style="grid-template-columns:${colTemplate};">`;
+
+    // Header row: empty label cell + language name + code/direction
+    html += `<div class="ps-meta-cell ps-meta-header"></div>`;
+    langs.forEach(lang => {
+        const props = getLangProps(lang);
+        const dir = (state.languageConfigs?.[lang]?.pageDirection || 'ltr').toUpperCase();
+        const code = lang.toUpperCase();
+        html += `<div class="ps-meta-cell ps-meta-header">${props.label}<span class="ps-meta-header-sub">${code} / ${dir}</span></div>`;
+    });
+
+    // Data rows
+    PS_META_FIELDS.forEach(field => {
+        html += `<div class="ps-meta-cell ps-meta-row-label">${field.label}</div>`;
+        langs.forEach(lang => {
+            const val = (meta[lang]?.[field.key] || '').replace(/"/g, '&quot;');
+            if (field.type === 'textarea') {
+                html += `<div class="ps-meta-cell"><textarea class="ps-meta-input" data-lang="${lang}" data-key="${field.key}" placeholder="${field.placeholder}">${val}</textarea></div>`;
+            } else {
+                html += `<div class="ps-meta-cell"><input type="text" class="ps-meta-input" data-lang="${lang}" data-key="${field.key}" value="${val}" placeholder="${field.placeholder}"></div>`;
+            }
+        });
+    });
+
+    html += `</div>`;
+    container.innerHTML = html;
+}
+
+window.openProjectSettings = () => {
+    const modal = document.getElementById('project-settings-modal');
+    if (!modal) return;
+
+    // Project name
+    const nameEl = document.getElementById('ps-project-name');
+    if (nameEl) nameEl.value = state.title || '';
+
+    // Global settings
+    const ratingEl = document.getElementById('ps-rating');
+    if (ratingEl) ratingEl.value = state.rating || 'all';
+
+    const licenseEl = document.getElementById('ps-license');
+    if (licenseEl) licenseEl.value = state.license || 'all-rights-reserved';
+
+    // Language settings
+    renderLangSettings();
+    renderLangAddSelect();
+
+    // Per-language meta table
+    renderProjectSettingsTable();
+
+    modal.style.display = 'flex';
+};
+
+window.closeProjectSettings = (e) => {
+    if (e && e.currentTarget !== e.target) return;
+    const modal = document.getElementById('project-settings-modal');
+    if (modal) modal.style.display = 'none';
+};
+
+window.saveProjectSettings = () => {
+    // Project name → state.title
+    const nameEl = document.getElementById('ps-project-name');
+    if (nameEl) {
+        const newTitle = nameEl.value.trim();
+        dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'title', value: newTitle } });
+        const titleDisplay = document.getElementById('project-title');
+        if (titleDisplay) titleDisplay.textContent = newTitle || '新規プロジェクト';
+        const propTitle = document.getElementById('prop-title');
+        if (propTitle) propTitle.value = newTitle;
+    }
+
+    // Global settings
+    ['rating', 'license'].forEach(key => {
+        const el = document.getElementById(`ps-${key}`);
+        if (el) dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key, value: el.value } });
+    });
+
+    // Per-language meta table
+    const meta = state.meta ? JSON.parse(JSON.stringify(state.meta)) : {};
+    document.querySelectorAll('#ps-meta-table .ps-meta-input').forEach(input => {
+        const lang = input.dataset.lang;
+        const key  = input.dataset.key;
+        if (lang && key) {
+            if (!meta[lang]) meta[lang] = {};
+            meta[lang][key] = input.value;
+        }
+    });
+    dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'meta', value: meta } });
+
+    const modal = document.getElementById('project-settings-modal');
+    if (modal) modal.style.display = 'none';
+
+    triggerAutoSave();
+};
+
+// ===== Room Navigation =====
+window.switchRoom = (room) => {
+    document.body.dataset.room = room;
+    if (room === 'press') {
+        const pressLangTabs = document.getElementById('press-lang-tabs');
+        if (pressLangTabs) {
+            const html = state.languages.map(code => {
+                const active = code === state.activeLang ? 'active' : '';
+                return `<button class="lang-tab ${active}" onclick="switchLang('${code}')">${code.toUpperCase()}</button>`;
+            }).join('');
+            pressLangTabs.innerHTML = html;
+        }
+    }
 };
 
 window.togglePageStrip = () => {

@@ -15,79 +15,106 @@
     <link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet">
 </head>
 
-<body>
+<body data-room="editor">
     <div id="app-shell">
+
+        <!-- ===== Room Navigation Bar ===== -->
+        <nav id="room-nav">
+            <div class="room-nav-brand">
+                <span class="room-logo-dsf">DSF</span><span class="room-logo-studio">Studio</span>
+            </div>
+            <div class="room-nav-tabs">
+                <button class="room-tab" data-room="home" onclick="switchRoom('home')">
+                    <span class="material-icons">folder_open</span> Projects
+                </button>
+                <button class="room-tab" data-room="editor" onclick="switchRoom('editor')">
+                    <span class="material-icons">edit</span> Editor
+                </button>
+                <button class="room-tab" data-room="press" onclick="switchRoom('press')">
+                    <span class="material-icons">publish</span> Press
+                </button>
+                <button class="room-tab" data-room="works" onclick="switchRoom('works')">
+                    <span class="material-icons">library_books</span> Works
+                </button>
+            </div>
+            <div class="room-nav-right">
+                <span id="room-user-display" class="room-user-display"></span>
+            </div>
+        </nav>
+
+        <!-- ===== Room Container ===== -->
+        <div class="room-container">
+
+        <!-- Home Room -->
+        <div id="home-room" class="room">
+            <div class="home-room-header">
+                <h2>Projects</h2>
+                <div class="home-room-actions">
+                    <button class="home-action-btn primary" onclick="newProject(); switchRoom('editor')">
+                        <span class="material-icons">add</span> 新規プロジェクト
+                    </button>
+                    <button class="home-action-btn" onclick="document.getElementById('dsp-upload').click()">
+                        <span class="material-icons">folder_open</span> ローカルから開く
+                    </button>
+                    <button class="home-action-btn" onclick="openProjectModal()" data-auth-required>
+                        <span class="material-icons">cloud</span> クラウドから開く
+                    </button>
+                </div>
+            </div>
+            <div class="home-room-body">
+                <div id="home-project-grid" class="home-project-grid">
+                    <div class="home-empty-state">
+                        <span class="material-icons">folder_open</span>
+                        <p>プロジェクトがありません<br>新規作成またはファイルを開いてください</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Editor Room -->
+        <div id="editor-room" class="room">
         <header id="ribbon-bar">
             <div class="ribbon-row ribbon-top-row">
-                <div class="ribbon-tabs">
-                    <a href="/" class="ribbon-tab" aria-label="ポータルへ戻る" title="DSFポータルへ戻る"
-                        style="text-decoration:none; color:inherit;">
-                        <span class="material-icons"
-                            style="font-size: 16px; margin-right: 4px; vertical-align: text-bottom;">home</span>
-                        Portal
+                <div class="ribbon-top-left">
+                    <a href="/" aria-label="DSF Portal" title="DSF Portal" class="ribbon-logo-link">
+                        <span class="ribbon-logo-dsf">DSF</span><span class="ribbon-logo-studio">Studio</span>
                     </a>
+                    <span id="project-title" class="project-title" contenteditable="true"
+                        oninput="onProjectTitleInput()" onkeydown="onProjectTitleKeydown(event)"
+                        onblur="onProjectTitleBlur()" aria-label="プロジェクト名" title="プロジェクト名を編集">新規プロジェクト</span>
+                    <span id="save-status" class="save-status" aria-live="polite"></span>
+                </div>
+                <div class="ribbon-tabs">
                     <button class="ribbon-tab active" data-ribbon-tab="home" aria-label="ホームタブ">Home</button>
                     <button class="ribbon-tab" data-ribbon-tab="insert" aria-label="挿入タブ">Insert</button>
                     <button class="ribbon-tab" data-ribbon-tab="arrange" aria-label="配置タブ">Arrange</button>
                     <button class="ribbon-tab" data-ribbon-tab="export" aria-label="出力タブ">Export</button>
-                    <button class="ribbon-tab" data-ribbon-tab="project" aria-label="プロジェクトタブ">Project</button>
                 </div>
                 <div id="lang-tabs-top" class="lang-tabs lang-tabs-top"></div>
                 <div class="ribbon-auth">
                     <span id="auth-warning-badge" class="auth-warning-badge">ログインでクラウド機能が有効化されます</span>
                     <span id="auth-status" class="auth-status"></span>
-                    <button id="btn-auth" class="btn-tool" onclick="toggleAuth()" title="Googleでログイン">Sign in with
-                        Google</button>
+                    <button id="btn-auth" class="btn-tool" onclick="toggleAuth()" title="Googleでログイン">Sign in with Google</button>
                 </div>
             </div>
             <div class="ribbon-row ribbon-panel-row">
                 <div class="ribbon-panel active" data-ribbon-panel="home">
                     <div class="ribbon-group">
-                        <button class="btn-tool" onclick="newProject()" title="新規プロジェクト">＋ 新規</button>
-                        <button class="btn-tool" onclick="openProjectModal()" title="プロジェクト一覧" data-auth-required>📂 マイプロジェクト</button>
-                        <button class="btn-tool" onclick="openWorksRoom()" title="発行済み作品の管理" data-auth-required>📚 Works</button>
+                        <button id="btn-undo" class="btn-tool" onclick="performUndo()" title="元に戻す (Ctrl+Z)" disabled>↩ Undo</button>
+                        <button id="btn-redo" class="btn-tool" onclick="performRedo()" title="やり直す (Ctrl+Shift+Z)" disabled>↪ Redo</button>
                     </div>
                     <div class="ribbon-group">
-                        <button id="btn-undo" class="btn-tool" onclick="performUndo()" title="元に戻す (Ctrl+Z)" disabled>↩
-                            Undo</button>
-                        <button id="btn-redo" class="btn-tool" onclick="performRedo()" title="やり直す (Ctrl+Shift+Z)"
-                            disabled>↪ Redo</button>
+                        <button id="btn-save" class="btn-tool" onclick="saveProject()" title="保存 (Ctrl+S)" data-auth-required>☁ 保存</button>
+                        <button id="btn-share" class="btn-tool" onclick="shareProject()" title="ビューワーURLをコピー" data-auth-required>🔗 Share</button>
                     </div>
                     <div class="ribbon-group">
-                        <button id="btn-save" class="btn-tool" onclick="saveProject()" title="保存" data-auth-required>☁
-                            クラウド保存</button>
-                        <select id="prop-visibility" class="rt-toolbar visibility-select"
-                            onchange="updateVisibility(this.value)" data-auth-required title="公開範囲の設定">
-                            <option value="private">🔒 非公開</option>
-                            <option value="unlisted">🔗 限定公開</option>
-                            <option value="public">🌍 公開</option>
-                        </select>
-                        <button id="btn-share" class="btn-tool" onclick="shareProject()" title="ビューワーURLをコピー"
-                            data-auth-required>🔗 URLコピー</button>
+                        <button id="btn-toggle-sidebar" class="btn-tool" type="button" title="アセットパネルの表示切替">🖼 Assets</button>
+                        <button id="btn-toggle-panel" class="btn-tool" type="button" title="設定パネルの表示切替">⚙ Edit</button>
+                        <button class="btn-tool" onclick="openProjectSettings()" title="プロジェクト設定">📋 Project Settings</button>
                     </div>
-                    <div class="ribbon-group grow" style="display:flex; align-items:center;">
-                        <!-- Unified DSF Logo -->
-                        <a href="/" aria-label="DSF Portal" title="DSF Portal"
-                            style="text-decoration:none; display:flex; align-items:baseline; margin-right: 8px;">
-                            <span
-                                style="font-family:'Outfit',sans-serif; font-size:18px; font-weight:800; letter-spacing:-0.5px; background:linear-gradient(135deg, #60a5fa, #818cf8); -webkit-background-clip:text; background-clip:text; -webkit-text-fill-color:transparent;">DSF</span>
-                            <span
-                                style="font-family:'Inter',sans-serif; font-size:10px; font-weight:600; color:#64748b; letter-spacing:0.5px; margin-left:2px;">Studio</span>
-                        </a>
-                        <span id="project-title" class="project-title" contenteditable="true"
-                            oninput="onProjectTitleInput()" onkeydown="onProjectTitleKeydown(event)"
-                            onblur="onProjectTitleBlur()" aria-label="プロジェクト名" title="プロジェクト名を編集">新規プロジェクト</span>
-                        <span class="field-label" aria-hidden="true">Title</span>
-                        <input type="text" id="prop-title" class="ribbon-title-input" placeholder="作品タイトルを入力"
+                    <div class="ribbon-group">
+                        <input type="text" id="prop-title" class="ribbon-title-input" placeholder="作品タイトル"
                             oninput="updateTitle(this.value)" aria-label="作品タイトル" title="作品のタイトル">
-                        <span id="save-status" class="save-status" aria-live="polite"></span>
-                    </div>
-                    <div class="ribbon-group">
-                        <button id="btn-toggle-sidebar" class="btn-tool" type="button" title="アセットパネルの表示切替"
-                            aria-label="アセットパネル表示切り替え">🖼
-                            Assets</button>
-                        <button id="btn-toggle-panel" class="btn-tool" type="button" title="設定パネルの表示切替"
-                            aria-label="設定パネル表示切り替え">⚙ Edit</button>
                     </div>
                 </div>
                 <div class="ribbon-panel" data-ribbon-panel="insert">
@@ -134,25 +161,15 @@
                 </div>
                 <div class="ribbon-panel" data-ribbon-panel="export">
                     <div class="ribbon-group">
-                        <button class="btn-tool" onclick="exportDSP()">⬇ プロジェクト保存 (.dsp)</button>
-                        <button class="btn-tool" onclick="exportDSF()">⬇ 配信データ出力 (.dsf)</button>
-                        <button class="btn-tool" onclick="openProjectModal()" id="btn-projects" data-auth-required>📂
-                            プロジェクト一覧</button>
-                    </div>
-                </div>
-                <div class="ribbon-panel" data-ribbon-panel="project">
-                    <div class="ribbon-group">
-                        <button class="btn-tool" onclick="newProject()">📄 新規プロジェクト</button>
-                        <button class="btn-tool" onclick="openProjectModal()" data-auth-required>☁ クラウドから開く</button>
-                        <button class="btn-tool" onclick="document.getElementById('dsp-upload').click()"
-                            title=".dspファイルを読み込みます">📁 ローカルから開く</button>
-                        <input type="file" id="dsp-upload" style="display: none;" onchange="importDSP(event)">
+                        <button class="btn-tool" onclick="exportDSP()" title=".dsp ファイルをローカルに保存">⬇ DSP 保存</button>
                     </div>
                     <div class="ribbon-group">
-                        <span class="field-label">Language</span>
-                        <div id="lang-tabs-project" class="lang-tabs"></div>
+                        <button class="btn-tool ribbon-pressroom-btn" onclick="switchRoom('press')" title="Press Room でDSFを書き出す・発行する">
+                            <span class="material-icons" style="font-size:14px;vertical-align:middle;">publish</span> Press Room →
+                        </button>
                     </div>
                 </div>
+                <input type="file" id="dsp-upload" style="display: none;" onchange="importDSP(event)">
             </div>
         </header>
 
@@ -240,7 +257,6 @@
                     <button class="btn-sm" type="button" onclick="toggleEditPanel()">閉じる</button>
                 </div>
                 <div class="control-group">
-                    <h4>セクション設定</h4>
                     <div id="page-lock-note" class="panel-lock-note" style="display:none;"></div>
 
 
@@ -298,56 +314,13 @@
                         </div>
                     </div>
 
-                    <div id="generic-text-editor">
-                        <label id="text-label">テキスト入力 (選択中の吹き出し)</label>
+                    <div id="generic-text-editor" style="display:none;">
                         <textarea id="prop-text" rows="5" oninput="updateActiveText(this.value, event)"></textarea>
                         <div id="text-fit-status" class="field-label" style="margin:-4px 0 8px 0;"></div>
                     </div>
                     <button id="btn-delete-active" class="btn btn-danger" onclick="deleteActive()">削除</button>
                 </div>
 
-                <div class="control-group" id="ar-settings-group" style="display:none;">
-                    <h4>AR設定</h4>
-                    <label>ARモード</label>
-                    <select id="ar-mode-select" onchange="updateArMode(this.value)">
-                        <option value="none">なし</option>
-                        <option value="gyro">ジャイロ（スマホを傾けて視点移動）</option>
-                        <option value="webxr">WebXR AR（カメラ越しに重畳）</option>
-                    </select>
-                    <div id="ar-scale-row" style="display:none;">
-                        <label>実世界サイズ (m)</label>
-                        <input type="number" id="ar-scale-input" min="0.1" max="10" step="0.1" value="1.0"
-                            oninput="updateArScale(parseFloat(this.value))">
-                    </div>
-                    <div id="ar-anchor-row" style="display:none;">
-                        <label>アンカー位置 (x / y / z m)</label>
-                        <div style="display:flex; gap:6px;">
-                            <input type="number" id="ar-anchor-x" step="0.1" placeholder="X" style="flex:1;"
-                                oninput="updateArAnchor('x', parseFloat(this.value))">
-                            <input type="number" id="ar-anchor-y" step="0.1" placeholder="Y" style="flex:1;"
-                                oninput="updateArAnchor('y', parseFloat(this.value))">
-                            <input type="number" id="ar-anchor-z" step="0.1" placeholder="Z" style="flex:1;"
-                                oninput="updateArAnchor('z', parseFloat(this.value))">
-                        </div>
-                    </div>
-                </div>
-
-                <div class="control-group">
-                    <h4>言語設定</h4>
-                    <div id="lang-list"></div>
-                    <label>ページ送り方向 (現在の言語)</label>
-                    <select id="lang-page-direction" onchange="updatePageDirection(this.value)">
-                        <option value="ltr">左から右 (→)</option>
-                        <option value="rtl">右から左 (←)</option>
-                    </select>
-                    <div class="inline-actions">
-                        <select id="lang-add-select">
-                            <option value="en">English</option>
-                            <option value="ja">日本語</option>
-                        </select>
-                        <button class="btn-sm" onclick="addLang()">＋追加</button>
-                    </div>
-                </div>
             </aside>
         </div>
 
@@ -400,7 +373,155 @@
             <button class="bottom-item" data-mobile-action="lang"><span
                     class="material-icons">language</span><span>Lang</span></button>
         </nav>
-    </div>
+        </div><!-- /editor-room -->
+
+        <!-- Press Room -->
+        <div id="press-room" class="room">
+            <div class="press-room-header">
+                <div class="press-room-title">
+                    <span class="material-icons">publish</span>
+                    <h2>Press Room</h2>
+                    <span class="press-room-subtitle">DSP → DSF レンダリング・発行</span>
+                </div>
+                <button class="btn-sm" onclick="switchRoom('editor')">← Editor に戻る</button>
+            </div>
+            <div class="press-room-body">
+                <aside class="press-panel press-pages-panel">
+                    <h3>ページ一覧</h3>
+                    <div id="press-page-thumbs" class="press-page-thumbs"></div>
+                </aside>
+                <main class="press-panel press-settings-panel">
+                    <h3>レンダリング設定</h3>
+                    <div class="press-field">
+                        <label>対象言語</label>
+                        <div id="press-lang-tabs" class="lang-tabs"></div>
+                    </div>
+                    <div class="press-field">
+                        <label>WebP 品質</label>
+                        <div class="press-slider-row">
+                            <input type="range" id="press-quality" min="60" max="100" value="85"
+                                oninput="document.getElementById('press-quality-val').textContent=this.value+'%'">
+                            <span id="press-quality-val">85%</span>
+                        </div>
+                    </div>
+                    <div class="press-field">
+                        <label>出力サイズ</label>
+                        <select id="press-resolution">
+                            <option value="360x640">360×640 (標準)</option>
+                            <option value="720x1280" selected>720×1280 (HD)</option>
+                            <option value="1080x1920">1080×1920 (FHD)</option>
+                        </select>
+                    </div>
+                    <div class="press-preview-note">
+                        <span class="material-icons">info_outline</span>
+                        レンダリングはエクスポート時に実行されます
+                    </div>
+                </main>
+                <aside class="press-panel press-publish-panel">
+                    <h3>発行</h3>
+                    <div class="press-publish-actions">
+                        <button class="press-publish-btn primary" onclick="exportDSF()">
+                            <span class="material-icons">download</span>
+                            <span>DSF 書き出し<small>.dsf ファイルを保存</small></span>
+                        </button>
+                        <button class="press-publish-btn" onclick="saveProject()" data-auth-required>
+                            <span class="material-icons">cloud_upload</span>
+                            <span>クラウドに発行<small>Firebase に保存して公開</small></span>
+                        </button>
+                        <button class="press-publish-btn" onclick="switchRoom('works')" data-auth-required>
+                            <span class="material-icons">library_books</span>
+                            <span>Works Room へ<small>発行済み作品のステータス管理</small></span>
+                        </button>
+                    </div>
+                </aside>
+            </div>
+        </div><!-- /press-room -->
+
+        <!-- Works Room (skeleton) -->
+        <div id="works-room" class="room">
+            <div class="placeholder-room">
+                <span class="material-icons placeholder-room-icon">library_books</span>
+                <h2>Works Room</h2>
+                <p>発行済み作品のステータス管理（実装予定）</p>
+                <button class="home-action-btn primary" onclick="openWorksRoom()">Works を開く</button>
+                <button class="btn-sm" onclick="switchRoom('editor')" style="margin-top:8px;">← Editor に戻る</button>
+            </div>
+        </div><!-- /works-room -->
+
+        </div><!-- /room-container -->
+    </div><!-- /app-shell -->
+
+    <!-- ===== Project Settings Modal ===== -->
+    <div id="project-settings-modal" class="ps-overlay" style="display:none;" onclick="closeProjectSettings(event)">
+        <div class="ps-dialog" onclick="event.stopPropagation()">
+            <div class="ps-header">
+                <h2><span class="material-icons">settings</span> Project Settings</h2>
+                <button class="ps-close-btn" onclick="closeProjectSettings()" aria-label="閉じる">✕</button>
+            </div>
+            <div class="ps-body">
+
+                <!-- 1. プロジェクト名 -->
+                <section class="ps-section">
+                    <h3>プロジェクト名</h3>
+                    <div class="ps-field">
+                        <input type="text" id="ps-project-name" placeholder="例: my-webtoon-2025">
+                        <p class="ps-hint">プロジェクト管理用の内部名称です（ファイル名・一覧表示に使用）。</p>
+                    </div>
+                </section>
+
+                <!-- 2. 言語設定 -->
+                <section class="ps-section">
+                    <h3>言語設定</h3>
+                    <div class="ps-field">
+                        <label>対応言語</label>
+                        <div id="lang-list" class="ps-lang-list"></div>
+                        <div class="ps-lang-add">
+                            <select id="lang-add-select">
+                                <!-- JS の renderLangAddSelect() で生成 -->
+                            </select>
+                            <button class="btn-sm" onclick="addLang()">＋ 追加</button>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- 3. 基本情報（言語別テーブル） -->
+                <section class="ps-section">
+                    <h3>基本情報</h3>
+                    <div id="ps-meta-table"></div>
+                </section>
+
+                <!-- 4. グローバル設定 -->
+                <section class="ps-section">
+                    <h3>グローバル設定</h3>
+                    <div class="ps-field">
+                        <label for="ps-rating">レーティング（対象年齢）</label>
+                        <select id="ps-rating">
+                            <option value="all">全年齢</option>
+                            <option value="12+">12+</option>
+                            <option value="15+">15+</option>
+                            <option value="18+">18+</option>
+                        </select>
+                    </div>
+                    <div class="ps-field">
+                        <label for="ps-license">ライセンス</label>
+                        <select id="ps-license">
+                            <option value="all-rights-reserved">All Rights Reserved</option>
+                            <option value="cc-by">CC BY</option>
+                            <option value="cc-by-nc">CC BY-NC</option>
+                            <option value="cc-by-nc-nd">CC BY-NC-ND</option>
+                            <option value="cc-by-sa">CC BY-SA</option>
+                            <option value="cc0">CC0 (Public Domain)</option>
+                        </select>
+                    </div>
+                </section>
+
+            </div><!-- /ps-body -->
+            <div class="ps-footer">
+                <button class="btn" onclick="closeProjectSettings()">キャンセル</button>
+                <button class="btn btn-primary" onclick="saveProjectSettings()">保存</button>
+            </div>
+        </div><!-- /ps-dialog -->
+    </div><!-- /project-settings-modal -->
 
     <!-- Works Room モーダル -->
     <div id="works-modal">
