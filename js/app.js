@@ -299,11 +299,32 @@ function renderLangSettings() {
         const props = getLangProps(code);
         const canRemove = state.languages.length > 1;
         const removeBtn = canRemove
-            ? `<button class="btn-sm" onclick="removeLang('${code}')">✕</button>`
+            ? `<button class="btn-sm lang-item-remove" onclick="removeLang('${code}')">✕</button>`
             : '';
-        return `<div class="lang-item"><span>${props.label}</span>${removeBtn}</div>`;
+
+        // 複数方向対応の言語にはインラインセレクトを表示
+        let dirSelect = '';
+        if (props.directions && props.directions.length > 1) {
+            const currentDir = state.languageConfigs?.[code]?.pageDirection || props.directions[0].value;
+            const options = props.directions.map(d => {
+                const sel = d.value === currentDir ? ' selected' : '';
+                return `<option value="${d.value}"${sel}>${d.label}</option>`;
+            }).join('');
+            dirSelect = `<select class="lang-dir-select" onchange="changeLangDirection('${code}', this.value)">${options}</select>`;
+        }
+
+        return `<div class="lang-item"><span class="lang-item-label">${props.label}</span>${dirSelect}${removeBtn}</div>`;
     }).join('');
 }
+
+window.changeLangDirection = (code, dir) => {
+    if (!state.languageConfigs) state.languageConfigs = {};
+    if (!state.languageConfigs[code]) state.languageConfigs[code] = {};
+    state.languageConfigs[code].pageDirection = dir;
+    renderLangSettings();
+    renderProjectSettingsTable();
+    triggerAutoSave();
+};
 
 // ──────────────────────────────────────
 //  Undo/Redoボタンの有効/無効を更新

@@ -2974,9 +2974,51 @@ textarea.ps-meta-input {
     align-items: center;
     gap: 4px;
     background: #f0f4f8;
-    border-radius: 4px;
-    padding: 3px 8px;
+    border-radius: 6px;
+    padding: 3px 6px 3px 10px;
     font-size: 12px;
+}
+
+.lang-item-label {
+    white-space: nowrap;
+}
+
+/* インライン方向セレクト（ja など複数方向対応言語） */
+.lang-dir-select {
+    border: none;
+    background: transparent;
+    font-size: 11px;
+    color: #3a7bd5;
+    font-weight: 600;
+    cursor: pointer;
+    padding: 0 2px;
+    outline: none;
+    -webkit-appearance: none;
+    appearance: none;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='8' height='5' viewBox='0 0 8 5'%3E%3Cpath fill='%233a7bd5' d='M0 0l4 5 4-5z'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 0px center;
+    padding-right: 12px;
+}
+
+.lang-dir-select:hover {
+    color: #2563c7;
+}
+
+.lang-item-remove {
+    font-size: 10px;
+    padding: 1px 5px;
+    line-height: 1.4;
+    opacity: 0.5;
+    background: transparent;
+    border: none;
+    cursor: pointer;
+    border-radius: 3px;
+}
+
+.lang-item-remove:hover {
+    opacity: 1;
+    background: #e0e5ee;
 }
 
 .ps-lang-add {
