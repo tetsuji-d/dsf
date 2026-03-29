@@ -2851,7 +2851,8 @@ body.strip-collapsed #page-strip-chevron {
 .ps-field input[type="text"],
 .ps-field select,
 .ps-field textarea {
-    width: 100%;
+    width: 320px;
+    max-width: 100%;
     padding: 7px 10px;
     border: 1px solid #d0d7e3;
     border-radius: 6px;
@@ -3074,6 +3075,8 @@ textarea.ps-meta-input {
     display: flex;
     gap: 6px;
     align-items: center;
+    width: 320px;
+    max-width: 100%;
 }
 
 .ps-lang-add select {
