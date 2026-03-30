@@ -10,20 +10,32 @@ import { deepClone, createId } from './utils.js';
 // ──────────────────────────────────────────────────────────────
 export function getOptimizedImageUrl(originalUrl) {
     if (!originalUrl || typeof originalUrl !== 'string') return '';
-    // ⚠️ NOTE: Cloudflare Image Resizing が dsf.ink で有効化されるまでは false
-    const ENABLE_CLOUDFLARE_IMAGE_DELIVERY = false;
+    // blob: URLs (guest mode) are returned as-is — they're already local ObjectURLs
+    if (originalUrl.startsWith('blob:')) return originalUrl;
+
+    // ── Cloudflare Image Resizing ────────────────────────────────────────────
+    // When enabled, both legacy Firebase Storage URLs and R2 URLs are routed
+    // through Cloudflare Image Resizing for automatic WebP + width optimization.
+    // Enable this once Cloudflare Image Resizing is active on dsf.ink.
+    const ENABLE_CF_IMAGE_RESIZING = false;
     const CF_DOMAIN = 'https://dsf.ink';
-    if (ENABLE_CLOUDFLARE_IMAGE_DELIVERY && originalUrl.includes('firebasestorage.googleapis.com')) {
-        const screenWidth = window.innerWidth || window.screen?.width || 800;
-        const dpr = window.devicePixelRatio || 1;
-        const logicalWidth = screenWidth * dpr;
-        let targetWidth = 400;
-        if (logicalWidth > 1600) targetWidth = 2000;
-        else if (logicalWidth > 1200) targetWidth = 1600;
-        else if (logicalWidth > 800) targetWidth = 1200;
-        else if (logicalWidth > 400) targetWidth = 800;
-        return `${CF_DOMAIN}/cdn-cgi/image/width=${targetWidth},format=auto,quality=80/${originalUrl}`;
+
+    if (ENABLE_CF_IMAGE_RESIZING) {
+        const isFirebase = originalUrl.includes('firebasestorage.googleapis.com');
+        const isR2       = originalUrl.includes(import.meta.env.VITE_R2_PUBLIC_URL || '~~');
+        if (isFirebase || isR2) {
+            const screenWidth = window.innerWidth || window.screen?.width || 800;
+            const dpr = window.devicePixelRatio || 1;
+            let targetWidth = 400;
+            const lw = screenWidth * dpr;
+            if      (lw > 1600) targetWidth = 2000;
+            else if (lw > 1200) targetWidth = 1600;
+            else if (lw > 800)  targetWidth = 1200;
+            else if (lw > 400)  targetWidth = 800;
+            return `${CF_DOMAIN}/cdn-cgi/image/width=${targetWidth},format=auto,quality=80/${originalUrl}`;
+        }
     }
+
     return originalUrl;
 }
 import {

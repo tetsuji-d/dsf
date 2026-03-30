@@ -1,5 +1,9 @@
 /**
  * firebase.js — Firebase初期化・クラウド保存/読込・自動保存
+ *
+ * Storage backend selection:
+ *   VITE_STORAGE_BACKEND=firebase  → Firebase Storage (default, used in dev/staging)
+ *   VITE_STORAGE_BACKEND=r2        → Cloudflare R2 via Pages Function at /upload (production)
  */
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
 import { getFirestore, doc, setDoc, getDoc, deleteDoc, serverTimestamp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
@@ -45,6 +49,47 @@ export const db = getFirestore(app);
 export const storage = getStorage(app);
 export const auth = getAuth(app);
 const googleProvider = new GoogleAuthProvider();
+
+// ── Storage backend abstraction ───────────────────────────────────────────────
+// When VITE_STORAGE_BACKEND=r2, uploads go to Cloudflare R2 via the Pages
+// Function at /upload. Otherwise, Firebase Storage is used.
+const _USE_R2 = import.meta.env.VITE_STORAGE_BACKEND === 'r2';
+
+/**
+ * Upload a Blob to R2 via the /upload Pages Function.
+ * Requires the user to be signed in (Firebase ID token).
+ */
+async function _uploadToR2(blob, path) {
+    const token = await auth.currentUser?.getIdToken(false);
+    if (!token) throw new Error('R2 upload requires authentication');
+    const fd = new FormData();
+    // Pass blob with the correct MIME type (already webp after compressImage)
+    fd.append('file', blob instanceof Blob ? blob : new Blob([blob], { type: 'image/webp' }), path.split('/').pop());
+    fd.append('path', path);
+    const res = await fetch('/upload', {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${token}` },
+        body: fd,
+    });
+    if (!res.ok) {
+        const text = await res.text().catch(() => '');
+        throw new Error(`R2 upload failed (${res.status}): ${text}`);
+    }
+    const { url } = await res.json();
+    return url;
+}
+
+/**
+ * Upload a Blob to the configured storage backend and return the public URL.
+ * Use this instead of calling uploadBytes/getDownloadURL directly.
+ */
+async function _storeFile(blob, path) {
+    if (_USE_R2) return _uploadToR2(blob, path);
+    const storageRef = ref(storage, path);
+    const snap = await uploadBytes(storageRef, blob);
+    return getDownloadURL(snap.ref);
+}
+// ─────────────────────────────────────────────────────────────────────────────
 let authInitPromise = null;
 let authPersistenceLevel = 'unknown'; // local | session | memory | unavailable
 const AUTH_REDIRECT_PENDING_KEY = 'dsf-auth-redirect-pending';
@@ -236,11 +281,12 @@ async function _uploadBlobUrlToStorage(blobUrl, uid) {
         const blob = await idbGet(localId);
         if (!blob) return '';
         const timestamp = Date.now();
-        const storageRef = ref(storage, `users/${uid}/dsf/recovered/${timestamp}.webp`);
-        const snap = await uploadBytes(storageRef, blob);
-        const downloadUrl = await getDownloadURL(snap.ref);
-        window.localImageMap[downloadUrl] = localId;
-        delete window.localImageMap[blobUrl];
+        const path = `users/${uid}/dsf/recovered/${timestamp}.webp`;
+        const downloadUrl = await _storeFile(blob, path);
+        if (downloadUrl) {
+            window.localImageMap[downloadUrl] = localId;
+            delete window.localImageMap[blobUrl];
+        }
         return downloadUrl;
     } catch (e) {
         console.warn('[DSF] blob: URL のアップロードに失敗、破棄します:', e);
@@ -558,9 +604,7 @@ export async function generateCroppedThumbnail(bgUrl, pos, refresh) {
         const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/webp', 0.8));
 
         // アップロード
-        const thumbRef = ref(storage, thumbPath);
-        const snap = await uploadBytes(thumbRef, blob);
-        const thumbUrl = await getDownloadURL(snap.ref);
+        const thumbUrl = await _storeFile(blob, thumbPath);
 
         const newSections = [...state.sections];
         newSections[state.activeIdx].thumbnail = thumbUrl;
@@ -640,26 +684,17 @@ export async function uploadToStorage(input, refresh) {
             return;
         }
 
-        // --- ログイン時の Firebase Storage 保存処理 ---
+        // --- ログイン時の Storage 保存処理 ---
         const uid = state.uid;
         const mainPath = `users/${uid}/dsf/${timestamp}_${filename}.webp`;
         const thumbPath = `users/${uid}/dsf/thumbs/${timestamp}_${filename}_thumb.webp`;
 
         document.getElementById('text-label').innerText = "アップロード中...";
 
-        // 2. アップロード
-        const mainRef = ref(storage, mainPath);
-        const thumbRef = ref(storage, thumbPath);
-
-        const [mainSnap, thumbSnap] = await Promise.all([
-            uploadBytes(mainRef, mainBlob),
-            uploadBytes(thumbRef, thumbBlob)
-        ]);
-
-        // 3. URL取得
+        // 2. アップロード & URL取得
         const [mainUrl, thumbUrl] = await Promise.all([
-            getDownloadURL(mainSnap.ref),
-            getDownloadURL(thumbSnap.ref)
+            _storeFile(mainBlob, mainPath),
+            _storeFile(thumbBlob, thumbPath),
         ]);
 
         // 4. ステート更新
@@ -747,15 +782,9 @@ export async function uploadCoverToStorage(input, refresh) {
         const mainPath = `users/${uid}/dsf/covers/${base}_${timestamp}_${filename}.webp`;
         const thumbPath = `users/${uid}/dsf/covers/thumbs/${base}_${timestamp}_${filename}_thumb.webp`;
 
-        const mainRef = ref(storage, mainPath);
-        const thumbRef = ref(storage, thumbPath);
-        const [mainSnap, thumbSnap] = await Promise.all([
-            uploadBytes(mainRef, mainBlob),
-            uploadBytes(thumbRef, thumbBlob)
-        ]);
         const [mainUrl, thumbUrl] = await Promise.all([
-            getDownloadURL(mainSnap.ref),
-            getDownloadURL(thumbSnap.ref)
+            _storeFile(mainBlob, mainPath),
+            _storeFile(thumbBlob, thumbPath),
         ]);
 
         if (!block.content || typeof block.content !== 'object') block.content = {};
@@ -804,15 +833,9 @@ export async function uploadStructureToStorage(input, refresh) {
         const mainPath = `users/${uid}/dsf/structure/${base}_${timestamp}_${filename}.webp`;
         const thumbPath = `users/${uid}/dsf/structure/thumbs/${base}_${timestamp}_${filename}_thumb.webp`;
 
-        const mainRef = ref(storage, mainPath);
-        const thumbRef = ref(storage, thumbPath);
-        const [mainSnap, thumbSnap] = await Promise.all([
-            uploadBytes(mainRef, mainBlob),
-            uploadBytes(thumbRef, thumbBlob)
-        ]);
         const [mainUrl, thumbUrl] = await Promise.all([
-            getDownloadURL(mainSnap.ref),
-            getDownloadURL(thumbSnap.ref)
+            _storeFile(mainBlob, mainPath),
+            _storeFile(thumbBlob, thumbPath),
         ]);
 
         if (!block.content || typeof block.content !== 'object') block.content = {};
