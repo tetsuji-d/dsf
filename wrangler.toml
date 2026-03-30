@@ -29,10 +29,10 @@ R2_PUBLIC_URL       = "https://media.dsf.ink"
 [env.preview]
 name = "dsf-studio-preview"
 
-# [[env.preview.r2_buckets]]
-# binding        = "R2_BUCKET"
-# bucket_name    = "dsf-media-staging"
+[[env.preview.r2_buckets]]
+binding     = "R2_BUCKET"
+bucket_name = "dsf-media"
 
-# [env.preview.vars]
-# FIREBASE_PROJECT_ID = "vmnn-26345-stg"
-# R2_PUBLIC_URL       = "https://media-stg.dsf.ink"
+[env.preview.vars]
+FIREBASE_PROJECT_ID = "vmnn-26345"
+R2_PUBLIC_URL       = "https://media.dsf.ink"
