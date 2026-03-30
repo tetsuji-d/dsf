@@ -29,7 +29,8 @@ export async function onRequestPost({ request, env }) {
         if (!authHeader?.startsWith('Bearer ')) {
             return jsonError('Unauthorized', 401);
         }
-        const uid = await verifyFirebaseToken(authHeader.slice(7), env.FIREBASE_PROJECT_ID);
+        const projectId = env.FIREBASE_PROJECT_ID || 'vmnn-26345';
+        const uid = await verifyFirebaseToken(authHeader.slice(7), projectId);
         if (!uid) return jsonError('Unauthorized', 401);
 
         // 2. Parse multipart form data
@@ -101,7 +102,7 @@ async function getFirebasePublicKeys() {
 async function verifyFirebaseToken(token, projectId) {
     try {
         const parts = token.split('.');
-        if (parts.length !== 3) return null;
+        if (parts.length !== 3) { console.error('[upload] Bad JWT parts:', parts.length); return null; }
         const [h, p, s] = parts;
 
         const header  = JSON.parse(b64Decode(h));
@@ -109,16 +110,16 @@ async function verifyFirebaseToken(token, projectId) {
 
         // Validate standard JWT claims for Firebase
         const now = Math.floor(Date.now() / 1000);
-        if (payload.aud !== projectId)                                    return null;
-        if (payload.iss !== `https://securetoken.google.com/${projectId}`) return null;
-        if (payload.exp < now)                                             return null;
-        if (payload.iat > now + 300)                                       return null; // 5-min clock skew
-        if (!payload.sub)                                                  return null;
+        if (payload.aud !== projectId)                                    { console.error('[upload] aud mismatch:', payload.aud, '!=', projectId); return null; }
+        if (payload.iss !== `https://securetoken.google.com/${projectId}`) { console.error('[upload] iss mismatch:', payload.iss); return null; }
+        if (payload.exp < now)                                             { console.error('[upload] token expired'); return null; }
+        if (payload.iat > now + 300)                                       { console.error('[upload] iat too far in future'); return null; }
+        if (!payload.sub)                                                  { console.error('[upload] no sub'); return null; }
 
         // Find the matching JWK by key ID
         const keys = await getFirebasePublicKeys();
         const jwk = keys.find(k => k.kid === header.kid && k.alg === 'RS256');
-        if (!jwk) return null;
+        if (!jwk) { console.error('[upload] JWK not found for kid:', header.kid); return null; }
 
         // Import the public key and verify the RS256 signature
         const cryptoKey = await crypto.subtle.importKey(
@@ -132,7 +133,8 @@ async function verifyFirebaseToken(token, projectId) {
             b64UrlDecode(s),
             new TextEncoder().encode(`${h}.${p}`)
         );
-        return valid ? payload.sub : null;
+        if (!valid) { console.error('[upload] signature invalid'); return null; }
+        return payload.sub;
 
     } catch (e) {
         console.error('[upload] Token verification error:', e.message);
