@@ -583,7 +583,7 @@ body[data-room="works"] #works-room {
     align-items: center;
     justify-content: space-between;
     gap: 8px;
-    padding: 4px 10px;
+    padding: 2px 10px;
 }
 
 .ribbon-top-row {
@@ -636,11 +636,11 @@ body[data-room="works"] #works-room {
     background: transparent;
     color: #4a5568;
     border-radius: 6px;
-    padding: 5px 12px;
+    padding: 3px 10px;
     cursor: pointer;
     font-size: 13px;
     font-weight: 600;
-    min-height: 30px;
+    min-height: 26px;
     display: flex;
     align-items: center;
     justify-content: center;
@@ -713,7 +713,7 @@ body.auth-guest .auth-warning-badge {
 }
 
 .ribbon-panel-row {
-    min-height: 38px;
+    min-height: 0;
 }
 
 .ribbon-panel {
@@ -730,13 +730,10 @@ body.auth-guest .auth-warning-badge {
 .ribbon-group {
     display: flex;
     align-items: center;
-    gap: 8px;
-    /* More spacing between buttons */
-    padding-right: 16px;
-    /* More spacing between groups */
+    gap: 6px;
+    padding-right: 12px;
     border-right: 1px solid #d0d7e5;
-    /* Higher contrast divider */
-    min-height: 44px;
+    min-height: 0;
 }
 
 .ribbon-group:last-child {
@@ -802,26 +799,20 @@ body.auth-guest .auth-warning-badge {
 .btn-tool {
     border: 1px solid var(--line);
     background: #fff;
-    border-radius: 8px;
-    /* Slightly rounder */
-    padding: 10px 14px;
-    /* Larger hit area */
+    border-radius: 6px;
+    padding: 4px 10px;
     line-height: 1.2;
     cursor: pointer;
-    font-size: 14px;
-    /* Increase base font size */
+    font-size: 13px;
     font-weight: 500;
     color: #1a1f29;
-    /* High contrast text */
-    min-width: 44px;
-    /* UD minimum tap target */
-    min-height: 44px;
-    /* UD minimum tap target */
+    min-width: 32px;
+    min-height: 26px;
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    gap: 6px;
-    transition: all 0.2s ease;
+    gap: 5px;
+    transition: all 0.15s ease;
 }
 
 /* Keyboard accessibility focus */
@@ -874,12 +865,15 @@ textarea:focus-visible {
 .ribbon-title-input {
     min-width: 120px;
     max-width: 240px;
+    min-height: 0;
+    height: 26px;
     border: 1px solid #cfd7e5;
-    border-radius: 7px;
-    padding: 6px 8px;
+    border-radius: 6px;
+    padding: 0 8px;
     background: #fff;
     color: #243144;
     font-size: 13px;
+    box-sizing: border-box;
 }
 
 .save-status {
