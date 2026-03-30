@@ -34,5 +34,4 @@ binding     = "R2_BUCKET"
 bucket_name = "dsf-media"
 
 [env.preview.vars]
-FIREBASE_PROJECT_ID = "vmnn-26345"
-R2_PUBLIC_URL       = "https://media.dsf.ink"
+R2_PUBLIC_URL = "https://media.dsf.ink"
