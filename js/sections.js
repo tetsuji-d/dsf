@@ -10,20 +10,32 @@ import { deepClone, createId } from './utils.js';
 // ──────────────────────────────────────────────────────────────
 export function getOptimizedImageUrl(originalUrl) {
     if (!originalUrl || typeof originalUrl !== 'string') return '';
-    // ⚠️ NOTE: Cloudflare Image Resizing が dsf.ink で有効化されるまでは false
-    const ENABLE_CLOUDFLARE_IMAGE_DELIVERY = false;
+    // blob: URLs (guest mode) are returned as-is — they're already local ObjectURLs
+    if (originalUrl.startsWith('blob:')) return originalUrl;
+
+    // ── Cloudflare Image Resizing ────────────────────────────────────────────
+    // When enabled, both legacy Firebase Storage URLs and R2 URLs are routed
+    // through Cloudflare Image Resizing for automatic WebP + width optimization.
+    // Enable this once Cloudflare Image Resizing is active on dsf.ink.
+    const ENABLE_CF_IMAGE_RESIZING = false;
     const CF_DOMAIN = 'https://dsf.ink';
-    if (ENABLE_CLOUDFLARE_IMAGE_DELIVERY && originalUrl.includes('firebasestorage.googleapis.com')) {
-        const screenWidth = window.innerWidth || window.screen?.width || 800;
-        const dpr = window.devicePixelRatio || 1;
-        const logicalWidth = screenWidth * dpr;
-        let targetWidth = 400;
-        if (logicalWidth > 1600) targetWidth = 2000;
-        else if (logicalWidth > 1200) targetWidth = 1600;
-        else if (logicalWidth > 800) targetWidth = 1200;
-        else if (logicalWidth > 400) targetWidth = 800;
-        return `${CF_DOMAIN}/cdn-cgi/image/width=${targetWidth},format=auto,quality=80/${originalUrl}`;
+
+    if (ENABLE_CF_IMAGE_RESIZING) {
+        const isFirebase = originalUrl.includes('firebasestorage.googleapis.com');
+        const isR2       = originalUrl.includes(import.meta.env.VITE_R2_PUBLIC_URL || '~~');
+        if (isFirebase || isR2) {
+            const screenWidth = window.innerWidth || window.screen?.width || 800;
+            const dpr = window.devicePixelRatio || 1;
+            let targetWidth = 400;
+            const lw = screenWidth * dpr;
+            if      (lw > 1600) targetWidth = 2000;
+            else if (lw > 1200) targetWidth = 1600;
+            else if (lw > 800)  targetWidth = 1200;
+            else if (lw > 400)  targetWidth = 800;
+            return `${CF_DOMAIN}/cdn-cgi/image/width=${targetWidth},format=auto,quality=80/${originalUrl}`;
+        }
     }
+
     return originalUrl;
 }
 import {
@@ -378,10 +390,19 @@ export function moveBlockAt(blockIndex, direction, refresh) {
  * サムネイル一覧を描画する
  */
 export function renderThumbs() {
-    const container = document.getElementById('thumb-container');
+    const isDesktop = window.innerWidth >= 1024;
+    const container = isDesktop
+        ? document.getElementById('page-strip-thumbs')
+        : document.getElementById('thumb-container');
     const prevScrollTop = container ? container.scrollTop : 0;
     const cols = Number(state.thumbColumns) || 2;
     container.setAttribute('data-cols', String(cols));
+
+    // ページ送り方向を反映（デスクトップのページストリップのみ）
+    if (isDesktop) {
+        const pageDir = state.languageConfigs?.[state.activeLang]?.pageDirection || 'ltr';
+        container.dataset.dir = pageDir;
+    }
 
     const blocks = state.blocks || [];
     const pageBlockIndices = getPageBlockIndices(blocks);
@@ -440,8 +461,8 @@ export function renderThumbs() {
                         <div class="thumb-canvas">
                             <img class="thumb-canvas-image" src="${getOptimizedImageUrl(s.backgrounds?.[state.activeLang] || s.background || '')}" style="${style}">
                         </div>
+                        <span class="thumb-page-num">${pageIdx + 1}</span>
                         <div class="thumb-card-top">
-                            <span class="thumb-card-badge">Image #${pageIdx + 1}</span>
                             <span class="thumb-card-depth">L${depth}</span>
                         </div>
                         <button class="thumb-insert-btn before" title="ここにページ挿入" ontouchstart="event.stopPropagation()" onclick="insertSectionAtIndex(${pageIdx}, event)">＋</button>
@@ -459,10 +480,11 @@ export function renderThumbs() {
                     aria-current="${selected ? 'true' : 'false'}">
                     <div class="thumb-canvas thumb-canvas-meta">
                         <div class="thumb-card-meta">
-                            <span class="thumb-card-badge">Text #${pageIdx + 1}</span>
+                            <span class="thumb-card-badge">Text</span>
                             <span class="thumb-card-title">${escapeHtml(textLabel)}</span>
                         </div>
                     </div>
+                    <span class="thumb-page-num">${pageIdx + 1}</span>
                     <div class="thumb-card-top">
                         <span class="thumb-card-depth">L${depth}</span>
                     </div>
@@ -508,6 +530,15 @@ export function renderThumbs() {
             </div>
         `;
     }).join('');
+
+    // デスクトップのページストリップには最終ページ隣に + ボタンを追加
+    if (isDesktop) {
+        container.innerHTML += `
+            <button class="page-strip-add-btn" onclick="addSection()" title="ページ追加">
+                <span class="material-icons">add</span>
+            </button>
+        `;
+    }
 
     // Keep sidebar position stable while typing/editing.
     if (container) {

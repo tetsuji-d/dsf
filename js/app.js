@@ -8,7 +8,8 @@ import { addSection, changeSection, changeBlock, insertStructureBlock, renderThu
 import { pushState, undo, redo, getHistoryInfo, clearHistory } from './history.js';
 import { openProjectModal, closeProjectModal } from './projects.js';
 import { openWorksRoom, closeWorksRoom } from './works.js';
-import { getLangProps } from './lang.js';
+import { getLangProps, getAllLangs } from './lang.js';
+import { t, applyI18n, setUILang, getUILang } from './i18n-studio.js';
 import { getBlockIndexFromPageIndex, getPageIndexFromBlockIndex, migrateSectionsToBlocks, syncBlocksWithSections } from './blocks.js';
 import { blocksToPages, normalizeProjectDataV5 } from './pages.js';
 import { buildDSP, buildDSF, parseAndLoadDSP } from './export.js';
@@ -49,26 +50,29 @@ function updateAuthUI() {
     const saveStatus = document.getElementById('save-status');
 
     if (authBtn) {
-        authBtn.textContent = signedIn ? 'Sign out' : 'Sign in with Google';
-        authBtn.title = signedIn ? 'ログアウト' : 'Googleでログイン';
+        authBtn.textContent = signedIn ? t('btn_signout') : t('btn_signin');
     }
     if (authBtnMobile) {
-        authBtnMobile.textContent = signedIn ? 'Sign out' : 'Sign in';
+        authBtnMobile.textContent = signedIn ? t('btn_signout') : t('btn_auth_mobile');
     }
     if (authStatus) {
         authStatus.textContent = signedIn
             ? `${state.user?.displayName || state.user?.email || 'Signed in'}`
-            : 'ゲスト';
+            : t('guest_label');
     }
     if (!signedIn && saveStatus && !saveStatus.textContent.trim()) {
-        saveStatus.textContent = 'ログインでクラウド保存';
+        saveStatus.textContent = t('login_prompt');
         saveStatus.style.color = '#8a5d00';
+    }
+    const roomUserDisplay = document.getElementById('room-user-display');
+    if (roomUserDisplay) {
+        roomUserDisplay.textContent = signedIn ? (state.user?.displayName || state.user?.email || '') : '';
     }
     document.body.classList.toggle('auth-guest', !signedIn);
     document.querySelectorAll('[data-auth-required]').forEach((el) => {
         el.disabled = !signedIn;
         if (!signedIn) {
-            el.title = 'ログインすると利用できます';
+            el.title = t('login_required');
         }
     });
 }
@@ -252,19 +256,21 @@ function refresh() {
     if (propTitle && document.activeElement !== propTitle) {
         propTitle.value = state.title || '';
     }
-    // ヘッダーガイドにタイトル表示
-    const headerGuideTitle = document.getElementById('header-guide-title');
-    if (headerGuideTitle) {
-        headerGuideTitle.textContent = state.title || 'タイトル未設定';
+    // キャンバス下部のページ番号ラベルを更新
+    const canvasPageLabel = document.getElementById('canvas-page-label');
+    if (canvasPageLabel) {
+        const totalPages = (state.sections || []).length;
+        const currentPage = (state.activeIdx ?? 0) + 1;
+        const langCode = (state.activeLang || 'ja').toUpperCase();
+        canvasPageLabel.textContent = `${currentPage} / ${totalPages} ${langCode}`;
     }
 
     // 言語タブの更新
     renderLangTabs();
 
-    // AR設定パネルの同期
-    syncArPanel();
     // 言語パネルの同期
     syncLangPanel();
+    renderLangSettings();
 
     updateHistoryButtons();
     renderThumbs();
@@ -280,7 +286,7 @@ function renderLangTabs() {
         const active = code === state.activeLang ? 'active' : '';
         return `<button class="lang-tab ${active}" onclick="switchLang('${code}')">${props.label}</button>`;
     }).join('');
-    ['lang-tabs', 'lang-tabs-project', 'lang-tabs-mobile'].forEach((id) => {
+    ['lang-tabs', 'lang-tabs-mobile', 'lang-tabs-top'].forEach((id) => {
         const container = document.getElementById(id);
         if (container) container.innerHTML = html;
     });
@@ -293,11 +299,32 @@ function renderLangSettings() {
         const props = getLangProps(code);
         const canRemove = state.languages.length > 1;
         const removeBtn = canRemove
-            ? `<button class="btn-sm" onclick="removeLang('${code}')">✕</button>`
+            ? `<button class="btn-sm lang-item-remove" onclick="removeLang('${code}')">✕</button>`
             : '';
-        return `<div class="lang-item"><span>${props.label}</span>${removeBtn}</div>`;
+
+        // 複数方向対応の言語にはインラインセレクトを表示
+        let dirSelect = '';
+        if (props.directions && props.directions.length > 1) {
+            const currentDir = state.languageConfigs?.[code]?.pageDirection || props.directions[0].value;
+            const options = props.directions.map(d => {
+                const sel = d.value === currentDir ? ' selected' : '';
+                return `<option value="${d.value}"${sel}>${d.label}</option>`;
+            }).join('');
+            dirSelect = `<select class="lang-dir-select" onchange="changeLangDirection('${code}', this.value)">${options}</select>`;
+        }
+
+        return `<div class="lang-item"><span class="lang-item-label">${props.label}</span>${dirSelect}${removeBtn}</div>`;
     }).join('');
 }
+
+window.changeLangDirection = (code, dir) => {
+    if (!state.languageConfigs) state.languageConfigs = {};
+    if (!state.languageConfigs[code]) state.languageConfigs[code] = {};
+    state.languageConfigs[code].pageDirection = dir;
+    renderLangSettings();
+    renderProjectSettingsTable();
+    triggerAutoSave();
+};
 
 // ──────────────────────────────────────
 //  Undo/Redoボタンの有効/無効を更新
@@ -880,67 +907,6 @@ window.updateBubbleColor = updateBubbleColor;
 
 // ─── AR 設定パネル ───────────────────────────────────────────────────────────
 
-function _getActiveAr() {
-    const s = state.sections[state.activeIdx];
-    if (!s) return null;
-    if (!s.ar || typeof s.ar !== 'object') s.ar = { mode: 'none', scale: 1.0, anchor: { x: 0, y: 0, z: -1.5 } };
-    return s.ar;
-}
-
-function syncArPanel() {
-    const group = document.getElementById('ar-settings-group');
-    if (!group) return;
-    const s = state.sections[state.activeIdx];
-    // AR パネルは通常ページ（type:image / type:text）のみ表示
-    if (!s || state.activeIdx === null) { group.style.display = 'none'; return; }
-    group.style.display = '';
-
-    const ar = _getActiveAr();
-    const modeEl = document.getElementById('ar-mode-select');
-    const scaleRow = document.getElementById('ar-scale-row');
-    const anchorRow = document.getElementById('ar-anchor-row');
-    if (modeEl) modeEl.value = ar.mode;
-    scaleRow.style.display = ar.mode !== 'none' ? '' : 'none';
-    anchorRow.style.display = ar.mode === 'webxr' ? '' : 'none';
-    if (ar.mode !== 'none') {
-        const scaleEl = document.getElementById('ar-scale-input');
-        if (scaleEl) scaleEl.value = ar.scale ?? 1.0;
-    }
-    if (ar.mode === 'webxr') {
-        const ax = document.getElementById('ar-anchor-x');
-        const ay = document.getElementById('ar-anchor-y');
-        const az = document.getElementById('ar-anchor-z');
-        if (ax) ax.value = ar.anchor?.x ?? 0;
-        if (ay) ay.value = ar.anchor?.y ?? 0;
-        if (az) az.value = ar.anchor?.z ?? -1.5;
-    }
-}
-
-function updateArMode(mode) {
-    const ar = _getActiveAr();
-    if (!ar) return;
-    ar.mode = mode;
-    syncArPanel();
-    triggerAutoSave();
-}
-window.updateArMode = updateArMode;
-
-function updateArScale(value) {
-    const ar = _getActiveAr();
-    if (!ar || !Number.isFinite(value) || value <= 0) return;
-    ar.scale = value;
-    triggerAutoSave();
-}
-window.updateArScale = updateArScale;
-
-function updateArAnchor(axis, value) {
-    const ar = _getActiveAr();
-    if (!ar || !['x', 'y', 'z'].includes(axis) || !Number.isFinite(value)) return;
-    if (!ar.anchor) ar.anchor = { x: 0, y: 0, z: -1.5 };
-    ar.anchor[axis] = value;
-    triggerAutoSave();
-}
-window.updateArAnchor = updateArAnchor;
 
 // フキダシ選択時に右パネルの値を同期する
 function updateBubblePropPanel(bubble) {
@@ -1285,8 +1251,8 @@ function initCanvasZoom() {
     const view = document.getElementById('canvas-view');
     if (!view) return;
 
-    // 初期化時にリセット
-    resetCanvasView();
+    // 初期化時にリセット（flex レイアウト確定後に実行）
+    requestAnimationFrame(() => resetCanvasView());
 
     // Pan handling
     let isPanning = false;
@@ -1541,34 +1507,52 @@ window.switchLang = (code) => {
     refresh();
 };
 
-// 言語追加
-window.addLang = () => {
+// lang-add-select を現在の追加済み言語を除いて生成する
+function renderLangAddSelect() {
     const select = document.getElementById('lang-add-select');
     if (!select) return;
-    const code = select.value;
+    const added = new Set(state.languages);
+    const allLangs = getAllLangs();
+    const options = [];
+    allLangs.forEach(({ code, label, directions }) => {
+        if (added.has(code)) return; // 既追加はスキップ
+        directions.forEach(({ value: dir, label: dirLabel }) => {
+            const suffix = dirLabel ? ` — ${dirLabel}` : '';
+            const dirStr = dir.toUpperCase();
+            options.push(`<option value="${code}:${dir}">${label}${suffix} (${dirStr})</option>`);
+        });
+    });
+    select.innerHTML = options.length
+        ? options.join('')
+        : '<option value="">— 追加できる言語がありません —</option>';
+}
+
+// 言語追加（セレクト値は "code:dir" 形式）
+window.addLang = () => {
+    const select = document.getElementById('lang-add-select');
+    if (!select || !select.value || select.value.startsWith('—')) return;
+    const [code, dir] = select.value.split(':');
     if (!code || state.languages.includes(code)) return;
     state.languages.push(code);
     if (!state.languageConfigs) state.languageConfigs = {};
-    state.languageConfigs[code] = {
-        pageDirection: code === 'ja' ? 'rtl' : 'ltr'
-    };
+    state.languageConfigs[code] = { pageDirection: dir || 'ltr' };
     renderLangSettings();
     renderLangTabs();
+    renderLangAddSelect();
+    renderProjectSettingsTable();
     triggerAutoSave();
 };
 
 // 言語削除
 window.removeLang = (code) => {
     if (state.languages.length <= 1) return;
-    if (!confirm(`${getLangProps(code).label} を削除しますか？\nこの言語のテキストは保持されます。`)) return;
+    if (!confirm(t('confirm_remove_lang', { lang: getLangProps(code).label }))) return;
     state.languages = state.languages.filter(c => c !== code);
-    if (state.defaultLang === code) {
-        state.defaultLang = state.languages[0] || 'ja';
-    }
-    if (state.activeLang === code) {
-        state.activeLang = state.defaultLang || state.languages[0];
-    }
+    if (state.defaultLang === code) state.defaultLang = state.languages[0] || 'ja';
+    if (state.activeLang === code) state.activeLang = state.defaultLang || state.languages[0];
     renderLangSettings();
+    renderLangAddSelect();
+    renderProjectSettingsTable();
     refresh();
     triggerAutoSave();
 };
@@ -1625,18 +1609,15 @@ function setRibbonTab(tabName) {
 }
 
 function syncDesktopToggleButtons() {
-    const leftCollapsed = document.body.classList.contains('left-collapsed');
+    const drawerOpen = document.body.classList.contains('drawer-open');
     const rightCollapsed = document.body.classList.contains('right-collapsed');
     const leftBtn = document.getElementById('btn-toggle-sidebar');
     const rightBtn = document.getElementById('btn-toggle-panel');
-    if (leftBtn) leftBtn.textContent = leftCollapsed ? '📚 Pagesを開く' : '📚 Pages';
+    if (leftBtn) leftBtn.textContent = drawerOpen ? '🖼 Assetsを閉じる' : '🖼 Assets';
     if (rightBtn) rightBtn.textContent = rightCollapsed ? '⚙ Editを開く' : '⚙ Edit';
 }
 
 window.toggleDesktopPanel = (side) => {
-    if (side === 'left') {
-        document.body.classList.toggle('left-collapsed');
-    }
     if (side === 'right') {
         document.body.classList.toggle('right-collapsed');
     }
@@ -1648,7 +1629,7 @@ window.togglePagesPanel = () => {
         closeMobileSheet();
         return;
     }
-    toggleDesktopPanel('left');
+    window.toggleDrawer('pages');
 };
 
 window.toggleEditPanel = () => {
@@ -1657,6 +1638,259 @@ window.toggleEditPanel = () => {
         return;
     }
     toggleDesktopPanel('right');
+};
+
+let activeDrawer = null;
+
+window.toggleDrawer = (drawerName) => {
+    if (window.innerWidth < 1024) return;
+    if (activeDrawer === drawerName && document.body.classList.contains('drawer-open')) {
+        window.closeDrawer();
+        return;
+    }
+    activeDrawer = drawerName;
+    document.body.classList.add('drawer-open');
+    document.querySelectorAll('.sidebar-assets, .sidebar-pages').forEach((el) => {
+        el.style.display = 'none';
+    });
+    const target = document.querySelector(`.sidebar-${drawerName}`);
+    if (target) target.style.display = 'flex';
+    document.querySelectorAll('.icon-bar-btn').forEach((btn) => {
+        btn.classList.toggle('active', btn.dataset.drawer === drawerName);
+    });
+    syncDesktopToggleButtons();
+};
+
+window.closeDrawer = () => {
+    activeDrawer = null;
+    document.body.classList.remove('drawer-open');
+    document.querySelectorAll('.icon-bar-btn').forEach((btn) => btn.classList.remove('active'));
+    syncDesktopToggleButtons();
+};
+
+// ===== Project Settings Modal =====
+
+const PS_META_FIELDS = [
+    { key: 'title',       get label() { return t('field_title'); },       type: 'input'    },
+    { key: 'author',      get label() { return t('field_author'); },      type: 'input'    },
+    { key: 'description', get label() { return t('field_description'); }, type: 'textarea' },
+    { key: 'copyright',   get label() { return t('field_copyright'); },   type: 'input'    },
+];
+
+// ── PS テーブル列ドラッグ ──
+let _psDragLang = null;
+
+window.psColDragStart = (e, lang) => {
+    _psDragLang = lang;
+    e.dataTransfer.effectAllowed = 'move';
+    e.currentTarget.classList.add('ps-col-dragging');
+};
+
+window.psColDragEnd = (e) => {
+    e.currentTarget.classList.remove('ps-col-dragging');
+};
+
+window.psColDragOver = (e) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    e.currentTarget.classList.add('ps-col-drag-over');
+};
+
+window.psColDragLeave = (e) => {
+    e.currentTarget.classList.remove('ps-col-drag-over');
+};
+
+window.psColDrop = (e, targetLang) => {
+    e.preventDefault();
+    e.currentTarget.classList.remove('ps-col-drag-over');
+    if (!_psDragLang || _psDragLang === targetLang) { _psDragLang = null; return; }
+
+    // Save current input values before re-render
+    const currentMeta = state.meta ? JSON.parse(JSON.stringify(state.meta)) : {};
+    document.querySelectorAll('#ps-meta-table .ps-meta-input').forEach(input => {
+        const lang = input.dataset.lang;
+        const key  = input.dataset.key;
+        if (lang && key) {
+            if (!currentMeta[lang]) currentMeta[lang] = {};
+            currentMeta[lang][key] = input.value;
+        }
+    });
+    state.meta = currentMeta;
+
+    // Reorder languages
+    const langs = [...state.languages];
+    const fromIdx = langs.indexOf(_psDragLang);
+    const toIdx   = langs.indexOf(targetLang);
+    if (fromIdx === -1 || toIdx === -1) { _psDragLang = null; return; }
+    langs.splice(fromIdx, 1);
+    langs.splice(toIdx, 0, _psDragLang);
+    state.languages = langs;
+    state.defaultLang = langs[0];
+    _psDragLang = null;
+
+    renderProjectSettingsTable();
+    renderLangSettings();
+    renderLangTabs();
+    triggerAutoSave();
+};
+
+function renderProjectSettingsTable() {
+    const container = document.getElementById('ps-meta-table');
+    if (!container) return;
+
+    const langs = state.languages || ['ja'];
+    const meta = state.meta || {};
+
+    // grid-template-columns: label col (fixed) + one col per language (fixed 180px each → horizontal scroll)
+    const colTemplate = `120px ${langs.map(() => '320px').join(' ')}`;
+
+    let html = `<div class="ps-meta-grid" style="grid-template-columns:${colTemplate};">`;
+
+    // Header row: empty label cell + draggable language headers
+    html += `<div class="ps-meta-cell ps-meta-header ps-meta-corner"></div>`;
+    langs.forEach((lang, idx) => {
+        const props = getLangProps(lang);
+        const dir  = (state.languageConfigs?.[lang]?.pageDirection || 'ltr').toUpperCase();
+        const code = lang.toUpperCase();
+        const isDefault = idx === 0;
+        const defaultBadge = isDefault
+            ? `<span class="ps-default-badge">${t('ps_default_badge')}</span>`
+            : '';
+        html += `<div class="ps-meta-cell ps-meta-header${isDefault ? ' ps-meta-header--default' : ''}"
+            draggable="true"
+            data-lang="${lang}"
+            ondragstart="psColDragStart(event,'${lang}')"
+            ondragend="psColDragEnd(event)"
+            ondragover="psColDragOver(event)"
+            ondragleave="psColDragLeave(event)"
+            ondrop="psColDrop(event,'${lang}')">
+            <span class="ps-meta-header-drag">⠿</span>
+            ${props.label}
+            <span class="ps-meta-header-sub">${code} / ${dir}</span>
+            ${defaultBadge}
+        </div>`;
+    });
+
+    // Data rows
+    PS_META_FIELDS.forEach(field => {
+        html += `<div class="ps-meta-cell ps-meta-row-label">${field.label}</div>`;
+        langs.forEach(lang => {
+            const val = (meta[lang]?.[field.key] || '').replace(/"/g, '&quot;');
+            const ph  = (getLangProps(lang).placeholders?.[field.key] || '').replace(/"/g, '&quot;');
+            if (field.type === 'textarea') {
+                html += `<div class="ps-meta-cell"><textarea class="ps-meta-input" data-lang="${lang}" data-key="${field.key}" placeholder="${ph}">${val}</textarea></div>`;
+            } else {
+                html += `<div class="ps-meta-cell"><input type="text" class="ps-meta-input" data-lang="${lang}" data-key="${field.key}" value="${val}" placeholder="${ph}"></div>`;
+            }
+        });
+    });
+
+    html += `</div>`;
+    container.innerHTML = html;
+}
+
+window.openProjectSettings = () => {
+    const modal = document.getElementById('project-settings-modal');
+    if (!modal) return;
+
+    // Project name
+    const nameEl = document.getElementById('ps-project-name');
+    if (nameEl) nameEl.value = state.title || '';
+
+    // Global settings
+    const ratingEl = document.getElementById('ps-rating');
+    if (ratingEl) ratingEl.value = state.rating || 'all';
+
+    const licenseEl = document.getElementById('ps-license');
+    if (licenseEl) licenseEl.value = state.license || 'all-rights-reserved';
+
+    // Language settings
+    renderLangSettings();
+    renderLangAddSelect();
+
+    // Per-language meta table
+    renderProjectSettingsTable();
+
+    modal.style.display = 'flex';
+};
+
+window.closeProjectSettings = (e) => {
+    if (e && e.currentTarget !== e.target) return;
+    const modal = document.getElementById('project-settings-modal');
+    if (modal) modal.style.display = 'none';
+};
+
+window.saveProjectSettings = () => {
+    // Project name → state.title
+    const nameEl = document.getElementById('ps-project-name');
+    if (nameEl) {
+        const newTitle = nameEl.value.trim();
+        dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'title', value: newTitle } });
+        const titleDisplay = document.getElementById('project-title');
+        if (titleDisplay) titleDisplay.textContent = newTitle || '新規プロジェクト';
+        const propTitle = document.getElementById('prop-title');
+        if (propTitle) propTitle.value = newTitle;
+    }
+
+    // Global settings
+    ['rating', 'license'].forEach(key => {
+        const el = document.getElementById(`ps-${key}`);
+        if (el) dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key, value: el.value } });
+    });
+
+    // Per-language meta table
+    const meta = state.meta ? JSON.parse(JSON.stringify(state.meta)) : {};
+    document.querySelectorAll('#ps-meta-table .ps-meta-input').forEach(input => {
+        const lang = input.dataset.lang;
+        const key  = input.dataset.key;
+        if (lang && key) {
+            if (!meta[lang]) meta[lang] = {};
+            meta[lang][key] = input.value;
+        }
+    });
+    dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'meta', value: meta } });
+
+    const modal = document.getElementById('project-settings-modal');
+    if (modal) modal.style.display = 'none';
+
+    triggerAutoSave();
+};
+
+// ===== Room Navigation =====
+window.switchRoom = (room) => {
+    document.body.dataset.room = room;
+    if (room === 'press') {
+        const pressLangTabs = document.getElementById('press-lang-tabs');
+        if (pressLangTabs) {
+            const html = state.languages.map(code => {
+                const active = code === state.activeLang ? 'active' : '';
+                return `<button class="lang-tab ${active}" onclick="switchLang('${code}')">${code.toUpperCase()}</button>`;
+            }).join('');
+            pressLangTabs.innerHTML = html;
+        }
+    }
+};
+
+window.togglePageStrip = () => {
+    document.body.classList.toggle('strip-collapsed');
+    const chevron = document.getElementById('page-strip-chevron');
+    if (chevron) {
+        chevron.textContent = document.body.classList.contains('strip-collapsed') ? 'expand_less' : 'expand_more';
+    }
+};
+
+window.uploadAsset = () => {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = 'image/*';
+    input.multiple = true;
+    input.onchange = async (e) => {
+        const files = Array.from(e.target.files || []);
+        if (!files.length) return;
+        // TODO: implement asset upload to Firebase Storage
+        console.log('uploadAsset: files selected', files.map((f) => f.name));
+    };
+    input.click();
 };
 
 let activeMobileSheet = null;
@@ -1723,7 +1957,7 @@ function initUIChrome() {
         tab.addEventListener('click', () => setRibbonTab(tab.dataset.ribbonTab));
     });
 
-    document.getElementById('btn-toggle-sidebar')?.addEventListener('click', () => toggleDesktopPanel('left'));
+    document.getElementById('btn-toggle-sidebar')?.addEventListener('click', () => window.toggleDrawer('assets'));
     document.getElementById('btn-toggle-panel')?.addEventListener('click', () => toggleDesktopPanel('right'));
 
     document.querySelectorAll('.bottom-item').forEach((item) => {
@@ -1787,11 +2021,24 @@ onAuthChanged((user) => {
     }
 });
 
+// ── UI言語スイッチャー（windowに公開） ──────────────────────────
+window.setStudioUILang = (lang) => {
+    setUILang(lang);
+    // 動的レンダリング済みコンポーネントを再描画
+    renderLangTabs();
+    if (document.getElementById('project-settings-modal')?.style.display !== 'none') {
+        renderProjectSettingsTable();
+        renderLangSettings();
+        renderLangAddSelect();
+    }
+};
+
 // --- 初回描画 ---
 async function bootstrapApp() {
     initUIChrome();
     ensureUiPrefs();
     applyThumbColumnsFromPrefs();
+    applyI18n(); // UI言語を適用
 
     // Prevent local restore if we are explicitly loading a cloud project via URL
     const urlParams = new URLSearchParams(window.location.search);

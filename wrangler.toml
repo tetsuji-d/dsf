@@ -1,0 +1,37 @@
+# Cloudflare Pages + R2 configuration for DSF Studio
+# Reference: https://developers.cloudflare.com/pages/functions/
+#
+# Setup checklist (one-time, in Cloudflare dashboard):
+#   1. Create Pages project named "dsf-studio"
+#   2. Create R2 bucket "dsf-media"  (and "dsf-media-staging" for staging)
+#   3. Enable public access on the R2 bucket (or configure a custom domain)
+#   4. Add environment variables in Pages Settings → Environment Variables:
+#        FIREBASE_PROJECT_ID  = vmnn-26345          (production)
+#        R2_PUBLIC_URL        = https://media.dsf.ink (production; use R2 default URL until custom domain is set)
+#   5. Bind the R2 bucket in Pages Settings → Functions → R2 bucket bindings:
+#        Variable name: R2_BUCKET  →  Bucket: dsf-media
+
+name = "dsf-studio"
+pages_build_output_dir = "dist"
+compatibility_date = "2024-09-01"
+
+# ── Production ────────────────────────────────────────────────────────────────
+[[r2_buckets]]
+binding        = "R2_BUCKET"
+bucket_name    = "dsf-media"
+
+[vars]
+FIREBASE_PROJECT_ID = "vmnn-26345"
+R2_PUBLIC_URL       = "https://media.dsf.ink"
+
+# ── Preview (staging) ─────────────────────────────────────────────────────────
+# Pages supports "production" and "preview" environments only.
+[env.preview]
+name = "dsf-studio-preview"
+
+[[env.preview.r2_buckets]]
+binding     = "R2_BUCKET"
+bucket_name = "dsf-media"
+
+[env.preview.vars]
+R2_PUBLIC_URL = "https://media.dsf.ink"
