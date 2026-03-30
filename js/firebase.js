@@ -633,8 +633,11 @@ export async function uploadToStorage(input, refresh) {
     const file = input.files[0];
     if (!file) return;
 
-    const originalText = document.getElementById('text-label').innerText;
-    document.getElementById('text-label').innerText = "処理中...";
+    const labelEl = document.getElementById('text-label');
+    const originalText = labelEl?.innerText ?? '';
+    const setLabel = (text) => { if (labelEl) labelEl.innerText = text; };
+
+    setLabel("処理中...");
 
     try {
         // 1. 画像圧縮 (メイン: max 1280px, サムネイル: max 320px)
@@ -648,7 +651,7 @@ export async function uploadToStorage(input, refresh) {
 
         // --- ゲスト（未ログイン）モード時のローカル保存処理 ---
         if (!state.uid) {
-            document.getElementById('text-label').innerText = "ローカル保存中...";
+            setLabel("ローカル保存中...");
 
             const mainKey = `local_img_main_${timestamp}`;
             const thumbKey = `local_img_thumb_${timestamp}`;
@@ -679,8 +682,8 @@ export async function uploadToStorage(input, refresh) {
             refresh();
             triggerAutoSave();
 
-            document.getElementById('text-label').innerText = "完了！";
-            setTimeout(() => { document.getElementById('text-label').innerText = originalText; }, 2000);
+            setLabel("完了！");
+            setTimeout(() => setLabel(originalText), 2000);
             return;
         }
 
@@ -689,7 +692,7 @@ export async function uploadToStorage(input, refresh) {
         const mainPath = `users/${uid}/dsf/${timestamp}_${filename}.webp`;
         const thumbPath = `users/${uid}/dsf/thumbs/${timestamp}_${filename}_thumb.webp`;
 
-        document.getElementById('text-label').innerText = "アップロード中...";
+        setLabel("アップロード中...");
 
         // 2. アップロード & URL取得
         const [mainUrl, thumbUrl] = await Promise.all([
@@ -711,14 +714,12 @@ export async function uploadToStorage(input, refresh) {
         refresh();
         triggerAutoSave();
 
-        document.getElementById('text-label').innerText = "完了！";
-        setTimeout(() => {
-            document.getElementById('text-label').innerText = originalText;
-        }, 2000);
+        setLabel("完了！");
+        setTimeout(() => setLabel(originalText), 2000);
     } catch (e) {
         console.error(e);
         alert("保存失敗: " + e.message);
-        document.getElementById('text-label').innerText = originalText;
+        setLabel(originalText);
     } finally {
         console.log("[DSF] Upload process finished.");
         input.value = ''; // Reset input to allow same file selection

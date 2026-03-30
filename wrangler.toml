@@ -16,25 +16,23 @@ pages_build_output_dir = "dist"
 compatibility_date = "2024-09-01"
 
 # ── Production ────────────────────────────────────────────────────────────────
-# R2 bucket binding: uncomment after creating the bucket
-# [[r2_buckets]]
-# binding        = "R2_BUCKET"
-# bucket_name    = "dsf-media"
+[[r2_buckets]]
+binding        = "R2_BUCKET"
+bucket_name    = "dsf-media"
 
-# Environment variables: set these in the Cloudflare dashboard (not here,
-# since this file is committed to the repo and FIREBASE_PROJECT_ID is not secret)
-# [vars]
-# FIREBASE_PROJECT_ID = "vmnn-26345"
-# R2_PUBLIC_URL       = "https://media.dsf.ink"
+[vars]
+FIREBASE_PROJECT_ID = "vmnn-26345"
+R2_PUBLIC_URL       = "https://media.dsf.ink"
 
-# ── Staging ───────────────────────────────────────────────────────────────────
-[env.staging]
-name = "dsf-studio-staging"
+# ── Preview (staging) ─────────────────────────────────────────────────────────
+# Pages supports "production" and "preview" environments only.
+[env.preview]
+name = "dsf-studio-preview"
 
-# [[env.staging.r2_buckets]]
+# [[env.preview.r2_buckets]]
 # binding        = "R2_BUCKET"
 # bucket_name    = "dsf-media-staging"
 
-# [env.staging.vars]
+# [env.preview.vars]
 # FIREBASE_PROJECT_ID = "vmnn-26345-stg"
 # R2_PUBLIC_URL       = "https://media-stg.dsf.ink"
