@@ -1570,6 +1570,15 @@ window.loadAndOpenProject = (pid) => {
     closeWorksRoom();
     loadProject(pid, refresh);
 };
+window.copyViewerUrl = async (pid) => {
+    const url = `${window.location.origin}/viewer.html?project=${encodeURIComponent(pid)}&author=${encodeURIComponent(state.uid)}`;
+    try {
+        await navigator.clipboard.writeText(url);
+        alert('URLをコピーしました:\n' + url);
+    } catch {
+        prompt('ビューワーURL:', url);
+    }
+};
 window.loadAndRepress = (pid) => {
     closeWorksRoom();
     loadProject(pid, () => {

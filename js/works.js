@@ -128,6 +128,9 @@ function _renderRow(p) {
                     <option value="public"   ${p.dsfStatus === 'public'   ? 'selected' : ''}>🌍 公開</option>
                     <option value="private"  ${p.dsfStatus === 'private'  ? 'selected' : ''}>🔒 非公開</option>
                 </select>
+                <button class="works-btn-copy"
+                    onclick="window.copyViewerUrl('${_esc(p.id)}')"
+                    title="ビューワーURLをコピー">🔗 URLコピー</button>
                 <button class="works-btn-edit"
                     onclick="window.loadAndOpenProject('${_esc(p.id)}')"
                     title="エディターで開く">✏️ 編集</button>

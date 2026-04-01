@@ -3417,3 +3417,16 @@ textarea.ps-meta-input {
     transition: background 0.1s;
 }
 .works-btn-press:hover { background: #f1f5f9; }
+
+.works-btn-copy {
+    font-size: 12px;
+    padding: 5px 10px;
+    border: 1px solid #3b82f6;
+    border-radius: 6px;
+    background: #eff6ff;
+    color: #2563eb;
+    cursor: pointer;
+    white-space: nowrap;
+    transition: background 0.1s;
+}
+.works-btn-copy:hover { background: #dbeafe; }
