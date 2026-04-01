@@ -179,7 +179,7 @@ async function _updateDsfStatus(pid, newStatus, proj) {
                 pageCount:  proj.pageCount || 0,
             }, { merge: true });
         } else {
-            await deleteDoc(publicRef).catch(() => {});
+            await deleteDoc(publicRef).catch((e) => console.warn('[Works] public_projects delete:', e.message));
         }
     } catch (err) {
         console.error('[Works] dsfStatus update error:', err);
