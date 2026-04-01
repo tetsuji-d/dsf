@@ -27,6 +27,7 @@ export async function openProjectModal(onLoadProject) {
         const projects = [];
         snapshot.forEach(docSnap => {
             const normalized = normalizeProjectDataV5(docSnap.data() || {});
+            const raw = docSnap.data() || {};
             projects.push({
                 id: docSnap.id,
                 version: normalized.version,
@@ -34,6 +35,7 @@ export async function openProjectModal(onLoadProject) {
                 pages: normalized.pages || [],
                 blocks: normalized.blocks || [],
                 sections: normalized.sections || [],
+                dsfPages: Array.isArray(raw.dsfPages) ? raw.dsfPages : [],
                 languages: normalized.languages || ['ja'],
                 defaultLang: normalized.defaultLang || (normalized.languages?.[0] || 'ja'),
                 languageConfigs: normalized.languageConfigs || null,
@@ -51,7 +53,7 @@ export async function openProjectModal(onLoadProject) {
         }
 
         grid.innerHTML = projects.map(p => {
-            const cover = getCoverImage(p.pages, p.blocks, p.sections);
+            const cover = getCoverImage(p.dsfPages, p.pages, p.blocks, p.sections);
             const dateStr = p.lastUpdated.toLocaleDateString('ja-JP');
             const pageCount = getPageCount(p.pages, p.blocks, p.sections);
             return `
@@ -117,7 +119,16 @@ export function closeProjectModal() {
  * セクション配列から表紙画像URLを取得
  * サムネイルがあれば優先して使用
  */
-function getCoverImage(pages, blocks, sections) {
+function getCoverImage(dsfPages, pages, blocks, sections) {
+    // dsfPages (R2 WebP) has imagePosition baked in — use first
+    const dsfList = Array.isArray(dsfPages) ? dsfPages : [];
+    if (dsfList.length > 0) {
+        const first = dsfList[0];
+        if (first?.urls) {
+            const lang = Object.keys(first.urls)[0];
+            if (lang && first.urls[lang]) return first.urls[lang];
+        }
+    }
     const pageList = Array.isArray(pages) ? pages : [];
     if (pageList.length > 0) {
         const firstNormal = pageList.find((p) => p?.pageType === 'normal_image');
