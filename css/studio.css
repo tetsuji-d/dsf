@@ -3307,3 +3307,113 @@ textarea.ps-meta-input {
     transition: background 0.1s;
 }
 .works-btn-edit:hover { background: #f1f5f9; }
+
+/* ── Press Room: page thumbnails ─────────────────────────────────────────── */
+.press-page-thumbs {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(72px, 1fr));
+    gap: 8px;
+    padding: 8px;
+    overflow-y: auto;
+    max-height: calc(100vh - 180px);
+}
+.press-thumb-item {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
+}
+.press-thumb-item img {
+    width: 100%;
+    aspect-ratio: 9/16;
+    object-fit: cover;
+    border-radius: 4px;
+    border: 1px solid #e2e8f0;
+    background: #f1f5f9;
+}
+.press-thumb-empty {
+    width: 100%;
+    aspect-ratio: 9/16;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: #f1f5f9;
+    border-radius: 4px;
+    border: 1px solid #e2e8f0;
+    color: #94a3b8;
+}
+.press-thumb-label {
+    font-size: 10px;
+    color: #94a3b8;
+    text-align: center;
+}
+.press-empty {
+    padding: 24px;
+    text-align: center;
+    color: #94a3b8;
+    font-size: 13px;
+}
+.press-lang-tab.active {
+    background: #3b82f6;
+    color: #fff;
+    border-color: #3b82f6;
+}
+
+/* ── Works Room (room mode) ───────────────────────────────────────────────── */
+.works-room-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 16px 24px;
+    border-bottom: 1px solid #e2e8f0;
+    background: #fff;
+    flex-shrink: 0;
+}
+.works-room-title {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+.works-room-title .material-icons { color: #3b82f6; font-size: 22px; }
+.works-room-title h2 { font-size: 18px; font-weight: 700; color: #1e293b; margin: 0; }
+.works-room-subtitle { font-size: 13px; color: #94a3b8; }
+.works-room-list {
+    flex: 1;
+    overflow-y: auto;
+    background: #fff;
+}
+
+/* DSF ステータスバッジ */
+.works-dsf-badge {
+    font-size: 11px;
+    font-weight: 700;
+    padding: 3px 8px;
+    border-radius: 20px;
+    white-space: nowrap;
+}
+.works-dsf-badge.dsf-draft    { background: #f1f5f9; color: #64748b; }
+.works-dsf-badge.dsf-public   { background: #dcfce7; color: #16a34a; }
+.works-dsf-badge.dsf-unlisted { background: #fef9c3; color: #a16207; }
+.works-dsf-badge.dsf-private  { background: #fee2e2; color: #dc2626; }
+
+.works-dsf-select {
+    font-size: 12px;
+    padding: 4px 8px;
+    border: 1px solid #cbd5e1;
+    border-radius: 6px;
+    background: #fff;
+    color: #334155;
+    cursor: pointer;
+}
+.works-btn-press {
+    font-size: 12px;
+    padding: 5px 10px;
+    border: 1px solid #cbd5e1;
+    border-radius: 6px;
+    background: #fff;
+    color: #334155;
+    cursor: pointer;
+    white-space: nowrap;
+    transition: background 0.1s;
+}
+.works-btn-press:hover { background: #f1f5f9; }

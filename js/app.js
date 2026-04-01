@@ -8,6 +8,7 @@ import { addSection, changeSection, changeBlock, insertStructureBlock, renderThu
 import { pushState, undo, redo, getHistoryInfo, clearHistory } from './history.js';
 import { openProjectModal, closeProjectModal } from './projects.js';
 import { openWorksRoom, closeWorksRoom } from './works.js';
+import { enterPressRoom } from './press.js';
 import { getLangProps, getAllLangs } from './lang.js';
 import { t, applyI18n, setUILang, getUILang } from './i18n-studio.js';
 import { getBlockIndexFromPageIndex, getPageIndexFromBlockIndex, migrateSectionsToBlocks, syncBlocksWithSections } from './blocks.js';
@@ -1564,9 +1565,17 @@ window.closeProjectModal = closeProjectModal;
 // Works Room
 window.openWorksRoom = openWorksRoom;
 window.closeWorksRoom = closeWorksRoom;
+window.loadWorksRoom  = () => openWorksRoom(true); // true = ルームモード
 window.loadAndOpenProject = (pid) => {
     closeWorksRoom();
     loadProject(pid, refresh);
+};
+window.loadAndRepress = (pid) => {
+    closeWorksRoom();
+    loadProject(pid, () => {
+        refresh();
+        window.switchRoom('press');
+    });
 };
 
 // 新規プロジェクト
@@ -1860,14 +1869,10 @@ window.saveProjectSettings = () => {
 window.switchRoom = (room) => {
     document.body.dataset.room = room;
     if (room === 'press') {
-        const pressLangTabs = document.getElementById('press-lang-tabs');
-        if (pressLangTabs) {
-            const html = state.languages.map(code => {
-                const active = code === state.activeLang ? 'active' : '';
-                return `<button class="lang-tab ${active}" onclick="switchLang('${code}')">${code.toUpperCase()}</button>`;
-            }).join('');
-            pressLangTabs.innerHTML = html;
-        }
+        enterPressRoom();
+    }
+    if (room === 'works') {
+        loadWorksRoom();
     }
 };
 

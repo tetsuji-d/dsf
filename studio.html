@@ -430,9 +430,9 @@
                             <span class="material-icons">download</span>
                             <span><span data-i18n="btn_export_dsf">DSF 書き出し</span><small data-i18n="btn_export_dsf_sub">.dsf ファイルを保存</small></span>
                         </button>
-                        <button class="press-publish-btn" onclick="saveProject()" data-auth-required>
+                        <button id="press-publish-cloud-btn" class="press-publish-btn" onclick="publishToCloud()" data-auth-required>
                             <span class="material-icons">cloud_upload</span>
-                            <span><span data-i18n="btn_publish_cloud">クラウドに発行</span><small data-i18n="btn_publish_cloud_sub">Firebase に保存して公開</small></span>
+                            <span><span data-i18n="btn_publish_cloud">R2 にレンダリング・発行</span><small data-i18n="btn_publish_cloud_sub">WebP 生成 → R2 → draft で登録</small></span>
                         </button>
                         <button class="press-publish-btn" onclick="switchRoom('works')" data-auth-required>
                             <span class="material-icons">library_books</span>
@@ -443,15 +443,17 @@
             </div>
         </div><!-- /press-room -->
 
-        <!-- Works Room (skeleton) -->
+        <!-- Works Room -->
         <div id="works-room" class="room">
-            <div class="placeholder-room">
-                <span class="material-icons placeholder-room-icon">library_books</span>
-                <h2>Works Room</h2>
-                <p data-i18n="works_note">発行済み作品のステータス管理（実装予定）</p>
-                <button class="home-action-btn primary" onclick="openWorksRoom()" data-i18n="btn_open_works">Works を開く</button>
-                <button class="btn-sm" onclick="switchRoom('editor')" style="margin-top:8px;" data-i18n="btn_back_editor">← Editor に戻る</button>
+            <div class="works-room-header">
+                <div class="works-room-title">
+                    <span class="material-icons">library_books</span>
+                    <h2>Works Room</h2>
+                    <span class="works-room-subtitle">発行済み作品のステータス管理</span>
+                </div>
+                <button class="btn-sm" onclick="switchRoom('home')" data-i18n="btn_back_home">← Home</button>
             </div>
+            <div id="works-room-list" class="works-room-list"></div>
         </div><!-- /works-room -->
 
         </div><!-- /room-container -->

@@ -89,6 +89,11 @@ async function _storeFile(blob, path) {
     const snap = await uploadBytes(storageRef, blob);
     return getDownloadURL(snap.ref);
 }
+
+/** Press Room レンダリング結果のアップロード（press.js から使用） */
+export async function uploadPressPage(blob, path) {
+    return _storeFile(blob, path);
+}
 // ─────────────────────────────────────────────────────────────────────────────
 let authInitPromise = null;
 let authPersistenceLevel = 'unknown'; // local | session | memory | unavailable

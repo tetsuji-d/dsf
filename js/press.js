@@ -1,0 +1,242 @@
+/**
+ * press.js — Press Room ロジック
+ * DSP → DSF レンダリング・R2アップロード・Firestore発行
+ */
+import {
+    doc, setDoc, serverTimestamp
+} from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
+import { state } from './state.js';
+import { db, uploadPressPage } from './firebase.js';
+
+// ─── Press Room 入室 ─────────────────────────────────────────────────────────
+
+/** Press Room に入ったときにページサムネイルと言語タブを描画する */
+export function enterPressRoom() {
+    _renderPageThumbs();
+    _renderLangTabs();
+    _updatePublishBtn();
+}
+
+function _renderPageThumbs() {
+    const container = document.getElementById('press-page-thumbs');
+    if (!container) return;
+
+    const pages = _getRenderablePages();
+    if (!pages.length) {
+        container.innerHTML = '<p class="press-empty">ページがありません</p>';
+        return;
+    }
+
+    container.innerHTML = pages.map((page, i) => {
+        const lang = state.activeLang || state.defaultLang || 'ja';
+        const thumb = page.content?.thumbnail
+            || page.content?.backgrounds?.[lang]
+            || page.content?.background
+            || '';
+        const label = _pageLabel(page, i);
+        return `<div class="press-thumb-item">
+            ${thumb
+                ? `<img src="${_esc(thumb)}" alt="${label}" loading="lazy">`
+                : `<div class="press-thumb-empty"><span class="material-icons">image</span></div>`}
+            <div class="press-thumb-label">${label}</div>
+        </div>`;
+    }).join('');
+}
+
+function _renderLangTabs() {
+    const container = document.getElementById('press-lang-tabs');
+    if (!container) return;
+    const langs = state.languages || ['ja'];
+    container.innerHTML = langs.map(code =>
+        `<button class="lang-tab press-lang-tab ${code === (state.activeLang || langs[0]) ? 'active' : ''}"
+            data-lang="${code}"
+            onclick="togglePressLang('${code}')">${code.toUpperCase()}</button>`
+    ).join('');
+}
+
+function _updatePublishBtn() {
+    const btn = document.getElementById('press-publish-cloud-btn');
+    if (!btn) return;
+    btn.disabled = !state.uid;
+    btn.title = state.uid ? '' : 'ログインが必要です';
+}
+
+/** Press Room の言語タブをトグル（複数選択可） */
+window.togglePressLang = (code) => {
+    const tab = document.querySelector(`.press-lang-tab[data-lang="${code}"]`);
+    if (tab) tab.classList.toggle('active');
+};
+
+// ─── レンダリング & 発行 ─────────────────────────────────────────────────────
+
+/** Press Room の「クラウドに発行」ボタンから呼ばれる */
+window.publishToCloud = async () => {
+    if (!state.uid) {
+        alert('ログインしてください');
+        return;
+    }
+    if (!state.projectId) {
+        alert('プロジェクトをクラウドに保存してから発行してください');
+        return;
+    }
+
+    const pages = _getRenderablePages();
+    if (!pages.length) {
+        alert('レンダリングするページがありません');
+        return;
+    }
+
+    // 設定取得
+    const quality = parseInt(document.getElementById('press-quality')?.value || '85') / 100;
+    const resStr  = document.getElementById('press-resolution')?.value || '720x1280';
+    const [targetW, targetH] = resStr.split('x').map(Number);
+
+    // 選択言語取得（アクティブなタブ）
+    const selectedLangs = Array.from(
+        document.querySelectorAll('.press-lang-tab.active')
+    ).map(el => el.dataset.lang).filter(Boolean);
+    const langs = selectedLangs.length ? selectedLangs : (state.languages || ['ja']);
+
+    // プログレス表示
+    const btn = document.getElementById('press-publish-cloud-btn');
+    const origLabel = btn?.innerHTML;
+    const setProgress = (msg) => {
+        if (btn) btn.innerHTML = `<span class="material-icons">hourglass_top</span><span>${msg}</span>`;
+    };
+    const resetBtn = () => { if (btn && origLabel) btn.innerHTML = origLabel; };
+
+    setProgress('準備中...');
+
+    try {
+        const dsfPages = [];
+        let pageNum = 0;
+        const total = pages.length * langs.length;
+        let done = 0;
+
+        for (const page of pages) {
+            pageNum++;
+            const langUrls = {};
+
+            for (const lang of langs) {
+                const bgUrl = page.content?.backgrounds?.[lang] || page.content?.background;
+                if (!bgUrl) continue;
+
+                setProgress(`レンダリング中 ${++done}/${total}`);
+
+                const blob = await _renderPageToWebP(
+                    bgUrl, page.content?.imagePosition, targetW, targetH, quality
+                );
+
+                const path = `users/${state.uid}/dsf/${state.projectId}/${lang}/page_${String(pageNum).padStart(3, '0')}.webp`;
+                langUrls[lang] = await uploadPressPage(blob, path);
+            }
+
+            dsfPages.push({
+                pageNum,
+                pageType: page.pageType || 'normal_image',
+                urls: langUrls,
+            });
+        }
+
+        setProgress('Firestoreに保存中...');
+
+        // Firestoreに DSF メタデータを保存
+        await setDoc(
+            doc(db, 'users', state.uid, 'projects', state.projectId),
+            {
+                dsfPages,
+                dsfStatus:      'draft',
+                dsfPublishedAt: serverTimestamp(),
+                dsfResolution:  resStr,
+                dsfQuality:     Math.round(quality * 100),
+                dsfLangs:       langs,
+            },
+            { merge: true }
+        );
+
+        console.log(`[Press] Published ${dsfPages.length} pages → draft`);
+        resetBtn();
+
+        // Works Room へ遷移
+        window.switchRoom('works');
+
+    } catch (e) {
+        console.error('[Press] publishToCloud error:', e);
+        alert('発行中にエラーが発生しました:\n' + e.message);
+        resetBtn();
+    }
+};
+
+// ─── レンダリング処理 ────────────────────────────────────────────────────────
+
+async function _renderPageToWebP(bgUrl, pos, targetW, targetH, quality) {
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+
+    await new Promise((resolve, reject) => {
+        img.onload  = resolve;
+        img.onerror = reject;
+        img.src = bgUrl;
+    });
+
+    const canvas = document.createElement('canvas');
+    canvas.width  = targetW;
+    canvas.height = targetH;
+    const ctx = canvas.getContext('2d');
+
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(0, 0, targetW, targetH);
+
+    // 基準フレームは 360×640。ターゲット解像度に合わせてスケール
+    const baseW = 360;
+    const ratio = targetW / baseW;
+
+    const safePos = {
+        x:        Number.isFinite(Number(pos?.x))        ? Number(pos.x)        : 0,
+        y:        Number.isFinite(Number(pos?.y))        ? Number(pos.y)        : 0,
+        scale:    Math.max(0.1, Number.isFinite(Number(pos?.scale))    ? Number(pos.scale)    : 1),
+        rotation: Number.isFinite(Number(pos?.rotation)) ? Number(pos.rotation) : 0,
+    };
+
+    ctx.save();
+    ctx.translate(targetW / 2, targetH / 2);
+    ctx.translate(safePos.x * ratio, safePos.y * ratio);
+    ctx.rotate((safePos.rotation * Math.PI) / 180);
+    ctx.scale(safePos.scale, safePos.scale);
+
+    // object-fit: cover と同じ挙動
+    const imgAspect   = img.width  / img.height;
+    const frameAspect = targetW    / targetH;
+    let drawW, drawH;
+    if (imgAspect > frameAspect) {
+        drawH = targetH;
+        drawW = targetH * imgAspect;
+    } else {
+        drawW = targetW;
+        drawH = targetW / imgAspect;
+    }
+
+    ctx.drawImage(img, -drawW / 2, -drawH / 2, drawW, drawH);
+    ctx.restore();
+
+    return new Promise(resolve => canvas.toBlob(resolve, 'image/webp', quality));
+}
+
+// ─── ヘルパー ────────────────────────────────────────────────────────────────
+
+function _getRenderablePages() {
+    return (state.pages || []).filter(p =>
+        ['normal_image', 'cover_front', 'cover_back'].includes(p.pageType)
+    );
+}
+
+function _pageLabel(page, i) {
+    const typeMap = { cover_front: '表紙', cover_back: '裏表紙', normal_image: String(i + 1) };
+    return typeMap[page.pageType] || String(i + 1);
+}
+
+function _esc(str) {
+    return String(str ?? '')
+        .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;');
+}
