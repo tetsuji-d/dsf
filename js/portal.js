@@ -4,7 +4,7 @@
  */
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
 import { getFirestore, collection, query, orderBy, limit, getDocs } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
-import { getAuth, onAuthStateChanged, GoogleAuthProvider, signInWithPopup, signOut } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js";
+import { getAuth, onAuthStateChanged, GoogleAuthProvider, signInWithPopup, signInWithRedirect, getRedirectResult, signOut } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js";
 
 const firebaseConfig = {
     apiKey:            import.meta.env.VITE_FIREBASE_API_KEY,
@@ -286,7 +286,7 @@ function normalizeProject(docSnap) {
         authorUid,
         canOpen:       !!authorUid,
         thumbnail:     typeof data.thumbnail === "string" ? data.thumbnail : DEFAULT_THUMB_URL,
-        publishedDate: formatDate(data.publishedAt),
+        publishedDate: formatDate(data.updatedAt),
     };
 }
 
@@ -301,7 +301,7 @@ async function loadPublicProjects() {
     renderLoadingSkeleton();
 
     try {
-        const q = query(collection(db, "public_projects"), orderBy("publishedAt", "desc"), limit(FETCH_LIMIT));
+        const q = query(collection(db, "public_projects"), orderBy("updatedAt", "desc"), limit(FETCH_LIMIT));
         const snap = await getDocs(q);
         portalState.projects = snap.docs.map(normalizeProject);
         portalState.isLoading = false;
@@ -356,9 +356,19 @@ function renderAuthArea(user) {
                 ${escapeHtml(t("signinBtn"))}
             </button>
         `;
-        document.getElementById("btn-signin").addEventListener("click", () => {
-            signInWithPopup(auth, new GoogleAuthProvider())
-                .catch((err) => console.error("[Portal] sign-in error", err));
+        document.getElementById("btn-signin").addEventListener("click", async () => {
+            const provider = new GoogleAuthProvider();
+            try {
+                await signInWithPopup(auth, provider);
+            } catch (err) {
+                if (err?.code === 'auth/popup-blocked' ||
+                    err?.code === 'auth/popup-closed-by-user' ||
+                    err?.code === 'auth/cancelled-popup-request') {
+                    signInWithRedirect(auth, provider);
+                } else {
+                    console.error("[Portal] sign-in error", err);
+                }
+            }
         });
     }
 }
@@ -415,5 +425,6 @@ document.addEventListener("DOMContentLoaded", () => {
     bindLangSwitcher();
     bindEvents();
     onAuthStateChanged(auth, (user) => renderAuthArea(user));
+    getRedirectResult(auth).catch((err) => console.error("[Portal] redirect result error", err));
     loadPublicProjects();
 });
