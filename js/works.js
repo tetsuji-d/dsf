@@ -89,6 +89,21 @@ export async function openWorksRoom(roomMode = false) {
             });
         });
 
+        // 削除ボタン
+        listEl.querySelectorAll('.works-btn-delete').forEach(btn => {
+            btn.addEventListener('click', async () => {
+                const pid = btn.dataset.deletePid;
+                if (!confirm(`「${pid}」を削除しますか？\nこの操作は取り消せません。`)) return;
+                try {
+                    await deleteDoc(doc(db, 'users', state.uid, 'projects', pid));
+                    await deleteDoc(doc(db, 'public_projects', pid)).catch(() => {});
+                    btn.closest('.works-row')?.remove();
+                } catch (err) {
+                    alert('削除に失敗しました: ' + err.message);
+                }
+            });
+        });
+
     } catch (err) {
         console.error('[Works] load error:', err);
         listEl.innerHTML = `<div class="works-loading">読み込みに失敗しました: ${err.message}</div>`;
@@ -137,6 +152,9 @@ function _renderRow(p) {
                 <button class="works-btn-press"
                     onclick="window.loadAndRepress('${_esc(p.id)}')"
                     title="再レンダリング">🔄 再発行</button>
+                <button class="works-btn-delete"
+                    data-delete-pid="${_esc(p.id)}"
+                    title="プロジェクトを削除">🗑 削除</button>
             </div>
         </div>`;
 }

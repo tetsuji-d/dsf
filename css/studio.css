@@ -3308,6 +3308,19 @@ textarea.ps-meta-input {
 }
 .works-btn-edit:hover { background: #f1f5f9; }
 
+.works-btn-delete {
+    font-size: 12px;
+    padding: 5px 10px;
+    border: 1px solid #fca5a5;
+    border-radius: 6px;
+    background: #fff;
+    color: #dc2626;
+    cursor: pointer;
+    white-space: nowrap;
+    transition: background 0.1s;
+}
+.works-btn-delete:hover { background: #fef2f2; }
+
 /* ── Press Room: page thumbnails ─────────────────────────────────────────── */
 .press-page-thumbs {
     display: grid;
