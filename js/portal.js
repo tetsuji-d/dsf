@@ -3,7 +3,7 @@
  * i18n対応: UI言語 + コンテンツ言語の切り替え
  */
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
-import { getFirestore, collection, query, where, orderBy, limit, getDocs } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
+import { getFirestore, collection, query, orderBy, limit, getDocs } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
 import { getAuth, onAuthStateChanged, GoogleAuthProvider, signInWithPopup, signInWithRedirect, getRedirectResult, signOut } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js";
 
 const firebaseConfig = {
@@ -301,9 +301,11 @@ async function loadPublicProjects() {
     renderLoadingSkeleton();
 
     try {
-        const q = query(collection(db, "public_projects"), where("dsfStatus", "==", "public"), orderBy("updatedAt", "desc"), limit(FETCH_LIMIT));
+        const q = query(collection(db, "public_projects"), orderBy("updatedAt", "desc"), limit(FETCH_LIMIT));
         const snap = await getDocs(q);
-        portalState.projects = snap.docs.map(normalizeProject);
+        portalState.projects = snap.docs
+            .filter(d => (d.data().dsfStatus || 'public') === 'public')
+            .map(normalizeProject);
         portalState.isLoading = false;
         renderProjects();
     } catch (err) {
