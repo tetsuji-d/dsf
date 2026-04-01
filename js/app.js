@@ -1459,7 +1459,7 @@ window.shareProject = async () => {
         alert('現在の状態は「🔒 非公開」です。\nこのままでは作品を共有できません。上部メニューから「🔗 限定公開」か「🌍 公開」に変更してください。');
         return;
     }
-    const url = `${window.location.protocol}//${host}/viewer.html?project=${encodeURIComponent(state.projectId)}&author=${encodeURIComponent(state.uid)}`;
+    const url = `${window.location.protocol}//${host}/viewer?project=${encodeURIComponent(state.projectId)}&author=${encodeURIComponent(state.uid)}`;
 
     try {
         await navigator.clipboard.writeText(url);
@@ -1574,7 +1574,7 @@ window.loadAndOpenProject = (pid) => {
     });
 };
 window.copyViewerUrl = async (pid) => {
-    const url = `${window.location.origin}/viewer.html?project=${encodeURIComponent(pid)}&author=${encodeURIComponent(state.uid)}`;
+    const url = `${window.location.origin}/viewer?project=${encodeURIComponent(pid)}&author=${encodeURIComponent(state.uid)}`;
     try {
         await navigator.clipboard.writeText(url);
         alert('URLをコピーしました:\n' + url);

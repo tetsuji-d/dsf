@@ -154,7 +154,7 @@ function formatDate(publishedAt) {
 }
 
 function buildViewerUrl(projectId, authorUid) {
-    return `/viewer.html?project=${encodeURIComponent(projectId)}&author=${encodeURIComponent(authorUid)}`;
+    return `/viewer?project=${encodeURIComponent(projectId)}&author=${encodeURIComponent(authorUid)}`;
 }
 
 // ---- Rendering -----------------------------------------------------------
