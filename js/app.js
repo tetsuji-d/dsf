@@ -1568,7 +1568,10 @@ window.closeWorksRoom = closeWorksRoom;
 window.loadWorksRoom  = () => openWorksRoom(true); // true = ルームモード
 window.loadAndOpenProject = (pid) => {
     closeWorksRoom();
-    loadProject(pid, refresh);
+    loadProject(pid, () => {
+        refresh();
+        window.switchRoom('editor');
+    });
 };
 window.copyViewerUrl = async (pid) => {
     const url = `${window.location.origin}/viewer.html?project=${encodeURIComponent(pid)}&author=${encodeURIComponent(state.uid)}`;
