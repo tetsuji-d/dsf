@@ -27,13 +27,13 @@ function _renderPageThumbs() {
         return;
     }
 
-    container.innerHTML = pages.map((page, i) => {
+    container.innerHTML = pages.map((section, i) => {
         const lang = state.activeLang || state.defaultLang || 'ja';
-        const thumb = page.content?.thumbnail
-            || page.content?.backgrounds?.[lang]
-            || page.content?.background
+        const thumb = section.thumbnail
+            || section.backgrounds?.[lang]
+            || section.background
             || '';
-        const label = _pageLabel(page, i);
+        const label = String(i + 1);
         return `<div class="press-thumb-item">
             ${thumb
                 ? `<img src="${_esc(thumb)}" alt="${label}" loading="lazy">`
@@ -113,18 +113,18 @@ window.publishToCloud = async () => {
         const total = pages.length * langs.length;
         let done = 0;
 
-        for (const page of pages) {
+        for (const section of pages) {
             pageNum++;
             const langUrls = {};
 
             for (const lang of langs) {
-                const bgUrl = page.content?.backgrounds?.[lang] || page.content?.background;
+                const bgUrl = section.backgrounds?.[lang] || section.background;
                 if (!bgUrl) continue;
 
                 setProgress(`レンダリング中 ${++done}/${total}`);
 
                 const blob = await _renderPageToWebP(
-                    bgUrl, page.content?.imagePosition, targetW, targetH, quality
+                    bgUrl, section.imagePosition, targetW, targetH, quality
                 );
 
                 const path = `users/${state.uid}/dsf/${state.projectId}/${lang}/page_${String(pageNum).padStart(3, '0')}.webp`;
@@ -133,7 +133,7 @@ window.publishToCloud = async () => {
 
             dsfPages.push({
                 pageNum,
-                pageType: page.pageType || 'normal_image',
+                pageType: 'normal_image',
                 urls: langUrls,
             });
         }
@@ -232,14 +232,7 @@ async function _renderPageToWebP(bgUrl, pos, targetW, targetH, quality) {
 // ─── ヘルパー ────────────────────────────────────────────────────────────────
 
 function _getRenderablePages() {
-    return (state.pages || []).filter(p =>
-        ['normal_image', 'cover_front', 'cover_back'].includes(p.pageType)
-    );
-}
-
-function _pageLabel(page, i) {
-    const typeMap = { cover_front: '表紙', cover_back: '裏表紙', normal_image: String(i + 1) };
-    return typeMap[page.pageType] || String(i + 1);
+    return (state.sections || []).filter(s => s.type === 'image');
 }
 
 function _esc(str) {
