@@ -179,6 +179,8 @@ async function _updateDsfStatus(pid, newStatus, proj) {
                 pageCount:  proj.pageCount || 0,
             }, { merge: true });
         } else {
+            // ステータスを更新してからドキュメント削除を試みる
+            await setDoc(publicRef, { dsfStatus: newStatus }, { merge: true }).catch(() => {});
             await deleteDoc(publicRef).catch((e) => console.warn('[Works] public_projects delete:', e.message));
         }
     } catch (err) {
