@@ -140,7 +140,9 @@ window.loadDsf = async (input) => {
 
 // ── Project Data ──────────────────────────────────────────────
 function loadProjectData(raw) {
-    const pages = normalizePagesGen3(raw.pages || raw.sections || []);
+    const pages = raw.dsfPages?.length
+        ? normalizeDsfPages(raw.dsfPages)
+        : normalizePagesGen3(raw.pages || raw.sections || []);
     const languages = raw.languages?.length ? raw.languages : ['ja'];
     const defaultLang = raw.defaultLang || languages[0];
     const languageConfigs = normalizeLanguageConfigs(raw.languageConfigs, languages);
@@ -167,6 +169,20 @@ function loadProjectData(raw) {
     }
 
     refresh();
+}
+
+/**
+ * DSF ページ正規化（dsfPages: R2 WebP URLs）
+ */
+function normalizeDsfPages(dsfPages) {
+    return dsfPages.map((p, i) => ({
+        id: `dsf_${p.pageNum || i + 1}`,
+        content: {
+            backgrounds: { ...(p.urls || {}) },
+            thumbnail: '',
+            bubbles: {}
+        }
+    }));
 }
 
 /**
