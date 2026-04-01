@@ -162,7 +162,7 @@ window.publishToCloud = async () => {
 
     } catch (e) {
         console.error('[Press] publishToCloud error:', e);
-        alert('発行中にエラーが発生しました:\n' + e.message);
+        alert('発行中にエラーが発生しました:\n' + (e?.message || String(e)));
         resetBtn();
     }
 };
@@ -170,13 +170,17 @@ window.publishToCloud = async () => {
 // ─── レンダリング処理 ────────────────────────────────────────────────────────
 
 async function _renderPageToWebP(bgUrl, pos, targetW, targetH, quality) {
-    const img = new Image();
-    img.crossOrigin = 'anonymous';
+    // fetch で Blob 取得 → objectURL 経由で描画（Canvas CORS taint を回避）
+    const res = await fetch(bgUrl);
+    if (!res.ok) throw new Error(`画像取得失敗: ${res.status} ${bgUrl}`);
+    const imgBlob = await res.blob();
+    const objectUrl = URL.createObjectURL(imgBlob);
 
+    const img = new Image();
     await new Promise((resolve, reject) => {
         img.onload  = resolve;
-        img.onerror = reject;
-        img.src = bgUrl;
+        img.onerror = () => reject(new Error(`画像ロード失敗: ${bgUrl}`));
+        img.src = objectUrl;
     });
 
     const canvas = document.createElement('canvas');
@@ -218,8 +222,11 @@ async function _renderPageToWebP(bgUrl, pos, targetW, targetH, quality) {
 
     ctx.drawImage(img, -drawW / 2, -drawH / 2, drawW, drawH);
     ctx.restore();
+    URL.revokeObjectURL(objectUrl);
 
-    return new Promise(resolve => canvas.toBlob(resolve, 'image/webp', quality));
+    const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/webp', quality));
+    if (!blob) throw new Error('WebP 変換失敗（canvas.toBlob が null を返しました）');
+    return blob;
 }
 
 // ─── ヘルパー ────────────────────────────────────────────────────────────────
