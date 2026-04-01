@@ -51,7 +51,7 @@ export async function openProjectModal(onLoadProject) {
         }
 
         grid.innerHTML = projects.map(p => {
-            const cover = getCoverImage(p.pages, p.blocks, p.sections, p.dsfPages);
+            const cover = getCoverImage(p.pages, p.blocks, p.sections);
             const dateStr = p.lastUpdated.toLocaleDateString('ja-JP');
             const pageCount = getPageCount(p.pages, p.blocks, p.sections);
             return `
@@ -117,15 +117,7 @@ export function closeProjectModal() {
  * セクション配列から表紙画像URLを取得
  * サムネイルがあれば優先して使用
  */
-function getCoverImage(pages, blocks, sections, dsfPages) {
-    // DSF 発行済みなら R2 WebP を優先（imagePosition 反映済み）
-    if (Array.isArray(dsfPages) && dsfPages.length > 0) {
-        const first = dsfPages[0];
-        if (first?.urls) {
-            const lang = Object.keys(first.urls)[0];
-            if (lang && first.urls[lang]) return first.urls[lang];
-        }
-    }
+function getCoverImage(pages, blocks, sections) {
     const pageList = Array.isArray(pages) ? pages : [];
     if (pageList.length > 0) {
         const firstNormal = pageList.find((p) => p?.pageType === 'normal_image');
