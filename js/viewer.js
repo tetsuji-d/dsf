@@ -111,7 +111,15 @@ async function loadFromFirestore(pid, uid) {
     } catch (e) {
         lastLoadErrorCode = e?.code || '';
         if (lastLoadErrorCode === 'permission-denied') {
-            alert('この作品は非公開です。');
+            if (!state.uid) {
+                // 未ログイン → 作者本人かもしれないのでログインを促す
+                const doLogin = confirm('この作品は非公開です。\n作者の方はログインすると閲覧できます。\nログインしますか？');
+                if (doLogin) {
+                    try { await signInWithGoogle(); } catch (_) { /* onAuthChanged が retry する */ }
+                }
+            } else {
+                alert('この作品は非公開です。');
+            }
         } else {
             alert('読み込みエラー: ' + e.message);
         }
