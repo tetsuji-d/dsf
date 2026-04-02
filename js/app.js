@@ -2,7 +2,8 @@
  * app.js — メインエントリポイント・描画・UI同期
  */
 import { state, dispatch, actionTypes } from './state.js';
-import { saveProject, loadProject, uploadToStorage, uploadCoverToStorage, uploadStructureToStorage, triggerAutoSave, flushSave, generateCroppedThumbnail, signInWithGoogle, signOutUser, onAuthChanged, consumeRedirectResult } from './firebase.js';
+import { saveProject, loadProject, uploadToStorage, uploadCoverToStorage, uploadStructureToStorage, triggerAutoSave, flushSave, generateCroppedThumbnail } from './firebase.js';
+import { initGIS, signInWithGoogle, signOutUser, onAuthChanged } from './gis-auth.js';
 import { handleCanvasClick, selectBubble, renderBubbleHTML, getBubbleText, setBubbleText, addBubbleAtCenter, startDrag, startTailDrag, startSpikeDrag } from './bubbles.js';
 import { addSection, changeSection, changeBlock, insertStructureBlock, renderThumbs, deleteActive, insertSectionAt, duplicateSectionAt, moveSection, insertPageNearBlock, duplicateBlockAt, moveBlockAt, getOptimizedImageUrl } from './sections.js';
 import { pushState, undo, redo, getHistoryInfo, clearHistory } from './history.js';
@@ -2012,18 +2013,7 @@ window.toggleAuth = async () => {
             await signInWithGoogle();
         }
     } catch (e) {
-        const code = e?.code || '';
-        let msg = e?.message || 'unknown error';
-        if (code === 'auth/unauthorized-domain') {
-            msg = 'このアクセス元ドメインはFirebase Authで未許可です。Firebase Console > Authentication > Settings > Authorized domains に現在のホストを追加してください。';
-        } else if (code === 'auth/popup-blocked') {
-            msg = 'ポップアップがブロックされました。iPhoneではリダイレクトログインを使用してください。';
-        } else if (code === 'auth/persistence-unavailable') {
-            msg = 'Safariでログイン状態を保持できません。プライベートブラウズOFF・すべてのCookieをブロックOFFを確認してください。';
-        } else if (code === 'auth/redirect-state-lost') {
-            msg = 'リダイレクト後にログイン状態が消えています。iPhoneの「サイト越えトラッキングを防ぐ」を一時的にOFFにして再試行してください。';
-        }
-        alert(`認証に失敗しました (${code || 'no-code'}): ${msg}`);
+        console.error('[Auth] toggleAuth error:', e);
     }
 };
 
@@ -2061,16 +2051,7 @@ async function bootstrapApp() {
     const urlParams = new URLSearchParams(window.location.search);
     const hasCloudId = urlParams.has('id');
 
-    consumeRedirectResult().catch((e) => {
-        const code = e?.code || '';
-        let detail = e?.message || 'unknown error';
-        if (code === 'auth/unauthorized-domain') {
-            detail = 'Firebase AuthのAuthorized domainsに現在のホストが未登録です。';
-        } else if (code === 'auth/redirect-state-lost') {
-            detail = 'iPhoneでリダイレクト後の認証状態が復元できませんでした。Cookie/トラッキング設定を確認してください。';
-        }
-        alert(`ログイン復帰に失敗しました (${code || 'no-code'}): ${detail}`);
-    });
+    initGIS();
 
     if (!hasCloudId) {
         try {

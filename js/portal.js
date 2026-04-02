@@ -4,7 +4,7 @@
  */
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
 import { getFirestore, collection, query, orderBy, limit, getDocs } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
-import { getAuth, onAuthStateChanged, GoogleAuthProvider, signInWithPopup, signInWithRedirect, getRedirectResult, signOut } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js";
+import { getAuth, onAuthStateChanged, GoogleAuthProvider, signInWithCredential, signOut } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js";
 
 const firebaseConfig = {
     apiKey:            import.meta.env.VITE_FIREBASE_API_KEY,
@@ -25,6 +25,39 @@ const SUPPORTED_LANGS = ["ja", "en"];
 const app = initializeApp(firebaseConfig);
 const db = getFirestore(app);
 const auth = getAuth(app);
+
+const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID;
+
+function _handleGisCredential(response) {
+    if (!response?.credential) return;
+    const cred = GoogleAuthProvider.credential(response.credential);
+    signInWithCredential(auth, cred)
+        .catch((err) => console.error('[Portal] signInWithCredential error:', err));
+}
+
+let _gisInitialized = false;
+function _initGIS(buttonContainerId) {
+    if (!window.google?.accounts?.id) return;
+    if (!_gisInitialized) {
+        google.accounts.id.initialize({
+            client_id: GOOGLE_CLIENT_ID,
+            callback: _handleGisCredential,
+            auto_select: true,
+            cancel_on_tap_outside: false,
+            itp_support: true,
+        });
+        _gisInitialized = true;
+    }
+    if (buttonContainerId) {
+        const el = document.getElementById(buttonContainerId);
+        if (el) {
+            google.accounts.id.renderButton(el, {
+                theme: 'outline', size: 'large', type: 'standard',
+                shape: 'rectangular', text: 'signin_with', logo_alignment: 'left',
+            });
+        }
+    }
+}
 
 // ---- i18n ----------------------------------------------------------------
 
@@ -350,28 +383,13 @@ function renderAuthArea(user) {
             avatarBtn.setAttribute("aria-expanded", String(isOpen));
         });
         document.addEventListener("click", () => dropdown.classList.remove("open"));
-        document.getElementById("btn-signout").addEventListener("click", () => signOut(auth));
-    } else {
-        authArea.innerHTML = `
-            <button type="button" class="btn-signin" id="btn-signin">
-                <span class="material-icons" aria-hidden="true">login</span>
-                ${escapeHtml(t("signinBtn"))}
-            </button>
-        `;
-        document.getElementById("btn-signin").addEventListener("click", async () => {
-            const provider = new GoogleAuthProvider();
-            try {
-                await signInWithPopup(auth, provider);
-            } catch (err) {
-                if (err?.code === 'auth/popup-blocked' ||
-                    err?.code === 'auth/popup-closed-by-user' ||
-                    err?.code === 'auth/cancelled-popup-request') {
-                    signInWithRedirect(auth, provider);
-                } else {
-                    console.error("[Portal] sign-in error", err);
-                }
-            }
+        document.getElementById("btn-signout").addEventListener("click", () => {
+            if (window.google?.accounts?.id) google.accounts.id.disableAutoSelect();
+            signOut(auth);
         });
+    } else {
+        authArea.innerHTML = `<div id="gis-btn-portal"></div>`;
+        _initGIS('gis-btn-portal');
     }
 }
 
@@ -427,6 +445,5 @@ document.addEventListener("DOMContentLoaded", () => {
     bindLangSwitcher();
     bindEvents();
     onAuthStateChanged(auth, (user) => renderAuthArea(user));
-    getRedirectResult(auth).catch((err) => console.error("[Portal] redirect result error", err));
     loadPublicProjects();
 });

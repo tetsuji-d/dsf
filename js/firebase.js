@@ -10,15 +10,6 @@ import { getFirestore, doc, setDoc, getDoc, deleteDoc, serverTimestamp } from "h
 import { getStorage, ref, uploadBytes, getDownloadURL } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-storage.js";
 import {
     getAuth,
-    GoogleAuthProvider,
-    signInWithPopup,
-    signInWithRedirect,
-    getRedirectResult,
-    setPersistence,
-    browserLocalPersistence,
-    browserSessionPersistence,
-    inMemoryPersistence,
-    signOut,
     onAuthStateChanged
 } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js";
 import { state, dispatch, actionTypes } from './state.js';
@@ -48,7 +39,6 @@ const app = initializeApp(firebaseConfig);
 export const db = getFirestore(app);
 export const storage = getStorage(app);
 export const auth = getAuth(app);
-const googleProvider = new GoogleAuthProvider();
 
 // ── Storage backend abstraction ───────────────────────────────────────────────
 // When VITE_STORAGE_BACKEND=r2, uploads go to Cloudflare R2 via the Pages
@@ -95,69 +85,6 @@ export async function uploadPressPage(blob, path) {
     return _storeFile(blob, path);
 }
 // ─────────────────────────────────────────────────────────────────────────────
-let authInitPromise = null;
-let authPersistenceLevel = 'unknown'; // local | session | memory | unavailable
-const AUTH_REDIRECT_PENDING_KEY = 'dsf-auth-redirect-pending';
-
-function isIOSDevice() {
-    if (typeof navigator === 'undefined') return false;
-    const ua = navigator.userAgent || '';
-    const iOSUA = /iPad|iPhone|iPod/i.test(ua);
-    // iPadOS desktop UA support
-    const iPadOS = navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1;
-    return iOSUA || iPadOS;
-}
-
-async function ensureAuthPersistence() {
-    if (authInitPromise) return authInitPromise;
-    authInitPromise = (async () => {
-        try {
-            await setPersistence(auth, browserLocalPersistence);
-            authPersistenceLevel = 'local';
-            return;
-        } catch (_) {
-            // Continue with weaker persistence fallback
-        }
-        try {
-            await setPersistence(auth, browserSessionPersistence);
-            authPersistenceLevel = 'session';
-            return;
-        } catch (_) {
-            // Continue with weakest persistence fallback
-        }
-        try {
-            await setPersistence(auth, inMemoryPersistence);
-            authPersistenceLevel = 'memory';
-        } catch (_) {
-            authPersistenceLevel = 'unavailable';
-        }
-    })();
-    return authInitPromise;
-}
-
-function markRedirectPending() {
-    try {
-        sessionStorage.setItem(AUTH_REDIRECT_PENDING_KEY, '1');
-    } catch (_) {
-        // ignore
-    }
-}
-
-function wasRedirectPending() {
-    try {
-        return sessionStorage.getItem(AUTH_REDIRECT_PENDING_KEY) === '1';
-    } catch (_) {
-        return false;
-    }
-}
-
-function clearRedirectPending() {
-    try {
-        sessionStorage.removeItem(AUTH_REDIRECT_PENDING_KEY);
-    } catch (_) {
-        // ignore
-    }
-}
 
 // --- 自動保存 ---
 let autoSaveTimer = null;
@@ -175,62 +102,8 @@ function projectDocRef(projectId) {
     return doc(db, "users", uid, "projects", projectId);
 }
 
-export async function signInWithGoogle() {
-    await ensureAuthPersistence();
-    // Redirect login requires persistence that survives full-page navigation.
-    if (isIOSDevice() && authPersistenceLevel === 'memory') {
-        const err = new Error('ブラウザ設定によりログイン状態を保持できません。SafariでプライベートブラウズOFF/すべてのCookieをブロックOFFを確認してください。');
-        err.code = 'auth/persistence-unavailable';
-        throw err;
-    }
-    const popupFallbackCodes = new Set([
-        'auth/popup-blocked',
-        'auth/popup-closed-by-user',
-        'auth/cancelled-popup-request',
-        'auth/operation-not-supported-in-this-environment'
-    ]);
-    try {
-        const result = await signInWithPopup(auth, googleProvider);
-        return result.user;
-    } catch (e) {
-        if (popupFallbackCodes.has(e?.code)) {
-            markRedirectPending();
-            await signInWithRedirect(auth, googleProvider);
-            return null;
-        }
-        throw e;
-    }
-}
-
-export async function signOutUser() {
-    await signOut(auth);
-}
-
 export function onAuthChanged(callback) {
     return onAuthStateChanged(auth, callback);
-}
-
-export async function consumeRedirectResult() {
-    await ensureAuthPersistence();
-    const pending = wasRedirectPending();
-    try {
-        const result = await getRedirectResult(auth);
-        if (pending) {
-            clearRedirectPending();
-        }
-        // Detect silent redirect failure on iOS (no error, no user, no result).
-        if (pending && !result && !auth.currentUser) {
-            const err = new Error('リダイレクト後に認証状態を復元できませんでした。ブラウザのCookie/トラッキング設定を確認してください。');
-            err.code = 'auth/redirect-state-lost';
-            throw err;
-        }
-        return result;
-    } catch (e) {
-        if (pending) {
-            clearRedirectPending();
-        }
-        throw e;
-    }
 }
 
 /**

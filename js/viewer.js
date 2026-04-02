@@ -8,10 +8,8 @@
 import { state, dispatch, actionTypes } from './state.js';
 import { renderBubbleHTML } from './bubbles.js';
 import { getLangProps } from './lang.js';
-import {
-    db,
-    signInWithGoogle, signOutUser, onAuthChanged, consumeRedirectResult
-} from './firebase.js';
+import { db } from './firebase.js';
+import { initGIS, signInWithGoogle, signOutUser, onAuthChanged } from './gis-auth.js';
 import { getOptimizedImageUrl } from './sections.js';
 import { doc, getDoc } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
 import { parseAndLoadDSF } from './export.js';
@@ -68,7 +66,7 @@ function init() {
 
 // ── Auth ─────────────────────────────────────────────────────
 function initAuth() {
-    consumeRedirectResult().catch(e => console.warn('[Viewer] redirect result:', e));
+    initGIS();
     onAuthChanged(user => {
         dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'user', value: user || null } });
         dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'uid', value: user?.uid || null } });
