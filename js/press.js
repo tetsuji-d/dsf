@@ -88,7 +88,7 @@ window.publishToCloud = async () => {
 
     // 設定取得
     const quality = parseInt(document.getElementById('press-quality')?.value || '85') / 100;
-    const resStr  = document.getElementById('press-resolution')?.value || '720x1280';
+    const resStr  = document.getElementById('press-resolution')?.value || '1080x1920';
     const [targetW, targetH] = resStr.split('x').map(Number);
 
     // 選択言語取得（アクティブなタブ）
