@@ -45,6 +45,10 @@ export async function onRequestPost({ request, env }) {
         }
 
         // 3. Upload to R2
+        if (!env.R2_BUCKET) {
+            console.error('[upload] R2_BUCKET binding is not configured');
+            return jsonError('R2 bucket not configured', 500);
+        }
         const buffer = await file.arrayBuffer();
         await env.R2_BUCKET.put(path, buffer, {
             httpMetadata: { contentType: file.type || 'image/webp' },
@@ -55,7 +59,7 @@ export async function onRequestPost({ request, env }) {
         return Response.json({ url: publicUrl }, { headers: corsHeaders() });
 
     } catch (e) {
-        console.error('[upload] Unexpected error:', e.message);
+        console.error('[upload] Unexpected error:', e.message, e.stack);
         return jsonError('Internal server error', 500);
     }
 }

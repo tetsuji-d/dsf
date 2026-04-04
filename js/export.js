@@ -2,18 +2,7 @@ import JSZip from 'jszip';
 import { saveAs } from 'file-saver';
 import { state } from './state.js';
 import { blocksToPages } from './pages.js';
-
-// --- Utility: Get Blob from URL ---
-async function fetchImageBlob(url) {
-    try {
-        const response = await fetch(url);
-        if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
-        return await response.blob();
-    } catch (e) {
-        console.warn(`[DSF] Failed to fetch image blob: ${url}`, e);
-        return null; // Return null if fetching fails (e.g. CORS issues for external non-firebase URLs)
-    }
-}
+import { fetchAssetBlob, guessAssetExtension, shouldEmbedAsset } from './asset-fetch.js';
 
 // --- Common Metadata Builder ---
 function buildMetadata(formatStr) {
@@ -62,23 +51,19 @@ export async function buildDSP() {
     let imgIndex = 0;
 
     for (const section of exportSections) {
-        if (section.background && section.background.startsWith("http")) {
-            const blob = await fetchImageBlob(section.background);
-            if (blob) {
-                const ext = section.background.split('?')[0].split('.').pop() || "webp"; // Best guess extension
-                const filename = `bg_${imgIndex}.${ext}`;
-                originalsFolder.file(filename, blob);
-                section.background = `assets/originals/${filename}`;
-            }
+        if (shouldEmbedAsset(section.background)) {
+            const blob = await fetchAssetBlob(section.background, `ページ ${imgIndex + 1} の背景画像`);
+            const ext = guessAssetExtension(section.background);
+            const filename = `bg_${imgIndex}.${ext}`;
+            originalsFolder.file(filename, blob);
+            section.background = `assets/originals/${filename}`;
         }
-        if (section.thumbnail && section.thumbnail.startsWith("http")) {
-            const blob = await fetchImageBlob(section.thumbnail);
-            if (blob) {
-                const ext = section.thumbnail.split('?')[0].split('.').pop() || "webp";
-                const filename = `thumb_${imgIndex}.${ext}`;
-                thumbsFolder.file(filename, blob);
-                section.thumbnail = `assets/thumbs/${filename}`;
-            }
+        if (shouldEmbedAsset(section.thumbnail)) {
+            const blob = await fetchAssetBlob(section.thumbnail, `ページ ${imgIndex + 1} のサムネイル`);
+            const ext = guessAssetExtension(section.thumbnail);
+            const filename = `thumb_${imgIndex}.${ext}`;
+            thumbsFolder.file(filename, blob);
+            section.thumbnail = `assets/thumbs/${filename}`;
         }
         imgIndex++;
     }
@@ -86,20 +71,19 @@ export async function buildDSP() {
     // Replace image paths in block backgrounds too if applicable
     let blockImgIndex = 0;
     for (const block of exportBlocks) {
-        if (block.type === 'image' && block.background && block.background.startsWith("http")) {
-            const blob = await fetchImageBlob(block.background);
-            if (blob) {
-                const ext = block.background.split('?')[0].split('.').pop() || "webp";
-                const filename = `block_bg_${blockImgIndex}.${ext}`;
-                originalsFolder.file(filename, blob);
-                block.background = `assets/originals/${filename}`;
-            }
+        if (block.type === 'image' && shouldEmbedAsset(block.background)) {
+            const blob = await fetchAssetBlob(block.background, `画像ブロック ${blockImgIndex + 1} の背景画像`);
+            const ext = guessAssetExtension(block.background);
+            const filename = `block_bg_${blockImgIndex}.${ext}`;
+            originalsFolder.file(filename, blob);
+            block.background = `assets/originals/${filename}`;
             blockImgIndex++;
         }
     }
 
     const projectData = {
         projectId: state.projectId,
+        projectName: state.projectName || '',
         languageConfigs: state.languageConfigs,
         uiPrefs: state.uiPrefs,
         sections: exportSections,
@@ -141,41 +125,79 @@ export async function buildDSF() {
     const meta = buildMetadata("dsf");
     zip.file("meta.json", JSON.stringify(meta, null, 2));
 
-    // 3. Content Data (Flattened Pages)
-    // We only care about pages for DSF, sections and blocks are stripped out
-    const pagesList = blocksToPages(state.blocks || []);
-    const exportPages = JSON.parse(JSON.stringify(pagesList));
-
     const assetsFolder = zip.folder("assets");
     const imagesFolder = assetsFolder.folder("images");
+    const hasPublishedPages = Array.isArray(state.dsfPages) && state.dsfPages.length > 0;
+    let exportPages = [];
+    let exportDsfPages = [];
 
-    let imgIndex = 0;
-
-    for (const page of exportPages) {
-        if (page.type === 'image') {
-            // Check page.background or look inside page.assets if refactored
-            let bgUrl = page.background;
-
-            // Just for robustness depending on how blocksToPages maps the background
-            if (!bgUrl && page.data && page.data.background) {
-                bgUrl = page.data.background;
+    if (hasPublishedPages) {
+        exportDsfPages = JSON.parse(JSON.stringify(state.dsfPages));
+        exportPages = exportDsfPages.map((page, index) => ({
+            id: `dsf_${page.pageNum || index + 1}`,
+            content: {
+                backgrounds: { ...(page.urls || {}) },
+                thumbnail: '',
+                bubbles: {}
             }
+        }));
 
-            if (bgUrl && bgUrl.startsWith("http")) {
-                const blob = await fetchImageBlob(bgUrl);
-                if (blob) {
-                    const ext = bgUrl.split('?')[0].split('.').pop() || "webp";
-                    const filename = `page_${imgIndex}.${ext}`;
-                    imagesFolder.file(filename, blob);
-                    page.background = `assets/images/${filename}`; // Or page.assets = { image: "..." }
-                    if (page.data) page.data.background = `assets/images/${filename}`;
-                }
+        for (let pageIndex = 0; pageIndex < exportDsfPages.length; pageIndex++) {
+            const dsfPage = exportDsfPages[pageIndex];
+            const page = exportPages[pageIndex];
+            const urlEntries = Object.entries(dsfPage.urls || {});
+            for (const [lang, bgUrl] of urlEntries) {
+                if (!shouldEmbedAsset(bgUrl)) continue;
+                const blob = await fetchAssetBlob(bgUrl, `配信ページ ${pageIndex + 1} (${lang}) の背景画像`);
+                const ext = guessAssetExtension(bgUrl);
+                const filename = `page_${String(pageIndex + 1).padStart(3, '0')}_${lang}.${ext}`;
+                const assetPath = `assets/images/${filename}`;
+                imagesFolder.file(filename, blob);
+                dsfPage.urls[lang] = assetPath;
+                page.content.backgrounds[lang] = assetPath;
             }
         }
-        imgIndex++;
+    } else {
+        // Fallback: package the current editor pages when no published DSF exists yet.
+        const pagesList = blocksToPages(state.blocks || []);
+        exportPages = JSON.parse(JSON.stringify(pagesList));
+
+        for (let pageIndex = 0; pageIndex < exportPages.length; pageIndex++) {
+            const page = exportPages[pageIndex];
+            const backgrounds = { ...(page.content?.backgrounds || {}) };
+            if (!Object.keys(backgrounds).length && page.content?.background) {
+                const fallbackLang = state.defaultLang || state.activeLang || 'ja';
+                backgrounds[fallbackLang] = page.content.background;
+            }
+
+            const exportedBackgrounds = {};
+            for (const [lang, bgUrl] of Object.entries(backgrounds)) {
+                if (!shouldEmbedAsset(bgUrl)) continue;
+                const blob = await fetchAssetBlob(bgUrl, `配信ページ ${pageIndex + 1} (${lang}) の背景画像`);
+                const ext = guessAssetExtension(bgUrl);
+                const filename = `page_${String(pageIndex + 1).padStart(3, '0')}_${lang}.${ext}`;
+                const assetPath = `assets/images/${filename}`;
+                imagesFolder.file(filename, blob);
+                exportedBackgrounds[lang] = assetPath;
+            }
+
+            if (!page.content) page.content = {};
+            page.content.backgrounds = exportedBackgrounds;
+            if (page.content.background) {
+                const fallbackLang = state.defaultLang || state.activeLang || 'ja';
+                page.content.background = exportedBackgrounds[fallbackLang] || Object.values(exportedBackgrounds)[0] || '';
+            }
+
+            exportDsfPages.push({
+                pageNum: pageIndex + 1,
+                pageType: page.pageType || 'normal_image',
+                urls: { ...exportedBackgrounds },
+            });
+        }
     }
 
     const contentData = {
+        dsfPages: exportDsfPages,
         pages: exportPages
     };
 
@@ -255,6 +277,7 @@ export async function parseAndLoadDSP(file) {
 
     return {
         projectId: projectData.projectId || "local_import",
+        projectName: projectData.projectName || '',
         title: meta.title || "Untitled",
         languages: meta.languages || ["ja"],
         languageConfigs: projectData.languageConfigs || { ja: { writingMode: 'vertical-rl', fontPreset: 'gothic' } },
@@ -318,6 +341,27 @@ export async function parseAndLoadDSF(file) {
             if (page.data && page.data.background && assetMap.has(page.data.background)) {
                 page.data.background = assetMap.get(page.data.background);
             }
+            if (page.content?.background && assetMap.has(page.content.background)) {
+                page.content.background = assetMap.get(page.content.background);
+            }
+            if (page.content?.backgrounds && typeof page.content.backgrounds === 'object') {
+                for (const [lang, path] of Object.entries(page.content.backgrounds)) {
+                    if (assetMap.has(path)) {
+                        page.content.backgrounds[lang] = assetMap.get(path);
+                    }
+                }
+            }
+        }
+    }
+
+    if (contentData.dsfPages) {
+        for (const page of contentData.dsfPages) {
+            if (!page.urls || typeof page.urls !== 'object') continue;
+            for (const [lang, path] of Object.entries(page.urls)) {
+                if (assetMap.has(path)) {
+                    page.urls[lang] = assetMap.get(path);
+                }
+            }
         }
     }
 
@@ -327,6 +371,7 @@ export async function parseAndLoadDSF(file) {
         languageConfigs: contentData.languageConfigs || { ja: { writingMode: 'vertical-rl', fontPreset: 'gothic' } },
         languages: meta.languages || ["ja"],
         defaultLang: meta.defaultLang || "ja",
+        dsfPages: contentData.dsfPages || [],
         pages: contentData.pages || []
     };
 }

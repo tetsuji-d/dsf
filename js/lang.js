@@ -28,7 +28,7 @@ const LANGS = {
         }
     },
     en: {
-        label: 'English',
+        label: 'English (Legacy)',
         align: 'center',
         sectionAlign: 'left',
         wordBreak: 'normal',
@@ -39,6 +39,40 @@ const LANGS = {
         ],
         placeholders: {
             title:       'e.g. My Hero Next Door',
+            author:      'e.g. John Smith',
+            description: 'Story overview...',
+            copyright:   '© 2025 John Smith'
+        }
+    },
+    'en-us': {
+        label: 'English (US)',
+        align: 'center',
+        sectionAlign: 'left',
+        wordBreak: 'normal',
+        writingModes: ['horizontal-tb'],
+        defaultWritingMode: 'horizontal-tb',
+        directions: [
+            { value: 'ltr', label: null }
+        ],
+        placeholders: {
+            title:       'e.g. My Hero Next Door',
+            author:      'e.g. John Smith',
+            description: 'Story overview...',
+            copyright:   '© 2025 John Smith'
+        }
+    },
+    'en-gb': {
+        label: 'English (UK)',
+        align: 'center',
+        sectionAlign: 'left',
+        wordBreak: 'normal',
+        writingModes: ['horizontal-tb'],
+        defaultWritingMode: 'horizontal-tb',
+        directions: [
+            { value: 'ltr', label: null }
+        ],
+        placeholders: {
+            title:       'e.g. My Neighbourhood Hero',
             author:      'e.g. John Smith',
             description: 'Story overview...',
             copyright:   '© 2025 John Smith'
@@ -191,5 +225,5 @@ export function getAllLangs() {
         code,
         label: props.label,
         directions: props.directions
-    }));
+    })).filter(({ code }) => code !== 'en');
 }

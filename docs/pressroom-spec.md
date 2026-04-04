@@ -27,7 +27,7 @@ Studio (Editor)          Press Room                     Portal
 
 - `.dsp` はプレスルームを経由せずポータルに公開できない
 - エディター内プレビューは `.dsp` のまま表示（ローカルレンダリング）
-- レンダリング処理 = 言語別WebP生成 → `.dsf` として Firebase Storage に保存
+- レンダリング処理 = 言語別WebP生成 → `.dsf` として Cloudflare R2 に保存
 
 ## レンダリング処理（概要）
 
@@ -42,7 +42,7 @@ Studio (Editor)          Press Room                     Portal
 |------------|------|
 | `users/{uid}/projects/{pid}` | .dsp データ（編集中のプロジェクト） |
 | `public_projects/{pid}` | .dsf メタデータ（発行済み、ポータル用インデックス） |
-| Firebase Storage | レンダリング済み WebP 画像（言語別） |
+| Cloudflare R2 | レンダリング済み WebP 画像（言語別） |
 
 ## Studio ナビゲーション構造
 

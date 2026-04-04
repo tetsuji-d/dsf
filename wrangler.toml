@@ -3,7 +3,7 @@
 #
 # Setup checklist (one-time, in Cloudflare dashboard):
 #   1. Create Pages project named "dsf-studio"
-#   2. Create R2 bucket "dsf-media"  (and "dsf-media-staging" for staging)
+#   2. Create R2 bucket "dsf-media"  (and "dsf-media-staging" for staging/preview)
 #   3. Enable public access on the R2 bucket (or configure a custom domain)
 #   4. Add environment variables in Pages Settings → Environment Variables:
 #        FIREBASE_PROJECT_ID  = vmnn-26345          (production)
@@ -31,7 +31,8 @@ name = "dsf-studio-preview"
 
 [[env.preview.r2_buckets]]
 binding     = "R2_BUCKET"
-bucket_name = "dsf-media"
+bucket_name = "dsf-media-staging"
 
 [env.preview.vars]
-R2_PUBLIC_URL = "https://media.dsf.ink"
+FIREBASE_PROJECT_ID = "vmnn-26345-stg"
+R2_PUBLIC_URL       = "https://media-staging.dsf.ink"

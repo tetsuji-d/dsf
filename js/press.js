@@ -7,6 +7,7 @@ import {
 } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
 import { state } from './state.js';
 import { db, uploadPressPage } from './firebase.js';
+import { loadImageForCanvas } from './asset-fetch.js';
 
 // ─── Press Room 入室 ─────────────────────────────────────────────────────────
 
@@ -15,6 +16,9 @@ export function enterPressRoom() {
     _renderPageThumbs();
     _renderLangTabs();
     _updatePublishBtn();
+    _updateSizeEstimate();
+    document.getElementById('press-resolution')?.addEventListener('change', _updateSizeEstimate);
+    document.getElementById('press-quality')?.addEventListener('input', _updateSizeEstimate);
 }
 
 function _renderPageThumbs() {
@@ -52,6 +56,21 @@ function _renderLangTabs() {
             data-lang="${code}"
             onclick="togglePressLang('${code}')">${code.toUpperCase()}</button>`
     ).join('');
+}
+
+function _updateSizeEstimate() {
+    const el = document.getElementById('press-size-estimate');
+    if (!el) return;
+    const resStr = document.getElementById('press-resolution')?.value || '1080x1920';
+    const quality = parseInt(document.getElementById('press-quality')?.value || '85') / 100;
+    const [w, h] = resStr.split('x').map(Number);
+    const pages = _getRenderablePages();
+    const langCount = (state.languages || ['ja']).length;
+    const bytesPerPixel = 0.3 + quality * 0.7;
+    const perPage = w * h * bytesPerPixel;
+    const totalBytes = perPage * pages.length * langCount;
+    const totalMB = (totalBytes / (1024 * 1024)).toFixed(1);
+    el.textContent = `≈ ${totalMB} MB`;
 }
 
 function _updatePublishBtn() {
@@ -110,8 +129,10 @@ window.publishToCloud = async () => {
     try {
         const dsfPages = [];
         let pageNum = 0;
+        let totalBytes = 0;
         const total = pages.length * langs.length;
         let done = 0;
+        const renderStamp = Date.now();
 
         for (const section of pages) {
             pageNum++;
@@ -126,8 +147,9 @@ window.publishToCloud = async () => {
                 const blob = await _renderPageToWebP(
                     bgUrl, section.imagePosition, targetW, targetH, quality
                 );
+                totalBytes += blob.size;
 
-                const path = `users/${state.uid}/dsf/${state.projectId}/${lang}/page_${String(pageNum).padStart(3, '0')}.webp`;
+                const path = `users/${state.uid}/dsf/${state.projectId}/${renderStamp}/${lang}/page_${String(pageNum).padStart(3, '0')}.webp`;
                 langUrls[lang] = await uploadPressPage(blob, path);
             }
 
@@ -147,9 +169,11 @@ window.publishToCloud = async () => {
                 dsfPages,
                 dsfStatus:      'draft',
                 dsfPublishedAt: serverTimestamp(),
+                dsfRenderStamp: renderStamp,
                 dsfResolution:  resStr,
                 dsfQuality:     Math.round(quality * 100),
                 dsfLangs:       langs,
+                dsfTotalBytes:  totalBytes,
             },
             { merge: true }
         );
@@ -170,18 +194,8 @@ window.publishToCloud = async () => {
 // ─── レンダリング処理 ────────────────────────────────────────────────────────
 
 async function _renderPageToWebP(bgUrl, pos, targetW, targetH, quality) {
-    // fetch で Blob 取得 → objectURL 経由で描画（Canvas CORS taint を回避）
-    const res = await fetch(bgUrl);
-    if (!res.ok) throw new Error(`画像取得失敗: ${res.status} ${bgUrl}`);
-    const imgBlob = await res.blob();
-    const objectUrl = URL.createObjectURL(imgBlob);
-
-    const img = new Image();
-    await new Promise((resolve, reject) => {
-        img.onload  = resolve;
-        img.onerror = () => reject(new Error(`画像ロード失敗: ${bgUrl}`));
-        img.src = objectUrl;
-    });
+    // Pages Functions 経由で画像を同一オリジン取得し、Canvas CORS taint を回避する
+    const { img, revoke } = await loadImageForCanvas(bgUrl, 'Press Room 元画像');
 
     const canvas = document.createElement('canvas');
     canvas.width  = targetW;
@@ -222,7 +236,7 @@ async function _renderPageToWebP(bgUrl, pos, targetW, targetH, quality) {
 
     ctx.drawImage(img, -drawW / 2, -drawH / 2, drawW, drawH);
     ctx.restore();
-    URL.revokeObjectURL(objectUrl);
+    revoke();
 
     const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/webp', quality));
     if (!blob) throw new Error('WebP 変換失敗（canvas.toBlob が null を返しました）');

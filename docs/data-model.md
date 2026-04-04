@@ -26,6 +26,7 @@
 
 ```json
 {
+  "projectName": "String (編集用プロジェクト名。可変)",
   "title": "String (作品タイトル)",
   "lastUpdated": "Timestamp",
   "visibility": "'private' | 'unlisted' | 'public'",
@@ -35,6 +36,9 @@
     "ja": { "writingMode": "vertical-rl" },
     "en": { "writingMode": "horizontal-tb" }
   },
+  "dsfPublishedAt": "Timestamp (最新 DSF 発行日時)",
+  "dsfRenderStamp": "Number (最新 DSF アセットのレンダリング識別子)",
+  "dsfPages": [ "Array (最新 DSF ページ URL 群)" ],
   "blocks": [ "Block[] — Blocks モデル（正規モデル）" ],
   "sections": [ "Section[] — レガシー互換フラット配列（syncBlocksWithSections で同期）" ],
   "pages": [ "Page[] — v5 Page Object（ビューワー出力）" ]
@@ -148,7 +152,7 @@
 |------|-----------|---------|------|
 | 一覧取得 | `js/projects.js` | `openProjectModal` | `users/{uid}/projects` を getDocs |
 | 読み込み | `js/firebase.js` | `loadWork` | 指定 pid を getDoc |
-| 保存 | `js/firebase.js` | `performSave` | setDoc で上書き保存 |
+| 保存 | `js/firebase.js` | `performSave` | `setDoc(..., { merge: true })` で編集内容を保存し、DSF発行メタデータは保持 |
 | 削除 | `js/projects.js` | — | deleteDoc |
 | 公開登録 | `js/firebase.js` | `performSave` 内 | visibility 変更時に public_projects へ setDoc |
 | 公開解除 | `js/firebase.js` | `performSave` 内 | deleteDoc from public_projects |

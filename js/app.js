@@ -2,12 +2,12 @@
  * app.js — メインエントリポイント・描画・UI同期
  */
 import { state, dispatch, actionTypes } from './state.js';
-import { saveProject, loadProject, uploadToStorage, uploadCoverToStorage, uploadStructureToStorage, triggerAutoSave, flushSave, generateCroppedThumbnail } from './firebase.js';
+import { saveProject as persistProject, loadProject, uploadToStorage, uploadCoverToStorage, uploadStructureToStorage, triggerAutoSave, flushSave, generateCroppedThumbnail, listLocalRecentProjects, loadLocalRecentProject, cacheLocalRecentProject } from './firebase.js';
 import { initGIS, signInWithGoogle, signOutUser, onAuthChanged } from './gis-auth.js';
 import { handleCanvasClick, selectBubble, renderBubbleHTML, getBubbleText, setBubbleText, addBubbleAtCenter, startDrag, startTailDrag, startSpikeDrag } from './bubbles.js';
 import { addSection, changeSection, changeBlock, insertStructureBlock, renderThumbs, deleteActive, insertSectionAt, duplicateSectionAt, moveSection, insertPageNearBlock, duplicateBlockAt, moveBlockAt, getOptimizedImageUrl } from './sections.js';
 import { pushState, undo, redo, getHistoryInfo, clearHistory } from './history.js';
-import { openProjectModal, closeProjectModal } from './projects.js';
+import { openProjectModal, closeProjectModal, fetchCloudProjects, getCoverImage, getPageCount, deleteCloudProject } from './projects.js';
 import { openWorksRoom, closeWorksRoom } from './works.js';
 import { enterPressRoom } from './press.js';
 import { getLangProps, getAllLangs } from './lang.js';
@@ -16,6 +16,134 @@ import { getBlockIndexFromPageIndex, getPageIndexFromBlockIndex, migrateSections
 import { blocksToPages, normalizeProjectDataV5 } from './pages.js';
 import { buildDSP, buildDSF, parseAndLoadDSP } from './export.js';
 import { get as idbGet } from 'idb-keyval';
+import { createId } from './utils.js';
+
+const EDITOR_FRAME_WIDTH = 360;
+const EDITOR_FRAME_HEIGHT = 640;
+const IMAGE_SNAP_THRESHOLD = 12;
+const editorImageAspectCache = new Map();
+const EMPTY_IMAGE_SNAP_STATE = Object.freeze({
+    centerX: false,
+    centerY: false,
+    edgeLeft: false,
+    edgeRight: false,
+    edgeTop: false,
+    edgeBottom: false
+});
+let imageSnapState = { ...EMPTY_IMAGE_SNAP_STATE };
+
+function getEditorImageFrameMetrics(bgUrl) {
+    const aspect = editorImageAspectCache.get(bgUrl);
+    if (!aspect || !Number.isFinite(aspect) || aspect <= 0) {
+        return {
+            widthPercent: 100,
+            heightPercent: 100
+        };
+    }
+
+    const frameAspect = EDITOR_FRAME_WIDTH / EDITOR_FRAME_HEIGHT;
+    if (aspect > frameAspect) {
+        return {
+            widthPercent: (EDITOR_FRAME_HEIGHT * aspect / EDITOR_FRAME_WIDTH) * 100,
+            heightPercent: 100
+        };
+    }
+
+    return {
+        widthPercent: 100,
+        heightPercent: (EDITOR_FRAME_WIDTH / aspect / EDITOR_FRAME_HEIGHT) * 100
+    };
+}
+
+function resetImageSnapState() {
+    imageSnapState = { ...EMPTY_IMAGE_SNAP_STATE };
+}
+
+function getImageSnapMetrics(bgUrl, pos) {
+    const frameMetrics = getEditorImageFrameMetrics(bgUrl);
+    const width = EDITOR_FRAME_WIDTH * (frameMetrics.widthPercent / 100);
+    const height = EDITOR_FRAME_HEIGHT * (frameMetrics.heightPercent / 100);
+    const scale = Math.max(0.1, Number.isFinite(Number(pos?.scale)) ? Number(pos.scale) : 1);
+    const rotation = Number.isFinite(Number(pos?.rotation)) ? Number(pos.rotation) : 0;
+    const rad = (rotation * Math.PI) / 180;
+    const halfW = (width * scale) / 2;
+    const halfH = (height * scale) / 2;
+    const cos = Math.cos(rad);
+    const sin = Math.sin(rad);
+    const extentX = Math.abs(halfW * cos) + Math.abs(halfH * sin);
+    const extentY = Math.abs(halfW * sin) + Math.abs(halfH * cos);
+
+    return {
+        extentX,
+        extentY
+    };
+}
+
+function applyImageSnapping(pos, bgUrl) {
+    if (!isImageAdjusting || !pos) {
+        resetImageSnapState();
+        return;
+    }
+
+    const nextState = { ...EMPTY_IMAGE_SNAP_STATE };
+    const { extentX, extentY } = getImageSnapMetrics(bgUrl, pos);
+    let x = Number.isFinite(Number(pos.x)) ? Number(pos.x) : 0;
+    let y = Number.isFinite(Number(pos.y)) ? Number(pos.y) : 0;
+
+    if (Math.abs(x) <= IMAGE_SNAP_THRESHOLD) {
+        x = 0;
+        nextState.centerX = true;
+    } else {
+        const snapLeftX = -EDITOR_FRAME_WIDTH / 2 + extentX;
+        const snapRightX = EDITOR_FRAME_WIDTH / 2 - extentX;
+        if (Math.abs(x - snapLeftX) <= IMAGE_SNAP_THRESHOLD) {
+            x = snapLeftX;
+            nextState.edgeLeft = true;
+        } else if (Math.abs(x - snapRightX) <= IMAGE_SNAP_THRESHOLD) {
+            x = snapRightX;
+            nextState.edgeRight = true;
+        }
+    }
+
+    if (Math.abs(y) <= IMAGE_SNAP_THRESHOLD) {
+        y = 0;
+        nextState.centerY = true;
+    } else {
+        const snapTopY = -EDITOR_FRAME_HEIGHT / 2 + extentY;
+        const snapBottomY = EDITOR_FRAME_HEIGHT / 2 - extentY;
+        if (Math.abs(y - snapTopY) <= IMAGE_SNAP_THRESHOLD) {
+            y = snapTopY;
+            nextState.edgeTop = true;
+        } else if (Math.abs(y - snapBottomY) <= IMAGE_SNAP_THRESHOLD) {
+            y = snapBottomY;
+            nextState.edgeBottom = true;
+        }
+    }
+
+    if (Math.abs(x) <= 0.001) nextState.centerX = true;
+    if (Math.abs(y) <= 0.001) nextState.centerY = true;
+
+    pos.x = x;
+    pos.y = y;
+    imageSnapState = nextState;
+}
+
+window.handleEditorImageLoad = (e) => {
+    const img = e?.target;
+    const src = img?.getAttribute('src');
+    const naturalWidth = Number(img?.naturalWidth);
+    const naturalHeight = Number(img?.naturalHeight);
+    if (!src || !Number.isFinite(naturalWidth) || !Number.isFinite(naturalHeight) || naturalWidth <= 0 || naturalHeight <= 0) {
+        return;
+    }
+
+    const aspect = naturalWidth / naturalHeight;
+    const prev = editorImageAspectCache.get(src);
+    if (prev && Math.abs(prev - aspect) < 0.0001) return;
+
+    editorImageAspectCache.set(src, aspect);
+    refresh();
+};
 
 function getActiveBlock() {
     const blocks = state.blocks || [];
@@ -42,6 +170,181 @@ function syncBlocksFromState() {
     if (!activeBlock && state.blocks?.length) {
         dispatch({ type: actionTypes.SET_ACTIVE_BLOCK_INDEX, payload: 0 });
     }
+}
+
+function getProjectDisplayName() {
+    return state.projectName || '新規プロジェクト';
+}
+
+function ensureProjectIdentity() {
+    if (!state.projectId) {
+        dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'projectId', value: createId('proj') } });
+    }
+
+    if (!state.projectName) {
+        const headerText = (document.getElementById('project-title')?.textContent || '').trim();
+        const fallbackName = headerText && headerText !== '新規プロジェクト'
+            ? headerText
+            : (state.title || '新規プロジェクト');
+        dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'projectName', value: fallbackName } });
+    }
+}
+
+function formatHomeDate(value) {
+    const date = value instanceof Date ? value : new Date(value || 0);
+    if (Number.isNaN(date.getTime())) return '';
+    const locale = getUILang() === 'en' ? 'en-US' : 'ja-JP';
+    return date.toLocaleDateString(locale);
+}
+
+function formatProjectLanguages(languages) {
+    const list = Array.isArray(languages) && languages.length > 0 ? languages : ['ja'];
+    return list.map((code) => String(code).toUpperCase()).join(', ');
+}
+
+function renderLanguageBadges(languages) {
+    const list = Array.isArray(languages) && languages.length > 0 ? languages : ['ja'];
+    return list.map((code) => {
+        const normalized = String(code).trim().toLowerCase();
+        const modifier = normalized === 'ja'
+            ? 'ja'
+            : (normalized === 'en' || normalized === 'en-us')
+                ? 'en-us'
+                : normalized === 'en-gb'
+                    ? 'en-gb'
+                    : normalized === 'zh-cn'
+                        ? 'zh-cn'
+                        : normalized === 'zh-tw'
+                            ? 'zh-tw'
+                            : 'generic';
+        const label = normalized.toUpperCase();
+        return `<span class="home-lang-badge home-lang-${modifier}" title="${label}">${modifier === 'generic' ? label : ''}</span>`;
+    }).join('');
+}
+
+function formatProjectBytes(bytes) {
+    const size = Number(bytes || 0);
+    if (!Number.isFinite(size) || size <= 0) return '';
+    if (size < 1024) return `${size} B`;
+    if (size < 1024 * 1024) return `${(size / 1024).toFixed(size < 10 * 1024 ? 1 : 0)} KB`;
+    return `${(size / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function renderHomeCard(project, source) {
+    const displayName = project.projectName || project.title || project.id || '無題';
+    const thumb = project.listThumbnail || (
+        source === 'cloud'
+            ? getCoverImage(project.dsfPages, project.pages, project.blocks, project.sections)
+            : (project.thumbnail || '')
+    );
+    const pageCount = source === 'cloud'
+        ? getPageCount(project.pages, project.blocks, project.sections)
+        : Math.max(1, Number(project.pageCount || 0));
+    const updatedAt = formatHomeDate(project.lastUpdated || project.updatedAt);
+    const sourceLabel = source === 'cloud' ? t('home_source_cloud') : t('home_source_local');
+    const languageLabel = formatProjectLanguages(project.languages);
+    const sizeLabel = formatProjectBytes(project.projectBytes);
+    const languageBadges = renderLanguageBadges(project.languages);
+
+    return `
+        <button class="home-project-card" data-home-source="${source}" data-id="${project.id}">
+            ${source === 'cloud' ? `<span class="home-project-delete material-icons" data-delete-cloud="${project.id}" title="${t('btn_delete')}">delete</span>` : ''}
+            <div class="home-project-thumb">
+                ${thumb
+                    ? `<img src="${thumb}" alt="${displayName}">`
+                    : `<div class="home-project-thumb-fallback"><span class="material-icons">folder</span></div>`}
+            </div>
+            <div class="home-project-info">
+                <div class="home-project-title">${displayName}</div>
+                <div class="home-project-meta">${t('home_pages_count', { count: pageCount })} · ${sourceLabel}${updatedAt ? ` · ${updatedAt}` : ''}</div>
+                <div class="home-project-meta home-project-meta-secondary">
+                    <span class="home-lang-badges">${languageBadges}</span>
+                    <span>${languageLabel}${sizeLabel ? ` · ${sizeLabel}` : ''}</span>
+                </div>
+            </div>
+        </button>
+    `;
+}
+
+async function renderHomeDashboard() {
+    const cloudGrid = document.getElementById('home-cloud-grid');
+    const localGrid = document.getElementById('home-local-grid');
+    if (!cloudGrid || !localGrid) return;
+
+    cloudGrid.innerHTML = `<div class="home-empty-state"><span class="material-icons">cloud_sync</span><p>${t('home_loading')}</p></div>`;
+    localGrid.innerHTML = `<div class="home-empty-state"><span class="material-icons">history</span><p>${t('home_loading')}</p></div>`;
+
+    const [cloudProjects, localProjects] = await Promise.all([
+        fetchCloudProjects().catch((e) => {
+            console.warn('[Home] Failed to load cloud projects:', e);
+            return null;
+        }),
+        listLocalRecentProjects().catch((e) => {
+            console.warn('[Home] Failed to load local recent projects:', e);
+            return [];
+        })
+    ]);
+
+    if (cloudProjects === null) {
+        cloudGrid.innerHTML = `<div class="home-empty-state"><span class="material-icons">cloud_off</span><p>${t('home_cloud_error')}</p></div>`;
+    } else if (!state.uid) {
+        cloudGrid.innerHTML = `<div class="home-empty-state"><span class="material-icons">lock</span><p>${t('home_cloud_login')}</p></div>`;
+    } else if (cloudProjects.length === 0) {
+        cloudGrid.innerHTML = `<div class="home-empty-state"><span class="material-icons">cloud_done</span><p>${t('home_cloud_empty')}</p></div>`;
+    } else {
+        cloudGrid.innerHTML = cloudProjects.map((project) => renderHomeCard(project, 'cloud')).join('');
+    }
+
+    if (localProjects.length === 0) {
+        localGrid.innerHTML = `<div class="home-empty-state"><span class="material-icons">folder_open</span><p>${t('home_local_empty')}</p></div>`;
+    } else {
+        localGrid.innerHTML = localProjects.map((project) => renderHomeCard(project, 'local')).join('');
+    }
+
+    cloudGrid.querySelectorAll('.home-project-card').forEach((card) => {
+        card.addEventListener('click', async () => {
+            const pid = card.dataset.id;
+            const project = (cloudProjects || []).find((item) => item.id === pid);
+            if (!project) return;
+            onLoadProject(pid, project.projectName, project.sections, project.languages, project.defaultLang, project.languageConfigs, project.title, project.uiPrefs, project.pages, project.blocks, project.version);
+            await cacheLocalRecentProject(JSON.parse(JSON.stringify(state)), window.localImageMap);
+            refresh();
+            window.switchRoom('editor');
+        });
+    });
+
+    cloudGrid.querySelectorAll('[data-delete-cloud]').forEach((btn) => {
+        btn.addEventListener('click', async (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            const pid = btn.dataset.deleteCloud;
+            const project = (cloudProjects || []).find((item) => item.id === pid);
+            const displayName = project?.projectName || project?.title || pid;
+            if (!confirm(t('home_delete_confirm', { name: displayName }))) return;
+            try {
+                await deleteCloudProject(pid);
+                await renderHomeDashboard();
+            } catch (err) {
+                console.error('[Home] Cloud delete failed:', err);
+                alert(t('home_delete_error', { message: err.message }));
+            }
+        });
+    });
+
+    localGrid.querySelectorAll('.home-project-card').forEach((card) => {
+        card.addEventListener('click', async () => {
+            const snapshotId = card.dataset.id;
+            try {
+                const loadedState = await loadLocalRecentProject(snapshotId);
+                dispatch({ type: actionTypes.LOAD_PROJECT, payload: loadedState });
+                refresh();
+                window.switchRoom('editor');
+            } catch (e) {
+                console.error('[Home] Local project restore failed:', e);
+                alert(t('home_local_open_error', { message: e.message }));
+            }
+        });
+    });
 }
 
 function updateAuthUI() {
@@ -163,9 +466,22 @@ function refresh() {
         if (!s.imageBasePosition) {
             s.imageBasePosition = { x: 0, y: 0, scale: 1, rotation: 0 };
         }
-        const targetStyle = `transform: translate(${pos.x}px, ${pos.y}px) scale(${pos.scale}) rotate(${pos.rotation}deg);`;
+        const bgUrl = getOptimizedImageUrl(s.backgrounds?.[state.activeLang] || s.background || '');
+        const frameMetrics = getEditorImageFrameMetrics(bgUrl);
+        const targetStyle = [
+            `width:${frameMetrics.widthPercent}%`,
+            `height:${frameMetrics.heightPercent}%`,
+            `transform: translate(calc(-50% + ${pos.x}px), calc(-50% + ${pos.y}px)) scale(${pos.scale}) rotate(${pos.rotation}deg);`
+        ].join('; ');
 
         const invScale = 1 / Math.max(pos.scale || 1, 0.1);
+        const stageOverlay = isImageAdjusting ? `
+            <div id="image-stage-overlay">
+                <div class="image-safe-frame${imageSnapState.edgeLeft ? ' active-left' : ''}${imageSnapState.edgeRight ? ' active-right' : ''}${imageSnapState.edgeTop ? ' active-top' : ''}${imageSnapState.edgeBottom ? ' active-bottom' : ''}"></div>
+                <div class="image-center-guide vertical${imageSnapState.centerX ? ' active' : ''}"></div>
+                <div class="image-center-guide horizontal${imageSnapState.centerY ? ' active' : ''}"></div>
+            </div>
+        ` : '';
 
         const overlayInTarget = isImageAdjusting ? `
             <div id="image-adjust-overlay" style="--inv-handle-scale:${invScale};">
@@ -180,8 +496,9 @@ function refresh() {
 
         render.innerHTML = `
             <div id="image-adjust-stage">
+                ${stageOverlay}
                 <div id="image-adjust-target" style="${targetStyle}">
-                    <img id="main-img" src="${getOptimizedImageUrl(s.backgrounds?.[state.activeLang] || s.background || '')}">
+                    <img id="main-img" src="${bgUrl}" onload="handleEditorImageLoad(event)">
                     ${overlayInTarget}
                 </div>
             </div>`;
@@ -250,7 +567,7 @@ function refresh() {
     // プロジェクト名表示
     const titleEl = document.getElementById('project-title');
     if (titleEl && document.activeElement !== titleEl) {
-        titleEl.textContent = state.projectId || '新規プロジェクト';
+        titleEl.textContent = getProjectDisplayName();
     }
 
     // 作品タイトル同期
@@ -517,6 +834,9 @@ window.adjustImageZoom = (delta) => {
     if (!isImageAdjusting || !pos) return;
     pushState();
     pos.scale = Math.max(0.1, pos.scale + delta);
+    const s = state.sections[state.activeIdx];
+    const bgUrl = getOptimizedImageUrl(s?.backgrounds?.[state.activeLang] || s?.background || '');
+    applyImageSnapping(pos, bgUrl);
     refresh();
     triggerAutoSave();
 };
@@ -531,6 +851,7 @@ window.resetImageTransform = () => {
     pos.y = base.y || 0;
     pos.scale = base.scale || 1;
     pos.rotation = base.rotation || 0;
+    resetImageSnapState();
     refresh();
     triggerAutoSave();
 };
@@ -587,12 +908,16 @@ function onImageHandleDragMove(e) {
         pos.x = imageHandleDrag.base.x + dx / (2 * canvasScale);
         pos.y = imageHandleDrag.base.y + dy / (2 * canvasScale);
     }
+    const s = state.sections[state.activeIdx];
+    const bgUrl = getOptimizedImageUrl(s?.backgrounds?.[state.activeLang] || s?.background || '');
+    applyImageSnapping(pos, bgUrl);
     refresh();
 }
 
 function onImageHandleDragEnd() {
     if (!imageHandleDrag) return;
     imageHandleDrag = null;
+    resetImageSnapState();
     window.removeEventListener('mousemove', onImageHandleDragMove);
     window.removeEventListener('mouseup', onImageHandleDragEnd);
     const s = state.sections[state.activeIdx];
@@ -628,6 +953,7 @@ window.toggleImageAdjustment = () => {
             layer.classList.add('adjust-image-mode');
         } else {
             layer.classList.remove('adjust-image-mode');
+            resetImageSnapState();
         }
     }
     const bubbleLayer = document.getElementById('bubble-layer');
@@ -709,6 +1035,9 @@ function initImageAdjustment() {
         const pos = getImgState();
         pos.x = startTransform.x + dx / canvasScale;
         pos.y = startTransform.y + dy / canvasScale;
+        const s = state.sections[state.activeIdx];
+        const bgUrl = getOptimizedImageUrl(s?.backgrounds?.[state.activeLang] || s?.background || '');
+        applyImageSnapping(pos, bgUrl);
         refresh(); // Re-render transform
     };
 
@@ -717,6 +1046,7 @@ function initImageAdjustment() {
     const onEnd = () => {
         if (isDraggingImg) {
             isDraggingImg = false;
+            resetImageSnapState();
             const s = state.sections[state.activeIdx];
             if (s && s.background && state.uid) {
                 generateCroppedThumbnail(
@@ -787,6 +1117,9 @@ function initImageAdjustment() {
             const scale = dist / initialPinchDist;
             const pos = getImgState();
             pos.scale = Math.max(0.1, startScale * scale);
+            const s = state.sections[state.activeIdx];
+            const bgUrl = getOptimizedImageUrl(s?.backgrounds?.[state.activeLang] || s?.background || '');
+            applyImageSnapping(pos, bgUrl);
             refresh();
         }
     }, { passive: false });
@@ -805,6 +1138,9 @@ function initImageAdjustment() {
             const pos = getActiveImagePosition() || getImgState();
             const delta = e.deltaY > 0 ? 0.9 : 1.1;
             pos.scale = Math.max(0.1, (pos.scale || 1) * delta);
+            const s = state.sections[state.activeIdx];
+            const bgUrl = getOptimizedImageUrl(s?.backgrounds?.[state.activeLang] || s?.background || '');
+            applyImageSnapping(pos, bgUrl);
             refresh();
             // Debounce save?
             if (window.saveTimer) clearTimeout(window.saveTimer);
@@ -957,9 +1293,10 @@ function syncLangPanel() {
 }
 
 
-function onLoadProject(pid, sections, languages, defaultLang, languageConfigs, title, uiPrefs, pages, blocks, version) {
+function onLoadProject(pid, projectName, sections, languages, defaultLang, languageConfigs, title, uiPrefs, pages, blocks, version) {
     const normalized = normalizeProjectDataV5({
         version,
+        projectName,
         pages,
         blocks,
         sections,
@@ -971,6 +1308,8 @@ function onLoadProject(pid, sections, languages, defaultLang, languageConfigs, t
     });
 
     state.projectId = pid;
+    state.localProjectId = null;
+    state.projectName = normalized.projectName || pid || '';
     state.title = normalized.title || '';
     state.pages = normalized.pages || [];
     state.blocks = normalized.blocks;
@@ -1343,9 +1682,7 @@ window.onProjectTitleInput = () => {
     const el = document.getElementById('project-title');
     if (el) {
         const name = (el.textContent || '').trim();
-        if (name && name !== '新規プロジェクト') {
-            dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'projectId', value: name } });
-        }
+        dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'projectName', value: name === '新規プロジェクト' ? '' : name } });
     }
 };
 window.onProjectTitleKeydown = (e) => {
@@ -1358,25 +1695,14 @@ window.onProjectTitleBlur = () => {
     const el = document.getElementById('project-title');
     if (el) {
         const name = (el.textContent || '').trim();
-        if (name && name !== '新規プロジェクト') {
-            state.projectId = name;
-            triggerAutoSave();
-        }
+        state.projectName = name === '新規プロジェクト' ? '' : name;
+        triggerAutoSave();
     }
 };
-window.saveProject = () => {
-    if (!state.projectId) {
-        const name = (document.getElementById('project-title').textContent || '').trim();
-        if (!name || name === '新規プロジェクト') {
-            const input = prompt('プロジェクト名を入力してください:');
-            if (!input) return;
-            state.projectId = input;
-            document.getElementById('project-title').textContent = input;
-        } else {
-            state.projectId = name;
-        }
-    }
-    triggerAutoSave();
+window.saveProject = async () => {
+    ensureProjectIdentity();
+    await persistProject();
+    refresh();
 };
 
 window.importDSP = async (event) => {
@@ -1398,15 +1724,16 @@ window.importDSP = async (event) => {
             type: actionTypes.LOAD_PROJECT,
             payload: loadedState
         });
+        await cacheLocalRecentProject(JSON.parse(JSON.stringify(state)), window.localImageMap);
 
         // Update title UI
         const pt = document.getElementById('project-title');
-        if (pt) pt.textContent = state.title || 'Untitled';
+        if (pt) pt.textContent = state.projectName || state.title || 'Untitled';
         const inputTitle = document.getElementById('prop-title');
         if (inputTitle) inputTitle.value = state.title || '';
 
         refresh();
-        alert("プロジェクトを読み込みました (ローカル)");
+        window.switchRoom('editor');
     } catch (e) {
         console.error("DSP Import failed", e);
         alert("読み込みエラー: " + e.message);
@@ -1560,7 +1887,13 @@ window.removeLang = (code) => {
 };
 
 // プロジェクトモーダル
-window.openProjectModal = () => openProjectModal(onLoadProject);
+window.openProjectModal = () => openProjectModal((...args) => {
+    onLoadProject(...args);
+    cacheLocalRecentProject(JSON.parse(JSON.stringify(state)), window.localImageMap).catch((e) => {
+        console.warn('[Home] Failed to cache cloud project locally:', e);
+    });
+    window.switchRoom('editor');
+});
 window.closeProjectModal = closeProjectModal;
 
 // Works Room
@@ -1595,6 +1928,7 @@ window.loadAndRepress = (pid) => {
 window.newProject = () => {
     if (state.projectId && !confirm('現在のプロジェクトを閉じて新しいプロジェクトを作成しますか？')) return;
     dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'projectId', value: null } });
+    dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'projectName', value: '' } });
     dispatch({ type: actionTypes.SET_TITLE, payload: '' });
     dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'languages', value: ['ja'] } });
     dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'defaultLang', value: 'ja' } });
@@ -1817,7 +2151,7 @@ window.openProjectSettings = () => {
 
     // Project name
     const nameEl = document.getElementById('ps-project-name');
-    if (nameEl) nameEl.value = state.title || '';
+    if (nameEl) nameEl.value = state.projectName || '';
 
     // Global settings
     const ratingEl = document.getElementById('ps-rating');
@@ -1843,15 +2177,13 @@ window.closeProjectSettings = (e) => {
 };
 
 window.saveProjectSettings = () => {
-    // Project name → state.title
+    // Project name
     const nameEl = document.getElementById('ps-project-name');
     if (nameEl) {
-        const newTitle = nameEl.value.trim();
-        dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'title', value: newTitle } });
+        const newName = nameEl.value.trim();
+        dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'projectName', value: newName } });
         const titleDisplay = document.getElementById('project-title');
-        if (titleDisplay) titleDisplay.textContent = newTitle || '新規プロジェクト';
-        const propTitle = document.getElementById('prop-title');
-        if (propTitle) propTitle.value = newTitle;
+        if (titleDisplay) titleDisplay.textContent = newName || '新規プロジェクト';
     }
 
     // Global settings
@@ -1881,6 +2213,9 @@ window.saveProjectSettings = () => {
 // ===== Room Navigation =====
 window.switchRoom = (room) => {
     document.body.dataset.room = room;
+    if (room === 'home') {
+        renderHomeDashboard().catch((e) => console.warn('[Home] render failed:', e));
+    }
     if (room === 'press') {
         enterPressRoom();
     }
@@ -2021,6 +2356,7 @@ onAuthChanged((user) => {
     state.user = user || null;
     state.uid = user?.uid || null;
     updateAuthUI();
+    renderHomeDashboard().catch((e) => console.warn('[Home] render failed after auth:', e));
     // Auto-load project from URL param after login
     if (user) {
         const pid = new URLSearchParams(window.location.search).get('id');
@@ -2033,6 +2369,7 @@ window.setStudioUILang = (lang) => {
     setUILang(lang);
     // 動的レンダリング済みコンポーネントを再描画
     renderLangTabs();
+    renderHomeDashboard().catch((e) => console.warn('[Home] render failed after language switch:', e));
     if (document.getElementById('project-settings-modal')?.style.display !== 'none') {
         renderProjectSettingsTable();
         renderLangSettings();
@@ -2089,6 +2426,11 @@ async function bootstrapApp() {
     refresh();
     renderLangSettings();
     updateAuthUI();
+    await renderHomeDashboard();
+    const requestedRoom = urlParams.get('room');
+    if (requestedRoom && ['home', 'editor', 'press', 'works'].includes(requestedRoom)) {
+        window.switchRoom(requestedRoom);
+    }
 }
 
 bootstrapApp();

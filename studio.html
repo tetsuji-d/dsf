@@ -56,26 +56,30 @@
         <div id="home-room" class="room">
             <div class="home-room-header">
                 <h2 data-i18n="home_title">プロジェクト</h2>
-                <div class="home-room-actions">
-                    <button class="home-action-btn primary" onclick="newProject(); switchRoom('editor')">
-                        <span class="material-icons">add</span> <span data-i18n="btn_new_project">新規プロジェクト</span>
-                    </button>
-                    <button class="home-action-btn" onclick="document.getElementById('dsp-upload').click()">
-                        <span class="material-icons">folder_open</span> <span data-i18n="btn_open_local">ローカルから開く</span>
-                    </button>
-                    <button class="home-action-btn" onclick="openProjectModal()" data-auth-required>
-                        <span class="material-icons">cloud</span> <span data-i18n="btn_open_cloud">クラウドから開く</span>
-                    </button>
-                </div>
             </div>
             <div class="home-room-body">
-                <div id="home-project-grid" class="home-project-grid">
-                    <div class="home-empty-state">
-                        <span class="material-icons">folder_open</span>
-                        <p data-i18n="home_empty_1">プロジェクトがありません</p>
-                        <p data-i18n="home_empty_2">新規作成またはファイルを開いてください</p>
-                    </div>
+                <div class="home-quick-actions">
+                    <button class="home-action-btn primary home-action-large" onclick="newProject(); switchRoom('editor')">
+                        <span class="material-icons">add</span> <span data-i18n="btn_new_project">新規プロジェクト</span>
+                    </button>
                 </div>
+                <section class="home-project-section">
+                    <div class="home-section-head">
+                        <h3 data-i18n="home_section_cloud">クラウド</h3>
+                    </div>
+                    <div id="home-cloud-grid" class="home-project-grid"></div>
+                </section>
+                <section class="home-project-section">
+                    <div class="home-section-head">
+                        <h3 data-i18n="home_section_local">ローカル</h3>
+                    </div>
+                    <div class="home-section-actions">
+                        <button class="home-action-btn" onclick="document.getElementById('dsp-upload').click()">
+                            <span class="material-icons">folder_open</span> <span data-i18n="btn_open_local">ローカルから開く</span>
+                        </button>
+                    </div>
+                    <div id="home-local-grid" class="home-project-grid"></div>
+                </section>
             </div>
         </div>
 
@@ -413,11 +417,14 @@
                     </div>
                     <div class="press-field">
                         <label data-i18n="press_output_size">出力サイズ</label>
-                        <select id="press-resolution">
-                            <option value="1080x1920" selected>1080×1920 (FHD)</option>
-                            <option value="1440x2560">1440×2560 (WQHD)</option>
-                            <option value="2160x3840">2160×3840 (4K)</option>
-                        </select>
+                        <div class="press-resolution-row">
+                            <select id="press-resolution">
+                                <option value="1080x1920" selected>1080×1920 (FHD)</option>
+                                <option value="1440x2560">1440×2560 (WQHD)</option>
+                                <option value="2160x3840">2160×3840 (4K)</option>
+                            </select>
+                            <span id="press-size-estimate" class="press-size-estimate"></span>
+                        </div>
                     </div>
                     <div class="press-preview-note">
                         <span class="material-icons">info_outline</span>
@@ -433,7 +440,7 @@
                         </button>
                         <button id="press-publish-cloud-btn" class="press-publish-btn" onclick="publishToCloud()" data-auth-required>
                             <span class="material-icons">cloud_upload</span>
-                            <span><span data-i18n="btn_publish_cloud">R2 にレンダリング・発行</span><small data-i18n="btn_publish_cloud_sub">WebP 生成 → R2 → draft で登録</small></span>
+                            <span><span data-i18n="btn_publish_cloud">クラウドに発行</span><small data-i18n="btn_publish_cloud_sub">R2 にレンダリング・発行</small></span>
                         </button>
                         <button class="press-publish-btn" onclick="switchRoom('works')" data-auth-required>
                             <span class="material-icons">library_books</span>

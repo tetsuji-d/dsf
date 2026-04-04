@@ -2,8 +2,8 @@
  * firebase.js — Firebase初期化・クラウド保存/読込・自動保存
  *
  * Storage backend selection:
- *   VITE_STORAGE_BACKEND=firebase  → Firebase Storage (default, used in dev/staging)
- *   VITE_STORAGE_BACKEND=r2        → Cloudflare R2 via Pages Function at /upload (production)
+ *   VITE_STORAGE_BACKEND=firebase  → Firebase Storage (local Vite development)
+ *   VITE_STORAGE_BACKEND=r2        → Cloudflare R2 via Pages Function at /upload (Pages production/preview)
  */
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
 import { getFirestore, doc, setDoc, getDoc, deleteDoc, serverTimestamp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
@@ -17,14 +17,16 @@ import { getBlockIndexFromPageIndex, syncBlocksWithSections } from './blocks.js'
 import { PAGE_SCHEMA_VERSION, blocksToPages, normalizeProjectDataV5 } from './pages.js';
 import { composeCanonicalLayoutsForSections } from './layout.js';
 import { set as idbSet, get as idbGet } from 'idb-keyval';
+import { createId } from './utils.js';
+import { loadImageForCanvas, fetchAssetBlob, shouldEmbedAsset } from './asset-fetch.js';
 
 window.localImageMap = window.localImageMap || {};
 
 // --- Firebase Config ---
 // 環境は .env.development / .env.staging / .env.production で切り替え
-// npm run dev       → .env.development（staging 接続）
-// npm run build     → .env.production（本番 接続）
-// npm run build:staging → .env.staging（staging 接続）
+// npm run dev              → .env.development（staging Firebase 接続 / Storage は Firebase）
+// npm run build            → .env.production（本番 接続 / Storage は R2）
+// npm run build:staging    → .env.staging（staging 接続 / Storage は R2）
 const firebaseConfig = {
     apiKey:            import.meta.env.VITE_FIREBASE_API_KEY,
     authDomain:        import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
@@ -44,6 +46,10 @@ export const auth = getAuth(app);
 // When VITE_STORAGE_BACKEND=r2, uploads go to Cloudflare R2 via the Pages
 // Function at /upload. Otherwise, Firebase Storage is used.
 const _USE_R2 = import.meta.env.VITE_STORAGE_BACKEND === 'r2';
+const LOCAL_RECENT_INDEX_KEY = 'dsf_local_recent_index';
+const LOCAL_RECENT_PREFIX = 'dsf_local_recent_project_';
+const LOCAL_RECENT_LIMIT = 12;
+const projectAssetByteCache = new Map();
 
 /**
  * Upload a Blob to R2 via the /upload Pages Function.
@@ -100,6 +106,263 @@ function requireUid() {
 function projectDocRef(projectId) {
     const uid = requireUid();
     return doc(db, "users", uid, "projects", projectId);
+}
+
+function ensureProjectIdentity() {
+    if (!state.projectId) {
+        state.projectId = createId('proj');
+    }
+    if (!state.projectName) {
+        state.projectName = state.title || '新規プロジェクト';
+    }
+}
+
+function ensureLocalProjectIdentity(snapshotState = state) {
+    if (!snapshotState.localProjectId) {
+        snapshotState.localProjectId = createId('local');
+    }
+    return snapshotState.localProjectId;
+}
+
+function getLocalRecentSnapshotId(snapshotState = state) {
+    if (snapshotState.projectId) return `cloud:${snapshotState.projectId}`;
+    return `local:${ensureLocalProjectIdentity(snapshotState)}`;
+}
+
+function getProjectPreviewSource(snapshotState) {
+    const activeLang = snapshotState.defaultLang || snapshotState.activeLang || snapshotState.languages?.[0] || 'ja';
+    const pages = Array.isArray(snapshotState.pages) ? snapshotState.pages : [];
+    const page = pages.find((item) => item?.pageType === 'normal_image');
+    if (page?.content) {
+        return {
+            background: page.content.backgrounds?.[activeLang] || page.content.background || '',
+            thumbnail: page.content.thumbnail || '',
+            imagePosition: page.content.imagePosition || { x: 0, y: 0, scale: 1, rotation: 0 }
+        };
+    }
+
+    const blocks = Array.isArray(snapshotState.blocks) ? snapshotState.blocks : [];
+    const block = blocks.find((item) => item?.kind === 'page' && item?.content?.pageKind === 'image');
+    if (block?.content) {
+        return {
+            background: block.content.backgrounds?.[activeLang] || block.content.background || '',
+            thumbnail: block.content.thumbnail || '',
+            imagePosition: block.content.imagePosition || { x: 0, y: 0, scale: 1, rotation: 0 }
+        };
+    }
+
+    const sections = Array.isArray(snapshotState.sections) ? snapshotState.sections : [];
+    const section = sections.find((item) => item?.type === 'image') || sections[0];
+    if (!section) {
+        return {
+            background: '',
+            thumbnail: '',
+            imagePosition: { x: 0, y: 0, scale: 1, rotation: 0 }
+        };
+    }
+
+    return {
+        background: section.backgrounds?.[activeLang] || section.background || '',
+        thumbnail: section.thumbnail || '',
+        imagePosition: section.imagePosition || { x: 0, y: 0, scale: 1, rotation: 0 }
+    };
+}
+
+function getProjectPageCount(snapshotState) {
+    const pages = (Array.isArray(snapshotState.pages) ? snapshotState.pages : []).filter((item) =>
+        item?.pageType === 'normal_image' || item?.pageType === 'normal_text'
+    ).length;
+    if (pages > 0) return pages;
+    const blockPages = (Array.isArray(snapshotState.blocks) ? snapshotState.blocks : []).filter((item) => item?.kind === 'page').length;
+    if (blockPages > 0) return blockPages;
+    return Array.isArray(snapshotState.sections) ? snapshotState.sections.length : 0;
+}
+
+function collectProjectAssetUrls(snapshotState) {
+    const urls = new Set();
+    const visit = (value) => {
+        if (!value) return;
+        if (Array.isArray(value)) {
+            value.forEach(visit);
+            return;
+        }
+        if (typeof value !== 'object') return;
+
+        for (const [key, entry] of Object.entries(value)) {
+            if (typeof entry === 'string' && (key === 'background' || key === 'thumbnail')) {
+                if (shouldEmbedAsset(entry)) urls.add(entry);
+                continue;
+            }
+            if (key === 'backgrounds' && entry && typeof entry === 'object') {
+                Object.values(entry).forEach((url) => {
+                    if (typeof url === 'string' && shouldEmbedAsset(url)) urls.add(url);
+                });
+                continue;
+            }
+            visit(entry);
+        }
+    };
+
+    visit(snapshotState.pages || []);
+    visit(snapshotState.blocks || []);
+    visit(snapshotState.sections || []);
+    return [...urls];
+}
+
+async function getAssetByteSize(url) {
+    if (!shouldEmbedAsset(url)) return 0;
+    if (projectAssetByteCache.has(url)) return projectAssetByteCache.get(url);
+    try {
+        const blob = await fetchAssetBlob(url, 'プロジェクト画像');
+        const size = blob?.size || 0;
+        projectAssetByteCache.set(url, size);
+        return size;
+    } catch (e) {
+        console.warn('[DSF] Failed to measure asset size:', url, e);
+        projectAssetByteCache.set(url, 0);
+        return 0;
+    }
+}
+
+async function computeProjectBytes(snapshotState) {
+    const data = {
+        version: snapshotState.version || PAGE_SCHEMA_VERSION,
+        projectName: snapshotState.projectName || '',
+        title: snapshotState.title || '',
+        pages: snapshotState.pages || [],
+        blocks: snapshotState.blocks || [],
+        sections: snapshotState.sections || [],
+        languages: snapshotState.languages || ['ja'],
+        defaultLang: snapshotState.defaultLang || snapshotState.languages?.[0] || 'ja',
+        languageConfigs: snapshotState.languageConfigs || {},
+        uiPrefs: snapshotState.uiPrefs || null,
+        dsfPages: snapshotState.dsfPages || []
+    };
+    const jsonBytes = new Blob([JSON.stringify(data)]).size;
+    const assetUrls = collectProjectAssetUrls(snapshotState);
+    const assetBytes = await Promise.all(assetUrls.map((url) => getAssetByteSize(url)));
+    return jsonBytes + assetBytes.reduce((sum, size) => sum + size, 0);
+}
+
+async function buildProjectListThumbnail(snapshotState) {
+    const preview = getProjectPreviewSource(snapshotState);
+    if (!preview.background) return preview.thumbnail || '';
+
+    const { img, revoke } = await loadImageForCanvas(preview.background, '一覧サムネイル元画像');
+    try {
+        const targetW = 180;
+        const targetH = Math.round(targetW * (16 / 9));
+        const canvas = document.createElement('canvas');
+        canvas.width = targetW;
+        canvas.height = targetH;
+        const ctx = canvas.getContext('2d');
+
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(0, 0, targetW, targetH);
+
+        const safePos = {
+            x: Number.isFinite(Number(preview.imagePosition?.x)) ? Number(preview.imagePosition.x) : 0,
+            y: Number.isFinite(Number(preview.imagePosition?.y)) ? Number(preview.imagePosition.y) : 0,
+            scale: Math.max(0.1, Number.isFinite(Number(preview.imagePosition?.scale)) ? Number(preview.imagePosition.scale) : 1),
+            rotation: Number.isFinite(Number(preview.imagePosition?.rotation)) ? Number(preview.imagePosition.rotation) : 0
+        };
+
+        const baseW = 360;
+        const baseH = 640;
+        const ratio = targetW / baseW;
+
+        ctx.save();
+        ctx.translate(targetW / 2, targetH / 2);
+        ctx.translate(safePos.x * ratio, safePos.y * ratio);
+        ctx.rotate((safePos.rotation * Math.PI) / 180);
+        ctx.scale(safePos.scale, safePos.scale);
+
+        const imgAspect = img.width / img.height;
+        const frameAspect = baseW / baseH;
+        let drawW;
+        let drawH;
+        if (imgAspect > frameAspect) {
+            drawH = targetH;
+            drawW = targetH * imgAspect;
+        } else {
+            drawW = targetW;
+            drawH = targetW / imgAspect;
+        }
+        ctx.drawImage(img, -drawW / 2, -drawH / 2, drawW, drawH);
+        ctx.restore();
+
+        return canvas.toDataURL('image/webp', 0.72);
+    } finally {
+        revoke();
+    }
+}
+
+async function buildLocalRecentMeta(snapshotState) {
+    let listThumbnail = '';
+    try {
+        listThumbnail = await buildProjectListThumbnail(snapshotState);
+    } catch (e) {
+        console.warn('[DSF] Failed to build local recent thumbnail:', e);
+        listThumbnail = getProjectPreviewSource(snapshotState).thumbnail || '';
+    }
+
+    return {
+        id: getLocalRecentSnapshotId(snapshotState),
+        projectId: snapshotState.projectId || null,
+        localProjectId: snapshotState.localProjectId || null,
+        projectName: snapshotState.projectName || '',
+        title: snapshotState.title || '',
+        thumbnail: listThumbnail || getProjectPreviewSource(snapshotState).thumbnail || '',
+        listThumbnail,
+        pageCount: getProjectPageCount(snapshotState),
+        languages: Array.isArray(snapshotState.languages) && snapshotState.languages.length > 0 ? snapshotState.languages : ['ja'],
+        projectBytes: await computeProjectBytes(snapshotState),
+        updatedAt: Date.now()
+    };
+}
+
+export async function cacheLocalRecentProject(snapshotState, imageMap = window.localImageMap || {}) {
+    const projectState = JSON.parse(JSON.stringify(snapshotState || state));
+    ensureLocalProjectIdentity(projectState);
+    const snapshotId = getLocalRecentSnapshotId(projectState);
+    await idbSet(`${LOCAL_RECENT_PREFIX}${snapshotId}`, {
+        state: projectState,
+        imageMap: imageMap || {}
+    });
+
+    const storedIndex = await idbGet(LOCAL_RECENT_INDEX_KEY);
+    const prevIndex = Array.isArray(storedIndex) ? storedIndex : [];
+    const nextEntry = await buildLocalRecentMeta(projectState);
+    const nextIndex = [nextEntry, ...prevIndex.filter((item) => item?.id !== snapshotId)].slice(0, LOCAL_RECENT_LIMIT);
+    await idbSet(LOCAL_RECENT_INDEX_KEY, nextIndex);
+}
+
+export async function listLocalRecentProjects() {
+    const index = Array.isArray(await idbGet(LOCAL_RECENT_INDEX_KEY)) ? await idbGet(LOCAL_RECENT_INDEX_KEY) : [];
+    return index
+        .filter((item) => item && item.id)
+        .sort((a, b) => Number(b.updatedAt || 0) - Number(a.updatedAt || 0));
+}
+
+export async function loadLocalRecentProject(snapshotId) {
+    const record = await idbGet(`${LOCAL_RECENT_PREFIX}${snapshotId}`);
+    if (!record?.state) throw new Error('ローカルプロジェクトが見つかりません');
+
+    let stateStr = JSON.stringify(record.state);
+    const restoredMap = {};
+    if (record.imageMap) {
+        for (const [oldUrl, localId] of Object.entries(record.imageMap)) {
+            const blob = await idbGet(localId);
+            if (blob) {
+                const newUrl = URL.createObjectURL(blob);
+                restoredMap[newUrl] = localId;
+                stateStr = stateStr.split(oldUrl).join(newUrl);
+            }
+        }
+    }
+
+    window.localImageMap = restoredMap;
+    return JSON.parse(stateStr);
 }
 
 export function onAuthChanged(callback) {
@@ -265,10 +528,14 @@ async function performSave() {
 
     // 1. ローカルバックアップ (常に実行)
     try {
+        const localSnapshot = JSON.parse(JSON.stringify({ ...state, blocks: blocksToSave, pages: pagesToSave }));
+        ensureLocalProjectIdentity(localSnapshot);
+        state.localProjectId = localSnapshot.localProjectId;
         await idbSet('dsf_autosave', {
-            state: JSON.parse(JSON.stringify({ ...state, blocks: blocksToSave, pages: pagesToSave })),
+            state: localSnapshot,
             imageMap: window.localImageMap
         });
+        await cacheLocalRecentProject(localSnapshot, window.localImageMap);
         updateSaveIndicator('saved', '保存済み (Local)');
     } catch (e) {
         console.warn("[DSF] Local auto-save to IndexedDB failed:", e);
@@ -282,9 +549,9 @@ async function performSave() {
             // blob: URL が残っている場合は Storage にアップロードして実 URL に変換
             const cleanSections = await resolveBlobUrlsInSections(state.sections, state.uid);
             const cleanBlocks   = await resolveBlobUrlsInBlocks(blocksToSave, state.uid);
-
-            await setDoc(projectDocRef(state.projectId), {
+            const persistedProject = {
                 version: PAGE_SCHEMA_VERSION,
+                projectName: state.projectName || '',
                 title: state.title || '',
                 pages: pagesToSave,
                 blocks: cleanBlocks,
@@ -292,11 +559,30 @@ async function performSave() {
                 languages: state.languages,
                 defaultLang: state.defaultLang || state.languages?.[0] || 'ja',
                 languageConfigs: state.languageConfigs,
-                uiPrefs: state.uiPrefs || null,
+                uiPrefs: state.uiPrefs || null
+            };
+
+            let listThumbnail = '';
+            try {
+                listThumbnail = await buildProjectListThumbnail(persistedProject);
+            } catch (e) {
+                console.warn('[DSF] Failed to build cloud project thumbnail:', e);
+                listThumbnail = getProjectPreviewSource(persistedProject).thumbnail || '';
+            }
+            const projectBytes = await computeProjectBytes(persistedProject);
+
+            await setDoc(projectDocRef(state.projectId), {
+                ...persistedProject,
+                listThumbnail,
+                projectBytes,
                 visibility: visibility,
                 ownerUid: state.uid,
                 ownerEmail: state.user?.email || '',
                 lastUpdated: new Date()
+            }, {
+                // Preserve Press Room publication fields such as dsfPages/dsfStatus
+                // when the editor saves project content changes.
+                merge: true
             });
 
             // 3. public_projects コレクションへの同期
@@ -306,7 +592,7 @@ async function performSave() {
                     title: state.title || '無題のプロジェクト',
                     authorName: state.user?.displayName || state.user?.email?.split('@')[0] || '名無し',
                     authorUid: state.uid,
-                    thumbnail: state.sections?.[0]?.thumbnail || state.sections?.[0]?.background || '',
+                    thumbnail: listThumbnail || getProjectPreviewSource(persistedProject).thumbnail || '',
                     publishedAt: serverTimestamp() // Bumps to top on save
                 }, { merge: true });
             } else {
@@ -332,10 +618,8 @@ async function performSave() {
  */
 export async function saveAsProject() {
     requireUid();
-    const pid = prompt("プロジェクト名を入力してください:", state.projectId || "");
-    if (!pid) return;
-
-    dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'projectId', value: pid } });
+    ensureProjectIdentity();
+    dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'projectId', value: state.projectId } });
     await performSave();
 }
 
@@ -346,6 +630,7 @@ export async function saveAsProject() {
 export async function saveProject(pid) {
     requireUid();
     if (pid) dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'projectId', value: pid } });
+    ensureProjectIdentity();
     await performSave();
 }
 
@@ -408,15 +693,8 @@ export async function generateCroppedThumbnail(bgUrl, pos, refresh) {
         const filename = "cropped_" + timestamp;
         const thumbPath = `users/${uid}/dsf/thumbs/${timestamp}_${filename}_thumb.webp`;
 
-        // Canvasで描画
-        const img = new Image();
-        img.crossOrigin = "anonymous"; // CORS対応トライ
-        img.src = bgUrl;
-
-        await new Promise((resolve, reject) => {
-            img.onload = resolve;
-            img.onerror = reject;
-        });
+        // Canvasで描画。公開URLは Pages Functions 経由で同一オリジン取得する。
+        const { img, revoke } = await loadImageForCanvas(bgUrl, 'サムネイル生成元画像');
 
         // サムネイルサイズ (9:16)
         const targetW = 320;
@@ -478,6 +756,7 @@ export async function generateCroppedThumbnail(bgUrl, pos, refresh) {
         ctx.drawImage(img, -drawW / 2, -drawH / 2, drawW, drawH);
 
         ctx.restore();
+        revoke();
 
         const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/webp', 0.8));
 
@@ -617,10 +896,12 @@ export async function loadProject(pid, refresh) {
         // 既存データに残存する blob: URL を除去（マイグレーション・クラッシュ防止）
         const data = stripBlobUrls(raw);
         dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'projectId', value: pid } });
+        dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'projectName', value: data.projectName || pid } });
         dispatch({ type: actionTypes.SET_TITLE, payload: data.title || '' });
         dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'pages', value: data.pages || [] } });
         dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'blocks', value: data.blocks || [] } });
         dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'sections', value: data.sections } });
+        dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'dsfPages', value: Array.isArray(data.dsfPages) ? data.dsfPages : [] } });
         dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'languages', value: data.languages && data.languages.length > 0 ? data.languages : ['ja'] } });
         dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'defaultLang', value: data.defaultLang || (data.languages && data.languages.length > 0 ? data.languages[0] : 'ja') } });
         dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'uiPrefs', value: data.uiPrefs || state.uiPrefs || {} } });
