@@ -54,7 +54,7 @@ export const STRINGS = {
 
         // Ribbon – Insert
         btn_add_section:      '＋ セクション追加',
-        btn_add_bubble:       '💬 フキダシ追加',
+        btn_add_bubble:       '📝 テキスト追加',
         btn_add_image:        '🖼 画像追加',
 
         // Ribbon – Arrange
@@ -90,7 +90,7 @@ export const STRINGS = {
         label_bg_image:       '背景画像変更 / 位置調整',
         btn_change_image:     '画像変更',
         btn_adjust:           '調整',
-        label_bubble_shape:   'フキダシ形状',
+        label_bubble_shape:   'テキストボックス形状',
         shape_speech:         '💬 角丸フキダシ',
         shape_oval:           '⭕ 楕円フキダシ',
         shape_rect:           '📄 四角フキダシ',
@@ -168,6 +168,9 @@ export const STRINGS = {
         bottom_add:              '追加',
         bottom_edit:             '編集',
         bottom_export:           '書き出し',
+        bottom_new_project:      '新規',
+        bottom_open_local:       'ローカル',
+        bottom_menu:             'メニュー',
         bottom_lang:             '言語',
         mobile_save_cloud:       '☁ クラウド保存',
         mobile_open_local:       '📁 ローカルから開く (.dsp)',
@@ -233,7 +236,7 @@ export const STRINGS = {
 
         // Ribbon – Insert
         btn_add_section:      '+ Add Section',
-        btn_add_bubble:       '💬 Add Bubble',
+        btn_add_bubble:       '📝 Add Text',
         btn_add_image:        '🖼 Add Image',
 
         // Ribbon – Arrange
@@ -269,7 +272,7 @@ export const STRINGS = {
         label_bg_image:       'Change Background / Adjust',
         btn_change_image:     'Change Image',
         btn_adjust:           'Adjust',
-        label_bubble_shape:   'Bubble Shape',
+        label_bubble_shape:   'Text Box Style',
         shape_speech:         '💬 Rounded',
         shape_oval:           '⭕ Oval',
         shape_rect:           '📄 Rectangle',
@@ -347,6 +350,9 @@ export const STRINGS = {
         bottom_add:              'Add',
         bottom_edit:             'Edit',
         bottom_export:           'Export',
+        bottom_new_project:      'New',
+        bottom_open_local:       'Local',
+        bottom_menu:             'Menu',
         bottom_lang:             'Lang',
         mobile_save_cloud:       '☁ Save to Cloud',
         mobile_open_local:       '📁 Open Local (.dsp)',

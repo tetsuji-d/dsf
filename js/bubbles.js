@@ -184,7 +184,7 @@ export function addBubbleAtCenter(refresh) {
 
     // 中央に追加 (50%, 50%)
     const lang = state.activeLang;
-    const defaultText = lang === 'en' ? 'Text' : 'セリフ';
+    const defaultText = lang === 'en' ? 'Text' : 'テキスト';
     const posX = 50;
     const posY = 50;
 
@@ -194,7 +194,7 @@ export function addBubbleAtCenter(refresh) {
         text: defaultText,
         texts: { [lang]: defaultText },
         positions: { [lang]: { x: posX, y: posY } },
-        shape: 'speech'
+        shape: 'rect'
     };
 
     // pushStateは呼び出し元(app.js)で行うか、ここで

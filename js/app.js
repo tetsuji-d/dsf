@@ -128,6 +128,82 @@ function applyImageSnapping(pos, bgUrl) {
     imageSnapState = nextState;
 }
 
+function getImageAdjustRenderMetrics(bgUrl, pos) {
+    const frameMetrics = getEditorImageFrameMetrics(bgUrl);
+    const scale = Math.max(0.1, Number(pos?.scale) || 1);
+    const rotation = Number(pos?.rotation) || 0;
+    return {
+        frameMetrics,
+        invScale: 1 / scale,
+        targetTransform: `translate(calc(-50% + ${Number(pos?.x) || 0}px), calc(-50% + ${Number(pos?.y) || 0}px)) scale(${scale}) rotate(${rotation}deg)`
+    };
+}
+
+function syncImageAdjustDom() {
+    const s = state.sections?.[state.activeIdx];
+    if (!s || s.type !== 'image') return false;
+    const pos = s.imagePosition;
+    if (!pos) return false;
+
+    const target = document.getElementById('image-adjust-target');
+    if (!target) return false;
+
+    const bgUrl = getOptimizedImageUrl(s?.backgrounds?.[state.activeLang] || s?.background || '');
+    const { frameMetrics, invScale, targetTransform } = getImageAdjustRenderMetrics(bgUrl, pos);
+
+    target.style.width = `${frameMetrics.widthPercent}%`;
+    target.style.height = `${frameMetrics.heightPercent}%`;
+    target.style.transform = targetTransform;
+
+    const overlay = document.getElementById('image-adjust-overlay');
+    if (overlay) {
+        overlay.style.setProperty('--inv-handle-scale', String(invScale));
+    }
+
+    const rotateSlider = document.getElementById('image-rotate-slider');
+    if (rotateSlider) {
+        const rotation = roundRotationHalfStep(Math.max(-180, Math.min(180, Number(pos.rotation) || 0)));
+        rotateSlider.value = String(rotation);
+    }
+    const rotateShell = document.querySelector('.img-rotate-slider-shell');
+    if (rotateShell) {
+        const rotation = roundRotationHalfStep(Math.max(-180, Math.min(180, Number(pos.rotation) || 0)));
+        const ratio = (180 - rotation) / 360;
+        rotateShell.style.setProperty('--rotate-ratio', String(ratio));
+        rotateShell.setAttribute('aria-valuenow', String(rotation));
+    }
+    const rotateValue = document.getElementById('image-rotate-value');
+    if (rotateValue) {
+        const rotation = roundRotationHalfStep(Math.max(-180, Math.min(180, Number(pos.rotation) || 0)));
+        rotateValue.textContent = `${rotation.toFixed(1)}°`;
+    }
+
+    const safeFrame = document.querySelector('#image-stage-overlay .image-safe-frame');
+    if (safeFrame) {
+        safeFrame.classList.toggle('active-left', !!imageSnapState.edgeLeft);
+        safeFrame.classList.toggle('active-right', !!imageSnapState.edgeRight);
+        safeFrame.classList.toggle('active-top', !!imageSnapState.edgeTop);
+        safeFrame.classList.toggle('active-bottom', !!imageSnapState.edgeBottom);
+    }
+
+    const verticalGuide = document.querySelector('#image-stage-overlay .image-center-guide.vertical');
+    if (verticalGuide) verticalGuide.classList.toggle('active', !!imageSnapState.centerX);
+    const horizontalGuide = document.querySelector('#image-stage-overlay .image-center-guide.horizontal');
+    if (horizontalGuide) horizontalGuide.classList.toggle('active', !!imageSnapState.centerY);
+
+    return true;
+}
+
+let imageAdjustRaf = null;
+let isAdjustingRotationSlider = false;
+function scheduleImageAdjustDomUpdate() {
+    if (imageAdjustRaf) return;
+    imageAdjustRaf = requestAnimationFrame(() => {
+        imageAdjustRaf = null;
+        if (!syncImageAdjustDom()) refresh();
+    });
+}
+
 window.handleEditorImageLoad = (e) => {
     const img = e?.target;
     const src = img?.getAttribute('src');
@@ -269,10 +345,14 @@ function renderHomeCard(project, source) {
 async function renderHomeDashboard() {
     const cloudGrid = document.getElementById('home-cloud-grid');
     const localGrid = document.getElementById('home-local-grid');
+    const cloudCount = document.getElementById('home-cloud-count');
+    const localCount = document.getElementById('home-local-count');
     if (!cloudGrid || !localGrid) return;
 
     cloudGrid.innerHTML = `<div class="home-empty-state"><span class="material-icons">cloud_sync</span><p>${t('home_loading')}</p></div>`;
     localGrid.innerHTML = `<div class="home-empty-state"><span class="material-icons">history</span><p>${t('home_loading')}</p></div>`;
+    if (cloudCount) cloudCount.textContent = '...';
+    if (localCount) localCount.textContent = '...';
 
     const [cloudProjects, localProjects] = await Promise.all([
         fetchCloudProjects().catch((e) => {
@@ -287,18 +367,24 @@ async function renderHomeDashboard() {
 
     if (cloudProjects === null) {
         cloudGrid.innerHTML = `<div class="home-empty-state"><span class="material-icons">cloud_off</span><p>${t('home_cloud_error')}</p></div>`;
+        if (cloudCount) cloudCount.textContent = '!';
     } else if (!state.uid) {
         cloudGrid.innerHTML = `<div class="home-empty-state"><span class="material-icons">lock</span><p>${t('home_cloud_login')}</p></div>`;
+        if (cloudCount) cloudCount.textContent = '0';
     } else if (cloudProjects.length === 0) {
         cloudGrid.innerHTML = `<div class="home-empty-state"><span class="material-icons">cloud_done</span><p>${t('home_cloud_empty')}</p></div>`;
+        if (cloudCount) cloudCount.textContent = '0';
     } else {
         cloudGrid.innerHTML = cloudProjects.map((project) => renderHomeCard(project, 'cloud')).join('');
+        if (cloudCount) cloudCount.textContent = String(cloudProjects.length);
     }
 
     if (localProjects.length === 0) {
         localGrid.innerHTML = `<div class="home-empty-state"><span class="material-icons">folder_open</span><p>${t('home_local_empty')}</p></div>`;
+        if (localCount) localCount.textContent = '0';
     } else {
         localGrid.innerHTML = localProjects.map((project) => renderHomeCard(project, 'local')).join('');
+        if (localCount) localCount.textContent = String(localProjects.length);
     }
 
     cloudGrid.querySelectorAll('.home-project-card').forEach((card) => {
@@ -345,6 +431,8 @@ async function renderHomeDashboard() {
             }
         });
     });
+
+    syncStudioShell();
 }
 
 function updateAuthUI() {
@@ -380,12 +468,95 @@ function updateAuthUI() {
             el.title = t('login_required');
         }
     });
+    syncStudioShell();
 }
 
 const THUMB_COLUMN_OPTIONS = [8, 5, 4, 2, 1];
 
 function getDeviceKey() {
     return window.innerWidth < 1024 ? 'mobile' : 'desktop';
+}
+
+function getCurrentRoom() {
+    return document.body.dataset.room || 'editor';
+}
+
+function getRoomLabel(room) {
+    const keyMap = {
+        home: 'nav_projects',
+        editor: 'nav_editor',
+        press: 'nav_press',
+        works: 'nav_works'
+    };
+    return t(keyMap[room] || 'mobile_title');
+}
+
+function getMobileHeaderTitle(room) {
+    if (room === 'editor') {
+        return state.projectName || state.title || t('project_title_default');
+    }
+    return getRoomLabel(room);
+}
+
+function getMobileHeaderNavTarget(room) {
+    if (room === 'editor') return 'home';
+    if (room === 'press') return 'editor';
+    if (room === 'works') return 'home';
+    return null;
+}
+
+function syncMobileHeader() {
+    const room = getCurrentRoom();
+    const navBtn = document.getElementById('mobile-header-nav');
+    const roomLabel = document.getElementById('mobile-header-room-label');
+    const title = document.getElementById('mobile-header-title');
+    const authBtn = document.getElementById('btn-auth-mobile');
+    const navTarget = getMobileHeaderNavTarget(room);
+    const roomText = getRoomLabel(room);
+
+    if (roomLabel) {
+        roomLabel.textContent = room === 'editor' ? roomText : t('mobile_title');
+    }
+    if (title) {
+        title.textContent = getMobileHeaderTitle(room);
+        title.title = title.textContent;
+    }
+    if (navBtn) {
+        navBtn.hidden = !navTarget;
+        navBtn.dataset.targetRoom = navTarget || '';
+        navBtn.title = navTarget ? getRoomLabel(navTarget) : '';
+        navBtn.setAttribute('aria-label', navBtn.title || roomText);
+    }
+    if (authBtn) {
+        authBtn.classList.toggle('signed-in', !!state.uid);
+    }
+}
+
+function syncMobileCanvasZoomBar() {
+    const zoomBar = document.getElementById('mobile-canvas-zoom-bar');
+    if (!zoomBar) return;
+    const visible = getDeviceKey() === 'mobile' && getCurrentRoom() === 'editor';
+    zoomBar.hidden = !visible;
+    document.body.classList.toggle('mobile-canvas-zoom-visible', visible);
+    if (visible) syncCanvasZoomUI();
+}
+
+function syncStudioShell() {
+    const device = getDeviceKey();
+    const room = getCurrentRoom();
+
+    document.body.dataset.device = device;
+    document.body.classList.toggle('mobile-shell', device === 'mobile');
+    document.body.classList.toggle('mobile-editor-shell', device === 'mobile' && room === 'editor');
+
+    if ((device !== 'mobile' || room !== 'editor') && typeof window.closeMobileSheet === 'function') {
+        window.closeMobileSheet();
+    }
+
+    syncMobileHeader();
+    syncMobileCanvasZoomBar();
+    syncMobileMenuSheet();
+    renderMobileBottomBar();
 }
 
 function sanitizeThumbColumns(value) {
@@ -467,14 +638,12 @@ function refresh() {
             s.imageBasePosition = { x: 0, y: 0, scale: 1, rotation: 0 };
         }
         const bgUrl = getOptimizedImageUrl(s.backgrounds?.[state.activeLang] || s.background || '');
-        const frameMetrics = getEditorImageFrameMetrics(bgUrl);
+        const { frameMetrics, targetTransform, invScale } = getImageAdjustRenderMetrics(bgUrl, pos);
         const targetStyle = [
             `width:${frameMetrics.widthPercent}%`,
             `height:${frameMetrics.heightPercent}%`,
-            `transform: translate(calc(-50% + ${pos.x}px), calc(-50% + ${pos.y}px)) scale(${pos.scale}) rotate(${pos.rotation}deg);`
+            `transform:${targetTransform};`
         ].join('; ');
-
-        const invScale = 1 / Math.max(pos.scale || 1, 0.1);
         const stageOverlay = isImageAdjusting ? `
             <div id="image-stage-overlay">
                 <div class="image-safe-frame${imageSnapState.edgeLeft ? ' active-left' : ''}${imageSnapState.edgeRight ? ' active-right' : ''}${imageSnapState.edgeTop ? ' active-top' : ''}${imageSnapState.edgeBottom ? ' active-bottom' : ''}"></div>
@@ -594,6 +763,7 @@ function refresh() {
     updateHistoryButtons();
     renderThumbs();
     syncThumbColumnButtons();
+    syncStudioShell();
 }
 
 // ──────────────────────────────────────
@@ -829,6 +999,11 @@ function getPointerClientPoint(e) {
     return { x: e.clientX, y: e.clientY };
 }
 
+function roundRotationHalfStep(value) {
+    const n = Number(value) || 0;
+    return Math.round(n * 2) / 2;
+}
+
 window.adjustImageZoom = (delta) => {
     const pos = getActiveImagePosition();
     if (!isImageAdjusting || !pos) return;
@@ -837,7 +1012,7 @@ window.adjustImageZoom = (delta) => {
     const s = state.sections[state.activeIdx];
     const bgUrl = getOptimizedImageUrl(s?.backgrounds?.[state.activeLang] || s?.background || '');
     applyImageSnapping(pos, bgUrl);
-    refresh();
+    scheduleImageAdjustDomUpdate();
     triggerAutoSave();
 };
 
@@ -852,8 +1027,56 @@ window.resetImageTransform = () => {
     pos.scale = base.scale || 1;
     pos.rotation = base.rotation || 0;
     resetImageSnapState();
-    refresh();
+    scheduleImageAdjustDomUpdate();
     triggerAutoSave();
+};
+
+window.setImageRotationFromSlider = (value) => {
+    const pos = getActiveImagePosition();
+    if (!isImageAdjusting || !pos) return;
+    const rotation = roundRotationHalfStep(Math.max(-180, Math.min(180, Number(value) || 0)));
+    pos.rotation = rotation;
+    const s = state.sections[state.activeIdx];
+    const bgUrl = getOptimizedImageUrl(s?.backgrounds?.[state.activeLang] || s?.background || '');
+    applyImageSnapping(pos, bgUrl);
+    scheduleImageAdjustDomUpdate();
+};
+
+window.startImageRotationSliderAdjust = (event) => {
+    if (event) {
+        event.stopPropagation();
+        event.preventDefault();
+        if (event.currentTarget?.setPointerCapture && event.pointerId != null) {
+            event.currentTarget.setPointerCapture(event.pointerId);
+        }
+    }
+    isAdjustingRotationSlider = true;
+    window.moveImageRotationSliderAdjust(event);
+};
+
+window.endImageRotationSliderAdjust = (event) => {
+    if (event) {
+        event.stopPropagation();
+        event.preventDefault();
+        if (event.currentTarget?.releasePointerCapture && event.pointerId != null) {
+            try {
+                event.currentTarget.releasePointerCapture(event.pointerId);
+            } catch { }
+        }
+    }
+    isAdjustingRotationSlider = false;
+};
+
+window.moveImageRotationSliderAdjust = (event) => {
+    if (!isAdjustingRotationSlider || !event?.currentTarget) return;
+    event.stopPropagation();
+    event.preventDefault();
+    const rect = event.currentTarget.getBoundingClientRect();
+    if (!rect.height) return;
+    const y = Math.max(0, Math.min(rect.height, event.clientY - rect.top));
+    const ratio = y / rect.height;
+    const rotation = 180 - (ratio * 360);
+    window.setImageRotationFromSlider(rotation);
 };
 
 window.startImageHandleDrag = (e, handleType) => {
@@ -911,7 +1134,7 @@ function onImageHandleDragMove(e) {
     const s = state.sections[state.activeIdx];
     const bgUrl = getOptimizedImageUrl(s?.backgrounds?.[state.activeLang] || s?.background || '');
     applyImageSnapping(pos, bgUrl);
-    refresh();
+    scheduleImageAdjustDomUpdate();
 }
 
 function onImageHandleDragEnd() {
@@ -936,6 +1159,9 @@ window.toggleImageAdjustment = () => {
     if (!s || s.type !== 'image') return;
 
     isImageAdjusting = !isImageAdjusting;
+    if (!isImageAdjusting) {
+        isAdjustingRotationSlider = false;
+    }
 
     // UI更新
     ['btn-adjust-img', 'btn-adjust-img-panel'].forEach((id) => {
@@ -1030,6 +1256,7 @@ function initImageAdjustment() {
 
     // Events
     const onMove = (clientX, clientY) => {
+        if (isAdjustingRotationSlider) return;
         const dx = clientX - startPos.x;
         const dy = clientY - startPos.y;
         const pos = getImgState();
@@ -1038,7 +1265,7 @@ function initImageAdjustment() {
         const s = state.sections[state.activeIdx];
         const bgUrl = getOptimizedImageUrl(s?.backgrounds?.[state.activeLang] || s?.background || '');
         applyImageSnapping(pos, bgUrl);
-        refresh(); // Re-render transform
+        scheduleImageAdjustDomUpdate();
     };
 
     const onMoveWrap = (e) => onMove(e.clientX, e.clientY);
@@ -1062,7 +1289,7 @@ function initImageAdjustment() {
     };
 
     const onStart = (clientX, clientY) => {
-        if (!isImageAdjusting) return;
+        if (!isImageAdjusting || isAdjustingRotationSlider) return;
         isDraggingImg = true;
         startPos = { x: clientX, y: clientY };
         const pos = getImgState();
@@ -1073,6 +1300,7 @@ function initImageAdjustment() {
 
     // Mouse
     view.addEventListener('mousedown', (e) => {
+        if (isAdjustingRotationSlider) return;
         const inAdjustTarget = !!(e.target && e.target.closest && e.target.closest('#image-adjust-target'));
         if (isImageAdjusting && (e.target.id === 'main-img' || inAdjustTarget)) {
             e.stopPropagation(); // Stop canvas pan
@@ -1083,6 +1311,7 @@ function initImageAdjustment() {
 
     // Touch
     view.addEventListener('touchstart', (e) => {
+        if (isAdjustingRotationSlider) return;
         const inAdjustTarget = !!(e.target && e.target.closest && e.target.closest('#image-adjust-target'));
         if (isImageAdjusting && (e.target.id === 'main-img' || inAdjustTarget || e.touches.length === 2)) {
             e.stopPropagation();
@@ -1105,6 +1334,10 @@ function initImageAdjustment() {
     view.addEventListener('touchmove', (e) => {
         onImageHandleDragMove(e);
         if (!isImageAdjusting) return;
+        if (isAdjustingRotationSlider) {
+            e.preventDefault();
+            return;
+        }
         if (e.touches.length === 1) {
             e.preventDefault(); // Prevent scroll
             onMove(e.touches[0].clientX, e.touches[0].clientY);
@@ -1120,7 +1353,7 @@ function initImageAdjustment() {
             const s = state.sections[state.activeIdx];
             const bgUrl = getOptimizedImageUrl(s?.backgrounds?.[state.activeLang] || s?.background || '');
             applyImageSnapping(pos, bgUrl);
-            refresh();
+            scheduleImageAdjustDomUpdate();
         }
     }, { passive: false });
 
@@ -1141,7 +1374,7 @@ function initImageAdjustment() {
             const s = state.sections[state.activeIdx];
             const bgUrl = getOptimizedImageUrl(s?.backgrounds?.[state.activeLang] || s?.background || '');
             applyImageSnapping(pos, bgUrl);
-            refresh();
+            scheduleImageAdjustDomUpdate();
             // Debounce save?
             if (window.saveTimer) clearTimeout(window.saveTimer);
             window.saveTimer = setTimeout(triggerAutoSave, 500);
@@ -1537,16 +1770,26 @@ const CANVAS_ZOOM_PRESETS = [25, 33, 50, 67, 75, 90, 100, 110, 125, 150, 175, 20
 
 function syncCanvasZoomUI() {
     const select = document.getElementById('canvas-zoom-select');
-    if (!select) return;
     const percent = Math.round(canvasScale * 100);
-    const custom = select.querySelector('option[value="custom"]');
-    if (CANVAS_ZOOM_PRESETS.includes(percent)) {
-        if (custom) custom.hidden = true;
-        select.value = String(percent);
-    } else if (custom) {
-        custom.hidden = false;
-        custom.textContent = `${percent}%`;
-        select.value = 'custom';
+    if (select) {
+        const custom = select.querySelector('option[value="custom"]');
+        if (CANVAS_ZOOM_PRESETS.includes(percent)) {
+            if (custom) custom.hidden = true;
+            select.value = String(percent);
+        } else if (custom) {
+            custom.hidden = false;
+            custom.textContent = `${percent}%`;
+            select.value = 'custom';
+        }
+    }
+
+    const mobileRange = document.getElementById('mobile-canvas-zoom-range');
+    if (mobileRange) {
+        mobileRange.value = String(Math.min(Math.max(percent, 25), 300));
+    }
+    const mobileValue = document.getElementById('mobile-canvas-zoom-value');
+    if (mobileValue) {
+        mobileValue.textContent = `${percent}%`;
     }
 }
 
@@ -1554,6 +1797,26 @@ window.setCanvasZoomPercent = (value) => {
     const num = Number(value);
     if (!Number.isFinite(num) || num <= 0) return;
     canvasScale = Math.min(Math.max(num / 100, 0.1), 5);
+    updateCanvasTransform();
+};
+
+window.fitCanvasView = () => {
+    canvasTranslate = { x: 0, y: 0 };
+
+    const container = document.getElementById('canvas-view');
+    if (container) {
+        const cw = container.clientWidth;
+        const ch = container.clientHeight;
+        const targetW = 360;
+        const targetH = 640;
+
+        let s = Math.min(cw / targetW, ch / targetH) * 0.9;
+        if (s > 1.2) s = 1.0;
+        canvasScale = s;
+    } else {
+        canvasScale = 1;
+    }
+
     updateCanvasTransform();
 };
 
@@ -1568,23 +1831,6 @@ function updateCanvasTransform() {
 // キャンバスリセット（中央寄せ・初期サイズ）
 window.resetCanvasView = () => {
     canvasTranslate = { x: 0, y: 0 };
-
-    // 画面サイズに合わせて自動スケール
-    const container = document.getElementById('canvas-view');
-    if (container) {
-        const cw = container.clientWidth;
-        const ch = container.clientHeight;
-        // 9:16 (360x640) base
-        const targetW = 360;
-        const targetH = 640;
-
-        let s = Math.min(cw / targetW, ch / targetH) * 0.9;
-        if (s > 1.2) s = 1.0; // あまり大きすぎないように
-        canvasScale = s;
-    } else {
-        canvasScale = 1;
-    }
-
     updateCanvasTransform();
 };
 
@@ -1593,7 +1839,7 @@ function initCanvasZoom() {
     if (!view) return;
 
     // 初期化時にリセット（flex レイアウト確定後に実行）
-    requestAnimationFrame(() => resetCanvasView());
+    requestAnimationFrame(() => fitCanvasView());
 
     // Pan handling
     let isPanning = false;
@@ -1926,7 +2172,7 @@ window.loadAndRepress = (pid) => {
 
 // 新規プロジェクト
 window.newProject = () => {
-    if (state.projectId && !confirm('現在のプロジェクトを閉じて新しいプロジェクトを作成しますか？')) return;
+    if (state.projectId && !confirm('現在のプロジェクトを閉じて新しいプロジェクトを作成しますか？')) return false;
     dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'projectId', value: null } });
     dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'projectName', value: '' } });
     dispatch({ type: actionTypes.SET_TITLE, payload: '' });
@@ -1953,6 +2199,7 @@ window.newProject = () => {
     refresh();
     renderLangSettings();
     closeProjectModal();
+    return true;
 };
 
 function setRibbonTab(tabName) {
@@ -2213,6 +2460,7 @@ window.saveProjectSettings = () => {
 // ===== Room Navigation =====
 window.switchRoom = (room) => {
     document.body.dataset.room = room;
+    syncStudioShell();
     if (room === 'home') {
         renderHomeDashboard().catch((e) => console.warn('[Home] render failed:', e));
     }
@@ -2232,6 +2480,14 @@ window.togglePageStrip = () => {
     }
 };
 
+window.handleMobileHeaderNav = () => {
+    const navBtn = document.getElementById('mobile-header-nav');
+    const targetRoom = navBtn?.dataset.targetRoom;
+    if (targetRoom) {
+        window.switchRoom(targetRoom);
+    }
+};
+
 window.uploadAsset = () => {
     const input = document.createElement('input');
     input.type = 'file';
@@ -2246,13 +2502,107 @@ window.uploadAsset = () => {
     input.click();
 };
 
+const MOBILE_ROOM_ACTIONS = {
+    home: [
+        {
+            key: 'new-project',
+            icon: 'add_circle',
+            labelKey: 'bottom_new_project',
+            onClick: () => {
+                if (newProject()) {
+                    window.switchRoom('editor');
+                }
+            }
+        },
+        {
+            key: 'open-local',
+            icon: 'folder_open',
+            labelKey: 'bottom_open_local',
+            onClick: () => document.getElementById('dsp-upload')?.click()
+        },
+        {
+            key: 'menu',
+            icon: 'menu',
+            labelKey: 'bottom_menu',
+            sheet: 'menu'
+        }
+    ],
+    editor: [
+        { key: 'pages', icon: 'view_carousel', labelKey: 'bottom_pages', sheet: 'pages' },
+        { key: 'add', icon: 'add_circle', labelKey: 'bottom_add', sheet: 'add' },
+        { key: 'edit', icon: 'tune', labelKey: 'bottom_edit', sheet: 'edit' },
+        { key: 'export', icon: 'ios_share', labelKey: 'bottom_export', sheet: 'export' },
+        { key: 'menu', icon: 'menu', labelKey: 'bottom_menu', sheet: 'menu' }
+    ],
+    press: [
+        { key: 'menu', icon: 'menu', labelKey: 'bottom_menu', sheet: 'menu' }
+    ],
+    works: [
+        { key: 'menu', icon: 'menu', labelKey: 'bottom_menu', sheet: 'menu' }
+    ]
+};
+
 let activeMobileSheet = null;
 let lastDeviceKey = getDeviceKey();
+
+function getMobileActionConfigs(room = getCurrentRoom()) {
+    return MOBILE_ROOM_ACTIONS[room] || [];
+}
 
 function setBottomBarActive(actionName) {
     document.querySelectorAll('.bottom-item').forEach((item) => {
         item.classList.toggle('active', item.dataset.mobileAction === actionName);
     });
+}
+
+function syncMobileMenuSheet() {
+    const room = getCurrentRoom();
+    document.querySelectorAll('[data-mobile-room-only]').forEach((el) => {
+        el.hidden = el.dataset.mobileRoomOnly !== room;
+    });
+}
+
+function handleMobileBottomAction(actionKey) {
+    const action = getMobileActionConfigs().find((item) => item.key === actionKey);
+    if (!action) return;
+    if (action.sheet) {
+        openMobileSheet(action.sheet);
+        return;
+    }
+    closeMobileSheet();
+    action.onClick?.();
+}
+
+function renderMobileBottomBar() {
+    const bottomBar = document.getElementById('bottom-bar');
+    if (!bottomBar) return;
+    const device = getDeviceKey();
+    const actions = device === 'mobile' ? getMobileActionConfigs() : [];
+
+    document.body.classList.toggle('mobile-bottom-visible', actions.length > 0);
+
+    if (!actions.length) {
+        bottomBar.innerHTML = '';
+        setBottomBarActive(null);
+        return;
+    }
+
+    bottomBar.style.setProperty('--mobile-bottom-columns', String(actions.length));
+    bottomBar.innerHTML = actions.map((action) => `
+        <button class="bottom-item" data-mobile-action="${action.key}">
+            <span class="material-icons">${action.icon}</span><span>${t(action.labelKey)}</span>
+        </button>
+    `).join('');
+
+    bottomBar.querySelectorAll('.bottom-item').forEach((item) => {
+        item.addEventListener('click', () => handleMobileBottomAction(item.dataset.mobileAction));
+    });
+
+    if (activeMobileSheet && !actions.some((action) => action.key === activeMobileSheet || action.sheet === activeMobileSheet)) {
+        closeMobileSheet();
+    } else {
+        setBottomBarActive(activeMobileSheet);
+    }
 }
 
 window.closeMobileSheet = () => {
@@ -2297,12 +2647,12 @@ window.openMobileSheet = (sheetName) => {
     }
 
     const map = {
-        home: 'mobile-sheet-home',
+        menu: 'mobile-sheet-menu',
         add: 'mobile-sheet-add',
         export: 'mobile-sheet-export',
         lang: 'mobile-sheet-lang'
     };
-    openMobileActionSheet(map[sheetName] || 'mobile-sheet-home');
+    openMobileActionSheet(map[sheetName] || 'mobile-sheet-menu');
 };
 
 function initUIChrome() {
@@ -2313,24 +2663,19 @@ function initUIChrome() {
     document.getElementById('btn-toggle-sidebar')?.addEventListener('click', () => window.toggleDrawer('assets'));
     document.getElementById('btn-toggle-panel')?.addEventListener('click', () => toggleDesktopPanel('right'));
 
-    document.querySelectorAll('.bottom-item').forEach((item) => {
-        item.addEventListener('click', () => openMobileSheet(item.dataset.mobileAction));
-    });
-
     window.addEventListener('resize', () => {
-        if (window.innerWidth >= 1024) {
-            closeMobileSheet();
-        }
         const currentDeviceKey = getDeviceKey();
         if (currentDeviceKey !== lastDeviceKey) {
             lastDeviceKey = currentDeviceKey;
             applyThumbColumnsFromPrefs();
             refresh();
         }
+        syncStudioShell();
     });
 
     setRibbonTab('home');
     syncDesktopToggleButtons();
+    syncStudioShell();
 }
 
 // 後方互換: 旧モバイルナビAPI
@@ -2375,6 +2720,7 @@ window.setStudioUILang = (lang) => {
         renderLangSettings();
         renderLangAddSelect();
     }
+    syncStudioShell();
 };
 
 // --- 初回描画 ---
@@ -2548,7 +2894,7 @@ function initContextMenu() {
             // キャンバス（何もない場所）で右クリックした場合
             contextMenu.innerHTML = `
                 <div class="context-menu-item" onclick="addBubbleAtPointer(event)">
-                    <span class="material-icons">chat_bubble_outline</span> ここに吹き出しを追加
+                    <span class="material-icons">text_fields</span> ここにテキストを追加
                 </div>
             `;
             // ポインター座標を一時保存（addBubbleAtPointerで使う）
@@ -2604,7 +2950,7 @@ window.addBubbleAtPointer = function (e) {
     pushState();
     const newBubble = {
         id: 'bubble_' + Date.now(),
-        shape: 'speech',
+        shape: 'rect',
         text: 'テキスト',
         x: x.toFixed(1),
         y: y.toFixed(1),
