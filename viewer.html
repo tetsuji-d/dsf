@@ -12,6 +12,7 @@
     <link
         href="https://fonts.googleapis.com/css2?family=Noto+Sans:wght@400;700&family=Noto+Sans+JP:wght@400;700&family=Noto+Serif:wght@400;700&family=Noto+Serif+JP:wght@400;700&display=swap"
         rel="stylesheet">
+    <link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet">
     <script src="https://accounts.google.com/gsi/client" async defer></script>
 </head>
 
@@ -42,7 +43,9 @@
     <div id="viewer-ui">
         <div id="viewer-header" class="ui-bar">
             <!-- Left: Close Button -->
-            <button id="viewer-close-btn" class="btn-icon header-btn" onclick="toggleUi()" title="閉じる">✕</button>
+            <button id="viewer-close-btn" class="btn-icon header-btn" onclick="toggleUi()" title="閉じる">
+                <span class="material-icons" aria-hidden="true">close</span>
+            </button>
 
             <!-- Center: Title -->
             <div class="ui-title" id="ui-title"></div>
@@ -58,7 +61,9 @@
                     <div id="lang-picker-menu" class="viewer-lang-picker-menu"></div>
                 </div>
                 <button id="viewer-file-btn" class="btn-icon header-btn" onclick="document.getElementById('file-input').click()"
-                    title="ファイルを開く">📂</button>
+                    title="ファイルを開く">
+                    <span class="material-icons" aria-hidden="true">folder_open</span>
+                </button>
             </div>
         </div>
 
@@ -80,8 +85,8 @@
                 <div class="footer-nav-group">
                     <span id="page-count" class="page-count">1 / 1</span>
                     <div class="viewer-nav-btns">
-                        <button id="viewer-nav-left" class="nav-btn" onclick="viewerNavLeft()">◀</button>
-                        <button id="viewer-nav-right" class="nav-btn" onclick="viewerNavRight()">▶</button>
+                        <button id="viewer-nav-left" class="nav-btn" onclick="viewerNavLeft()"><span class="material-icons" aria-hidden="true">chevron_left</span></button>
+                        <button id="viewer-nav-right" class="nav-btn" onclick="viewerNavRight()"><span class="material-icons" aria-hidden="true">chevron_right</span></button>
                     </div>
                 </div>
             </div>

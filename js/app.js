@@ -505,6 +505,10 @@ function getMobileHeaderNavTarget(room) {
     return null;
 }
 
+function isMobileHomeDrawerOpen() {
+    return document.body.classList.contains('mobile-home-drawer-open');
+}
+
 function syncMobileHeader() {
     const room = getCurrentRoom();
     const navBtn = document.getElementById('mobile-header-nav');
@@ -526,6 +530,14 @@ function syncMobileHeader() {
         navBtn.dataset.targetRoom = navTarget || '';
         navBtn.title = navTarget ? getRoomLabel(navTarget) : '';
         navBtn.setAttribute('aria-label', navBtn.title || roomText);
+        const icon = navBtn.querySelector('.material-icons');
+        if (icon) {
+            icon.textContent = room === 'editor' ? 'menu_open' : 'arrow_back';
+        }
+        if (room === 'editor') {
+            navBtn.title = t('tab_home');
+            navBtn.setAttribute('aria-label', t('tab_home'));
+        }
     }
     if (authBtn) {
         authBtn.classList.toggle('signed-in', !!state.uid);
@@ -551,6 +563,9 @@ function syncStudioShell() {
 
     if ((device !== 'mobile' || room !== 'editor') && typeof window.closeMobileSheet === 'function') {
         window.closeMobileSheet();
+    }
+    if (device !== 'mobile' || room !== 'editor') {
+        closeMobileHomeDrawer();
     }
 
     syncMobileHeader();
@@ -2030,7 +2045,7 @@ window.shareProject = async () => {
     const host = window.location.host;
     const visibility = state.visibility || 'private';
     if (visibility === 'private') {
-        alert('現在の状態は「🔒 非公開」です。\nこのままでは作品を共有できません。上部メニューから「🔗 限定公開」か「🌍 公開」に変更してください。');
+        alert('現在の状態は「非公開」です。\nこのままでは作品を共有できません。上部メニューから「限定公開」か「公開」に変更してください。');
         return;
     }
     const url = `${window.location.protocol}//${host}/viewer?project=${encodeURIComponent(state.projectId)}&author=${encodeURIComponent(state.uid)}`;
@@ -2047,9 +2062,9 @@ window.updateVisibility = async (val) => {
     dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'visibility', value: val } });
     await flushSave();
     const map = {
-        'private': '🔒 非公開（自分だけの状態）',
-        'unlisted': '🔗 限定公開（URLを知っている人のみ閲覧可能）',
-        'public': '🌍 公開（ポータルに掲載され誰でも閲覧可能）'
+        'private': '非公開（自分だけの状態）',
+        'unlisted': '限定公開（URLを知っている人のみ閲覧可能）',
+        'public': '公開（ポータルに掲載され誰でも閲覧可能）'
     };
     console.log(`[DSF] Visibility updated to ${val}`);
 };
@@ -2481,6 +2496,10 @@ window.togglePageStrip = () => {
 };
 
 window.handleMobileHeaderNav = () => {
+    if (getCurrentRoom() === 'editor' && window.innerWidth < 1024) {
+        window.toggleMobileHomeDrawer();
+        return;
+    }
     const navBtn = document.getElementById('mobile-header-nav');
     const targetRoom = navBtn?.dataset.targetRoom;
     if (targetRoom) {
@@ -2616,6 +2635,29 @@ window.closeMobileSheet = () => {
     setBottomBarActive(null);
 };
 
+window.closeMobileHomeDrawer = () => {
+    document.body.classList.remove('mobile-home-drawer-open');
+};
+
+window.openMobileHomeDrawer = () => {
+    if (window.innerWidth >= 1024 || getCurrentRoom() !== 'editor') return;
+    closeMobileSheet();
+    document.body.classList.add('mobile-home-drawer-open');
+};
+
+window.toggleMobileHomeDrawer = () => {
+    if (isMobileHomeDrawerOpen()) {
+        closeMobileHomeDrawer();
+    } else {
+        openMobileHomeDrawer();
+    }
+};
+
+window.closeMobileOverlays = () => {
+    closeMobileSheet();
+    closeMobileHomeDrawer();
+};
+
 function openMobileActionSheet(contentId) {
     const actionSheet = document.getElementById('mobile-action-sheet');
     if (!actionSheet) return;
@@ -2632,6 +2674,7 @@ window.openMobileSheet = (sheetName) => {
         return;
     }
 
+    closeMobileHomeDrawer();
     closeMobileSheet();
     activeMobileSheet = sheetName;
     document.body.classList.add('mobile-sheet-active');
@@ -2662,6 +2705,74 @@ function initUIChrome() {
 
     document.getElementById('btn-toggle-sidebar')?.addEventListener('click', () => window.toggleDrawer('assets'));
     document.getElementById('btn-toggle-panel')?.addEventListener('click', () => toggleDesktopPanel('right'));
+
+    let mobileHomeDrawerSwipe = null;
+    document.addEventListener('touchstart', (e) => {
+        if (window.innerWidth >= 1024 || getCurrentRoom() !== 'editor' || activeMobileSheet || isMobileHomeDrawerOpen()) return;
+        const touch = e.touches?.[0];
+        if (!touch) return;
+        if (touch.clientX > 24) return;
+        mobileHomeDrawerSwipe = {
+            startX: touch.clientX,
+            startY: touch.clientY,
+            opened: false
+        };
+    }, { passive: true });
+
+    document.addEventListener('touchmove', (e) => {
+        if (!mobileHomeDrawerSwipe || mobileHomeDrawerSwipe.opened) return;
+        const touch = e.touches?.[0];
+        if (!touch) return;
+        const dx = touch.clientX - mobileHomeDrawerSwipe.startX;
+        const dy = Math.abs(touch.clientY - mobileHomeDrawerSwipe.startY);
+        if (dy > 36) {
+            mobileHomeDrawerSwipe = null;
+            return;
+        }
+        if (dx > 56) {
+            openMobileHomeDrawer();
+            mobileHomeDrawerSwipe.opened = true;
+            mobileHomeDrawerSwipe = null;
+        }
+    }, { passive: true });
+
+    document.addEventListener('touchend', () => {
+        mobileHomeDrawerSwipe = null;
+    }, { passive: true });
+
+    const mobileHomeDrawer = document.getElementById('mobile-home-drawer');
+    let mobileHomeDrawerCloseSwipe = null;
+    mobileHomeDrawer?.addEventListener('touchstart', (e) => {
+        if (!isMobileHomeDrawerOpen()) return;
+        const touch = e.touches?.[0];
+        if (!touch) return;
+        const rect = mobileHomeDrawer.getBoundingClientRect();
+        if ((rect.right - touch.clientX) > 36) return;
+        mobileHomeDrawerCloseSwipe = {
+            startX: touch.clientX,
+            startY: touch.clientY
+        };
+    }, { passive: true });
+
+    mobileHomeDrawer?.addEventListener('touchmove', (e) => {
+        if (!mobileHomeDrawerCloseSwipe) return;
+        const touch = e.touches?.[0];
+        if (!touch) return;
+        const dx = touch.clientX - mobileHomeDrawerCloseSwipe.startX;
+        const dy = Math.abs(touch.clientY - mobileHomeDrawerCloseSwipe.startY);
+        if (dy > 36) {
+            mobileHomeDrawerCloseSwipe = null;
+            return;
+        }
+        if (dx < -48) {
+            closeMobileHomeDrawer();
+            mobileHomeDrawerCloseSwipe = null;
+        }
+    }, { passive: true });
+
+    mobileHomeDrawer?.addEventListener('touchend', () => {
+        mobileHomeDrawerCloseSwipe = null;
+    }, { passive: true });
 
     window.addEventListener('resize', () => {
         const currentDeviceKey = getDeviceKey();
@@ -2867,8 +2978,8 @@ function initContextMenu() {
                 })();
 
                 const shapeOptions = [
-                    ['speech', '💬 角丸'], ['oval', '⭕ 楕円'], ['rect', '📄 四角'],
-                    ['cloud', '☁️ 雲'], ['wave', '🌊 波'], ['thought', '💭 思考'],
+                    ['speech', '角丸'], ['oval', '楕円'], ['rect', '四角'],
+                    ['cloud', '雲'], ['wave', '波'], ['thought', '思考'],
                     ['explosion', '💥 爆発'], ['digital', '📡 電子音'],
                     ['shout', '⚡ ギザギザ'], ['flash', '✨ フラッシュ'], ['urchin', '🦔 ウニフラッシュ']
                 ].map(([v, l]) =>

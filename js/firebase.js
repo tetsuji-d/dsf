@@ -377,7 +377,7 @@ function updateSaveIndicator(status, message) {
     const el = document.getElementById('save-status');
     if (!el) return;
 
-    const icons = { idle: '', saving: '💾', saved: '✓', error: '⚠' };
+    const icons = { idle: '', saving: '●', saved: '✓', error: '!' };
     const colors = { idle: '#999', saving: '#f0ad4e', saved: '#34c759', error: '#ff3b30' };
 
     el.textContent = `${icons[status]} ${message || ''}`;
