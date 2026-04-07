@@ -2358,6 +2358,46 @@ function renderProjectSettingsTable() {
 
     const langs = state.languages || ['ja'];
     const meta = state.meta || {};
+    const isMobile = window.innerWidth < 768 || document.body.dataset.device === 'mobile';
+
+    if (isMobile) {
+        const cards = langs.map((lang, idx) => {
+            const props = getLangProps(lang);
+            const dir = (state.languageConfigs?.[lang]?.pageDirection || 'ltr').toUpperCase();
+            const code = lang.toUpperCase();
+            const isDefault = idx === 0;
+            const defaultBadge = isDefault
+                ? `<span class="ps-default-badge">${t('ps_default_badge')}</span>`
+                : '';
+            const fields = PS_META_FIELDS.map(field => {
+                const val = (meta[lang]?.[field.key] || '').replace(/"/g, '&quot;');
+                const ph = (getLangProps(lang).placeholders?.[field.key] || '').replace(/"/g, '&quot;');
+                const control = field.type === 'textarea'
+                    ? `<textarea class="ps-meta-input" data-lang="${lang}" data-key="${field.key}" placeholder="${ph}">${val}</textarea>`
+                    : `<input type="text" class="ps-meta-input" data-lang="${lang}" data-key="${field.key}" value="${val}" placeholder="${ph}">`;
+                return `
+                    <div class="ps-meta-mobile-field">
+                        <label class="ps-meta-mobile-label">${field.label}</label>
+                        ${control}
+                    </div>
+                `;
+            }).join('');
+            return `
+                <section class="ps-meta-mobile-card">
+                    <header class="ps-meta-mobile-head${isDefault ? ' ps-meta-header--default' : ''}">
+                        <div class="ps-meta-mobile-head-main">
+                            <div class="ps-meta-mobile-lang">${props.label}</div>
+                            <div class="ps-meta-mobile-sub">${code} / ${dir}</div>
+                        </div>
+                        ${defaultBadge}
+                    </header>
+                    <div class="ps-meta-mobile-body">${fields}</div>
+                </section>
+            `;
+        }).join('');
+        container.innerHTML = `<div class="ps-meta-mobile-list">${cards}</div>`;
+        return;
+    }
 
     // grid-template-columns: label col (fixed) + one col per language (fixed 180px each → horizontal scroll)
     const colTemplate = `120px ${langs.map(() => '320px').join(' ')}`;

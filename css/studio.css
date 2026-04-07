@@ -3596,6 +3596,81 @@ body.mobile-sheet-active #image-zoom-controls-floating {
     #project-grid {
         grid-template-columns: repeat(2, minmax(0, 1fr));
     }
+
+    .ps-overlay {
+        align-items: flex-start;
+        padding: 8px;
+    }
+
+    .ps-dialog {
+        max-height: calc(100vh - 16px);
+        border-radius: 14px;
+    }
+
+    .ps-header {
+        padding: 14px 16px;
+    }
+
+    .ps-header h2 {
+        font-size: 15px;
+    }
+
+    .ps-body {
+        padding: 6px 12px 0;
+    }
+
+    .ps-section {
+        padding: 14px 0;
+    }
+
+    .ps-field input[type="text"],
+    .ps-field select,
+    .ps-field textarea {
+        width: 100%;
+        max-width: 100%;
+        font-size: 16px;
+    }
+
+    .ps-lang-list {
+        flex-direction: column;
+        gap: 8px;
+    }
+
+    .ps-lang-list .lang-item {
+        width: 100%;
+        justify-content: space-between;
+        gap: 8px;
+        flex-wrap: wrap;
+        padding: 8px 10px;
+    }
+
+    .lang-item-label {
+        flex: 1 1 auto;
+        min-width: 0;
+        white-space: normal;
+    }
+
+    .ps-lang-add {
+        width: 100%;
+        max-width: none;
+        flex-direction: column;
+        align-items: stretch;
+    }
+
+    .ps-lang-add .btn-sm {
+        width: 100%;
+        justify-content: center;
+    }
+
+    .ps-footer {
+        justify-content: stretch;
+        padding: 12px;
+    }
+
+    .ps-footer .btn {
+        flex: 1 1 0;
+        min-width: 0;
+    }
 }
 /* ===== Project Settings Modal ===== */
 .ps-overlay {
@@ -3940,6 +4015,68 @@ textarea.ps-meta-input {
     border-radius: 6px;
     font-size: 12px;
     background: #fff;
+}
+
+.ps-meta-mobile-list {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.ps-meta-mobile-card {
+    border: 1px solid #dde2ea;
+    border-radius: 10px;
+    overflow: hidden;
+    background: #fff;
+}
+
+.ps-meta-mobile-head {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 10px;
+    padding: 10px 12px;
+    background: #f7f9fc;
+    border-bottom: 1px solid #e5e8ed;
+}
+
+.ps-meta-mobile-head-main {
+    min-width: 0;
+}
+
+.ps-meta-mobile-lang {
+    font-size: 13px;
+    font-weight: 700;
+    color: #1a2030;
+}
+
+.ps-meta-mobile-sub {
+    margin-top: 3px;
+    font-size: 11px;
+    color: #7b8aa0;
+}
+
+.ps-meta-mobile-body {
+    display: flex;
+    flex-direction: column;
+}
+
+.ps-meta-mobile-field {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding: 10px 12px;
+    border-bottom: 1px solid #eef2f7;
+}
+
+.ps-meta-mobile-field:last-child {
+    border-bottom: none;
+}
+
+.ps-meta-mobile-label {
+    font-size: 12px;
+    font-weight: 600;
+    color: #3a4560;
 }
 
 .ps-footer {
