@@ -1,5 +1,19 @@
+import { getIdToken } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js";
+import { auth } from './firebase.js';
+
 function buildAssetProxyUrl(sourceUrl) {
     return `/asset-proxy?url=${encodeURIComponent(sourceUrl)}`;
+}
+
+async function getAuthHeaders() {
+    try {
+        const user = auth.currentUser;
+        if (!user) return {};
+        const token = await getIdToken(user);
+        return { Authorization: `Bearer ${token}` };
+    } catch {
+        return {};
+    }
 }
 
 export function shouldEmbedAsset(url) {
@@ -21,7 +35,9 @@ export function guessAssetExtension(url, fallback = 'webp') {
 
 export async function fetchAssetBlob(url, label = '画像') {
     try {
-        const response = await fetch(resolveAssetFetchUrl(url));
+        const resolvedUrl = resolveAssetFetchUrl(url);
+        const headers = resolvedUrl.startsWith('/asset-proxy') ? await getAuthHeaders() : {};
+        const response = await fetch(resolvedUrl, { headers });
         if (!response.ok) {
             throw new Error(`${label} の取得に失敗しました (${response.status})`);
         }

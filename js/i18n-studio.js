@@ -84,7 +84,9 @@ export const STRINGS = {
         // Sidebar – Pages (mobile)
         panel_pages:          'ページ',
         label_columns:        '列数:',
+        label_thumb_size:     'サイズ:',
         btn_add_section_sm:   '+ セクション追加',
+        thumb_delete_drop:    'ここにドロップで削除',
 
         // Icon bar
         icon_assets:          'アセット',
@@ -270,7 +272,9 @@ export const STRINGS = {
         // Sidebar – Pages (mobile)
         panel_pages:          'Pages',
         label_columns:        'Columns:',
+        label_thumb_size:     'Size:',
         btn_add_section_sm:   '+ Add Section',
+        thumb_delete_drop:    'Drop here to delete',
 
         // Icon bar
         icon_assets:          'Assets',

@@ -5,7 +5,7 @@ import { state, dispatch, actionTypes } from './state.js';
 import { saveProject as persistProject, loadProject, uploadToStorage, uploadCoverToStorage, uploadStructureToStorage, triggerAutoSave, flushSave, generateCroppedThumbnail, listLocalRecentProjects, loadLocalRecentProject, cacheLocalRecentProject } from './firebase.js';
 import { initGIS, signInWithGoogle, signOutUser, onAuthChanged } from './gis-auth.js';
 import { handleCanvasClick, selectBubble, renderBubbleHTML, getBubbleText, setBubbleText, addBubbleAtCenter, startDrag, startTailDrag, startSpikeDrag } from './bubbles.js';
-import { addSection, changeSection, changeBlock, insertStructureBlock, renderThumbs, deleteActive, insertSectionAt, duplicateSectionAt, moveSection, insertPageNearBlock, duplicateBlockAt, moveBlockAt, getOptimizedImageUrl } from './sections.js';
+import { addSection, changeSection, changeBlock, insertStructureBlock, renderThumbs, deleteActive, deleteSectionAt, insertSectionAt, duplicateSectionAt, moveSection, insertPageNearBlock, duplicateBlockAt, moveBlockAt, getOptimizedImageUrl } from './sections.js';
 import { pushState, undo, redo, getHistoryInfo, clearHistory } from './history.js';
 import { openProjectModal, closeProjectModal, fetchCloudProjects, getCoverImage, getPageCount, deleteCloudProject } from './projects.js';
 import { openWorksRoom, closeWorksRoom } from './works.js';
@@ -472,6 +472,8 @@ function updateAuthUI() {
 }
 
 const THUMB_COLUMN_OPTIONS = [8, 5, 4, 2, 1];
+const MOBILE_THUMB_SIZE_MAP = { s: 4, m: 2, l: 1 };
+const MOBILE_THUMB_SIZE_BY_COLS = { 4: 's', 2: 'm', 1: 'l' };
 
 function getDeviceKey() {
     return window.innerWidth < 1024 ? 'mobile' : 'desktop';
@@ -580,6 +582,11 @@ function sanitizeThumbColumns(value) {
     return 2;
 }
 
+function getMobileThumbSizeKey(value = state.thumbColumns) {
+    const n = sanitizeThumbColumns(value);
+    return MOBILE_THUMB_SIZE_BY_COLS[n] || 'm';
+}
+
 function ensureUiPrefs() {
     if (!state.uiPrefs || typeof state.uiPrefs !== 'object') {
         state.uiPrefs = {};
@@ -606,6 +613,10 @@ function syncThumbColumnButtons() {
         const isActive = Number(btn.dataset.thumbCols) === active;
         btn.classList.toggle('active', isActive);
     });
+    const activeSize = getMobileThumbSizeKey(active);
+    document.querySelectorAll('[data-thumb-size]').forEach((btn) => {
+        btn.classList.toggle('active', btn.dataset.thumbSize === activeSize);
+    });
 }
 
 function setCurrentDeviceThumbColumns(cols) {
@@ -619,7 +630,9 @@ function setCurrentDeviceThumbColumns(cols) {
 // ──────────────────────────────────────
 //  refresh — 画面全体を再描画する (Gen3: image pages only)
 // ──────────────────────────────────────
-function refresh() {
+function refresh(options = {}) {
+    const skipAncillary = !!options.skipAncillary;
+    const skipThumbs = !!options.skipThumbs;
     const visSelect = document.getElementById('prop-visibility');
     if (visSelect && document.activeElement !== visSelect) {
         visSelect.value = state.visibility || 'private';
@@ -769,16 +782,57 @@ function refresh() {
     }
 
     // 言語タブの更新
-    renderLangTabs();
+    if (!skipAncillary) {
+        renderLangTabs();
+        syncLangPanel();
+        renderLangSettings();
+        updateHistoryButtons();
+    }
+    if (!skipThumbs) {
+        renderThumbs();
+    }
+    if (!skipAncillary) {
+        syncThumbColumnButtons();
+        syncStudioShell();
+    }
+}
 
-    // 言語パネルの同期
-    syncLangPanel();
-    renderLangSettings();
+function captureViewportSnapshot() {
+    const sidebarPages = document.querySelector('.sidebar-pages');
+    const editorMain = document.getElementById('editor-main');
+    return {
+        windowX: window.scrollX,
+        windowY: window.scrollY,
+        sidebarPagesScrollTop: sidebarPages?.scrollTop ?? 0,
+        editorMainScrollTop: editorMain?.scrollTop ?? 0
+    };
+}
 
-    updateHistoryButtons();
-    renderThumbs();
-    syncThumbColumnButtons();
-    syncStudioShell();
+function restoreViewportSnapshot(snapshot) {
+    if (!snapshot) return;
+    requestAnimationFrame(() => {
+        window.scrollTo(snapshot.windowX, snapshot.windowY);
+        const sidebarPages = document.querySelector('.sidebar-pages');
+        if (sidebarPages) sidebarPages.scrollTop = snapshot.sidebarPagesScrollTop;
+        const editorMain = document.getElementById('editor-main');
+        if (editorMain) editorMain.scrollTop = snapshot.editorMainScrollTop;
+    });
+}
+
+function refreshForThumbSelection() {
+    const snapshot = captureViewportSnapshot();
+    refresh({ skipAncillary: true, skipThumbs: true });
+    syncThumbSelectionDom();
+    restoreViewportSnapshot(snapshot);
+}
+
+function syncThumbSelectionDom() {
+    document.querySelectorAll('.thumb-wrap, .thumb-row').forEach((el) => {
+        const blockIndex = Number(el.dataset.blockIndex);
+        const isActive = Number.isInteger(blockIndex) && blockIndex === state.activeBlockIdx;
+        el.classList.toggle('active', isActive);
+        el.setAttribute('aria-current', isActive ? 'true' : 'false');
+    });
 }
 
 // ──────────────────────────────────────
@@ -847,12 +901,178 @@ let suppressThumbClickUntil = 0;
 
 function clearThumbDropHints() {
     document.querySelectorAll('.thumb-wrap').forEach((el) => {
-        el.classList.remove('drop-before', 'drop-after', 'drag-source');
+        el.classList.remove(
+            'drop-before',
+            'drop-after',
+            'drag-source',
+            'preview-gap-left',
+            'preview-gap-right',
+            'preview-gap-left-edge',
+            'preview-gap-right-edge'
+        );
     });
+    document.getElementById('thumb-drop-indicator')?.remove();
+    document.getElementById('thumb-drop-preview')?.remove();
 }
 
 function getThumbElement(index) {
     return document.querySelector(`.thumb-wrap[data-section-index="${index}"]`);
+}
+
+function setThumbDeleteDropzoneActive(active) {
+    const zone = document.getElementById('thumb-delete-dropzone');
+    if (!zone) return;
+    zone.classList.toggle('is-active', !!active);
+}
+
+function clearThumbDeleteDropzone() {
+    document.body.classList.remove('thumb-delete-mode');
+    setThumbDeleteDropzoneActive(false);
+}
+
+function isPointInThumbDeleteDropzone(clientX, clientY) {
+    const zone = document.getElementById('thumb-delete-dropzone');
+    if (!zone || zone.offsetParent === null) return false;
+    const rect = zone.getBoundingClientRect();
+    return clientX >= rect.left && clientX <= rect.right && clientY >= rect.top && clientY <= rect.bottom;
+}
+
+function getThumbTargetFromPoint(clientX, clientY) {
+    const hit = document.elementFromPoint(clientX, clientY);
+    const direct = hit ? hit.closest('.thumb-wrap') : null;
+    if (direct) return direct;
+    const container = document.getElementById('thumb-container');
+    if (!container) return null;
+    const thumbs = [...container.querySelectorAll('.thumb-wrap[data-section-index]')];
+    if (!thumbs.length) return null;
+    let nearest = null;
+    let nearestDistance = Number.POSITIVE_INFINITY;
+    thumbs.forEach((thumb) => {
+        const rect = thumb.getBoundingClientRect();
+        const centerX = rect.left + rect.width / 2;
+        const centerY = rect.top + rect.height / 2;
+        const dist = Math.hypot(clientX - centerX, clientY - centerY);
+        if (dist < nearestDistance) {
+            nearest = thumb;
+            nearestDistance = dist;
+        }
+    });
+    return nearest;
+}
+
+function getThumbVisualThumbs() {
+    const container = document.getElementById('thumb-container');
+    if (!container) return [];
+    return [...container.querySelectorAll('.thumb-wrap[data-section-index]')].sort((a, b) => {
+        const rectA = a.getBoundingClientRect();
+        const rectB = b.getBoundingClientRect();
+        return rectA.left - rectB.left;
+    });
+}
+
+function getMobileThumbInsertTarget(clientX) {
+    const container = document.getElementById('thumb-container');
+    if (!container) return null;
+    const sourceIndex = Number(thumbTouchState?.sourceIndex ?? thumbDragSourceIdx);
+    const sourceEl = getThumbElement(sourceIndex);
+    if (!sourceEl) return null;
+    const sourceRect = sourceEl.getBoundingClientRect();
+    const visualThumbs = getThumbVisualThumbs().filter((thumb) => Number(thumb.dataset.sectionIndex) !== sourceIndex);
+    const dir = container.dataset.dir === 'rtl' ? 'rtl' : 'ltr';
+    if (!visualThumbs.length) {
+        const containerRect = container.getBoundingClientRect();
+        return {
+            insertIndex: 0,
+            boundary: containerRect.left + sourceRect.width / 2,
+            top: sourceRect.top,
+            height: sourceRect.height,
+            sourceRect,
+            leftEl: null,
+            rightEl: null
+        };
+    }
+    const rects = visualThumbs.map((thumb) => ({
+        el: thumb,
+        index: Number(thumb.dataset.sectionIndex),
+        rect: thumb.getBoundingClientRect()
+    }));
+    const first = rects[0];
+    const last = rects[rects.length - 1];
+    if (clientX <= first.rect.left + first.rect.width / 2) {
+        return {
+            insertIndex: dir === 'rtl' ? first.index + 1 : first.index,
+            boundary: first.rect.left,
+            top: first.rect.top,
+            height: first.rect.height,
+            sourceRect,
+            leftEl: null,
+            rightEl: first.el
+        };
+    }
+    for (let i = 0; i < rects.length - 1; i += 1) {
+        const left = rects[i];
+        const right = rects[i + 1];
+        const midpoint = (left.rect.right + right.rect.left) / 2;
+        if (clientX <= midpoint) {
+            return {
+                insertIndex: dir === 'rtl' ? left.index : right.index,
+                boundary: (left.rect.right + right.rect.left) / 2,
+                top: Math.min(left.rect.top, right.rect.top),
+                height: Math.max(left.rect.height, right.rect.height),
+                sourceRect,
+                leftEl: left.el,
+                rightEl: right.el
+            };
+        }
+    }
+    return {
+        insertIndex: dir === 'rtl' ? last.index : last.index + 1,
+        boundary: last.rect.right,
+        top: last.rect.top,
+        height: last.rect.height,
+        sourceRect,
+        leftEl: last.el,
+        rightEl: null
+    };
+}
+
+function showMobileThumbInsertPreview(target) {
+    const container = document.getElementById('thumb-container');
+    const sourceEl = getThumbElement(thumbTouchState?.sourceIndex ?? thumbDragSourceIdx);
+    if (!container || !sourceEl || !target) return;
+    clearThumbDropHints();
+    sourceEl.classList.add('drag-source');
+
+    const containerRect = container.getBoundingClientRect();
+    const leftPx = target.boundary - containerRect.left + container.scrollLeft;
+    const topPx = target.top - containerRect.top + container.scrollTop;
+
+    if (target.leftEl && target.rightEl) {
+        target.leftEl.classList.add('preview-gap-right');
+        target.rightEl.classList.add('preview-gap-left');
+    } else if (target.leftEl) {
+        target.leftEl.classList.add('preview-gap-right-edge');
+    } else if (target.rightEl) {
+        target.rightEl.classList.add('preview-gap-left-edge');
+    }
+
+    const indicator = document.createElement('div');
+    indicator.id = 'thumb-drop-indicator';
+    indicator.style.left = `${leftPx - 2}px`;
+    indicator.style.top = `${topPx + 6}px`;
+    indicator.style.height = `${Math.max(40, target.height - 12)}px`;
+    container.appendChild(indicator);
+
+    const preview = sourceEl.cloneNode(true);
+    preview.id = 'thumb-drop-preview';
+    preview.removeAttribute('onclick');
+    preview.removeAttribute('ontouchstart');
+    preview.removeAttribute('draggable');
+    preview.style.width = `${target.sourceRect.width}px`;
+    preview.style.minWidth = `${target.sourceRect.width}px`;
+    preview.style.left = `${leftPx - target.sourceRect.width / 2}px`;
+    preview.style.top = `${topPx}px`;
+    container.appendChild(preview);
 }
 
 function markThumbDropHint(index, position) {
@@ -864,8 +1084,14 @@ function markThumbDropHint(index, position) {
     el.classList.add(position === 'before' ? 'drop-before' : 'drop-after');
 }
 
-function getDropPositionByPoint(el, clientY) {
+function getDropPositionByPoint(el, clientX, clientY) {
     const rect = el.getBoundingClientRect();
+    if (window.innerWidth < 1024) {
+        const isRtl = window.getComputedStyle(el.parentElement).flexDirection === 'row-reverse';
+        const before = clientX < (rect.left + rect.width / 2);
+        if (isRtl) return before ? 'after' : 'before';
+        return before ? 'before' : 'after';
+    }
     return clientY < (rect.top + rect.height / 2) ? 'before' : 'after';
 }
 
@@ -875,7 +1101,28 @@ function moveSectionWithHistory(fromIndex, targetIndex, position) {
     let to = Math.max(0, Math.min(insertIndex, state.sections.length));
     if (to === from || to === from + 1) return false;
     pushState();
-    moveSection(from, to, refresh);
+    moveSection(from, to, refreshForThumbSelection);
+    triggerAutoSave();
+    return true;
+}
+
+function moveSectionToInsertIndexWithHistory(fromIndex, insertIndex) {
+    const from = Number(fromIndex);
+    const to = Math.max(0, Math.min(Number(insertIndex), state.sections.length));
+    if (!Number.isInteger(from) || !Number.isInteger(to)) return false;
+    if (to === from || to === from + 1) return false;
+    pushState();
+    moveSection(from, to, refreshForThumbSelection);
+    triggerAutoSave();
+    return true;
+}
+
+function deleteSectionWithHistory(sectionIndex) {
+    const idx = Number(sectionIndex);
+    if (!Number.isInteger(idx) || idx < 0 || idx >= state.sections.length) return false;
+    if (state.sections.length <= 1) return false;
+    pushState();
+    deleteSectionAt(idx, refreshForThumbSelection);
     triggerAutoSave();
     return true;
 }
@@ -896,60 +1143,133 @@ function onThumbTouchMove(e) {
     if (!thumbTouchState) return;
     const touch = e.touches && e.touches[0];
     if (!touch) return;
+    thumbTouchState.lastX = touch.clientX;
+    thumbTouchState.lastY = touch.clientY;
 
     const dx = touch.clientX - thumbTouchState.startX;
     const dy = touch.clientY - thumbTouchState.startY;
 
-    if (!thumbTouchState.active && Math.hypot(dx, dy) > 10) {
-        clearTimeout(thumbTouchState.timerId);
-        thumbTouchState.timerId = null;
-        thumbTouchState = null;
-        unbindTouchDragListeners();
+    if (!thumbTouchState.active) {
+        if (Math.abs(dx) > 18 && Math.abs(dx) > Math.abs(dy) + 6) {
+            thumbTouchState = null;
+            unbindTouchDragListeners();
+            clearThumbDropHints();
+            clearThumbDeleteDropzone();
+            thumbDragSourceIdx = null;
+            return;
+        }
+        if (dy <= -12 && Math.abs(dy) > Math.abs(dx) + 4) {
+            thumbTouchState.active = true;
+            thumbTouchState.mode = 'move';
+            const sourceEl = getThumbElement(thumbTouchState.sourceIndex);
+            if (sourceEl) sourceEl.classList.add('drag-source');
+        } else if (dy >= 12 && Math.abs(dy) > Math.abs(dx) + 4) {
+            thumbTouchState.active = true;
+            thumbTouchState.mode = 'delete';
+            document.body.classList.add('thumb-delete-mode');
+            setThumbDeleteDropzoneActive(false);
+            const sourceEl = getThumbElement(thumbTouchState.sourceIndex);
+            if (sourceEl) sourceEl.classList.add('drag-source');
+        } else {
+            return;
+        }
+    }
+
+    e.preventDefault();
+    if (thumbTouchState.mode === 'delete') {
         clearThumbDropHints();
+        setThumbDeleteDropzoneActive(isPointInThumbDeleteDropzone(touch.clientX, touch.clientY));
         return;
     }
 
-    if (!thumbTouchState.active) return;
-
-    e.preventDefault();
-    const hit = document.elementFromPoint(touch.clientX, touch.clientY);
-    const wrap = hit ? hit.closest('.thumb-wrap') : null;
-    if (!wrap) return;
-
-    const targetIndex = Number(wrap.dataset.sectionIndex);
-    if (!Number.isInteger(targetIndex)) return;
-    const position = getDropPositionByPoint(wrap, touch.clientY);
-    thumbTouchState.targetIndex = targetIndex;
-    thumbTouchState.position = position;
-    markThumbDropHint(targetIndex, position);
+    if (window.innerWidth < 1024) {
+        const target = getMobileThumbInsertTarget(touch.clientX);
+        if (target) {
+            thumbTouchState.insertIndex = target.insertIndex;
+            showMobileThumbInsertPreview(target);
+        }
+    } else {
+        const wrap = getThumbTargetFromPoint(touch.clientX, touch.clientY);
+        if (!wrap) return;
+        const targetIndex = Number(wrap.dataset.sectionIndex);
+        if (!Number.isInteger(targetIndex)) return;
+        const position = getDropPositionByPoint(wrap, touch.clientX, touch.clientY);
+        thumbTouchState.targetIndex = targetIndex;
+        thumbTouchState.position = position;
+        markThumbDropHint(targetIndex, position);
+    }
 
     const container = document.getElementById('thumb-container');
     if (container) {
         const cRect = container.getBoundingClientRect();
-        if (touch.clientY < cRect.top + 40) container.scrollBy({ top: -20, behavior: 'auto' });
-        if (touch.clientY > cRect.bottom - 40) container.scrollBy({ top: 20, behavior: 'auto' });
+        if (window.innerWidth < 1024) {
+            if (touch.clientX < cRect.left + 40) container.scrollBy({ left: -24, behavior: 'auto' });
+            if (touch.clientX > cRect.right - 40) container.scrollBy({ left: 24, behavior: 'auto' });
+        } else {
+            if (touch.clientY < cRect.top + 40) container.scrollBy({ top: -20, behavior: 'auto' });
+            if (touch.clientY > cRect.bottom - 40) container.scrollBy({ top: 20, behavior: 'auto' });
+        }
     }
 }
 
-function onThumbTouchEnd() {
+function onThumbTouchEnd(e) {
     if (!thumbTouchState) return;
-    clearTimeout(thumbTouchState.timerId);
-    if (thumbTouchState.active && Number.isInteger(thumbTouchState.targetIndex)) {
-        moveSectionWithHistory(thumbTouchState.sourceIndex, thumbTouchState.targetIndex, thumbTouchState.position || 'after');
+    const endTouch = e?.changedTouches?.[0];
+    const endX = endTouch?.clientX ?? thumbTouchState.lastX ?? thumbTouchState.startX;
+    const endY = endTouch?.clientY ?? thumbTouchState.lastY ?? thumbTouchState.startY;
+    let changed = false;
+    if (thumbTouchState.active) {
+        if (thumbTouchState.mode === 'delete') {
+            if (isPointInThumbDeleteDropzone(endX, endY)) {
+                changed = deleteSectionWithHistory(thumbTouchState.sourceIndex);
+            }
+        } else {
+            if (window.innerWidth < 1024) {
+                const target = getMobileThumbInsertTarget(endX);
+                if (target) {
+                    thumbTouchState.insertIndex = target.insertIndex;
+                    showMobileThumbInsertPreview(target);
+                }
+                if (Number.isInteger(thumbTouchState.insertIndex)) {
+                    changed = moveSectionToInsertIndexWithHistory(thumbTouchState.sourceIndex, thumbTouchState.insertIndex);
+                }
+            } else {
+                const endWrap = getThumbTargetFromPoint(endX, endY);
+                if (endWrap) {
+                    const endTargetIndex = Number(endWrap.dataset.sectionIndex);
+                    if (Number.isInteger(endTargetIndex)) {
+                        thumbTouchState.targetIndex = endTargetIndex;
+                        thumbTouchState.position = getDropPositionByPoint(endWrap, endX, endY);
+                        markThumbDropHint(endTargetIndex, thumbTouchState.position);
+                    }
+                }
+                if (Number.isInteger(thumbTouchState.targetIndex)) {
+                    changed = moveSectionWithHistory(thumbTouchState.sourceIndex, thumbTouchState.targetIndex, thumbTouchState.position || 'after');
+                }
+            }
+        }
+    } else if (thumbTouchState.mode === 'delete' && isPointInThumbDeleteDropzone(endX, endY)) {
+        changed = deleteSectionWithHistory(thumbTouchState.sourceIndex);
+    } else {
+        changeSection(thumbTouchState.sourceIndex, refreshForThumbSelection);
+        changed = true;
+    }
+    if (changed) {
         suppressThumbClickUntil = Date.now() + 350;
     }
     thumbTouchState = null;
     unbindTouchDragListeners();
     clearThumbDropHints();
+    clearThumbDeleteDropzone();
     thumbDragSourceIdx = null;
 }
 
 function onThumbTouchCancel() {
     if (!thumbTouchState) return;
-    clearTimeout(thumbTouchState.timerId);
     thumbTouchState = null;
     unbindTouchDragListeners();
     clearThumbDropHints();
+    clearThumbDeleteDropzone();
     thumbDragSourceIdx = null;
 }
 
@@ -1616,11 +1936,11 @@ window.selectBubble = (e, i) => selectBubble(e, i, refresh);
 window.addSection = () => { pushState(); addSection(refresh); triggerAutoSave(); };
 window.changeSection = (i) => {
     if (Date.now() < suppressThumbClickUntil) return;
-    changeSection(i, refresh);
+    changeSection(i, refreshForThumbSelection);
 };
 window.changeBlock = (idx) => {
     if (Date.now() < suppressThumbClickUntil) return;
-    changeBlock(idx, refresh);
+    changeBlock(idx, refreshForThumbSelection);
 };
 window.insertSectionAtIndex = (idx, e) => {
     if (e) {
@@ -1681,7 +2001,7 @@ window.onThumbDragOver = (e, idx) => {
     e.preventDefault();
     const el = getThumbElement(idx);
     if (!el) return;
-    const position = getDropPositionByPoint(el, e.clientY);
+    const position = getDropPositionByPoint(el, e.clientX, e.clientY);
     markThumbDropHint(idx, position);
 };
 window.onThumbDragLeave = () => {
@@ -1692,7 +2012,7 @@ window.onThumbDrop = (e, idx) => {
     e.preventDefault();
     const el = getThumbElement(idx);
     if (!el) return;
-    const position = getDropPositionByPoint(el, e.clientY);
+    const position = getDropPositionByPoint(el, e.clientX, e.clientY);
     moveSectionWithHistory(thumbDragSourceIdx, idx, position);
     suppressThumbClickUntil = Date.now() + 250;
     thumbDragSourceIdx = null;
@@ -1706,21 +2026,20 @@ window.startThumbTouchDrag = (e, idx) => {
     if (e.touches?.length !== 1) return;
     const touch = e.touches[0];
     thumbDragSourceIdx = idx;
+    clearThumbDeleteDropzone();
+    clearThumbDropHints();
     thumbTouchState = {
         sourceIndex: idx,
+        mode: null,
         targetIndex: null,
+        insertIndex: null,
         position: 'after',
         startX: touch.clientX,
         startY: touch.clientY,
         active: false,
-        timerId: null
+        lastX: touch.clientX,
+        lastY: touch.clientY
     };
-    thumbTouchState.timerId = setTimeout(() => {
-        if (!thumbTouchState) return;
-        thumbTouchState.active = true;
-        const sourceEl = getThumbElement(idx);
-        if (sourceEl) sourceEl.classList.add('drag-source');
-    }, 320);
     bindTouchDragListeners();
 };
 window.deleteActive = () => { pushState(); deleteActive(refresh); triggerAutoSave(); };
@@ -1749,7 +2068,12 @@ window.setThumbColumns = (cols) => {
     refresh();
     triggerAutoSave();
 };
-window.setThumbSize = window.setThumbColumns;
+window.setThumbSize = (sizeKey) => {
+    const cols = MOBILE_THUMB_SIZE_MAP[sizeKey] || 2;
+    setCurrentDeviceThumbColumns(cols);
+    refresh();
+    triggerAutoSave();
+};
 window.uploadToStorage = (input) => { pushState(); uploadToStorage(input, refresh); };
 
 window.performUndo = () => { undo(refresh); triggerAutoSave(); };

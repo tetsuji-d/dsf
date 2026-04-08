@@ -1519,6 +1519,14 @@ body.drawer-open .sidebar-pages {
     grid-template-columns: 1fr;
 }
 
+.thumb-add-card {
+    display: none;
+}
+
+#thumb-delete-dropzone {
+    display: none;
+}
+
 .thumb-wrap {
     position: relative;
     cursor: pointer;
@@ -1554,6 +1562,7 @@ body.drawer-open .sidebar-pages {
     width: 100%;
     height: 100%;
     object-fit: cover;
+    display: block;
 }
 
 .thumb-canvas-meta {
@@ -1778,6 +1787,13 @@ body.drawer-open .sidebar-pages {
     display: inline-flex;
     align-items: center;
     justify-content: center;
+}
+
+.thumb-insert-btn .material-icons,
+.thumb-duplicate-btn .material-icons,
+.thumb-move-btn .material-icons {
+    font-size: 14px;
+    line-height: 1;
 }
 
 .thumb-insert-btn.before {
@@ -3586,11 +3602,232 @@ body.mobile-sheet-active #image-zoom-controls-floating {
         width: 94vw;
     }
 
-    .thumb-insert-btn,
-    .thumb-duplicate-btn,
+    .thumb-tools {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+        padding: 10px 12px 8px;
+    }
+
+    .thumb-tools label {
+        flex: 0 0 auto;
+    }
+
+    .thumb-size-buttons {
+        margin-top: 0;
+        flex: 0 0 auto;
+    }
+
+    #thumb-container {
+        display: flex;
+        flex-direction: row;
+        overflow-x: auto;
+        overflow-y: hidden;
+        position: relative;
+        align-items: stretch;
+        gap: 12px;
+        padding: 8px 12px 12px;
+        scroll-snap-type: x proximity;
+    }
+
+    #thumb-container[data-dir="rtl"] {
+        flex-direction: row-reverse;
+    }
+
+    #thumb-container[data-size="s"] .thumb-wrap,
+    #thumb-container[data-size="s"] .thumb-row,
+    #thumb-container[data-size="s"] .thumb-add-card {
+        width: 88px;
+        min-width: 88px;
+    }
+
+    #thumb-container[data-size="m"] .thumb-wrap,
+    #thumb-container[data-size="m"] .thumb-row,
+    #thumb-container[data-size="m"] .thumb-add-card {
+        width: 116px;
+        min-width: 116px;
+    }
+
+    #thumb-container[data-size="l"] .thumb-wrap,
+    #thumb-container[data-size="l"] .thumb-row,
+    #thumb-container[data-size="l"] .thumb-add-card {
+        width: 148px;
+        min-width: 148px;
+    }
+
+    .thumb-wrap,
+    .thumb-row,
+    .thumb-add-card {
+        scroll-snap-align: start;
+        transition: margin 0.16s ease, transform 0.16s ease, box-shadow 0.16s ease;
+    }
+
+    .thumb-row {
+        grid-column: auto;
+        min-height: auto;
+        flex-direction: column;
+        align-items: stretch;
+        justify-content: flex-start;
+        gap: 6px;
+        padding: 8px;
+    }
+
+    .thumb-row-main {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 4px;
+    }
+
+    .thumb-tree-indent {
+        display: none;
+    }
+
+    .thumb-row-actions {
+        display: none;
+    }
+
+    .thumb-insert-btn.before {
+        top: 50%;
+        left: -10px;
+        transform: translateY(-50%);
+    }
+
+    .thumb-insert-btn.after {
+        top: 50%;
+        bottom: auto;
+        left: auto;
+        right: -10px;
+        transform: translateY(-50%);
+    }
+
+    .thumb-duplicate-btn {
+        right: 6px;
+        top: 6px;
+    }
+
     .thumb-move-btn {
+        display: none !important;
+    }
+
+    .thumb-insert-btn,
+    .thumb-duplicate-btn {
+        opacity: 0;
+        pointer-events: none;
+    }
+
+    .thumb-wrap.active .thumb-insert-btn,
+    .thumb-wrap.active .thumb-duplicate-btn,
+    .thumb-row.active .thumb-insert-btn,
+    .thumb-row.active .thumb-duplicate-btn {
         opacity: 1;
         pointer-events: auto;
+    }
+
+    .thumb-wrap.drop-before::before,
+    .thumb-wrap.drop-after::after {
+        display: none;
+    }
+
+    #thumb-drop-indicator {
+        position: absolute;
+        width: 4px;
+        border-radius: 999px;
+        background: var(--primary);
+        box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.9);
+        z-index: 18;
+        pointer-events: none;
+    }
+
+    #thumb-drop-preview {
+        position: absolute;
+        z-index: 17;
+        opacity: 0.96;
+        pointer-events: none;
+        border-radius: 10px;
+        overflow: hidden;
+        box-shadow: 0 10px 26px rgba(23, 35, 64, 0.22);
+    }
+
+    #thumb-drop-preview .thumb-card-top,
+    #thumb-drop-preview .thumb-actions,
+    #thumb-drop-preview .thumb-insert-btn,
+    #thumb-drop-preview .thumb-duplicate-btn,
+    #thumb-drop-preview .thumb-move-btn {
+        display: none !important;
+    }
+
+    #thumb-drop-preview .thumb-card {
+        transform: scale(0.98);
+        transform-origin: center center;
+    }
+
+    .thumb-wrap.drag-source {
+        opacity: 0.28;
+    }
+
+    .thumb-wrap.preview-gap-left {
+        margin-left: 18px;
+    }
+
+    .thumb-wrap.preview-gap-right {
+        margin-right: 18px;
+    }
+
+    .thumb-wrap.preview-gap-left-edge {
+        margin-left: 36px;
+    }
+
+    .thumb-wrap.preview-gap-right-edge {
+        margin-right: 36px;
+    }
+
+    .thumb-add-card {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        aspect-ratio: 9 / 16;
+        border: 2px dashed #c8d3e6;
+        border-radius: 10px;
+        background: linear-gradient(180deg, #fbfcff 0%, #f3f7fd 100%);
+        color: #5174a6;
+        flex: 0 0 auto;
+    }
+
+    .thumb-add-card .material-icons {
+        font-size: 30px;
+        color: currentColor;
+    }
+
+    #thumb-delete-dropzone {
+        display: none;
+        margin: 0 12px 10px;
+        min-height: 58px;
+        border-radius: 14px;
+        border: 2px dashed rgba(231, 76, 60, 0.3);
+        background: rgba(231, 76, 60, 0.08);
+        color: #d84a3a;
+        align-items: center;
+        justify-content: center;
+        gap: 8px;
+        font-size: 13px;
+        font-weight: 700;
+        transition: transform 0.16s ease, background-color 0.16s ease, border-color 0.16s ease, color 0.16s ease;
+    }
+
+    body.thumb-delete-mode #thumb-delete-dropzone {
+        display: flex;
+    }
+
+    #thumb-delete-dropzone.is-active {
+        background: rgba(231, 76, 60, 0.16);
+        border-color: rgba(231, 76, 60, 0.78);
+        color: #bf2f1d;
+        transform: scale(1.02);
+    }
+
+    #thumb-delete-dropzone .material-icons {
+        font-size: 20px;
     }
 
     #project-grid {

@@ -97,6 +97,8 @@ let autoSaveTimer = null;
 let saveStatus = 'idle'; // 'idle' | 'saving' | 'saved' | 'error'
 let isSaving = false;
 let isThumbnailGenerating = false;
+const THUMB_BASE_WIDTH = 360;
+const THUMB_BASE_HEIGHT = 640;
 
 function requireUid() {
     if (!state.uid) throw new Error("ログインしてください");
@@ -571,7 +573,16 @@ async function performSave() {
             }
             const projectBytes = await computeProjectBytes(persistedProject);
 
+            // Press Room フィールドを引き継ぐために既存ドキュメントを取得
+            const existingSnap = await getDoc(projectDocRef(state.projectId));
+            const existingData = existingSnap.exists() ? existingSnap.data() : {};
+            const pressFields = {};
+            for (const key of ['dsfPages', 'dsfStatus', 'dsfTotalBytes', 'dsfResolution', 'dsfQuality', 'dsfPageCount', 'updatedAt']) {
+                if (existingData[key] !== undefined) pressFields[key] = existingData[key];
+            }
+
             await setDoc(projectDocRef(state.projectId), {
+                ...pressFields,
                 ...persistedProject,
                 listThumbnail,
                 projectBytes,
@@ -579,10 +590,6 @@ async function performSave() {
                 ownerUid: state.uid,
                 ownerEmail: state.user?.email || '',
                 lastUpdated: new Date()
-            }, {
-                // Preserve Press Room publication fields such as dsfPages/dsfStatus
-                // when the editor saves project content changes.
-                merge: true
             });
 
             // 3. public_projects コレクションへの同期
@@ -685,20 +692,12 @@ export async function generateCroppedThumbnail(bgUrl, pos, refresh) {
     if (!bgUrl) return;
     if (isThumbnailGenerating) return;
     isThumbnailGenerating = true;
-    const uid = requireUid();
 
     try {
         const timestamp = Date.now();
-        // オリジナルファイル名はURLから推測（簡易的）
-        const filename = "cropped_" + timestamp;
-        const thumbPath = `users/${uid}/dsf/thumbs/${timestamp}_${filename}_thumb.webp`;
-
-        // Canvasで描画。公開URLは Pages Functions 経由で同一オリジン取得する。
         const { img, revoke } = await loadImageForCanvas(bgUrl, 'サムネイル生成元画像');
 
-        // サムネイルサイズ (9:16)
         const targetW = 320;
-        // height = 320 * (16/9) = 568.88...
         const targetH = Math.round(targetW * (16 / 9));
 
         const canvas = document.createElement('canvas');
@@ -710,20 +709,6 @@ export async function generateCroppedThumbnail(bgUrl, pos, refresh) {
         ctx.fillStyle = "#ffffff";
         ctx.fillRect(0, 0, targetW, targetH);
 
-        // 描画
-        // オリジナルキャンバス(360x640)に対する比率
-        const baseW = 360;
-        const baseH = 640;
-        const ratio = targetW / baseW; // 320/360 = 0.888...
-
-        // pos.x, pos.y は 360x640 基準の移動量
-        // pos.scale は拡大率
-        // imgは width:100%, height:100%, object-fit:cover 相当で描画されている
-        // つまり、imgの描画サイズは baseW x baseH (のアスペクト比維持)
-
-        ctx.save();
-
-        // 中心基準で変形するため、中心へ移動
         const safePos = {
             x: Number.isFinite(Number(pos?.x)) ? Number(pos.x) : 0,
             y: Number.isFinite(Number(pos?.y)) ? Number(pos.y) : 0,
@@ -731,37 +716,46 @@ export async function generateCroppedThumbnail(bgUrl, pos, refresh) {
             rotation: Number.isFinite(Number(pos?.rotation)) ? Number(pos.rotation) : 0
         };
 
+        const frameAspect = THUMB_BASE_WIDTH / THUMB_BASE_HEIGHT;
+        const imgAspect = img.width / img.height;
+        let frameWidth = THUMB_BASE_WIDTH;
+        let frameHeight = THUMB_BASE_HEIGHT;
+        if (imgAspect > frameAspect) {
+            frameWidth = THUMB_BASE_HEIGHT * imgAspect;
+        } else {
+            frameHeight = THUMB_BASE_WIDTH / imgAspect;
+        }
+        const ratio = targetW / THUMB_BASE_WIDTH;
+
+        ctx.save();
         ctx.translate(targetW / 2, targetH / 2);
         ctx.translate(safePos.x * ratio, safePos.y * ratio);
         ctx.rotate((safePos.rotation * Math.PI) / 180);
         ctx.scale(safePos.scale, safePos.scale);
-
-        // imgを描画。object-fit:cover の挙動を再現する必要がある。
-        // imgのアスペクト比と枠のアスペクト比を比較
-        const imgAspect = img.width / img.height;
-        const frameAspect = baseW / baseH;
-
-        let drawW, drawH;
-        if (imgAspect > frameAspect) {
-            // 画像が横長 -> 縦を合わせる
-            drawH = targetH;
-            drawW = targetH * imgAspect;
-        } else {
-            // 画像が縦長 -> 横を合わせる
-            drawW = targetW;
-            drawH = targetW / imgAspect;
-        }
-
-        // 中心に描画
-        ctx.drawImage(img, -drawW / 2, -drawH / 2, drawW, drawH);
+        ctx.drawImage(
+            img,
+            -(frameWidth * ratio) / 2,
+            -(frameHeight * ratio) / 2,
+            frameWidth * ratio,
+            frameHeight * ratio
+        );
 
         ctx.restore();
         revoke();
 
         const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/webp', 0.8));
-
-        // アップロード
-        const thumbUrl = await _storeFile(blob, thumbPath);
+        let thumbUrl = '';
+        if (!state.uid) {
+            const thumbKey = `local_img_thumb_adjusted_${timestamp}`;
+            await idbSet(thumbKey, blob);
+            thumbUrl = URL.createObjectURL(blob);
+            window.localImageMap[thumbUrl] = thumbKey;
+        } else {
+            const uid = requireUid();
+            const filename = `cropped_${timestamp}`;
+            const thumbPath = `users/${uid}/dsf/thumbs/${timestamp}_${filename}_thumb.webp`;
+            thumbUrl = await _storeFile(blob, thumbPath);
+        }
 
         const newSections = [...state.sections];
         newSections[state.activeIdx].thumbnail = thumbUrl;

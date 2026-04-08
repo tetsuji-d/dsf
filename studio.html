@@ -242,17 +242,18 @@
                         <button class="btn-sm" type="button" onclick="togglePagesPanel()" data-i18n="btn_close">閉じる</button>
                     </div>
                     <div class="thumb-tools">
-                        <label data-i18n="label_columns">列数:</label>
+                        <label data-i18n="label_thumb_size">サイズ:</label>
                         <div class="thumb-size-buttons">
-                            <button class="btn-sm" data-thumb-cols="8" onclick="setThumbColumns(8)">8</button>
-                            <button class="btn-sm" data-thumb-cols="5" onclick="setThumbColumns(5)">5</button>
-                            <button class="btn-sm" data-thumb-cols="4" onclick="setThumbColumns(4)">4</button>
-                            <button class="btn-sm" data-thumb-cols="2" onclick="setThumbColumns(2)">2</button>
-                            <button class="btn-sm" data-thumb-cols="1" onclick="setThumbColumns(1)">1</button>
+                            <button class="btn-sm" data-thumb-size="s" onclick="setThumbSize('s')">S</button>
+                            <button class="btn-sm" data-thumb-size="m" onclick="setThumbSize('m')">M</button>
+                            <button class="btn-sm" data-thumb-size="l" onclick="setThumbSize('l')">L</button>
                         </div>
                     </div>
                     <div id="thumb-container"></div>
-                    <div class="panel-footer"><button class="btn" onclick="addSection()" data-i18n="btn_add_section_sm">+ セクション追加</button></div>
+                    <div id="thumb-delete-dropzone" aria-hidden="true">
+                        <span class="material-icons" aria-hidden="true">delete</span>
+                        <span data-i18n="thumb_delete_drop">ここにドロップで削除</span>
+                    </div>
                 </div>
             </aside>
 
