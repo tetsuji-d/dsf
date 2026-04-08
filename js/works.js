@@ -52,6 +52,7 @@ export async function openWorksRoom(roomMode = false) {
                 dsfResolution:  d.dsfResolution || '—',
                 dsfQuality:     d.dsfQuality || '—',
                 dsfLangs:       d.dsfLangs || [],
+                dsfTotalBytes:  d.dsfTotalBytes || 0,
             });
         });
         projects.sort((a, b) => b.dsfPublishedAt - a.dsfPublishedAt);
@@ -132,7 +133,7 @@ function _renderRow(p) {
             <div class="works-thumb">${thumb}</div>
             <div class="works-info">
                 <div class="works-title">${_esc(p.title || p.id)}</div>
-                <div class="works-meta">${p.pageCount}ページ · ${langs} · ${p.dsfResolution} · 品質${p.dsfQuality}%</div>
+                <div class="works-meta">${p.pageCount}ページ · ${langs} · ${p.dsfResolution} · 品質${p.dsfQuality}%${p.dsfTotalBytes ? ` · ${(p.dsfTotalBytes / (1024 * 1024)).toFixed(1)} MB` : ''}</div>
                 <div class="works-meta">${date} 発行</div>
             </div>
             <div class="works-controls">

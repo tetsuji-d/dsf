@@ -15,6 +15,10 @@ export function enterPressRoom() {
     _renderPageThumbs();
     _renderLangTabs();
     _updatePublishBtn();
+    _updateSizeEstimate();
+    // 解像度・品質変更時に予想容量を更新
+    document.getElementById('press-resolution')?.addEventListener('change', _updateSizeEstimate);
+    document.getElementById('press-quality')?.addEventListener('input', _updateSizeEstimate);
 }
 
 function _renderPageThumbs() {
@@ -52,6 +56,23 @@ function _renderLangTabs() {
             data-lang="${code}"
             onclick="togglePressLang('${code}')">${code.toUpperCase()}</button>`
     ).join('');
+}
+
+function _updateSizeEstimate() {
+    const el = document.getElementById('press-size-estimate');
+    if (!el) return;
+    const resStr = document.getElementById('press-resolution')?.value || '1080x1920';
+    const quality = parseInt(document.getElementById('press-quality')?.value || '85') / 100;
+    const [w, h] = resStr.split('x').map(Number);
+    const pages = _getRenderablePages();
+    const langCount = (state.languages || ['ja']).length;
+    // WebP の推定: ピクセル数 × 品質係数 × 圧縮比（経験値）
+    // 写真系 WebP は品質85%で約 0.5〜1.5 bytes/pixel、平均 0.8 として計算
+    const bytesPerPixel = 0.3 + quality * 0.7; // 品質0→0.3, 品質1→1.0
+    const perPage = w * h * bytesPerPixel;
+    const totalBytes = perPage * pages.length * langCount;
+    const totalMB = (totalBytes / (1024 * 1024)).toFixed(1);
+    el.textContent = `≈ ${totalMB} MB`;
 }
 
 function _updatePublishBtn() {
@@ -110,6 +131,7 @@ window.publishToCloud = async () => {
     try {
         const dsfPages = [];
         let pageNum = 0;
+        let totalBytes = 0;
         const total = pages.length * langs.length;
         let done = 0;
 
@@ -126,6 +148,7 @@ window.publishToCloud = async () => {
                 const blob = await _renderPageToWebP(
                     bgUrl, section.imagePosition, targetW, targetH, quality
                 );
+                totalBytes += blob.size;
 
                 const path = `users/${state.uid}/dsf/${state.projectId}/${lang}/page_${String(pageNum).padStart(3, '0')}.webp`;
                 langUrls[lang] = await uploadPressPage(blob, path);
@@ -150,6 +173,7 @@ window.publishToCloud = async () => {
                 dsfResolution:  resStr,
                 dsfQuality:     Math.round(quality * 100),
                 dsfLangs:       langs,
+                dsfTotalBytes:  totalBytes,
             },
             { merge: true }
         );
