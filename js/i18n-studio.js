@@ -17,6 +17,19 @@ export const STRINGS = {
 
         // Home Room
         home_title:           'プロジェクト',
+        home_section_cloud:   'クラウド',
+        home_section_local:   'ローカル',
+        home_loading:         '読み込み中...',
+        home_cloud_error:     'クラウド一覧を取得できませんでした',
+        home_cloud_login:     'ログインするとクラウドのプロジェクトを表示します',
+        home_cloud_empty:     'クラウドに保存されたプロジェクトはありません',
+        home_local_empty:     '最近読み書きしたローカルプロジェクトはありません',
+        home_local_open_error:'ローカルプロジェクトを開けませんでした: {message}',
+        home_delete_confirm:  '「{name}」を削除しますか？',
+        home_delete_error:    '削除に失敗しました: {message}',
+        home_source_cloud:    'クラウド',
+        home_source_local:    'ローカル',
+        home_pages_count:     '{count}ページ',
         btn_new_project:      '新規プロジェクト',
         btn_open_local:       'ローカルから開く',
         btn_open_cloud:       'クラウドから開く',
@@ -30,28 +43,32 @@ export const STRINGS = {
         tab_export:           '書き出し',
 
         // Ribbon – Home
-        btn_undo:             '↩ 元に戻す',
-        btn_redo:             '↪ やり直す',
-        btn_save:             '☁ 保存',
-        btn_share:            '🔗 共有',
-        btn_assets:           '🖼 アセット',
-        btn_edit_panel:       '⚙ 編集',
-        btn_project_settings: '📋 プロジェクト設定',
+        btn_undo:             '元に戻す',
+        btn_redo:             'やり直す',
+        btn_save:             '保存',
+        btn_share:            '共有',
+        btn_assets:           'アセット',
+        btn_edit_panel:       '編集',
+        btn_project_settings: 'プロジェクト設定',
+        mobile_home_undo:     '元に戻す',
+        mobile_home_redo:     'やり直す',
+        mobile_home_save:     '保存',
+        mobile_home_project_settings: 'プロジェクト設定',
         placeholder_work_title: '作品タイトル',
 
         // Ribbon – Insert
         btn_add_section:      '＋ セクション追加',
-        btn_add_bubble:       '💬 フキダシ追加',
-        btn_add_image:        '🖼 画像追加',
+        btn_add_bubble:       'テキスト追加',
+        btn_add_image:        '画像追加',
 
         // Ribbon – Arrange
-        btn_fit_view:         '🔍 全体表示',
-        btn_adjust_img:       '✥ 画像調整',
+        btn_fit_view:         '全体表示',
+        btn_adjust_img:       '画像調整',
         label_canvas:         'キャンバス',
         btn_fit:              'フィット',
 
         // Ribbon – Export
-        btn_save_dsp:         '⬇ DSP 保存',
+        btn_save_dsp:         'DSP 保存',
         btn_press_room:       'Press Room →',
 
         // Auth
@@ -67,7 +84,9 @@ export const STRINGS = {
         // Sidebar – Pages (mobile)
         panel_pages:          'ページ',
         label_columns:        '列数:',
+        label_thumb_size:     'サイズ:',
         btn_add_section_sm:   '+ セクション追加',
+        thumb_delete_drop:    'ここにドロップで削除',
 
         // Icon bar
         icon_assets:          'アセット',
@@ -77,13 +96,13 @@ export const STRINGS = {
         label_bg_image:       '背景画像変更 / 位置調整',
         btn_change_image:     '画像変更',
         btn_adjust:           '調整',
-        label_bubble_shape:   'フキダシ形状',
-        shape_speech:         '💬 角丸フキダシ',
-        shape_oval:           '⭕ 楕円フキダシ',
-        shape_rect:           '📄 四角フキダシ',
-        shape_cloud:          '☁️ 雲フキダシ',
-        shape_wave:           '🌊 波フキダシ',
-        shape_thought:        '💭 思考フキダシ',
+        label_bubble_shape:   'テキストボックス形状',
+        shape_speech:         '角丸フキダシ',
+        shape_oval:           '楕円フキダシ',
+        shape_rect:           '四角フキダシ',
+        shape_cloud:          '雲フキダシ',
+        shape_wave:           '波フキダシ',
+        shape_thought:        '思考フキダシ',
         shape_explosion:      '💥 爆発フキダシ',
         shape_digital:        '📡 電子音フキダシ',
         shape_shout:          '⚡ ギザギザフキダシ',
@@ -143,7 +162,7 @@ export const STRINGS = {
 
         // Modals
         modal_works_title:       '📚 Works Room',
-        modal_projects_title:    '📂 プロジェクト一覧',
+        modal_projects_title:    'プロジェクト一覧',
         btn_new_project_modal:   '＋ 新規プロジェクト',
         btn_modal_close:         '閉じる',
 
@@ -155,12 +174,15 @@ export const STRINGS = {
         bottom_add:              '追加',
         bottom_edit:             '編集',
         bottom_export:           '書き出し',
+        bottom_new_project:      '新規',
+        bottom_open_local:       'ローカル',
+        bottom_menu:             'メニュー',
         bottom_lang:             '言語',
-        mobile_save_cloud:       '☁ クラウド保存',
-        mobile_open_local:       '📁 ローカルから開く (.dsp)',
-        mobile_export_dsp:       '⬇ Project (.dsp)',
-        mobile_export_dsf:       '⬇ Publish (.dsf)',
-        mobile_projects:         '📂 プロジェクト一覧',
+        mobile_save_cloud:       'クラウド保存',
+        mobile_open_local:       'ローカルから開く (.dsp)',
+        mobile_export_dsp:       'Project (.dsp)',
+        mobile_export_dsf:       'Publish (.dsf)',
+        mobile_projects:         'プロジェクト一覧',
 
         // Dynamic strings (used in app.js via t())
         confirm_remove_lang:     '「{lang}」を削除しますか？\nこの言語のすべてのテキストが失われます。',
@@ -183,6 +205,19 @@ export const STRINGS = {
 
         // Home Room
         home_title:           'Projects',
+        home_section_cloud:   'Cloud',
+        home_section_local:   'Local',
+        home_loading:         'Loading...',
+        home_cloud_error:     'Failed to load cloud projects',
+        home_cloud_login:     'Sign in to view cloud projects',
+        home_cloud_empty:     'No cloud projects yet',
+        home_local_empty:     'No recent local projects yet',
+        home_local_open_error:'Could not open the local project: {message}',
+        home_delete_confirm:  'Delete "{name}"?',
+        home_delete_error:    'Delete failed: {message}',
+        home_source_cloud:    'Cloud',
+        home_source_local:    'Local',
+        home_pages_count:     '{count} pages',
         btn_new_project:      'New Project',
         btn_open_local:       'Open Local',
         btn_open_cloud:       'Open Cloud',
@@ -196,28 +231,32 @@ export const STRINGS = {
         tab_export:           'Export',
 
         // Ribbon – Home
-        btn_undo:             '↩ Undo',
-        btn_redo:             '↪ Redo',
-        btn_save:             '☁ Save',
-        btn_share:            '🔗 Share',
-        btn_assets:           '🖼 Assets',
-        btn_edit_panel:       '⚙ Edit',
-        btn_project_settings: '📋 Project Settings',
+        btn_undo:             'Undo',
+        btn_redo:             'Redo',
+        btn_save:             'Save',
+        btn_share:            'Share',
+        btn_assets:           'Assets',
+        btn_edit_panel:       'Edit',
+        btn_project_settings: 'Project Settings',
+        mobile_home_undo:     'Undo',
+        mobile_home_redo:     'Redo',
+        mobile_home_save:     'Save',
+        mobile_home_project_settings: 'Project Settings',
         placeholder_work_title: 'Work title',
 
         // Ribbon – Insert
         btn_add_section:      '+ Add Section',
-        btn_add_bubble:       '💬 Add Bubble',
-        btn_add_image:        '🖼 Add Image',
+        btn_add_bubble:       'Add Text',
+        btn_add_image:        'Add Image',
 
         // Ribbon – Arrange
-        btn_fit_view:         '🔍 Fit View',
-        btn_adjust_img:       '✥ Adjust Image',
+        btn_fit_view:         'Fit View',
+        btn_adjust_img:       'Adjust Image',
         label_canvas:         'Canvas',
         btn_fit:              'Fit',
 
         // Ribbon – Export
-        btn_save_dsp:         '⬇ Save DSP',
+        btn_save_dsp:         'Save DSP',
         btn_press_room:       'Press Room →',
 
         // Auth
@@ -233,7 +272,9 @@ export const STRINGS = {
         // Sidebar – Pages (mobile)
         panel_pages:          'Pages',
         label_columns:        'Columns:',
+        label_thumb_size:     'Size:',
         btn_add_section_sm:   '+ Add Section',
+        thumb_delete_drop:    'Drop here to delete',
 
         // Icon bar
         icon_assets:          'Assets',
@@ -243,13 +284,13 @@ export const STRINGS = {
         label_bg_image:       'Change Background / Adjust',
         btn_change_image:     'Change Image',
         btn_adjust:           'Adjust',
-        label_bubble_shape:   'Bubble Shape',
-        shape_speech:         '💬 Rounded',
-        shape_oval:           '⭕ Oval',
-        shape_rect:           '📄 Rectangle',
-        shape_cloud:          '☁️ Cloud',
-        shape_wave:           '🌊 Wave',
-        shape_thought:        '💭 Thought',
+        label_bubble_shape:   'Text Box Style',
+        shape_speech:         'Rounded',
+        shape_oval:           'Oval',
+        shape_rect:           'Rectangle',
+        shape_cloud:          'Cloud',
+        shape_wave:           'Wave',
+        shape_thought:        'Thought',
         shape_explosion:      '💥 Explosion',
         shape_digital:        '📡 Electronic',
         shape_shout:          '⚡ Shout',
@@ -309,7 +350,7 @@ export const STRINGS = {
 
         // Modals
         modal_works_title:       '📚 Works Room',
-        modal_projects_title:    '📂 Projects',
+        modal_projects_title:    'Projects',
         btn_new_project_modal:   '+ New Project',
         btn_modal_close:         'Close',
 
@@ -321,12 +362,15 @@ export const STRINGS = {
         bottom_add:              'Add',
         bottom_edit:             'Edit',
         bottom_export:           'Export',
+        bottom_new_project:      'New',
+        bottom_open_local:       'Local',
+        bottom_menu:             'Menu',
         bottom_lang:             'Lang',
-        mobile_save_cloud:       '☁ Save to Cloud',
-        mobile_open_local:       '📁 Open Local (.dsp)',
-        mobile_export_dsp:       '⬇ Project (.dsp)',
-        mobile_export_dsf:       '⬇ Publish (.dsf)',
-        mobile_projects:         '📂 Projects',
+        mobile_save_cloud:       'Save to Cloud',
+        mobile_open_local:       'Open Local (.dsp)',
+        mobile_export_dsp:       'Project (.dsp)',
+        mobile_export_dsf:       'Publish (.dsf)',
+        mobile_projects:         'Projects',
 
         // Dynamic strings (used in app.js via t())
         confirm_remove_lang:     'Remove "{lang}"?\nAll text in this language will be lost.',

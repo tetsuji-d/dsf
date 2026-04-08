@@ -16,7 +16,7 @@
     <script src="https://accounts.google.com/gsi/client" async defer></script>
 </head>
 
-<body data-room="editor">
+<body data-room="editor" data-device="desktop">
     <div id="app-shell">
 
         <!-- ===== Room Navigation Bar ===== -->
@@ -56,26 +56,36 @@
         <div id="home-room" class="room">
             <div class="home-room-header">
                 <h2 data-i18n="home_title">プロジェクト</h2>
-                <div class="home-room-actions">
-                    <button class="home-action-btn primary" onclick="newProject(); switchRoom('editor')">
-                        <span class="material-icons">add</span> <span data-i18n="btn_new_project">新規プロジェクト</span>
-                    </button>
-                    <button class="home-action-btn" onclick="document.getElementById('dsp-upload').click()">
-                        <span class="material-icons">folder_open</span> <span data-i18n="btn_open_local">ローカルから開く</span>
-                    </button>
-                    <button class="home-action-btn" onclick="openProjectModal()" data-auth-required>
-                        <span class="material-icons">cloud</span> <span data-i18n="btn_open_cloud">クラウドから開く</span>
-                    </button>
-                </div>
             </div>
             <div class="home-room-body">
-                <div id="home-project-grid" class="home-project-grid">
-                    <div class="home-empty-state">
-                        <span class="material-icons">folder_open</span>
-                        <p data-i18n="home_empty_1">プロジェクトがありません</p>
-                        <p data-i18n="home_empty_2">新規作成またはファイルを開いてください</p>
-                    </div>
+                <div class="home-quick-actions">
+                    <button class="home-action-btn primary home-action-large" onclick="if (newProject()) switchRoom('editor')">
+                        <span class="material-icons">add</span> <span data-i18n="btn_new_project">新規プロジェクト</span>
+                    </button>
                 </div>
+                <section class="home-project-section">
+                    <div class="home-section-head">
+                        <div class="home-section-title-wrap">
+                            <h3 data-i18n="home_section_cloud">クラウド</h3>
+                            <span id="home-cloud-count" class="home-section-count">0</span>
+                        </div>
+                    </div>
+                    <div id="home-cloud-grid" class="home-project-grid"></div>
+                </section>
+                <section class="home-project-section">
+                    <div class="home-section-head">
+                        <div class="home-section-title-wrap">
+                            <h3 data-i18n="home_section_local">ローカル</h3>
+                            <span id="home-local-count" class="home-section-count">0</span>
+                        </div>
+                        <div class="home-section-actions">
+                            <button class="home-action-btn" onclick="document.getElementById('dsp-upload').click()">
+                                <span class="material-icons">folder_open</span> <span data-i18n="btn_open_local">ローカルから開く</span>
+                            </button>
+                        </div>
+                    </div>
+                    <div id="home-local-grid" class="home-project-grid"></div>
+                </section>
             </div>
         </div>
 
@@ -105,17 +115,31 @@
             <div class="ribbon-row ribbon-panel-row">
                 <div class="ribbon-panel active" data-ribbon-panel="home">
                     <div class="ribbon-group">
-                        <button id="btn-undo" class="btn-tool" onclick="performUndo()" title="元に戻す (Ctrl+Z)" disabled data-i18n="btn_undo">↩ 元に戻す</button>
-                        <button id="btn-redo" class="btn-tool" onclick="performRedo()" title="やり直す (Ctrl+Shift+Z)" disabled data-i18n="btn_redo">↪ やり直す</button>
+                        <button id="btn-undo" class="btn-tool btn-tool-icon" onclick="performUndo()" title="元に戻す (Ctrl+Z)" disabled>
+                            <span class="material-icons" aria-hidden="true">undo</span><span data-i18n="btn_undo">元に戻す</span>
+                        </button>
+                        <button id="btn-redo" class="btn-tool btn-tool-icon" onclick="performRedo()" title="やり直す (Ctrl+Shift+Z)" disabled>
+                            <span class="material-icons" aria-hidden="true">redo</span><span data-i18n="btn_redo">やり直す</span>
+                        </button>
                     </div>
                     <div class="ribbon-group">
-                        <button id="btn-save" class="btn-tool" onclick="saveProject()" title="保存 (Ctrl+S)" data-auth-required data-i18n="btn_save">☁ 保存</button>
-                        <button id="btn-share" class="btn-tool" onclick="shareProject()" title="ビューワーURLをコピー" data-auth-required data-i18n="btn_share">🔗 共有</button>
+                        <button id="btn-save" class="btn-tool btn-tool-icon" onclick="saveProject()" title="保存 (Ctrl+S)" data-auth-required>
+                            <span class="material-icons" aria-hidden="true">save</span><span data-i18n="btn_save">保存</span>
+                        </button>
+                        <button id="btn-share" class="btn-tool btn-tool-icon" onclick="shareProject()" title="ビューワーURLをコピー" data-auth-required>
+                            <span class="material-icons" aria-hidden="true">share</span><span data-i18n="btn_share">共有</span>
+                        </button>
                     </div>
                     <div class="ribbon-group">
-                        <button id="btn-toggle-sidebar" class="btn-tool" type="button" title="アセットパネルの表示切替" data-i18n="btn_assets">🖼 アセット</button>
-                        <button id="btn-toggle-panel" class="btn-tool" type="button" title="設定パネルの表示切替" data-i18n="btn_edit_panel">⚙ 編集</button>
-                        <button class="btn-tool" onclick="openProjectSettings()" title="プロジェクト設定" data-i18n="btn_project_settings">📋 プロジェクト設定</button>
+                        <button id="btn-toggle-sidebar" class="btn-tool btn-tool-icon" type="button" title="アセットパネルの表示切替">
+                            <span class="material-icons" aria-hidden="true">image</span><span data-i18n="btn_assets">アセット</span>
+                        </button>
+                        <button id="btn-toggle-panel" class="btn-tool btn-tool-icon" type="button" title="設定パネルの表示切替">
+                            <span class="material-icons" aria-hidden="true">tune</span><span data-i18n="btn_edit_panel">編集</span>
+                        </button>
+                        <button class="btn-tool btn-tool-icon" onclick="openProjectSettings()" title="プロジェクト設定">
+                            <span class="material-icons" aria-hidden="true">settings</span><span data-i18n="btn_project_settings">プロジェクト設定</span>
+                        </button>
                     </div>
                     <div class="ribbon-group">
                         <input type="text" id="prop-title" class="ribbon-title-input"
@@ -125,16 +149,26 @@
                 </div>
                 <div class="ribbon-panel" data-ribbon-panel="insert">
                     <div class="ribbon-group">
-                        <button class="btn-tool" onclick="addSection()" data-i18n="btn_add_section">＋ セクション追加</button>
-                        <button class="btn-tool" onclick="addBubbleFab()" data-i18n="btn_add_bubble">💬 フキダシ追加</button>
-                        <button class="btn-tool" onclick="document.getElementById('file-upload').click()" data-i18n="btn_add_image">🖼 画像追加</button>
+                        <button class="btn-tool btn-tool-icon" onclick="addSection()">
+                            <span class="material-icons" aria-hidden="true">add_box</span><span data-i18n="btn_add_section">セクション追加</span>
+                        </button>
+                        <button class="btn-tool btn-tool-icon" onclick="addBubbleFab()">
+                            <span class="material-icons" aria-hidden="true">text_fields</span><span data-i18n="btn_add_bubble">テキスト追加</span>
+                        </button>
+                        <button class="btn-tool btn-tool-icon" onclick="document.getElementById('file-upload').click()">
+                            <span class="material-icons" aria-hidden="true">image</span><span data-i18n="btn_add_image">画像追加</span>
+                        </button>
                     </div>
                 </div>
                 <div class="ribbon-panel" data-ribbon-panel="arrange">
                     <div class="ribbon-group">
-                        <button class="btn-tool" onclick="resetCanvasView()" data-i18n="btn_fit_view">🔍 全体表示</button>
-                        <button class="btn-tool" onclick="toggleImageAdjustment()" id="btn-adjust-img"
-                            title="画像の位置・サイズを調整" data-i18n="btn_adjust_img">✥ 画像調整</button>
+                        <button class="btn-tool btn-tool-icon" onclick="resetCanvasView()">
+                            <span class="material-icons" aria-hidden="true">zoom_out_map</span><span data-i18n="btn_fit_view">全体表示</span>
+                        </button>
+                        <button class="btn-tool btn-tool-icon" onclick="toggleImageAdjustment()" id="btn-adjust-img"
+                            title="画像の位置・サイズを調整">
+                            <span class="material-icons" aria-hidden="true">crop_free</span><span data-i18n="btn_adjust_img">画像調整</span>
+                        </button>
                     </div>
                     <div class="ribbon-group ribbon-canvas-zoom">
                         <span class="field-label" aria-hidden="true" data-i18n="label_canvas">キャンバス</span>
@@ -156,7 +190,7 @@
                             <option value="400">400%</option>
                             <option value="custom" hidden>100%</option>
                         </select>
-                        <button class="btn-tool" onclick="resetCanvasView()" data-i18n="btn_fit">フィット</button>
+                        <button class="btn-tool" onclick="fitCanvasView()" data-i18n="btn_fit">フィット</button>
                         <button class="btn-tool" onclick="setCanvasZoomPercent(100)">100%</button>
                     </div>
                     <div class="ribbon-group">
@@ -165,7 +199,9 @@
                 </div>
                 <div class="ribbon-panel" data-ribbon-panel="export">
                     <div class="ribbon-group">
-                        <button class="btn-tool" onclick="exportDSP()" title=".dsp ファイルをローカルに保存" data-i18n="btn_save_dsp">⬇ DSP 保存</button>
+                        <button class="btn-tool btn-tool-icon" onclick="exportDSP()" title=".dsp ファイルをローカルに保存">
+                            <span class="material-icons" aria-hidden="true">download</span><span data-i18n="btn_save_dsp">DSP 保存</span>
+                        </button>
                     </div>
                     <div class="ribbon-group">
                         <button class="btn-tool ribbon-pressroom-btn" onclick="switchRoom('press')" title="Press Room でDSFを書き出す・発行する">
@@ -206,17 +242,18 @@
                         <button class="btn-sm" type="button" onclick="togglePagesPanel()" data-i18n="btn_close">閉じる</button>
                     </div>
                     <div class="thumb-tools">
-                        <label data-i18n="label_columns">列数:</label>
+                        <label data-i18n="label_thumb_size">サイズ:</label>
                         <div class="thumb-size-buttons">
-                            <button class="btn-sm" data-thumb-cols="8" onclick="setThumbColumns(8)">8</button>
-                            <button class="btn-sm" data-thumb-cols="5" onclick="setThumbColumns(5)">5</button>
-                            <button class="btn-sm" data-thumb-cols="4" onclick="setThumbColumns(4)">4</button>
-                            <button class="btn-sm" data-thumb-cols="2" onclick="setThumbColumns(2)">2</button>
-                            <button class="btn-sm" data-thumb-cols="1" onclick="setThumbColumns(1)">1</button>
+                            <button class="btn-sm" data-thumb-size="s" onclick="setThumbSize('s')">S</button>
+                            <button class="btn-sm" data-thumb-size="m" onclick="setThumbSize('m')">M</button>
+                            <button class="btn-sm" data-thumb-size="l" onclick="setThumbSize('l')">L</button>
                         </div>
                     </div>
                     <div id="thumb-container"></div>
-                    <div class="panel-footer"><button class="btn" onclick="addSection()" data-i18n="btn_add_section_sm">+ セクション追加</button></div>
+                    <div id="thumb-delete-dropzone" aria-hidden="true">
+                        <span class="material-icons" aria-hidden="true">delete</span>
+                        <span data-i18n="thumb_delete_drop">ここにドロップで削除</span>
+                    </div>
                 </div>
             </aside>
 
@@ -235,12 +272,33 @@
                         <button class="btn-sm zoom-btn img-zoom-btn reset" onmousedown="event.stopPropagation()"
                             ontouchstart="event.stopPropagation()" onclick="resetImageTransform()"
                             title="画像調整を初期化">⟲</button>
+                        <div class="img-rotate-slider-wrap" onmousedown="event.stopPropagation()" ontouchstart="event.stopPropagation()">
+                            <span id="image-rotate-value" class="img-rotate-value">0°</span>
+                            <div class="img-rotate-slider-shell"
+                                onpointerdown="startImageRotationSliderAdjust(event)"
+                                onpointermove="moveImageRotationSliderAdjust(event)"
+                                onpointerup="endImageRotationSliderAdjust(event)"
+                                onpointercancel="endImageRotationSliderAdjust(event)"
+                                aria-label="画像の回転"
+                                role="slider"
+                                aria-valuemin="-180"
+                                aria-valuemax="180"
+                                aria-valuenow="0">
+                                <div class="img-rotate-slider-rail"></div>
+                                <div class="img-rotate-mark plus135"></div>
+                                <div class="img-rotate-mark plus90"></div>
+                                <div class="img-rotate-mark plus45"></div>
+                                <div class="img-rotate-mark center"></div>
+                                <div class="img-rotate-mark minus45"></div>
+                                <div class="img-rotate-mark minus90"></div>
+                                <div class="img-rotate-mark minus135"></div>
+                                <div id="image-rotate-thumb" class="img-rotate-thumb"></div>
+                            </div>
+                            <input id="image-rotate-slider" class="img-rotate-slider" type="range" min="-180" max="180" step="1" value="0" orient="vertical" aria-hidden="true" tabindex="-1">
+                        </div>
                     </div>
-                    <button id="fab-add-bubble" class="fab-btn" onclick="addBubbleFab()" title="吹き出し追加">
-                        <span class="material-icons">add_comment</span>
-                    </button>
-                    <button id="btn-reset-view" class="reset-view-btn" onclick="resetCanvasView()" title="全体表示">
-                        <span class="material-icons">restart_alt</span>
+                    <button id="fab-add-bubble" class="fab-btn" onclick="addBubbleFab()" title="テキスト追加">
+                        <span class="material-icons">text_fields</span>
                     </button>
                 </div>
                 <div id="page-strip">
@@ -279,14 +337,14 @@
                     </div>
 
                     <div id="bubble-shape-props">
-                        <label data-i18n="label_bubble_shape">フキダシ形状</label>
+                        <label data-i18n="label_bubble_shape">テキストボックス形状</label>
                         <select id="prop-shape" onchange="updateBubbleShape(this.value)">
-                            <option value="speech"    data-i18n="shape_speech">💬 角丸フキダシ</option>
-                            <option value="oval"      data-i18n="shape_oval">⭕ 楕円フキダシ</option>
-                            <option value="rect"      data-i18n="shape_rect">📄 四角フキダシ</option>
-                            <option value="cloud"     data-i18n="shape_cloud">☁️ 雲フキダシ</option>
-                            <option value="wave"      data-i18n="shape_wave">🌊 波フキダシ</option>
-                            <option value="thought"   data-i18n="shape_thought">💭 思考フキダシ</option>
+                            <option value="speech"    data-i18n="shape_speech">角丸フキダシ</option>
+                            <option value="oval"      data-i18n="shape_oval">楕円フキダシ</option>
+                            <option value="rect"      data-i18n="shape_rect">四角フキダシ</option>
+                            <option value="cloud"     data-i18n="shape_cloud">雲フキダシ</option>
+                            <option value="wave"      data-i18n="shape_wave">波フキダシ</option>
+                            <option value="thought"   data-i18n="shape_thought">思考フキダシ</option>
                             <option value="explosion" data-i18n="shape_explosion">💥 爆発フキダシ</option>
                             <option value="digital"   data-i18n="shape_digital">📡 電子音フキダシ</option>
                             <option value="shout"     data-i18n="shape_shout">⚡ ギザギザフキダシ</option>
@@ -326,61 +384,91 @@
             </aside>
         </div>
 
+        </div><!-- /editor-room -->
+
         <div id="mobile-header">
-            <span class="mobile-title" data-i18n="mobile_title">DSF Studio</span>
-            <button id="btn-auth-mobile" class="btn-sm" onclick="toggleAuth()" data-i18n="btn_auth_mobile">サインイン</button>
+            <button id="mobile-header-nav" class="mobile-header-nav-btn" type="button" onclick="handleMobileHeaderNav()" hidden>
+                <span class="material-icons">arrow_back</span>
+            </button>
+            <div class="mobile-header-main">
+                <span id="mobile-header-room-label" class="mobile-room-label" data-i18n="mobile_title">DSF Studio</span>
+                <span id="mobile-header-title" class="mobile-title">DSF Studio</span>
+            </div>
+            <div class="mobile-header-actions">
+                <div class="ui-lang-switcher mobile-header-lang-switcher">
+                    <button class="ui-lang-btn" data-lang="ja" onclick="setStudioUILang('ja')">JA</button>
+                    <button class="ui-lang-btn" data-lang="en" onclick="setStudioUILang('en')">EN</button>
+                </div>
+                <button id="btn-auth-mobile" class="mobile-auth-btn" onclick="toggleAuth()" data-i18n="btn_auth_mobile">サインイン</button>
+            </div>
         </div>
 
-        <div id="mobile-overlay-backdrop" onclick="closeMobileSheet()"></div>
+        <div id="mobile-overlay-backdrop" onclick="closeMobileOverlays()"></div>
+
+        <aside id="mobile-home-drawer">
+            <div class="mobile-home-drawer-header">
+                <span class="mobile-home-drawer-title" data-i18n="tab_home">ホーム</span>
+                <button class="btn-sm" type="button" onclick="closeMobileHomeDrawer()" data-i18n="btn_close">閉じる</button>
+            </div>
+            <div class="mobile-home-drawer-actions">
+                <button class="mobile-home-action" type="button" onclick="performUndo(); closeMobileHomeDrawer();">
+                    <span class="mobile-home-action-icon material-icons" aria-hidden="true">undo</span>
+                    <span class="mobile-home-action-label" data-i18n="mobile_home_undo">元に戻す</span>
+                </button>
+                <button class="mobile-home-action" type="button" onclick="performRedo(); closeMobileHomeDrawer();">
+                    <span class="mobile-home-action-icon material-icons" aria-hidden="true">redo</span>
+                    <span class="mobile-home-action-label" data-i18n="mobile_home_redo">やり直す</span>
+                </button>
+                <button class="mobile-home-action" type="button" onclick="saveProject(); closeMobileHomeDrawer();" data-auth-required>
+                    <span class="mobile-home-action-icon material-icons" aria-hidden="true">save</span>
+                    <span class="mobile-home-action-label" data-i18n="mobile_home_save">保存</span>
+                </button>
+                <button class="mobile-home-action" type="button" onclick="openProjectSettings(); closeMobileHomeDrawer();">
+                    <span class="mobile-home-action-icon material-icons" aria-hidden="true">settings</span>
+                    <span class="mobile-home-action-label" data-i18n="mobile_home_project_settings">プロジェクト設定</span>
+                </button>
+            </div>
+        </aside>
 
         <div id="mobile-action-sheet">
-            <div id="mobile-sheet-home" class="mobile-sheet-content">
-                <button class="btn-tool" onclick="performUndo()" data-i18n="btn_undo">↩ 元に戻す</button>
-                <button class="btn-tool" onclick="performRedo()" data-i18n="btn_redo">↪ やり直す</button>
-                <button class="btn-tool" onclick="saveProject()" data-auth-required data-i18n="btn_save">☁ 保存</button>
-                <button class="btn-tool" onclick="shareProject()" data-auth-required data-i18n="btn_share">🔗 共有</button>
-                <button class="btn-tool" onclick="toggleAuth()" data-i18n="btn_signin">Googleでサインイン</button>
+            <div id="mobile-sheet-menu" class="mobile-sheet-content mobile-sheet-menu">
+                <button class="btn-tool" onclick="switchRoom('home')" data-i18n="nav_projects">プロジェクト</button>
+                <button class="btn-tool" onclick="switchRoom('editor')" data-i18n="nav_editor">エディター</button>
+                <button class="btn-tool" onclick="switchRoom('press')" data-auth-required data-i18n="nav_press">プレス</button>
+                <button class="btn-tool" onclick="switchRoom('works')" data-auth-required data-i18n="nav_works">作品</button>
+                <button class="btn-tool" onclick="openMobileSheet('lang')" data-i18n="bottom_lang">作品言語</button>
+                <button class="btn-tool btn-tool-icon" onclick="saveProject()" data-auth-required data-mobile-room-only="editor"><span class="material-icons" aria-hidden="true">save</span><span data-i18n="btn_save">保存</span></button>
+                <button class="btn-tool btn-tool-icon" onclick="shareProject()" data-auth-required data-mobile-room-only="editor"><span class="material-icons" aria-hidden="true">share</span><span data-i18n="btn_share">共有</span></button>
+                <button class="btn-tool btn-tool-icon" onclick="performUndo()" data-mobile-room-only="editor"><span class="material-icons" aria-hidden="true">undo</span><span data-i18n="btn_undo">元に戻す</span></button>
+                <button class="btn-tool btn-tool-icon" onclick="performRedo()" data-mobile-room-only="editor"><span class="material-icons" aria-hidden="true">redo</span><span data-i18n="btn_redo">やり直す</span></button>
             </div>
             <div id="mobile-sheet-add" class="mobile-sheet-content">
-                <button class="btn-tool" onclick="addSection()" data-i18n="btn_add_section">＋ セクション追加</button>
-                <button class="btn-tool" onclick="addBubbleFab()" data-i18n="btn_add_bubble">💬 フキダシ追加</button>
-                <button class="btn-tool" onclick="document.getElementById('file-upload').click()" data-i18n="btn_add_image">🖼 画像追加</button>
+                <button class="btn-tool btn-tool-icon" onclick="addSection()"><span class="material-icons" aria-hidden="true">add_box</span><span data-i18n="btn_add_section">セクション追加</span></button>
+                <button class="btn-tool btn-tool-icon" onclick="addBubbleFab()"><span class="material-icons" aria-hidden="true">text_fields</span><span data-i18n="btn_add_bubble">テキスト追加</span></button>
+                <button class="btn-tool btn-tool-icon" onclick="document.getElementById('file-upload').click()"><span class="material-icons" aria-hidden="true">image</span><span data-i18n="btn_add_image">画像追加</span></button>
             </div>
             <div id="mobile-sheet-export" class="mobile-sheet-content">
-                <button class="btn-tool" onclick="saveProject()" data-auth-required data-i18n="mobile_save_cloud">☁ クラウド保存</button>
-                <button class="btn-tool" onclick="shareProject()" data-auth-required data-i18n="btn_share">🔗 共有</button>
-                <button class="btn-tool" onclick="document.getElementById('dsp-upload-mobile').click()" data-i18n="mobile_open_local">📁 ローカルから開く (.dsp)</button>
+                <button class="btn-tool btn-tool-icon" onclick="saveProject()" data-auth-required><span class="material-icons" aria-hidden="true">cloud_upload</span><span data-i18n="mobile_save_cloud">クラウド保存</span></button>
+                <button class="btn-tool btn-tool-icon" onclick="shareProject()" data-auth-required><span class="material-icons" aria-hidden="true">share</span><span data-i18n="btn_share">共有</span></button>
+                <button class="btn-tool btn-tool-icon" onclick="document.getElementById('dsp-upload-mobile').click()"><span class="material-icons" aria-hidden="true">folder_open</span><span data-i18n="mobile_open_local">ローカルから開く (.dsp)</span></button>
                 <input type="file" id="dsp-upload-mobile" style="display: none;" onchange="importDSP(event)">
-                <button class="btn-tool" onclick="exportDSP()" data-i18n="mobile_export_dsp">⬇ Project (.dsp)</button>
-                <button class="btn-tool" onclick="exportDSF()" data-i18n="mobile_export_dsf">⬇ Publish (.dsf)</button>
-                <button class="btn-tool" onclick="openProjectModal()" data-auth-required data-i18n="mobile_projects">📂 プロジェクト一覧</button>
+                <button class="btn-tool btn-tool-icon" onclick="exportDSP()"><span class="material-icons" aria-hidden="true">download</span><span data-i18n="mobile_export_dsp">Project (.dsp)</span></button>
+                <button class="btn-tool btn-tool-icon" onclick="exportDSF()"><span class="material-icons" aria-hidden="true">publish</span><span data-i18n="mobile_export_dsf">Publish (.dsf)</span></button>
+                <button class="btn-tool btn-tool-icon" onclick="openProjectModal()" data-auth-required><span class="material-icons" aria-hidden="true">folder</span><span data-i18n="mobile_projects">プロジェクト一覧</span></button>
             </div>
             <div id="mobile-sheet-lang" class="mobile-sheet-content">
                 <div id="lang-tabs-mobile" class="lang-tabs"></div>
             </div>
         </div>
 
-        <nav id="bottom-bar">
-            <button class="bottom-item" data-mobile-action="home">
-                <span class="material-icons">home</span><span data-i18n="bottom_home">ホーム</span>
-            </button>
-            <button class="bottom-item" data-mobile-action="pages">
-                <span class="material-icons">view_carousel</span><span data-i18n="bottom_pages">ページ</span>
-            </button>
-            <button class="bottom-item" data-mobile-action="add">
-                <span class="material-icons">add_circle</span><span data-i18n="bottom_add">追加</span>
-            </button>
-            <button class="bottom-item" data-mobile-action="edit">
-                <span class="material-icons">tune</span><span data-i18n="bottom_edit">編集</span>
-            </button>
-            <button class="bottom-item" data-mobile-action="export">
-                <span class="material-icons">ios_share</span><span data-i18n="bottom_export">書き出し</span>
-            </button>
-            <button class="bottom-item" data-mobile-action="lang">
-                <span class="material-icons">language</span><span data-i18n="bottom_lang">言語</span>
-            </button>
-        </nav>
-        </div><!-- /editor-room -->
+        <div id="mobile-canvas-zoom-bar" hidden>
+            <button class="mobile-canvas-zoom-btn" type="button" onclick="fitCanvasView()" data-i18n="btn_fit">フィット</button>
+            <input id="mobile-canvas-zoom-range" class="mobile-canvas-zoom-range" type="range" min="25" max="300" step="5" value="100" oninput="setCanvasZoomPercent(this.value)" aria-label="キャンバスの拡大率">
+            <span id="mobile-canvas-zoom-value" class="mobile-canvas-zoom-value">100%</span>
+            <button class="mobile-canvas-zoom-btn is-current" type="button" onclick="setCanvasZoomPercent(100)">100%</button>
+        </div>
+
+        <nav id="bottom-bar"></nav>
 
         <!-- Press Room -->
         <div id="press-room" class="room">
@@ -436,7 +524,7 @@
                         </button>
                         <button id="press-publish-cloud-btn" class="press-publish-btn" onclick="publishToCloud()" data-auth-required>
                             <span class="material-icons">cloud_upload</span>
-                            <span><span data-i18n="btn_publish_cloud">R2 にレンダリング・発行</span><small data-i18n="btn_publish_cloud_sub">WebP 生成 → R2 → draft で登録</small></span>
+                            <span><span data-i18n="btn_publish_cloud">クラウドに発行</span><small data-i18n="btn_publish_cloud_sub">R2 にレンダリング・発行</small></span>
                         </button>
                         <button class="press-publish-btn" onclick="switchRoom('works')" data-auth-required>
                             <span class="material-icons">library_books</span>
@@ -468,7 +556,7 @@
         <div class="ps-dialog" onclick="event.stopPropagation()">
             <div class="ps-header">
                 <h2><span class="material-icons">settings</span> <span data-i18n="ps_modal_title">プロジェクト設定</span></h2>
-                <button class="ps-close-btn" onclick="closeProjectSettings()" aria-label="閉じる">✕</button>
+                <button class="ps-close-btn" onclick="closeProjectSettings()" aria-label="閉じる"><span class="material-icons" aria-hidden="true">close</span></button>
             </div>
             <div class="ps-body">
 
@@ -556,7 +644,7 @@
         <div class="modal-overlay" onclick="closeProjectModal()"></div>
         <div class="modal-content">
             <div class="modal-header">
-                <h2 data-i18n="modal_projects_title">📂 プロジェクト一覧</h2>
+                <h2><span class="material-icons" aria-hidden="true">folder</span> <span data-i18n="modal_projects_title">プロジェクト一覧</span></h2>
                 <div class="modal-header-actions">
                     <button class="btn-modal primary" onclick="newProject()" data-i18n="btn_new_project_modal">＋ 新規プロジェクト</button>
                     <button class="btn-modal" onclick="closeProjectModal()" data-i18n="btn_modal_close">閉じる</button>

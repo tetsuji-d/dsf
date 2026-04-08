@@ -39,12 +39,14 @@ let _gisInitialized = false;
 function _initGIS(buttonContainerId) {
     if (!window.google?.accounts?.id) return;
     if (!_gisInitialized) {
+        const isLocalhost = location.hostname === 'localhost' || location.hostname === '127.0.0.1';
         google.accounts.id.initialize({
             client_id: GOOGLE_CLIENT_ID,
             callback: _handleGisCredential,
             auto_select: true,
             cancel_on_tap_outside: false,
             itp_support: true,
+            use_fedcm_for_prompt: !isLocalhost,
         });
         _gisInitialized = true;
     }
@@ -289,7 +291,7 @@ function renderProjects() {
 
     if (!portalState.projects.length) {
         setStatus(t("noProjects"));
-        renderEmptyState(t("noProjects"), t("noProjectsDesc"), t("launchStudio"), "/studio.html");
+        renderEmptyState(t("noProjects"), t("noProjectsDesc"), t("launchStudio"), "/studio.html?room=home");
         return;
     }
 

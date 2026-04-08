@@ -9,10 +9,10 @@ import { state } from './state.js';
 import { db } from './firebase.js';
 
 const DSF_STATUS_LABELS = {
-    draft:    { label: '下書き',   icon: '📝', cls: 'dsf-draft'    },
-    unlisted: { label: '限定公開', icon: '🔗', cls: 'dsf-unlisted' },
-    public:   { label: '公開',     icon: '🌍', cls: 'dsf-public'   },
-    private:  { label: '非公開',   icon: '🔒', cls: 'dsf-private'  },
+    draft:    { label: '下書き',   icon: 'edit_note', cls: 'dsf-draft'    },
+    unlisted: { label: '限定公開', icon: 'link', cls: 'dsf-unlisted' },
+    public:   { label: '公開',     icon: 'public', cls: 'dsf-public'   },
+    private:  { label: '非公開',   icon: 'lock', cls: 'dsf-private'  },
 };
 
 /**
@@ -82,7 +82,7 @@ export async function openWorksRoom(roomMode = false) {
                 sel.dataset.prev = newStatus;
                 if (badge) {
                     const info = DSF_STATUS_LABELS[newStatus] || DSF_STATUS_LABELS.draft;
-                    badge.textContent = `${info.icon} ${info.label}`;
+                    badge.innerHTML = `${_statusIcon(info.icon)}<span>${info.label}</span>`;
                     badge.className   = `works-dsf-badge ${info.cls}`;
                 }
                 const proj = projects.find(x => x.id === pid);
@@ -137,25 +137,25 @@ function _renderRow(p) {
                 <div class="works-meta">${date} 発行</div>
             </div>
             <div class="works-controls">
-                <span class="works-dsf-badge ${dsf.cls}">${dsf.icon} ${dsf.label}</span>
+                <span class="works-dsf-badge ${dsf.cls}">${_statusIcon(dsf.icon)}<span>${dsf.label}</span></span>
                 <select class="works-dsf-select" data-pid="${_esc(p.id)}" data-prev="${_esc(p.dsfStatus)}">
-                    <option value="draft"    ${p.dsfStatus === 'draft'    ? 'selected' : ''}>📝 下書き</option>
-                    <option value="unlisted" ${p.dsfStatus === 'unlisted' ? 'selected' : ''}>🔗 限定公開</option>
-                    <option value="public"   ${p.dsfStatus === 'public'   ? 'selected' : ''}>🌍 公開</option>
-                    <option value="private"  ${p.dsfStatus === 'private'  ? 'selected' : ''}>🔒 非公開</option>
+                    <option value="draft"    ${p.dsfStatus === 'draft'    ? 'selected' : ''}>下書き</option>
+                    <option value="unlisted" ${p.dsfStatus === 'unlisted' ? 'selected' : ''}>限定公開</option>
+                    <option value="public"   ${p.dsfStatus === 'public'   ? 'selected' : ''}>公開</option>
+                    <option value="private"  ${p.dsfStatus === 'private'  ? 'selected' : ''}>非公開</option>
                 </select>
                 <button class="works-btn-copy"
                     onclick="window.copyViewerUrl('${_esc(p.id)}')"
-                    title="ビューワーURLをコピー">🔗 URLコピー</button>
+                    title="ビューワーURLをコピー"><span class="material-icons" aria-hidden="true">link</span><span>URLコピー</span></button>
                 <button class="works-btn-edit"
                     onclick="window.loadAndOpenProject('${_esc(p.id)}')"
-                    title="エディターで開く">✏️ 編集</button>
+                    title="エディターで開く"><span class="material-icons" aria-hidden="true">edit</span><span>編集</span></button>
                 <button class="works-btn-press"
                     onclick="window.loadAndRepress('${_esc(p.id)}')"
-                    title="再レンダリング">🔄 再発行</button>
+                    title="再レンダリング"><span class="material-icons" aria-hidden="true">autorenew</span><span>再発行</span></button>
                 <button class="works-btn-delete"
                     data-delete-pid="${_esc(p.id)}"
-                    title="プロジェクトを削除">🗑 削除</button>
+                    title="プロジェクトを削除"><span class="material-icons" aria-hidden="true">delete</span><span>削除</span></button>
             </div>
         </div>`;
 }
@@ -210,4 +210,8 @@ function _esc(str) {
     return String(str ?? '')
         .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
         .replace(/"/g, '&quot;').replace(/'/g, '&#039;');
+}
+
+function _statusIcon(name) {
+    return `<span class="material-icons" aria-hidden="true">${_esc(name)}</span>`;
 }

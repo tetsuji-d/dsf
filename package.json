@@ -11,9 +11,9 @@
     "deploy:staging": "npm run build:staging && firebase deploy --project staging",
     "preview:staging": "npm run build:staging && firebase hosting:channel:deploy staging-review --project staging",
     "test:firebase": "node scripts/verify-firebase.js",
-    "deploy:pages": "npm run build && wrangler pages deploy dist --project-name dsf-studio",
-    "deploy:pages:staging": "npm run build:staging && wrangler pages deploy dist --project-name dsf-studio --branch staging",
-    "dev:pages": "wrangler pages dev dist --port 8788"
+    "deploy:pages": "npm run build && npx wrangler pages deploy dist --project-name dsf-studio",
+    "deploy:pages:staging": "npm run build:staging && npx wrangler pages deploy dist --project-name dsf-studio --branch staging",
+    "dev:pages": "npx wrangler pages dev dist --port 8788"
   },
   "devDependencies": {
     "firebase-tools": "^15.5.1",

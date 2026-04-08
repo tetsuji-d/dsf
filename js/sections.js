@@ -219,6 +219,34 @@ export function duplicateSectionAt(sourceIndex, refresh) {
 }
 
 /**
+ * 指定セクションを削除する
+ * @param {number} sectionIndex - 削除対象インデックス
+ * @param {function} refresh - 画面更新コールバック
+ */
+export function deleteSectionAt(sectionIndex, refresh) {
+    const idx = Number(sectionIndex);
+    if (!Number.isInteger(idx) || idx < 0 || idx >= state.sections.length) return;
+    if (state.sections.length <= 1) return;
+
+    const nextSections = [...state.sections];
+    nextSections.splice(idx, 1);
+    dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'sections', value: nextSections } });
+
+    let nextActiveIndex = state.activeIdx;
+    if (state.activeIdx === idx) {
+        nextActiveIndex = Math.max(0, idx - 1);
+    } else if (state.activeIdx > idx) {
+        nextActiveIndex = state.activeIdx - 1;
+    }
+
+    dispatch({ type: actionTypes.SET_ACTIVE_INDEX, payload: nextActiveIndex });
+    dispatch({ type: actionTypes.SET_ACTIVE_BLOCK_INDEX, payload: null });
+    dispatch({ type: actionTypes.SET_ACTIVE_BUBBLE_INDEX, payload: null });
+    syncModelsFromLegacy();
+    refresh();
+}
+
+/**
  * セクション順を移動する
  * @param {number} fromIndex - 元のインデックス
  * @param {number} insertIndex - 移動先の挿入インデックス
@@ -391,18 +419,22 @@ export function moveBlockAt(blockIndex, direction, refresh) {
  */
 export function renderThumbs() {
     const isDesktop = window.innerWidth >= 1024;
+    const isMobile = !isDesktop;
     const container = isDesktop
         ? document.getElementById('page-strip-thumbs')
         : document.getElementById('thumb-container');
-    const prevScrollTop = container ? container.scrollTop : 0;
+    if (!container) return;
+    const prevScrollTop = container.scrollTop;
+    const prevScrollLeft = container.scrollLeft;
     const cols = Number(state.thumbColumns) || 2;
     container.setAttribute('data-cols', String(cols));
-
-    // ページ送り方向を反映（デスクトップのページストリップのみ）
-    if (isDesktop) {
-        const pageDir = state.languageConfigs?.[state.activeLang]?.pageDirection || 'ltr';
-        container.dataset.dir = pageDir;
+    if (isMobile) {
+        const mobileSize = cols === 4 ? 's' : cols === 1 ? 'l' : 'm';
+        container.dataset.size = mobileSize;
     }
+
+    const pageDir = state.languageConfigs?.[state.activeLang]?.pageDirection || 'ltr';
+    container.dataset.dir = pageDir;
 
     const blocks = state.blocks || [];
     const pageBlockIndices = getPageBlockIndices(blocks);
@@ -448,26 +480,20 @@ export function renderThumbs() {
             `;
 
             if (s.type === 'image') {
-                const pos = s.imagePosition || { x: 0, y: 0, scale: 1 };
-                const tx = (pos.x / 360) * 100;
-                const ty = (pos.y / 640) * 100;
-                const rot = Number.isFinite(Number(pos.rotation)) ? Number(pos.rotation) : 0;
-                const style = `transform: translate(${tx}%, ${ty}%) scale(${pos.scale}) rotate(${rot}deg); transform-origin: center center; width:100%; height:100%; object-fit:cover;`;
+                const thumbUrl = getOptimizedImageUrl(s.thumbnail || s.backgrounds?.[state.activeLang] || s.background || '');
                 return `
                     <div class="thumb-wrap thumb-card ${selected ? 'active' : ''}" ${dataAttrs}
                         onclick="changeBlock(${blockIdx})"
                         ${dragHandlers}
                         aria-current="${selected ? 'true' : 'false'}">
                         <div class="thumb-canvas">
-                            <img class="thumb-canvas-image" src="${getOptimizedImageUrl(s.backgrounds?.[state.activeLang] || s.background || '')}" style="${style}">
+                            <img class="thumb-canvas-image" src="${thumbUrl}">
                         </div>
                         <span class="thumb-page-num">${pageIdx + 1}</span>
-                        <div class="thumb-card-top">
-                            <span class="thumb-card-depth">L${depth}</span>
-                        </div>
-                        <button class="thumb-insert-btn before" title="ここにページ挿入" ontouchstart="event.stopPropagation()" onclick="insertSectionAtIndex(${pageIdx}, event)">＋</button>
-                        <button class="thumb-insert-btn after" title="この下にページ挿入" ontouchstart="event.stopPropagation()" onclick="insertSectionAtIndex(${pageIdx + 1}, event)">＋</button>
-                        <button class="thumb-duplicate-btn" title="ページを複製" ontouchstart="event.stopPropagation()" onclick="duplicateSectionByIndex(${pageIdx}, event)">⧉</button>
+                        <div class="thumb-card-top"></div>
+                        <button class="thumb-insert-btn before" title="ここにページ挿入" ontouchstart="event.stopPropagation()" onclick="insertSectionAtIndex(${pageIdx}, event)"><span class="material-icons">add</span></button>
+                        <button class="thumb-insert-btn after" title="この下にページ挿入" ontouchstart="event.stopPropagation()" onclick="insertSectionAtIndex(${pageIdx + 1}, event)"><span class="material-icons">add</span></button>
+                        <button class="thumb-duplicate-btn" title="ページを複製" ontouchstart="event.stopPropagation()" onclick="duplicateSectionByIndex(${pageIdx}, event)"><span class="material-icons">content_copy</span></button>
                     </div>
                 `;
             }
@@ -485,12 +511,10 @@ export function renderThumbs() {
                         </div>
                     </div>
                     <span class="thumb-page-num">${pageIdx + 1}</span>
-                    <div class="thumb-card-top">
-                        <span class="thumb-card-depth">L${depth}</span>
-                    </div>
-                    <button class="thumb-insert-btn before" title="ここにページ挿入" ontouchstart="event.stopPropagation()" onclick="insertSectionAtIndex(${pageIdx}, event)">＋</button>
-                    <button class="thumb-insert-btn after" title="この下にページ挿入" ontouchstart="event.stopPropagation()" onclick="insertSectionAtIndex(${pageIdx + 1}, event)">＋</button>
-                    <button class="thumb-duplicate-btn" title="ページを複製" ontouchstart="event.stopPropagation()" onclick="duplicateSectionByIndex(${pageIdx}, event)">⧉</button>
+                    <div class="thumb-card-top"></div>
+                    <button class="thumb-insert-btn before" title="ここにページ挿入" ontouchstart="event.stopPropagation()" onclick="insertSectionAtIndex(${pageIdx}, event)"><span class="material-icons">add</span></button>
+                    <button class="thumb-insert-btn after" title="この下にページ挿入" ontouchstart="event.stopPropagation()" onclick="insertSectionAtIndex(${pageIdx + 1}, event)"><span class="material-icons">add</span></button>
+                    <button class="thumb-duplicate-btn" title="ページを複製" ontouchstart="event.stopPropagation()" onclick="duplicateSectionByIndex(${pageIdx}, event)"><span class="material-icons">content_copy</span></button>
                 </div>
             `;
         }
@@ -518,33 +542,39 @@ export function renderThumbs() {
                 </div>
                 <div class="thumb-card-top">
                     ${coverLock}
-                    <span class="thumb-card-depth">L${depth}</span>
                 </div>
-                ${canInsertBefore ? `<button class="thumb-insert-btn before" title="ここにページ挿入" ontouchstart="event.stopPropagation()" onclick="insertPageNearBlock(${blockIdx}, 'before', event)">＋</button>` : ''}
-                ${canInsertAfter ? `<button class="thumb-insert-btn after" title="この下にページ挿入" ontouchstart="event.stopPropagation()" onclick="insertPageNearBlock(${blockIdx}, 'after', event)">＋</button>` : ''}
-                ${canMoveUp ? `<button class="thumb-move-btn up" title="上へ移動" ontouchstart="event.stopPropagation()" onclick="moveBlockByIndex(${blockIdx}, 'up', event)">↑</button>` : ''}
-                ${canMoveDown ? `<button class="thumb-move-btn down" title="下へ移動" ontouchstart="event.stopPropagation()" onclick="moveBlockByIndex(${blockIdx}, 'down', event)">↓</button>` : ''}
+                ${canInsertBefore ? `<button class="thumb-insert-btn before" title="ここにページ挿入" ontouchstart="event.stopPropagation()" onclick="insertPageNearBlock(${blockIdx}, 'before', event)"><span class="material-icons">add</span></button>` : ''}
+                ${canInsertAfter ? `<button class="thumb-insert-btn after" title="この下にページ挿入" ontouchstart="event.stopPropagation()" onclick="insertPageNearBlock(${blockIdx}, 'after', event)"><span class="material-icons">add</span></button>` : ''}
+                ${canMoveUp ? `<button class="thumb-move-btn up" title="上へ移動" ontouchstart="event.stopPropagation()" onclick="moveBlockByIndex(${blockIdx}, 'up', event)"><span class="material-icons">arrow_upward</span></button>` : ''}
+                ${canMoveDown ? `<button class="thumb-move-btn down" title="下へ移動" ontouchstart="event.stopPropagation()" onclick="moveBlockByIndex(${blockIdx}, 'down', event)"><span class="material-icons">arrow_downward</span></button>` : ''}
                 ${!isLockedBlock(b)
-                ? `<button class="thumb-duplicate-btn" title="ブロックを複製" ontouchstart="event.stopPropagation()" onclick="duplicateBlockByIndex(${blockIdx}, event)">⧉</button>`
+                ? `<button class="thumb-duplicate-btn" title="ブロックを複製" ontouchstart="event.stopPropagation()" onclick="duplicateBlockByIndex(${blockIdx}, event)"><span class="material-icons">content_copy</span></button>`
                 : ''}
             </div>
         `;
     }).join('');
 
-    // デスクトップのページストリップには最終ページ隣に + ボタンを追加
     if (isDesktop) {
         container.innerHTML += `
             <button class="page-strip-add-btn" onclick="addSection()" title="ページ追加">
                 <span class="material-icons">add</span>
             </button>
         `;
+    } else {
+        container.innerHTML += `
+            <button class="thumb-add-card" onclick="addSection()" title="ページ追加">
+                <span class="material-icons">add</span>
+            </button>
+        `;
     }
 
-    // Keep sidebar position stable while typing/editing.
-    if (container) {
-        const maxScroll = Math.max(0, container.scrollHeight - container.clientHeight);
-        container.scrollTop = Math.max(0, Math.min(prevScrollTop, maxScroll));
+    if (isMobile) {
+        const maxScrollLeft = Math.max(0, container.scrollWidth - container.clientWidth);
+        container.scrollLeft = Math.max(0, Math.min(prevScrollLeft, maxScrollLeft));
+        return;
     }
+    const maxScroll = Math.max(0, container.scrollHeight - container.clientHeight);
+    container.scrollTop = Math.max(0, Math.min(prevScrollTop, maxScroll));
 }
 
 /**

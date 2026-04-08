@@ -6,6 +6,42 @@ import { state } from './state.js';
 import { db } from './firebase.js';
 import { normalizeProjectDataV5 } from './pages.js';
 
+export async function fetchCloudProjects() {
+    if (!state.uid) return [];
+
+    const snapshot = await getDocs(collection(db, "users", state.uid, "projects"));
+    const projects = [];
+    snapshot.forEach(docSnap => {
+        const normalized = normalizeProjectDataV5(docSnap.data() || {});
+        const raw = docSnap.data() || {};
+        projects.push({
+            id: docSnap.id,
+            projectName: typeof raw.projectName === 'string' ? raw.projectName : '',
+            version: normalized.version,
+            title: normalized.title || '',
+            pages: normalized.pages || [],
+            blocks: normalized.blocks || [],
+            sections: normalized.sections || [],
+            dsfPages: Array.isArray(raw.dsfPages) ? raw.dsfPages : [],
+            languages: normalized.languages || ['ja'],
+            defaultLang: normalized.defaultLang || (normalized.languages?.[0] || 'ja'),
+            languageConfigs: normalized.languageConfigs || null,
+            uiPrefs: normalized.uiPrefs || null,
+            listThumbnail: typeof raw.listThumbnail === 'string' ? raw.listThumbnail : '',
+            projectBytes: Number.isFinite(Number(raw.projectBytes)) ? Number(raw.projectBytes) : 0,
+            lastUpdated: normalized.lastUpdated?.toDate?.() || new Date(0)
+        });
+    });
+
+    projects.sort((a, b) => b.lastUpdated - a.lastUpdated);
+    return projects;
+}
+
+export async function deleteCloudProject(projectId) {
+    if (!state.uid) throw new Error('ログインしてください');
+    await deleteDoc(doc(db, "users", state.uid, "projects", projectId));
+}
+
 /**
  * プロジェクト一覧モーダルを開く
  * @param {function} onLoadProject - プロジェクト読込時のコールバック(projectId, sections)
@@ -23,29 +59,7 @@ export async function openProjectModal(onLoadProject) {
     }
 
     try {
-        const snapshot = await getDocs(collection(db, "users", state.uid, "projects"));
-        const projects = [];
-        snapshot.forEach(docSnap => {
-            const normalized = normalizeProjectDataV5(docSnap.data() || {});
-            const raw = docSnap.data() || {};
-            projects.push({
-                id: docSnap.id,
-                version: normalized.version,
-                title: normalized.title || '',
-                pages: normalized.pages || [],
-                blocks: normalized.blocks || [],
-                sections: normalized.sections || [],
-                dsfPages: Array.isArray(raw.dsfPages) ? raw.dsfPages : [],
-                languages: normalized.languages || ['ja'],
-                defaultLang: normalized.defaultLang || (normalized.languages?.[0] || 'ja'),
-                languageConfigs: normalized.languageConfigs || null,
-                uiPrefs: normalized.uiPrefs || null,
-                lastUpdated: normalized.lastUpdated?.toDate?.() || new Date(0)
-            });
-        });
-
-        // 更新日時の降順でソート
-        projects.sort((a, b) => b.lastUpdated - a.lastUpdated);
+        const projects = await fetchCloudProjects();
 
         if (projects.length === 0) {
             grid.innerHTML = '<div class="project-loading">保存されたプロジェクトはありません</div>';
@@ -56,16 +70,17 @@ export async function openProjectModal(onLoadProject) {
             const cover = getCoverImage(p.dsfPages, p.pages, p.blocks, p.sections);
             const dateStr = p.lastUpdated.toLocaleDateString('ja-JP');
             const pageCount = getPageCount(p.pages, p.blocks, p.sections);
+            const displayName = p.projectName || p.title || p.id;
             return `
                 <div class="project-card" data-id="${p.id}">
                     <div class="project-card-thumb">
                         ${cover
-                    ? `<img src="${cover}" alt="${p.id}">`
+                    ? `<img src="${cover}" alt="${displayName}">`
                     : `<div class="project-card-text-thumb">${getPreviewText(p.sections)}</div>`
                 }
                     </div>
                     <div class="project-card-info">
-                        <div class="project-card-title">${p.id}</div>
+                        <div class="project-card-title">${displayName}</div>
                         <div class="project-card-meta">${pageCount}ページ · ${dateStr}</div>
                     </div>
                     <button class="project-card-delete" title="削除" data-delete-id="${p.id}">✕</button>
@@ -81,7 +96,7 @@ export async function openProjectModal(onLoadProject) {
                 const pid = card.dataset.id;
                 const project = projects.find(p => p.id === pid);
                 if (project) {
-                    onLoadProject(pid, project.sections, project.languages, project.defaultLang, project.languageConfigs, project.title, project.uiPrefs, project.pages, project.blocks, project.version);
+                    onLoadProject(pid, project.projectName, project.sections, project.languages, project.defaultLang, project.languageConfigs, project.title, project.uiPrefs, project.pages, project.blocks, project.version);
                     closeProjectModal();
                 }
             });
@@ -119,7 +134,7 @@ export function closeProjectModal() {
  * セクション配列から表紙画像URLを取得
  * サムネイルがあれば優先して使用
  */
-function getCoverImage(dsfPages, pages, blocks, sections) {
+export function getCoverImage(dsfPages, pages, blocks, sections) {
     // dsfPages (R2 WebP) has imagePosition baked in — use first
     const dsfList = Array.isArray(dsfPages) ? dsfPages : [];
     if (dsfList.length > 0) {
@@ -161,7 +176,7 @@ function getPreviewText(sections) {
     return 'イメージ';
 }
 
-function getPageCount(pages, blocks, sections) {
+export function getPageCount(pages, blocks, sections) {
     const pageCount = (Array.isArray(pages) ? pages : []).filter((p) =>
         p?.pageType === 'normal_image' || p?.pageType === 'normal_text'
     ).length;

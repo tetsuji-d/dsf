@@ -54,18 +54,23 @@ export async function initGIS(buttonContainerId) {
     }
 
     if (!_initialized) {
+        const isLocalhost = location.hostname === 'localhost' || location.hostname === '127.0.0.1';
         google.accounts.id.initialize({
             client_id: GOOGLE_CLIENT_ID,
             callback: _handleCredentialResponse,
             auto_select: true,
             cancel_on_tap_outside: false,
             itp_support: true,
+            use_fedcm_for_prompt: !isLocalhost,
         });
         _initialized = true;
     }
 
-    // One Tap プロンプト表示
-    google.accounts.id.prompt();
+    // One Tap プロンプト表示（localhost では FedCM エラーになるためスキップ）
+    const isLocal = location.hostname === 'localhost' || location.hostname === '127.0.0.1';
+    if (!isLocal) {
+        google.accounts.id.prompt();
+    }
 
     // ボタン描画
     if (buttonContainerId) {
@@ -93,12 +98,14 @@ export async function signInWithGoogle() {
     await _loadGisScript();
     if (_gisReady && window.google?.accounts?.id) {
         if (!_initialized) {
+            const isLocalhost = location.hostname === 'localhost' || location.hostname === '127.0.0.1';
             google.accounts.id.initialize({
                 client_id: GOOGLE_CLIENT_ID,
                 callback: _handleCredentialResponse,
                 auto_select: false,
                 cancel_on_tap_outside: false,
                 itp_support: true,
+                use_fedcm_for_prompt: !isLocalhost,
             });
             _initialized = true;
         }

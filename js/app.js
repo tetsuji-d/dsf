@@ -2,12 +2,12 @@
  * app.js — メインエントリポイント・描画・UI同期
  */
 import { state, dispatch, actionTypes } from './state.js';
-import { saveProject, loadProject, uploadToStorage, uploadCoverToStorage, uploadStructureToStorage, triggerAutoSave, flushSave, generateCroppedThumbnail } from './firebase.js';
+import { saveProject as persistProject, loadProject, uploadToStorage, uploadCoverToStorage, uploadStructureToStorage, triggerAutoSave, flushSave, generateCroppedThumbnail, listLocalRecentProjects, loadLocalRecentProject, cacheLocalRecentProject } from './firebase.js';
 import { initGIS, signInWithGoogle, signOutUser, onAuthChanged } from './gis-auth.js';
 import { handleCanvasClick, selectBubble, renderBubbleHTML, getBubbleText, setBubbleText, addBubbleAtCenter, startDrag, startTailDrag, startSpikeDrag } from './bubbles.js';
-import { addSection, changeSection, changeBlock, insertStructureBlock, renderThumbs, deleteActive, insertSectionAt, duplicateSectionAt, moveSection, insertPageNearBlock, duplicateBlockAt, moveBlockAt, getOptimizedImageUrl } from './sections.js';
+import { addSection, changeSection, changeBlock, insertStructureBlock, renderThumbs, deleteActive, deleteSectionAt, insertSectionAt, duplicateSectionAt, moveSection, insertPageNearBlock, duplicateBlockAt, moveBlockAt, getOptimizedImageUrl } from './sections.js';
 import { pushState, undo, redo, getHistoryInfo, clearHistory } from './history.js';
-import { openProjectModal, closeProjectModal } from './projects.js';
+import { openProjectModal, closeProjectModal, fetchCloudProjects, getCoverImage, getPageCount, deleteCloudProject } from './projects.js';
 import { openWorksRoom, closeWorksRoom } from './works.js';
 import { enterPressRoom } from './press.js';
 import { getLangProps, getAllLangs } from './lang.js';
@@ -16,6 +16,210 @@ import { getBlockIndexFromPageIndex, getPageIndexFromBlockIndex, migrateSections
 import { blocksToPages, normalizeProjectDataV5 } from './pages.js';
 import { buildDSP, buildDSF, parseAndLoadDSP } from './export.js';
 import { get as idbGet } from 'idb-keyval';
+import { createId } from './utils.js';
+
+const EDITOR_FRAME_WIDTH = 360;
+const EDITOR_FRAME_HEIGHT = 640;
+const IMAGE_SNAP_THRESHOLD = 12;
+const editorImageAspectCache = new Map();
+const EMPTY_IMAGE_SNAP_STATE = Object.freeze({
+    centerX: false,
+    centerY: false,
+    edgeLeft: false,
+    edgeRight: false,
+    edgeTop: false,
+    edgeBottom: false
+});
+let imageSnapState = { ...EMPTY_IMAGE_SNAP_STATE };
+
+function getEditorImageFrameMetrics(bgUrl) {
+    const aspect = editorImageAspectCache.get(bgUrl);
+    if (!aspect || !Number.isFinite(aspect) || aspect <= 0) {
+        return {
+            widthPercent: 100,
+            heightPercent: 100
+        };
+    }
+
+    const frameAspect = EDITOR_FRAME_WIDTH / EDITOR_FRAME_HEIGHT;
+    if (aspect > frameAspect) {
+        return {
+            widthPercent: (EDITOR_FRAME_HEIGHT * aspect / EDITOR_FRAME_WIDTH) * 100,
+            heightPercent: 100
+        };
+    }
+
+    return {
+        widthPercent: 100,
+        heightPercent: (EDITOR_FRAME_WIDTH / aspect / EDITOR_FRAME_HEIGHT) * 100
+    };
+}
+
+function resetImageSnapState() {
+    imageSnapState = { ...EMPTY_IMAGE_SNAP_STATE };
+}
+
+function getImageSnapMetrics(bgUrl, pos) {
+    const frameMetrics = getEditorImageFrameMetrics(bgUrl);
+    const width = EDITOR_FRAME_WIDTH * (frameMetrics.widthPercent / 100);
+    const height = EDITOR_FRAME_HEIGHT * (frameMetrics.heightPercent / 100);
+    const scale = Math.max(0.1, Number.isFinite(Number(pos?.scale)) ? Number(pos.scale) : 1);
+    const rotation = Number.isFinite(Number(pos?.rotation)) ? Number(pos.rotation) : 0;
+    const rad = (rotation * Math.PI) / 180;
+    const halfW = (width * scale) / 2;
+    const halfH = (height * scale) / 2;
+    const cos = Math.cos(rad);
+    const sin = Math.sin(rad);
+    const extentX = Math.abs(halfW * cos) + Math.abs(halfH * sin);
+    const extentY = Math.abs(halfW * sin) + Math.abs(halfH * cos);
+
+    return {
+        extentX,
+        extentY
+    };
+}
+
+function applyImageSnapping(pos, bgUrl) {
+    if (!isImageAdjusting || !pos) {
+        resetImageSnapState();
+        return;
+    }
+
+    const nextState = { ...EMPTY_IMAGE_SNAP_STATE };
+    const { extentX, extentY } = getImageSnapMetrics(bgUrl, pos);
+    let x = Number.isFinite(Number(pos.x)) ? Number(pos.x) : 0;
+    let y = Number.isFinite(Number(pos.y)) ? Number(pos.y) : 0;
+
+    if (Math.abs(x) <= IMAGE_SNAP_THRESHOLD) {
+        x = 0;
+        nextState.centerX = true;
+    } else {
+        const snapLeftX = -EDITOR_FRAME_WIDTH / 2 + extentX;
+        const snapRightX = EDITOR_FRAME_WIDTH / 2 - extentX;
+        if (Math.abs(x - snapLeftX) <= IMAGE_SNAP_THRESHOLD) {
+            x = snapLeftX;
+            nextState.edgeLeft = true;
+        } else if (Math.abs(x - snapRightX) <= IMAGE_SNAP_THRESHOLD) {
+            x = snapRightX;
+            nextState.edgeRight = true;
+        }
+    }
+
+    if (Math.abs(y) <= IMAGE_SNAP_THRESHOLD) {
+        y = 0;
+        nextState.centerY = true;
+    } else {
+        const snapTopY = -EDITOR_FRAME_HEIGHT / 2 + extentY;
+        const snapBottomY = EDITOR_FRAME_HEIGHT / 2 - extentY;
+        if (Math.abs(y - snapTopY) <= IMAGE_SNAP_THRESHOLD) {
+            y = snapTopY;
+            nextState.edgeTop = true;
+        } else if (Math.abs(y - snapBottomY) <= IMAGE_SNAP_THRESHOLD) {
+            y = snapBottomY;
+            nextState.edgeBottom = true;
+        }
+    }
+
+    if (Math.abs(x) <= 0.001) nextState.centerX = true;
+    if (Math.abs(y) <= 0.001) nextState.centerY = true;
+
+    pos.x = x;
+    pos.y = y;
+    imageSnapState = nextState;
+}
+
+function getImageAdjustRenderMetrics(bgUrl, pos) {
+    const frameMetrics = getEditorImageFrameMetrics(bgUrl);
+    const scale = Math.max(0.1, Number(pos?.scale) || 1);
+    const rotation = Number(pos?.rotation) || 0;
+    return {
+        frameMetrics,
+        invScale: 1 / scale,
+        targetTransform: `translate(calc(-50% + ${Number(pos?.x) || 0}px), calc(-50% + ${Number(pos?.y) || 0}px)) scale(${scale}) rotate(${rotation}deg)`
+    };
+}
+
+function syncImageAdjustDom() {
+    const s = state.sections?.[state.activeIdx];
+    if (!s || s.type !== 'image') return false;
+    const pos = s.imagePosition;
+    if (!pos) return false;
+
+    const target = document.getElementById('image-adjust-target');
+    if (!target) return false;
+
+    const bgUrl = getOptimizedImageUrl(s?.backgrounds?.[state.activeLang] || s?.background || '');
+    const { frameMetrics, invScale, targetTransform } = getImageAdjustRenderMetrics(bgUrl, pos);
+
+    target.style.width = `${frameMetrics.widthPercent}%`;
+    target.style.height = `${frameMetrics.heightPercent}%`;
+    target.style.transform = targetTransform;
+
+    const overlay = document.getElementById('image-adjust-overlay');
+    if (overlay) {
+        overlay.style.setProperty('--inv-handle-scale', String(invScale));
+    }
+
+    const rotateSlider = document.getElementById('image-rotate-slider');
+    if (rotateSlider) {
+        const rotation = roundRotationHalfStep(Math.max(-180, Math.min(180, Number(pos.rotation) || 0)));
+        rotateSlider.value = String(rotation);
+    }
+    const rotateShell = document.querySelector('.img-rotate-slider-shell');
+    if (rotateShell) {
+        const rotation = roundRotationHalfStep(Math.max(-180, Math.min(180, Number(pos.rotation) || 0)));
+        const ratio = (180 - rotation) / 360;
+        rotateShell.style.setProperty('--rotate-ratio', String(ratio));
+        rotateShell.setAttribute('aria-valuenow', String(rotation));
+    }
+    const rotateValue = document.getElementById('image-rotate-value');
+    if (rotateValue) {
+        const rotation = roundRotationHalfStep(Math.max(-180, Math.min(180, Number(pos.rotation) || 0)));
+        rotateValue.textContent = `${rotation.toFixed(1)}°`;
+    }
+
+    const safeFrame = document.querySelector('#image-stage-overlay .image-safe-frame');
+    if (safeFrame) {
+        safeFrame.classList.toggle('active-left', !!imageSnapState.edgeLeft);
+        safeFrame.classList.toggle('active-right', !!imageSnapState.edgeRight);
+        safeFrame.classList.toggle('active-top', !!imageSnapState.edgeTop);
+        safeFrame.classList.toggle('active-bottom', !!imageSnapState.edgeBottom);
+    }
+
+    const verticalGuide = document.querySelector('#image-stage-overlay .image-center-guide.vertical');
+    if (verticalGuide) verticalGuide.classList.toggle('active', !!imageSnapState.centerX);
+    const horizontalGuide = document.querySelector('#image-stage-overlay .image-center-guide.horizontal');
+    if (horizontalGuide) horizontalGuide.classList.toggle('active', !!imageSnapState.centerY);
+
+    return true;
+}
+
+let imageAdjustRaf = null;
+let isAdjustingRotationSlider = false;
+function scheduleImageAdjustDomUpdate() {
+    if (imageAdjustRaf) return;
+    imageAdjustRaf = requestAnimationFrame(() => {
+        imageAdjustRaf = null;
+        if (!syncImageAdjustDom()) refresh();
+    });
+}
+
+window.handleEditorImageLoad = (e) => {
+    const img = e?.target;
+    const src = img?.getAttribute('src');
+    const naturalWidth = Number(img?.naturalWidth);
+    const naturalHeight = Number(img?.naturalHeight);
+    if (!src || !Number.isFinite(naturalWidth) || !Number.isFinite(naturalHeight) || naturalWidth <= 0 || naturalHeight <= 0) {
+        return;
+    }
+
+    const aspect = naturalWidth / naturalHeight;
+    const prev = editorImageAspectCache.get(src);
+    if (prev && Math.abs(prev - aspect) < 0.0001) return;
+
+    editorImageAspectCache.set(src, aspect);
+    refresh();
+};
 
 function getActiveBlock() {
     const blocks = state.blocks || [];
@@ -42,6 +246,193 @@ function syncBlocksFromState() {
     if (!activeBlock && state.blocks?.length) {
         dispatch({ type: actionTypes.SET_ACTIVE_BLOCK_INDEX, payload: 0 });
     }
+}
+
+function getProjectDisplayName() {
+    return state.projectName || '新規プロジェクト';
+}
+
+function ensureProjectIdentity() {
+    if (!state.projectId) {
+        dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'projectId', value: createId('proj') } });
+    }
+
+    if (!state.projectName) {
+        const headerText = (document.getElementById('project-title')?.textContent || '').trim();
+        const fallbackName = headerText && headerText !== '新規プロジェクト'
+            ? headerText
+            : (state.title || '新規プロジェクト');
+        dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'projectName', value: fallbackName } });
+    }
+}
+
+function formatHomeDate(value) {
+    const date = value instanceof Date ? value : new Date(value || 0);
+    if (Number.isNaN(date.getTime())) return '';
+    const locale = getUILang() === 'en' ? 'en-US' : 'ja-JP';
+    return date.toLocaleDateString(locale);
+}
+
+function formatProjectLanguages(languages) {
+    const list = Array.isArray(languages) && languages.length > 0 ? languages : ['ja'];
+    return list.map((code) => String(code).toUpperCase()).join(', ');
+}
+
+function renderLanguageBadges(languages) {
+    const list = Array.isArray(languages) && languages.length > 0 ? languages : ['ja'];
+    return list.map((code) => {
+        const normalized = String(code).trim().toLowerCase();
+        const modifier = normalized === 'ja'
+            ? 'ja'
+            : (normalized === 'en' || normalized === 'en-us')
+                ? 'en-us'
+                : normalized === 'en-gb'
+                    ? 'en-gb'
+                    : normalized === 'zh-cn'
+                        ? 'zh-cn'
+                        : normalized === 'zh-tw'
+                            ? 'zh-tw'
+                            : 'generic';
+        const label = normalized.toUpperCase();
+        return `<span class="home-lang-badge home-lang-${modifier}" title="${label}">${modifier === 'generic' ? label : ''}</span>`;
+    }).join('');
+}
+
+function formatProjectBytes(bytes) {
+    const size = Number(bytes || 0);
+    if (!Number.isFinite(size) || size <= 0) return '';
+    if (size < 1024) return `${size} B`;
+    if (size < 1024 * 1024) return `${(size / 1024).toFixed(size < 10 * 1024 ? 1 : 0)} KB`;
+    return `${(size / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function renderHomeCard(project, source) {
+    const displayName = project.projectName || project.title || project.id || '無題';
+    const thumb = project.listThumbnail || (
+        source === 'cloud'
+            ? getCoverImage(project.dsfPages, project.pages, project.blocks, project.sections)
+            : (project.thumbnail || '')
+    );
+    const pageCount = source === 'cloud'
+        ? getPageCount(project.pages, project.blocks, project.sections)
+        : Math.max(1, Number(project.pageCount || 0));
+    const updatedAt = formatHomeDate(project.lastUpdated || project.updatedAt);
+    const sourceLabel = source === 'cloud' ? t('home_source_cloud') : t('home_source_local');
+    const languageLabel = formatProjectLanguages(project.languages);
+    const sizeLabel = formatProjectBytes(project.projectBytes);
+    const languageBadges = renderLanguageBadges(project.languages);
+
+    return `
+        <button class="home-project-card" data-home-source="${source}" data-id="${project.id}">
+            ${source === 'cloud' ? `<span class="home-project-delete material-icons" data-delete-cloud="${project.id}" title="${t('btn_delete')}">delete</span>` : ''}
+            <div class="home-project-thumb">
+                ${thumb
+                    ? `<img src="${thumb}" alt="${displayName}">`
+                    : `<div class="home-project-thumb-fallback"><span class="material-icons">folder</span></div>`}
+            </div>
+            <div class="home-project-info">
+                <div class="home-project-title">${displayName}</div>
+                <div class="home-project-meta">${t('home_pages_count', { count: pageCount })} · ${sourceLabel}${updatedAt ? ` · ${updatedAt}` : ''}</div>
+                <div class="home-project-meta home-project-meta-secondary">
+                    <span class="home-lang-badges">${languageBadges}</span>
+                    <span>${languageLabel}${sizeLabel ? ` · ${sizeLabel}` : ''}</span>
+                </div>
+            </div>
+        </button>
+    `;
+}
+
+async function renderHomeDashboard() {
+    const cloudGrid = document.getElementById('home-cloud-grid');
+    const localGrid = document.getElementById('home-local-grid');
+    const cloudCount = document.getElementById('home-cloud-count');
+    const localCount = document.getElementById('home-local-count');
+    if (!cloudGrid || !localGrid) return;
+
+    cloudGrid.innerHTML = `<div class="home-empty-state"><span class="material-icons">cloud_sync</span><p>${t('home_loading')}</p></div>`;
+    localGrid.innerHTML = `<div class="home-empty-state"><span class="material-icons">history</span><p>${t('home_loading')}</p></div>`;
+    if (cloudCount) cloudCount.textContent = '...';
+    if (localCount) localCount.textContent = '...';
+
+    const [cloudProjects, localProjects] = await Promise.all([
+        fetchCloudProjects().catch((e) => {
+            console.warn('[Home] Failed to load cloud projects:', e);
+            return null;
+        }),
+        listLocalRecentProjects().catch((e) => {
+            console.warn('[Home] Failed to load local recent projects:', e);
+            return [];
+        })
+    ]);
+
+    if (cloudProjects === null) {
+        cloudGrid.innerHTML = `<div class="home-empty-state"><span class="material-icons">cloud_off</span><p>${t('home_cloud_error')}</p></div>`;
+        if (cloudCount) cloudCount.textContent = '!';
+    } else if (!state.uid) {
+        cloudGrid.innerHTML = `<div class="home-empty-state"><span class="material-icons">lock</span><p>${t('home_cloud_login')}</p></div>`;
+        if (cloudCount) cloudCount.textContent = '0';
+    } else if (cloudProjects.length === 0) {
+        cloudGrid.innerHTML = `<div class="home-empty-state"><span class="material-icons">cloud_done</span><p>${t('home_cloud_empty')}</p></div>`;
+        if (cloudCount) cloudCount.textContent = '0';
+    } else {
+        cloudGrid.innerHTML = cloudProjects.map((project) => renderHomeCard(project, 'cloud')).join('');
+        if (cloudCount) cloudCount.textContent = String(cloudProjects.length);
+    }
+
+    if (localProjects.length === 0) {
+        localGrid.innerHTML = `<div class="home-empty-state"><span class="material-icons">folder_open</span><p>${t('home_local_empty')}</p></div>`;
+        if (localCount) localCount.textContent = '0';
+    } else {
+        localGrid.innerHTML = localProjects.map((project) => renderHomeCard(project, 'local')).join('');
+        if (localCount) localCount.textContent = String(localProjects.length);
+    }
+
+    cloudGrid.querySelectorAll('.home-project-card').forEach((card) => {
+        card.addEventListener('click', async () => {
+            const pid = card.dataset.id;
+            const project = (cloudProjects || []).find((item) => item.id === pid);
+            if (!project) return;
+            onLoadProject(pid, project.projectName, project.sections, project.languages, project.defaultLang, project.languageConfigs, project.title, project.uiPrefs, project.pages, project.blocks, project.version);
+            await cacheLocalRecentProject(JSON.parse(JSON.stringify(state)), window.localImageMap);
+            refresh();
+            window.switchRoom('editor');
+        });
+    });
+
+    cloudGrid.querySelectorAll('[data-delete-cloud]').forEach((btn) => {
+        btn.addEventListener('click', async (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            const pid = btn.dataset.deleteCloud;
+            const project = (cloudProjects || []).find((item) => item.id === pid);
+            const displayName = project?.projectName || project?.title || pid;
+            if (!confirm(t('home_delete_confirm', { name: displayName }))) return;
+            try {
+                await deleteCloudProject(pid);
+                await renderHomeDashboard();
+            } catch (err) {
+                console.error('[Home] Cloud delete failed:', err);
+                alert(t('home_delete_error', { message: err.message }));
+            }
+        });
+    });
+
+    localGrid.querySelectorAll('.home-project-card').forEach((card) => {
+        card.addEventListener('click', async () => {
+            const snapshotId = card.dataset.id;
+            try {
+                const loadedState = await loadLocalRecentProject(snapshotId);
+                dispatch({ type: actionTypes.LOAD_PROJECT, payload: loadedState });
+                refresh();
+                window.switchRoom('editor');
+            } catch (e) {
+                console.error('[Home] Local project restore failed:', e);
+                alert(t('home_local_open_error', { message: e.message }));
+            }
+        });
+    });
+
+    syncStudioShell();
 }
 
 function updateAuthUI() {
@@ -77,18 +468,123 @@ function updateAuthUI() {
             el.title = t('login_required');
         }
     });
+    syncStudioShell();
 }
 
 const THUMB_COLUMN_OPTIONS = [8, 5, 4, 2, 1];
+const MOBILE_THUMB_SIZE_MAP = { s: 4, m: 2, l: 1 };
+const MOBILE_THUMB_SIZE_BY_COLS = { 4: 's', 2: 'm', 1: 'l' };
 
 function getDeviceKey() {
     return window.innerWidth < 1024 ? 'mobile' : 'desktop';
+}
+
+function getCurrentRoom() {
+    return document.body.dataset.room || 'editor';
+}
+
+function getRoomLabel(room) {
+    const keyMap = {
+        home: 'nav_projects',
+        editor: 'nav_editor',
+        press: 'nav_press',
+        works: 'nav_works'
+    };
+    return t(keyMap[room] || 'mobile_title');
+}
+
+function getMobileHeaderTitle(room) {
+    if (room === 'editor') {
+        return state.projectName || state.title || t('project_title_default');
+    }
+    return getRoomLabel(room);
+}
+
+function getMobileHeaderNavTarget(room) {
+    if (room === 'editor') return 'home';
+    if (room === 'press') return 'editor';
+    if (room === 'works') return 'home';
+    return null;
+}
+
+function isMobileHomeDrawerOpen() {
+    return document.body.classList.contains('mobile-home-drawer-open');
+}
+
+function syncMobileHeader() {
+    const room = getCurrentRoom();
+    const navBtn = document.getElementById('mobile-header-nav');
+    const roomLabel = document.getElementById('mobile-header-room-label');
+    const title = document.getElementById('mobile-header-title');
+    const authBtn = document.getElementById('btn-auth-mobile');
+    const navTarget = getMobileHeaderNavTarget(room);
+    const roomText = getRoomLabel(room);
+
+    if (roomLabel) {
+        roomLabel.textContent = room === 'editor' ? roomText : t('mobile_title');
+    }
+    if (title) {
+        title.textContent = getMobileHeaderTitle(room);
+        title.title = title.textContent;
+    }
+    if (navBtn) {
+        navBtn.hidden = !navTarget;
+        navBtn.dataset.targetRoom = navTarget || '';
+        navBtn.title = navTarget ? getRoomLabel(navTarget) : '';
+        navBtn.setAttribute('aria-label', navBtn.title || roomText);
+        const icon = navBtn.querySelector('.material-icons');
+        if (icon) {
+            icon.textContent = room === 'editor' ? 'menu_open' : 'arrow_back';
+        }
+        if (room === 'editor') {
+            navBtn.title = t('tab_home');
+            navBtn.setAttribute('aria-label', t('tab_home'));
+        }
+    }
+    if (authBtn) {
+        authBtn.classList.toggle('signed-in', !!state.uid);
+    }
+}
+
+function syncMobileCanvasZoomBar() {
+    const zoomBar = document.getElementById('mobile-canvas-zoom-bar');
+    if (!zoomBar) return;
+    const visible = getDeviceKey() === 'mobile' && getCurrentRoom() === 'editor';
+    zoomBar.hidden = !visible;
+    document.body.classList.toggle('mobile-canvas-zoom-visible', visible);
+    if (visible) syncCanvasZoomUI();
+}
+
+function syncStudioShell() {
+    const device = getDeviceKey();
+    const room = getCurrentRoom();
+
+    document.body.dataset.device = device;
+    document.body.classList.toggle('mobile-shell', device === 'mobile');
+    document.body.classList.toggle('mobile-editor-shell', device === 'mobile' && room === 'editor');
+
+    if ((device !== 'mobile' || room !== 'editor') && typeof window.closeMobileSheet === 'function') {
+        window.closeMobileSheet();
+    }
+    if (device !== 'mobile' || room !== 'editor') {
+        closeMobileHomeDrawer();
+    }
+
+    syncMobileHeader();
+    syncMobileCanvasZoomBar();
+    syncMobileMenuSheet();
+    renderMobileBottomBar();
 }
 
 function sanitizeThumbColumns(value) {
     const n = Number(value);
     if (THUMB_COLUMN_OPTIONS.includes(n)) return n;
     return 2;
+}
+
+function getMobileThumbSizeKey(value = state.thumbColumns) {
+    const n = sanitizeThumbColumns(value);
+    return MOBILE_THUMB_SIZE_BY_COLS[n] || 'm';
 }
 
 function ensureUiPrefs() {
@@ -117,6 +613,10 @@ function syncThumbColumnButtons() {
         const isActive = Number(btn.dataset.thumbCols) === active;
         btn.classList.toggle('active', isActive);
     });
+    const activeSize = getMobileThumbSizeKey(active);
+    document.querySelectorAll('[data-thumb-size]').forEach((btn) => {
+        btn.classList.toggle('active', btn.dataset.thumbSize === activeSize);
+    });
 }
 
 function setCurrentDeviceThumbColumns(cols) {
@@ -130,7 +630,9 @@ function setCurrentDeviceThumbColumns(cols) {
 // ──────────────────────────────────────
 //  refresh — 画面全体を再描画する (Gen3: image pages only)
 // ──────────────────────────────────────
-function refresh() {
+function refresh(options = {}) {
+    const skipAncillary = !!options.skipAncillary;
+    const skipThumbs = !!options.skipThumbs;
     const visSelect = document.getElementById('prop-visibility');
     if (visSelect && document.activeElement !== visSelect) {
         visSelect.value = state.visibility || 'private';
@@ -163,9 +665,20 @@ function refresh() {
         if (!s.imageBasePosition) {
             s.imageBasePosition = { x: 0, y: 0, scale: 1, rotation: 0 };
         }
-        const targetStyle = `transform: translate(${pos.x}px, ${pos.y}px) scale(${pos.scale}) rotate(${pos.rotation}deg);`;
-
-        const invScale = 1 / Math.max(pos.scale || 1, 0.1);
+        const bgUrl = getOptimizedImageUrl(s.backgrounds?.[state.activeLang] || s.background || '');
+        const { frameMetrics, targetTransform, invScale } = getImageAdjustRenderMetrics(bgUrl, pos);
+        const targetStyle = [
+            `width:${frameMetrics.widthPercent}%`,
+            `height:${frameMetrics.heightPercent}%`,
+            `transform:${targetTransform};`
+        ].join('; ');
+        const stageOverlay = isImageAdjusting ? `
+            <div id="image-stage-overlay">
+                <div class="image-safe-frame${imageSnapState.edgeLeft ? ' active-left' : ''}${imageSnapState.edgeRight ? ' active-right' : ''}${imageSnapState.edgeTop ? ' active-top' : ''}${imageSnapState.edgeBottom ? ' active-bottom' : ''}"></div>
+                <div class="image-center-guide vertical${imageSnapState.centerX ? ' active' : ''}"></div>
+                <div class="image-center-guide horizontal${imageSnapState.centerY ? ' active' : ''}"></div>
+            </div>
+        ` : '';
 
         const overlayInTarget = isImageAdjusting ? `
             <div id="image-adjust-overlay" style="--inv-handle-scale:${invScale};">
@@ -180,8 +693,9 @@ function refresh() {
 
         render.innerHTML = `
             <div id="image-adjust-stage">
+                ${stageOverlay}
                 <div id="image-adjust-target" style="${targetStyle}">
-                    <img id="main-img" src="${getOptimizedImageUrl(s.backgrounds?.[state.activeLang] || s.background || '')}">
+                    <img id="main-img" src="${bgUrl}" onload="handleEditorImageLoad(event)">
                     ${overlayInTarget}
                 </div>
             </div>`;
@@ -250,7 +764,7 @@ function refresh() {
     // プロジェクト名表示
     const titleEl = document.getElementById('project-title');
     if (titleEl && document.activeElement !== titleEl) {
-        titleEl.textContent = state.projectId || '新規プロジェクト';
+        titleEl.textContent = getProjectDisplayName();
     }
 
     // 作品タイトル同期
@@ -268,15 +782,57 @@ function refresh() {
     }
 
     // 言語タブの更新
-    renderLangTabs();
+    if (!skipAncillary) {
+        renderLangTabs();
+        syncLangPanel();
+        renderLangSettings();
+        updateHistoryButtons();
+    }
+    if (!skipThumbs) {
+        renderThumbs();
+    }
+    if (!skipAncillary) {
+        syncThumbColumnButtons();
+        syncStudioShell();
+    }
+}
 
-    // 言語パネルの同期
-    syncLangPanel();
-    renderLangSettings();
+function captureViewportSnapshot() {
+    const sidebarPages = document.querySelector('.sidebar-pages');
+    const editorMain = document.getElementById('editor-main');
+    return {
+        windowX: window.scrollX,
+        windowY: window.scrollY,
+        sidebarPagesScrollTop: sidebarPages?.scrollTop ?? 0,
+        editorMainScrollTop: editorMain?.scrollTop ?? 0
+    };
+}
 
-    updateHistoryButtons();
-    renderThumbs();
-    syncThumbColumnButtons();
+function restoreViewportSnapshot(snapshot) {
+    if (!snapshot) return;
+    requestAnimationFrame(() => {
+        window.scrollTo(snapshot.windowX, snapshot.windowY);
+        const sidebarPages = document.querySelector('.sidebar-pages');
+        if (sidebarPages) sidebarPages.scrollTop = snapshot.sidebarPagesScrollTop;
+        const editorMain = document.getElementById('editor-main');
+        if (editorMain) editorMain.scrollTop = snapshot.editorMainScrollTop;
+    });
+}
+
+function refreshForThumbSelection() {
+    const snapshot = captureViewportSnapshot();
+    refresh({ skipAncillary: true, skipThumbs: true });
+    syncThumbSelectionDom();
+    restoreViewportSnapshot(snapshot);
+}
+
+function syncThumbSelectionDom() {
+    document.querySelectorAll('.thumb-wrap, .thumb-row').forEach((el) => {
+        const blockIndex = Number(el.dataset.blockIndex);
+        const isActive = Number.isInteger(blockIndex) && blockIndex === state.activeBlockIdx;
+        el.classList.toggle('active', isActive);
+        el.setAttribute('aria-current', isActive ? 'true' : 'false');
+    });
 }
 
 // ──────────────────────────────────────
@@ -345,12 +901,178 @@ let suppressThumbClickUntil = 0;
 
 function clearThumbDropHints() {
     document.querySelectorAll('.thumb-wrap').forEach((el) => {
-        el.classList.remove('drop-before', 'drop-after', 'drag-source');
+        el.classList.remove(
+            'drop-before',
+            'drop-after',
+            'drag-source',
+            'preview-gap-left',
+            'preview-gap-right',
+            'preview-gap-left-edge',
+            'preview-gap-right-edge'
+        );
     });
+    document.getElementById('thumb-drop-indicator')?.remove();
+    document.getElementById('thumb-drop-preview')?.remove();
 }
 
 function getThumbElement(index) {
     return document.querySelector(`.thumb-wrap[data-section-index="${index}"]`);
+}
+
+function setThumbDeleteDropzoneActive(active) {
+    const zone = document.getElementById('thumb-delete-dropzone');
+    if (!zone) return;
+    zone.classList.toggle('is-active', !!active);
+}
+
+function clearThumbDeleteDropzone() {
+    document.body.classList.remove('thumb-delete-mode');
+    setThumbDeleteDropzoneActive(false);
+}
+
+function isPointInThumbDeleteDropzone(clientX, clientY) {
+    const zone = document.getElementById('thumb-delete-dropzone');
+    if (!zone || zone.offsetParent === null) return false;
+    const rect = zone.getBoundingClientRect();
+    return clientX >= rect.left && clientX <= rect.right && clientY >= rect.top && clientY <= rect.bottom;
+}
+
+function getThumbTargetFromPoint(clientX, clientY) {
+    const hit = document.elementFromPoint(clientX, clientY);
+    const direct = hit ? hit.closest('.thumb-wrap') : null;
+    if (direct) return direct;
+    const container = document.getElementById('thumb-container');
+    if (!container) return null;
+    const thumbs = [...container.querySelectorAll('.thumb-wrap[data-section-index]')];
+    if (!thumbs.length) return null;
+    let nearest = null;
+    let nearestDistance = Number.POSITIVE_INFINITY;
+    thumbs.forEach((thumb) => {
+        const rect = thumb.getBoundingClientRect();
+        const centerX = rect.left + rect.width / 2;
+        const centerY = rect.top + rect.height / 2;
+        const dist = Math.hypot(clientX - centerX, clientY - centerY);
+        if (dist < nearestDistance) {
+            nearest = thumb;
+            nearestDistance = dist;
+        }
+    });
+    return nearest;
+}
+
+function getThumbVisualThumbs() {
+    const container = document.getElementById('thumb-container');
+    if (!container) return [];
+    return [...container.querySelectorAll('.thumb-wrap[data-section-index]')].sort((a, b) => {
+        const rectA = a.getBoundingClientRect();
+        const rectB = b.getBoundingClientRect();
+        return rectA.left - rectB.left;
+    });
+}
+
+function getMobileThumbInsertTarget(clientX) {
+    const container = document.getElementById('thumb-container');
+    if (!container) return null;
+    const sourceIndex = Number(thumbTouchState?.sourceIndex ?? thumbDragSourceIdx);
+    const sourceEl = getThumbElement(sourceIndex);
+    if (!sourceEl) return null;
+    const sourceRect = sourceEl.getBoundingClientRect();
+    const visualThumbs = getThumbVisualThumbs().filter((thumb) => Number(thumb.dataset.sectionIndex) !== sourceIndex);
+    const dir = container.dataset.dir === 'rtl' ? 'rtl' : 'ltr';
+    if (!visualThumbs.length) {
+        const containerRect = container.getBoundingClientRect();
+        return {
+            insertIndex: 0,
+            boundary: containerRect.left + sourceRect.width / 2,
+            top: sourceRect.top,
+            height: sourceRect.height,
+            sourceRect,
+            leftEl: null,
+            rightEl: null
+        };
+    }
+    const rects = visualThumbs.map((thumb) => ({
+        el: thumb,
+        index: Number(thumb.dataset.sectionIndex),
+        rect: thumb.getBoundingClientRect()
+    }));
+    const first = rects[0];
+    const last = rects[rects.length - 1];
+    if (clientX <= first.rect.left + first.rect.width / 2) {
+        return {
+            insertIndex: dir === 'rtl' ? first.index + 1 : first.index,
+            boundary: first.rect.left,
+            top: first.rect.top,
+            height: first.rect.height,
+            sourceRect,
+            leftEl: null,
+            rightEl: first.el
+        };
+    }
+    for (let i = 0; i < rects.length - 1; i += 1) {
+        const left = rects[i];
+        const right = rects[i + 1];
+        const midpoint = (left.rect.right + right.rect.left) / 2;
+        if (clientX <= midpoint) {
+            return {
+                insertIndex: dir === 'rtl' ? left.index : right.index,
+                boundary: (left.rect.right + right.rect.left) / 2,
+                top: Math.min(left.rect.top, right.rect.top),
+                height: Math.max(left.rect.height, right.rect.height),
+                sourceRect,
+                leftEl: left.el,
+                rightEl: right.el
+            };
+        }
+    }
+    return {
+        insertIndex: dir === 'rtl' ? last.index : last.index + 1,
+        boundary: last.rect.right,
+        top: last.rect.top,
+        height: last.rect.height,
+        sourceRect,
+        leftEl: last.el,
+        rightEl: null
+    };
+}
+
+function showMobileThumbInsertPreview(target) {
+    const container = document.getElementById('thumb-container');
+    const sourceEl = getThumbElement(thumbTouchState?.sourceIndex ?? thumbDragSourceIdx);
+    if (!container || !sourceEl || !target) return;
+    clearThumbDropHints();
+    sourceEl.classList.add('drag-source');
+
+    const containerRect = container.getBoundingClientRect();
+    const leftPx = target.boundary - containerRect.left + container.scrollLeft;
+    const topPx = target.top - containerRect.top + container.scrollTop;
+
+    if (target.leftEl && target.rightEl) {
+        target.leftEl.classList.add('preview-gap-right');
+        target.rightEl.classList.add('preview-gap-left');
+    } else if (target.leftEl) {
+        target.leftEl.classList.add('preview-gap-right-edge');
+    } else if (target.rightEl) {
+        target.rightEl.classList.add('preview-gap-left-edge');
+    }
+
+    const indicator = document.createElement('div');
+    indicator.id = 'thumb-drop-indicator';
+    indicator.style.left = `${leftPx - 2}px`;
+    indicator.style.top = `${topPx + 6}px`;
+    indicator.style.height = `${Math.max(40, target.height - 12)}px`;
+    container.appendChild(indicator);
+
+    const preview = sourceEl.cloneNode(true);
+    preview.id = 'thumb-drop-preview';
+    preview.removeAttribute('onclick');
+    preview.removeAttribute('ontouchstart');
+    preview.removeAttribute('draggable');
+    preview.style.width = `${target.sourceRect.width}px`;
+    preview.style.minWidth = `${target.sourceRect.width}px`;
+    preview.style.left = `${leftPx - target.sourceRect.width / 2}px`;
+    preview.style.top = `${topPx}px`;
+    container.appendChild(preview);
 }
 
 function markThumbDropHint(index, position) {
@@ -362,8 +1084,14 @@ function markThumbDropHint(index, position) {
     el.classList.add(position === 'before' ? 'drop-before' : 'drop-after');
 }
 
-function getDropPositionByPoint(el, clientY) {
+function getDropPositionByPoint(el, clientX, clientY) {
     const rect = el.getBoundingClientRect();
+    if (window.innerWidth < 1024) {
+        const isRtl = window.getComputedStyle(el.parentElement).flexDirection === 'row-reverse';
+        const before = clientX < (rect.left + rect.width / 2);
+        if (isRtl) return before ? 'after' : 'before';
+        return before ? 'before' : 'after';
+    }
     return clientY < (rect.top + rect.height / 2) ? 'before' : 'after';
 }
 
@@ -373,7 +1101,28 @@ function moveSectionWithHistory(fromIndex, targetIndex, position) {
     let to = Math.max(0, Math.min(insertIndex, state.sections.length));
     if (to === from || to === from + 1) return false;
     pushState();
-    moveSection(from, to, refresh);
+    moveSection(from, to, refreshForThumbSelection);
+    triggerAutoSave();
+    return true;
+}
+
+function moveSectionToInsertIndexWithHistory(fromIndex, insertIndex) {
+    const from = Number(fromIndex);
+    const to = Math.max(0, Math.min(Number(insertIndex), state.sections.length));
+    if (!Number.isInteger(from) || !Number.isInteger(to)) return false;
+    if (to === from || to === from + 1) return false;
+    pushState();
+    moveSection(from, to, refreshForThumbSelection);
+    triggerAutoSave();
+    return true;
+}
+
+function deleteSectionWithHistory(sectionIndex) {
+    const idx = Number(sectionIndex);
+    if (!Number.isInteger(idx) || idx < 0 || idx >= state.sections.length) return false;
+    if (state.sections.length <= 1) return false;
+    pushState();
+    deleteSectionAt(idx, refreshForThumbSelection);
     triggerAutoSave();
     return true;
 }
@@ -394,60 +1143,133 @@ function onThumbTouchMove(e) {
     if (!thumbTouchState) return;
     const touch = e.touches && e.touches[0];
     if (!touch) return;
+    thumbTouchState.lastX = touch.clientX;
+    thumbTouchState.lastY = touch.clientY;
 
     const dx = touch.clientX - thumbTouchState.startX;
     const dy = touch.clientY - thumbTouchState.startY;
 
-    if (!thumbTouchState.active && Math.hypot(dx, dy) > 10) {
-        clearTimeout(thumbTouchState.timerId);
-        thumbTouchState.timerId = null;
-        thumbTouchState = null;
-        unbindTouchDragListeners();
+    if (!thumbTouchState.active) {
+        if (Math.abs(dx) > 18 && Math.abs(dx) > Math.abs(dy) + 6) {
+            thumbTouchState = null;
+            unbindTouchDragListeners();
+            clearThumbDropHints();
+            clearThumbDeleteDropzone();
+            thumbDragSourceIdx = null;
+            return;
+        }
+        if (dy <= -12 && Math.abs(dy) > Math.abs(dx) + 4) {
+            thumbTouchState.active = true;
+            thumbTouchState.mode = 'move';
+            const sourceEl = getThumbElement(thumbTouchState.sourceIndex);
+            if (sourceEl) sourceEl.classList.add('drag-source');
+        } else if (dy >= 12 && Math.abs(dy) > Math.abs(dx) + 4) {
+            thumbTouchState.active = true;
+            thumbTouchState.mode = 'delete';
+            document.body.classList.add('thumb-delete-mode');
+            setThumbDeleteDropzoneActive(false);
+            const sourceEl = getThumbElement(thumbTouchState.sourceIndex);
+            if (sourceEl) sourceEl.classList.add('drag-source');
+        } else {
+            return;
+        }
+    }
+
+    e.preventDefault();
+    if (thumbTouchState.mode === 'delete') {
         clearThumbDropHints();
+        setThumbDeleteDropzoneActive(isPointInThumbDeleteDropzone(touch.clientX, touch.clientY));
         return;
     }
 
-    if (!thumbTouchState.active) return;
-
-    e.preventDefault();
-    const hit = document.elementFromPoint(touch.clientX, touch.clientY);
-    const wrap = hit ? hit.closest('.thumb-wrap') : null;
-    if (!wrap) return;
-
-    const targetIndex = Number(wrap.dataset.sectionIndex);
-    if (!Number.isInteger(targetIndex)) return;
-    const position = getDropPositionByPoint(wrap, touch.clientY);
-    thumbTouchState.targetIndex = targetIndex;
-    thumbTouchState.position = position;
-    markThumbDropHint(targetIndex, position);
+    if (window.innerWidth < 1024) {
+        const target = getMobileThumbInsertTarget(touch.clientX);
+        if (target) {
+            thumbTouchState.insertIndex = target.insertIndex;
+            showMobileThumbInsertPreview(target);
+        }
+    } else {
+        const wrap = getThumbTargetFromPoint(touch.clientX, touch.clientY);
+        if (!wrap) return;
+        const targetIndex = Number(wrap.dataset.sectionIndex);
+        if (!Number.isInteger(targetIndex)) return;
+        const position = getDropPositionByPoint(wrap, touch.clientX, touch.clientY);
+        thumbTouchState.targetIndex = targetIndex;
+        thumbTouchState.position = position;
+        markThumbDropHint(targetIndex, position);
+    }
 
     const container = document.getElementById('thumb-container');
     if (container) {
         const cRect = container.getBoundingClientRect();
-        if (touch.clientY < cRect.top + 40) container.scrollBy({ top: -20, behavior: 'auto' });
-        if (touch.clientY > cRect.bottom - 40) container.scrollBy({ top: 20, behavior: 'auto' });
+        if (window.innerWidth < 1024) {
+            if (touch.clientX < cRect.left + 40) container.scrollBy({ left: -24, behavior: 'auto' });
+            if (touch.clientX > cRect.right - 40) container.scrollBy({ left: 24, behavior: 'auto' });
+        } else {
+            if (touch.clientY < cRect.top + 40) container.scrollBy({ top: -20, behavior: 'auto' });
+            if (touch.clientY > cRect.bottom - 40) container.scrollBy({ top: 20, behavior: 'auto' });
+        }
     }
 }
 
-function onThumbTouchEnd() {
+function onThumbTouchEnd(e) {
     if (!thumbTouchState) return;
-    clearTimeout(thumbTouchState.timerId);
-    if (thumbTouchState.active && Number.isInteger(thumbTouchState.targetIndex)) {
-        moveSectionWithHistory(thumbTouchState.sourceIndex, thumbTouchState.targetIndex, thumbTouchState.position || 'after');
+    const endTouch = e?.changedTouches?.[0];
+    const endX = endTouch?.clientX ?? thumbTouchState.lastX ?? thumbTouchState.startX;
+    const endY = endTouch?.clientY ?? thumbTouchState.lastY ?? thumbTouchState.startY;
+    let changed = false;
+    if (thumbTouchState.active) {
+        if (thumbTouchState.mode === 'delete') {
+            if (isPointInThumbDeleteDropzone(endX, endY)) {
+                changed = deleteSectionWithHistory(thumbTouchState.sourceIndex);
+            }
+        } else {
+            if (window.innerWidth < 1024) {
+                const target = getMobileThumbInsertTarget(endX);
+                if (target) {
+                    thumbTouchState.insertIndex = target.insertIndex;
+                    showMobileThumbInsertPreview(target);
+                }
+                if (Number.isInteger(thumbTouchState.insertIndex)) {
+                    changed = moveSectionToInsertIndexWithHistory(thumbTouchState.sourceIndex, thumbTouchState.insertIndex);
+                }
+            } else {
+                const endWrap = getThumbTargetFromPoint(endX, endY);
+                if (endWrap) {
+                    const endTargetIndex = Number(endWrap.dataset.sectionIndex);
+                    if (Number.isInteger(endTargetIndex)) {
+                        thumbTouchState.targetIndex = endTargetIndex;
+                        thumbTouchState.position = getDropPositionByPoint(endWrap, endX, endY);
+                        markThumbDropHint(endTargetIndex, thumbTouchState.position);
+                    }
+                }
+                if (Number.isInteger(thumbTouchState.targetIndex)) {
+                    changed = moveSectionWithHistory(thumbTouchState.sourceIndex, thumbTouchState.targetIndex, thumbTouchState.position || 'after');
+                }
+            }
+        }
+    } else if (thumbTouchState.mode === 'delete' && isPointInThumbDeleteDropzone(endX, endY)) {
+        changed = deleteSectionWithHistory(thumbTouchState.sourceIndex);
+    } else {
+        changeSection(thumbTouchState.sourceIndex, refreshForThumbSelection);
+        changed = true;
+    }
+    if (changed) {
         suppressThumbClickUntil = Date.now() + 350;
     }
     thumbTouchState = null;
     unbindTouchDragListeners();
     clearThumbDropHints();
+    clearThumbDeleteDropzone();
     thumbDragSourceIdx = null;
 }
 
 function onThumbTouchCancel() {
     if (!thumbTouchState) return;
-    clearTimeout(thumbTouchState.timerId);
     thumbTouchState = null;
     unbindTouchDragListeners();
     clearThumbDropHints();
+    clearThumbDeleteDropzone();
     thumbDragSourceIdx = null;
 }
 
@@ -512,12 +1334,20 @@ function getPointerClientPoint(e) {
     return { x: e.clientX, y: e.clientY };
 }
 
+function roundRotationHalfStep(value) {
+    const n = Number(value) || 0;
+    return Math.round(n * 2) / 2;
+}
+
 window.adjustImageZoom = (delta) => {
     const pos = getActiveImagePosition();
     if (!isImageAdjusting || !pos) return;
     pushState();
     pos.scale = Math.max(0.1, pos.scale + delta);
-    refresh();
+    const s = state.sections[state.activeIdx];
+    const bgUrl = getOptimizedImageUrl(s?.backgrounds?.[state.activeLang] || s?.background || '');
+    applyImageSnapping(pos, bgUrl);
+    scheduleImageAdjustDomUpdate();
     triggerAutoSave();
 };
 
@@ -531,8 +1361,57 @@ window.resetImageTransform = () => {
     pos.y = base.y || 0;
     pos.scale = base.scale || 1;
     pos.rotation = base.rotation || 0;
-    refresh();
+    resetImageSnapState();
+    scheduleImageAdjustDomUpdate();
     triggerAutoSave();
+};
+
+window.setImageRotationFromSlider = (value) => {
+    const pos = getActiveImagePosition();
+    if (!isImageAdjusting || !pos) return;
+    const rotation = roundRotationHalfStep(Math.max(-180, Math.min(180, Number(value) || 0)));
+    pos.rotation = rotation;
+    const s = state.sections[state.activeIdx];
+    const bgUrl = getOptimizedImageUrl(s?.backgrounds?.[state.activeLang] || s?.background || '');
+    applyImageSnapping(pos, bgUrl);
+    scheduleImageAdjustDomUpdate();
+};
+
+window.startImageRotationSliderAdjust = (event) => {
+    if (event) {
+        event.stopPropagation();
+        event.preventDefault();
+        if (event.currentTarget?.setPointerCapture && event.pointerId != null) {
+            event.currentTarget.setPointerCapture(event.pointerId);
+        }
+    }
+    isAdjustingRotationSlider = true;
+    window.moveImageRotationSliderAdjust(event);
+};
+
+window.endImageRotationSliderAdjust = (event) => {
+    if (event) {
+        event.stopPropagation();
+        event.preventDefault();
+        if (event.currentTarget?.releasePointerCapture && event.pointerId != null) {
+            try {
+                event.currentTarget.releasePointerCapture(event.pointerId);
+            } catch { }
+        }
+    }
+    isAdjustingRotationSlider = false;
+};
+
+window.moveImageRotationSliderAdjust = (event) => {
+    if (!isAdjustingRotationSlider || !event?.currentTarget) return;
+    event.stopPropagation();
+    event.preventDefault();
+    const rect = event.currentTarget.getBoundingClientRect();
+    if (!rect.height) return;
+    const y = Math.max(0, Math.min(rect.height, event.clientY - rect.top));
+    const ratio = y / rect.height;
+    const rotation = 180 - (ratio * 360);
+    window.setImageRotationFromSlider(rotation);
 };
 
 window.startImageHandleDrag = (e, handleType) => {
@@ -587,12 +1466,16 @@ function onImageHandleDragMove(e) {
         pos.x = imageHandleDrag.base.x + dx / (2 * canvasScale);
         pos.y = imageHandleDrag.base.y + dy / (2 * canvasScale);
     }
-    refresh();
+    const s = state.sections[state.activeIdx];
+    const bgUrl = getOptimizedImageUrl(s?.backgrounds?.[state.activeLang] || s?.background || '');
+    applyImageSnapping(pos, bgUrl);
+    scheduleImageAdjustDomUpdate();
 }
 
 function onImageHandleDragEnd() {
     if (!imageHandleDrag) return;
     imageHandleDrag = null;
+    resetImageSnapState();
     window.removeEventListener('mousemove', onImageHandleDragMove);
     window.removeEventListener('mouseup', onImageHandleDragEnd);
     const s = state.sections[state.activeIdx];
@@ -611,6 +1494,9 @@ window.toggleImageAdjustment = () => {
     if (!s || s.type !== 'image') return;
 
     isImageAdjusting = !isImageAdjusting;
+    if (!isImageAdjusting) {
+        isAdjustingRotationSlider = false;
+    }
 
     // UI更新
     ['btn-adjust-img', 'btn-adjust-img-panel'].forEach((id) => {
@@ -628,6 +1514,7 @@ window.toggleImageAdjustment = () => {
             layer.classList.add('adjust-image-mode');
         } else {
             layer.classList.remove('adjust-image-mode');
+            resetImageSnapState();
         }
     }
     const bubbleLayer = document.getElementById('bubble-layer');
@@ -704,12 +1591,16 @@ function initImageAdjustment() {
 
     // Events
     const onMove = (clientX, clientY) => {
+        if (isAdjustingRotationSlider) return;
         const dx = clientX - startPos.x;
         const dy = clientY - startPos.y;
         const pos = getImgState();
         pos.x = startTransform.x + dx / canvasScale;
         pos.y = startTransform.y + dy / canvasScale;
-        refresh(); // Re-render transform
+        const s = state.sections[state.activeIdx];
+        const bgUrl = getOptimizedImageUrl(s?.backgrounds?.[state.activeLang] || s?.background || '');
+        applyImageSnapping(pos, bgUrl);
+        scheduleImageAdjustDomUpdate();
     };
 
     const onMoveWrap = (e) => onMove(e.clientX, e.clientY);
@@ -717,6 +1608,7 @@ function initImageAdjustment() {
     const onEnd = () => {
         if (isDraggingImg) {
             isDraggingImg = false;
+            resetImageSnapState();
             const s = state.sections[state.activeIdx];
             if (s && s.background && state.uid) {
                 generateCroppedThumbnail(
@@ -732,7 +1624,7 @@ function initImageAdjustment() {
     };
 
     const onStart = (clientX, clientY) => {
-        if (!isImageAdjusting) return;
+        if (!isImageAdjusting || isAdjustingRotationSlider) return;
         isDraggingImg = true;
         startPos = { x: clientX, y: clientY };
         const pos = getImgState();
@@ -743,6 +1635,7 @@ function initImageAdjustment() {
 
     // Mouse
     view.addEventListener('mousedown', (e) => {
+        if (isAdjustingRotationSlider) return;
         const inAdjustTarget = !!(e.target && e.target.closest && e.target.closest('#image-adjust-target'));
         if (isImageAdjusting && (e.target.id === 'main-img' || inAdjustTarget)) {
             e.stopPropagation(); // Stop canvas pan
@@ -753,6 +1646,7 @@ function initImageAdjustment() {
 
     // Touch
     view.addEventListener('touchstart', (e) => {
+        if (isAdjustingRotationSlider) return;
         const inAdjustTarget = !!(e.target && e.target.closest && e.target.closest('#image-adjust-target'));
         if (isImageAdjusting && (e.target.id === 'main-img' || inAdjustTarget || e.touches.length === 2)) {
             e.stopPropagation();
@@ -775,6 +1669,10 @@ function initImageAdjustment() {
     view.addEventListener('touchmove', (e) => {
         onImageHandleDragMove(e);
         if (!isImageAdjusting) return;
+        if (isAdjustingRotationSlider) {
+            e.preventDefault();
+            return;
+        }
         if (e.touches.length === 1) {
             e.preventDefault(); // Prevent scroll
             onMove(e.touches[0].clientX, e.touches[0].clientY);
@@ -787,7 +1685,10 @@ function initImageAdjustment() {
             const scale = dist / initialPinchDist;
             const pos = getImgState();
             pos.scale = Math.max(0.1, startScale * scale);
-            refresh();
+            const s = state.sections[state.activeIdx];
+            const bgUrl = getOptimizedImageUrl(s?.backgrounds?.[state.activeLang] || s?.background || '');
+            applyImageSnapping(pos, bgUrl);
+            scheduleImageAdjustDomUpdate();
         }
     }, { passive: false });
 
@@ -805,7 +1706,10 @@ function initImageAdjustment() {
             const pos = getActiveImagePosition() || getImgState();
             const delta = e.deltaY > 0 ? 0.9 : 1.1;
             pos.scale = Math.max(0.1, (pos.scale || 1) * delta);
-            refresh();
+            const s = state.sections[state.activeIdx];
+            const bgUrl = getOptimizedImageUrl(s?.backgrounds?.[state.activeLang] || s?.background || '');
+            applyImageSnapping(pos, bgUrl);
+            scheduleImageAdjustDomUpdate();
             // Debounce save?
             if (window.saveTimer) clearTimeout(window.saveTimer);
             window.saveTimer = setTimeout(triggerAutoSave, 500);
@@ -957,9 +1861,10 @@ function syncLangPanel() {
 }
 
 
-function onLoadProject(pid, sections, languages, defaultLang, languageConfigs, title, uiPrefs, pages, blocks, version) {
+function onLoadProject(pid, projectName, sections, languages, defaultLang, languageConfigs, title, uiPrefs, pages, blocks, version) {
     const normalized = normalizeProjectDataV5({
         version,
+        projectName,
         pages,
         blocks,
         sections,
@@ -971,6 +1876,8 @@ function onLoadProject(pid, sections, languages, defaultLang, languageConfigs, t
     });
 
     state.projectId = pid;
+    state.localProjectId = null;
+    state.projectName = normalized.projectName || pid || '';
     state.title = normalized.title || '';
     state.pages = normalized.pages || [];
     state.blocks = normalized.blocks;
@@ -1029,11 +1936,11 @@ window.selectBubble = (e, i) => selectBubble(e, i, refresh);
 window.addSection = () => { pushState(); addSection(refresh); triggerAutoSave(); };
 window.changeSection = (i) => {
     if (Date.now() < suppressThumbClickUntil) return;
-    changeSection(i, refresh);
+    changeSection(i, refreshForThumbSelection);
 };
 window.changeBlock = (idx) => {
     if (Date.now() < suppressThumbClickUntil) return;
-    changeBlock(idx, refresh);
+    changeBlock(idx, refreshForThumbSelection);
 };
 window.insertSectionAtIndex = (idx, e) => {
     if (e) {
@@ -1094,7 +2001,7 @@ window.onThumbDragOver = (e, idx) => {
     e.preventDefault();
     const el = getThumbElement(idx);
     if (!el) return;
-    const position = getDropPositionByPoint(el, e.clientY);
+    const position = getDropPositionByPoint(el, e.clientX, e.clientY);
     markThumbDropHint(idx, position);
 };
 window.onThumbDragLeave = () => {
@@ -1105,7 +2012,7 @@ window.onThumbDrop = (e, idx) => {
     e.preventDefault();
     const el = getThumbElement(idx);
     if (!el) return;
-    const position = getDropPositionByPoint(el, e.clientY);
+    const position = getDropPositionByPoint(el, e.clientX, e.clientY);
     moveSectionWithHistory(thumbDragSourceIdx, idx, position);
     suppressThumbClickUntil = Date.now() + 250;
     thumbDragSourceIdx = null;
@@ -1119,21 +2026,20 @@ window.startThumbTouchDrag = (e, idx) => {
     if (e.touches?.length !== 1) return;
     const touch = e.touches[0];
     thumbDragSourceIdx = idx;
+    clearThumbDeleteDropzone();
+    clearThumbDropHints();
     thumbTouchState = {
         sourceIndex: idx,
+        mode: null,
         targetIndex: null,
+        insertIndex: null,
         position: 'after',
         startX: touch.clientX,
         startY: touch.clientY,
         active: false,
-        timerId: null
+        lastX: touch.clientX,
+        lastY: touch.clientY
     };
-    thumbTouchState.timerId = setTimeout(() => {
-        if (!thumbTouchState) return;
-        thumbTouchState.active = true;
-        const sourceEl = getThumbElement(idx);
-        if (sourceEl) sourceEl.classList.add('drag-source');
-    }, 320);
     bindTouchDragListeners();
 };
 window.deleteActive = () => { pushState(); deleteActive(refresh); triggerAutoSave(); };
@@ -1162,7 +2068,12 @@ window.setThumbColumns = (cols) => {
     refresh();
     triggerAutoSave();
 };
-window.setThumbSize = window.setThumbColumns;
+window.setThumbSize = (sizeKey) => {
+    const cols = MOBILE_THUMB_SIZE_MAP[sizeKey] || 2;
+    setCurrentDeviceThumbColumns(cols);
+    refresh();
+    triggerAutoSave();
+};
 window.uploadToStorage = (input) => { pushState(); uploadToStorage(input, refresh); };
 
 window.performUndo = () => { undo(refresh); triggerAutoSave(); };
@@ -1198,16 +2109,26 @@ const CANVAS_ZOOM_PRESETS = [25, 33, 50, 67, 75, 90, 100, 110, 125, 150, 175, 20
 
 function syncCanvasZoomUI() {
     const select = document.getElementById('canvas-zoom-select');
-    if (!select) return;
     const percent = Math.round(canvasScale * 100);
-    const custom = select.querySelector('option[value="custom"]');
-    if (CANVAS_ZOOM_PRESETS.includes(percent)) {
-        if (custom) custom.hidden = true;
-        select.value = String(percent);
-    } else if (custom) {
-        custom.hidden = false;
-        custom.textContent = `${percent}%`;
-        select.value = 'custom';
+    if (select) {
+        const custom = select.querySelector('option[value="custom"]');
+        if (CANVAS_ZOOM_PRESETS.includes(percent)) {
+            if (custom) custom.hidden = true;
+            select.value = String(percent);
+        } else if (custom) {
+            custom.hidden = false;
+            custom.textContent = `${percent}%`;
+            select.value = 'custom';
+        }
+    }
+
+    const mobileRange = document.getElementById('mobile-canvas-zoom-range');
+    if (mobileRange) {
+        mobileRange.value = String(Math.min(Math.max(percent, 25), 300));
+    }
+    const mobileValue = document.getElementById('mobile-canvas-zoom-value');
+    if (mobileValue) {
+        mobileValue.textContent = `${percent}%`;
     }
 }
 
@@ -1215,6 +2136,26 @@ window.setCanvasZoomPercent = (value) => {
     const num = Number(value);
     if (!Number.isFinite(num) || num <= 0) return;
     canvasScale = Math.min(Math.max(num / 100, 0.1), 5);
+    updateCanvasTransform();
+};
+
+window.fitCanvasView = () => {
+    canvasTranslate = { x: 0, y: 0 };
+
+    const container = document.getElementById('canvas-view');
+    if (container) {
+        const cw = container.clientWidth;
+        const ch = container.clientHeight;
+        const targetW = 360;
+        const targetH = 640;
+
+        let s = Math.min(cw / targetW, ch / targetH) * 0.9;
+        if (s > 1.2) s = 1.0;
+        canvasScale = s;
+    } else {
+        canvasScale = 1;
+    }
+
     updateCanvasTransform();
 };
 
@@ -1229,23 +2170,6 @@ function updateCanvasTransform() {
 // キャンバスリセット（中央寄せ・初期サイズ）
 window.resetCanvasView = () => {
     canvasTranslate = { x: 0, y: 0 };
-
-    // 画面サイズに合わせて自動スケール
-    const container = document.getElementById('canvas-view');
-    if (container) {
-        const cw = container.clientWidth;
-        const ch = container.clientHeight;
-        // 9:16 (360x640) base
-        const targetW = 360;
-        const targetH = 640;
-
-        let s = Math.min(cw / targetW, ch / targetH) * 0.9;
-        if (s > 1.2) s = 1.0; // あまり大きすぎないように
-        canvasScale = s;
-    } else {
-        canvasScale = 1;
-    }
-
     updateCanvasTransform();
 };
 
@@ -1254,7 +2178,7 @@ function initCanvasZoom() {
     if (!view) return;
 
     // 初期化時にリセット（flex レイアウト確定後に実行）
-    requestAnimationFrame(() => resetCanvasView());
+    requestAnimationFrame(() => fitCanvasView());
 
     // Pan handling
     let isPanning = false;
@@ -1343,9 +2267,7 @@ window.onProjectTitleInput = () => {
     const el = document.getElementById('project-title');
     if (el) {
         const name = (el.textContent || '').trim();
-        if (name && name !== '新規プロジェクト') {
-            dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'projectId', value: name } });
-        }
+        dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'projectName', value: name === '新規プロジェクト' ? '' : name } });
     }
 };
 window.onProjectTitleKeydown = (e) => {
@@ -1358,25 +2280,14 @@ window.onProjectTitleBlur = () => {
     const el = document.getElementById('project-title');
     if (el) {
         const name = (el.textContent || '').trim();
-        if (name && name !== '新規プロジェクト') {
-            state.projectId = name;
-            triggerAutoSave();
-        }
+        state.projectName = name === '新規プロジェクト' ? '' : name;
+        triggerAutoSave();
     }
 };
-window.saveProject = () => {
-    if (!state.projectId) {
-        const name = (document.getElementById('project-title').textContent || '').trim();
-        if (!name || name === '新規プロジェクト') {
-            const input = prompt('プロジェクト名を入力してください:');
-            if (!input) return;
-            state.projectId = input;
-            document.getElementById('project-title').textContent = input;
-        } else {
-            state.projectId = name;
-        }
-    }
-    triggerAutoSave();
+window.saveProject = async () => {
+    ensureProjectIdentity();
+    await persistProject();
+    refresh();
 };
 
 window.importDSP = async (event) => {
@@ -1398,15 +2309,16 @@ window.importDSP = async (event) => {
             type: actionTypes.LOAD_PROJECT,
             payload: loadedState
         });
+        await cacheLocalRecentProject(JSON.parse(JSON.stringify(state)), window.localImageMap);
 
         // Update title UI
         const pt = document.getElementById('project-title');
-        if (pt) pt.textContent = state.title || 'Untitled';
+        if (pt) pt.textContent = state.projectName || state.title || 'Untitled';
         const inputTitle = document.getElementById('prop-title');
         if (inputTitle) inputTitle.value = state.title || '';
 
         refresh();
-        alert("プロジェクトを読み込みました (ローカル)");
+        window.switchRoom('editor');
     } catch (e) {
         console.error("DSP Import failed", e);
         alert("読み込みエラー: " + e.message);
@@ -1457,7 +2369,7 @@ window.shareProject = async () => {
     const host = window.location.host;
     const visibility = state.visibility || 'private';
     if (visibility === 'private') {
-        alert('現在の状態は「🔒 非公開」です。\nこのままでは作品を共有できません。上部メニューから「🔗 限定公開」か「🌍 公開」に変更してください。');
+        alert('現在の状態は「非公開」です。\nこのままでは作品を共有できません。上部メニューから「限定公開」か「公開」に変更してください。');
         return;
     }
     const url = `${window.location.protocol}//${host}/viewer?project=${encodeURIComponent(state.projectId)}&author=${encodeURIComponent(state.uid)}`;
@@ -1474,9 +2386,9 @@ window.updateVisibility = async (val) => {
     dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'visibility', value: val } });
     await flushSave();
     const map = {
-        'private': '🔒 非公開（自分だけの状態）',
-        'unlisted': '🔗 限定公開（URLを知っている人のみ閲覧可能）',
-        'public': '🌍 公開（ポータルに掲載され誰でも閲覧可能）'
+        'private': '非公開（自分だけの状態）',
+        'unlisted': '限定公開（URLを知っている人のみ閲覧可能）',
+        'public': '公開（ポータルに掲載され誰でも閲覧可能）'
     };
     console.log(`[DSF] Visibility updated to ${val}`);
 };
@@ -1560,7 +2472,13 @@ window.removeLang = (code) => {
 };
 
 // プロジェクトモーダル
-window.openProjectModal = () => openProjectModal(onLoadProject);
+window.openProjectModal = () => openProjectModal((...args) => {
+    onLoadProject(...args);
+    cacheLocalRecentProject(JSON.parse(JSON.stringify(state)), window.localImageMap).catch((e) => {
+        console.warn('[Home] Failed to cache cloud project locally:', e);
+    });
+    window.switchRoom('editor');
+});
 window.closeProjectModal = closeProjectModal;
 
 // Works Room
@@ -1593,8 +2511,9 @@ window.loadAndRepress = (pid) => {
 
 // 新規プロジェクト
 window.newProject = () => {
-    if (state.projectId && !confirm('現在のプロジェクトを閉じて新しいプロジェクトを作成しますか？')) return;
+    if (state.projectId && !confirm('現在のプロジェクトを閉じて新しいプロジェクトを作成しますか？')) return false;
     dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'projectId', value: null } });
+    dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'projectName', value: '' } });
     dispatch({ type: actionTypes.SET_TITLE, payload: '' });
     dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'languages', value: ['ja'] } });
     dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'defaultLang', value: 'ja' } });
@@ -1619,6 +2538,7 @@ window.newProject = () => {
     refresh();
     renderLangSettings();
     closeProjectModal();
+    return true;
 };
 
 function setRibbonTab(tabName) {
@@ -1762,6 +2682,46 @@ function renderProjectSettingsTable() {
 
     const langs = state.languages || ['ja'];
     const meta = state.meta || {};
+    const isMobile = window.innerWidth < 768 || document.body.dataset.device === 'mobile';
+
+    if (isMobile) {
+        const cards = langs.map((lang, idx) => {
+            const props = getLangProps(lang);
+            const dir = (state.languageConfigs?.[lang]?.pageDirection || 'ltr').toUpperCase();
+            const code = lang.toUpperCase();
+            const isDefault = idx === 0;
+            const defaultBadge = isDefault
+                ? `<span class="ps-default-badge">${t('ps_default_badge')}</span>`
+                : '';
+            const fields = PS_META_FIELDS.map(field => {
+                const val = (meta[lang]?.[field.key] || '').replace(/"/g, '&quot;');
+                const ph = (getLangProps(lang).placeholders?.[field.key] || '').replace(/"/g, '&quot;');
+                const control = field.type === 'textarea'
+                    ? `<textarea class="ps-meta-input" data-lang="${lang}" data-key="${field.key}" placeholder="${ph}">${val}</textarea>`
+                    : `<input type="text" class="ps-meta-input" data-lang="${lang}" data-key="${field.key}" value="${val}" placeholder="${ph}">`;
+                return `
+                    <div class="ps-meta-mobile-field">
+                        <label class="ps-meta-mobile-label">${field.label}</label>
+                        ${control}
+                    </div>
+                `;
+            }).join('');
+            return `
+                <section class="ps-meta-mobile-card">
+                    <header class="ps-meta-mobile-head${isDefault ? ' ps-meta-header--default' : ''}">
+                        <div class="ps-meta-mobile-head-main">
+                            <div class="ps-meta-mobile-lang">${props.label}</div>
+                            <div class="ps-meta-mobile-sub">${code} / ${dir}</div>
+                        </div>
+                        ${defaultBadge}
+                    </header>
+                    <div class="ps-meta-mobile-body">${fields}</div>
+                </section>
+            `;
+        }).join('');
+        container.innerHTML = `<div class="ps-meta-mobile-list">${cards}</div>`;
+        return;
+    }
 
     // grid-template-columns: label col (fixed) + one col per language (fixed 180px each → horizontal scroll)
     const colTemplate = `120px ${langs.map(() => '320px').join(' ')}`;
@@ -1817,7 +2777,7 @@ window.openProjectSettings = () => {
 
     // Project name
     const nameEl = document.getElementById('ps-project-name');
-    if (nameEl) nameEl.value = state.title || '';
+    if (nameEl) nameEl.value = state.projectName || '';
 
     // Global settings
     const ratingEl = document.getElementById('ps-rating');
@@ -1843,15 +2803,13 @@ window.closeProjectSettings = (e) => {
 };
 
 window.saveProjectSettings = () => {
-    // Project name → state.title
+    // Project name
     const nameEl = document.getElementById('ps-project-name');
     if (nameEl) {
-        const newTitle = nameEl.value.trim();
-        dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'title', value: newTitle } });
+        const newName = nameEl.value.trim();
+        dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'projectName', value: newName } });
         const titleDisplay = document.getElementById('project-title');
-        if (titleDisplay) titleDisplay.textContent = newTitle || '新規プロジェクト';
-        const propTitle = document.getElementById('prop-title');
-        if (propTitle) propTitle.value = newTitle;
+        if (titleDisplay) titleDisplay.textContent = newName || '新規プロジェクト';
     }
 
     // Global settings
@@ -1881,6 +2839,10 @@ window.saveProjectSettings = () => {
 // ===== Room Navigation =====
 window.switchRoom = (room) => {
     document.body.dataset.room = room;
+    syncStudioShell();
+    if (room === 'home') {
+        renderHomeDashboard().catch((e) => console.warn('[Home] render failed:', e));
+    }
     if (room === 'press') {
         enterPressRoom();
     }
@@ -1894,6 +2856,18 @@ window.togglePageStrip = () => {
     const chevron = document.getElementById('page-strip-chevron');
     if (chevron) {
         chevron.textContent = document.body.classList.contains('strip-collapsed') ? 'expand_less' : 'expand_more';
+    }
+};
+
+window.handleMobileHeaderNav = () => {
+    if (getCurrentRoom() === 'editor' && window.innerWidth < 1024) {
+        window.toggleMobileHomeDrawer();
+        return;
+    }
+    const navBtn = document.getElementById('mobile-header-nav');
+    const targetRoom = navBtn?.dataset.targetRoom;
+    if (targetRoom) {
+        window.switchRoom(targetRoom);
     }
 };
 
@@ -1911,13 +2885,107 @@ window.uploadAsset = () => {
     input.click();
 };
 
+const MOBILE_ROOM_ACTIONS = {
+    home: [
+        {
+            key: 'new-project',
+            icon: 'add_circle',
+            labelKey: 'bottom_new_project',
+            onClick: () => {
+                if (newProject()) {
+                    window.switchRoom('editor');
+                }
+            }
+        },
+        {
+            key: 'open-local',
+            icon: 'folder_open',
+            labelKey: 'bottom_open_local',
+            onClick: () => document.getElementById('dsp-upload')?.click()
+        },
+        {
+            key: 'menu',
+            icon: 'menu',
+            labelKey: 'bottom_menu',
+            sheet: 'menu'
+        }
+    ],
+    editor: [
+        { key: 'pages', icon: 'view_carousel', labelKey: 'bottom_pages', sheet: 'pages' },
+        { key: 'add', icon: 'add_circle', labelKey: 'bottom_add', sheet: 'add' },
+        { key: 'edit', icon: 'tune', labelKey: 'bottom_edit', sheet: 'edit' },
+        { key: 'export', icon: 'ios_share', labelKey: 'bottom_export', sheet: 'export' },
+        { key: 'menu', icon: 'menu', labelKey: 'bottom_menu', sheet: 'menu' }
+    ],
+    press: [
+        { key: 'menu', icon: 'menu', labelKey: 'bottom_menu', sheet: 'menu' }
+    ],
+    works: [
+        { key: 'menu', icon: 'menu', labelKey: 'bottom_menu', sheet: 'menu' }
+    ]
+};
+
 let activeMobileSheet = null;
 let lastDeviceKey = getDeviceKey();
+
+function getMobileActionConfigs(room = getCurrentRoom()) {
+    return MOBILE_ROOM_ACTIONS[room] || [];
+}
 
 function setBottomBarActive(actionName) {
     document.querySelectorAll('.bottom-item').forEach((item) => {
         item.classList.toggle('active', item.dataset.mobileAction === actionName);
     });
+}
+
+function syncMobileMenuSheet() {
+    const room = getCurrentRoom();
+    document.querySelectorAll('[data-mobile-room-only]').forEach((el) => {
+        el.hidden = el.dataset.mobileRoomOnly !== room;
+    });
+}
+
+function handleMobileBottomAction(actionKey) {
+    const action = getMobileActionConfigs().find((item) => item.key === actionKey);
+    if (!action) return;
+    if (action.sheet) {
+        openMobileSheet(action.sheet);
+        return;
+    }
+    closeMobileSheet();
+    action.onClick?.();
+}
+
+function renderMobileBottomBar() {
+    const bottomBar = document.getElementById('bottom-bar');
+    if (!bottomBar) return;
+    const device = getDeviceKey();
+    const actions = device === 'mobile' ? getMobileActionConfigs() : [];
+
+    document.body.classList.toggle('mobile-bottom-visible', actions.length > 0);
+
+    if (!actions.length) {
+        bottomBar.innerHTML = '';
+        setBottomBarActive(null);
+        return;
+    }
+
+    bottomBar.style.setProperty('--mobile-bottom-columns', String(actions.length));
+    bottomBar.innerHTML = actions.map((action) => `
+        <button class="bottom-item" data-mobile-action="${action.key}">
+            <span class="material-icons">${action.icon}</span><span>${t(action.labelKey)}</span>
+        </button>
+    `).join('');
+
+    bottomBar.querySelectorAll('.bottom-item').forEach((item) => {
+        item.addEventListener('click', () => handleMobileBottomAction(item.dataset.mobileAction));
+    });
+
+    if (activeMobileSheet && !actions.some((action) => action.key === activeMobileSheet || action.sheet === activeMobileSheet)) {
+        closeMobileSheet();
+    } else {
+        setBottomBarActive(activeMobileSheet);
+    }
 }
 
 window.closeMobileSheet = () => {
@@ -1929,6 +2997,29 @@ window.closeMobileSheet = () => {
     });
     document.querySelectorAll('.mobile-sheet-content').forEach((el) => el.classList.remove('active'));
     setBottomBarActive(null);
+};
+
+window.closeMobileHomeDrawer = () => {
+    document.body.classList.remove('mobile-home-drawer-open');
+};
+
+window.openMobileHomeDrawer = () => {
+    if (window.innerWidth >= 1024 || getCurrentRoom() !== 'editor') return;
+    closeMobileSheet();
+    document.body.classList.add('mobile-home-drawer-open');
+};
+
+window.toggleMobileHomeDrawer = () => {
+    if (isMobileHomeDrawerOpen()) {
+        closeMobileHomeDrawer();
+    } else {
+        openMobileHomeDrawer();
+    }
+};
+
+window.closeMobileOverlays = () => {
+    closeMobileSheet();
+    closeMobileHomeDrawer();
 };
 
 function openMobileActionSheet(contentId) {
@@ -1947,6 +3038,7 @@ window.openMobileSheet = (sheetName) => {
         return;
     }
 
+    closeMobileHomeDrawer();
     closeMobileSheet();
     activeMobileSheet = sheetName;
     document.body.classList.add('mobile-sheet-active');
@@ -1962,12 +3054,12 @@ window.openMobileSheet = (sheetName) => {
     }
 
     const map = {
-        home: 'mobile-sheet-home',
+        menu: 'mobile-sheet-menu',
         add: 'mobile-sheet-add',
         export: 'mobile-sheet-export',
         lang: 'mobile-sheet-lang'
     };
-    openMobileActionSheet(map[sheetName] || 'mobile-sheet-home');
+    openMobileActionSheet(map[sheetName] || 'mobile-sheet-menu');
 };
 
 function initUIChrome() {
@@ -1978,24 +3070,87 @@ function initUIChrome() {
     document.getElementById('btn-toggle-sidebar')?.addEventListener('click', () => window.toggleDrawer('assets'));
     document.getElementById('btn-toggle-panel')?.addEventListener('click', () => toggleDesktopPanel('right'));
 
-    document.querySelectorAll('.bottom-item').forEach((item) => {
-        item.addEventListener('click', () => openMobileSheet(item.dataset.mobileAction));
-    });
+    let mobileHomeDrawerSwipe = null;
+    document.addEventListener('touchstart', (e) => {
+        if (window.innerWidth >= 1024 || getCurrentRoom() !== 'editor' || activeMobileSheet || isMobileHomeDrawerOpen()) return;
+        const touch = e.touches?.[0];
+        if (!touch) return;
+        if (touch.clientX > 24) return;
+        mobileHomeDrawerSwipe = {
+            startX: touch.clientX,
+            startY: touch.clientY,
+            opened: false
+        };
+    }, { passive: true });
+
+    document.addEventListener('touchmove', (e) => {
+        if (!mobileHomeDrawerSwipe || mobileHomeDrawerSwipe.opened) return;
+        const touch = e.touches?.[0];
+        if (!touch) return;
+        const dx = touch.clientX - mobileHomeDrawerSwipe.startX;
+        const dy = Math.abs(touch.clientY - mobileHomeDrawerSwipe.startY);
+        if (dy > 36) {
+            mobileHomeDrawerSwipe = null;
+            return;
+        }
+        if (dx > 56) {
+            openMobileHomeDrawer();
+            mobileHomeDrawerSwipe.opened = true;
+            mobileHomeDrawerSwipe = null;
+        }
+    }, { passive: true });
+
+    document.addEventListener('touchend', () => {
+        mobileHomeDrawerSwipe = null;
+    }, { passive: true });
+
+    const mobileHomeDrawer = document.getElementById('mobile-home-drawer');
+    let mobileHomeDrawerCloseSwipe = null;
+    mobileHomeDrawer?.addEventListener('touchstart', (e) => {
+        if (!isMobileHomeDrawerOpen()) return;
+        const touch = e.touches?.[0];
+        if (!touch) return;
+        const rect = mobileHomeDrawer.getBoundingClientRect();
+        if ((rect.right - touch.clientX) > 36) return;
+        mobileHomeDrawerCloseSwipe = {
+            startX: touch.clientX,
+            startY: touch.clientY
+        };
+    }, { passive: true });
+
+    mobileHomeDrawer?.addEventListener('touchmove', (e) => {
+        if (!mobileHomeDrawerCloseSwipe) return;
+        const touch = e.touches?.[0];
+        if (!touch) return;
+        const dx = touch.clientX - mobileHomeDrawerCloseSwipe.startX;
+        const dy = Math.abs(touch.clientY - mobileHomeDrawerCloseSwipe.startY);
+        if (dy > 36) {
+            mobileHomeDrawerCloseSwipe = null;
+            return;
+        }
+        if (dx < -48) {
+            closeMobileHomeDrawer();
+            mobileHomeDrawerCloseSwipe = null;
+        }
+    }, { passive: true });
+
+    mobileHomeDrawer?.addEventListener('touchend', () => {
+        mobileHomeDrawerCloseSwipe = null;
+    }, { passive: true });
 
     window.addEventListener('resize', () => {
-        if (window.innerWidth >= 1024) {
-            closeMobileSheet();
-        }
         const currentDeviceKey = getDeviceKey();
         if (currentDeviceKey !== lastDeviceKey) {
             lastDeviceKey = currentDeviceKey;
             applyThumbColumnsFromPrefs();
             refresh();
         }
+        syncStudioShell();
     });
 
     setRibbonTab('home');
     syncDesktopToggleButtons();
+    syncStudioShell();
 }
 
 // 後方互換: 旧モバイルナビAPI
@@ -2021,6 +3176,7 @@ onAuthChanged((user) => {
     state.user = user || null;
     state.uid = user?.uid || null;
     updateAuthUI();
+    renderHomeDashboard().catch((e) => console.warn('[Home] render failed after auth:', e));
     // Auto-load project from URL param after login
     if (user) {
         const pid = new URLSearchParams(window.location.search).get('id');
@@ -2033,11 +3189,13 @@ window.setStudioUILang = (lang) => {
     setUILang(lang);
     // 動的レンダリング済みコンポーネントを再描画
     renderLangTabs();
+    renderHomeDashboard().catch((e) => console.warn('[Home] render failed after language switch:', e));
     if (document.getElementById('project-settings-modal')?.style.display !== 'none') {
         renderProjectSettingsTable();
         renderLangSettings();
         renderLangAddSelect();
     }
+    syncStudioShell();
 };
 
 // --- 初回描画 ---
@@ -2089,6 +3247,11 @@ async function bootstrapApp() {
     refresh();
     renderLangSettings();
     updateAuthUI();
+    await renderHomeDashboard();
+    const requestedRoom = urlParams.get('room');
+    if (requestedRoom && ['home', 'editor', 'press', 'works'].includes(requestedRoom)) {
+        window.switchRoom(requestedRoom);
+    }
 }
 
 bootstrapApp();
@@ -2179,8 +3342,8 @@ function initContextMenu() {
                 })();
 
                 const shapeOptions = [
-                    ['speech', '💬 角丸'], ['oval', '⭕ 楕円'], ['rect', '📄 四角'],
-                    ['cloud', '☁️ 雲'], ['wave', '🌊 波'], ['thought', '💭 思考'],
+                    ['speech', '角丸'], ['oval', '楕円'], ['rect', '四角'],
+                    ['cloud', '雲'], ['wave', '波'], ['thought', '思考'],
                     ['explosion', '💥 爆発'], ['digital', '📡 電子音'],
                     ['shout', '⚡ ギザギザ'], ['flash', '✨ フラッシュ'], ['urchin', '🦔 ウニフラッシュ']
                 ].map(([v, l]) =>
@@ -2206,7 +3369,7 @@ function initContextMenu() {
             // キャンバス（何もない場所）で右クリックした場合
             contextMenu.innerHTML = `
                 <div class="context-menu-item" onclick="addBubbleAtPointer(event)">
-                    <span class="material-icons">chat_bubble_outline</span> ここに吹き出しを追加
+                    <span class="material-icons">text_fields</span> ここにテキストを追加
                 </div>
             `;
             // ポインター座標を一時保存（addBubbleAtPointerで使う）
@@ -2262,7 +3425,7 @@ window.addBubbleAtPointer = function (e) {
     pushState();
     const newBubble = {
         id: 'bubble_' + Date.now(),
-        shape: 'speech',
+        shape: 'rect',
         text: 'テキスト',
         x: x.toFixed(1),
         y: y.toFixed(1),

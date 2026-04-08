@@ -6,7 +6,10 @@ export const state = {
     user: null,
     uid: null,
     projectId: null,
+    localProjectId: null,
+    projectName: '',
     title: '',               // 作品タイトル（ヘッダー表示用）
+    dsfPages: [],
     languages: ['ja'],       // プロジェクトの対応言語
     defaultLang: 'ja',
     languageConfigs: {
@@ -58,9 +61,11 @@ export const actionTypes = {
     // Project loading
     LOAD_PROJECT: 'LOAD_PROJECT',
     SET_AUTH_STATE: 'SET_AUTH_STATE',
+    SET_TITLE: 'SET_TITLE',
 
     // Global UI state
     SET_ACTIVE_LANG: 'SET_ACTIVE_LANG',
+    SET_ACTIVE_LANGUAGE: 'SET_ACTIVE_LANGUAGE',
     SET_ACTIVE_INDEX: 'SET_ACTIVE_INDEX',
     SET_ACTIVE_BLOCK_INDEX: 'SET_ACTIVE_BLOCK_INDEX',
     SET_ACTIVE_BUBBLE_INDEX: 'SET_ACTIVE_BUBBLE_INDEX',
@@ -95,7 +100,12 @@ export function dispatch(action) {
             break;
 
         case actionTypes.SET_ACTIVE_LANG:
+        case actionTypes.SET_ACTIVE_LANGUAGE:
             state.activeLang = payload;
+            break;
+
+        case actionTypes.SET_TITLE:
+            state.title = payload;
             break;
 
         case actionTypes.SET_ACTIVE_INDEX:

@@ -12,6 +12,7 @@
     <link
         href="https://fonts.googleapis.com/css2?family=Noto+Sans:wght@400;700&family=Noto+Sans+JP:wght@400;700&family=Noto+Serif:wght@400;700&family=Noto+Serif+JP:wght@400;700&display=swap"
         rel="stylesheet">
+    <link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet">
     <script src="https://accounts.google.com/gsi/client" async defer></script>
 </head>
 
@@ -42,26 +43,35 @@
     <div id="viewer-ui">
         <div id="viewer-header" class="ui-bar">
             <!-- Left: Close Button -->
-            <button class="btn-icon header-btn" onclick="toggleUi()" title="閉じる">✕</button>
+            <button id="viewer-close-btn" class="btn-icon header-btn" onclick="toggleUi()" title="閉じる">
+                <span class="material-icons" aria-hidden="true">close</span>
+            </button>
 
             <!-- Center: Title -->
             <div class="ui-title" id="ui-title"></div>
 
             <!-- Right: Controls & Branding -->
             <div class="ui-controls">
-                <select id="lang-select" onchange="switchViewerLang(this.value)"
-                    style="padding:4px; border-radius:4px; border:1px solid #ccc; font-size:12px; display:none;">
-                </select>
-                <button class="btn-icon header-btn" onclick="document.getElementById('file-input').click()"
-                    title="ファイルを開く">📂</button>
+                <div class="viewer-ui-lang-switcher">
+                    <button class="viewer-ui-lang-btn" data-ui-lang="ja" onclick="setViewerUiLang('ja')">JA</button>
+                    <button class="viewer-ui-lang-btn" data-ui-lang="en" onclick="setViewerUiLang('en')">EN</button>
+                </div>
+                <div id="viewer-lang-picker" class="viewer-lang-picker" style="display:none;">
+                    <button id="lang-picker-button" class="viewer-lang-picker-button" type="button" onclick="toggleViewerLangMenu()"></button>
+                    <div id="lang-picker-menu" class="viewer-lang-picker-menu"></div>
+                </div>
+                <button id="viewer-file-btn" class="btn-icon header-btn" onclick="document.getElementById('file-input').click()"
+                    title="ファイルを開く">
+                    <span class="material-icons" aria-hidden="true">folder_open</span>
+                </button>
             </div>
         </div>
 
         <div id="viewer-footer" class="ui-bar">
             <div class="ui-controls footer-controls">
                 <!-- Branding Link back to portal (Moved to footer for less distraction) -->
-                <a href="/" title="DSF Portal"
-                    style="text-decoration:none; display:flex; align-items:baseline; margin-right: 8px; pointer-events:auto;">
+                <a href="/" title="DSF Portal" class="viewer-footer-brand"
+                    style="text-decoration:none; display:flex; align-items:baseline; pointer-events:auto;">
                     <span
                         style="font-family:'Inter',sans-serif; font-size:10px; color:#64748b; margin-right:4px;">Powered
                         by</span>
@@ -69,12 +79,16 @@
                         style="font-family:'Outfit',sans-serif; font-size:14px; font-weight:800; letter-spacing:-0.5px; background:linear-gradient(135deg, #60a5fa, #818cf8); -webkit-background-clip:text; background-clip:text; -webkit-text-fill-color:transparent;">DSF</span>
                 </a>
 
-                <button id="viewer-nav-left" class="nav-btn" onclick="viewerNavLeft()">◀</button>
                 <div class="slider-wrapper">
                     <input type="range" id="page-slider" min="1" max="1" value="1" oninput="jumpToPage(this.value)">
                 </div>
-                <button id="viewer-nav-right" class="nav-btn" onclick="viewerNavRight()">▶</button>
-                <span id="page-count" class="page-count">1 / 1</span>
+                <div class="footer-nav-group">
+                    <span id="page-count" class="page-count">1 / 1</span>
+                    <div class="viewer-nav-btns">
+                        <button id="viewer-nav-left" class="nav-btn" onclick="viewerNavLeft()"><span class="material-icons" aria-hidden="true">chevron_left</span></button>
+                        <button id="viewer-nav-right" class="nav-btn" onclick="viewerNavRight()"><span class="material-icons" aria-hidden="true">chevron_right</span></button>
+                    </div>
+                </div>
             </div>
         </div>
     </div>
