@@ -430,6 +430,21 @@ export function normalizeProjectDataV5(data = {}) {
     if (!pages.length) pages = migrateSectionsToPages(data.sections || []);
 
     const legacy = pagesToLegacyData(pages, languages);
+
+    // 旧プロジェクトは pages に backgrounds が含まれていない場合がある。
+    // Firestore に保存された sections には backgrounds が入っているので、
+    // legacy.sections[i].backgrounds が空なら data.sections[i].backgrounds で補完する。
+    const savedSections = Array.isArray(data.sections) ? data.sections : [];
+    const mergedSections = legacy.sections.map((s, i) => {
+        const saved = savedSections[i];
+        const hasBg = s.backgrounds && Object.keys(s.backgrounds).length > 0;
+        const savedHasBg = saved?.backgrounds && Object.keys(saved.backgrounds).length > 0;
+        if (!hasBg && savedHasBg) {
+            return { ...s, backgrounds: deepClone(saved.backgrounds) };
+        }
+        return s;
+    });
+
     return {
         ...data,
         version: Math.max(Number(data.version) || 0, PAGE_SCHEMA_VERSION),
@@ -437,7 +452,7 @@ export function normalizeProjectDataV5(data = {}) {
         defaultLang,
         pages,
         blocks: legacy.blocks,
-        sections: legacy.sections
+        sections: mergedSections
     };
 }
 
