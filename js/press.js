@@ -33,8 +33,8 @@ function _renderPageThumbs() {
 
     container.innerHTML = pages.map((section, i) => {
         const lang = state.activeLang || state.defaultLang || 'ja';
-        const thumb = section.thumbnail
-            || section.backgrounds?.[lang]
+        const thumb = section.backgrounds?.[lang]
+            || section.thumbnail
             || section.background
             || '';
         const label = String(i + 1);
