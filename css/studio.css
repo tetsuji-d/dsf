@@ -3042,7 +3042,31 @@ body.mobile-sheet-active #image-zoom-controls-floating {
     padding: 36px;
 }
 
+/* モバイル言語バー（エディタールーム時のみヘッダー直下に常時表示） */
+#mobile-lang-bar {
+    display: none;
+}
+
 @media (max-width: 1023px) {
+    body[data-device="mobile"][data-room="editor"] #mobile-lang-bar {
+        display: flex;
+        position: fixed;
+        top: 52px;
+        left: 0;
+        right: 0;
+        z-index: 999;
+        background: rgba(255, 255, 255, 0.97);
+        border-bottom: 1px solid #e3e8f1;
+        padding: 4px 12px;
+        min-height: 36px;
+        align-items: center;
+        gap: 6px;
+    }
+
+    body[data-device="mobile"][data-room="editor"] #editor-main {
+        padding-top: 88px; /* 52px header + 36px lang bar */
+    }
+
     #mobile-header {
         position: fixed;
         top: 0;

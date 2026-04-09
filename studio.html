@@ -193,9 +193,6 @@
                         <button class="btn-tool" onclick="fitCanvasView()" data-i18n="btn_fit">フィット</button>
                         <button class="btn-tool" onclick="setCanvasZoomPercent(100)">100%</button>
                     </div>
-                    <div class="ribbon-group">
-                        <div id="lang-tabs" class="lang-tabs"></div>
-                    </div>
                 </div>
                 <div class="ribbon-panel" data-ribbon-panel="export">
                     <div class="ribbon-group">
@@ -386,6 +383,8 @@
 
         </div><!-- /editor-room -->
 
+        <div id="mobile-lang-bar"><div id="lang-tabs-mobile" class="lang-tabs"></div></div>
+
         <div id="mobile-header">
             <button id="mobile-header-nav" class="mobile-header-nav-btn" type="button" onclick="handleMobileHeaderNav()" hidden>
                 <span class="material-icons">arrow_back</span>
@@ -456,9 +455,7 @@
                 <button class="btn-tool btn-tool-icon" onclick="exportDSF()"><span class="material-icons" aria-hidden="true">publish</span><span data-i18n="mobile_export_dsf">Publish (.dsf)</span></button>
                 <button class="btn-tool btn-tool-icon" onclick="openProjectModal()" data-auth-required><span class="material-icons" aria-hidden="true">folder</span><span data-i18n="mobile_projects">プロジェクト一覧</span></button>
             </div>
-            <div id="mobile-sheet-lang" class="mobile-sheet-content">
-                <div id="lang-tabs-mobile" class="lang-tabs"></div>
-            </div>
+            <div id="mobile-sheet-lang" class="mobile-sheet-content" hidden></div>
         </div>
 
         <div id="mobile-canvas-zoom-bar" hidden>

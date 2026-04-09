@@ -73,6 +73,7 @@ export function createPageBlockFromSection(section) {
         content: {
             pageKind: src.type === 'text' ? 'text' : 'image',
             background: src.background || '',
+            backgrounds: deepClone(src.backgrounds || {}),
             thumbnail: src.thumbnail || '',
             bubbles: deepClone(src.bubbles || []),
             text: src.text || '',
@@ -91,6 +92,7 @@ export function createSectionFromPageBlock(block) {
     return {
         type: c.pageKind === 'text' ? 'text' : 'image',
         background: c.background || '',
+        backgrounds: deepClone(c.backgrounds || {}),
         thumbnail: c.thumbnail || '',
         writingMode: 'horizontal-tb',
         bubbles: deepClone(c.bubbles || []),
