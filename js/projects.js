@@ -4,32 +4,33 @@
 import { collection, getDocs, deleteDoc, doc } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
 import { state } from './state.js';
 import { db } from './firebase.js';
-import { normalizeProjectDataV5 } from './pages.js';
 
+/**
+ * クラウドプロジェクト一覧を取得する（サマリーフィールドのみ）。
+ * pages / blocks / sections は含まない。プロジェクト読み込みは loadProject() を使うこと。
+ */
 export async function fetchCloudProjects() {
     if (!state.uid) return [];
 
     const snapshot = await getDocs(collection(db, "users", state.uid, "projects"));
     const projects = [];
     snapshot.forEach(docSnap => {
-        const normalized = normalizeProjectDataV5(docSnap.data() || {});
         const raw = docSnap.data() || {};
+        const lastUpdated = raw.lastUpdated?.toDate?.() ?? new Date(0);
         projects.push({
             id: docSnap.id,
             projectName: typeof raw.projectName === 'string' ? raw.projectName : '',
-            version: normalized.version,
-            title: normalized.title || '',
-            pages: normalized.pages || [],
-            blocks: normalized.blocks || [],
-            sections: normalized.sections || [],
+            title: typeof raw.title === 'string' ? raw.title : '',
+            languages: Array.isArray(raw.languages) ? raw.languages : ['ja'],
             dsfPages: Array.isArray(raw.dsfPages) ? raw.dsfPages : [],
-            languages: normalized.languages || ['ja'],
-            defaultLang: normalized.defaultLang || (normalized.languages?.[0] || 'ja'),
-            languageConfigs: normalized.languageConfigs || null,
-            uiPrefs: normalized.uiPrefs || null,
+            dsfStatus: typeof raw.dsfStatus === 'string' ? raw.dsfStatus : '',
+            dsfTotalBytes: Number.isFinite(Number(raw.dsfTotalBytes)) ? Number(raw.dsfTotalBytes) : 0,
+            dsfResolution: typeof raw.dsfResolution === 'string' ? raw.dsfResolution : '',
+            dsfQuality: Number.isFinite(Number(raw.dsfQuality)) ? Number(raw.dsfQuality) : 0,
             listThumbnail: typeof raw.listThumbnail === 'string' ? raw.listThumbnail : '',
             projectBytes: Number.isFinite(Number(raw.projectBytes)) ? Number(raw.projectBytes) : 0,
-            lastUpdated: normalized.lastUpdated?.toDate?.() || new Date(0)
+            pageCount: Number.isFinite(Number(raw.pageCount)) ? Number(raw.pageCount) : 0,
+            lastUpdated,
         });
     });
 
@@ -67,21 +68,20 @@ export async function openProjectModal(onLoadProject) {
         }
 
         grid.innerHTML = projects.map(p => {
-            const cover = getCoverImage(p.dsfPages, p.pages, p.blocks, p.sections);
+            const cover = getCoverImage(p.dsfPages, [], [], []);
             const dateStr = p.lastUpdated.toLocaleDateString('ja-JP');
-            const pageCount = getPageCount(p.pages, p.blocks, p.sections);
             const displayName = p.projectName || p.title || p.id;
             return `
                 <div class="project-card" data-id="${p.id}">
                     <div class="project-card-thumb">
                         ${cover
                     ? `<img src="${cover}" alt="${displayName}">`
-                    : `<div class="project-card-text-thumb">${getPreviewText(p.sections)}</div>`
+                    : `<div class="project-card-text-thumb">${displayName}</div>`
                 }
                     </div>
                     <div class="project-card-info">
                         <div class="project-card-title">${displayName}</div>
-                        <div class="project-card-meta">${pageCount}ページ · ${dateStr}</div>
+                        <div class="project-card-meta">${p.pageCount || '-'}ページ · ${dateStr}</div>
                     </div>
                     <button class="project-card-delete" title="削除" data-delete-id="${p.id}">✕</button>
                 </div>

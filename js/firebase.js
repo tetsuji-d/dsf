@@ -581,11 +581,17 @@ async function performSave() {
                 if (existingData[key] !== undefined) pressFields[key] = existingData[key];
             }
 
+            const pageCount = (persistedProject.pages || []).filter(
+                p => p?.pageType === 'normal_image' || p?.pageType === 'normal_text'
+            ).length || (persistedProject.blocks || []).filter(b => b?.kind === 'page').length
+              || (persistedProject.sections || []).length;
+
             await setDoc(projectDocRef(state.projectId), {
                 ...pressFields,
                 ...persistedProject,
                 listThumbnail,
                 projectBytes,
+                pageCount,
                 visibility: visibility,
                 ownerUid: state.uid,
                 ownerEmail: state.user?.email || '',

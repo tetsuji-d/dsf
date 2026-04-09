@@ -390,12 +390,12 @@ async function renderHomeDashboard() {
     cloudGrid.querySelectorAll('.home-project-card').forEach((card) => {
         card.addEventListener('click', async () => {
             const pid = card.dataset.id;
-            const project = (cloudProjects || []).find((item) => item.id === pid);
-            if (!project) return;
-            onLoadProject(pid, project.projectName, project.sections, project.languages, project.defaultLang, project.languageConfigs, project.title, project.uiPrefs, project.pages, project.blocks, project.version);
-            await cacheLocalRecentProject(JSON.parse(JSON.stringify(state)), window.localImageMap);
-            refresh();
-            window.switchRoom('editor');
+            if (!pid) return;
+            await loadProject(pid, () => {
+                cacheLocalRecentProject(JSON.parse(JSON.stringify(state)), window.localImageMap).catch(() => {});
+                refresh();
+                window.switchRoom('editor');
+            });
         });
     });
 
