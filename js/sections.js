@@ -480,7 +480,7 @@ export function renderThumbs() {
             `;
 
             if (s.type === 'image') {
-                const thumbUrl = getOptimizedImageUrl(s.backgrounds?.[state.activeLang] || s.thumbnail || s.background || '');
+                const thumbUrl = getOptimizedImageUrl(s.backgrounds?.[state.activeLang] || s.backgrounds?.[state.defaultLang] || s.thumbnail || s.background || '');
                 return `
                     <div class="thumb-wrap thumb-card ${selected ? 'active' : ''}" ${dataAttrs}
                         onclick="changeBlock(${blockIdx})"

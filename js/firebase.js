@@ -821,10 +821,12 @@ export async function uploadToStorage(input, refresh) {
 
             // ステート更新
             const lang = state.activeLang || state.defaultLang || 'ja';
+            const isMultiLang = (state.languages || ['ja']).length > 1;
             const newSections = [...state.sections];
             if (!newSections[state.activeIdx].backgrounds) newSections[state.activeIdx].backgrounds = {};
             newSections[state.activeIdx].backgrounds[lang] = mainUrl;
-            newSections[state.activeIdx].background = mainUrl; // 後方互換
+            // 多言語時は language-agnostic な background を変更しない（他言語のフォールバックが壊れる）
+            if (!isMultiLang) newSections[state.activeIdx].background = mainUrl;
             newSections[state.activeIdx].thumbnail = thumbUrl;
             newSections[state.activeIdx].imagePosition = { x: 0, y: 0, scale: 1, rotation: 0 };
             newSections[state.activeIdx].imageBasePosition = { x: 0, y: 0, scale: 1, rotation: 0 };
@@ -853,10 +855,12 @@ export async function uploadToStorage(input, refresh) {
 
         // 4. ステート更新
         const lang = state.activeLang || state.defaultLang || 'ja';
+        const isMultiLang = (state.languages || ['ja']).length > 1;
         const newSections = [...state.sections];
         if (!newSections[state.activeIdx].backgrounds) newSections[state.activeIdx].backgrounds = {};
         newSections[state.activeIdx].backgrounds[lang] = mainUrl;
-        newSections[state.activeIdx].background = mainUrl; // 後方互換
+        // 多言語時は language-agnostic な background を変更しない（他言語のフォールバックが壊れる）
+        if (!isMultiLang) newSections[state.activeIdx].background = mainUrl;
         newSections[state.activeIdx].thumbnail = thumbUrl;
         newSections[state.activeIdx].imagePosition = { x: 0, y: 0, scale: 1, rotation: 0 };
         newSections[state.activeIdx].imageBasePosition = { x: 0, y: 0, scale: 1, rotation: 0 };

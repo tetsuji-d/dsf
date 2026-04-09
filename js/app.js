@@ -148,7 +148,7 @@ function syncImageAdjustDom() {
     const target = document.getElementById('image-adjust-target');
     if (!target) return false;
 
-    const bgUrl = getOptimizedImageUrl(s?.backgrounds?.[state.activeLang] || s?.background || '');
+    const bgUrl = getOptimizedImageUrl(s?.backgrounds?.[state.activeLang] || s?.backgrounds?.[state.defaultLang] || s?.background || '');
     const { frameMetrics, invScale, targetTransform } = getImageAdjustRenderMetrics(bgUrl, pos);
 
     target.style.width = `${frameMetrics.widthPercent}%`;
@@ -665,7 +665,7 @@ function refresh(options = {}) {
         if (!s.imageBasePosition) {
             s.imageBasePosition = { x: 0, y: 0, scale: 1, rotation: 0 };
         }
-        const bgUrl = getOptimizedImageUrl(s.backgrounds?.[state.activeLang] || s.background || '');
+        const bgUrl = getOptimizedImageUrl(s.backgrounds?.[state.activeLang] || s.backgrounds?.[state.defaultLang] || s.background || '');
         const { frameMetrics, targetTransform, invScale } = getImageAdjustRenderMetrics(bgUrl, pos);
         const targetStyle = [
             `width:${frameMetrics.widthPercent}%`,
@@ -1345,7 +1345,7 @@ window.adjustImageZoom = (delta) => {
     pushState();
     pos.scale = Math.max(0.1, pos.scale + delta);
     const s = state.sections[state.activeIdx];
-    const bgUrl = getOptimizedImageUrl(s?.backgrounds?.[state.activeLang] || s?.background || '');
+    const bgUrl = getOptimizedImageUrl(s?.backgrounds?.[state.activeLang] || s?.backgrounds?.[state.defaultLang] || s?.background || '');
     applyImageSnapping(pos, bgUrl);
     scheduleImageAdjustDomUpdate();
     triggerAutoSave();
@@ -1372,7 +1372,7 @@ window.setImageRotationFromSlider = (value) => {
     const rotation = roundRotationHalfStep(Math.max(-180, Math.min(180, Number(value) || 0)));
     pos.rotation = rotation;
     const s = state.sections[state.activeIdx];
-    const bgUrl = getOptimizedImageUrl(s?.backgrounds?.[state.activeLang] || s?.background || '');
+    const bgUrl = getOptimizedImageUrl(s?.backgrounds?.[state.activeLang] || s?.backgrounds?.[state.defaultLang] || s?.background || '');
     applyImageSnapping(pos, bgUrl);
     scheduleImageAdjustDomUpdate();
 };
@@ -1467,7 +1467,7 @@ function onImageHandleDragMove(e) {
         pos.y = imageHandleDrag.base.y + dy / (2 * canvasScale);
     }
     const s = state.sections[state.activeIdx];
-    const bgUrl = getOptimizedImageUrl(s?.backgrounds?.[state.activeLang] || s?.background || '');
+    const bgUrl = getOptimizedImageUrl(s?.backgrounds?.[state.activeLang] || s?.backgrounds?.[state.defaultLang] || s?.background || '');
     applyImageSnapping(pos, bgUrl);
     scheduleImageAdjustDomUpdate();
 }
@@ -1598,7 +1598,7 @@ function initImageAdjustment() {
         pos.x = startTransform.x + dx / canvasScale;
         pos.y = startTransform.y + dy / canvasScale;
         const s = state.sections[state.activeIdx];
-        const bgUrl = getOptimizedImageUrl(s?.backgrounds?.[state.activeLang] || s?.background || '');
+        const bgUrl = getOptimizedImageUrl(s?.backgrounds?.[state.activeLang] || s?.backgrounds?.[state.defaultLang] || s?.background || '');
         applyImageSnapping(pos, bgUrl);
         scheduleImageAdjustDomUpdate();
     };
@@ -1686,7 +1686,7 @@ function initImageAdjustment() {
             const pos = getImgState();
             pos.scale = Math.max(0.1, startScale * scale);
             const s = state.sections[state.activeIdx];
-            const bgUrl = getOptimizedImageUrl(s?.backgrounds?.[state.activeLang] || s?.background || '');
+            const bgUrl = getOptimizedImageUrl(s?.backgrounds?.[state.activeLang] || s?.backgrounds?.[state.defaultLang] || s?.background || '');
             applyImageSnapping(pos, bgUrl);
             scheduleImageAdjustDomUpdate();
         }
@@ -1707,7 +1707,7 @@ function initImageAdjustment() {
             const delta = e.deltaY > 0 ? 0.9 : 1.1;
             pos.scale = Math.max(0.1, (pos.scale || 1) * delta);
             const s = state.sections[state.activeIdx];
-            const bgUrl = getOptimizedImageUrl(s?.backgrounds?.[state.activeLang] || s?.background || '');
+            const bgUrl = getOptimizedImageUrl(s?.backgrounds?.[state.activeLang] || s?.backgrounds?.[state.defaultLang] || s?.background || '');
             applyImageSnapping(pos, bgUrl);
             scheduleImageAdjustDomUpdate();
             // Debounce save?
