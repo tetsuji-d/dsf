@@ -1,29 +1,31 @@
 # DSF エコシステム サイトマップ
 
-> v1.0 — 2026-03-24
+> v1.1 — 2026-04-12（製品叙述を DSF / Digital Spread Format に整合）
 
 ---
 
 ## 全体フロー
 
+**DSF（Digital Spread Format）** — 固定レイアウト・スマホ向け出版。レイアウトをマスターとして配信するオープンな ZIP 仕様（`.dsf`）。制作は **DSF Studio**、読者の入口は **DSF Library（ポータル）**、閲覧は **Viewer**。
+
 ```
 [クリエイター]
     │
-    ├─▶ Studio (studio.html)          ← 制作・編集
+    ├─▶ DSF Studio (studio.html)      ← Project / Editor / Press / Works
     │       │
     │       ▼
-    │   Pressroom (pressroom.html)    ← レンダリング・公開
+    │   Press Room                    ← DSP→DSF レンダリング・公開・審査パイプライン
     │       │
-    │       ├─▶ DSF ポータル          ← ポータル公開
-    │       ├─▶ iframe embed          ← 外部サイト埋め込み
-    │       └─▶ URL / メール          ← 直リンク・添付配信
+    │       ├─▶ DSF Library（ポータル）← 配信・一覧（広告なし前提）
+    │       ├─▶ iframe embed         ← 外部サイト埋め込み
+    │       └─▶ URL / メール         ← 直リンク・添付配信
     │
 [読者]
     │
-    ├─▶ DSF ポータル (portal.html)    ← 発見・検索
+    ├─▶ DSF Library (index.html)    ← 発見・ログイン・ライブラリ
     │       │
     │       ▼
-    └─▶ ビューアー (viewer.js)        ← 読書体験
+    └─▶ Viewer (viewer.html)        ← 読書体験（WebP ページ中心）
 ```
 
 ---

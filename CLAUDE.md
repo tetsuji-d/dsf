@@ -2,13 +2,50 @@
 
 このファイルは、リポジトリ内のコードを操作する Claude Code (claude.ai/code) へのガイダンスを提供します。
 
-## プロジェクト概要
+## DSF（Digital Spread Format）とは
 
-**DSF Studio Pro** はブラウザベースのデジタル出版編集・閲覧アプリです。ウェブトゥーン／コミック／多言語マニュアルなどに対応します。バックエンドを持たないクライアントサイド SPA で、認証・DB は Firebase (Auth, Firestore)、画像ストレージは **Cloudflare R2**、ホスティングは **Cloudflare Pages (`dsf.ink`)** が担います。
+**DSF（Digital Spread Format）** は、スマートフォン向けの**固定レイアウト型**デジタル出版フォーマットです。EPUB のようなリフロー型ではなく、「**レイアウトはコンテンツである**」という前提で、作者が意図したレイアウト・タイポグラフィ・構図をそのまま**マスターバージョン**として配信します。
+
+想定用途は、マンガ・イラスト・小説・写真集・同人誌に限らず、自治体・観光・製品マニュアルなど **B2B の説明・広報コンテンツ**まで幅広く含みます。日本語 UI と英語 UI の両立、および**ページ単位で言語を切り替えられる**多言語作品を前提に、最初から海外読者にも届く構造を目指します。
+
+### 技術的な特徴（フォーマット方針）
+
+- **9:16 固定比率**の **WebP** をページ単位のマスターとして扱う（Gen3）。
+- **ページ単位の遅延ロード**等により、先頭から順に読み始めやすくする（低速回線でも閲覧開始を早める設計方針）。
+- **パノラマ・見開き**は、表示ユニットを**連結**するモデルで表現する（実装・スキーマは `docs/` および `pages.js` を参照）。
+- ZIP コンテナ内の **`manifest.json` / `meta.json` / `content.json`** 等で、ページ構成・多言語・表示メタ（綴じ方向・アスペクト比など）を管理する。詳細は `docs/file-format-spec.md`。
+
+### 思想的・プロダクト上の位置づけ
+
+- **読者向けビューに広告を挟まない**（認知負荷・表現の歪みを避ける）。
+- **オープンなファイル仕様**（ZIP + JSON + アセット）を重視し、特定プラットフォームへのロックインではなく**規格としての再利用性**を高める。
+- **持続可能なコスト構造**と、短期的な外部圧力に左右されにくい**独立性**を志向する（収益・ティアの考え方は `docs/business-model.md`、インフラは本リポジトリの設定を参照）。
+- **UI は日本語と英語**に対応（`i18n-studio.js` 等）。制作物の本文・画像は言語別に持てる。
+
+### エコシステム（製品構成）
+
+| 名称 | 実装上の主たる入口 | 役割 |
+|------|-------------------|------|
+| **DSF Library（ポータル）** | `index.html` | 読者・利用者向けの配信ポータル（広告なしの前提）。ログイン・プロジェクト一覧など |
+| **DSF Studio** | `studio.html` | 制作・管理ツール（ルーム切り替えで Project / Editor / Press / Works を包含） |
+| **Project（Home）** | Studio 内 Home Room | 新規作成・既存プロジェクト一覧、`.dsp` 読み込み |
+| **Editor** | Studio 内 Editor Room | 編集・プレビュー |
+| **Press Room** | Studio 内 Press Room | DSP → DSF レンダリング・公開 URL 発行・審査パイプライン（仕様は `docs/pressroom-spec.md`） |
+| **Works** | Studio 内 Works Room | 発行済み DSF のステータス（draft / unlisted / public / private 等） |
+| **Viewer** | `viewer.html` | ブラウザベースの閲覧（モバイル最適化） |
+
+DSP（`.dsp`）は直接公開せず、**Press Room で DSF 化 → Works で公開状態を管理**する運用です。
+
+---
+
+## このリポジトリ（実装）の概要
+
+クライアントサイド **SPA**（バックエンドなし）。認証・DB は **Firebase**（Auth, Firestore）、画像ストレージは本番・staging で **Cloudflare R2**、ホスティングは **Cloudflare Pages（`dsf.ink`）** を想定します。ローカル開発では **Vite** と Firebase Storage を使う構成です。
 
 3 つのエントリーポイント:
-- `index.html` — ポータル（プロジェクト一覧・ログイン）
-- `studio.html` — エディター（PC 向け、リボンメニュー UI）
+
+- `index.html` — ポータル（DSF Library）
+- `studio.html` — DSF Studio（エディター / PC 向けリボン UI）
 - `viewer.html` — ビューアー（モバイル最適化）
 
 ## コマンド
@@ -40,6 +77,7 @@ npx wrangler pages deploy dist --project-name dsf-studio --branch staging # stag
 
 ### ストレージ切り替え
 `VITE_STORAGE_BACKEND` 環境変数で制御:
+
 - `r2` → 本番（`.env.production`）
 - `r2` → staging preview（`.env.staging`）
 - `firebase` → ローカル Vite 開発（`.env.development`）
@@ -50,12 +88,13 @@ npx wrangler pages deploy dist --project-name dsf-studio --branch staging # stag
 
 ## アーキテクチャ
 
-### Gen3 コンテンツ方針
-**全ページ WebP 画像として出力する。** テキストの組版はエディターで完結し、結果を WebP に焼き付けてビューアーに配信する。ビューアーは `<img>` で表示するだけ。
+### Gen3（DSF のページ表現）
 
-- SVG レンダリング・WebGL・richText によるビューアー側レンダリングは採用しない
+**配信ページは WebP 画像として出力する。** テキスト組版はエディターで完結し、結果を WebP に焼き付けてビューアーに渡す。ビューアーは **`<img>` 中心の軽量表示**に専念する。
+
+- ビューアー側での SVG レンダリング・WebGL・richText によるリッチ組版は採用しない
 - `bodyKind: 'text'` / `richText` フィールドは将来的に廃止方向
-- 多言語対応: 言語ごとに WebP を生成し、必要な言語のみ遅延ロードする
+- **多言語**: 言語ごとに WebP を生成し、必要な言語のみ遅延ロードする
 
 ### モジュール構成 (`js/`)
 
@@ -108,13 +147,14 @@ CSS はエントリーポイントごとに分離: `css/studio.css`, `css/viewer
 ### ファイルフォーマット
 
 - `.dsp` (Digital Smart Project): 元画質で編集可能なプロジェクトファイル。JSON + オリジナル画像を含む ZIP
-- `.dsf` (Digital Smart Format): 配布用の最適化ファイル。JSON + WebP 画像を含む ZIP
+- `.dsf`: **DSF（Digital Spread Format）** の配信用パッケージ。JSON + WebP 等を含む ZIP（旧文脈では Digital Smart Format 表記のこともあり）
 
 どちらも ZIP アーカイブです。構造の詳細は `docs/file-format-spec.md` を参照してください。
 
 ### Vite マルチページビルド
 
 `vite.config.js` は Rollup を通じて 3 つの独立したエントリーポイントを設定しています:
+
 - `index.html` → ポータルバンドル
 - `studio.html` → エディターバンドル
 - `viewer.html` → ビューアーバンドル
@@ -135,7 +175,7 @@ CSS はエントリーポイントごとに分離: `css/studio.css`, `css/viewer
 - **タイポグラフィ**: 日本語テキストは `writingMode: "vertical-rl"` の固定幅レイアウト（12 行）。英語は横書きで 21 行。
 - **blob: URL**: ゲストモードで発生。Firestore に書き込む前に `resolveBlobUrlsInSections/Blocks()` で解決すること。
 
-## Studio ルーム構成
+## Studio ルーム構成（DSF Studio 内）
 
 | ルーム | 役割 |
 |--------|------|
@@ -144,11 +184,10 @@ CSS はエントリーポイントごとに分離: `css/studio.css`, `css/viewer
 | Press Room | DSP → DSF レンダリング・発行 |
 | Works Room | 発行済み DSF のステータス管理（draft / unlisted / public / private） |
 
-DSP は直接公開不可。Press Room でレンダリング → Works Room でステータス変更の運用。
-
 ## ドキュメント
 
 アーキテクチャに関するドキュメントは `docs/` に格納されています:
+
 - `file-format-spec.md` — `.dsp`/`.dsf` の ZIP 構造
 - `data-model.md` — Firestore スキーマとセキュリティルール
 - `ui-architecture.md` — リボンメニューとサイドバーのレイアウト
