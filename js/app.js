@@ -2509,6 +2509,17 @@ function initCanvasZoom() {
     // 初期化時にリセット（flex レイアウト確定後に実行）
     requestAnimationFrame(() => fitCanvasView());
 
+    // #canvas-view のサイズ変化（ページストリップ開閉・パネル開閉・ウィンドウリサイズ等）
+    // に対して自動的にキャンバススケールを再計算する
+    if (typeof ResizeObserver !== 'undefined') {
+        let _fitRaf = null;
+        const ro = new ResizeObserver(() => {
+            if (_fitRaf) cancelAnimationFrame(_fitRaf);
+            _fitRaf = requestAnimationFrame(() => { fitCanvasView(); _fitRaf = null; });
+        });
+        ro.observe(view);
+    }
+
     // Pan handling
     let isPanning = false;
     let startPan = { x: 0, y: 0 };
@@ -3186,6 +3197,8 @@ window.togglePageStrip = () => {
     if (chevron) {
         chevron.textContent = document.body.classList.contains('strip-collapsed') ? 'expand_less' : 'expand_more';
     }
+    // #page-strip の CSS transition（200ms）完了後にキャンバスサイズを再計算
+    setTimeout(() => fitCanvasView(), 220);
 };
 
 window.handleMobileHeaderNav = () => {
