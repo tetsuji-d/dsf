@@ -1949,10 +1949,25 @@ function _hideTextPreviewOverlay() {
     if (overlay) overlay.style.display = 'none';
 }
 
+/** HTML 特殊文字をエスケープ */
+function _escHtml(str) {
+    return String(str || '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;');
+}
+
 /**
  * テキストセクションの組版結果をキャンバス上の HTML オーバーレイとして描画する。
- * composeText() の frame / font / writingMode を忠実に反映し、
- * Press の Canvas 描画と同じ文字配置を近似する。
+ *
+ * ▼ 縦書き (vertical-rl)
+ *   - 列ごとに <span class="tpv-col"> を生成し、flex row-reverse で右から並べる
+ *   - 列幅  = frame.w / maxLines（全列が枠内に収まるよう均等割り）
+ *   - 文字ピッチ = frame.h / charsPerLine（縦方向を均等割り）
+ *
+ * ▼ 横書き (horizontal-tb)
+ *   - 行ごとに <div class="tpv-line"> を生成して縦積み
+ *   - 行高  = font.size × font.lineHeight
  */
 function renderTextPreview(section) {
     const overlay = document.getElementById('text-preview-overlay');
@@ -1964,41 +1979,58 @@ function renderTextPreview(section) {
     const fontPreset = getFontPresetFromConfigs(lang, state.languageConfigs);
     const composed = composeText(raw, lang, writingMode, fontPreset);
 
-    // 背景色
     overlay.style.backgroundColor = section.backgroundColor || '#ffffff';
     overlay.style.display = 'block';
 
-    // フレーム位置・サイズ
     const frameEl = document.getElementById('text-preview-frame');
     if (frameEl) {
         const { x, y, w, h } = composed.frame;
-        frameEl.style.left   = `${x}px`;
-        frameEl.style.top    = `${y}px`;
-        frameEl.style.width  = `${w}px`;
-        frameEl.style.height = `${h}px`;
-        frameEl.style.writingMode    = composed.writingMode;
-        frameEl.style.fontFamily     = composed.font.family;
-        frameEl.style.fontSize       = `${composed.font.size}px`;
-        frameEl.style.lineHeight     = String(composed.font.lineHeight);
-        frameEl.style.letterSpacing  = composed.font.letterSpacing ? `${composed.font.letterSpacing}px` : '0';
-        frameEl.style.color          = section.textColor || '#000000';
+        frameEl.style.left         = `${x}px`;
+        frameEl.style.top          = `${y}px`;
+        frameEl.style.width        = `${w}px`;
+        frameEl.style.height       = `${h}px`;
+        frameEl.style.fontFamily   = composed.font.family;
+        frameEl.style.fontSize     = `${composed.font.size}px`;
+        frameEl.style.color        = section.textColor || '#000000';
+        // writing-mode / line-height は要素ごとに設定するためリセット
+        frameEl.style.writingMode  = '';
+        frameEl.style.lineHeight   = '';
+        frameEl.style.letterSpacing = composed.font.letterSpacing
+            ? `${composed.font.letterSpacing}px` : '0';
     }
 
-    // テキスト内容（組版済み行を改行区切りで表示）
     const contentEl = document.getElementById('text-preview-content');
     if (contentEl) {
-        if (raw) {
-            contentEl.textContent = composed.lines.join('\n');
+        if (!raw) {
+            contentEl.innerHTML = '';
+        } else if (composed.writingMode === 'vertical-rl') {
+            // 縦書き: 列を明示的に並べる
+            const { w, h } = composed.frame;
+            const maxCols    = composed.rules?.maxLines    || 12;
+            const charsPerCol = composed.rules?.charsPerLine || 33;
+            const fontSize   = composed.font.size;
+            // 列幅: 全 maxCols 列が frame.w に収まるよう均等割り
+            const colW = Math.floor(w / maxCols);
+            // 文字ピッチ: frame.h を charsPerLine で割り、1文字あたりの縦ピッチを決める
+            const charPitch  = h / charsPerCol;
+            const lineHeight = (charPitch / fontSize).toFixed(3);
+
+            const cols = composed.lines.map(line =>
+                `<span class="tpv-col" style="width:${colW}px;line-height:${lineHeight}">${_escHtml(line)}</span>`
+            ).join('');
+            contentEl.innerHTML = `<div class="tpv-vertical">${cols}</div>`;
         } else {
-            contentEl.textContent = '';
+            // 横書き: 行を縦積み
+            const lineH = Math.round(composed.font.size * composed.font.lineHeight);
+            const lines = composed.lines.map(line =>
+                `<div class="tpv-line" style="height:${lineH}px">${line ? _escHtml(line) : '\u00a0'}</div>`
+            ).join('');
+            contentEl.innerHTML = `<div class="tpv-horizontal">${lines}</div>`;
         }
     }
 
-    // 空ページのプレースホルダー
     const placeholder = document.getElementById('text-preview-placeholder');
-    if (placeholder) {
-        placeholder.style.display = raw ? 'none' : 'flex';
-    }
+    if (placeholder) placeholder.style.display = raw ? 'none' : 'flex';
 }
 
 // ──────────────────────────────────────────────────────────────

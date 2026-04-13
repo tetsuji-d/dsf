@@ -2393,16 +2393,44 @@ body.strip-collapsed #page-strip-chevron {
 #text-preview-frame {
     position: absolute;
     overflow: hidden;
-    /* position/size/font は JS でインライン設定 */
-    white-space: pre-wrap;       /* 改行を保持 */
-    word-break: break-all;       /* CJK 折り返し */
-    overflow-wrap: break-word;
+    /* position / size / font は JS でインライン設定 */
 }
 
 #text-preview-content {
     display: block;
     width: 100%;
     height: 100%;
+}
+
+/* ── 縦書きレイアウト ────────────────────────── */
+.tpv-vertical {
+    display: flex;
+    flex-direction: row-reverse; /* 第1列を右端に配置 */
+    height: 100%;
+    align-items: flex-start;
+    overflow: hidden;
+}
+
+.tpv-col {
+    writing-mode: vertical-rl;
+    flex-shrink: 0;
+    height: 100%;
+    overflow: hidden;
+    /* width / line-height は JS でインライン設定 */
+}
+
+/* ── 横書きレイアウト ────────────────────────── */
+.tpv-horizontal {
+    width: 100%;
+    overflow: hidden;
+}
+
+.tpv-line {
+    display: flex;
+    align-items: center;
+    overflow: hidden;
+    white-space: nowrap;
+    /* height は JS でインライン設定 */
 }
 
 /* 空テキストページのプレースホルダー */
