@@ -82,7 +82,8 @@ export function createPageBlockFromSection(section) {
             richTextLangs: deepClone(src.richTextLangs || {}),
             layout: deepClone(src.layout || {}),
             imagePosition: deepClone(src.imagePosition || { x: 0, y: 0, scale: 1, rotation: 0 }),
-            imageBasePosition: deepClone(src.imageBasePosition || { x: 0, y: 0, scale: 1, rotation: 0 })
+            imageBasePosition: deepClone(src.imageBasePosition || { x: 0, y: 0, scale: 1, rotation: 0 }),
+            imagePositions: deepClone(src.imagePositions || {})
         }
     };
 }
@@ -102,7 +103,8 @@ export function createSectionFromPageBlock(block) {
         richTextLangs: deepClone(c.richTextLangs || {}),
         layout: deepClone(c.layout || {}),
         imagePosition: deepClone(c.imagePosition || { x: 0, y: 0, scale: 1, rotation: 0 }),
-        imageBasePosition: deepClone(c.imageBasePosition || { x: 0, y: 0, scale: 1, rotation: 0 })
+        imageBasePosition: deepClone(c.imageBasePosition || { x: 0, y: 0, scale: 1, rotation: 0 }),
+        imagePositions: deepClone(c.imagePositions || {})
     };
 }
 

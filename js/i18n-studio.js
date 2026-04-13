@@ -58,8 +58,10 @@ export const STRINGS = {
 
         // Ribbon – Insert
         btn_add_section:      '＋ セクション追加',
+        btn_add_text_section: 'テキストページ',
         btn_add_bubble:       'テキスト追加',
         btn_add_image:        '画像追加',
+        label_text_overflow:  '溢れあり',
 
         // Ribbon – Arrange
         btn_fit_view:         '全体表示',
@@ -75,6 +77,15 @@ export const STRINGS = {
         auth_warning:         'ログインでクラウド機能が有効化されます',
         btn_signin:           'Googleでサインイン',
         btn_signout:          'サインアウト',
+        themeLabel:           '表示モード',
+        modeDevice:           'デバイス',
+        modeLight:            'ライト',
+        modeDark:             'ダーク',
+        restrictedMode:       '制限付きモード',
+        location:             '言語・地域',
+        settings:             '設定',
+        help:                 'ヘルプ',
+        feedback:             'フィードバック',
 
         // Sidebar – Assets
         panel_assets:         'アセット',
@@ -147,7 +158,16 @@ export const STRINGS = {
         press_target_lang:       '対象言語',
         press_webp_quality:      'WebP 品質',
         press_output_size:       '出力サイズ',
+        press_res_360:           '360×640（プレビュー・開発）',
+        press_res_720:           '720×1280（プレビュー）',
+        press_res_1080:          '1080×1920（FHD・既定）',
+        press_res_1440:          '1440×2560（WQHD）',
+        press_res_2160:          '2160×3840（4K）',
         press_render_note:       'レンダリングはエクスポート時に実行されます',
+        press_estimating_size:   'サイズ計測中...',
+        press_preparing:         '準備中...',
+        press_rendering_progress:'レンダリング中 {done}/{total}',
+        press_saving_firestore:  'Firestoreに保存中...',
         press_publish:           '発行',
         btn_export_dsf:          'DSF 書き出し',
         btn_export_dsf_sub:      '.dsf ファイルを保存',
@@ -246,8 +266,10 @@ export const STRINGS = {
 
         // Ribbon – Insert
         btn_add_section:      '+ Add Section',
+        btn_add_text_section: 'Text Page',
         btn_add_bubble:       'Add Text',
         btn_add_image:        'Add Image',
+        label_text_overflow:  'Overflow',
 
         // Ribbon – Arrange
         btn_fit_view:         'Fit View',
@@ -263,6 +285,15 @@ export const STRINGS = {
         auth_warning:         'Sign in to enable cloud features',
         btn_signin:           'Sign in with Google',
         btn_signout:          'Sign out',
+        themeLabel:           'Theme',
+        modeDevice:           'Device',
+        modeLight:            'Light',
+        modeDark:             'Dark',
+        restrictedMode:       'Restricted Mode',
+        location:             'Language & Region',
+        settings:             'Settings',
+        help:                 'Help',
+        feedback:             'Feedback',
 
         // Sidebar – Assets
         panel_assets:         'Assets',
@@ -335,7 +366,16 @@ export const STRINGS = {
         press_target_lang:       'Target Language',
         press_webp_quality:      'WebP Quality',
         press_output_size:       'Output Size',
+        press_res_360:           '360×640 (preview / dev)',
+        press_res_720:           '720×1280 (preview)',
+        press_res_1080:          '1080×1920 (FHD, default)',
+        press_res_1440:          '1440×2560 (WQHD)',
+        press_res_2160:          '2160×3840 (4K)',
         press_render_note:       'Rendering happens on export',
+        press_estimating_size:   'Estimating size...',
+        press_preparing:         'Preparing...',
+        press_rendering_progress:'Rendering {done}/{total}',
+        press_saving_firestore:  'Saving to Firestore...',
         press_publish:           'Publish',
         btn_export_dsf:          'Export DSF',
         btn_export_dsf_sub:      'Save .dsf file',

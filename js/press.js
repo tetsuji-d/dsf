@@ -8,6 +8,16 @@ import {
 import { state } from './state.js';
 import { db, uploadPressPage } from './firebase.js';
 import { loadImageForCanvas } from './asset-fetch.js';
+import { t } from './i18n-studio.js';
+import {
+    CANONICAL_PAGE_WIDTH,
+    getPressResolutionDims,
+    resolvePressResolutionKey,
+    clampPressPublishResolutionKey
+} from './page-geometry.js';
+
+let _estimateTimer = null;
+let _estimateRunId = 0;
 
 // ─── Press Room 入室 ─────────────────────────────────────────────────────────
 
@@ -16,9 +26,9 @@ export function enterPressRoom() {
     _renderPageThumbs();
     _renderLangTabs();
     _updatePublishBtn();
-    _updateSizeEstimate();
-    document.getElementById('press-resolution')?.addEventListener('change', _updateSizeEstimate);
-    document.getElementById('press-quality')?.addEventListener('input', _updateSizeEstimate);
+    _queueSizeEstimate();
+    document.getElementById('press-resolution')?.addEventListener('change', _queueSizeEstimate);
+    document.getElementById('press-quality')?.addEventListener('input', _queueSizeEstimate);
 }
 
 function _renderPageThumbs() {
@@ -58,19 +68,77 @@ function _renderLangTabs() {
     ).join('');
 }
 
-function _updateSizeEstimate() {
+function _queueSizeEstimate() {
+    clearTimeout(_estimateTimer);
+    _estimateTimer = setTimeout(() => { _updateSizeEstimate(); }, 120);
+}
+
+function _getSelectedPressLangs() {
+    const selectedLangs = Array.from(
+        document.querySelectorAll('.press-lang-tab.active')
+    ).map(el => el.dataset.lang).filter(Boolean);
+    return selectedLangs.length ? selectedLangs : (state.languages || ['ja']);
+}
+
+async function _updateSizeEstimate() {
     const el = document.getElementById('press-size-estimate');
     if (!el) return;
-    const resStr = document.getElementById('press-resolution')?.value || '1080x1920';
+
+    const runId = ++_estimateRunId;
+    el.textContent = t('press_estimating_size');
+
+    const resKey = resolvePressResolutionKey(document.getElementById('press-resolution')?.value);
+    const { width: w, height: h } = getPressResolutionDims(resKey);
     const quality = parseInt(document.getElementById('press-quality')?.value || '85') / 100;
-    const [w, h] = resStr.split('x').map(Number);
     const pages = _getRenderablePages();
-    const langCount = (state.languages || ['ja']).length;
-    const bytesPerPixel = 0.3 + quality * 0.7;
-    const perPage = w * h * bytesPerPixel;
-    const totalBytes = perPage * pages.length * langCount;
-    const totalMB = (totalBytes / (1024 * 1024)).toFixed(1);
-    el.textContent = `≈ ${totalMB} MB`;
+    const langs = _getSelectedPressLangs();
+
+    const tasks = [];
+    for (const section of pages) {
+        for (const lang of langs) {
+            const bgUrl = section.backgrounds?.[lang] || section.background;
+            if (!bgUrl) continue;
+            tasks.push({
+                section,
+                lang,
+                bgUrl,
+                pos: section.imagePositions?.[lang] || section.imagePosition,
+            });
+        }
+    }
+
+    if (!tasks.length) {
+        el.textContent = '≈ 0.0 MB';
+        return;
+    }
+
+    const sampleCount = Math.min(4, tasks.length);
+    const sampleTasks = [];
+    if (tasks.length <= sampleCount) {
+        sampleTasks.push(...tasks);
+    } else {
+        for (let i = 0; i < sampleCount; i++) {
+            const index = Math.round((tasks.length - 1) * (i / (sampleCount - 1)));
+            sampleTasks.push(tasks[index]);
+        }
+    }
+
+    try {
+        let totalSampleBytes = 0;
+        for (const task of sampleTasks) {
+            const blob = await _renderPageToWebP(task.bgUrl, task.pos, w, h, quality);
+            totalSampleBytes += blob.size;
+            if (runId !== _estimateRunId) return;
+        }
+        const avgBytes = totalSampleBytes / sampleTasks.length;
+        const estimatedBytes = avgBytes * tasks.length;
+        if (runId !== _estimateRunId) return;
+        el.textContent = `≈ ${(estimatedBytes / (1024 * 1024)).toFixed(1)} MB`;
+    } catch (err) {
+        console.warn('[Press] size estimate failed:', err);
+        if (runId !== _estimateRunId) return;
+        el.textContent = '—';
+    }
 }
 
 function _updatePublishBtn() {
@@ -84,6 +152,7 @@ function _updatePublishBtn() {
 window.togglePressLang = (code) => {
     const tab = document.querySelector(`.press-lang-tab[data-lang="${code}"]`);
     if (tab) tab.classList.toggle('active');
+    _queueSizeEstimate();
 };
 
 // ─── レンダリング & 発行 ─────────────────────────────────────────────────────
@@ -107,8 +176,13 @@ window.publishToCloud = async () => {
 
     // 設定取得
     const quality = parseInt(document.getElementById('press-quality')?.value || '85') / 100;
-    const resStr  = document.getElementById('press-resolution')?.value || '1080x1920';
-    const [targetW, targetH] = resStr.split('x').map(Number);
+    const rawResKey = resolvePressResolutionKey(document.getElementById('press-resolution')?.value);
+    const publishResKey = clampPressPublishResolutionKey(rawResKey);
+    if (publishResKey !== rawResKey) {
+        console.info('[Press] Publish resolution clamped to minimum publish size:', publishResKey, '(UI was', rawResKey + ')');
+    }
+    const { width: targetW, height: targetH } = getPressResolutionDims(publishResKey);
+    const resStr = publishResKey;
 
     // 選択言語取得（アクティブなタブ）
     const selectedLangs = Array.from(
@@ -124,7 +198,7 @@ window.publishToCloud = async () => {
     };
     const resetBtn = () => { if (btn && origLabel) btn.innerHTML = origLabel; };
 
-    setProgress('準備中...');
+    setProgress(t('press_preparing'));
 
     try {
         const dsfPages = [];
@@ -142,10 +216,11 @@ window.publishToCloud = async () => {
                 const bgUrl = section.backgrounds?.[lang] || section.background;
                 if (!bgUrl) continue;
 
-                setProgress(`レンダリング中 ${++done}/${total}`);
+                done++;
+                setProgress(t('press_rendering_progress', { done, total }));
 
                 const blob = await _renderPageToWebP(
-                    bgUrl, section.imagePosition, targetW, targetH, quality
+                    bgUrl, section.imagePositions?.[lang] || section.imagePosition, targetW, targetH, quality
                 );
                 totalBytes += blob.size;
 
@@ -160,7 +235,7 @@ window.publishToCloud = async () => {
             });
         }
 
-        setProgress('Firestoreに保存中...');
+        setProgress(t('press_saving_firestore'));
 
         // Firestoreに DSF メタデータを保存
         await setDoc(
@@ -205,8 +280,8 @@ async function _renderPageToWebP(bgUrl, pos, targetW, targetH, quality) {
     ctx.fillStyle = '#ffffff';
     ctx.fillRect(0, 0, targetW, targetH);
 
-    // 基準フレームは 360×640。ターゲット解像度に合わせてスケール
-    const baseW = 360;
+    // 基準フレームは正規論理ページ（page-geometry）。ターゲット解像度に合わせてスケール
+    const baseW = CANONICAL_PAGE_WIDTH;
     const ratio = targetW / baseW;
 
     const safePos = {
@@ -214,13 +289,14 @@ async function _renderPageToWebP(bgUrl, pos, targetW, targetH, quality) {
         y:        Number.isFinite(Number(pos?.y))        ? Number(pos.y)        : 0,
         scale:    Math.max(0.1, Number.isFinite(Number(pos?.scale))    ? Number(pos.scale)    : 1),
         rotation: Number.isFinite(Number(pos?.rotation)) ? Number(pos.rotation) : 0,
+        flipX:    !!pos?.flipX,
     };
 
     ctx.save();
     ctx.translate(targetW / 2, targetH / 2);
     ctx.translate(safePos.x * ratio, safePos.y * ratio);
     ctx.rotate((safePos.rotation * Math.PI) / 180);
-    ctx.scale(safePos.scale, safePos.scale);
+    ctx.scale(safePos.flipX ? -safePos.scale : safePos.scale, safePos.scale);
 
     // object-fit: cover と同じ挙動
     const imgAspect   = img.width  / img.height;

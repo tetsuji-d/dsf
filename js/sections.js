@@ -62,6 +62,17 @@ function createDefaultSection() {
     };
 }
 
+function createTextSection() {
+    return {
+        type: 'text',
+        texts: {},
+        layout: {},
+        backgroundColor: '#ffffff',
+        textColor: '#000000',
+        bubbles: []
+    };
+}
+
 function truncateText(v, max = 22) {
     const s = String(v || '').replace(/\s+/g, ' ').trim();
     if (!s) return '';
@@ -174,6 +185,20 @@ function syncModelsFromLegacy() {
  */
 export function addSection(refresh) {
     const list = [...state.sections, createDefaultSection()];
+    dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'sections', value: list } });
+    dispatch({ type: actionTypes.SET_ACTIVE_INDEX, payload: list.length - 1 });
+    dispatch({ type: actionTypes.SET_ACTIVE_BLOCK_INDEX, payload: null });
+    dispatch({ type: actionTypes.SET_ACTIVE_BUBBLE_INDEX, payload: null });
+    syncModelsFromLegacy();
+    refresh();
+}
+
+/**
+ * テキストセクションを末尾に追加する
+ * @param {function} refresh - 画面更新コールバック
+ */
+export function addTextSection(refresh) {
+    const list = [...state.sections, createTextSection()];
     dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'sections', value: list } });
     dispatch({ type: actionTypes.SET_ACTIVE_INDEX, payload: list.length - 1 });
     dispatch({ type: actionTypes.SET_ACTIVE_BLOCK_INDEX, payload: null });

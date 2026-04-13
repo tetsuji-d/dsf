@@ -9,10 +9,12 @@ import { state, dispatch, actionTypes } from './state.js';
 import { renderBubbleHTML } from './bubbles.js';
 import { getLangProps } from './lang.js';
 import { db } from './firebase.js';
-import { initGIS, signInWithGoogle, signOutUser, onAuthChanged } from './gis-auth.js';
+import { initGIS, signInWithGoogle, signOutUser, onAuthChanged, handleRedirectResult } from './gis-auth.js';
 import { getOptimizedImageUrl } from './sections.js';
+import { applyTheme, bindThemePreferenceListener, getThemeMode, setThemeMode } from './theme.js';
 import { doc, getDoc } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
 import { parseAndLoadDSF } from './export.js';
+import { CANONICAL_PAGE_WIDTH, CANONICAL_PAGE_HEIGHT, CANONICAL_PAGE_ASPECT } from './page-geometry.js';
 
 // ── Module State ──────────────────────────────────────────────
 let sharedProjectRef = null;
@@ -47,6 +49,14 @@ const VIEWER_UI = {
         prevPage: '前のページ',
         nextPage: '次のページ',
         toggleUi: 'メニュー表示/非表示',
+        account: 'アカウント',
+        guest: 'ゲスト',
+        themeLabel: '表示モード',
+        modeDevice: 'デバイス',
+        modeLight: 'ライト',
+        modeDark: 'ダーク',
+        signIn: 'サインイン',
+        signOut: 'サインアウト',
         imageMissing: '画像未設定',
         authError: '認証エラー: {message}',
         uidRequired: 'URLにuidが必要です。',
@@ -61,6 +71,14 @@ const VIEWER_UI = {
         prevPage: 'Previous page',
         nextPage: 'Next page',
         toggleUi: 'Show/hide menu',
+        account: 'Account',
+        guest: 'Guest',
+        themeLabel: 'Theme',
+        modeDevice: 'Device',
+        modeLight: 'Light',
+        modeDark: 'Dark',
+        signIn: 'Sign in',
+        signOut: 'Sign out',
         imageMissing: 'No image',
         authError: 'Authentication error: {message}',
         uidRequired: 'The URL requires a uid parameter.',
@@ -75,6 +93,11 @@ if (!VIEWER_UI[viewerUiLang]) viewerUiLang = 'ja';
 
 // ── Init ──────────────────────────────────────────────────────
 function init() {
+    applyTheme();
+    bindThemePreferenceListener(() => {
+        applyTheme();
+    });
+
     const layer = document.getElementById('click-layer');
     if (layer) {
         layer.addEventListener('pointerdown', onPointerDown);
@@ -105,10 +128,12 @@ function init() {
 
 // ── Auth ─────────────────────────────────────────────────────
 function initAuth() {
+    handleRedirectResult();
     initGIS();
     onAuthChanged(user => {
         dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'user', value: user || null } });
         dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'uid', value: user?.uid || null } });
+        renderViewerAuthSlot(user || null);
         if (sharedProjectRef && (!projectLoaded || lastLoadErrorCode === 'permission-denied')) {
             attemptLoad();
         }
@@ -357,6 +382,69 @@ function closeViewerLangMenu() {
     document.getElementById('viewer-lang-picker')?.classList.remove('open');
 }
 
+function closeViewerAuthDropdown() {
+    const authRoot = document.querySelector('.viewer-auth');
+    const trigger = authRoot?.querySelector('.viewer-auth-trigger');
+    authRoot?.classList.remove('open');
+    trigger?.setAttribute('aria-expanded', 'false');
+}
+
+function renderViewerAuthSlot(user = state.user || null) {
+    const slot = document.getElementById('viewer-auth-slot');
+    if (!slot) return;
+
+    const themeMode = getThemeMode();
+    const nameRaw = user?.displayName || user?.email || vt('guest');
+    const initial = ((nameRaw || 'U').trim()[0] || 'U').toUpperCase();
+
+    slot.innerHTML = `
+        <div class="viewer-auth">
+            <button type="button" class="viewer-auth-trigger" aria-label="${esc(vt('account'))}" aria-expanded="false">
+                ${user?.photoURL
+                    ? `<img src="${esc(user.photoURL)}" alt="${esc(nameRaw)}" referrerpolicy="no-referrer">`
+                    : user
+                        ? `<span class="viewer-auth-initials">${esc(initial)}</span>`
+                        : `<span class="material-icons" aria-hidden="true">account_circle</span>`}
+            </button>
+            <div class="viewer-auth-dropdown">
+                <div class="viewer-auth-name">${esc(nameRaw)}</div>
+                <div class="viewer-auth-section-label">${esc(vt('themeLabel'))}</div>
+                <div class="viewer-theme-switcher">
+                    <button type="button" class="viewer-theme-btn ${themeMode === 'device' ? 'active' : ''}" data-theme-mode="device">${esc(vt('modeDevice'))}</button>
+                    <button type="button" class="viewer-theme-btn ${themeMode === 'light' ? 'active' : ''}" data-theme-mode="light">${esc(vt('modeLight'))}</button>
+                    <button type="button" class="viewer-theme-btn ${themeMode === 'dark' ? 'active' : ''}" data-theme-mode="dark">${esc(vt('modeDark'))}</button>
+                </div>
+                <button type="button" class="viewer-auth-action" data-auth-toggle>${esc(user ? vt('signOut') : vt('signIn'))}</button>
+            </div>
+        </div>
+    `;
+
+    const authRoot = slot.querySelector('.viewer-auth');
+    const trigger = slot.querySelector('.viewer-auth-trigger');
+    trigger?.addEventListener('click', (event) => {
+        event.stopPropagation();
+        const shouldOpen = !authRoot?.classList.contains('open');
+        closeViewerAuthDropdown();
+        if (shouldOpen) {
+            authRoot?.classList.add('open');
+            trigger?.setAttribute('aria-expanded', 'true');
+        }
+    });
+
+    slot.querySelectorAll('[data-theme-mode]').forEach((btn) => {
+        btn.addEventListener('click', () => {
+            setThemeMode(btn.dataset.themeMode);
+            applyTheme();
+            renderViewerAuthSlot(state.user || null);
+        });
+    });
+
+    slot.querySelector('[data-auth-toggle]')?.addEventListener('click', async () => {
+        closeViewerAuthDropdown();
+        await window.viewerToggleAuth();
+    });
+}
+
 window.setViewerUiLang = (lang) => {
     if (!VIEWER_UI[lang]) return;
     viewerUiLang = lang;
@@ -381,6 +469,7 @@ function applyViewerUiLanguage() {
     if (zoneMenu) zoneMenu.title = vt('toggleUi');
     if (zonePrev) zonePrev.title = vt('prevPage');
     if (zoneNext) zoneNext.title = vt('nextPage');
+    renderViewerAuthSlot(state.user || null);
 }
 
 // ── Navigation ────────────────────────────────────────────────
@@ -578,6 +667,7 @@ function refreshChrome() {
     if (zoneNext) zoneNext.title = dir === 'rtl' ? vt('prevPage') : vt('nextPage');
     if (countEl) countEl.textContent = `${index + 1} / ${total}`;
     renderViewerLanguagePicker();
+    renderViewerAuthSlot(state.user || null);
 }
 
 // ── UI ───────────────────────────────────────────────────────
@@ -598,6 +688,8 @@ document.addEventListener('click', (e) => {
     if (id === 'zone-prev' || id === 'zone-next' || id === 'zone-menu') return;
     const picker = document.getElementById('viewer-lang-picker');
     if (picker && !picker.contains(e.target)) closeViewerLangMenu();
+    const authSlot = document.getElementById('viewer-auth-slot');
+    if (authSlot && !authSlot.contains(e.target)) closeViewerAuthDropdown();
     const header = document.getElementById('viewer-header');
     const footer = document.getElementById('viewer-footer');
     if (!(header?.contains(e.target) || footer?.contains(e.target))) {
@@ -606,12 +698,17 @@ document.addEventListener('click', (e) => {
 });
 
 // ── Canvas Resize ─────────────────────────────────────────────
+/**
+ * 外枠 `#viewer-canvas` をウィンドウ内に収めた 9:16 の箱にし、内側 `#content-stage` を
+ * 論理ページ（CANONICAL_PAGE_*）へ等倍スケールでセンタリングする。
+ * 高さは `innerHeight` 基準（`100dvh` は body 側で扱い、将来 visualViewport に差し替え可能）。
+ */
 function resizeCanvas() {
     const canvas = document.getElementById('viewer-canvas');
     if (!canvas) return;
     const W = window.innerWidth;
     const H = window.innerHeight;
-    const aspect = 360 / 640;
+    const aspect = CANONICAL_PAGE_ASPECT;
     let w, h;
     if (W / H < aspect) { w = W; h = Math.round(W / aspect); }
     else { h = H; w = Math.round(H * aspect); }
@@ -620,11 +717,12 @@ function resizeCanvas() {
 
     const stage = document.getElementById('content-stage');
     if (stage) {
-        const s = Math.min(w / 360, h / 640);
-        const ox = (w - 360 * s) / 2;
-        const oy = (h - 640 * s) / 2;
+        const s = Math.min(w / CANONICAL_PAGE_WIDTH, h / CANONICAL_PAGE_HEIGHT);
+        const ox = (w - CANONICAL_PAGE_WIDTH * s) / 2;
+        const oy = (h - CANONICAL_PAGE_HEIGHT * s) / 2;
         stage.style.transform = `translate(${ox}px,${oy}px) scale(${s})`;
     }
+    applyTransform();
 }
 
 // ── Zoom / Pan ────────────────────────────────────────────────
@@ -633,7 +731,33 @@ function resetZoom() {
     applyTransform();
 }
 
+/**
+ * ピンチ／ホイール／ダブルタップで viewScale>1 のとき、パンを論理ページ周りにクランプする。
+ * `#viewer-stage` は transform-origin:center で scale するため、許容パンはキャンバス寸法と倍率から概算する。
+ * 仕様: ページ全体がキャンバス外へ「永続的に」消えないよう余白方向へのオーバーパンを抑える（一時的な軽いはみ出しは許容しつつ強い飛び出しを防ぐ）。
+ */
+function clampViewPan() {
+    const canvas = document.getElementById('viewer-canvas');
+    if (!canvas) return;
+    const vw = canvas.clientWidth;
+    const vh = canvas.clientHeight;
+    if (!vw || !vh) return;
+
+    if (viewScale <= 1.001) {
+        viewScale = 1;
+        viewX = 0;
+        viewY = 0;
+        return;
+    }
+
+    const limX = 0.5 * vw * Math.min(viewScale - 1, 4);
+    const limY = 0.5 * vh * Math.min(viewScale - 1, 4);
+    viewX = Math.max(-limX, Math.min(limX, viewX));
+    viewY = Math.max(-limY, Math.min(limY, viewY));
+}
+
 function applyTransform() {
+    clampViewPan();
     const stage = document.getElementById('viewer-stage');
     if (stage) stage.style.transform = `translate(${viewX}px,${viewY}px) scale(${viewScale})`;
 }
@@ -689,11 +813,16 @@ function onPointerUp(e) {
     if (isPinching && pointerCache.length < 2) {
         isPinching = false;
         if (viewScale < 1.05) resetZoom();
+        else applyTransform();
         return;
     }
 
     if (pointerCache.length === 0) {
-        if (isPanning) { isPanning = false; return; }
+        if (isPanning) {
+            isPanning = false;
+            applyTransform();
+            return;
+        }
 
         if (viewScale <= 1.05) {
             const dx = e.clientX - pointerStartX;

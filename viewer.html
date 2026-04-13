@@ -19,11 +19,9 @@
 <body>
 
     <div id="viewer-canvas">
-        <div id="viewer-stage"
-            style="width:100%; height:100%; position:absolute; top:0; left:0; transform-origin:center center;">
-            <!-- Fixed resolution stage (360x640) for consistent rendering -->
-            <div id="content-stage"
-                style="position:absolute; top:0; left:0; width:360px; height:640px; transform-origin:top left; background:#fff; overflow:hidden;">
+        <div id="viewer-stage">
+            <!-- Fixed logical page stage (9:16). Size: css/variables.css + js/page-geometry.js -->
+            <div id="content-stage">
                 <div id="viewer-content"></div>
                 <div id="viewer-bubbles"></div>
             </div>
@@ -60,6 +58,7 @@
                     <button id="lang-picker-button" class="viewer-lang-picker-button" type="button" onclick="toggleViewerLangMenu()"></button>
                     <div id="lang-picker-menu" class="viewer-lang-picker-menu"></div>
                 </div>
+                <div id="viewer-auth-slot" class="viewer-auth-slot"></div>
                 <button id="viewer-file-btn" class="btn-icon header-btn" onclick="document.getElementById('file-input').click()"
                     title="ファイルを開く">
                     <span class="material-icons" aria-hidden="true">folder_open</span>

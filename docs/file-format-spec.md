@@ -6,6 +6,8 @@
 
 本書は DSF Studio における 2 つの主要アーカイブ（**`.dsf`（配信）** および **`.dsp`（編集用プロジェクト）**）の構造とデータモデルを定義します。どちらも **ZIP アーカイブ** をコンテナとし、Excel（`.xlsx`）や EPUB と同様に、将来の拡張に対して上位/下位互換を保ちやすい設計を目指します。
 
+**論理ページ（9:16）の基準**: アプリ内の編集・組版・Press の座標系は **`360×640` 論理ピクセル**を正とする（実装は `js/page-geometry.js`、表示トークンは `css/variables.css` の `--dsf-canonical-page-*`）。配信用ラスタは **少なくとも `1080×1920`（論理の 3 倍）** を最低ラインとする想定で、`meta.json` の `presentation.aspectRatio`（例: `"9:16"`）と整合させる。
+
 ---
 
 ## 1. ファイル拡張子と用途の違い
@@ -71,10 +73,12 @@ filename.dsf / filename.dsp
   "created": "2026-02-21T12:00:00Z",
   "modified": "2026-02-21T15:30:00Z",
   "generator": "DSF Studio Pro v1.2",// 生成したツール
-  "presentation": {                 // 【将来拡張用表示設定】
+  "presentation": {                 // 表示メタ（アプリは `js/page-geometry.js` と同期して書き出す）
     "orientation": "portrait",      // "portrait" (縦), "landscape" (16:9等の横)
-    "aspectRatio": "9:16",          // 基準となるアスペクト比
-    "spread": "auto"                // 見開き設定: "none" (単体), "auto" (画面幅で見開き)
+    "aspectRatio": "9:16",          // 基準アスペクト比（正規表記）
+    "spread": "auto",                // 見開き設定: "none" (単体), "auto" (画面幅で見開き)
+    "canonicalLogicalWidth": 360,   // 論理ページ幅（実装定数と一致）
+    "canonicalLogicalHeight": 640   // 論理ページ高さ（実装定数と一致）
   }
 }
 ```

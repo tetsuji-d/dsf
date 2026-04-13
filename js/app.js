@@ -3,9 +3,9 @@
  */
 import { state, dispatch, actionTypes } from './state.js';
 import { saveProject as persistProject, loadProject, uploadToStorage, uploadCoverToStorage, uploadStructureToStorage, triggerAutoSave, flushSave, generateCroppedThumbnail, listLocalRecentProjects, loadLocalRecentProject, cacheLocalRecentProject } from './firebase.js';
-import { initGIS, signInWithGoogle, signOutUser, onAuthChanged } from './gis-auth.js';
+import { initGIS, renderGISButton, signInWithGoogle, signOutUser, onAuthChanged, handleRedirectResult } from './gis-auth.js';
 import { handleCanvasClick, selectBubble, renderBubbleHTML, getBubbleText, setBubbleText, addBubbleAtCenter, startDrag, startTailDrag, startSpikeDrag } from './bubbles.js';
-import { addSection, changeSection, changeBlock, insertStructureBlock, renderThumbs, deleteActive, deleteSectionAt, insertSectionAt, duplicateSectionAt, moveSection, insertPageNearBlock, duplicateBlockAt, moveBlockAt, getOptimizedImageUrl } from './sections.js';
+import { addSection, addTextSection, changeSection, changeBlock, insertStructureBlock, renderThumbs, deleteActive, deleteSectionAt, insertSectionAt, duplicateSectionAt, moveSection, insertPageNearBlock, duplicateBlockAt, moveBlockAt, getOptimizedImageUrl } from './sections.js';
 import { pushState, undo, redo, getHistoryInfo, clearHistory } from './history.js';
 import { openProjectModal, closeProjectModal, fetchCloudProjects, getCoverImage, getPageCount, deleteCloudProject } from './projects.js';
 import { openWorksRoom, closeWorksRoom } from './works.js';
@@ -15,11 +15,14 @@ import { t, applyI18n, setUILang, getUILang } from './i18n-studio.js';
 import { getBlockIndexFromPageIndex, getPageIndexFromBlockIndex, migrateSectionsToBlocks, syncBlocksWithSections } from './blocks.js';
 import { blocksToPages, normalizeProjectDataV5 } from './pages.js';
 import { buildDSP, buildDSF, parseAndLoadDSP } from './export.js';
+import { applyTheme, bindThemePreferenceListener, getThemeMode, setThemeMode } from './theme.js';
 import { get as idbGet } from 'idb-keyval';
 import { createId } from './utils.js';
+import { CANONICAL_PAGE_WIDTH, CANONICAL_PAGE_HEIGHT } from './page-geometry.js';
+import { composeText, getWritingModeFromConfigs, getFontPresetFromConfigs } from './layout.js';
 
-const EDITOR_FRAME_WIDTH = 360;
-const EDITOR_FRAME_HEIGHT = 640;
+const EDITOR_FRAME_WIDTH = CANONICAL_PAGE_WIDTH;
+const EDITOR_FRAME_HEIGHT = CANONICAL_PAGE_HEIGHT;
 const IMAGE_SNAP_THRESHOLD = 12;
 const editorImageAspectCache = new Map();
 const EMPTY_IMAGE_SNAP_STATE = Object.freeze({
@@ -132,17 +135,18 @@ function getImageAdjustRenderMetrics(bgUrl, pos) {
     const frameMetrics = getEditorImageFrameMetrics(bgUrl);
     const scale = Math.max(0.1, Number(pos?.scale) || 1);
     const rotation = Number(pos?.rotation) || 0;
+    const flipX = pos?.flipX ? ' scaleX(-1)' : '';
     return {
         frameMetrics,
         invScale: 1 / scale,
-        targetTransform: `translate(calc(-50% + ${Number(pos?.x) || 0}px), calc(-50% + ${Number(pos?.y) || 0}px)) scale(${scale}) rotate(${rotation}deg)`
+        targetTransform: `translate(calc(-50% + ${Number(pos?.x) || 0}px), calc(-50% + ${Number(pos?.y) || 0}px)) scale(${scale}) rotate(${rotation}deg)${flipX}`
     };
 }
 
 function syncImageAdjustDom() {
     const s = state.sections?.[state.activeIdx];
     if (!s || s.type !== 'image') return false;
-    const pos = s.imagePosition;
+    const pos = getActiveImagePosition();
     if (!pos) return false;
 
     const target = document.getElementById('image-adjust-target');
@@ -190,6 +194,9 @@ function syncImageAdjustDom() {
     if (verticalGuide) verticalGuide.classList.toggle('active', !!imageSnapState.centerX);
     const horizontalGuide = document.querySelector('#image-stage-overlay .image-center-guide.horizontal');
     if (horizontalGuide) horizontalGuide.classList.toggle('active', !!imageSnapState.centerY);
+
+    const flipBtn = document.getElementById('image-flip-btn');
+    if (flipBtn) flipBtn.classList.toggle('active', !!pos.flipX);
 
     return true;
 }
@@ -437,38 +444,178 @@ async function renderHomeDashboard() {
 
 function updateAuthUI() {
     const signedIn = !!state.uid;
-    const authBtn = document.getElementById('btn-auth');
-    const authBtnMobile = document.getElementById('btn-auth-mobile');
-    const authStatus = document.getElementById('auth-status');
     const saveStatus = document.getElementById('save-status');
+    const authSlotNav = document.getElementById('studio-auth-slot-nav');
+    const authSlotMobile = document.getElementById('studio-auth-slot-mobile');
 
-    if (authBtn) {
-        authBtn.textContent = signedIn ? t('btn_signout') : t('btn_signin');
-    }
-    if (authBtnMobile) {
-        authBtnMobile.textContent = signedIn ? t('btn_signout') : t('btn_auth_mobile');
-    }
-    if (authStatus) {
-        authStatus.textContent = signedIn
-            ? `${state.user?.displayName || state.user?.email || 'Signed in'}`
-            : t('guest_label');
-    }
+    if (authSlotNav) renderStudioAuthSlot(authSlotNav, state.user, { mobile: false, slotName: 'nav' });
+    if (authSlotMobile) renderStudioAuthSlot(authSlotMobile, state.user, { mobile: true, slotName: 'mobile' });
+
     if (!signedIn && saveStatus && !saveStatus.textContent.trim()) {
         saveStatus.textContent = t('login_prompt');
         saveStatus.style.color = '#8a5d00';
     }
-    const roomUserDisplay = document.getElementById('room-user-display');
-    if (roomUserDisplay) {
-        roomUserDisplay.textContent = signedIn ? (state.user?.displayName || state.user?.email || '') : '';
-    }
     document.body.classList.toggle('auth-guest', !signedIn);
     document.querySelectorAll('[data-auth-required]').forEach((el) => {
         el.disabled = !signedIn;
-        if (!signedIn) {
-            el.title = t('login_required');
-        }
+        el.title = !signedIn ? t('login_required') : '';
     });
     syncStudioShell();
+}
+
+let studioAuthGlobalBound = false;
+
+function escapeStudioHtml(value) {
+    if (value == null) return '';
+    return String(value)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#039;');
+}
+
+function closeAllStudioAuthDropdowns() {
+    document.querySelectorAll('.studio-auth-slot [data-auth-dropdown].open').forEach((dropdown) => {
+        dropdown.classList.remove('open');
+    });
+    document.querySelectorAll('.studio-auth-slot [data-auth-trigger][aria-expanded="true"]').forEach((trigger) => {
+        trigger.setAttribute('aria-expanded', 'false');
+    });
+}
+
+function bindStudioAuthGlobalHandlers() {
+    if (studioAuthGlobalBound) return;
+    studioAuthGlobalBound = true;
+    document.addEventListener('click', (event) => {
+        if (event.target.closest('.studio-auth-slot')) return;
+        closeAllStudioAuthDropdowns();
+    });
+}
+
+function getStudioThemeButtonsMarkup() {
+    const currentThemeMode = getThemeMode();
+    return `
+        <div class="auth-panel-section">
+            <div class="auth-panel-label">${escapeStudioHtml(t('themeLabel'))}</div>
+            <div class="theme-mode-switcher js-theme-switcher" role="group" aria-label="${escapeStudioHtml(t('themeLabel'))}">
+                <button type="button" class="theme-mode-btn ${currentThemeMode === 'device' ? 'active' : ''}" data-theme-mode="device">${escapeStudioHtml(t('modeDevice'))}</button>
+                <button type="button" class="theme-mode-btn ${currentThemeMode === 'light' ? 'active' : ''}" data-theme-mode="light">${escapeStudioHtml(t('modeLight'))}</button>
+                <button type="button" class="theme-mode-btn ${currentThemeMode === 'dark' ? 'active' : ''}" data-theme-mode="dark">${escapeStudioHtml(t('modeDark'))}</button>
+            </div>
+        </div>
+    `;
+}
+
+function getStudioAccountLinksMarkup() {
+    return `
+        <div class="auth-panel-links">
+            <button type="button" class="auth-panel-link"><span class="material-icons">visibility_off</span><span>${escapeStudioHtml(t('restrictedMode'))}</span></button>
+            <button type="button" class="auth-panel-link"><span class="material-icons">public</span><span>${escapeStudioHtml(t('location'))}</span></button>
+            <button type="button" class="auth-panel-link"><span class="material-icons">settings</span><span>${escapeStudioHtml(t('settings'))}</span></button>
+            <button type="button" class="auth-panel-link"><span class="material-icons">help_outline</span><span>${escapeStudioHtml(t('help'))}</span></button>
+            <button type="button" class="auth-panel-link"><span class="material-icons">feedback</span><span>${escapeStudioHtml(t('feedback'))}</span></button>
+        </div>
+    `;
+}
+
+function getStudioAuthMarkup(user, { mobile = false, slotName = 'nav' } = {}) {
+    const displayName = escapeStudioHtml(user?.displayName || user?.email || t('guest_label'));
+    const photoUrl = escapeStudioHtml(user?.photoURL || '');
+    const initials = escapeStudioHtml((user?.displayName || user?.email || 'U').trim().charAt(0).toUpperCase() || 'U');
+    const avatarLabel = user ? displayName : escapeStudioHtml(t('btn_signin'));
+    const avatarInner = photoUrl
+        ? `<img src="${photoUrl}" alt="${displayName}" referrerpolicy="no-referrer">`
+        : user
+            ? `<span class="auth-initials">${initials}</span>`
+            : `<span class="material-icons" aria-hidden="true">account_circle</span>`;
+    const gisButtonId = `gis-btn-studio-${slotName}`;
+    const fallbackClass = mobile ? 'mobile-auth-btn studio-signin-fallback' : 'btn-tool studio-signin-fallback';
+    const signedOutSection = user ? '' : `
+        <div class="auth-panel-section studio-auth-signin-section">
+            <div id="${gisButtonId}" class="studio-gis-slot"></div>
+            <button type="button" class="${fallbackClass}" data-auth-signin-fallback>${escapeStudioHtml(mobile ? t('btn_auth_mobile') : t('btn_signin'))}</button>
+        </div>
+    `;
+
+    return `
+        <div class="auth-user studio-auth-user ${mobile ? 'is-mobile' : 'is-desktop'}">
+            <button type="button" class="auth-avatar-btn studio-auth-trigger" data-auth-trigger aria-label="${avatarLabel}" aria-expanded="false">
+                ${avatarInner}
+            </button>
+            <div class="auth-dropdown auth-panel studio-auth-dropdown" data-auth-dropdown>
+                <div class="auth-dropdown-name">${displayName}</div>
+                ${getStudioThemeButtonsMarkup()}
+                ${signedOutSection}
+                ${getStudioAccountLinksMarkup()}
+                ${user ? `<button type="button" class="btn-signout" data-auth-signout>${escapeStudioHtml(t('btn_signout'))}</button>` : ''}
+            </div>
+        </div>
+    `;
+}
+
+function updateStudioThemeSwitchers() {
+    const currentThemeMode = getThemeMode();
+    document.querySelectorAll('.studio-auth-slot .js-theme-switcher .theme-mode-btn').forEach((btn) => {
+        btn.classList.toggle('active', btn.dataset.themeMode === currentThemeMode);
+    });
+}
+
+function bindStudioAuthSlot(container, user, { mobile = false } = {}) {
+    const trigger = container.querySelector('[data-auth-trigger]');
+    const dropdown = container.querySelector('[data-auth-dropdown]');
+    trigger?.addEventListener('click', (event) => {
+        event.stopPropagation();
+        const willOpen = !dropdown?.classList.contains('open');
+        closeAllStudioAuthDropdowns();
+        dropdown?.classList.toggle('open', willOpen);
+        trigger.setAttribute('aria-expanded', String(willOpen));
+    });
+    dropdown?.addEventListener('click', async (event) => {
+        const themeBtn = event.target.closest('.theme-mode-btn');
+        if (themeBtn?.dataset.themeMode) {
+            setThemeMode(themeBtn.dataset.themeMode);
+            updateStudioThemeSwitchers();
+            return;
+        }
+        if (event.target.closest('[data-auth-signout]')) {
+            await signOutUser();
+            return;
+        }
+    });
+    container.querySelector('[data-auth-signin-fallback]')?.addEventListener('click', async () => {
+        await signInWithGoogle();
+    });
+
+    if (!user) {
+        const gisTarget = container.querySelector('.studio-gis-slot')?.id;
+        if (gisTarget) {
+            renderGISButton(gisTarget, {
+                buttonOptions: mobile
+                    ? {
+                        theme: 'outline',
+                        size: 'medium',
+                        type: 'icon',
+                        shape: 'pill',
+                    }
+                    : {
+                        theme: 'outline',
+                        size: 'medium',
+                        type: 'standard',
+                        shape: 'rectangular',
+                        text: 'signin_with',
+                        logo_alignment: 'left',
+                    }
+            }).catch((error) => console.warn(`[Auth] GIS ${mobile ? 'mobile' : 'desktop'} button render failed:`, error));
+        }
+    }
+}
+
+function renderStudioAuthSlot(container, user, options = {}) {
+    if (!container) return;
+    bindStudioAuthGlobalHandlers();
+    container.innerHTML = getStudioAuthMarkup(user, options);
+    bindStudioAuthSlot(container, user, options);
 }
 
 const THUMB_COLUMN_OPTIONS = [8, 5, 4, 2, 1];
@@ -516,7 +663,6 @@ function syncMobileHeader() {
     const navBtn = document.getElementById('mobile-header-nav');
     const roomLabel = document.getElementById('mobile-header-room-label');
     const title = document.getElementById('mobile-header-title');
-    const authBtn = document.getElementById('btn-auth-mobile');
     const navTarget = getMobileHeaderNavTarget(room);
     const roomText = getRoomLabel(room);
 
@@ -540,9 +686,6 @@ function syncMobileHeader() {
             navBtn.title = t('tab_home');
             navBtn.setAttribute('aria-label', t('tab_home'));
         }
-    }
-    if (authBtn) {
-        authBtn.classList.toggle('signed-in', !!state.uid);
     }
 }
 
@@ -652,18 +795,9 @@ function refresh(options = {}) {
 
     // メインキャンバスの描画 — image pages only
     if (s && s.type === 'image') {
-        if (!s.imagePosition) s.imagePosition = {};
-        const toNum = (v, fallback) => {
-            const n = Number(v);
-            return Number.isFinite(n) ? n : fallback;
-        };
-        s.imagePosition.x = toNum(s.imagePosition.x, 0);
-        s.imagePosition.y = toNum(s.imagePosition.y, 0);
-        s.imagePosition.scale = Math.max(0.1, toNum(s.imagePosition.scale, 1));
-        s.imagePosition.rotation = toNum(s.imagePosition.rotation, 0);
-        const pos = s.imagePosition;
+        const pos = getActiveImagePosition();
         if (!s.imageBasePosition) {
-            s.imageBasePosition = { x: 0, y: 0, scale: 1, rotation: 0 };
+            s.imageBasePosition = { x: 0, y: 0, scale: 1, rotation: 0, flipX: false };
         }
         const bgUrl = getOptimizedImageUrl(s.backgrounds?.[state.activeLang] || s.backgrounds?.[state.defaultLang] || s.background || '');
         const { frameMetrics, targetTransform, invScale } = getImageAdjustRenderMetrics(bgUrl, pos);
@@ -701,11 +835,19 @@ function refresh(options = {}) {
             </div>`;
         document.getElementById('image-only-props').style.display = 'block';
         document.getElementById('bubble-layer').style.display = 'block';
+        _hideTextPreviewOverlay();
+    } else if (s && s.type === 'text') {
+        render.innerHTML = '';
+        document.getElementById('image-only-props').style.display = 'none';
+        document.getElementById('bubble-layer').style.display = 'none';
+        document.getElementById('bubble-shape-props').style.display = 'none';
+        renderTextPreview(s);
     } else if (s) {
         render.innerHTML = '';
         document.getElementById('image-only-props').style.display = 'none';
         document.getElementById('bubble-layer').style.display = 'none';
         document.getElementById('bubble-shape-props').style.display = 'none';
+        _hideTextPreviewOverlay();
     }
 
     // 吹き出し描画
@@ -730,18 +872,39 @@ function refresh(options = {}) {
         deleteBtn.disabled = false;
         deleteBtn.title = '';
     }
+
+    const isTextSection = s?.type === 'text';
+
+    // FAB「テキスト追加」ボタンをテキストページでは非表示
+    const fabAddBubble = document.getElementById('fab-add-bubble');
+    if (fabAddBubble) fabAddBubble.style.display = isTextSection ? 'none' : '';
+
+    // テキストページではキャンバスのクリックカーソルをデフォルトに戻す
+    const canvasView = document.getElementById('canvas-view');
+    if (canvasView) canvasView.style.cursor = isTextSection ? 'default' : '';
+
+    // テキストセクション専用パネル
+    const textSectionProps = document.getElementById('text-section-props');
+    if (textSectionProps) {
+        textSectionProps.style.display = isTextSection ? 'block' : 'none';
+        if (isTextSection) {
+            _syncTextSectionPanel(s);
+        }
+    }
+
+    // 吹き出しテキストエディター（テキストセクションでは非表示）
     const genericTextEditor = document.getElementById('generic-text-editor');
-    if (genericTextEditor) genericTextEditor.style.display = 'block';
+    if (genericTextEditor) genericTextEditor.style.display = isTextSection ? 'none' : 'block';
 
     // テキストエリア: バブル選択時のテキスト表示
     const propTextEl = document.getElementById('prop-text');
     if (propTextEl) {
-        if (state.activeBubbleIdx !== null && s?.bubbles?.[state.activeBubbleIdx]) {
+        if (!isTextSection && state.activeBubbleIdx !== null && s?.bubbles?.[state.activeBubbleIdx]) {
             propTextEl.value = getBubbleText(s.bubbles[state.activeBubbleIdx]);
-        } else {
+        } else if (!isTextSection) {
             propTextEl.value = '';
         }
-        propTextEl.style.display = 'block';
+        propTextEl.style.display = isTextSection ? 'none' : 'block';
         propTextEl.readOnly = false;
     }
 
@@ -751,9 +914,9 @@ function refresh(options = {}) {
         textLabel.textContent = `テキスト入力 [${langProps.label}]`;
     }
 
-    // 吹き出し形状＆カラーセレクタの同期
+    // 吹き出し形状＆カラーセレクタの同期（テキストセクションでは非表示）
     const shapeProps = document.getElementById('bubble-shape-props');
-    if (state.activeBubbleIdx !== null && s?.bubbles?.[state.activeBubbleIdx]) {
+    if (!isTextSection && state.activeBubbleIdx !== null && s?.bubbles?.[state.activeBubbleIdx]) {
         if (shapeProps) shapeProps.style.display = 'block';
         updateBubblePropPanel(s.bubbles[state.activeBubbleIdx]);
     } else {
@@ -1297,16 +1460,18 @@ let imageHandleDrag = null;
 function calcMobileAdjustScale(pos) {
     const view = document.getElementById('canvas-view');
     if (!view) return 0.6;
-    const cw = view.clientWidth || 360;
-    const ch = view.clientHeight || 640;
+    const cw = view.clientWidth || CANONICAL_PAGE_WIDTH;
+    const ch = view.clientHeight || CANONICAL_PAGE_HEIGHT;
+    const halfW = CANONICAL_PAGE_WIDTH / 2;
+    const halfH = CANONICAL_PAGE_HEIGHT / 2;
     const visibilityFactor = Math.max(
         1,
         pos?.scale || 1,
-        1 + Math.abs(pos?.x || 0) / 180,
-        1 + Math.abs(pos?.y || 0) / 320
+        1 + Math.abs(pos?.x || 0) / halfW,
+        1 + Math.abs(pos?.y || 0) / halfH
     );
-    const needW = 360 * visibilityFactor;
-    const needH = 640 * visibilityFactor;
+    const needW = CANONICAL_PAGE_WIDTH * visibilityFactor;
+    const needH = CANONICAL_PAGE_HEIGHT * visibilityFactor;
     const s = Math.min(cw / needW, ch / needH) * 0.82;
     return Math.min(Math.max(s, 0.22), 0.9);
 }
@@ -1314,17 +1479,28 @@ function calcMobileAdjustScale(pos) {
 function getActiveImagePosition() {
     const s = state.sections[state.activeIdx];
     if (!s || s.type !== 'image') return null;
-    if (!s.imagePosition) s.imagePosition = {};
-    const toNum = (v, fallback) => {
-        const n = Number(v);
-        return Number.isFinite(n) ? n : fallback;
-    };
-    s.imagePosition.x = toNum(s.imagePosition.x, 0);
-    s.imagePosition.y = toNum(s.imagePosition.y, 0);
-    s.imagePosition.scale = Math.max(0.1, toNum(s.imagePosition.scale, 1));
-    s.imagePosition.rotation = toNum(s.imagePosition.rotation, 0);
-    if (!s.imageBasePosition) s.imageBasePosition = { x: 0, y: 0, scale: 1, rotation: 0 };
-    return s.imagePosition;
+    const lang = state.activeLang || state.defaultLang || 'ja';
+    if (!s.imagePositions) s.imagePositions = {};
+    if (!s.imagePositions[lang]) {
+        // Migrate from legacy shared imagePosition on first access
+        const legacy = s.imagePosition || {};
+        s.imagePositions[lang] = {
+            x: Number.isFinite(Number(legacy.x)) ? Number(legacy.x) : 0,
+            y: Number.isFinite(Number(legacy.y)) ? Number(legacy.y) : 0,
+            scale: Math.max(0.1, Number.isFinite(Number(legacy.scale)) ? Number(legacy.scale) : 1),
+            rotation: Number.isFinite(Number(legacy.rotation)) ? Number(legacy.rotation) : 0,
+            flipX: legacy.flipX || false
+        };
+    }
+    const pos = s.imagePositions[lang];
+    const toNum = (v, fallback) => { const n = Number(v); return Number.isFinite(n) ? n : fallback; };
+    pos.x = toNum(pos.x, 0);
+    pos.y = toNum(pos.y, 0);
+    pos.scale = Math.max(0.1, toNum(pos.scale, 1));
+    pos.rotation = toNum(pos.rotation, 0);
+    if (pos.flipX === undefined) pos.flipX = false;
+    if (!s.imageBasePosition) s.imageBasePosition = { x: 0, y: 0, scale: 1, rotation: 0, flipX: false };
+    return pos;
 }
 
 function getPointerClientPoint(e) {
@@ -1355,13 +1531,23 @@ window.resetImageTransform = () => {
     const s = state.sections[state.activeIdx];
     const pos = getActiveImagePosition();
     if (!isImageAdjusting || !s || !pos) return;
-    const base = s.imageBasePosition || { x: 0, y: 0, scale: 1, rotation: 0 };
+    const base = s.imageBasePosition || { x: 0, y: 0, scale: 1, rotation: 0, flipX: false };
     pushState();
     pos.x = base.x || 0;
     pos.y = base.y || 0;
     pos.scale = base.scale || 1;
     pos.rotation = base.rotation || 0;
+    pos.flipX = base.flipX || false;
     resetImageSnapState();
+    scheduleImageAdjustDomUpdate();
+    triggerAutoSave();
+};
+
+window.toggleImageFlipX = () => {
+    const pos = getActiveImagePosition();
+    if (!isImageAdjusting || !pos) return;
+    pushState();
+    pos.flipX = !pos.flipX;
     scheduleImageAdjustDomUpdate();
     triggerAutoSave();
 };
@@ -1479,12 +1665,14 @@ function onImageHandleDragEnd() {
     window.removeEventListener('mousemove', onImageHandleDragMove);
     window.removeEventListener('mouseup', onImageHandleDragEnd);
     const s = state.sections[state.activeIdx];
-    if (s && s.background && state.uid) {
-        generateCroppedThumbnail(
-            s.background,
-            s.imagePosition || { x: 0, y: 0, scale: 1, rotation: 0 },
-            refresh
-        ).catch(e => console.warn('[DSF] Thumbnail update skipped (onImageHandleDragEnd):', e));
+    if (s && state.uid) {
+        const lang = state.activeLang || state.defaultLang || 'ja';
+        const thumbBgUrl = s.backgrounds?.[lang] || s.backgrounds?.[state.defaultLang] || s.background || '';
+        const thumbPos = getActiveImagePosition() || s.imagePosition || { x: 0, y: 0, scale: 1, rotation: 0 };
+        if (thumbBgUrl) {
+            generateCroppedThumbnail(thumbBgUrl, thumbPos, refresh)
+                .catch(e => console.warn('[DSF] Thumbnail update skipped (onImageHandleDragEnd):', e));
+        }
     }
     triggerAutoSave();
 }
@@ -1535,7 +1723,7 @@ window.toggleImageAdjustment = () => {
             scale: canvasScale,
             translate: { ...canvasTranslate }
         };
-        const pos = s.imagePosition || { x: 0, y: 0, scale: 1 };
+        const pos = getActiveImagePosition() || s.imagePosition || { x: 0, y: 0, scale: 1 };
         canvasScale = calcMobileAdjustScale(pos);
         canvasTranslate = { x: 0, y: 0 };
         updateCanvasTransform();
@@ -1556,15 +1744,19 @@ window.toggleImageAdjustment = () => {
         imgInfo.textContent = isImageAdjusting ? "画像をドラッグ/ピンチして調整" : "テキスト入力";
     }
 
+    // 調整モード確定: refresh で handles 表示/非表示を切り替える
+    refresh();
     // 調整モード終了時に値を確定して保存＋サムネイル再生成
     if (!isImageAdjusting) {
         triggerAutoSave();
-        refresh(); // Ensure handles disappear immediately
-        // サムネイル更新
-        if (s.background && state.uid) {
+        // サムネイル更新（多言語対応: backgrounds[activeLang] を優先使用）
+        const lang = state.activeLang || state.defaultLang || 'ja';
+        const thumbBgUrl = s.backgrounds?.[lang] || s.backgrounds?.[state.defaultLang] || s.background || '';
+        const thumbPos = getActiveImagePosition() || s.imagePosition || { x: 0, y: 0, scale: 1, rotation: 0 };
+        if (thumbBgUrl && state.uid) {
             generateCroppedThumbnail(
-                s.background,
-                s.imagePosition || { x: 0, y: 0, scale: 1, rotation: 0 },
+                thumbBgUrl,
+                thumbPos,
                 refresh
             ).catch(e => console.warn('[DSF] Thumbnail update skipped (toggleImageAdjustment):', e));
         }
@@ -1582,19 +1774,14 @@ function initImageAdjustment() {
     let startScale = 1;
     let initialPinchDist = null;
 
-    // Helper to get image transform state
-    const getImgState = () => {
-        const s = state.sections[state.activeIdx];
-        if (!s.imagePosition) s.imagePosition = { x: 0, y: 0, scale: 1 };
-        return s.imagePosition;
-    };
-
     // Events
+
     const onMove = (clientX, clientY) => {
         if (isAdjustingRotationSlider) return;
         const dx = clientX - startPos.x;
         const dy = clientY - startPos.y;
-        const pos = getImgState();
+        const pos = getActiveImagePosition();
+        if (!pos) return;
         pos.x = startTransform.x + dx / canvasScale;
         pos.y = startTransform.y + dy / canvasScale;
         const s = state.sections[state.activeIdx];
@@ -1610,12 +1797,14 @@ function initImageAdjustment() {
             isDraggingImg = false;
             resetImageSnapState();
             const s = state.sections[state.activeIdx];
-            if (s && s.background && state.uid) {
-                generateCroppedThumbnail(
-                    s.background,
-                    s.imagePosition || { x: 0, y: 0, scale: 1, rotation: 0 },
-                    refresh
-                ).catch(e => console.warn('[DSF] Thumbnail update skipped (onEnd):', e));
+            if (s && state.uid) {
+                const lang = state.activeLang || state.defaultLang || 'ja';
+                const thumbBgUrl = s.backgrounds?.[lang] || s.backgrounds?.[state.defaultLang] || s.background || '';
+                const thumbPos = getActiveImagePosition() || s.imagePosition || { x: 0, y: 0, scale: 1, rotation: 0 };
+                if (thumbBgUrl) {
+                    generateCroppedThumbnail(thumbBgUrl, thumbPos, refresh)
+                        .catch(e => console.warn('[DSF] Thumbnail update skipped (onEnd):', e));
+                }
             }
             triggerAutoSave();
         }
@@ -1627,8 +1816,8 @@ function initImageAdjustment() {
         if (!isImageAdjusting || isAdjustingRotationSlider) return;
         isDraggingImg = true;
         startPos = { x: clientX, y: clientY };
-        const pos = getImgState();
-        startTransform = { x: pos.x, y: pos.y };
+        const pos = getActiveImagePosition();
+        startTransform = pos ? { x: pos.x, y: pos.y } : { x: 0, y: 0 };
         window.addEventListener('mousemove', onMoveWrap);
         window.addEventListener('mouseup', onEnd);
     };
@@ -1660,8 +1849,8 @@ function initImageAdjustment() {
                     e.touches[0].clientY - e.touches[1].clientY
                 );
                 initialPinchDist = dist;
-                const pos = getImgState();
-                startScale = pos.scale || 1;
+                const pos = getActiveImagePosition();
+                startScale = pos?.scale || 1;
             }
         }
     }, { passive: false });
@@ -1683,7 +1872,8 @@ function initImageAdjustment() {
                 e.touches[0].clientY - e.touches[1].clientY
             );
             const scale = dist / initialPinchDist;
-            const pos = getImgState();
+            const pos = getActiveImagePosition();
+            if (!pos) return;
             pos.scale = Math.max(0.1, startScale * scale);
             const s = state.sections[state.activeIdx];
             const bgUrl = getOptimizedImageUrl(s?.backgrounds?.[state.activeLang] || s?.backgrounds?.[state.defaultLang] || s?.background || '');
@@ -1703,7 +1893,7 @@ function initImageAdjustment() {
         if (isImageAdjusting) {
             e.preventDefault();
             e.stopPropagation();
-            const pos = getActiveImagePosition() || getImgState();
+            const pos = getActiveImagePosition();
             const delta = e.deltaY > 0 ? 0.9 : 1.1;
             pos.scale = Math.max(0.1, (pos.scale || 1) * delta);
             const s = state.sections[state.activeIdx];
@@ -1735,6 +1925,136 @@ function updateActiveText(v) {
         setBubbleText(s.bubbles[state.activeBubbleIdx], v);
     }
     refresh();
+    triggerAutoSave();
+}
+
+// ──────────────────────────────────────────────────────────────
+//  テキストセクション キャンバスプレビュー
+// ──────────────────────────────────────────────────────────────
+
+function _hideTextPreviewOverlay() {
+    const overlay = document.getElementById('text-preview-overlay');
+    if (overlay) overlay.style.display = 'none';
+}
+
+/**
+ * テキストセクションの組版結果をキャンバス上の HTML オーバーレイとして描画する。
+ * composeText() の frame / font / writingMode を忠実に反映し、
+ * Press の Canvas 描画と同じ文字配置を近似する。
+ */
+function renderTextPreview(section) {
+    const overlay = document.getElementById('text-preview-overlay');
+    if (!overlay) return;
+
+    const lang = state.activeLang || state.defaultLang || 'ja';
+    const raw = section.texts?.[lang] ?? '';
+    const writingMode = getWritingModeFromConfigs(lang, state.languageConfigs);
+    const fontPreset = getFontPresetFromConfigs(lang, state.languageConfigs);
+    const composed = composeText(raw, lang, writingMode, fontPreset);
+
+    // 背景色
+    overlay.style.backgroundColor = section.backgroundColor || '#ffffff';
+    overlay.style.display = 'block';
+
+    // フレーム位置・サイズ
+    const frameEl = document.getElementById('text-preview-frame');
+    if (frameEl) {
+        const { x, y, w, h } = composed.frame;
+        frameEl.style.left   = `${x}px`;
+        frameEl.style.top    = `${y}px`;
+        frameEl.style.width  = `${w}px`;
+        frameEl.style.height = `${h}px`;
+        frameEl.style.writingMode    = composed.writingMode;
+        frameEl.style.fontFamily     = composed.font.family;
+        frameEl.style.fontSize       = `${composed.font.size}px`;
+        frameEl.style.lineHeight     = String(composed.font.lineHeight);
+        frameEl.style.letterSpacing  = composed.font.letterSpacing ? `${composed.font.letterSpacing}px` : '0';
+        frameEl.style.color          = section.textColor || '#000000';
+    }
+
+    // テキスト内容（組版済み行を改行区切りで表示）
+    const contentEl = document.getElementById('text-preview-content');
+    if (contentEl) {
+        if (raw) {
+            contentEl.textContent = composed.lines.join('\n');
+        } else {
+            contentEl.textContent = '';
+        }
+    }
+
+    // 空ページのプレースホルダー
+    const placeholder = document.getElementById('text-preview-placeholder');
+    if (placeholder) {
+        placeholder.style.display = raw ? 'none' : 'flex';
+    }
+}
+
+// ──────────────────────────────────────────────────────────────
+//  テキストセクション パネル同期・入力ハンドラ
+// ──────────────────────────────────────────────────────────────
+
+let _textBodyPushTimer = null;
+let _textBodyDebounceTimer = null;
+
+/**
+ * テキストセクションパネルを現在のセクション内容で同期する
+ */
+function _syncTextSectionPanel(section) {
+    const lang = state.activeLang || state.defaultLang || 'ja';
+    const textarea = document.getElementById('prop-body-text');
+    if (textarea && document.activeElement !== textarea) {
+        textarea.value = section.texts?.[lang] ?? '';
+    }
+    const label = document.getElementById('text-body-label');
+    if (label) label.textContent = `本文 [${lang.toUpperCase()}]`;
+
+    _updateTextOverflowBadge(section, lang);
+}
+
+/**
+ * 溢れバッジを更新する
+ */
+function _updateTextOverflowBadge(section, lang) {
+    const badge = document.getElementById('text-overflow-badge');
+    if (!badge) return;
+    const raw = section.texts?.[lang] ?? '';
+    if (!raw) { badge.style.display = 'none'; return; }
+    const writingMode = getWritingModeFromConfigs(lang, state.languageConfigs);
+    const fontPreset = getFontPresetFromConfigs(lang, state.languageConfigs);
+    const result = composeText(raw, lang, writingMode, fontPreset);
+    badge.style.display = result.overflow ? 'block' : 'none';
+}
+
+/**
+ * テキストセクションの本文入力ハンドラ（debounce 付き）
+ */
+function updateTextSectionBody(v) {
+    const idx = state.activeIdx;
+    const s = state.sections[idx];
+    if (!s || s.type !== 'text') return;
+    const lang = state.activeLang || state.defaultLang || 'ja';
+
+    if (!_textBodyPushTimer) {
+        pushState();
+    } else {
+        clearTimeout(_textBodyPushTimer);
+    }
+    _textBodyPushTimer = setTimeout(() => { _textBodyPushTimer = null; }, 600);
+
+    dispatch({ type: actionTypes.UPDATE_SECTION_TEXT, payload: { idx, lang, text: v } });
+
+    // blocks/pages を同期
+    dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'blocks', value: syncBlocksWithSections(state.blocks, state.sections, state.languages) } });
+    dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'pages', value: blocksToPages(state.blocks) } });
+
+    // プレビューと溢れバッジをリアルタイム更新（debounce）
+    clearTimeout(_textBodyDebounceTimer);
+    _textBodyDebounceTimer = setTimeout(() => {
+        const sec = state.sections[idx];
+        _updateTextOverflowBadge(sec, lang);
+        renderTextPreview(sec);
+    }, 300);
+
     triggerAutoSave();
 }
 
@@ -1931,9 +2251,18 @@ document.addEventListener('keydown', (e) => {
 });
 
 // --- グローバル関数の登録 ---
-window.handleCanvasClick = (e) => { pushState(); handleCanvasClick(e, refresh); triggerAutoSave(); };
+window.handleCanvasClick = (e) => {
+    // テキストページはキャンバスクリックを無効にする（吹き出し追加・画像操作不要）
+    const activeSection = state.sections?.[state.activeIdx];
+    if (activeSection?.type === 'text') return;
+    pushState();
+    handleCanvasClick(e, refresh);
+    triggerAutoSave();
+};
 window.selectBubble = (e, i) => selectBubble(e, i, refresh);
 window.addSection = () => { pushState(); addSection(refresh); triggerAutoSave(); };
+window.addTextSection = () => { pushState(); addTextSection(refresh); triggerAutoSave(); };
+window.updateTextSectionBody = updateTextSectionBody;
 window.changeSection = (i) => {
     if (Date.now() < suppressThumbClickUntil) return;
     changeSection(i, refreshForThumbSelection);
@@ -2146,8 +2475,8 @@ window.fitCanvasView = () => {
     if (container) {
         const cw = container.clientWidth;
         const ch = container.clientHeight;
-        const targetW = 360;
-        const targetH = 640;
+        const targetW = CANONICAL_PAGE_WIDTH;
+        const targetH = CANONICAL_PAGE_HEIGHT;
 
         let s = Math.min(cw / targetW, ch / targetH) * 0.9;
         if (s > 1.2) s = 1.0;
@@ -3189,6 +3518,7 @@ window.setStudioUILang = (lang) => {
     setUILang(lang);
     // 動的レンダリング済みコンポーネントを再描画
     renderLangTabs();
+    updateAuthUI();
     renderHomeDashboard().catch((e) => console.warn('[Home] render failed after language switch:', e));
     if (document.getElementById('project-settings-modal')?.style.display !== 'none') {
         renderProjectSettingsTable();
@@ -3203,12 +3533,17 @@ async function bootstrapApp() {
     initUIChrome();
     ensureUiPrefs();
     applyThumbColumnsFromPrefs();
+    applyTheme();
+    bindThemePreferenceListener(() => {
+        updateStudioThemeSwitchers();
+    });
     applyI18n(); // UI言語を適用
 
     // Prevent local restore if we are explicitly loading a cloud project via URL
     const urlParams = new URLSearchParams(window.location.search);
     const hasCloudId = urlParams.has('id');
 
+    handleRedirectResult();
     initGIS();
 
     if (!hasCloudId) {

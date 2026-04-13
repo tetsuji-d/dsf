@@ -103,6 +103,7 @@ function normalizeContentByBodyKind(content, bodyKind) {
         bubbles: deepClone(src.bubbles || []),
         imagePosition: deepClone(src.imagePosition || { x: 0, y: 0, scale: 1, rotation: 0 }),
         imageBasePosition: deepClone(src.imageBasePosition || { x: 0, y: 0, scale: 1, rotation: 0 }),
+        imagePositions: deepClone(src.imagePositions || {}),
         theme: {
             templateId: src.theme?.templateId || '',
             paletteId: src.theme?.paletteId || ''
@@ -189,7 +190,8 @@ function sectionToNormalPage(section) {
             texts: deepClone(src.texts || {}),
             layout: deepClone(src.layout || {}),
             imagePosition: deepClone(src.imagePosition || { x: 0, y: 0, scale: 1, rotation: 0 }),
-            imageBasePosition: deepClone(src.imageBasePosition || { x: 0, y: 0, scale: 1, rotation: 0 })
+            imageBasePosition: deepClone(src.imageBasePosition || { x: 0, y: 0, scale: 1, rotation: 0 }),
+            imagePositions: deepClone(src.imagePositions || {})
         },
         ar: src.ar ? deepClone(src.ar) : undefined
     });
@@ -210,6 +212,7 @@ function pageToSection(page) {
         layout: deepClone(c.layout || {}),
         imagePosition: deepClone(c.imagePosition || { x: 0, y: 0, scale: 1, rotation: 0 }),
         imageBasePosition: deepClone(c.imageBasePosition || { x: 0, y: 0, scale: 1, rotation: 0 }),
+        imagePositions: deepClone(c.imagePositions || {}),
         ...(page?.ar ? { ar: deepClone(page.ar) } : {})
     };
 }
@@ -382,7 +385,8 @@ function pageToBlock(page, languages = ['ja']) {
             texts: deepClone(page.content?.texts || {}),
             layout: deepClone(page.content?.layout || {}),
             imagePosition: deepClone(page.content?.imagePosition || { x: 0, y: 0, scale: 1, rotation: 0 }),
-            imageBasePosition: deepClone(page.content?.imageBasePosition || { x: 0, y: 0, scale: 1, rotation: 0 })
+            imageBasePosition: deepClone(page.content?.imageBasePosition || { x: 0, y: 0, scale: 1, rotation: 0 }),
+            imagePositions: deepClone(page.content?.imagePositions || {})
         }
     };
 }
@@ -437,12 +441,23 @@ export function normalizeProjectDataV5(data = {}) {
     const savedSections = Array.isArray(data.sections) ? data.sections : [];
     const mergedSections = legacy.sections.map((s, i) => {
         const saved = savedSections[i];
+        let merged = s;
+
+        // Merge backgrounds from saved sections if derived section has none
         const hasBg = s.backgrounds && Object.keys(s.backgrounds).length > 0;
         const savedHasBg = saved?.backgrounds && Object.keys(saved.backgrounds).length > 0;
         if (!hasBg && savedHasBg) {
-            return { ...s, backgrounds: deepClone(saved.backgrounds) };
+            merged = { ...merged, backgrounds: deepClone(saved.backgrounds) };
         }
-        return s;
+
+        // Merge imagePositions from saved sections (not persisted through pages chain in older saves)
+        const hasPos = s.imagePositions && Object.keys(s.imagePositions).length > 0;
+        const savedHasPos = saved?.imagePositions && Object.keys(saved.imagePositions).length > 0;
+        if (!hasPos && savedHasPos) {
+            merged = { ...merged, imagePositions: deepClone(saved.imagePositions) };
+        }
+
+        return merged;
     });
 
     return {

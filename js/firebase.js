@@ -5,11 +5,8 @@
  *   VITE_STORAGE_BACKEND=firebase  → Firebase Storage (local Vite development)
  *   VITE_STORAGE_BACKEND=r2        → Cloudflare R2 via Pages Function at /upload (Pages production/preview)
  */
-import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
-import { getFirestore, doc, setDoc, getDoc, deleteDoc, serverTimestamp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
-import { getStorage, ref, uploadBytes, getDownloadURL } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-storage.js";
+import { doc, setDoc, getDoc, deleteDoc, serverTimestamp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
 import {
-    getAuth,
     onAuthStateChanged
 } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js";
 import { state, dispatch, actionTypes } from './state.js';
@@ -19,6 +16,9 @@ import { composeCanonicalLayoutsForSections } from './layout.js';
 import { set as idbSet, get as idbGet } from 'idb-keyval';
 import { createId } from './utils.js';
 import { loadImageForCanvas, fetchAssetBlob, shouldEmbedAsset } from './asset-fetch.js';
+import { db, storage, auth } from './firebase-core.js';
+
+export { db, storage, auth } from './firebase-core.js';
 
 window.localImageMap = window.localImageMap || {};
 
@@ -27,21 +27,6 @@ window.localImageMap = window.localImageMap || {};
 // npm run dev              → .env.development（staging Firebase 接続 / Storage は Firebase）
 // npm run build            → .env.production（本番 接続 / Storage は R2）
 // npm run build:staging    → .env.staging（staging 接続 / Storage は R2）
-const firebaseConfig = {
-    apiKey:            import.meta.env.VITE_FIREBASE_API_KEY,
-    authDomain:        import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
-    projectId:         import.meta.env.VITE_FIREBASE_PROJECT_ID,
-    storageBucket:     import.meta.env.VITE_FIREBASE_STORAGE_BUCKET,
-    messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID,
-    appId:             import.meta.env.VITE_FIREBASE_APP_ID,
-    measurementId:     import.meta.env.VITE_FIREBASE_MEASUREMENT_ID,
-};
-
-const app = initializeApp(firebaseConfig);
-export const db = getFirestore(app);
-export const storage = getStorage(app);
-export const auth = getAuth(app);
-
 // ── Storage backend abstraction ───────────────────────────────────────────────
 // When VITE_STORAGE_BACKEND=r2, uploads go to Cloudflare R2 via the Pages
 // Function at /upload. Otherwise, Firebase Storage is used.
@@ -139,7 +124,7 @@ function getProjectPreviewSource(snapshotState) {
         return {
             background: page.content.backgrounds?.[activeLang] || page.content.background || '',
             thumbnail: page.content.thumbnail || '',
-            imagePosition: page.content.imagePosition || { x: 0, y: 0, scale: 1, rotation: 0 }
+            imagePosition: page.content.imagePositions?.[activeLang] || page.content.imagePosition || { x: 0, y: 0, scale: 1, rotation: 0, flipX: false }
         };
     }
 
@@ -149,7 +134,7 @@ function getProjectPreviewSource(snapshotState) {
         return {
             background: block.content.backgrounds?.[activeLang] || block.content.background || '',
             thumbnail: block.content.thumbnail || '',
-            imagePosition: block.content.imagePosition || { x: 0, y: 0, scale: 1, rotation: 0 }
+            imagePosition: block.content.imagePositions?.[activeLang] || block.content.imagePosition || { x: 0, y: 0, scale: 1, rotation: 0, flipX: false }
         };
     }
 
@@ -159,14 +144,14 @@ function getProjectPreviewSource(snapshotState) {
         return {
             background: '',
             thumbnail: '',
-            imagePosition: { x: 0, y: 0, scale: 1, rotation: 0 }
+            imagePosition: { x: 0, y: 0, scale: 1, rotation: 0, flipX: false }
         };
     }
 
     return {
         background: section.backgrounds?.[activeLang] || section.background || '',
         thumbnail: section.thumbnail || '',
-        imagePosition: section.imagePosition || { x: 0, y: 0, scale: 1, rotation: 0 }
+        imagePosition: section.imagePositions?.[activeLang] || section.imagePosition || { x: 0, y: 0, scale: 1, rotation: 0, flipX: false }
     };
 }
 
@@ -266,7 +251,8 @@ async function buildProjectListThumbnail(snapshotState) {
             x: Number.isFinite(Number(preview.imagePosition?.x)) ? Number(preview.imagePosition.x) : 0,
             y: Number.isFinite(Number(preview.imagePosition?.y)) ? Number(preview.imagePosition.y) : 0,
             scale: Math.max(0.1, Number.isFinite(Number(preview.imagePosition?.scale)) ? Number(preview.imagePosition.scale) : 1),
-            rotation: Number.isFinite(Number(preview.imagePosition?.rotation)) ? Number(preview.imagePosition.rotation) : 0
+            rotation: Number.isFinite(Number(preview.imagePosition?.rotation)) ? Number(preview.imagePosition.rotation) : 0,
+            flipX: !!preview.imagePosition?.flipX
         };
 
         const baseW = 360;
@@ -277,7 +263,7 @@ async function buildProjectListThumbnail(snapshotState) {
         ctx.translate(targetW / 2, targetH / 2);
         ctx.translate(safePos.x * ratio, safePos.y * ratio);
         ctx.rotate((safePos.rotation * Math.PI) / 180);
-        ctx.scale(safePos.scale, safePos.scale);
+        ctx.scale(safePos.flipX ? -safePos.scale : safePos.scale, safePos.scale);
 
         const imgAspect = img.width / img.height;
         const frameAspect = baseW / baseH;
@@ -828,8 +814,9 @@ export async function uploadToStorage(input, refresh) {
             // 多言語時は language-agnostic な background を変更しない（他言語のフォールバックが壊れる）
             if (!isMultiLang) newSections[state.activeIdx].background = mainUrl;
             newSections[state.activeIdx].thumbnail = thumbUrl;
-            newSections[state.activeIdx].imagePosition = { x: 0, y: 0, scale: 1, rotation: 0 };
-            newSections[state.activeIdx].imageBasePosition = { x: 0, y: 0, scale: 1, rotation: 0 };
+            if (!newSections[state.activeIdx].imagePositions) newSections[state.activeIdx].imagePositions = {};
+            newSections[state.activeIdx].imagePositions[lang] = { x: 0, y: 0, scale: 1, rotation: 0, flipX: false };
+            newSections[state.activeIdx].imageBasePosition = { x: 0, y: 0, scale: 1, rotation: 0, flipX: false };
             dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'sections', value: newSections } });
 
             refresh();
@@ -862,8 +849,9 @@ export async function uploadToStorage(input, refresh) {
         // 多言語時は language-agnostic な background を変更しない（他言語のフォールバックが壊れる）
         if (!isMultiLang) newSections[state.activeIdx].background = mainUrl;
         newSections[state.activeIdx].thumbnail = thumbUrl;
-        newSections[state.activeIdx].imagePosition = { x: 0, y: 0, scale: 1, rotation: 0 };
-        newSections[state.activeIdx].imageBasePosition = { x: 0, y: 0, scale: 1, rotation: 0 };
+        if (!newSections[state.activeIdx].imagePositions) newSections[state.activeIdx].imagePositions = {};
+        newSections[state.activeIdx].imagePositions[lang] = { x: 0, y: 0, scale: 1, rotation: 0, flipX: false };
+        newSections[state.activeIdx].imageBasePosition = { x: 0, y: 0, scale: 1, rotation: 0, flipX: false };
         dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'sections', value: newSections } });
 
         refresh();

@@ -2,7 +2,17 @@
  * layout.js — Fixed 9:16 text composition for deterministic paging.
  */
 
-const DEFAULT_FRAME = { x: 20, y: 32, w: 320, h: 576 };
+import { CANONICAL_PAGE_WIDTH, CANONICAL_PAGE_HEIGHT } from './page-geometry.js';
+
+/** 本文枠は正規論理ページ（`page-geometry`）の内側余白として導出する */
+const FRAME_PAD_X = 20;
+const FRAME_PAD_Y = 32;
+const DEFAULT_FRAME = {
+    x: FRAME_PAD_X,
+    y: FRAME_PAD_Y,
+    w: CANONICAL_PAGE_WIDTH - FRAME_PAD_X * 2,
+    h: CANONICAL_PAGE_HEIGHT - FRAME_PAD_Y * 2
+};
 export const LAYOUT_VERSION = 2;
 const DEFAULT_FONT_PRESET = 'gothic';
 

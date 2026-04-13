@@ -130,6 +130,15 @@ export function dispatch(action) {
             }
             break;
 
+        case actionTypes.UPDATE_SECTION_TEXT: {
+            const { idx, lang, text } = payload;
+            const s = state.sections[idx];
+            if (s) {
+                state.sections[idx] = { ...s, texts: { ...s.texts, [lang]: text } };
+            }
+            break;
+        }
+
         case actionTypes.SET_STATE_FIELD:
             // Generic setter for simple root-level assignments
             state[payload.key] = payload.value;

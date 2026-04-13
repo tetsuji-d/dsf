@@ -96,10 +96,13 @@ npx wrangler pages deploy dist --project-name dsf-studio --branch staging # stag
 - `bodyKind: 'text'` / `richText` フィールドは将来的に廃止方向
 - **多言語**: 言語ごとに WebP を生成し、必要な言語のみ遅延ロードする
 
+**正規論理ページ（9:16）**: レイアウト・エディター・ビューワー・Press の基準座標は **`js/page-geometry.js`**（`CANONICAL_PAGE_WIDTH` / `HEIGHT` 等）と **`css/variables.css`** の `--dsf-canonical-page-*` で一致させる。配信用ビットマップの**物理ピクセル最低ラインは 1080×1920**（論理の 3 倍）を前提とする（詳細は `docs/implementation-plan-9-16-layout.md`）。
+
 ### モジュール構成 (`js/`)
 
 | ファイル | 役割 |
 |---------|------|
+| `page-geometry.js` | 正規論理ページ寸法（9:16）・最小エクスポート倍率など、幾何の単一ソース |
 | `app.js` | エディターのメインループ、イベント処理、UI レンダリング |
 | `viewer.js` | ビューアーのロジック、ページナビゲーション、タッチジェスチャー |
 | `firebase.js` | Auth・Firestore の保存/読み込み・画像アップロード（R2 または Firebase Storage） |
@@ -149,7 +152,7 @@ CSS はエントリーポイントごとに分離: `css/studio.css`, `css/viewer
 - `.dsp` (Digital Smart Project): 元画質で編集可能なプロジェクトファイル。JSON + オリジナル画像を含む ZIP
 - `.dsf`: **DSF（Digital Spread Format）** の配信用パッケージ。JSON + WebP 等を含む ZIP（旧文脈では Digital Smart Format 表記のこともあり）
 
-どちらも ZIP アーカイブです。構造の詳細は `docs/file-format-spec.md` を参照してください。
+どちらも ZIP アーカイブです。`meta.json` の `presentation`（`aspectRatio` 等）は **`js/page-geometry.js`** の定数と同期して書き出す（`export.js` の `buildMetadata`）。構造の詳細は `docs/file-format-spec.md` を参照してください。
 
 ### Vite マルチページビルド
 

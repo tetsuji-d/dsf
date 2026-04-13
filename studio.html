@@ -45,7 +45,7 @@
                     <button class="ui-lang-btn" data-lang="ja" onclick="setStudioUILang('ja')">JA</button>
                     <button class="ui-lang-btn" data-lang="en" onclick="setStudioUILang('en')">EN</button>
                 </div>
-                <span id="room-user-display" class="room-user-display"></span>
+                <div id="studio-auth-slot-nav" class="studio-auth-slot studio-auth-slot-nav"></div>
             </div>
         </nav>
 
@@ -108,8 +108,6 @@
                 <div id="lang-tabs-top" class="lang-tabs lang-tabs-top"></div>
                 <div class="ribbon-auth">
                     <span id="auth-warning-badge" class="auth-warning-badge" data-i18n="auth_warning">ログインでクラウド機能が有効化されます</span>
-                    <span id="auth-status" class="auth-status"></span>
-                    <button id="btn-auth" class="btn-tool" onclick="toggleAuth()" data-i18n="btn_signin">Googleでサインイン</button>
                 </div>
             </div>
             <div class="ribbon-row ribbon-panel-row">
@@ -151,6 +149,9 @@
                     <div class="ribbon-group">
                         <button class="btn-tool btn-tool-icon" onclick="addSection()">
                             <span class="material-icons" aria-hidden="true">add_box</span><span data-i18n="btn_add_section">セクション追加</span>
+                        </button>
+                        <button class="btn-tool btn-tool-icon" onclick="addTextSection()">
+                            <span class="material-icons" aria-hidden="true">article</span><span data-i18n="btn_add_text_section">テキストページ</span>
                         </button>
                         <button class="btn-tool btn-tool-icon" onclick="addBubbleFab()">
                             <span class="material-icons" aria-hidden="true">text_fields</span><span data-i18n="btn_add_bubble">テキスト追加</span>
@@ -259,6 +260,12 @@
                     <div id="canvas-transform-layer">
                         <div id="content-render"></div>
                         <div id="bubble-layer"></div>
+                        <div id="text-preview-overlay" aria-live="polite">
+                            <div id="text-preview-frame">
+                                <div id="text-preview-content"></div>
+                            </div>
+                            <div id="text-preview-placeholder"></div>
+                        </div>
                         <div id="canvas-page-label"></div>
                     </div>
                     <div id="image-zoom-controls-floating">
@@ -293,6 +300,8 @@
                             </div>
                             <input id="image-rotate-slider" class="img-rotate-slider" type="range" min="-180" max="180" step="1" value="0" orient="vertical" aria-hidden="true" tabindex="-1">
                         </div>
+                        <button id="image-flip-btn" class="btn-sm zoom-btn img-zoom-btn" onmousedown="event.stopPropagation()"
+                            ontouchstart="event.stopPropagation()" onclick="toggleImageFlipX()" title="左右反転">⇄</button>
                     </div>
                     <button id="fab-add-bubble" class="fab-btn" onclick="addBubbleFab()" title="テキスト追加">
                         <span class="material-icons">text_fields</span>
@@ -371,6 +380,14 @@
                         </div>
                     </div>
 
+                    <div id="text-section-props" style="display:none;">
+                        <label id="text-body-label" class="field-label"></label>
+                        <textarea id="prop-body-text" rows="12"
+                            oninput="updateTextSectionBody(this.value)"></textarea>
+                        <div id="text-overflow-badge" class="text-overflow-badge" style="display:none;"
+                            data-i18n="label_text_overflow">溢れあり</div>
+                    </div>
+
                     <div id="generic-text-editor" style="display:none;">
                         <textarea id="prop-text" rows="5" oninput="updateActiveText(this.value, event)"></textarea>
                         <div id="text-fit-status" class="field-label" style="margin:-4px 0 8px 0;"></div>
@@ -398,7 +415,7 @@
                     <button class="ui-lang-btn" data-lang="ja" onclick="setStudioUILang('ja')">JA</button>
                     <button class="ui-lang-btn" data-lang="en" onclick="setStudioUILang('en')">EN</button>
                 </div>
-                <button id="btn-auth-mobile" class="mobile-auth-btn" onclick="toggleAuth()" data-i18n="btn_auth_mobile">サインイン</button>
+                <div id="studio-auth-slot-mobile" class="studio-auth-slot-mobile"></div>
             </div>
         </div>
 
@@ -500,9 +517,11 @@
                         <label data-i18n="press_output_size">出力サイズ</label>
                         <div class="press-resolution-row">
                             <select id="press-resolution">
-                                <option value="1080x1920" selected>1080×1920 (FHD)</option>
-                                <option value="1440x2560">1440×2560 (WQHD)</option>
-                                <option value="2160x3840">2160×3840 (4K)</option>
+                                <option value="360x640" data-i18n="press_res_360">360×640（プレビュー・開発）</option>
+                                <option value="720x1280" data-i18n="press_res_720">720×1280（プレビュー）</option>
+                                <option value="1080x1920" selected data-i18n="press_res_1080">1080×1920（FHD・既定）</option>
+                                <option value="1440x2560" data-i18n="press_res_1440">1440×2560（WQHD）</option>
+                                <option value="2160x3840" data-i18n="press_res_2160">2160×3840（4K）</option>
                             </select>
                             <span id="press-size-estimate" class="press-size-estimate"></span>
                         </div>

@@ -3,6 +3,11 @@ import { saveAs } from 'file-saver';
 import { state } from './state.js';
 import { blocksToPages } from './pages.js';
 import { fetchAssetBlob, guessAssetExtension, shouldEmbedAsset } from './asset-fetch.js';
+import {
+    CANONICAL_PAGE_WIDTH,
+    CANONICAL_PAGE_HEIGHT,
+    META_PRESENTATION_ASPECT_RATIO
+} from './page-geometry.js';
 
 // --- Common Metadata Builder ---
 function buildMetadata(formatStr) {
@@ -21,8 +26,10 @@ function buildMetadata(formatStr) {
         generator: generator,
         presentation: {
             orientation: "portrait",
-            aspectRatio: "9:16",
-            spread: "auto"
+            aspectRatio: META_PRESENTATION_ASPECT_RATIO,
+            spread: "auto",
+            canonicalLogicalWidth: CANONICAL_PAGE_WIDTH,
+            canonicalLogicalHeight: CANONICAL_PAGE_HEIGHT
         }
     };
 }
