@@ -57,7 +57,7 @@ export const STRINGS = {
         placeholder_work_title: '作品タイトル',
 
         // Ribbon – Insert
-        btn_add_section:      '＋ セクション追加',
+        btn_add_section:      '画像ページ',
         btn_add_text_section: 'テキストページ',
         btn_add_bubble:       'テキスト追加',
         btn_add_image:        '画像追加',
@@ -265,7 +265,7 @@ export const STRINGS = {
         placeholder_work_title: 'Work title',
 
         // Ribbon – Insert
-        btn_add_section:      '+ Add Section',
+        btn_add_section:      'Image Page',
         btn_add_text_section: 'Text Page',
         btn_add_bubble:       'Add Text',
         btn_add_image:        'Add Image',
