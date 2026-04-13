@@ -2316,11 +2316,10 @@ body.strip-collapsed #page-strip-chevron {
     position: absolute;
     top: 50%;
     left: 50%;
-    /* 親 #canvas-view が狭いときも 9:16 を潰さず、幅優先で縮小（高さは aspect-ratio で追随） */
-    width: min(var(--dsf-canonical-page-width, 360px), 100%);
-    max-height: 100%;
-    height: auto;
-    aspect-ratio: 9 / 16;
+    /* 論理サイズは常に固定（360×640px）。視覚サイズは JS の scale のみで制御する。
+       CSS による縮小（min/max-height/aspect-ratio）と JS scale が二重にかかるのを防ぐ。 */
+    width: var(--dsf-canonical-page-width, 360px);
+    height: var(--dsf-canonical-page-height, 640px);
     transform-origin: center center;
     background: #fff;
     box-shadow: 0 0 50px rgba(0, 0, 0, 0.5);
