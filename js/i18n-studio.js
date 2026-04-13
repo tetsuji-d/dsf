@@ -62,6 +62,8 @@ export const STRINGS = {
         btn_add_bubble:       'テキスト追加',
         btn_add_image:        '画像追加',
         label_text_overflow:  '溢れあり',
+        placeholder_drop_image: '画像をドロップ',
+        placeholder_or_click: 'またはクリックして選択',
 
         // Ribbon – Arrange
         btn_fit_view:         '全体表示',
@@ -270,6 +272,8 @@ export const STRINGS = {
         btn_add_bubble:       'Add Text',
         btn_add_image:        'Add Image',
         label_text_overflow:  'Overflow',
+        placeholder_drop_image: 'Drop image here',
+        placeholder_or_click: 'or click to select',
 
         // Ribbon – Arrange
         btn_fit_view:         'Fit View',

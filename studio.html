@@ -256,7 +256,12 @@
             </aside>
 
             <main id="editor-main">
-                <div id="canvas-view" onmousedown="handleCanvasClick(event)" ontouchstart="handleCanvasClick(event)">
+                <div id="canvas-view"
+                    onmousedown="handleCanvasClick(event)"
+                    ontouchstart="handleCanvasClick(event)"
+                    ondragover="handleCanvasDragOver(event)"
+                    ondragleave="handleCanvasDragLeave(event)"
+                    ondrop="handleCanvasDrop(event)">
                     <div id="canvas-transform-layer">
                         <div id="content-render"></div>
                         <div id="bubble-layer"></div>

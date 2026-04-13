@@ -800,42 +800,54 @@ function refresh(options = {}) {
             s.imageBasePosition = { x: 0, y: 0, scale: 1, rotation: 0, flipX: false };
         }
         const bgUrl = getOptimizedImageUrl(s.backgrounds?.[state.activeLang] || s.backgrounds?.[state.defaultLang] || s.background || '');
-        const { frameMetrics, targetTransform, invScale } = getImageAdjustRenderMetrics(bgUrl, pos);
-        const targetStyle = [
-            `width:${frameMetrics.widthPercent}%`,
-            `height:${frameMetrics.heightPercent}%`,
-            `transform:${targetTransform};`
-        ].join('; ');
-        const stageOverlay = isImageAdjusting ? `
-            <div id="image-stage-overlay">
-                <div class="image-safe-frame${imageSnapState.edgeLeft ? ' active-left' : ''}${imageSnapState.edgeRight ? ' active-right' : ''}${imageSnapState.edgeTop ? ' active-top' : ''}${imageSnapState.edgeBottom ? ' active-bottom' : ''}"></div>
-                <div class="image-center-guide vertical${imageSnapState.centerX ? ' active' : ''}"></div>
-                <div class="image-center-guide horizontal${imageSnapState.centerY ? ' active' : ''}"></div>
-            </div>
-        ` : '';
-
-        const overlayInTarget = isImageAdjusting ? `
-            <div id="image-adjust-overlay" style="--inv-handle-scale:${invScale};">
-                <div class="adjust-frame"></div>
-                <button class="img-handle corner nw" onmousedown="startImageHandleDrag(event, 'nw')" ontouchstart="startImageHandleDrag(event, 'nw')" title="左上ハンドル"></button>
-                <button class="img-handle corner ne" onmousedown="startImageHandleDrag(event, 'ne')" ontouchstart="startImageHandleDrag(event, 'ne')" title="右上ハンドル"></button>
-                <button class="img-handle corner sw" onmousedown="startImageHandleDrag(event, 'sw')" ontouchstart="startImageHandleDrag(event, 'sw')" title="左下ハンドル"></button>
-                <button class="img-handle corner se" onmousedown="startImageHandleDrag(event, 'se')" ontouchstart="startImageHandleDrag(event, 'se')" title="右下ハンドル"></button>
-                <button class="img-handle rotate" onmousedown="startImageHandleDrag(event, 'rotate')" ontouchstart="startImageHandleDrag(event, 'rotate')" title="回転ハンドル">⟳</button>
-            </div>
-        ` : '';
-
-        render.innerHTML = `
-            <div id="image-adjust-stage">
-                ${stageOverlay}
-                <div id="image-adjust-target" style="${targetStyle}">
-                    <img id="main-img" src="${bgUrl}" onload="handleEditorImageLoad(event)">
-                    ${overlayInTarget}
-                </div>
-            </div>`;
-        document.getElementById('image-only-props').style.display = 'block';
-        document.getElementById('bubble-layer').style.display = 'block';
         _hideTextPreviewOverlay();
+
+        if (!bgUrl) {
+            // 画像未設定 → アップロード誘導プレースホルダーを表示
+            render.innerHTML = `<div id="image-upload-placeholder" onclick="document.getElementById('file-upload').click()">
+                <span class="material-icons">add_photo_alternate</span>
+                <span class="placeholder-main" data-i18n="placeholder_drop_image">画像をドロップ</span>
+                <span class="placeholder-sub" data-i18n="placeholder_or_click">またはクリックして選択</span>
+            </div>`;
+            document.getElementById('image-only-props').style.display = 'block';
+            document.getElementById('bubble-layer').style.display = 'none';
+        } else {
+            const { frameMetrics, targetTransform, invScale } = getImageAdjustRenderMetrics(bgUrl, pos);
+            const targetStyle = [
+                `width:${frameMetrics.widthPercent}%`,
+                `height:${frameMetrics.heightPercent}%`,
+                `transform:${targetTransform};`
+            ].join('; ');
+            const stageOverlay = isImageAdjusting ? `
+                <div id="image-stage-overlay">
+                    <div class="image-safe-frame${imageSnapState.edgeLeft ? ' active-left' : ''}${imageSnapState.edgeRight ? ' active-right' : ''}${imageSnapState.edgeTop ? ' active-top' : ''}${imageSnapState.edgeBottom ? ' active-bottom' : ''}"></div>
+                    <div class="image-center-guide vertical${imageSnapState.centerX ? ' active' : ''}"></div>
+                    <div class="image-center-guide horizontal${imageSnapState.centerY ? ' active' : ''}"></div>
+                </div>
+            ` : '';
+
+            const overlayInTarget = isImageAdjusting ? `
+                <div id="image-adjust-overlay" style="--inv-handle-scale:${invScale};">
+                    <div class="adjust-frame"></div>
+                    <button class="img-handle corner nw" onmousedown="startImageHandleDrag(event, 'nw')" ontouchstart="startImageHandleDrag(event, 'nw')" title="左上ハンドル"></button>
+                    <button class="img-handle corner ne" onmousedown="startImageHandleDrag(event, 'ne')" ontouchstart="startImageHandleDrag(event, 'ne')" title="右上ハンドル"></button>
+                    <button class="img-handle corner sw" onmousedown="startImageHandleDrag(event, 'sw')" ontouchstart="startImageHandleDrag(event, 'sw')" title="左下ハンドル"></button>
+                    <button class="img-handle corner se" onmousedown="startImageHandleDrag(event, 'se')" ontouchstart="startImageHandleDrag(event, 'se')" title="右下ハンドル"></button>
+                    <button class="img-handle rotate" onmousedown="startImageHandleDrag(event, 'rotate')" ontouchstart="startImageHandleDrag(event, 'rotate')" title="回転ハンドル">⟳</button>
+                </div>
+            ` : '';
+
+            render.innerHTML = `
+                <div id="image-adjust-stage">
+                    ${stageOverlay}
+                    <div id="image-adjust-target" style="${targetStyle}">
+                        <img id="main-img" src="${bgUrl}" onload="handleEditorImageLoad(event)">
+                        ${overlayInTarget}
+                    </div>
+                </div>`;
+            document.getElementById('image-only-props').style.display = 'block';
+            document.getElementById('bubble-layer').style.display = 'block';
+        }
     } else if (s && s.type === 'text') {
         render.innerHTML = '';
         document.getElementById('image-only-props').style.display = 'none';
@@ -2263,6 +2275,38 @@ window.selectBubble = (e, i) => selectBubble(e, i, refresh);
 window.addSection = () => { pushState(); addSection(refresh); triggerAutoSave(); };
 window.addTextSection = () => { pushState(); addTextSection(refresh); triggerAutoSave(); };
 window.updateTextSectionBody = updateTextSectionBody;
+
+// ── キャンバスへのドラッグ&ドロップ（画像アップロード） ──────────────────────
+window.handleCanvasDragOver = (e) => {
+    const s = state.sections?.[state.activeIdx];
+    if (s?.type !== 'image') return;
+    // 画像ファイルを含むドラッグのみ受け付ける
+    if ([...e.dataTransfer.types].some(t => t === 'Files')) {
+        e.preventDefault();
+        e.dataTransfer.dropEffect = 'copy';
+        document.getElementById('canvas-view')?.classList.add('drag-over');
+    }
+};
+
+window.handleCanvasDragLeave = (e) => {
+    // canvas-view の外へ出たときのみ解除（子要素への移動は無視）
+    if (!e.currentTarget.contains(e.relatedTarget)) {
+        document.getElementById('canvas-view')?.classList.remove('drag-over');
+    }
+};
+
+window.handleCanvasDrop = (e) => {
+    e.preventDefault();
+    document.getElementById('canvas-view')?.classList.remove('drag-over');
+    const s = state.sections?.[state.activeIdx];
+    if (s?.type !== 'image') return;
+    const file = e.dataTransfer.files[0];
+    if (!file || !file.type.startsWith('image/')) return;
+    // 既存の uploadToStorage に File を渡すため擬似 input を作成
+    pushState();
+    uploadToStorage({ files: [file] }, refresh);
+    triggerAutoSave();
+};
 window.changeSection = (i) => {
     if (Date.now() < suppressThumbClickUntil) return;
     changeSection(i, refreshForThumbSelection);

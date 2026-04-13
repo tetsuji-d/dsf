@@ -52,7 +52,8 @@ import { blocksToPages } from './pages.js';
 function createDefaultSection() {
     return {
         type: 'image',
-        background: 'https://picsum.photos/600/1066',
+        background: '',
+        backgrounds: {},
         writingMode: 'horizontal-tb',
         bubbles: [],
         text: '',
