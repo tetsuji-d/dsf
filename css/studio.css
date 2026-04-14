@@ -2420,14 +2420,14 @@ body.strip-collapsed #page-strip-chevron {
     flex-direction: row-reverse; /* 第1列を右端に配置（日本語縦書き標準） */
     height: 100%;
     align-items: flex-start;
-    overflow: hidden;
+    overflow: visible; /* 各列のルビが隣接列スペースに自然にはみ出せるよう visible に */
 }
 
 .tpv-col {
     writing-mode: vertical-rl;
     flex-shrink: 0;
     height: 100%;
-    overflow: hidden;
+    overflow: visible; /* ルビ注釈が列境界でクリップされないよう visible に */
     /* 句読点ぶら下がり（Safari） */
     hanging-punctuation: allow-end;
     /* 和欧文間隔（CSS Text Level 4） */
@@ -2472,10 +2472,13 @@ body.strip-collapsed #page-strip-chevron {
 .tpv-col ruby {
     ruby-position: over;
     ruby-align: center;
+    /* ルビ要素が列のブロック方向（水平）幅を膨張させないよう line-height を固定 */
+    line-height: inherit;
 }
 .tpv-col rt {
     font-size: 0.5em;
     letter-spacing: 0; /* rt には親の letter-spacing を引き継がせない */
+    line-height: 1;    /* rt 自身の line-height を最小化して列幅への影響を防ぐ */
 }
 
 /* 横書きルビ */

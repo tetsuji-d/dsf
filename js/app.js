@@ -2172,7 +2172,10 @@ function renderTextPreview(section) {
             const maxCols     = composed.rules?.maxLines    || 12;
             const charsPerCol = composed.rules?.charsPerLine || 33;
             const fontSize    = composed.font.size;
-            const colW        = Math.floor(w / maxCols);
+            // ルビあり: rt のはみ出しスペースとして各列に rubyGap を確保する
+            // rubyGap = rt の font-size（0.5em）に相当する幅を全列で分担
+            const rubyGap     = rubyLines ? Math.round(fontSize * 0.55) : 0;
+            const colW        = Math.floor((w - rubyGap) / maxCols);
             const lineHeight  = (colW / fontSize).toFixed(3);
             const letterSpacing = ((h / charsPerCol) - fontSize).toFixed(3);
 
