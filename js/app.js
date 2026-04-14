@@ -1968,10 +1968,24 @@ function _markupVerticalLine(rawLine) {
 }
 
 /**
+ * トークン行からベーステキストのみ HTML を生成する（縦書き列用）。
+ * ruby token は base テキストだけを出力し、<ruby> 要素を使わない。
+ * ルビ注釈は別レイヤー（.tpv-ruby-overlay）で描画する。
+ */
+function _baseTextFromTokenLine(tokenLine) {
+    if (!tokenLine || !tokenLine.length) return '\u00a0';
+    const parts = [];
+    for (const tok of tokenLine) {
+        parts.push(_markupTcyText(tok.kind === 'ruby' ? tok.base : (tok.text || '')));
+    }
+    return parts.join('') || '\u00a0';
+}
+
+/**
  * トークン行（alignRubyToLines の 1 要素）を HTML にマークアップする。
  * - plain text token: _escHtml + TCY 数字ラップ（_markupVerticalLine 相当）
- * - ruby token: <ruby><rb>base</rb><rt>ruby</rt></ruby>（base にも TCY 適用）
- * 縦書き・横書き両方で使用できる。
+ * - ruby token: <ruby>base<rt>ruby</rt></ruby>（base にも TCY 適用）
+ * 横書きで使用する。
  */
 function _markupTokenLine(tokenLine) {
     if (!tokenLine || !tokenLine.length) return '\u00a0';
@@ -2157,37 +2171,72 @@ function renderTextPreview(section) {
         if (!raw) {
             contentEl.innerHTML = '';
         } else if (composed.writingMode === 'vertical-rl') {
-            // 縦書き: 列ごとに span を生成（right → left へ flex row-reverse）
+            // 縦書き: 2 レイヤー方式
             //
-            // パラメータ計算:
-            //   colW          = floor(frame.w / maxCols)
-            //                   → 全列が frame.w に収まる列幅
-            //   lineHeight    = colW / fontSize
-            //                   → writing-mode:vertical-rl では line-height が
-            //                      ブロック方向（水平）= 列幅 を制御する
-            //   letterSpacing = frame.h / charsPerCol - fontSize
-            //                   → インライン方向（垂直）の文字ピッチを均等割り。
-            //                      full column (33文字) がちょうど frame.h を埋める。
+            // Layer 1 (.tpv-vertical): ベーステキスト列のみ（<ruby> なし）
+            //   列幅・文字ピッチの計算はルビに左右されないため安定する。
+            //
+            // Layer 2 (.tpv-ruby-overlay): ルビ注釈を絶対座標で独立描画
+            //   列レイアウトへの影響ゼロ。文字の行間が詰まらない。
+            //
+            // 座標系（canonical px、contentEl の左上が原点）:
+            //   列 i（0=最右列）の左端 = w - (i+1)*colW
+            //   列 i の右端           = w - i*colW
+            //   ルビは列 i の右側（右端から右へ rubyW px）に配置
+            //   文字オフセット co の上端 = co * charPitch
             const { w, h }    = composed.frame;
             const maxCols     = composed.rules?.maxLines    || 12;
             const charsPerCol = composed.rules?.charsPerLine || 33;
             const fontSize    = composed.font.size;
-            // ルビあり: rt のはみ出しスペースとして各列に rubyGap を確保する
-            // rubyGap = rt の font-size（0.5em）に相当する幅を全列で分担
-            const rubyGap     = rubyLines ? Math.round(fontSize * 0.55) : 0;
-            const colW        = Math.floor((w - rubyGap) / maxCols);
+            const colW        = Math.floor(w / maxCols);
             const lineHeight  = (colW / fontSize).toFixed(3);
             const letterSpacing = ((h / charsPerCol) - fontSize).toFixed(3);
+            const charPitch   = h / charsPerCol; // 1 文字あたりの縦ピクセル（canonical）
+            const rubyFontSize = Math.round(fontSize * 0.5); // rt のフォントサイズ（canonical）
+            const rubyColW    = Math.round(fontSize * 0.6);  // ルビ注釈の横幅（canonical）
 
+            // Layer 1: ベーステキスト列（ruby 要素なし）
             const cols = composed.lines.map((line, i) => {
                 const content = rubyLines
-                    ? _markupTokenLine(rubyLines[i])
+                    ? _baseTextFromTokenLine(rubyLines[i])
                     : _markupVerticalLine(line);
                 return `<span class="tpv-col"` +
                     ` style="width:${colW}px;line-height:${lineHeight};letter-spacing:${letterSpacing}px"` +
                     `>${content}</span>`;
             }).join('');
-            contentEl.innerHTML = `<div class="tpv-vertical">${cols}</div>`;
+
+            // Layer 2: ルビ注釈オーバーレイ
+            let rubyOverlay = '';
+            if (rubyLines) {
+                const anns = [];
+                for (let i = 0; i < rubyLines.length; i++) {
+                    let charOffset = 0;
+                    for (const tok of rubyLines[i]) {
+                        const baseLen = tok.kind === 'ruby'
+                            ? Array.from(tok.base || '').length
+                            : Array.from(tok.text || '').length;
+                        if (tok.kind === 'ruby' && tok.ruby) {
+                            // 列 i の右端 = w - i * colW → ルビはその右側へ
+                            const annLeft = w - i * colW;
+                            const annTop  = Math.round(charOffset * charPitch);
+                            const annH    = Math.round(baseLen * charPitch);
+                            anns.push(
+                                `<span class="tpv-ruby-ann"` +
+                                ` style="left:${annLeft}px;top:${annTop}px;` +
+                                `height:${annH}px;width:${rubyColW}px;` +
+                                `font-size:${rubyFontSize}px"` +
+                                `>${_escHtml(tok.ruby)}</span>`
+                            );
+                        }
+                        charOffset += baseLen;
+                    }
+                }
+                if (anns.length) {
+                    rubyOverlay = `<div class="tpv-ruby-overlay">${anns.join('')}</div>`;
+                }
+            }
+
+            contentEl.innerHTML = `<div class="tpv-vertical">${cols}</div>${rubyOverlay}`;
         } else {
             // 横書き: 段落単位に行を結合し、CSS の justify + hyphens に委ねる
             const lineH  = composed.frame.h / (composed.rules?.maxLines || 20);

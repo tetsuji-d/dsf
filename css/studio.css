@@ -2400,6 +2400,7 @@ body.strip-collapsed #page-strip-chevron {
     display: block;
     width: 100%;
     height: 100%;
+    position: relative; /* ルビオーバーレイの position:absolute 基準 */
 }
 
 /* ══ 縦書きレイアウト ══════════════════════════════════════════ */
@@ -2420,14 +2421,14 @@ body.strip-collapsed #page-strip-chevron {
     flex-direction: row-reverse; /* 第1列を右端に配置（日本語縦書き標準） */
     height: 100%;
     align-items: flex-start;
-    overflow: visible; /* 各列のルビが隣接列スペースに自然にはみ出せるよう visible に */
+    overflow: hidden;
 }
 
 .tpv-col {
     writing-mode: vertical-rl;
     flex-shrink: 0;
     height: 100%;
-    overflow: visible; /* ルビ注釈が列境界でクリップされないよう visible に */
+    overflow: hidden;
     /* 句読点ぶら下がり（Safari） */
     hanging-punctuation: allow-end;
     /* 和欧文間隔（CSS Text Level 4） */
@@ -2468,20 +2469,32 @@ body.strip-collapsed #page-strip-chevron {
 
 /* ══ ルビ (Furigana) ══════════════════════════════════════════ */
 
-/* 縦書きルビ: writing-mode:vertical-rl では ruby-position:over が右側に来る */
-.tpv-col ruby {
-    ruby-position: over;
-    ruby-align: center;
-    /* ルビ要素が列のブロック方向（水平）幅を膨張させないよう line-height を固定 */
-    line-height: inherit;
-}
-.tpv-col rt {
-    font-size: 0.5em;
-    letter-spacing: 0; /* rt には親の letter-spacing を引き継がせない */
-    line-height: 1;    /* rt 自身の line-height を最小化して列幅への影響を防ぐ */
+/* 縦書きルビ: 絶対配置オーバーレイ方式
+ * 本文列（.tpv-col）には <ruby> を使わず、ベーステキストのみ描画する。
+ * .tpv-ruby-overlay がピクセル座標で注釈を独立レイヤーとして描画する。
+ */
+.tpv-ruby-overlay {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    overflow: visible;
 }
 
-/* 横書きルビ */
+/* 各ルビ注釈スパン: JS が left/top/height/width/font-size をインライン設定 */
+.tpv-ruby-ann {
+    position: absolute;
+    writing-mode: vertical-rl;
+    display: flex;
+    justify-content: center; /* 縦書きの inline 方向 = 垂直方向に中央揃え */
+    align-items: flex-start;
+    white-space: nowrap;
+    overflow: visible;
+    pointer-events: none;
+    color: inherit;
+    line-height: 1.2;
+}
+
+/* 横書きルビ: 標準 CSS ruby を使用（horizontal-tb では問題なし） */
 .tpv-horizontal ruby {
     ruby-position: over;
     ruby-align: center;
