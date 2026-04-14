@@ -2392,7 +2392,8 @@ body.strip-collapsed #page-strip-chevron {
 
 #text-preview-frame {
     position: absolute;
-    overflow: hidden;
+    overflow: visible; /* base text は .tpv-vertical/horizontal overflow:hidden でクリップ済み。
+                        * ここを hidden にするとルビオーバーレイが上下でクリップされる */
     /* position / size / font は JS でインライン設定 */
 }
 
@@ -2401,6 +2402,7 @@ body.strip-collapsed #page-strip-chevron {
     width: 100%;
     height: 100%;
     position: relative; /* ルビオーバーレイの position:absolute 基準 */
+    overflow: visible;  /* ルビ注釈がフレーム境界を超えて描画できるよう visible を明示 */
 }
 
 /* ══ 縦書きレイアウト ══════════════════════════════════════════ */
