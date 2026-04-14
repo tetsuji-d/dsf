@@ -62,7 +62,7 @@ export const STRINGS = {
         btn_add_bubble:       'テキスト追加',
         btn_add_image:        '画像追加',
         label_text_overflow:  '溢れあり',
-        hint_ruby_syntax:     '{漢字|かんじ} でルビ入力',
+        hint_ruby_syntax:     'ルビ: {漢字|かんじ} または ｛漢字｜かんじ｝',
         placeholder_drop_image: '画像をドロップ',
         placeholder_or_click: 'またはクリックして選択',
 

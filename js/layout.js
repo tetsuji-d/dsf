@@ -282,7 +282,11 @@ export function composeText(rawText, lang, writingMode, fontPreset = DEFAULT_FON
  * @returns {Array<{kind:'text',text:string}|{kind:'ruby',base:string,ruby:string}>}
  */
 export function parseRubyTokens(rawText) {
-    const text = normalizeText(rawText);
+    // 全角の {}| を半角に正規化してからパースする（日本語 IME 全角入力対応）
+    const text = normalizeText(rawText)
+        .replace(/｛/g, '{')
+        .replace(/｜/g, '|')
+        .replace(/｝/g, '}');
     const tokens = [];
     const re = /\{([^|{}]+)\|([^|{}]*)\}/g;
     let lastIdx = 0;

@@ -2111,14 +2111,25 @@ function renderTextPreview(section) {
     const fontPreset = getFontPresetFromConfigs(lang, state.languageConfigs);
 
     // ルビマークアップを解析し、ベーステキストで組版する
-    const rubyTokens = parseRubyTokens(raw);
-    const hasRuby = rubyTokens.some(t => t.kind === 'ruby');
-    const plainText = hasRuby ? tokensToPlainText(rubyTokens) : raw;
+    let rubyTokens, hasRuby, plainText, rubyLines;
+    try {
+        rubyTokens = parseRubyTokens(raw);
+        hasRuby = rubyTokens.some(t => t.kind === 'ruby');
+        plainText = hasRuby ? tokensToPlainText(rubyTokens) : raw;
+    } catch (e) {
+        console.error('[renderTextPreview] ruby parse error:', e);
+        rubyTokens = []; hasRuby = false; plainText = raw;
+    }
 
     const composed = composeText(plainText, lang, writingMode, fontPreset);
 
     // ルビあり: 行ごとのトークン配列を構築
-    const rubyLines = hasRuby ? alignRubyToLines(rubyTokens, composed.lines) : null;
+    try {
+        rubyLines = hasRuby ? alignRubyToLines(rubyTokens, composed.lines) : null;
+    } catch (e) {
+        console.error('[renderTextPreview] ruby align error:', e);
+        rubyLines = null;
+    }
 
     overlay.style.backgroundColor = section.backgroundColor || '#ffffff';
     overlay.style.display = 'block';
