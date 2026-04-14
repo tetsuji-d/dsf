@@ -12,14 +12,14 @@ import { openWorksRoom, closeWorksRoom } from './works.js';
 import { enterPressRoom } from './press.js';
 import { getLangProps, getAllLangs } from './lang.js';
 import { t, applyI18n, setUILang, getUILang } from './i18n-studio.js';
-import { getBlockIndexFromPageIndex, getPageIndexFromBlockIndex, migrateSectionsToBlocks, syncBlocksWithSections } from './blocks.js';
+import { getBlockIndexFromPageIndex, getPageIndexFromBlockIndex, migrateSectionsToBlocks, syncBlocksWithSections, extractSectionsFromBlocks } from './blocks.js';
 import { blocksToPages, normalizeProjectDataV5 } from './pages.js';
 import { buildDSP, buildDSF, parseAndLoadDSP } from './export.js';
 import { applyTheme, bindThemePreferenceListener, getThemeMode, setThemeMode } from './theme.js';
 import { get as idbGet } from 'idb-keyval';
 import { createId } from './utils.js';
 import { CANONICAL_PAGE_WIDTH, CANONICAL_PAGE_HEIGHT } from './page-geometry.js';
-import { composeText, getWritingModeFromConfigs, getFontPresetFromConfigs, parseRubyTokens, tokensToPlainText, alignRubyToLines } from './layout.js';
+import { composeText, paginateText, PAGE_BREAK_MARKER, getWritingModeFromConfigs, getFontPresetFromConfigs, parseRubyTokens, tokensToPlainText, alignRubyToLines } from './layout.js';
 
 const EDITOR_FRAME_WIDTH = CANONICAL_PAGE_WIDTH;
 const EDITOR_FRAME_HEIGHT = CANONICAL_PAGE_HEIGHT;
@@ -2301,7 +2301,7 @@ function _syncTextSectionPanel(section) {
 }
 
 /**
- * 溢れバッジを更新する
+ * 溢れバッジを更新する（溢れ時はページ数を表示）
  */
 function _updateTextOverflowBadge(section, lang) {
     const badge = document.getElementById('text-overflow-badge');
@@ -2310,11 +2310,153 @@ function _updateTextOverflowBadge(section, lang) {
     if (!raw) { badge.style.display = 'none'; return; }
     const writingMode = getWritingModeFromConfigs(lang, state.languageConfigs);
     const fontPreset = getFontPresetFromConfigs(lang, state.languageConfigs);
-    // ルビマークアップを除いたベーステキストで文字数を計算する
     const tokens = parseRubyTokens(raw);
     const plainText = tokens.some(t => t.kind === 'ruby') ? tokensToPlainText(tokens) : raw;
     const result = composeText(plainText, lang, writingMode, fontPreset);
-    badge.style.display = result.overflow ? 'block' : 'none';
+    if (!result.overflow) {
+        badge.style.display = 'none';
+    } else {
+        // ページ数を計算して表示
+        const pages = paginateText(plainText, lang, writingMode, fontPreset);
+        const count = pages.length;
+        badge.style.display = 'block';
+        badge.textContent = t('label_text_flow', { count }) || `→ ${count} ページに展開`;
+    }
+}
+
+// ──────────────────────────────────────
+//  テキスト自動ページ流し込み (Auto Text Flow)
+// ──────────────────────────────────────
+
+let _autoFlowDebounceTimer = null;
+
+/** flowId に属する継続ページブロック（idx > 0）のインデックスを取得する */
+function _findFlowContinuationIndices(blocks, flowId) {
+    const result = [];
+    for (let i = 0; i < blocks.length; i++) {
+        const b = blocks[i];
+        if (b?.kind === 'page' && b.content?._flow?.id === flowId && b.content._flow.idx > 0) {
+            result.push(i);
+        }
+    }
+    result.sort((a, b) => blocks[a].content._flow.idx - blocks[b].content._flow.idx);
+    return result;
+}
+
+/** フロー継続ページブロックを新規作成する */
+function _createContinuationBlock(masterBlock, text, flowId, flowIdx, lang) {
+    const texts = {};
+    texts[lang] = text;
+    return {
+        id: createId('page'),
+        kind: 'page',
+        content: {
+            pageKind: 'text',
+            background: masterBlock.content?.background || '',
+            backgroundColor: masterBlock.content?.backgroundColor || '',
+            textColor: masterBlock.content?.textColor || '',
+            texts,
+            bubbles: [],
+            _flow: { id: flowId, idx: flowIdx }
+        }
+    };
+}
+
+/**
+ * テキストセクションを自動ページ分割する。
+ * 現在アクティブなテキストページの溢れを後続ページとして作成・更新・削除する。
+ * 手動改ページマーカー（===）もここで処理する。
+ */
+function autoFlowTextSection() {
+    const lang = state.activeLang || state.defaultLang || 'ja';
+    const pageIdx = state.activeIdx;
+    const blockIdx = getBlockIndexFromPageIndex(state.blocks, pageIdx);
+    if (blockIdx < 0) return;
+
+    const masterBlock = state.blocks[blockIdx];
+    if (masterBlock?.kind !== 'page' || masterBlock.content?.pageKind !== 'text') return;
+
+    const rawText = masterBlock.content.texts?.[lang] ?? '';
+    const writingMode = getWritingModeFromConfigs(lang, state.languageConfigs);
+    const fontPreset = getFontPresetFromConfigs(lang, state.languageConfigs);
+
+    // ルビマークアップを除去してページネーション計算
+    const tokens = parseRubyTokens(rawText);
+    const hasRuby = tokens.some(t => t.kind === 'ruby');
+    const plainText = hasRuby ? tokensToPlainText(tokens) : rawText;
+    const pageTexts = paginateText(plainText, lang, writingMode, fontPreset);
+
+    // フロー ID の確定（初回溢れで新規生成）
+    let flowId = masterBlock.content._flow?.id;
+    if (!flowId && pageTexts.length > 1) {
+        flowId = createId('flow');
+    }
+
+    const newBlocks = [...state.blocks];
+
+    // マスターブロックに _flow を付与（または削除）
+    const masterContent = { ...masterBlock.content };
+    if (pageTexts.length > 1) {
+        masterContent._flow = { id: flowId, idx: 0 };
+    } else {
+        delete masterContent._flow;
+    }
+    newBlocks[blockIdx] = { ...masterBlock, content: masterContent };
+
+    // 既存の継続ブロックを取得
+    const contIndices = flowId ? _findFlowContinuationIndices(newBlocks, flowId) : [];
+    const neededCount = pageTexts.length - 1;
+
+    if (neededCount === 0) {
+        // 溢れなし: 全継続ブロックを削除
+        for (let i = contIndices.length - 1; i >= 0; i--) {
+            newBlocks.splice(contIndices[i], 1);
+        }
+    } else {
+        // 既存の継続ブロックを更新
+        for (let i = 0; i < Math.min(neededCount, contIndices.length); i++) {
+            const bi = contIndices[i];
+            newBlocks[bi] = {
+                ...newBlocks[bi],
+                content: {
+                    ...newBlocks[bi].content,
+                    texts: { ...newBlocks[bi].content.texts, [lang]: pageTexts[i + 1] },
+                    _flow: { id: flowId, idx: i + 1 }
+                }
+            };
+        }
+
+        // 不足分を新規作成して master の直後（または最後の継続の直後）に挿入
+        if (neededCount > contIndices.length) {
+            const insertAfter = contIndices.length > 0
+                ? contIndices[contIndices.length - 1]
+                : blockIdx;
+            const newConts = [];
+            for (let i = contIndices.length; i < neededCount; i++) {
+                newConts.push(_createContinuationBlock(
+                    newBlocks[blockIdx], pageTexts[i + 1], flowId, i + 1, lang
+                ));
+            }
+            newBlocks.splice(insertAfter + 1, 0, ...newConts);
+        }
+
+        // 余分な継続ブロックを末尾から削除
+        if (contIndices.length > neededCount) {
+            const toRemove = contIndices.slice(neededCount);
+            for (let i = toRemove.length - 1; i >= 0; i--) {
+                newBlocks.splice(toRemove[i], 1);
+            }
+        }
+    }
+
+    // state に一括反映
+    dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'blocks', value: newBlocks } });
+    const newSections = extractSectionsFromBlocks(newBlocks);
+    dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'sections', value: newSections } });
+    dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'pages', value: blocksToPages(newBlocks) } });
+
+    refresh();
+    triggerAutoSave();
 }
 
 /**
@@ -2346,6 +2488,12 @@ function updateTextSectionBody(v) {
         _updateTextOverflowBadge(sec, lang);
         renderTextPreview(sec);
     }, 300);
+
+    // 自動ページ流し込み（少し長めに待つ）
+    clearTimeout(_autoFlowDebounceTimer);
+    _autoFlowDebounceTimer = setTimeout(() => {
+        autoFlowTextSection();
+    }, 1000);
 
     triggerAutoSave();
 }
@@ -2555,6 +2703,25 @@ window.selectBubble = (e, i) => selectBubble(e, i, refresh);
 window.addSection = () => { pushState(); addSection(refresh); triggerAutoSave(); };
 window.addTextSection = () => { pushState(); addTextSection(refresh); triggerAutoSave(); };
 window.updateTextSectionBody = updateTextSectionBody;
+
+/** テキストエリアのカーソル位置に改ページマーカーを挿入する */
+window.insertPageBreak = function() {
+    const ta = document.getElementById('prop-body-text');
+    if (!ta) return;
+    const start = ta.selectionStart;
+    const end = ta.selectionEnd;
+    const val = ta.value;
+    // 前後に改行を挿入（連続改ページを防ぐ）
+    const before = start > 0 && val[start - 1] !== '\n' ? '\n' : '';
+    const after  = end < val.length && val[end] !== '\n' ? '\n' : '';
+    const marker = `${before}${PAGE_BREAK_MARKER}\n${after}`;
+    const newVal = val.slice(0, start) + marker + val.slice(end);
+    ta.value = newVal;
+    const newCursor = start + marker.length;
+    ta.setSelectionRange(newCursor, newCursor);
+    ta.focus();
+    updateTextSectionBody(newVal);
+};
 
 // ── キャンバスへのドラッグ&ドロップ（画像アップロード） ──────────────────────
 window.handleCanvasDragOver = (e) => {

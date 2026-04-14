@@ -269,6 +269,47 @@ export function composeText(rawText, lang, writingMode, fontPreset = DEFAULT_FON
     };
 }
 
+// ─── ページネーション ────────────────────────────────────────────────────────
+
+/** 手動改ページマーカー。行単独で "===" と入力する。 */
+export const PAGE_BREAK_MARKER = '===';
+
+/**
+ * テキストを 1 ページ分ずつに分割する。
+ *
+ * - 行単独の "===" は手動改ページとして扱われる。
+ * - 1 ページに収まりきらない場合は overflowText を次ページの入力とし、
+ *   自動的にページを追加する。
+ *
+ * @param {string} rawText   ルビ除去済みのプレーンテキスト
+ * @param {string} lang
+ * @param {string} writingMode
+ * @param {string} [fontPreset]
+ * @returns {string[]}  各ページに収まるテキストの配列（最低 1 要素）
+ */
+export function paginateText(rawText, lang, writingMode, fontPreset = DEFAULT_FONT_PRESET) {
+    const normalized = normalizeText(rawText);
+    const preset = getLangPreset(lang, writingMode, fontPreset);
+
+    // 行単独の "===" で手動改ページ分割
+    const manualSegments = normalized.split(/^===$/m);
+
+    const pages = [];
+    for (const segment of manualSegments) {
+        if (!segment.trim()) continue; // 空セグメントはスキップ
+        let remaining = segment;
+        let guard = 500; // 無限ループ防止
+        while (remaining && guard-- > 0) {
+            const result = composeWithPreset(remaining, preset);
+            pages.push(result.lines.join('\n'));
+            if (!result.overflow) break;
+            remaining = result.overflowText || '';
+        }
+    }
+
+    return pages.length ? pages : [''];
+}
+
 // ─── Ruby (furigana) support ────────────────────────────────────────────────
 
 /**

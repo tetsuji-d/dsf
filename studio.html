@@ -389,9 +389,12 @@
                         <label id="text-body-label" class="field-label"></label>
                         <textarea id="prop-body-text" rows="12"
                             oninput="updateTextSectionBody(this.value)"></textarea>
-                        <div id="text-overflow-badge" class="text-overflow-badge" style="display:none;"
+                        <div id="text-overflow-badge" class="text-overflow-badge text-overflow-badge--flow" style="display:none;"
                             data-i18n="label_text_overflow">溢れあり</div>
-                        <div class="ruby-input-hint" data-i18n="hint_ruby_syntax">{漢字|かんじ} でルビ入力</div>
+                        <div class="text-input-hints">
+                            <span class="ruby-input-hint" data-i18n="hint_ruby_syntax">{漢字|かんじ} でルビ入力</span>
+                            <button class="page-break-btn" onclick="insertPageBreak()" data-i18n="btn_insert_page_break" title="改ページを挿入 (===)">改ページ</button>
+                        </div>
                     </div>
 
                     <div id="generic-text-editor" style="display:none;">

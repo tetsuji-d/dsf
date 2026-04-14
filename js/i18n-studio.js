@@ -62,7 +62,9 @@ export const STRINGS = {
         btn_add_bubble:       'テキスト追加',
         btn_add_image:        '画像追加',
         label_text_overflow:  '溢れあり',
+        label_text_flow:      '→ {count} ページに展開',
         hint_ruby_syntax:     'ルビ: {漢字|かんじ} または ｛漢字｜かんじ｝',
+        btn_insert_page_break: '改ページ挿入 (===)',
         placeholder_drop_image: '画像をドロップ',
         placeholder_or_click: 'またはクリックして選択',
 
@@ -273,7 +275,9 @@ export const STRINGS = {
         btn_add_bubble:       'Add Text',
         btn_add_image:        'Add Image',
         label_text_overflow:  'Overflow',
+        label_text_flow:      '→ {count} pages',
         hint_ruby_syntax:     'Ruby: {base|reading}',
+        btn_insert_page_break: 'Page Break (===)',
         placeholder_drop_image: 'Drop image here',
         placeholder_or_click: 'or click to select',
 

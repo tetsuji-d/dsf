@@ -2504,13 +2504,38 @@ body.strip-collapsed #page-strip-chevron {
     font-size: 0.5em;
 }
 
-/* ルビ入力ヒント（textarea 下部のインライン説明） */
+/* ルビ・改ページ ヒント行 */
+.text-input-hints {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    margin-top: 4px;
+}
+
 .ruby-input-hint {
     font-size: 11px;
     color: var(--color-text-muted, #8a9baf);
-    margin-top: 4px;
     user-select: none;
     font-family: monospace;
+    flex: 1;
+}
+
+/* 改ページ挿入ボタン */
+.page-break-btn {
+    flex-shrink: 0;
+    font-size: 11px;
+    padding: 2px 8px;
+    border: 1px solid var(--color-border, #3a4a5c);
+    border-radius: 4px;
+    background: transparent;
+    color: var(--color-text-muted, #8a9baf);
+    cursor: pointer;
+    white-space: nowrap;
+}
+.page-break-btn:hover {
+    background: var(--color-surface-hover, rgba(255,255,255,0.06));
+    color: var(--color-text, #e2e8f0);
 }
 
 /* 空テキストページのプレースホルダー */
@@ -5624,13 +5649,19 @@ textarea.ps-meta-input {
 
 .text-overflow-badge {
     display: none;
-    background: #fed7d7;
-    color: #c53030;
     font-size: 12px;
     font-weight: 600;
     padding: 3px 8px;
     border-radius: 4px;
     margin-bottom: 8px;
+    /* デフォルト: 情報（ページ展開）スタイル */
+    background: #bee3f8;
+    color: #2b6cb0;
+}
+/* 旧来の「溢れあり」エラースタイルが必要な場合に使う */
+.text-overflow-badge--error {
+    background: #fed7d7;
+    color: #c53030;
 }
 
 body[data-theme="dark"] #text-section-props #prop-body-text {
@@ -5640,6 +5671,17 @@ body[data-theme="dark"] #text-section-props #prop-body-text {
 }
 
 body[data-theme="dark"] .text-overflow-badge {
+    background: #2a4365;
+    color: #bee3f8;
+}
+body[data-theme="dark"] .text-overflow-badge--error {
     background: #742a2a;
     color: #fed7d7;
+}
+body[data-theme="dark"] .page-break-btn {
+    border-color: #4a5568;
+    color: #8a9baf;
+}
+body[data-theme="dark"] .page-break-btn:hover {
+    color: #e2e8f0;
 }
