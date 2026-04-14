@@ -2021,7 +2021,9 @@ function renderTextPreview(section) {
             contentEl.innerHTML = `<div class="tpv-vertical">${cols}</div>`;
         } else {
             // 横書き: 行を縦積み
-            const lineH = Math.round(composed.font.size * composed.font.lineHeight);
+            // frame.h を maxLines で等分し端まできっちり埋める（上下対称）
+            const maxLines = composed.rules?.maxLines || 20;
+            const lineH = composed.frame.h / maxLines;
             const lines = composed.lines.map(line =>
                 `<div class="tpv-line" style="height:${lineH}px">${line ? _escHtml(line) : '\u00a0'}</div>`
             ).join('');

@@ -6,7 +6,7 @@ import { CANONICAL_PAGE_WIDTH, CANONICAL_PAGE_HEIGHT } from './page-geometry.js'
 
 /** 本文枠は正規論理ページ（`page-geometry`）の内側余白として導出する */
 const FRAME_PAD_X = 20;
-const FRAME_PAD_Y = 32;
+const FRAME_PAD_Y = 20;
 const DEFAULT_FRAME = {
     x: FRAME_PAD_X,
     y: FRAME_PAD_Y,
