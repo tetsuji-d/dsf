@@ -96,6 +96,25 @@ npx wrangler pages deploy dist --project-name dsf-studio --branch staging # stag
 - `bodyKind: 'text'` / `richText` フィールドは将来的に廃止方向
 - **多言語**: 言語ごとに WebP を生成し、必要な言語のみ遅延ロードする
 
+#### 高度な和欧文組版エンジン（実装済み / 2026-04）
+
+エディタープレビュー（`js/app.js` `renderTextPreview`）は以下の組版機能を実装済み：
+
+| 機能 | 実装方法 | 対象 |
+|------|---------|------|
+| **縦中横（Tate-Chu-Yoko）** | 2〜4 桁の半角数字を `<span class="tcy">` でマーク、`text-combine-upright: all` で横向き表示 | 日本語縦書き |
+| **ぶら下がり禁則** | `hanging-punctuation: allow-end`（CSS、Safari 対応） | 日本語縦書き |
+| **和欧文間隔（四分空き）** | `text-autospace: ideograph-alpha` / `text-spacing: ideograph-alpha ideograph-numeric` | 日本語縦書き |
+| **均等割付（Justification）** | `text-align: justify; text-justify: inter-word` | 英語横書き |
+| **自動ハイフネーション** | `hyphens: auto`（`lang` 属性による言語検出） | 英語横書き |
+
+版面（`layout.js`）:
+- `FRAME_PAD_X = FRAME_PAD_Y = 20px`（上下左右対称余白）
+- 縦書き: 列幅 = `frame.w / maxLines`、文字ピッチ = `frame.h / charsPerLine`（フレームを等分）
+- 横書き: 行高 = `frame.h / maxLines`（フレームを等分、フルページで上下対称）
+
+> Press（WebP 書き出し）側の Canvas 2D テキスト描画は Phase 3 で実装予定。
+
 **正規論理ページ（9:16）**: レイアウト・エディター・ビューワー・Press の基準座標は **`js/page-geometry.js`**（`CANONICAL_PAGE_WIDTH` / `HEIGHT` 等）と **`css/variables.css`** の `--dsf-canonical-page-*` で一致させる。配信用ビットマップの**物理ピクセル最低ラインは 1080×1920**（論理の 3 倍）を前提とする（詳細は `docs/implementation-plan-9-16-layout.md`）。
 
 ### モジュール構成 (`js/`)

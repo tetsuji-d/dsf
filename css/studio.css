@@ -2402,10 +2402,10 @@ body.strip-collapsed #page-strip-chevron {
     height: 100%;
 }
 
-/* ── 縦書きレイアウト ────────────────────────── */
+/* ══ 縦書きレイアウト ══════════════════════════════════════════ */
 .tpv-vertical {
     display: flex;
-    flex-direction: row-reverse; /* 第1列を右端に配置 */
+    flex-direction: row-reverse; /* 第1列を右端から配置（日本語縦書き標準） */
     height: 100%;
     align-items: flex-start;
     overflow: hidden;
@@ -2417,21 +2417,44 @@ body.strip-collapsed #page-strip-chevron {
     height: 100%;
     overflow: hidden;
     /* width / line-height は JS でインライン設定 */
+
+    /* 句読点ぶら下がり（hanging punctuation）— Safari 対応 */
+    hanging-punctuation: allow-end;
+
+    /* 和欧文間隔（四分空き）— CSS Text Level 4 */
+    text-autospace: ideograph-alpha;
+    -webkit-text-autospace: ideograph-alpha;
+    text-spacing: ideograph-alpha ideograph-numeric;
 }
 
-/* ── 横書きレイアウト ────────────────────────── */
+/* 縦中横 (Tate-Chu-Yoko): 2〜4 桁の半角数字を横向きに表示 */
+.tcy {
+    text-combine-upright: all;
+    -webkit-text-combine: horizontal;
+    font-variant-numeric: tabular-nums;
+    letter-spacing: -0.05em;
+}
+
+/* ══ 横書きレイアウト ══════════════════════════════════════════ */
 .tpv-horizontal {
     width: 100%;
     overflow: hidden;
+    /* line-height は JS でインライン設定 */
 }
 
-.tpv-line {
-    display: flex;
-    align-items: center;
-    overflow: hidden;
-    white-space: nowrap;
-    /* height は JS でインライン設定 */
+/* 段落: justify + ハイフネーション（lang 属性が祖先に必要） */
+.tpv-para {
+    margin: 0;
+    text-align: justify;
+    text-justify: inter-word;
+    hyphens: auto;
+    -webkit-hyphens: auto;
+    word-break: break-word;
+    overflow-wrap: break-word;
 }
+
+/* 空行スペーサー（height は JS でインライン設定） */
+.tpv-blank {}
 
 /* 空テキストページのプレースホルダー */
 #text-preview-placeholder {

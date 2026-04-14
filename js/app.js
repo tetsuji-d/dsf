@@ -1958,16 +1958,61 @@ function _escHtml(str) {
 }
 
 /**
+ * 縦書き列の 1 行を HTML にマークアップする。
+ * 2〜4 桁の半角数字を <span class="tcy"> でラップし縦中横（Tate-Chu-Yoko）を適用する。
+ */
+function _markupVerticalLine(rawLine) {
+    if (!rawLine) return '\u00a0';
+    const parts = [];
+    let lastIdx = 0;
+    const re = /[0-9]{2,4}/g;
+    let m;
+    while ((m = re.exec(rawLine)) !== null) {
+        if (m.index > lastIdx) {
+            parts.push(_escHtml(rawLine.slice(lastIdx, m.index)));
+        }
+        parts.push(`<span class="tcy">${m[0]}</span>`);
+        lastIdx = re.lastIndex;
+    }
+    if (lastIdx < rawLine.length) {
+        parts.push(_escHtml(rawLine.slice(lastIdx)));
+    }
+    return parts.length ? parts.join('') : _escHtml(rawLine);
+}
+
+/**
+ * composeText の lines 配列を段落単位に再結合する（横書き向け）。
+ * 連続する非空行をスペースで繋ぎ、空行は null（ブランク行）として返す。
+ * CSS が justify + hyphens で再ラップできるよう、行分割を解除する。
+ */
+function _linesIntoParagraphs(lines) {
+    const result = [];
+    let buf = [];
+    for (const line of lines) {
+        if (line === '') {
+            if (buf.length) { result.push(buf.join(' ')); buf = []; }
+            result.push(null);
+        } else {
+            buf.push(line);
+        }
+    }
+    if (buf.length) result.push(buf.join(' '));
+    return result;
+}
+
+/**
  * テキストセクションの組版結果をキャンバス上の HTML オーバーレイとして描画する。
  *
  * ▼ 縦書き (vertical-rl)
- *   - 列ごとに <span class="tpv-col"> を生成し、flex row-reverse で右から並べる
- *   - 列幅  = frame.w / maxLines（全列が枠内に収まるよう均等割り）
- *   - 文字ピッチ = frame.h / charsPerLine（縦方向を均等割り）
+ *   - 列ごとに <span class="tpv-col"> を生成し、flex row-reverse で右端から配置
+ *   - 列幅   = frame.w / maxLines（全列が枠内に収まるよう均等割り）
+ *   - 文字ピッチ = frame.h / charsPerLine（縦方向均等割り）
+ *   - 2〜4 桁の半角数字に <span class="tcy"> を自動付与（縦中横）
  *
  * ▼ 横書き (horizontal-tb)
- *   - 行ごとに <div class="tpv-line"> を生成して縦積み
- *   - 行高  = font.size × font.lineHeight
+ *   - 行を段落ごとに結合し、<p class="tpv-para"> として流し込む
+ *   - CSS が text-align:justify + hyphens:auto で再ラップ
+ *   - lang 属性を設定しブラウザの自動ハイフネーション辞書を有効化
  */
 function renderTextPreview(section) {
     const overlay = document.getElementById('text-preview-overlay');
@@ -1985,18 +2030,19 @@ function renderTextPreview(section) {
     const frameEl = document.getElementById('text-preview-frame');
     if (frameEl) {
         const { x, y, w, h } = composed.frame;
-        frameEl.style.left         = `${x}px`;
-        frameEl.style.top          = `${y}px`;
-        frameEl.style.width        = `${w}px`;
-        frameEl.style.height       = `${h}px`;
-        frameEl.style.fontFamily   = composed.font.family;
-        frameEl.style.fontSize     = `${composed.font.size}px`;
-        frameEl.style.color        = section.textColor || '#000000';
-        // writing-mode / line-height は要素ごとに設定するためリセット
-        frameEl.style.writingMode  = '';
-        frameEl.style.lineHeight   = '';
+        frameEl.style.left          = `${x}px`;
+        frameEl.style.top           = `${y}px`;
+        frameEl.style.width         = `${w}px`;
+        frameEl.style.height        = `${h}px`;
+        frameEl.style.fontFamily    = composed.font.family;
+        frameEl.style.fontSize      = `${composed.font.size}px`;
+        frameEl.style.color         = section.textColor || '#000000';
+        frameEl.style.writingMode   = '';
+        frameEl.style.lineHeight    = '';
         frameEl.style.letterSpacing = composed.font.letterSpacing
             ? `${composed.font.letterSpacing}px` : '0';
+        // hyphens:auto などが言語固有処理を使えるよう lang 属性を設定
+        frameEl.setAttribute('lang', lang.toLowerCase());
     }
 
     const contentEl = document.getElementById('text-preview-content');
@@ -2004,30 +2050,30 @@ function renderTextPreview(section) {
         if (!raw) {
             contentEl.innerHTML = '';
         } else if (composed.writingMode === 'vertical-rl') {
-            // 縦書き: 列を明示的に並べる
+            // 縦書き: 列ごとに span を生成、縦中横(TCY)を適用
             const { w, h } = composed.frame;
-            const maxCols    = composed.rules?.maxLines    || 12;
+            const maxCols     = composed.rules?.maxLines    || 12;
             const charsPerCol = composed.rules?.charsPerLine || 33;
-            const fontSize   = composed.font.size;
-            // 列幅: 全 maxCols 列が frame.w に収まるよう均等割り
-            const colW = Math.floor(w / maxCols);
-            // 文字ピッチ: frame.h を charsPerLine で割り、1文字あたりの縦ピッチを決める
-            const charPitch  = h / charsPerCol;
-            const lineHeight = (charPitch / fontSize).toFixed(3);
+            const fontSize    = composed.font.size;
+            const colW        = Math.floor(w / maxCols);
+            const charPitch   = h / charsPerCol;
+            const lineHeight  = (charPitch / fontSize).toFixed(3);
 
             const cols = composed.lines.map(line =>
-                `<span class="tpv-col" style="width:${colW}px;line-height:${lineHeight}">${_escHtml(line)}</span>`
+                `<span class="tpv-col" style="width:${colW}px;line-height:${lineHeight}">${_markupVerticalLine(line)}</span>`
             ).join('');
             contentEl.innerHTML = `<div class="tpv-vertical">${cols}</div>`;
         } else {
-            // 横書き: 行を縦積み
-            // frame.h を maxLines で等分し端まできっちり埋める（上下対称）
-            const maxLines = composed.rules?.maxLines || 20;
-            const lineH = composed.frame.h / maxLines;
-            const lines = composed.lines.map(line =>
-                `<div class="tpv-line" style="height:${lineH}px">${line ? _escHtml(line) : '\u00a0'}</div>`
+            // 横書き: 段落単位に行を結合し、CSS の justify + hyphens に委ねる
+            const lineH  = composed.frame.h / (composed.rules?.maxLines || 20);
+            const paras  = _linesIntoParagraphs(composed.lines);
+            const html   = paras.map(p =>
+                p === null
+                    ? `<div class="tpv-blank" style="height:${lineH}px"></div>`
+                    : `<p class="tpv-para">${_escHtml(p)}</p>`
             ).join('');
-            contentEl.innerHTML = `<div class="tpv-horizontal">${lines}</div>`;
+            contentEl.innerHTML =
+                `<div class="tpv-horizontal" lang="${lang.toLowerCase()}" style="line-height:${lineH}px">${html}</div>`;
         }
     }
 
