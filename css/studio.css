@@ -2403,24 +2403,31 @@ body.strip-collapsed #page-strip-chevron {
 }
 
 /* ══ 縦書きレイアウト ══════════════════════════════════════════ */
-.tpv-vertical {
-    display: flex;
-    flex-direction: row-reverse; /* 第1列を右端から配置（日本語縦書き標準） */
-    height: 100%;
-    align-items: flex-start;
-    overflow: hidden;
-}
 
-.tpv-col {
+/**
+ * 縦書き連続フロー（書籍組版方式）
+ *
+ * writing-mode:vertical-rl + column-count で各列を上から下まで充填してから
+ * 次の列に移る（column-fill:auto）。
+ * 旧方式（flex + 列ごと span）では短い段落が短い列を作り上部偏りが生じていた。
+ *
+ * JS が設定するインラインスタイル:
+ *   font-size      = preset.font.size (16px)
+ *   line-height    = colW / fontSize  (列幅 ÷ font-size → ブロック方向の列ピッチ)
+ *   letter-spacing = frame.h / charsPerCol - fontSize  (縦方向の文字ピッチ均等割り)
+ *   column-count   = maxLines (12)
+ */
+.tpv-vflow {
     writing-mode: vertical-rl;
-    flex-shrink: 0;
+    width: 100%;
     height: 100%;
     overflow: hidden;
-    /* width / line-height は JS でインライン設定 */
+    column-fill: auto;   /* 各列を上から充填してから次の列へ */
+    column-gap: 0px;
+    word-break: break-all;
 
-    /* 句読点ぶら下がり（hanging punctuation）— Safari 対応 */
+    /* 句読点ぶら下がり（Safari 対応） */
     hanging-punctuation: allow-end;
-
     /* 和欧文間隔（四分空き）— CSS Text Level 4 */
     text-autospace: ideograph-alpha;
     -webkit-text-autospace: ideograph-alpha;
@@ -2433,6 +2440,22 @@ body.strip-collapsed #page-strip-chevron {
     -webkit-text-combine: horizontal;
     font-variant-numeric: tabular-nums;
     letter-spacing: -0.05em;
+}
+
+/* 旧レイアウト（後方互換のため残す） */
+.tpv-vertical {
+    display: flex;
+    flex-direction: row-reverse;
+    height: 100%;
+    align-items: flex-start;
+    overflow: hidden;
+}
+
+.tpv-col {
+    writing-mode: vertical-rl;
+    flex-shrink: 0;
+    height: 100%;
+    overflow: hidden;
 }
 
 /* ══ 横書きレイアウト ══════════════════════════════════════════ */
