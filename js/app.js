@@ -1980,7 +1980,7 @@ function _markupTokenLine(tokenLine) {
         if (tok.kind === 'ruby') {
             const markedBase = _markupTcyText(tok.base);
             const rubyText = _escHtml(tok.ruby || '');
-            parts.push(`<ruby><rb>${markedBase}</rb><rt>${rubyText}</rt></ruby>`);
+            parts.push(`<ruby>${markedBase}<rt>${rubyText}</rt></ruby>`);
         } else {
             parts.push(_markupTcyText(tok.text || ''));
         }
@@ -2187,7 +2187,7 @@ function renderTextPreview(section) {
                         ? `<div class="tpv-blank" style="height:${lineH}px"></div>`
                         : `<p class="tpv-para">${p.map(tok =>
                             tok.kind === 'ruby'
-                                ? `<ruby><rb>${_markupTcyText(tok.base)}</rb><rt>${_escHtml(tok.ruby || '')}</rt></ruby>`
+                                ? `<ruby>${_markupTcyText(tok.base)}<rt>${_escHtml(tok.ruby || '')}</rt></ruby>`
                                 : _escHtml(tok.text || '')
                           ).join('')}</p>`
                 ).join('');
@@ -2240,7 +2240,10 @@ function _updateTextOverflowBadge(section, lang) {
     if (!raw) { badge.style.display = 'none'; return; }
     const writingMode = getWritingModeFromConfigs(lang, state.languageConfigs);
     const fontPreset = getFontPresetFromConfigs(lang, state.languageConfigs);
-    const result = composeText(raw, lang, writingMode, fontPreset);
+    // ルビマークアップを除いたベーステキストで文字数を計算する
+    const tokens = parseRubyTokens(raw);
+    const plainText = tokens.some(t => t.kind === 'ruby') ? tokensToPlainText(tokens) : raw;
+    const result = composeText(plainText, lang, writingMode, fontPreset);
     badge.style.display = result.overflow ? 'block' : 'none';
 }
 
