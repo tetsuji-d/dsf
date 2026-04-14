@@ -2068,33 +2068,31 @@ function renderTextPreview(section) {
         if (!raw) {
             contentEl.innerHTML = '';
         } else if (composed.writingMode === 'vertical-rl') {
-            // 縦書き: CSS マルチカラム + writing-mode:vertical-rl で連続フロー
-            //
-            // 旧実装（列ごと span）の問題: 短い段落が独立した短い列を作り
-            // 上部にテキストが偏って見えた。
-            // 新実装: column-fill:auto で各列を上から下まで充填してから
-            // 次の列に移る（書籍組版の正しい動作）。
+            // 縦書き: 列ごとに span を生成（right → left へ flex row-reverse）
             //
             // パラメータ計算:
-            //   colW          = frame.w / maxCols     → 各列の幅
-            //   lineHeight    = colW / fontSize        → 列ピッチ（writing-mode:vertical-rl では
-            //                                            line-height がブロック方向＝列幅を制御）
+            //   colW          = floor(frame.w / maxCols)
+            //                   → 全列が frame.w に収まる列幅
+            //   lineHeight    = colW / fontSize
+            //                   → writing-mode:vertical-rl では line-height が
+            //                      ブロック方向（水平）= 列幅 を制御する
             //   letterSpacing = frame.h / charsPerCol - fontSize
-            //                                          → 文字縦ピッチを frame.h で均等割り
-            const { w, h }  = composed.frame;
-            const maxCols    = composed.rules?.maxLines    || 12;
+            //                   → インライン方向（垂直）の文字ピッチを均等割り。
+            //                      full column (33文字) がちょうど frame.h を埋める。
+            const { w, h }    = composed.frame;
+            const maxCols     = composed.rules?.maxLines    || 12;
             const charsPerCol = composed.rules?.charsPerLine || 33;
-            const fontSize   = composed.font.size;
-            const colW       = w / maxCols;
-            const lineHeight = (colW / fontSize).toFixed(3);
+            const fontSize    = composed.font.size;
+            const colW        = Math.floor(w / maxCols);
+            const lineHeight  = (colW / fontSize).toFixed(3);
             const letterSpacing = ((h / charsPerCol) - fontSize).toFixed(3);
 
-            const htmlContent = _buildCjkHtmlFlow(composed.lines);
-            contentEl.innerHTML =
-                `<div class="tpv-vflow" lang="ja"` +
-                ` style="font-size:${fontSize}px;line-height:${lineHeight};` +
-                `letter-spacing:${letterSpacing}px;column-count:${maxCols}"` +
-                `>${htmlContent}</div>`;
+            const cols = composed.lines.map(line =>
+                `<span class="tpv-col"` +
+                ` style="width:${colW}px;line-height:${lineHeight};letter-spacing:${letterSpacing}px"` +
+                `>${_markupVerticalLine(line)}</span>`
+            ).join('');
+            contentEl.innerHTML = `<div class="tpv-vertical">${cols}</div>`;
         } else {
             // 横書き: 段落単位に行を結合し、CSS の justify + hyphens に委ねる
             const lineH  = composed.frame.h / (composed.rules?.maxLines || 20);
