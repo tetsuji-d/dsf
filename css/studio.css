@@ -2480,18 +2480,17 @@ body.strip-collapsed #page-strip-chevron {
     overflow: visible;
 }
 
-/* 各ルビ注釈スパン: JS が left/top/height/width/font-size をインライン設定 */
+/* 各ルビ注釈スパン: JS が left/top/width/font-size をインライン設定
+ * top は JS 側で base 文字スパン中央に合わせて計算済み */
 .tpv-ruby-ann {
     position: absolute;
     writing-mode: vertical-rl;
-    display: flex;
-    justify-content: center; /* 縦書きの inline 方向 = 垂直方向に中央揃え */
-    align-items: flex-start;
     white-space: nowrap;
     overflow: visible;
     pointer-events: none;
     color: inherit;
     line-height: 1.2;
+    letter-spacing: 0;
 }
 
 /* 横書きルビ: 標準 CSS ruby を使用（horizontal-tb では問題なし） */

@@ -2193,7 +2193,9 @@ function renderTextPreview(section) {
             const letterSpacing = ((h / charsPerCol) - fontSize).toFixed(3);
             const charPitch   = h / charsPerCol; // 1 文字あたりの縦ピクセル（canonical）
             const rubyFontSize = Math.round(fontSize * 0.5); // rt のフォントサイズ（canonical）
-            const rubyColW    = Math.round(fontSize * 0.6);  // ルビ注釈の横幅（canonical）
+            const rubyColW    = Math.round(fontSize * 0.65); // ルビ注釈の横幅（canonical）
+            // 字形は line-height の中央に配置されるため、ルビは字形右端 = 列右端 - (colW - fontSize)/2 に置く
+            const charRightOffset = Math.round((colW - fontSize) / 2);
 
             // Layer 1: ベーステキスト列（ruby 要素なし）
             const cols = composed.lines.map((line, i) => {
@@ -2216,14 +2218,19 @@ function renderTextPreview(section) {
                             ? Array.from(tok.base || '').length
                             : Array.from(tok.text || '').length;
                         if (tok.kind === 'ruby' && tok.ruby) {
-                            // 列 i の右端 = w - i * colW → ルビはその右側へ
-                            const annLeft = w - i * colW;
-                            const annTop  = Math.round(charOffset * charPitch);
-                            const annH    = Math.round(baseLen * charPitch);
+                            // 字形は line-height の中央にある。
+                            // 字形右端 = 列右端 - charRightOffset = w - i*colW - charRightOffset
+                            // ルビはその右（字形右端）から配置し、字形に密着させる。
+                            const annLeft = w - i * colW - charRightOffset;
+                            // ルビテキストを base 文字スパンの中央に揃えるため top を調整する
+                            const rubyLen = Array.from(tok.ruby).length;
+                            const rubyH   = Math.round(rubyLen * rubyFontSize * 1.2);
+                            const baseH   = Math.round(baseLen * charPitch);
+                            const annTop  = Math.round(charOffset * charPitch + Math.max(0, (baseH - rubyH) / 2));
                             anns.push(
                                 `<span class="tpv-ruby-ann"` +
                                 ` style="left:${annLeft}px;top:${annTop}px;` +
-                                `height:${annH}px;width:${rubyColW}px;` +
+                                `width:${rubyColW}px;` +
                                 `font-size:${rubyFontSize}px"` +
                                 `>${_escHtml(tok.ruby)}</span>`
                             );
