@@ -2466,6 +2466,36 @@ body.strip-collapsed #page-strip-chevron {
 /* 空行スペーサー（height は JS でインライン設定） */
 .tpv-blank {}
 
+/* ══ ルビ (Furigana) ══════════════════════════════════════════ */
+
+/* 縦書きルビ: writing-mode:vertical-rl では ruby-position:over が右側に来る */
+.tpv-col ruby {
+    ruby-position: over;
+    ruby-align: center;
+}
+.tpv-col rt {
+    font-size: 0.5em;
+    letter-spacing: 0; /* rt には親の letter-spacing を引き継がせない */
+}
+
+/* 横書きルビ */
+.tpv-horizontal ruby {
+    ruby-position: over;
+    ruby-align: center;
+}
+.tpv-horizontal rt {
+    font-size: 0.5em;
+}
+
+/* ルビ入力ヒント（textarea 下部のインライン説明） */
+.ruby-input-hint {
+    font-size: 11px;
+    color: var(--color-text-muted, #8a9baf);
+    margin-top: 4px;
+    user-select: none;
+    font-family: monospace;
+}
+
 /* 空テキストページのプレースホルダー */
 #text-preview-placeholder {
     display: none;

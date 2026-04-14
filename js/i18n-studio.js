@@ -62,6 +62,7 @@ export const STRINGS = {
         btn_add_bubble:       'テキスト追加',
         btn_add_image:        '画像追加',
         label_text_overflow:  '溢れあり',
+        hint_ruby_syntax:     '{漢字|かんじ} でルビ入力',
         placeholder_drop_image: '画像をドロップ',
         placeholder_or_click: 'またはクリックして選択',
 
@@ -272,6 +273,7 @@ export const STRINGS = {
         btn_add_bubble:       'Add Text',
         btn_add_image:        'Add Image',
         label_text_overflow:  'Overflow',
+        hint_ruby_syntax:     'Ruby: {base|reading}',
         placeholder_drop_image: 'Drop image here',
         placeholder_or_click: 'or click to select',
 

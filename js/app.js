@@ -19,7 +19,7 @@ import { applyTheme, bindThemePreferenceListener, getThemeMode, setThemeMode } f
 import { get as idbGet } from 'idb-keyval';
 import { createId } from './utils.js';
 import { CANONICAL_PAGE_WIDTH, CANONICAL_PAGE_HEIGHT } from './page-geometry.js';
-import { composeText, getWritingModeFromConfigs, getFontPresetFromConfigs } from './layout.js';
+import { composeText, getWritingModeFromConfigs, getFontPresetFromConfigs, parseRubyTokens, tokensToPlainText, alignRubyToLines } from './layout.js';
 
 const EDITOR_FRAME_WIDTH = CANONICAL_PAGE_WIDTH;
 const EDITOR_FRAME_HEIGHT = CANONICAL_PAGE_HEIGHT;
@@ -1960,24 +1960,53 @@ function _escHtml(str) {
 /**
  * 縦書き列の 1 行を HTML にマークアップする。
  * 2〜4 桁の半角数字を <span class="tcy"> でラップし縦中横（Tate-Chu-Yoko）を適用する。
+ * ルビなし plain-text 用。ruby 付き行は _markupTokenLine を使用する。
  */
 function _markupVerticalLine(rawLine) {
     if (!rawLine) return '\u00a0';
+    return _markupTcyText(rawLine) || '\u00a0';
+}
+
+/**
+ * トークン行（alignRubyToLines の 1 要素）を HTML にマークアップする。
+ * - plain text token: _escHtml + TCY 数字ラップ（_markupVerticalLine 相当）
+ * - ruby token: <ruby><rb>base</rb><rt>ruby</rt></ruby>（base にも TCY 適用）
+ * 縦書き・横書き両方で使用できる。
+ */
+function _markupTokenLine(tokenLine) {
+    if (!tokenLine || !tokenLine.length) return '\u00a0';
+    const parts = [];
+    for (const tok of tokenLine) {
+        if (tok.kind === 'ruby') {
+            const markedBase = _markupTcyText(tok.base);
+            const rubyText = _escHtml(tok.ruby || '');
+            parts.push(`<ruby><rb>${markedBase}</rb><rt>${rubyText}</rt></ruby>`);
+        } else {
+            parts.push(_markupTcyText(tok.text || ''));
+        }
+    }
+    const html = parts.join('');
+    return html || '\u00a0';
+}
+
+/** 文字列内の 2〜4 桁の半角数字に TCY span を適用する（内部ヘルパー） */
+function _markupTcyText(text) {
+    if (!text) return '';
     const parts = [];
     let lastIdx = 0;
     const re = /[0-9]{2,4}/g;
     let m;
-    while ((m = re.exec(rawLine)) !== null) {
+    while ((m = re.exec(text)) !== null) {
         if (m.index > lastIdx) {
-            parts.push(_escHtml(rawLine.slice(lastIdx, m.index)));
+            parts.push(_escHtml(text.slice(lastIdx, m.index)));
         }
         parts.push(`<span class="tcy">${m[0]}</span>`);
         lastIdx = re.lastIndex;
     }
-    if (lastIdx < rawLine.length) {
-        parts.push(_escHtml(rawLine.slice(lastIdx)));
+    if (lastIdx < text.length) {
+        parts.push(_escHtml(text.slice(lastIdx)));
     }
-    return parts.length ? parts.join('') : _escHtml(rawLine);
+    return parts.length ? parts.join('') : _escHtml(text);
 }
 
 /**
@@ -2019,6 +2048,44 @@ function _linesIntoParagraphs(lines) {
 }
 
 /**
+ * ルビあり横書き向け: alignRubyToLines の token-line 配列を段落単位に結合する。
+ * 空行（lines[i] === ''）は null として返す。
+ * 連続する token 行のトークンを結合し、text トークン間にスペースを挿入する。
+ * @param {Array<Array>} rubyLines  alignRubyToLines の返り値
+ * @param {string[]} lines          composeText の lines（空行判定用）
+ * @returns {Array<Array<token>|null>}
+ */
+function _tokenLinesIntoParagraphs(rubyLines, lines) {
+    const result = [];
+    let buf = [];
+
+    function flushBuf() {
+        if (!buf.length) return;
+        // 複数行のトークンをスペース区切りで結合（行境界にスペースを挿入）
+        const merged = [];
+        for (let i = 0; i < buf.length; i++) {
+            merged.push(...buf[i]);
+            if (i < buf.length - 1) {
+                merged.push({ kind: 'text', text: ' ' });
+            }
+        }
+        result.push(merged);
+        buf = [];
+    }
+
+    for (let i = 0; i < lines.length; i++) {
+        if (lines[i] === '') {
+            flushBuf();
+            result.push(null);
+        } else {
+            buf.push(rubyLines[i] || []);
+        }
+    }
+    flushBuf();
+    return result;
+}
+
+/**
  * テキストセクションの組版結果をキャンバス上の HTML オーバーレイとして描画する。
  *
  * ▼ 縦書き (vertical-rl)
@@ -2026,11 +2093,13 @@ function _linesIntoParagraphs(lines) {
  *   - 列幅   = frame.w / maxLines（全列が枠内に収まるよう均等割り）
  *   - 文字ピッチ = frame.h / charsPerLine（縦方向均等割り）
  *   - 2〜4 桁の半角数字に <span class="tcy"> を自動付与（縦中横）
+ *   - {base|ruby} 記法を <ruby> タグに変換（ルビ）
  *
  * ▼ 横書き (horizontal-tb)
  *   - 行を段落ごとに結合し、<p class="tpv-para"> として流し込む
  *   - CSS が text-align:justify + hyphens:auto で再ラップ
  *   - lang 属性を設定しブラウザの自動ハイフネーション辞書を有効化
+ *   - {base|ruby} 記法を <ruby> タグに変換（ルビ）
  */
 function renderTextPreview(section) {
     const overlay = document.getElementById('text-preview-overlay');
@@ -2040,7 +2109,16 @@ function renderTextPreview(section) {
     const raw = section.texts?.[lang] ?? '';
     const writingMode = getWritingModeFromConfigs(lang, state.languageConfigs);
     const fontPreset = getFontPresetFromConfigs(lang, state.languageConfigs);
-    const composed = composeText(raw, lang, writingMode, fontPreset);
+
+    // ルビマークアップを解析し、ベーステキストで組版する
+    const rubyTokens = parseRubyTokens(raw);
+    const hasRuby = rubyTokens.some(t => t.kind === 'ruby');
+    const plainText = hasRuby ? tokensToPlainText(rubyTokens) : raw;
+
+    const composed = composeText(plainText, lang, writingMode, fontPreset);
+
+    // ルビあり: 行ごとのトークン配列を構築
+    const rubyLines = hasRuby ? alignRubyToLines(rubyTokens, composed.lines) : null;
 
     overlay.style.backgroundColor = section.backgroundColor || '#ffffff';
     overlay.style.display = 'block';
@@ -2087,21 +2165,40 @@ function renderTextPreview(section) {
             const lineHeight  = (colW / fontSize).toFixed(3);
             const letterSpacing = ((h / charsPerCol) - fontSize).toFixed(3);
 
-            const cols = composed.lines.map(line =>
-                `<span class="tpv-col"` +
-                ` style="width:${colW}px;line-height:${lineHeight};letter-spacing:${letterSpacing}px"` +
-                `>${_markupVerticalLine(line)}</span>`
-            ).join('');
+            const cols = composed.lines.map((line, i) => {
+                const content = rubyLines
+                    ? _markupTokenLine(rubyLines[i])
+                    : _markupVerticalLine(line);
+                return `<span class="tpv-col"` +
+                    ` style="width:${colW}px;line-height:${lineHeight};letter-spacing:${letterSpacing}px"` +
+                    `>${content}</span>`;
+            }).join('');
             contentEl.innerHTML = `<div class="tpv-vertical">${cols}</div>`;
         } else {
             // 横書き: 段落単位に行を結合し、CSS の justify + hyphens に委ねる
             const lineH  = composed.frame.h / (composed.rules?.maxLines || 20);
-            const paras  = _linesIntoParagraphs(composed.lines);
-            const html   = paras.map(p =>
-                p === null
-                    ? `<div class="tpv-blank" style="height:${lineH}px"></div>`
-                    : `<p class="tpv-para">${_escHtml(p)}</p>`
-            ).join('');
+
+            let html;
+            if (rubyLines) {
+                // ルビあり: token-line をそのまま段落に変換
+                const tokenParas = _tokenLinesIntoParagraphs(rubyLines, composed.lines);
+                html = tokenParas.map(p =>
+                    p === null
+                        ? `<div class="tpv-blank" style="height:${lineH}px"></div>`
+                        : `<p class="tpv-para">${p.map(tok =>
+                            tok.kind === 'ruby'
+                                ? `<ruby><rb>${_markupTcyText(tok.base)}</rb><rt>${_escHtml(tok.ruby || '')}</rt></ruby>`
+                                : _escHtml(tok.text || '')
+                          ).join('')}</p>`
+                ).join('');
+            } else {
+                const paras = _linesIntoParagraphs(composed.lines);
+                html = paras.map(p =>
+                    p === null
+                        ? `<div class="tpv-blank" style="height:${lineH}px"></div>`
+                        : `<p class="tpv-para">${_escHtml(p)}</p>`
+                ).join('');
+            }
             contentEl.innerHTML =
                 `<div class="tpv-horizontal" lang="${lang.toLowerCase()}" style="line-height:${lineH}px">${html}</div>`;
         }

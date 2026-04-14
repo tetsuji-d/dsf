@@ -269,6 +269,155 @@ export function composeText(rawText, lang, writingMode, fontPreset = DEFAULT_FON
     };
 }
 
+// ─── Ruby (furigana) support ────────────────────────────────────────────────
+
+/**
+ * {base|ruby} マークアップをトークン配列に解析する。
+ * 入力例: "今日は{漢字|かんじ}が好き" →
+ *   [ {kind:'text', text:'今日は'},
+ *     {kind:'ruby', base:'漢字', ruby:'かんじ'},
+ *     {kind:'text', text:'が好き'} ]
+ *
+ * @param {string} rawText
+ * @returns {Array<{kind:'text',text:string}|{kind:'ruby',base:string,ruby:string}>}
+ */
+export function parseRubyTokens(rawText) {
+    const text = normalizeText(rawText);
+    const tokens = [];
+    const re = /\{([^|{}]+)\|([^|{}]*)\}/g;
+    let lastIdx = 0;
+    let m;
+    while ((m = re.exec(text)) !== null) {
+        if (m.index > lastIdx) {
+            tokens.push({ kind: 'text', text: text.slice(lastIdx, m.index) });
+        }
+        tokens.push({ kind: 'ruby', base: m[1], ruby: m[2] });
+        lastIdx = re.lastIndex;
+    }
+    if (lastIdx < text.length) {
+        tokens.push({ kind: 'text', text: text.slice(lastIdx) });
+    }
+    return tokens;
+}
+
+/**
+ * トークン配列からルビを除いたベーステキストのみを返す（組版エンジン用）。
+ * @param {Array} tokens parseRubyTokens() の返り値
+ * @returns {string}
+ */
+export function tokensToPlainText(tokens) {
+    return (tokens || []).map(t => t.kind === 'ruby' ? t.base : t.text).join('');
+}
+
+/**
+ * composeText の lines 配列にトークンを再整列する。
+ *
+ * アルゴリズム:
+ *   - トークンを「文字単位」の unit リスト（char / ruby group）に展開する。
+ *   - 各 composed line の文字数ぶん unit を消費し、token-line を構築する。
+ *   - '\n' (段落区切り) は unit リスト側にだけ存在し composed lines には現れないため
+ *     各行の処理前に skip する。
+ *   - ruby グループは行をまたいで分割しない（収まらない場合は plain text として切り出す）。
+ *
+ * @param {Array} tokens    parseRubyTokens() の返り値
+ * @param {string[]} lines  composeText から返された lines 配列（空文字 = 段落区切り）
+ * @returns {Array<Array<{kind:string}>>}  lines と同じ長さの token-line 配列
+ */
+export function alignRubyToLines(tokens, lines) {
+    if (!tokens || !tokens.length || !lines || !lines.length) {
+        return (lines || []).map(() => []);
+    }
+
+    // トークンを文字単位の unit リストに展開する
+    // unit: {kind:'ruby', base, ruby} | {kind:'char', char}
+    const units = [];
+    for (const tok of tokens) {
+        if (tok.kind === 'ruby') {
+            units.push({ kind: 'ruby', base: tok.base, ruby: tok.ruby });
+        } else {
+            for (const ch of Array.from(tok.text || '')) {
+                units.push({ kind: 'char', char: ch });
+            }
+        }
+    }
+
+    let unitIdx = 0;
+
+    /** 改行文字 unit を読み飛ばす（段落区切りに相当） */
+    function skipNewlines() {
+        while (unitIdx < units.length &&
+               units[unitIdx].kind === 'char' &&
+               units[unitIdx].char === '\n') {
+            unitIdx++;
+        }
+    }
+
+    /** 隣接する text token を結合して出力をコンパクトにする */
+    function mergeTextTokens(toks) {
+        const out = [];
+        for (const t of toks) {
+            if (t.kind === 'text' && out.length && out[out.length - 1].kind === 'text') {
+                out[out.length - 1] = { kind: 'text', text: out[out.length - 1].text + t.text };
+            } else {
+                out.push(t);
+            }
+        }
+        return out;
+    }
+
+    const result = [];
+
+    for (const line of lines) {
+        // 段落区切り（'\n'）を読み飛ばしてから処理
+        skipNewlines();
+
+        if (line === '') {
+            result.push([]);
+            continue;
+        }
+
+        const lineLen = Array.from(line).length;
+        const lineTokens = [];
+        let remaining = lineLen;
+
+        while (remaining > 0 && unitIdx < units.length) {
+            const unit = units[unitIdx];
+
+            if (unit.kind === 'char') {
+                if (unit.char === '\n') { unitIdx++; continue; }
+                lineTokens.push({ kind: 'text', text: unit.char });
+                remaining--;
+                unitIdx++;
+            } else {
+                // ruby group
+                const baseLen = Array.from(unit.base || '').length;
+                if (baseLen <= remaining) {
+                    // グループ全体がこの行に収まる
+                    lineTokens.push({ kind: 'ruby', base: unit.base, ruby: unit.ruby });
+                    remaining -= baseLen;
+                    unitIdx++;
+                } else {
+                    // 収まらない → base の先頭 remaining 文字を plain text として出力し
+                    // ruby グループを分割する（ルビなし）
+                    const baseChars = Array.from(unit.base || '');
+                    lineTokens.push({ kind: 'text', text: baseChars.slice(0, remaining).join('') });
+                    // 残りの base を新しい ruby unit として残す
+                    units[unitIdx] = {
+                        kind: 'ruby',
+                        base: baseChars.slice(remaining).join(''),
+                        ruby: unit.ruby
+                    };
+                    remaining = 0;
+                }
+            }
+        }
+
+        result.push(mergeTextTokens(lineTokens));
+    }
+
+    return result;
+}
+
 export function getWritingModeFromConfigs(lang, languageConfigs) {
     if (languageConfigs && languageConfigs[lang]?.writingMode) {
         return languageConfigs[lang].writingMode;
