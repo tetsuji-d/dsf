@@ -114,6 +114,9 @@ function normalizeContentByBodyKind(content, bodyKind) {
         // Transitional compatibility fields.
         text: src.text || '',
         texts: deepClone(src.texts || {}),
+        paperPreset: src.paperPreset || '',
+        backgroundColor: src.backgroundColor || '',
+        textColor: src.textColor || '',
         layout: deepClone(src.layout || {})
     };
 
@@ -188,6 +191,9 @@ function sectionToNormalPage(section) {
             bubbles: deepClone(src.bubbles || []),
             text: src.text || '',
             texts: deepClone(src.texts || {}),
+            paperPreset: src.paperPreset || '',
+            backgroundColor: src.backgroundColor || '',
+            textColor: src.textColor || '',
             layout: deepClone(src.layout || {}),
             imagePosition: deepClone(src.imagePosition || { x: 0, y: 0, scale: 1, rotation: 0 }),
             imageBasePosition: deepClone(src.imageBasePosition || { x: 0, y: 0, scale: 1, rotation: 0 }),
@@ -209,6 +215,9 @@ function pageToSection(page) {
         bubbles: deepClone(c.bubbles || []),
         text: c.text || '',
         texts: deepClone(c.texts || {}),
+        paperPreset: c.paperPreset || '',
+        backgroundColor: c.backgroundColor || '',
+        textColor: c.textColor || '',
         layout: deepClone(c.layout || {}),
         imagePosition: deepClone(c.imagePosition || { x: 0, y: 0, scale: 1, rotation: 0 }),
         imageBasePosition: deepClone(c.imageBasePosition || { x: 0, y: 0, scale: 1, rotation: 0 }),
@@ -381,9 +390,12 @@ function pageToBlock(page, languages = ['ja']) {
             backgrounds: deepClone(page.content?.backgrounds || {}),
             thumbnail: page.content?.thumbnail || '',
             bubbles: deepClone(page.content?.bubbles || []),
-            text: page.content?.text || '',
-            texts: deepClone(page.content?.texts || {}),
-            layout: deepClone(page.content?.layout || {}),
+                text: page.content?.text || '',
+                texts: deepClone(page.content?.texts || {}),
+                paperPreset: page.content?.paperPreset || '',
+                backgroundColor: page.content?.backgroundColor || '',
+                textColor: page.content?.textColor || '',
+                layout: deepClone(page.content?.layout || {}),
             imagePosition: deepClone(page.content?.imagePosition || { x: 0, y: 0, scale: 1, rotation: 0 }),
             imageBasePosition: deepClone(page.content?.imageBasePosition || { x: 0, y: 0, scale: 1, rotation: 0 }),
             imagePositions: deepClone(page.content?.imagePositions || {})
@@ -424,12 +436,16 @@ export function normalizeProjectDataV5(data = {}) {
         : languages[0];
 
     let pages = [];
-    if (Array.isArray(data.pages) && data.pages.length) {
-        pages = ensureCoverBoundaries(data.pages);
-    } else if (Array.isArray(data.blocks) && data.blocks.length) {
+    // Authoring data is canonical in blocks. `pages` may contain stale viewer/export
+    // output, so only use it when blocks/sections are unavailable.
+    if (Array.isArray(data.blocks) && data.blocks.length) {
         pages = blocksToPages(data.blocks);
-    } else {
+    } else if (Array.isArray(data.sections) && data.sections.length) {
         pages = migrateSectionsToPages(data.sections || []);
+    } else if (Array.isArray(data.pages) && data.pages.length) {
+        pages = ensureCoverBoundaries(data.pages);
+    } else {
+        pages = migrateSectionsToPages([]);
     }
     if (!pages.length) pages = migrateSectionsToPages(data.sections || []);
 

@@ -17,6 +17,7 @@ import { set as idbSet, get as idbGet } from 'idb-keyval';
 import { createId } from './utils.js';
 import { loadImageForCanvas, fetchAssetBlob, shouldEmbedAsset } from './asset-fetch.js';
 import { db, storage, auth } from './firebase-core.js';
+import { encodeCanvasToWebP, isWebPBlob } from './canvas-encoding.js';
 
 export { db, storage, auth } from './firebase-core.js';
 
@@ -43,9 +44,12 @@ const projectAssetByteCache = new Map();
 async function _uploadToR2(blob, path) {
     const token = await auth.currentUser?.getIdToken(false);
     if (!token) throw new Error('R2 upload requires authentication');
+    const uploadBlob = blob instanceof Blob ? blob : new Blob([blob], { type: 'image/webp' });
+    if (String(path || '').toLowerCase().endsWith('.webp') && !(await isWebPBlob(uploadBlob))) {
+        throw new Error('WebP ではない画像を .webp としてアップロードしようとしました。');
+    }
     const fd = new FormData();
-    // Pass blob with the correct MIME type (already webp after compressImage)
-    fd.append('file', blob instanceof Blob ? blob : new Blob([blob], { type: 'image/webp' }), path.split('/').pop());
+    fd.append('file', uploadBlob, path.split('/').pop());
     fd.append('path', path);
     const res = await fetch('/upload', {
         method: 'POST',
@@ -65,6 +69,9 @@ async function _uploadToR2(blob, path) {
  * Use this instead of calling uploadBytes/getDownloadURL directly.
  */
 async function _storeFile(blob, path) {
+    if (String(path || '').toLowerCase().endsWith('.webp') && !(await isWebPBlob(blob))) {
+        throw new Error('WebP ではない画像を .webp として保存しようとしました。');
+    }
     if (_USE_R2) return _uploadToR2(blob, path);
     const storageRef = ref(storage, path);
     const snap = await uploadBytes(storageRef, blob);
@@ -497,6 +504,20 @@ function stripBlobUrls(obj) {
     return out;
 }
 
+function buildFixedBookConfig(mode, pageCount) {
+    const normalizedMode = mode === 'full' && pageCount >= 4 ? 'full' : 'simple';
+    const last = Math.max(0, pageCount - 1);
+    const covers = {
+        c1: { pageIndex: 0 },
+        c4: { pageIndex: last }
+    };
+    if (normalizedMode === 'full') {
+        covers.c2 = { pageIndex: 1 };
+        covers.c3 = { pageIndex: pageCount - 2 };
+    }
+    return { mode: normalizedMode, covers };
+}
+
 // ──────────────────────────────────────────────────────────────────────────────
 
 /**
@@ -511,12 +532,15 @@ async function performSave() {
     // blocks / pages は保存専用のローカル変数に計算し、グローバル state を dispatch なしに書き換えない
     const blocksToSave = syncBlocksWithSections(state.blocks, state.sections, state.languages);
     const pagesToSave = blocksToPages(blocksToSave);
+    const bookToSave = buildFixedBookConfig(state.bookMode || state.book?.mode || 'simple', pagesToSave.length);
+    state.bookMode = bookToSave.mode;
+    state.book = bookToSave;
 
     updateSaveIndicator('saving', '保存中...');
 
     // 1. ローカルバックアップ (常に実行)
     try {
-        const localSnapshot = JSON.parse(JSON.stringify({ ...state, blocks: blocksToSave, pages: pagesToSave }));
+        const localSnapshot = JSON.parse(JSON.stringify({ ...state, blocks: blocksToSave, pages: pagesToSave, bookMode: bookToSave.mode, book: bookToSave }));
         ensureLocalProjectIdentity(localSnapshot);
         state.localProjectId = localSnapshot.localProjectId;
         await idbSet('dsf_autosave', {
@@ -547,6 +571,8 @@ async function performSave() {
                 languages: state.languages,
                 defaultLang: state.defaultLang || state.languages?.[0] || 'ja',
                 languageConfigs: state.languageConfigs,
+                bookMode: bookToSave.mode,
+                book: bookToSave,
                 uiPrefs: state.uiPrefs || null
             };
 
@@ -656,10 +682,7 @@ function compressImage(file, maxWidth, quality) {
                 const ctx = canvas.getContext('2d');
                 ctx.drawImage(img, 0, 0, width, height);
 
-                canvas.toBlob((blob) => {
-                    if (blob) resolve(blob);
-                    else reject(new Error("Canvas to Blob failed"));
-                }, 'image/webp', quality);
+                encodeCanvasToWebP(canvas, quality, '画像').then(resolve, reject);
             };
             img.onerror = (e) => reject(e);
         };
@@ -729,7 +752,7 @@ export async function generateCroppedThumbnail(bgUrl, pos, refresh) {
         ctx.restore();
         revoke();
 
-        const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/webp', 0.8));
+        const blob = await encodeCanvasToWebP(canvas, 0.8, 'サムネイル');
         let thumbUrl = '';
         if (!state.uid) {
             const thumbKey = `local_img_thumb_adjusted_${timestamp}`;
@@ -888,6 +911,8 @@ export async function loadProject(pid, refresh) {
         dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'blocks', value: data.blocks || [] } });
         dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'sections', value: data.sections } });
         dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'dsfPages', value: Array.isArray(data.dsfPages) ? data.dsfPages : [] } });
+        dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'bookMode', value: data.bookMode || data.book?.mode || 'simple' } });
+        dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'book', value: data.book || { mode: data.bookMode || 'simple', covers: { c1: { pageIndex: 0 }, c4: { pageIndex: Math.max(0, (data.sections || []).length - 1) } } } } });
         dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'languages', value: data.languages && data.languages.length > 0 ? data.languages : ['ja'] } });
         dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'defaultLang', value: data.defaultLang || (data.languages && data.languages.length > 0 ? data.languages[0] : 'ja') } });
         dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'uiPrefs', value: data.uiPrefs || state.uiPrefs || {} } });

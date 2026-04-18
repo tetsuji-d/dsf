@@ -15,6 +15,14 @@ export const state = {
     languageConfigs: {
         ja: { pageDirection: 'rtl' }
     },
+    bookMode: 'simple',
+    book: {
+        mode: 'simple',
+        covers: {
+            c1: { pageIndex: 0 },
+            c4: { pageIndex: 0 }
+        }
+    },
     activeLang: 'ja',        // エディタで表示中の言語
     blocks: [
         {

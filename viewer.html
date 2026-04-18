@@ -25,6 +25,10 @@
                 <div id="viewer-content"></div>
                 <div id="viewer-bubbles"></div>
             </div>
+            <!-- 見開き時の隣ページ -->
+            <div id="viewer-spread-stage" style="display:none;">
+                <div id="viewer-spread-content"></div>
+            </div>
         </div>
         <!-- UD Touch Zones for navigation -->
         <!-- Center zone is 40% to prevent mis-clicks near the edges -->
@@ -35,6 +39,20 @@
                 title="メニュー表示/非表示"></div>
             <div id="zone-next" style="flex: 0 0 30%; height:100%; cursor:pointer;" onclick="viewerNavRight()"
                 title="次のページ"></div>
+        </div>
+    </div>
+
+    <div id="viewer-empty-state" class="viewer-empty-state" hidden>
+        <div class="viewer-empty-panel">
+            <div class="viewer-empty-brand">DSF Viewer</div>
+            <h1 id="viewer-empty-title"></h1>
+            <p id="viewer-empty-body"></p>
+            <button id="viewer-empty-open" class="viewer-empty-open-btn" type="button"
+                onclick="document.getElementById('file-input').click()">
+                <span class="material-icons" aria-hidden="true">folder_open</span>
+                <span id="viewer-empty-open-label"></span>
+            </button>
+            <div id="viewer-empty-hint" class="viewer-empty-hint"></div>
         </div>
     </div>
 
@@ -59,6 +77,9 @@
                     <div id="lang-picker-menu" class="viewer-lang-picker-menu"></div>
                 </div>
                 <div id="viewer-auth-slot" class="viewer-auth-slot"></div>
+                <button id="viewer-spread-btn" class="btn-icon header-btn" onclick="toggleViewerSpread()" title="見開き表示">
+                    <span class="material-icons" aria-hidden="true">auto_stories</span>
+                </button>
                 <button id="viewer-file-btn" class="btn-icon header-btn" onclick="document.getElementById('file-input').click()"
                     title="ファイルを開く">
                     <span class="material-icons" aria-hidden="true">folder_open</span>

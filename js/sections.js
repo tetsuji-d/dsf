@@ -68,6 +68,7 @@ function createTextSection() {
         type: 'text',
         texts: {},
         layout: {},
+        paperPreset: 'white',
         backgroundColor: '#ffffff',
         textColor: '#000000',
         bubbles: []
@@ -87,6 +88,82 @@ function escapeHtml(text) {
         .replace(/</g, '&lt;')
         .replace(/>/g, '&gt;');
 }
+
+function escapeAttr(text) {
+    return escapeHtml(text).replace(/"/g, '&quot;');
+}
+
+function getPageImagePosition(section, lang) {
+    if (!section) return { x: 0, y: 0, scale: 1, rotation: 0, flipX: false };
+    return section.imagePositions?.[lang]
+        || section.imagePositions?.[state.defaultLang]
+        || section.imageBasePosition
+        || section.imagePosition
+        || { x: 0, y: 0, scale: 1, rotation: 0, flipX: false };
+}
+
+export function getPageImageForLang(section, lang) {
+    if (!section) return '';
+    return section.backgrounds?.[lang]
+        || section.backgrounds?.[state.defaultLang]
+        || section.thumbnail
+        || section.background
+        || '';
+}
+
+export function renderPositionedThumbImageHtml(section, lang, alt = '') {
+    const src = getOptimizedImageUrl(getPageImageForLang(section, lang));
+    if (!src) return '';
+    const pos = getPageImagePosition(section, lang);
+    return `<img class="thumb-canvas-image positioned-thumb-image"` +
+        ` src="${escapeAttr(src)}"` +
+        ` alt="${escapeAttr(alt)}"` +
+        ` loading="lazy"` +
+        ` data-pos-x="${Number(pos?.x) || 0}"` +
+        ` data-pos-y="${Number(pos?.y) || 0}"` +
+        ` data-pos-scale="${Math.max(0.1, Number(pos?.scale) || 1)}"` +
+        ` data-pos-rotation="${Number(pos?.rotation) || 0}"` +
+        ` data-pos-flip-x="${pos?.flipX ? '1' : '0'}"` +
+        ` onload="syncDsfThumbImagePosition(this)">`;
+}
+
+window.syncDsfThumbImagePosition = (img) => {
+    if (!img || !img.naturalWidth || !img.naturalHeight) return;
+    const frame = img.parentElement;
+    if (!frame) return;
+    const rect = frame.getBoundingClientRect();
+    const frameW = rect.width || frame.clientWidth || 72;
+    const frameH = rect.height || frame.clientHeight || 128;
+    const imgAspect = img.naturalWidth / img.naturalHeight;
+    const frameAspect = frameW / frameH;
+    let drawW;
+    let drawH;
+    if (imgAspect > frameAspect) {
+        drawH = frameH;
+        drawW = frameH * imgAspect;
+    } else {
+        drawW = frameW;
+        drawH = frameW / imgAspect;
+    }
+
+    const ratioX = frameW / 360;
+    const ratioY = frameH / 640;
+    const x = Number(img.dataset.posX) || 0;
+    const y = Number(img.dataset.posY) || 0;
+    const scale = Math.max(0.1, Number(img.dataset.posScale) || 1);
+    const rotation = Number(img.dataset.posRotation) || 0;
+    const flipX = img.dataset.posFlipX === '1' ? ' scaleX(-1)' : '';
+
+    img.style.position = 'absolute';
+    img.style.left = '50%';
+    img.style.top = '50%';
+    img.style.width = `${drawW}px`;
+    img.style.height = `${drawH}px`;
+    img.style.objectFit = 'fill';
+    img.style.transformOrigin = 'center center';
+    img.style.transform =
+        `translate(calc(-50% + ${x * ratioX}px), calc(-50% + ${y * ratioY}px)) scale(${scale}) rotate(${rotation}deg)${flipX}`;
+};
 
 function getLocalized(meta, key, lang) {
     if (!meta || !meta[key] || typeof meta[key] !== 'object') return '';
@@ -506,14 +583,14 @@ export function renderThumbs() {
             `;
 
             if (s.type === 'image') {
-                const thumbUrl = getOptimizedImageUrl(s.backgrounds?.[state.activeLang] || s.backgrounds?.[state.defaultLang] || s.thumbnail || s.background || '');
+                const thumbImg = renderPositionedThumbImageHtml(s, state.activeLang, String(pageIdx + 1));
                 return `
                     <div class="thumb-wrap thumb-card ${selected ? 'active' : ''}" ${dataAttrs}
                         onclick="changeBlock(${blockIdx})"
                         ${dragHandlers}
                         aria-current="${selected ? 'true' : 'false'}">
                         <div class="thumb-canvas">
-                            <img class="thumb-canvas-image" src="${thumbUrl}">
+                            ${thumbImg}
                         </div>
                         <span class="thumb-page-num">${pageIdx + 1}</span>
                         <div class="thumb-card-top"></div>

@@ -211,8 +211,149 @@ function wrapWordParagraph(paragraph, maxWidthPx, font) {
     return lines;
 }
 
+function wrapWordParagraphWithRanges(paragraph, maxWidthPx, font, sourceStart) {
+    const text = String(paragraph || '');
+    const tokens = [];
+    const re = /\s+|\S+/g;
+    let match;
+    while ((match = re.exec(text)) !== null) {
+        tokens.push({
+            text: match[0],
+            start: match.index,
+            end: match.index + match[0].length,
+            isSpace: /^\s+$/.test(match[0])
+        });
+    }
+
+    const lines = [];
+    let line = '';
+    let lineEnd = 0;
+
+    function pushLine(endOverride = lineEnd) {
+        const out = line.trimEnd();
+        if (out) {
+            lines.push({
+                text: out,
+                sourceEnd: sourceStart + endOverride,
+                breakAfter: false
+            });
+        }
+        line = '';
+        lineEnd = endOverride;
+    }
+
+    for (const token of tokens) {
+        if (!token.text) continue;
+
+        if (token.isSpace) {
+            if (!line) {
+                lineEnd = token.end;
+                continue;
+            }
+            const candidate = line + token.text;
+            if (measureTextWidth(candidate, font) <= maxWidthPx) {
+                line = candidate;
+                lineEnd = token.end;
+            } else {
+                pushLine(token.end);
+            }
+            continue;
+        }
+
+        const candidate = line ? line + token.text : token.text;
+        if (measureTextWidth(candidate, font) <= maxWidthPx) {
+            line = candidate;
+            lineEnd = token.end;
+            continue;
+        }
+
+        if (line) {
+            pushLine(lineEnd);
+        }
+
+        if (measureTextWidth(token.text, font) <= maxWidthPx) {
+            line = token.text;
+            lineEnd = token.end;
+            continue;
+        }
+
+        const chunks = splitTokenByWidth(token.text, maxWidthPx, font);
+        let offset = token.start;
+        for (let i = 0; i < chunks.length; i += 1) {
+            const chunk = chunks[i];
+            const chunkEnd = offset + chunk.length;
+            if (i < chunks.length - 1) {
+                lines.push({
+                    text: chunk,
+                    sourceEnd: sourceStart + chunkEnd,
+                    breakAfter: false
+                });
+            } else {
+                line = chunk;
+                lineEnd = chunkEnd;
+            }
+            offset = chunkEnd;
+        }
+    }
+
+    if (line) pushLine(lineEnd);
+    return lines;
+}
+
+function composeHorizontalWithPreset(rawText, preset) {
+    const normalized = normalizeText(rawText);
+    const paragraphs = normalized.split('\n');
+    const lines = [];
+    const maxWidthPx = preset.frame.w;
+    const font = `${preset.font.size}px ${preset.font.family}`;
+    let sourceOffset = 0;
+
+    for (let i = 0; i < paragraphs.length; i += 1) {
+        const para = paragraphs[i];
+        const hasTrailingNewline = i < paragraphs.length - 1;
+        if (!para) {
+            lines.push({
+                text: '',
+                sourceEnd: sourceOffset + (hasTrailingNewline ? 1 : 0),
+                breakAfter: true
+            });
+        } else {
+            const wrapped = wrapWordParagraphWithRanges(para, maxWidthPx, font, sourceOffset);
+            if (wrapped.length) {
+                if (hasTrailingNewline) {
+                    wrapped[wrapped.length - 1].sourceEnd = sourceOffset + para.length + 1;
+                    wrapped[wrapped.length - 1].breakAfter = true;
+                }
+                lines.push(...wrapped);
+            }
+        }
+        sourceOffset += para.length + (hasTrailingNewline ? 1 : 0);
+    }
+
+    const maxLines = preset.rules.maxLines;
+    const fitted = lines.slice(0, maxLines);
+    const overflow = lines.length > maxLines;
+    const consumedEnd = fitted.length
+        ? fitted[fitted.length - 1].sourceEnd
+        : 0;
+    let overflowText = overflow ? normalized.slice(consumedEnd) : '';
+    if (overflowText) overflowText = overflowText.replace(/^[ \t]+/, '');
+
+    return {
+        lines: fitted.map(line => line.text),
+        lineBreaks: fitted.map(line => !!line.breakAfter),
+        overflow,
+        overflowText,
+        pageText: normalized.slice(0, consumedEnd).trimEnd()
+    };
+}
+
 function composeWithPreset(rawText, preset) {
     const normalized = normalizeText(rawText);
+    if (preset.writingMode === 'horizontal-tb') {
+        return composeHorizontalWithPreset(normalized, preset);
+    }
+
     const [limitedText, cutByCharLimit] = splitByChars(normalized, preset.rules.maxChars);
     const paragraphs = limitedText.split('\n');
     const lines = [];
@@ -247,8 +388,10 @@ function composeWithPreset(rawText, preset) {
 
     return {
         lines: fittedLines,
+        lineBreaks: fittedLines.map(() => false),
         overflow,
-        overflowText
+        overflowText,
+        pageText: fittedLines.join('\n')
     };
 }
 
@@ -262,8 +405,10 @@ export function composeText(rawText, lang, writingMode, fontPreset = DEFAULT_FON
         font: preset.font,
         rules: preset.rules,
         lines: out.lines,
+        lineBreaks: out.lineBreaks || out.lines.map(() => false),
         overflow: out.overflow,
         overflowText: out.overflowText,
+        pageText: out.pageText,
         fontPreset: FONT_PRESETS[fontPreset] ? fontPreset : DEFAULT_FONT_PRESET,
         styleHash: `${preset.writingMode}:${preset.font.family}:${preset.font.size}:${preset.rules.maxLines}:${preset.rules.charsPerLine}`
     };
@@ -301,7 +446,7 @@ export function paginateText(rawText, lang, writingMode, fontPreset = DEFAULT_FO
         let guard = 500; // 無限ループ防止
         while (remaining && guard-- > 0) {
             const result = composeWithPreset(remaining, preset);
-            pages.push(result.lines.join('\n'));
+            pages.push((result.pageText || result.lines.join('\n')).trimEnd());
             if (!result.overflow) break;
             remaining = result.overflowText || '';
         }

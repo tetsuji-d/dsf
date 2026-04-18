@@ -132,6 +132,8 @@ export const STRINGS = {
 
         // Page strip
         page_strip_label:     'ページ',
+        label_spread_view:    '見開き表示',
+        label_content_lang:   '作品言語',
 
         // Project Settings Modal
         ps_modal_title:          'プロジェクト設定',
@@ -154,6 +156,7 @@ export const STRINGS = {
         field_author:            '著者',
         field_description:       '説明文',
         field_copyright:         '著作権',
+        field_font:              'フォント',
 
         // Press Room
         press_subtitle:          'DSP → DSF レンダリング・発行',
@@ -163,6 +166,18 @@ export const STRINGS = {
         press_target_lang:       '対象言語',
         press_webp_quality:      'WebP 品質',
         press_output_size:       '出力サイズ',
+        press_book_structure:    '表紙構成',
+        press_book_layout:       '構成',
+        press_book_simple:       '表1 / 表4',
+        press_book_full:         '表1 / 表2 / 表3 / 表4',
+        press_book_full_disabled:'表1 / 表2 / 表3 / 表4（4ページ以上）',
+        press_book_fixed_hint:   '表紙はページ数から固定されます',
+        press_book_no_pages:     'ページがありません',
+        press_cover_c1:          'C1 表紙',
+        press_cover_c2:          'C2 表紙裏',
+        press_cover_c3:          'C3 裏表紙裏',
+        press_cover_c4:          'C4 裏表紙',
+        press_cover_page:        '{page}ページ目',
         press_res_360:           '360×640（プレビュー・開発）',
         press_res_720:           '720×1280（プレビュー）',
         press_res_1080:          '1080×1920（FHD・既定）',
@@ -345,6 +360,8 @@ export const STRINGS = {
 
         // Page strip
         page_strip_label:     'Pages',
+        label_spread_view:    'Spread View',
+        label_content_lang:   'Content Language',
 
         // Project Settings Modal
         ps_modal_title:          'Project Settings',
@@ -367,6 +384,7 @@ export const STRINGS = {
         field_author:            'Author',
         field_description:       'Description',
         field_copyright:         'Copyright',
+        field_font:              'Font',
 
         // Press Room
         press_subtitle:          'DSP → DSF Rendering & Publishing',
@@ -376,6 +394,18 @@ export const STRINGS = {
         press_target_lang:       'Target Language',
         press_webp_quality:      'WebP Quality',
         press_output_size:       'Output Size',
+        press_book_structure:    'Cover Structure',
+        press_book_layout:       'Layout',
+        press_book_simple:       'C1 / C4',
+        press_book_full:         'C1 / C2 / C3 / C4',
+        press_book_full_disabled:'C1 / C2 / C3 / C4 (4+ pages)',
+        press_book_fixed_hint:   'Cover roles are fixed from the page count',
+        press_book_no_pages:     'No pages',
+        press_cover_c1:          'C1 Front Cover',
+        press_cover_c2:          'C2 Inside Front',
+        press_cover_c3:          'C3 Inside Back',
+        press_cover_c4:          'C4 Back Cover',
+        press_cover_page:        'Page {page}',
         press_res_360:           '360×640 (preview / dev)',
         press_res_720:           '720×1280 (preview)',
         press_res_1080:          '1080×1920 (FHD, default)',

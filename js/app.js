@@ -19,12 +19,24 @@ import { applyTheme, bindThemePreferenceListener, getThemeMode, setThemeMode } f
 import { get as idbGet } from 'idb-keyval';
 import { createId } from './utils.js';
 import { CANONICAL_PAGE_WIDTH, CANONICAL_PAGE_HEIGHT } from './page-geometry.js';
-import { composeText, paginateText, PAGE_BREAK_MARKER, getWritingModeFromConfigs, getFontPresetFromConfigs, parseRubyTokens, tokensToPlainText, alignRubyToLines } from './layout.js';
+import { composeText, paginateText, PAGE_BREAK_MARKER, getWritingModeFromConfigs, getFontPresetFromConfigs, getFontPresetOptions, parseRubyTokens, tokensToPlainText, alignRubyToLines } from './layout.js';
 
 const EDITOR_FRAME_WIDTH = CANONICAL_PAGE_WIDTH;
 const EDITOR_FRAME_HEIGHT = CANONICAL_PAGE_HEIGHT;
 const IMAGE_SNAP_THRESHOLD = 12;
 const editorImageAspectCache = new Map();
+const TEXT_PAPER_PRESETS = Object.freeze({
+    white: {
+        label: '白紙',
+        backgroundColor: '#ffffff',
+        textColor: '#000000'
+    },
+    book: {
+        label: '書籍用紙',
+        backgroundColor: '#f7f1df',
+        textColor: '#1f1b16'
+    }
+});
 const EMPTY_IMAGE_SNAP_STATE = Object.freeze({
     centerX: false,
     centerY: false,
@@ -34,6 +46,9 @@ const EMPTY_IMAGE_SNAP_STATE = Object.freeze({
     edgeBottom: false
 });
 let imageSnapState = { ...EMPTY_IMAGE_SNAP_STATE };
+
+// 見開きクリックで「隣ページをアクティブ化」した時、元のアクティブページを隣として維持するための一時保持
+let _spreadActivationPinnedAdjIdx = -1;
 
 function getEditorImageFrameMetrics(bgUrl) {
     const aspect = editorImageAspectCache.get(bgUrl);
@@ -399,7 +414,7 @@ async function renderHomeDashboard() {
             const pid = card.dataset.id;
             const project = (cloudProjects || []).find((item) => item.id === pid);
             if (!project) return;
-            onLoadProject(pid, project.projectName, project.sections, project.languages, project.defaultLang, project.languageConfigs, project.title, project.uiPrefs, project.pages, project.blocks, project.version);
+            onLoadProject(pid, project.projectName, project.sections, project.languages, project.defaultLang, project.languageConfigs, project.title, project.uiPrefs, project.pages, project.blocks, project.version, project.bookMode, project.book);
             await cacheLocalRecentProject(JSON.parse(JSON.stringify(state)), window.localImageMap);
             refresh();
             window.switchRoom('editor');
@@ -956,6 +971,27 @@ function refresh(options = {}) {
         canvasPageLabel.textContent = `${currentPage} / ${totalPages} ${langCode}`;
     }
 
+    // ストリップヘッダーのページカウンターを更新（デスクトップ・モバイル共通）
+    const _totalPages   = (state.sections || []).length;
+    const _currentPage  = (state.activeIdx ?? 0) + 1;
+    const _counterText  = `${_currentPage} / ${_totalPages}`;
+    const stripCounter = document.getElementById('page-strip-counter');
+    if (stripCounter) stripCounter.textContent = _counterText;
+    const mobileCounter = document.getElementById('page-strip-counter-mobile');
+    if (mobileCounter) mobileCounter.textContent = _counterText;
+
+    const prevBtn = document.getElementById('btn-page-prev');
+    const nextBtn = document.getElementById('btn-page-next');
+    if (prevBtn) prevBtn.disabled = (state.activeIdx ?? 0) <= 0;
+    if (nextBtn) nextBtn.disabled = (state.activeIdx ?? 0) >= _totalPages - 1;
+
+    // モバイル見開きボタンのアクティブ状態
+    const mobileSpreadBtn = document.getElementById('btn-spread-view-mobile');
+    if (mobileSpreadBtn) mobileSpreadBtn.classList.toggle('active', !!(state.uiPrefs?.spreadView));
+
+    // 見開きページを更新
+    refreshSpreadPage();
+
     // 言語タブの更新
     if (!skipAncillary) {
         renderLangTabs();
@@ -1019,7 +1055,7 @@ function renderLangTabs() {
         const active = code === state.activeLang ? 'active' : '';
         return `<button class="lang-tab ${active}" onclick="switchLang('${code}')">${props.label}</button>`;
     }).join('');
-    ['lang-tabs', 'lang-tabs-mobile', 'lang-tabs-top'].forEach((id) => {
+    ['lang-tabs', 'lang-tabs-mobile', 'lang-tabs-top', 'lang-tabs-pages-panel'].forEach((id) => {
         const container = document.getElementById(id);
         if (container) container.innerHTML = html;
     });
@@ -1028,9 +1064,12 @@ function renderLangTabs() {
 function renderLangSettings() {
     const list = document.getElementById('lang-list');
     if (!list) return;
-    list.innerHTML = state.languages.map(code => {
+    const draft = _getPsSettingsSource();
+    const languages = draft.languages || ['ja'];
+    const configs = draft.languageConfigs || {};
+    list.innerHTML = languages.map(code => {
         const props = getLangProps(code);
-        const canRemove = state.languages.length > 1;
+        const canRemove = languages.length > 1;
         const removeBtn = canRemove
             ? `<button class="btn-sm lang-item-remove" onclick="removeLang('${code}')">✕</button>`
             : '';
@@ -1038,7 +1077,7 @@ function renderLangSettings() {
         // 複数方向対応の言語にはインラインセレクトを表示
         let dirSelect = '';
         if (props.directions && props.directions.length > 1) {
-            const currentDir = state.languageConfigs?.[code]?.pageDirection || props.directions[0].value;
+            const currentDir = configs?.[code]?.pageDirection || props.directions[0].value;
             const options = props.directions.map(d => {
                 const sel = d.value === currentDir ? ' selected' : '';
                 return `<option value="${d.value}"${sel}>${d.label}</option>`;
@@ -1051,12 +1090,13 @@ function renderLangSettings() {
 }
 
 window.changeLangDirection = (code, dir) => {
-    if (!state.languageConfigs) state.languageConfigs = {};
-    if (!state.languageConfigs[code]) state.languageConfigs[code] = {};
-    state.languageConfigs[code].pageDirection = dir;
+    _capturePsInputsToDraft();
+    const draft = _ensurePsDraft();
+    if (!draft.languageConfigs) draft.languageConfigs = {};
+    if (!draft.languageConfigs[code]) draft.languageConfigs[code] = {};
+    draft.languageConfigs[code].pageDirection = dir;
     renderLangSettings();
     renderProjectSettingsTable();
-    triggerAutoSave();
 };
 
 // ──────────────────────────────────────
@@ -1957,9 +1997,52 @@ function _escHtml(str) {
         .replace(/>/g, '&gt;');
 }
 
+const VERTICAL_GLYPH_MAP = Object.freeze({
+    'ー': '︱',
+    '―': '︱',
+    '—': '︱',
+    '–': '︲',
+    '…': '︙',
+    '‥': '︰',
+    '、': '︑',
+    '。': '︒',
+    '，': '︐',
+    '：': '︓',
+    '；': '︔',
+    '！': '︕',
+    '？': '︖',
+    '（': '︵',
+    '）': '︶',
+    '｛': '︷',
+    '｝': '︸',
+    '〔': '︹',
+    '〕': '︺',
+    '【': '︻',
+    '】': '︼',
+    '《': '︽',
+    '》': '︾',
+    '〈': '︿',
+    '〉': '﹀',
+    '「': '﹁',
+    '」': '﹂',
+    '『': '﹃',
+    '』': '﹄',
+    '［': '﹇',
+    '］': '﹈'
+});
+
+function _verticalGlyphText(text) {
+    return Array.from(String(text || ''), ch => VERTICAL_GLYPH_MAP[ch] || ch).join('');
+}
+
+function _markupVerticalDigits(text) {
+    const chars = Array.from(String(text || ''));
+    return chars.map(ch => _escHtml(_verticalGlyphText(ch))).join('');
+}
+
 /**
  * 縦書き列の 1 行を HTML にマークアップする。
- * 2〜4 桁の半角数字を <span class="tcy"> でラップし縦中横（Tate-Chu-Yoko）を適用する。
+ * 2〜4 桁の半角または全角数字を <span class="tcy"> でラップし縦中横（Tate-Chu-Yoko）を適用する。
  * ルビなし plain-text 用。ruby 付き行は _markupTokenLine を使用する。
  */
 function _markupVerticalLine(rawLine) {
@@ -2003,24 +2086,10 @@ function _markupTokenLine(tokenLine) {
     return html || '\u00a0';
 }
 
-/** 文字列内の 2〜4 桁の半角数字に TCY span を適用する（内部ヘルパー） */
+/** 文字列内の 2〜4 桁の半角・全角数字に TCY span を適用する（内部ヘルパー） */
 function _markupTcyText(text) {
     if (!text) return '';
-    const parts = [];
-    let lastIdx = 0;
-    const re = /[0-9]{2,4}/g;
-    let m;
-    while ((m = re.exec(text)) !== null) {
-        if (m.index > lastIdx) {
-            parts.push(_escHtml(text.slice(lastIdx, m.index)));
-        }
-        parts.push(`<span class="tcy">${m[0]}</span>`);
-        lastIdx = re.lastIndex;
-    }
-    if (lastIdx < text.length) {
-        parts.push(_escHtml(text.slice(lastIdx)));
-    }
-    return parts.length ? parts.join('') : _escHtml(text);
+    return _markupVerticalDigits(text);
 }
 
 /**
@@ -2046,18 +2115,25 @@ function _buildCjkHtmlFlow(lines) {
  * 連続する非空行をスペースで繋ぎ、空行は null（ブランク行）として返す。
  * CSS が justify + hyphens で再ラップできるよう、行分割を解除する。
  */
-function _linesIntoParagraphs(lines) {
+function _linesIntoParagraphs(lines, lineBreaks = []) {
     const result = [];
     let buf = [];
-    for (const line of lines) {
+    function flushBuf() {
+        if (!buf.length) return;
+        result.push(buf.join(' '));
+        buf = [];
+    }
+    for (let i = 0; i < lines.length; i += 1) {
+        const line = lines[i];
         if (line === '') {
-            if (buf.length) { result.push(buf.join(' ')); buf = []; }
+            flushBuf();
             result.push(null);
         } else {
             buf.push(line);
+            if (lineBreaks[i]) flushBuf();
         }
     }
-    if (buf.length) result.push(buf.join(' '));
+    flushBuf();
     return result;
 }
 
@@ -2069,7 +2145,7 @@ function _linesIntoParagraphs(lines) {
  * @param {string[]} lines          composeText の lines（空行判定用）
  * @returns {Array<Array<token>|null>}
  */
-function _tokenLinesIntoParagraphs(rubyLines, lines) {
+function _tokenLinesIntoParagraphs(rubyLines, lines, lineBreaks = []) {
     const result = [];
     let buf = [];
 
@@ -2093,10 +2169,16 @@ function _tokenLinesIntoParagraphs(rubyLines, lines) {
             result.push(null);
         } else {
             buf.push(rubyLines[i] || []);
+            if (lineBreaks[i]) flushBuf();
         }
     }
     flushBuf();
     return result;
+}
+
+function _getHorizontalTextOffsetY(composed) {
+    if (!composed || composed.writingMode !== 'horizontal-tb') return 0;
+    return 0;
 }
 
 /**
@@ -2106,7 +2188,7 @@ function _tokenLinesIntoParagraphs(rubyLines, lines) {
  *   - 列ごとに <span class="tpv-col"> を生成し、flex row-reverse で右端から配置
  *   - 列幅   = frame.w / maxLines（全列が枠内に収まるよう均等割り）
  *   - 文字ピッチ = frame.h / charsPerLine（縦方向均等割り）
- *   - 2〜4 桁の半角数字に <span class="tcy"> を自動付与（縦中横）
+ *   - 2〜4 桁の半角・全角数字に <span class="tcy"> を自動付与（縦中横）
  *   - {base|ruby} 記法を <ruby> タグに変換（ルビ）
  *
  * ▼ 横書き (horizontal-tb)
@@ -2232,7 +2314,7 @@ function renderTextPreview(section) {
                                 ` style="left:${annLeft}px;top:${annTop}px;` +
                                 `width:${rubyColW}px;` +
                                 `font-size:${rubyFontSize}px"` +
-                                `>${_escHtml(tok.ruby)}</span>`
+                                `>${_escHtml(_verticalGlyphText(tok.ruby))}</span>`
                             );
                         }
                         charOffset += baseLen;
@@ -2247,11 +2329,12 @@ function renderTextPreview(section) {
         } else {
             // 横書き: 段落単位に行を結合し、CSS の justify + hyphens に委ねる
             const lineH  = composed.frame.h / (composed.rules?.maxLines || 20);
+            const offsetY = _getHorizontalTextOffsetY(composed);
 
             let html;
             if (rubyLines) {
                 // ルビあり: token-line をそのまま段落に変換
-                const tokenParas = _tokenLinesIntoParagraphs(rubyLines, composed.lines);
+                const tokenParas = _tokenLinesIntoParagraphs(rubyLines, composed.lines, composed.lineBreaks);
                 html = tokenParas.map(p =>
                     p === null
                         ? `<div class="tpv-blank" style="height:${lineH}px"></div>`
@@ -2262,7 +2345,7 @@ function renderTextPreview(section) {
                           ).join('')}</p>`
                 ).join('');
             } else {
-                const paras = _linesIntoParagraphs(composed.lines);
+                const paras = _linesIntoParagraphs(composed.lines, composed.lineBreaks);
                 html = paras.map(p =>
                     p === null
                         ? `<div class="tpv-blank" style="height:${lineH}px"></div>`
@@ -2270,7 +2353,7 @@ function renderTextPreview(section) {
                 ).join('');
             }
             contentEl.innerHTML =
-                `<div class="tpv-horizontal" lang="${lang.toLowerCase()}" style="line-height:${lineH}px">${html}</div>`;
+                `<div class="tpv-horizontal" lang="${lang.toLowerCase()}" style="line-height:${lineH}px;transform:translateY(${offsetY}px)">${html}</div>`;
         }
     }
 
@@ -2297,8 +2380,94 @@ function _syncTextSectionPanel(section) {
     const label = document.getElementById('text-body-label');
     if (label) label.textContent = `本文 [${lang.toUpperCase()}]`;
 
+    _syncTextPaperPresetControls(section);
     _updateTextOverflowBadge(section, lang);
 }
+
+function _getTextPaperPresetKey(section) {
+    if (section?.paperPreset && TEXT_PAPER_PRESETS[section.paperPreset]) {
+        return section.paperPreset;
+    }
+    const bg = String(section?.backgroundColor || '').toLowerCase();
+    const ink = String(section?.textColor || '').toLowerCase();
+    const match = Object.entries(TEXT_PAPER_PRESETS).find(([, preset]) =>
+        preset.backgroundColor.toLowerCase() === bg && preset.textColor.toLowerCase() === ink
+    );
+    return match?.[0] || 'white';
+}
+
+function _syncTextPaperPresetControls(section) {
+    const activeKey = _getTextPaperPresetKey(section);
+    document.querySelectorAll('[data-text-paper-preset]').forEach((button) => {
+        const isActive = button.dataset.textPaperPreset === activeKey;
+        button.classList.toggle('active', isActive);
+        button.setAttribute('aria-pressed', isActive ? 'true' : 'false');
+    });
+}
+
+function updateTextSectionPaperPreset(key) {
+    const preset = TEXT_PAPER_PRESETS[key];
+    if (!preset) return;
+
+    const idx = state.activeIdx;
+    const section = state.sections?.[idx];
+    if (!section || section.type !== 'text') return;
+
+    pushState();
+
+    const nextStyle = {
+        paperPreset: key,
+        backgroundColor: preset.backgroundColor,
+        textColor: preset.textColor
+    };
+
+    const sectionIndices = new Set([idx]);
+    const blockIdx = Number.isInteger(state.activeBlockIdx) && state.activeBlockIdx >= 0
+        ? state.activeBlockIdx
+        : getBlockIndexFromPageIndex(state.blocks, idx);
+    const activeBlock = state.blocks?.[blockIdx];
+    const flowId = activeBlock?.kind === 'page' ? activeBlock.content?._flow?.id : '';
+
+    let touchedBlock = false;
+    const newBlocks = Array.isArray(state.blocks)
+        ? state.blocks.map((block, bi) => {
+            if (block?.kind !== 'page') return block;
+            const sameFlow = flowId && block.content?._flow?.id === flowId;
+            const samePage = bi === blockIdx;
+            if (!sameFlow && !samePage) return block;
+            const pageIdx = getPageIndexFromBlockIndex(state.blocks, bi);
+            if (pageIdx >= 0) sectionIndices.add(pageIdx);
+            touchedBlock = true;
+            return {
+                ...block,
+                content: {
+                    ...block.content,
+                    ...nextStyle
+                }
+            };
+        })
+        : [];
+
+    const newSections = (state.sections || []).map((item, sectionIdx) => {
+        if (!sectionIndices.has(sectionIdx) || item?.type !== 'text') return item;
+        return { ...item, ...nextStyle };
+    });
+
+    const blocks = touchedBlock
+        ? newBlocks
+        : syncBlocksWithSections(state.blocks, newSections, state.languages);
+
+    dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'sections', value: newSections } });
+    dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'blocks', value: blocks } });
+    dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'pages', value: blocksToPages(blocks) } });
+
+    renderTextPreview(newSections[idx]);
+    _syncTextPaperPresetControls(newSections[idx]);
+    refresh();
+    triggerAutoSave();
+}
+
+window.updateTextSectionPaperPreset = updateTextSectionPaperPreset;
 
 /**
  * 溢れバッジを更新する（溢れ時はページ数を表示）
@@ -2353,6 +2522,7 @@ function _createContinuationBlock(masterBlock, text, flowId, flowIdx, lang) {
         content: {
             pageKind: 'text',
             background: masterBlock.content?.background || '',
+            paperPreset: masterBlock.content?.paperPreset || 'white',
             backgroundColor: masterBlock.content?.backgroundColor || '',
             textColor: masterBlock.content?.textColor || '',
             texts,
@@ -2364,8 +2534,16 @@ function _createContinuationBlock(masterBlock, text, flowId, flowIdx, lang) {
 
 /**
  * テキストセクションを自動ページ分割する。
- * 現在アクティブなテキストページの溢れを後続ページとして作成・更新・削除する。
- * 手動改ページマーカー（===）もここで処理する。
+ *
+ * 多言語動作ルール:
+ *  - 言語 A で溢れてページ追加した場合、他言語の継続スロットは空のまま追加するだけ。
+ *  - 言語 B に切り替えて溢れが発生した場合:
+ *      ・継続スロットの B テキストが「空」→ そのスロットを上書きして埋める
+ *      ・継続スロットの B テキストが「非空」→ 上書きせず末尾に新規スロットを挿入
+ *      ・既存スロット数を超えて新規ページが必要な場合 → 末尾に新規ブロックを追加
+ *      ・他言語のページ数を超えた分 → 他言語は空スロットとして追加済み
+ *  - B テキストが必要ページ数より少ない（テキスト削減）場合は、余剰スロットの
+ *    B テキストをクリア。他言語コンテンツがあれば削除せず保持。
  */
 function autoFlowTextSection() {
     const lang = state.activeLang || state.defaultLang || 'ja';
@@ -2375,26 +2553,23 @@ function autoFlowTextSection() {
 
     const masterBlock = state.blocks[blockIdx];
     if (masterBlock?.kind !== 'page' || masterBlock.content?.pageKind !== 'text') return;
+    // 継続ブロック上ではマスターフローのみ処理する
+    if ((masterBlock.content._flow?.idx ?? 0) > 0) return;
 
     const rawText = masterBlock.content.texts?.[lang] ?? '';
     const writingMode = getWritingModeFromConfigs(lang, state.languageConfigs);
     const fontPreset = getFontPresetFromConfigs(lang, state.languageConfigs);
 
-    // ルビマークアップを除去してページネーション計算
     const tokens = parseRubyTokens(rawText);
-    const hasRuby = tokens.some(t => t.kind === 'ruby');
-    const plainText = hasRuby ? tokensToPlainText(tokens) : rawText;
+    const plainText = tokens.some(t => t.kind === 'ruby') ? tokensToPlainText(tokens) : rawText;
     const pageTexts = paginateText(plainText, lang, writingMode, fontPreset);
 
-    // フロー ID の確定（初回溢れで新規生成）
     let flowId = masterBlock.content._flow?.id;
-    if (!flowId && pageTexts.length > 1) {
-        flowId = createId('flow');
-    }
+    if (!flowId && pageTexts.length > 1) flowId = createId('flow');
 
     const newBlocks = [...state.blocks];
 
-    // マスターブロックに _flow を付与（または削除）
+    // マスターブロックの _flow を更新
     const masterContent = { ...masterBlock.content };
     if (pageTexts.length > 1) {
         masterContent._flow = { id: flowId, idx: 0 };
@@ -2403,61 +2578,125 @@ function autoFlowTextSection() {
     }
     newBlocks[blockIdx] = { ...masterBlock, content: masterContent };
 
-    // 既存の継続ブロックを取得
-    const contIndices = flowId ? _findFlowContinuationIndices(newBlocks, flowId) : [];
     const neededCount = pageTexts.length - 1;
 
+    if (!flowId) {
+        // フローなし・溢れなし
+        _applyBlocksAndRefresh(newBlocks);
+        return;
+    }
+
+    // 継続ブロックを配列上の位置順に収集
+    const contIndices = [];
+    for (let i = 0; i < newBlocks.length; i++) {
+        const b = newBlocks[i];
+        if (b?.kind === 'page' && b.content?._flow?.id === flowId && (b.content._flow?.idx ?? 0) > 0) {
+            contIndices.push(i);
+        }
+    }
+    contIndices.sort((a, b) => a - b);
+
+    const getLangText = (bi) => (newBlocks[bi]?.content?.texts?.[lang] ?? '').trim();
+    const hasOtherLang = (bi) =>
+        Object.entries(newBlocks[bi]?.content?.texts || {})
+            .some(([l, txt]) => l !== lang && txt?.trim());
+
+    // ── 空スロットと非空スロットを分類 ──
+    const emptySlots   = contIndices.filter(bi => !getLangText(bi));
+    const nonEmptySlots = contIndices.filter(bi => !!getLangText(bi));
+
     if (neededCount === 0) {
-        // 溢れなし: 全継続ブロックを削除
+        // 溢れなし: 全継続ブロックの lang テキストをクリア（他言語があれば削除しない）
         for (let i = contIndices.length - 1; i >= 0; i--) {
-            newBlocks.splice(contIndices[i], 1);
+            const bi = contIndices[i];
+            if (hasOtherLang(bi)) {
+                newBlocks[bi] = {
+                    ...newBlocks[bi],
+                    content: { ...newBlocks[bi].content, texts: { ...newBlocks[bi].content.texts, [lang]: '' } }
+                };
+            } else {
+                newBlocks.splice(bi, 1);
+            }
         }
     } else {
-        // 既存の継続ブロックを更新
-        for (let i = 0; i < Math.min(neededCount, contIndices.length); i++) {
-            const bi = contIndices[i];
+        let assigned = 0; // pageTexts[1..] の割り当て済み数
+
+        // Step 1: 空スロットを前から順に埋める
+        for (let i = 0; i < emptySlots.length && assigned < neededCount; i++) {
+            const bi = emptySlots[i];
             newBlocks[bi] = {
                 ...newBlocks[bi],
                 content: {
                     ...newBlocks[bi].content,
-                    texts: { ...newBlocks[bi].content.texts, [lang]: pageTexts[i + 1] },
-                    _flow: { id: flowId, idx: i + 1 }
+                    texts: { ...newBlocks[bi].content.texts, [lang]: pageTexts[assigned + 1] }
                 }
             };
+            assigned++;
         }
 
-        // 不足分を新規作成して master の直後（または最後の継続の直後）に挿入
-        if (neededCount > contIndices.length) {
-            const insertAfter = contIndices.length > 0
-                ? contIndices[contIndices.length - 1]
-                : blockIdx;
+        // Step 2: まだ足りない場合 → 末尾に新規ブロックを追加
+        const stillNeeded = neededCount - assigned;
+        if (stillNeeded > 0) {
+            // 現時点での最後の継続ブロック位置を再取得（splice後の変化考慮）
+            let insertAfter = blockIdx;
+            for (let i = 0; i < newBlocks.length; i++) {
+                const b = newBlocks[i];
+                if (b?.kind === 'page' && b.content?._flow?.id === flowId) {
+                    insertAfter = i;
+                }
+            }
             const newConts = [];
-            for (let i = contIndices.length; i < neededCount; i++) {
+            for (let i = 0; i < stillNeeded; i++) {
                 newConts.push(_createContinuationBlock(
-                    newBlocks[blockIdx], pageTexts[i + 1], flowId, i + 1, lang
+                    newBlocks[blockIdx], pageTexts[assigned + 1 + i], flowId, contIndices.length + i + 1, lang
                 ));
             }
             newBlocks.splice(insertAfter + 1, 0, ...newConts);
         }
 
-        // 余分な継続ブロックを末尾から削除
-        if (contIndices.length > neededCount) {
-            const toRemove = contIndices.slice(neededCount);
-            for (let i = toRemove.length - 1; i >= 0; i--) {
-                newBlocks.splice(toRemove[i], 1);
+        // Step 3: 非空スロットが neededCount を超えている場合は余剰をクリア
+        // （割り当て済み空スロット + 非空スロット > neededCount のとき末尾から削除）
+        const totalExisting = Math.min(emptySlots.length, neededCount) + nonEmptySlots.length;
+        if (totalExisting > neededCount) {
+            const excessCount = totalExisting - neededCount;
+            const toExcess = nonEmptySlots.slice(-excessCount);
+            for (let i = toExcess.length - 1; i >= 0; i--) {
+                const bi = toExcess[i];
+                if (hasOtherLang(bi)) {
+                    newBlocks[bi] = {
+                        ...newBlocks[bi],
+                        content: { ...newBlocks[bi].content, texts: { ...newBlocks[bi].content.texts, [lang]: '' } }
+                    };
+                } else {
+                    newBlocks.splice(bi, 1);
+                }
             }
         }
     }
 
-    // state に一括反映
+    // _flow.idx を配列上の出現順に再番号付け
+    let flowIdx = 0;
+    for (let i = 0; i < newBlocks.length; i++) {
+        const b = newBlocks[i];
+        if (b?.kind === 'page' && b.content?._flow?.id === flowId) {
+            newBlocks[i] = { ...b, content: { ...b.content, _flow: { id: flowId, idx: flowIdx++ } } };
+        }
+    }
+
+    _applyBlocksAndRefresh(newBlocks);
+}
+
+function _applyBlocksAndRefresh(newBlocks) {
     dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'blocks', value: newBlocks } });
     const newSections = extractSectionsFromBlocks(newBlocks);
     dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'sections', value: newSections } });
     dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'pages', value: blocksToPages(newBlocks) } });
-
     refresh();
     triggerAutoSave();
 }
+
+// HTML から onclick で呼べるよう window に公開
+window.autoFlowTextSection = autoFlowTextSection;
 
 /**
  * テキストセクションの本文入力ハンドラ（debounce 付き）
@@ -2621,7 +2860,7 @@ function syncLangPanel() {
 }
 
 
-function onLoadProject(pid, projectName, sections, languages, defaultLang, languageConfigs, title, uiPrefs, pages, blocks, version) {
+function onLoadProject(pid, projectName, sections, languages, defaultLang, languageConfigs, title, uiPrefs, pages, blocks, version, bookMode, book) {
     const normalized = normalizeProjectDataV5({
         version,
         projectName,
@@ -2632,7 +2871,9 @@ function onLoadProject(pid, projectName, sections, languages, defaultLang, langu
         defaultLang,
         languageConfigs,
         title,
-        uiPrefs
+        uiPrefs,
+        bookMode,
+        book
     });
 
     state.projectId = pid;
@@ -2644,6 +2885,14 @@ function onLoadProject(pid, projectName, sections, languages, defaultLang, langu
     state.sections = normalized.sections;
     state.languages = normalized.languages;
     state.defaultLang = normalized.defaultLang || normalized.languages[0] || 'ja';
+    state.bookMode = normalized.bookMode || normalized.book?.mode || 'simple';
+    state.book = normalized.book || {
+        mode: state.bookMode,
+        covers: {
+            c1: { pageIndex: 0 },
+            c4: { pageIndex: Math.max(0, (normalized.sections || []).length - 1) }
+        }
+    };
 
     // languageConfigs Migration
     state.languageConfigs = normalized.languageConfigs || {};
@@ -2756,8 +3005,378 @@ window.handleCanvasDrop = (e) => {
 };
 window.changeSection = (i) => {
     if (Date.now() < suppressThumbClickUntil) return;
+    _spreadActivationPinnedAdjIdx = -1; // サムネ選択時はピンを解除
     changeSection(i, refreshForThumbSelection);
 };
+
+// ──────────────────────────────────────
+//  ページナビゲーション（ストリップヘッダーボタン・キーボード）
+// ──────────────────────────────────────
+
+window.pagePrev = () => {
+    _spreadActivationPinnedAdjIdx = -1; // 通常ナビ時はピンを解除
+    const idx = state.activeIdx ?? 0;
+    if (idx > 0) changeSection(idx - 1, refreshForThumbSelection);
+};
+
+window.pageNext = () => {
+    _spreadActivationPinnedAdjIdx = -1; // 通常ナビ時はピンを解除
+    const idx = state.activeIdx ?? 0;
+    if (idx < (state.sections || []).length - 1) changeSection(idx + 1, refreshForThumbSelection);
+};
+
+// ──────────────────────────────────────
+//  見開き表示 (Spread View)
+// ──────────────────────────────────────
+
+window.toggleSpreadView = () => {
+    const current = state.uiPrefs?.spreadView || false;
+    const next = !current;
+    dispatch({ type: actionTypes.SET_STATE_FIELD, payload: {
+        key: 'uiPrefs', value: { ...(state.uiPrefs || {}), spreadView: next }
+    }});
+    // デスクトップ・モバイル両方のボタンを同期
+    document.getElementById('btn-spread-view')?.classList.toggle('active', next);
+    document.getElementById('btn-spread-view-mobile')?.classList.toggle('active', next);
+    // キャンバスサイズ再計算 → 見開きページ表示/非表示を更新
+    fitCanvasView();
+    refreshSpreadPage();
+};
+
+/**
+ * 見開きページ（隣接ページ）を描画・更新する
+ */
+/**
+ * テキストセクションの組版 HTML を任意のコンテナへ描画する
+ * renderTextPreview と同じロジックだが DOM id に依存せず要素を受け取る。
+ */
+function _renderTextIntoSpread(section, lang, outerEl, frameEl, contentEl) {
+    const writingMode  = getWritingModeFromConfigs(lang, state.languageConfigs);
+    const fontPreset   = getFontPresetFromConfigs(lang, state.languageConfigs);
+    const raw          = section.texts?.[lang] ?? '';
+
+    let rubyTokens, hasRuby, plainText, rubyLines;
+    try {
+        rubyTokens = parseRubyTokens(raw);
+        hasRuby    = rubyTokens.some(t => t.kind === 'ruby');
+        plainText  = hasRuby ? tokensToPlainText(rubyTokens) : raw;
+    } catch (_) {
+        rubyTokens = []; hasRuby = false; plainText = raw;
+    }
+
+    const composed = composeText(plainText, lang, writingMode, fontPreset);
+    try { rubyLines = hasRuby ? alignRubyToLines(rubyTokens, composed.lines) : null; }
+    catch (_) { rubyLines = null; }
+
+    outerEl.style.backgroundColor = section.backgroundColor || '#ffffff';
+
+    const { x, y, w, h } = composed.frame;
+    frameEl.style.cssText = [
+        `position:absolute`,
+        `left:${x}px`, `top:${y}px`,
+        `width:${w}px`, `height:${h}px`,
+        `font-family:${composed.font.family}`,
+        `font-size:${composed.font.size}px`,
+        `color:${section.textColor || '#000000'}`,
+        `letter-spacing:${composed.font.letterSpacing ? composed.font.letterSpacing + 'px' : '0'}`,
+    ].join(';');
+    frameEl.setAttribute('lang', lang.toLowerCase());
+
+    if (!raw) { contentEl.innerHTML = ''; return; }
+
+    if (composed.writingMode === 'vertical-rl') {
+        const maxCols      = composed.rules?.maxLines    || 12;
+        const charsPerCol  = composed.rules?.charsPerLine || 33;
+        const fontSize     = composed.font.size;
+        const colW         = Math.floor(w / maxCols);
+        const lineHeight   = (colW / fontSize).toFixed(3);
+        const letterSpacing = ((h / charsPerCol) - fontSize).toFixed(3);
+        const charPitch    = h / charsPerCol;
+        const rubyFontSize = Math.round(fontSize * 0.5);
+        const rubyColW     = Math.round(fontSize * 0.65);
+        const charRightOffset = Math.round((colW - fontSize) / 2);
+
+        const cols = composed.lines.map((line, i) => {
+            const content = rubyLines
+                ? _baseTextFromTokenLine(rubyLines[i])
+                : _markupVerticalLine(line);
+            return `<span class="tpv-col"` +
+                ` style="width:${colW}px;line-height:${lineHeight};letter-spacing:${letterSpacing}px"` +
+                `>${content}</span>`;
+        }).join('');
+
+        let rubyOverlay = '';
+        if (rubyLines) {
+            const anns = [];
+            for (let i = 0; i < rubyLines.length; i++) {
+                let charOffset = 0;
+                for (const tok of rubyLines[i]) {
+                    const baseLen = tok.kind === 'ruby'
+                        ? Array.from(tok.base || '').length
+                        : Array.from(tok.text || '').length;
+                    if (tok.kind === 'ruby' && tok.ruby) {
+                        const annLeft = w - i * colW - charRightOffset;
+                        const rubyLen = Array.from(tok.ruby).length;
+                        const rubyH   = Math.round(rubyLen * rubyFontSize * 1.2);
+                        const baseH   = Math.round(baseLen * charPitch);
+                        const annTop  = Math.round(charOffset * charPitch + Math.max(0, (baseH - rubyH) / 2));
+                        anns.push(
+                            `<span class="tpv-ruby-ann"` +
+                            ` style="left:${annLeft}px;top:${annTop}px;` +
+                            `width:${rubyColW}px;font-size:${rubyFontSize}px"` +
+                            `>${_escHtml(_verticalGlyphText(tok.ruby))}</span>`
+                        );
+                    }
+                    charOffset += baseLen;
+                }
+            }
+            if (anns.length) rubyOverlay = `<div class="tpv-ruby-overlay">${anns.join('')}</div>`;
+        }
+        contentEl.innerHTML = `<div class="tpv-vertical">${cols}</div>${rubyOverlay}`;
+    } else {
+        const lineH = h / (composed.rules?.maxLines || 20);
+        const offsetY = _getHorizontalTextOffsetY(composed);
+        let html;
+        if (rubyLines) {
+                const tokenParas = _tokenLinesIntoParagraphs(rubyLines, composed.lines, composed.lineBreaks);
+            html = tokenParas.map(p =>
+                p === null
+                    ? `<div class="tpv-blank" style="height:${lineH}px"></div>`
+                    : `<p class="tpv-para">${p.map(tok =>
+                        tok.kind === 'ruby'
+                            ? `<ruby>${_markupTcyText(tok.base)}<rt>${_escHtml(tok.ruby || '')}</rt></ruby>`
+                            : _escHtml(tok.text || '')
+                      ).join('')}</p>`
+            ).join('');
+        } else {
+            const paras = _linesIntoParagraphs(composed.lines, composed.lineBreaks);
+            html = paras.map(p =>
+                p === null
+                    ? `<div class="tpv-blank" style="height:${lineH}px"></div>`
+                    : `<p class="tpv-para">${_escHtml(p)}</p>`
+            ).join('');
+        }
+        contentEl.innerHTML =
+            `<div class="tpv-horizontal" lang="${lang.toLowerCase()}" style="line-height:${lineH}px;transform:translateY(${offsetY}px)">${html}</div>`;
+    }
+}
+
+function refreshSpreadPage() {
+    const isSpread = state.uiPrefs?.spreadView || false;
+    const spreadEl = document.getElementById('canvas-spread-page');
+    const stage    = document.getElementById('canvas-stage');
+    if (!spreadEl || !stage) return;
+
+    // スプレッドボタンのアクティブ状態を同期
+    const btn = document.getElementById('btn-spread-view');
+    if (btn) btn.classList.toggle('active', isSpread);
+
+    // アクティブページの overflow: 見開き時は hidden にしてはみ出しを隠す
+    const transformLayer = document.getElementById('canvas-transform-layer');
+    if (transformLayer) {
+        transformLayer.style.overflow = isSpread ? 'hidden' : 'visible';
+    }
+
+    if (!isSpread) {
+        spreadEl.style.display = 'none';
+        stage.style.flexDirection = '';
+        return;
+    }
+
+    const lang    = state.activeLang || state.defaultLang || 'ja';
+    // languageConfigs に保存された pageDirection を参照（'rtl' | 'ltr'）
+    const pageDir = state.languageConfigs?.[lang]?.pageDirection || (lang === 'ja' ? 'rtl' : 'ltr');
+    const isRTL   = pageDir === 'rtl';
+
+    const sections  = state.sections || [];
+    const activeIdx = state.activeIdx ?? 0;
+    const total     = sections.length;
+
+    // 見開きクリックでアクティブ化した直後は元のページを隣として維持する
+    // 通常は次ページを隣に表示。次ページが存在しない場合は隣ページなし
+    let adjIdx;
+    if (_spreadActivationPinnedAdjIdx >= 0 && _spreadActivationPinnedAdjIdx !== activeIdx) {
+        adjIdx = _spreadActivationPinnedAdjIdx;
+    } else {
+        adjIdx = activeIdx + 1 < total ? activeIdx + 1 : -1;
+    }
+    if (adjIdx < 0 || adjIdx >= total) {
+        spreadEl.style.display = 'none';
+        return;
+    }
+
+    // flex 方向: ページ番号（インデックス）が小さい方を右（RTL）または左（LTR）に固定する。
+    // #canvas-transform-layer（アクティブ）が常に低インデックス側とは限らないため、
+    // activeIdx と adjIdx の大小で flex-direction を決定する。
+    //   RTL: 低インデックス → 右 (transform-layer が右) → activeIdx < adjIdx なら row-reverse, それ以外は row
+    //   LTR: 低インデックス → 左 (transform-layer が左) → activeIdx < adjIdx なら row, それ以外は row-reverse
+    if (isRTL) {
+        stage.style.flexDirection = activeIdx < adjIdx ? 'row-reverse' : 'row';
+    } else {
+        stage.style.flexDirection = activeIdx < adjIdx ? 'row' : 'row-reverse';
+    }
+
+    spreadEl.style.display = 'block';
+    spreadEl.dataset.adjIdx = adjIdx;
+
+    const adjSection = sections[adjIdx];
+
+    // ページ番号ラベル
+    const labelEl = document.getElementById('canvas-spread-label');
+    if (labelEl) {
+        labelEl.textContent = `${adjIdx + 1} / ${total} ${lang.toUpperCase()}`;
+    }
+
+    // ── 隣ページのコンテンツを描画 ──────────────────────────────
+    const contentEl = document.getElementById('canvas-spread-content');
+    if (!contentEl) return;
+
+    if (adjSection.type === 'text') {
+        // テキストページ: renderTextPreview と同じロジックで描画
+        contentEl.innerHTML = '';
+        contentEl.style.backgroundImage = '';
+        contentEl.style.backgroundColor = '';
+        contentEl.style.position = 'relative';
+        contentEl.style.width  = '100%';
+        contentEl.style.height = '100%';
+        contentEl.style.overflow = 'hidden';
+
+        // フレーム要素を確保（初回は作成）
+        let spFrame = contentEl.querySelector('.spread-text-frame');
+        let spContent = contentEl.querySelector('.spread-text-content');
+        if (!spFrame) {
+            spFrame   = document.createElement('div');
+            spFrame.className = 'spread-text-frame';
+            spContent = document.createElement('div');
+            spContent.className = 'spread-text-content';
+            spFrame.appendChild(spContent);
+            contentEl.appendChild(spFrame);
+        }
+        contentEl.style.backgroundColor = adjSection.backgroundColor || '#ffffff';
+        _renderTextIntoSpread(adjSection, lang, contentEl, spFrame, spContent);
+    } else {
+        // 画像ページ: メインキャンバスと同じ位置・トリミングで描画
+        contentEl.innerHTML = '';
+        contentEl.style.backgroundImage = '';
+        contentEl.style.position = 'relative';
+        contentEl.style.width  = '100%';
+        contentEl.style.height = '100%';
+        contentEl.style.overflow = 'hidden';
+        contentEl.style.backgroundColor = adjSection.backgroundColor || '#fff';
+
+        const bgUrl = getOptimizedImageUrl(
+            adjSection.backgrounds?.[lang] || adjSection.backgrounds?.[state.defaultLang] || adjSection.background || ''
+        );
+
+        if (!bgUrl) {
+            // 画像未設定: プレースホルダー
+            contentEl.innerHTML =
+                `<div style="width:100%;height:100%;display:flex;align-items:center;justify-content:center;color:#aaa;">
+                    <span class="material-icons" style="font-size:48px;">add_photo_alternate</span>
+                </div>`;
+        } else {
+            // 言語別位置 → 共通位置 → レガシー → デフォルトの優先順で取得（main canvas と同じロジック）
+            const pos = adjSection.imagePositions?.[lang]
+                || adjSection.imagePositions?.[state.defaultLang]
+                || adjSection.imageBasePosition
+                || adjSection.imagePosition
+                || { x: 0, y: 0, scale: 1, rotation: 0, flipX: false };
+            const cached = editorImageAspectCache.get(bgUrl);
+
+            const _renderSpreadImg = () => {
+                const { frameMetrics, targetTransform } = getImageAdjustRenderMetrics(bgUrl, pos);
+                // 画像レイヤー（メインキャンバスと同じ transform）
+                const imgEl = document.createElement('img');
+                imgEl.src = bgUrl;
+                imgEl.style.cssText = [
+                    'position:absolute',
+                    'top:50%', 'left:50%',
+                    `width:${frameMetrics.widthPercent}%`,
+                    `height:${frameMetrics.heightPercent}%`,
+                    `transform:${targetTransform}`,
+                    'transform-origin:center center',
+                    'pointer-events:none',
+                ].join(';');
+                contentEl.appendChild(imgEl);
+
+                // 吹き出しレイヤー
+                const bubbles = adjSection.bubbles || [];
+                if (bubbles.length > 0) {
+                    const langProps = getLangProps(lang);
+                    const bLayer = document.createElement('div');
+                    bLayer.style.cssText = 'position:absolute;inset:0;pointer-events:none;overflow:hidden;';
+                    bLayer.innerHTML = bubbles.map((b, i) =>
+                        renderBubbleHTML(b, i, false, langProps.defaultWritingMode || 'horizontal-tb')
+                    ).join('');
+                    contentEl.appendChild(bLayer);
+                }
+            };
+
+            if (cached) {
+                // アスペクト比がキャッシュ済み → 即座に描画
+                _renderSpreadImg();
+            } else {
+                // アスペクト比未キャッシュ → object-fit:cover で仮表示し、ロード後に再描画
+                const tmpImg = document.createElement('img');
+                tmpImg.src = bgUrl;
+                tmpImg.style.cssText = 'width:100%;height:100%;object-fit:cover;display:block;';
+                contentEl.appendChild(tmpImg);
+                const loader = new Image();
+                loader.onload = () => {
+                    if (loader.naturalWidth && loader.naturalHeight) {
+                        editorImageAspectCache.set(bgUrl, loader.naturalWidth / loader.naturalHeight);
+                    }
+                    // キャッシュが埋まったら正確な位置で再描画
+                    if ((state.uiPrefs?.spreadView) &&
+                        document.getElementById('canvas-spread-content') === contentEl) {
+                        contentEl.innerHTML = '';
+                        contentEl.style.backgroundColor = adjSection.backgroundColor || '#fff';
+                        _renderSpreadImg();
+                    }
+                };
+                loader.src = bgUrl;
+            }
+        }
+    }
+}
+
+/**
+ * 見開きの隣ページをクリック → そのページをアクティブにして編集可能にする。
+ * 見開きに表示されている 2 ページは変わらない（ページ送りなし）。
+ */
+window.spreadPageActivate = (e) => {
+    if (e) e.stopPropagation();
+    const spreadEl = document.getElementById('canvas-spread-page');
+    if (!spreadEl) return;
+    const adjIdx = parseInt(spreadEl.dataset.adjIdx, 10);
+    if (!Number.isInteger(adjIdx) || adjIdx < 0) return;
+
+    // 現在のアクティブページを「次の隣ページ」としてピン留めする。
+    // refreshSpreadPage はこの値を参照して表示を維持する。
+    _spreadActivationPinnedAdjIdx = state.activeIdx ?? 0;
+    changeSection(adjIdx, refreshForThumbSelection);
+    // changeSection → refresh → refreshSpreadPage が同期的に完了した後にリセット
+    _spreadActivationPinnedAdjIdx = -1;
+};
+
+// ──────────────────────────────────────
+//  キーボードナビゲーション（エディター）
+// ──────────────────────────────────────
+
+document.addEventListener('keydown', (e) => {
+    // テキスト入力中・モーダル表示中はスキップ
+    const tag = document.activeElement?.tagName || '';
+    if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+    if (document.activeElement?.getAttribute('contenteditable') === 'true') return;
+    // ページストリップが折りたたまれていてもナビは有効にする
+    if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
+        // 画像調整モード中は矢印キーを使わない
+        if (document.getElementById('canvas-transform-layer')?.classList.contains('adjust-image-mode')) return;
+        e.preventDefault();
+        if (e.key === 'ArrowLeft') window.pagePrev();
+        else window.pageNext();
+    }
+});
 window.changeBlock = (idx) => {
     if (Date.now() < suppressThumbClickUntil) return;
     changeBlock(idx, refreshForThumbSelection);
@@ -2966,7 +3585,8 @@ window.fitCanvasView = () => {
     if (container) {
         const cw = container.clientWidth;
         const ch = container.clientHeight;
-        const targetW = CANONICAL_PAGE_WIDTH;
+        const isSpread = state.uiPrefs?.spreadView || false;
+        const targetW = isSpread ? CANONICAL_PAGE_WIDTH * 2 : CANONICAL_PAGE_WIDTH;
         const targetH = CANONICAL_PAGE_HEIGHT;
 
         let s = Math.min(cw / targetW, ch / targetH) * 0.9;
@@ -2980,9 +3600,10 @@ window.fitCanvasView = () => {
 };
 
 function updateCanvasTransform() {
-    const layer = document.getElementById('canvas-transform-layer');
-    if (layer) {
-        layer.style.transform = `translate(-50%, -50%) translate(${canvasTranslate.x}px, ${canvasTranslate.y}px) scale(${canvasScale})`;
+    // #canvas-stage を transform する（旧: #canvas-transform-layer）
+    const stage = document.getElementById('canvas-stage');
+    if (stage) {
+        stage.style.transform = `translate(-50%, -50%) translate(${canvasTranslate.x}px, ${canvasTranslate.y}px) scale(${canvasScale})`;
     }
     syncCanvasZoomUI();
 }
@@ -3256,7 +3877,8 @@ window.switchLang = (code) => {
 function renderLangAddSelect() {
     const select = document.getElementById('lang-add-select');
     if (!select) return;
-    const added = new Set(state.languages);
+    const draft = _getPsSettingsSource();
+    const added = new Set(draft.languages || ['ja']);
     const allLangs = getAllLangs();
     const options = [];
     allLangs.forEach(({ code, label, directions }) => {
@@ -3277,29 +3899,29 @@ window.addLang = () => {
     const select = document.getElementById('lang-add-select');
     if (!select || !select.value || select.value.startsWith('—')) return;
     const [code, dir] = select.value.split(':');
-    if (!code || state.languages.includes(code)) return;
-    state.languages.push(code);
-    if (!state.languageConfigs) state.languageConfigs = {};
-    state.languageConfigs[code] = { pageDirection: dir || 'ltr' };
+    _capturePsInputsToDraft();
+    const draft = _ensurePsDraft();
+    if (!code || draft.languages.includes(code)) return;
+    draft.languages.push(code);
+    if (!draft.languageConfigs) draft.languageConfigs = {};
+    draft.languageConfigs[code] = { pageDirection: dir || 'ltr' };
     renderLangSettings();
-    renderLangTabs();
     renderLangAddSelect();
     renderProjectSettingsTable();
-    triggerAutoSave();
 };
 
 // 言語削除
 window.removeLang = (code) => {
-    if (state.languages.length <= 1) return;
+    _capturePsInputsToDraft();
+    const draft = _ensurePsDraft();
+    if (draft.languages.length <= 1) return;
     if (!confirm(t('confirm_remove_lang', { lang: getLangProps(code).label }))) return;
-    state.languages = state.languages.filter(c => c !== code);
-    if (state.defaultLang === code) state.defaultLang = state.languages[0] || 'ja';
-    if (state.activeLang === code) state.activeLang = state.defaultLang || state.languages[0];
+    draft.languages = draft.languages.filter(c => c !== code);
+    if (draft.defaultLang === code) draft.defaultLang = draft.languages[0] || 'ja';
+    if (draft.activeLang === code) draft.activeLang = draft.defaultLang || draft.languages[0];
     renderLangSettings();
     renderLangAddSelect();
     renderProjectSettingsTable();
-    refresh();
-    triggerAutoSave();
 };
 
 // プロジェクトモーダル
@@ -3349,6 +3971,8 @@ window.newProject = () => {
     dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'languages', value: ['ja'] } });
     dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'defaultLang', value: 'ja' } });
     dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'languageConfigs', value: { ja: { pageDirection: 'rtl' } } } });
+    dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'bookMode', value: 'simple' } });
+    dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'book', value: { mode: 'simple', covers: { c1: { pageIndex: 0 }, c4: { pageIndex: 0 } } } } });
     dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'uiPrefs', value: { desktop: { thumbColumns: 2 }, mobile: { thumbColumns: 2 } } } });
     applyThumbColumnsFromPrefs();
     dispatch({ type: actionTypes.SET_ACTIVE_LANGUAGE, payload: 'ja' });
@@ -3452,6 +4076,69 @@ const PS_META_FIELDS = [
 
 // ── PS テーブル列ドラッグ ──
 let _psDragLang = null;
+let _psDraft = null;
+
+function _cloneProjectSettingsDraft() {
+    const languages = [...(state.languages && state.languages.length ? state.languages : ['ja'])];
+    const defaultLang = languages.includes(state.defaultLang) ? state.defaultLang : languages[0];
+    const activeLang = languages.includes(state.activeLang) ? state.activeLang : defaultLang;
+    return {
+        projectName: state.projectName || '',
+        rating: state.rating || 'all',
+        license: state.license || 'all-rights-reserved',
+        languages,
+        defaultLang,
+        activeLang,
+        languageConfigs: state.languageConfigs ? JSON.parse(JSON.stringify(state.languageConfigs)) : {},
+        meta: state.meta ? JSON.parse(JSON.stringify(state.meta)) : {}
+    };
+}
+
+function _ensurePsDraft() {
+    if (!_psDraft) _psDraft = _cloneProjectSettingsDraft();
+    return _psDraft;
+}
+
+function _getPsSettingsSource() {
+    return _psDraft || {
+        languages: state.languages || ['ja'],
+        defaultLang: state.defaultLang || 'ja',
+        activeLang: state.activeLang || state.defaultLang || 'ja',
+        languageConfigs: state.languageConfigs || {},
+        meta: state.meta || {}
+    };
+}
+
+function _capturePsInputsToDraft() {
+    const draft = _ensurePsDraft();
+
+    const nameEl = document.getElementById('ps-project-name');
+    if (nameEl) draft.projectName = nameEl.value.trim();
+
+    ['rating', 'license'].forEach(key => {
+        const el = document.getElementById(`ps-${key}`);
+        if (el) draft[key] = el.value;
+    });
+
+    document.querySelectorAll('#ps-meta-table .ps-meta-input').forEach(input => {
+        const lang = input.dataset.lang;
+        const key  = input.dataset.key;
+        if (lang && key) {
+            if (!draft.meta[lang]) draft.meta[lang] = {};
+            draft.meta[lang][key] = input.value;
+        }
+    });
+
+    document.querySelectorAll('#ps-meta-table .ps-font-select').forEach(sel => {
+        const lang = sel.dataset.lang;
+        if (lang) {
+            if (!draft.languageConfigs[lang]) draft.languageConfigs[lang] = {};
+            draft.languageConfigs[lang].fontPreset = sel.value;
+        }
+    });
+
+    return draft;
+}
 
 window.psColDragStart = (e, lang) => {
     _psDragLang = lang;
@@ -3478,47 +4165,37 @@ window.psColDrop = (e, targetLang) => {
     e.currentTarget.classList.remove('ps-col-drag-over');
     if (!_psDragLang || _psDragLang === targetLang) { _psDragLang = null; return; }
 
-    // Save current input values before re-render
-    const currentMeta = state.meta ? JSON.parse(JSON.stringify(state.meta)) : {};
-    document.querySelectorAll('#ps-meta-table .ps-meta-input').forEach(input => {
-        const lang = input.dataset.lang;
-        const key  = input.dataset.key;
-        if (lang && key) {
-            if (!currentMeta[lang]) currentMeta[lang] = {};
-            currentMeta[lang][key] = input.value;
-        }
-    });
-    state.meta = currentMeta;
+    const draft = _capturePsInputsToDraft();
 
     // Reorder languages
-    const langs = [...state.languages];
+    const langs = [...draft.languages];
     const fromIdx = langs.indexOf(_psDragLang);
     const toIdx   = langs.indexOf(targetLang);
     if (fromIdx === -1 || toIdx === -1) { _psDragLang = null; return; }
     langs.splice(fromIdx, 1);
     langs.splice(toIdx, 0, _psDragLang);
-    state.languages = langs;
-    state.defaultLang = langs[0];
+    draft.languages = langs;
+    draft.defaultLang = langs[0];
     _psDragLang = null;
 
     renderProjectSettingsTable();
     renderLangSettings();
-    renderLangTabs();
-    triggerAutoSave();
 };
 
 function renderProjectSettingsTable() {
     const container = document.getElementById('ps-meta-table');
     if (!container) return;
 
-    const langs = state.languages || ['ja'];
-    const meta = state.meta || {};
+    const draft = _getPsSettingsSource();
+    const langs = draft.languages || ['ja'];
+    const meta = draft.meta || {};
+    const configs = draft.languageConfigs || {};
     const isMobile = window.innerWidth < 768 || document.body.dataset.device === 'mobile';
 
     if (isMobile) {
         const cards = langs.map((lang, idx) => {
             const props = getLangProps(lang);
-            const dir = (state.languageConfigs?.[lang]?.pageDirection || 'ltr').toUpperCase();
+            const dir = (configs?.[lang]?.pageDirection || 'ltr').toUpperCase();
             const code = lang.toUpperCase();
             const isDefault = idx === 0;
             const defaultBadge = isDefault
@@ -3563,7 +4240,7 @@ function renderProjectSettingsTable() {
     html += `<div class="ps-meta-cell ps-meta-header ps-meta-corner"></div>`;
     langs.forEach((lang, idx) => {
         const props = getLangProps(lang);
-        const dir  = (state.languageConfigs?.[lang]?.pageDirection || 'ltr').toUpperCase();
+        const dir  = (configs?.[lang]?.pageDirection || 'ltr').toUpperCase();
         const code = lang.toUpperCase();
         const isDefault = idx === 0;
         const defaultBadge = isDefault
@@ -3598,6 +4275,17 @@ function renderProjectSettingsTable() {
         });
     });
 
+    // フォントプリセット行
+    const fontOptions = getFontPresetOptions();
+    html += `<div class="ps-meta-cell ps-meta-row-label">${t('field_font')}</div>`;
+    langs.forEach(lang => {
+        const current = configs?.[lang]?.fontPreset || 'gothic';
+        const opts = fontOptions.map(o =>
+            `<option value="${o.value}"${o.value === current ? ' selected' : ''}>${o.label}</option>`
+        ).join('');
+        html += `<div class="ps-meta-cell"><select class="ps-font-select" data-lang="${lang}">${opts}</select></div>`;
+    });
+
     html += `</div>`;
     container.innerHTML = html;
 }
@@ -3605,17 +4293,19 @@ function renderProjectSettingsTable() {
 window.openProjectSettings = () => {
     const modal = document.getElementById('project-settings-modal');
     if (!modal) return;
+    _psDraft = _cloneProjectSettingsDraft();
+    const draft = _ensurePsDraft();
 
     // Project name
     const nameEl = document.getElementById('ps-project-name');
-    if (nameEl) nameEl.value = state.projectName || '';
+    if (nameEl) nameEl.value = draft.projectName || '';
 
     // Global settings
     const ratingEl = document.getElementById('ps-rating');
-    if (ratingEl) ratingEl.value = state.rating || 'all';
+    if (ratingEl) ratingEl.value = draft.rating || 'all';
 
     const licenseEl = document.getElementById('ps-license');
-    if (licenseEl) licenseEl.value = state.license || 'all-rights-reserved';
+    if (licenseEl) licenseEl.value = draft.license || 'all-rights-reserved';
 
     // Language settings
     renderLangSettings();
@@ -3631,39 +4321,42 @@ window.closeProjectSettings = (e) => {
     if (e && e.currentTarget !== e.target) return;
     const modal = document.getElementById('project-settings-modal');
     if (modal) modal.style.display = 'none';
+    _psDraft = null;
 };
 
 window.saveProjectSettings = () => {
+    const draft = _capturePsInputsToDraft();
+    const nextLanguages = draft.languages && draft.languages.length ? [...draft.languages] : ['ja'];
+    const nextDefaultLang = nextLanguages.includes(draft.defaultLang) ? draft.defaultLang : nextLanguages[0];
+    const nextActiveLang = nextLanguages.includes(draft.activeLang) ? draft.activeLang : nextDefaultLang;
+
     // Project name
-    const nameEl = document.getElementById('ps-project-name');
-    if (nameEl) {
-        const newName = nameEl.value.trim();
-        dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'projectName', value: newName } });
-        const titleDisplay = document.getElementById('project-title');
-        if (titleDisplay) titleDisplay.textContent = newName || '新規プロジェクト';
-    }
+    const newName = draft.projectName || '';
+    dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'projectName', value: newName } });
+    const titleDisplay = document.getElementById('project-title');
+    if (titleDisplay) titleDisplay.textContent = newName || '新規プロジェクト';
 
     // Global settings
-    ['rating', 'license'].forEach(key => {
-        const el = document.getElementById(`ps-${key}`);
-        if (el) dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key, value: el.value } });
-    });
+    dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'rating', value: draft.rating || 'all' } });
+    dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'license', value: draft.license || 'all-rights-reserved' } });
 
-    // Per-language meta table
-    const meta = state.meta ? JSON.parse(JSON.stringify(state.meta)) : {};
-    document.querySelectorAll('#ps-meta-table .ps-meta-input').forEach(input => {
-        const lang = input.dataset.lang;
-        const key  = input.dataset.key;
-        if (lang && key) {
-            if (!meta[lang]) meta[lang] = {};
-            meta[lang][key] = input.value;
-        }
-    });
-    dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'meta', value: meta } });
+    dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'languages', value: nextLanguages } });
+    dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'defaultLang', value: nextDefaultLang } });
+    dispatch({ type: actionTypes.SET_ACTIVE_LANGUAGE, payload: nextActiveLang });
+    dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'meta', value: draft.meta || {} } });
+    dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'languageConfigs', value: draft.languageConfigs || {} } });
+
+    const nextBlocks = syncBlocksWithSections(state.blocks, state.sections, nextLanguages);
+    dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'blocks', value: nextBlocks } });
+    dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'pages', value: blocksToPages(nextBlocks) } });
 
     const modal = document.getElementById('project-settings-modal');
     if (modal) modal.style.display = 'none';
+    _psDraft = null;
 
+    renderLangSettings();
+    renderLangTabs();
+    refresh();
     triggerAutoSave();
 };
 
@@ -4025,9 +4718,13 @@ window.setStudioUILang = (lang) => {
     updateAuthUI();
     renderHomeDashboard().catch((e) => console.warn('[Home] render failed after language switch:', e));
     if (document.getElementById('project-settings-modal')?.style.display !== 'none') {
+        _capturePsInputsToDraft();
         renderProjectSettingsTable();
         renderLangSettings();
         renderLangAddSelect();
+    }
+    if (getCurrentRoom() === 'press') {
+        enterPressRoom();
     }
     syncStudioShell();
 };

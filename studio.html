@@ -239,12 +239,34 @@
                         <h3 data-i18n="panel_pages">ページ</h3>
                         <button class="btn-sm" type="button" onclick="togglePagesPanel()" data-i18n="btn_close">閉じる</button>
                     </div>
-                    <div class="thumb-tools">
-                        <label data-i18n="label_thumb_size">サイズ:</label>
-                        <div class="thumb-size-buttons">
-                            <button class="btn-sm" data-thumb-size="s" onclick="setThumbSize('s')">S</button>
-                            <button class="btn-sm" data-thumb-size="m" onclick="setThumbSize('m')">M</button>
-                            <button class="btn-sm" data-thumb-size="l" onclick="setThumbSize('l')">L</button>
+                    <!-- 作品言語切替 -->
+                    <div class="sidebar-pages-toolbar">
+                        <div class="sidebar-pages-lang-row">
+                            <span class="sidebar-pages-lang-label" data-i18n="label_content_lang">作品言語</span>
+                            <div id="lang-tabs-pages-panel" class="lang-tabs lang-tabs-compact"></div>
+                        </div>
+                        <div class="sidebar-pages-controls">
+                            <div class="thumb-tools-inline">
+                                <label data-i18n="label_thumb_size">サイズ:</label>
+                                <div class="thumb-size-buttons">
+                                    <button class="btn-sm" data-thumb-size="s" onclick="setThumbSize('s')">S</button>
+                                    <button class="btn-sm" data-thumb-size="m" onclick="setThumbSize('m')">M</button>
+                                    <button class="btn-sm" data-thumb-size="l" onclick="setThumbSize('l')">L</button>
+                                </div>
+                            </div>
+                            <!-- 見開き表示切替 -->
+                            <button class="btn-sm sidebar-spread-btn" id="btn-spread-view-mobile"
+                                onclick="toggleSpreadView()"
+                                title="見開き表示切り替え">
+                                <span class="material-icons" style="font-size:16px;vertical-align:middle;">auto_stories</span>
+                                <span data-i18n="label_spread_view">見開き表示</span>
+                            </button>
+                        </div>
+                        <!-- ページナビ -->
+                        <div class="sidebar-pages-nav">
+                            <button class="strip-nav-btn" onclick="pagePrev()" title="前のページ"><span class="material-icons">chevron_left</span></button>
+                            <span id="page-strip-counter-mobile" class="strip-page-counter">1 / 1</span>
+                            <button class="strip-nav-btn" onclick="pageNext()" title="次のページ"><span class="material-icons">chevron_right</span></button>
                         </div>
                     </div>
                     <div id="thumb-container"></div>
@@ -262,16 +284,25 @@
                     ondragover="handleCanvasDragOver(event)"
                     ondragleave="handleCanvasDragLeave(event)"
                     ondrop="handleCanvasDrop(event)">
-                    <div id="canvas-transform-layer">
-                        <div id="content-render"></div>
-                        <div id="bubble-layer"></div>
-                        <div id="text-preview-overlay" aria-live="polite">
-                            <div id="text-preview-frame">
-                                <div id="text-preview-content"></div>
+                    <div id="canvas-stage">
+                        <div id="canvas-transform-layer">
+                            <div id="content-render"></div>
+                            <div id="bubble-layer"></div>
+                            <div id="text-preview-overlay" aria-live="polite">
+                                <div id="text-preview-frame">
+                                    <div id="text-preview-content"></div>
+                                </div>
+                                <div id="text-preview-placeholder"></div>
                             </div>
-                            <div id="text-preview-placeholder"></div>
+                            <div id="canvas-page-label"></div>
                         </div>
-                        <div id="canvas-page-label"></div>
+                        <div id="canvas-spread-page" style="display:none;"
+                            onmousedown="event.stopPropagation()"
+                            ontouchstart="event.stopPropagation()"
+                            onclick="spreadPageActivate(event)">
+                            <div id="canvas-spread-content"></div>
+                            <div id="canvas-spread-label" class="canvas-page-label"></div>
+                        </div>
                     </div>
                     <div id="image-zoom-controls-floating">
                         <button class="btn-sm zoom-btn img-zoom-btn" onmousedown="event.stopPropagation()"
@@ -313,9 +344,15 @@
                     </button>
                 </div>
                 <div id="page-strip">
-                    <div id="page-strip-handle" onclick="togglePageStrip()" title="ページパネルを開閉">
-                        <span class="material-icons" id="page-strip-chevron">expand_more</span>
-                        <span id="page-strip-handle-label" data-i18n="page_strip_label">ページ</span>
+                    <div id="page-strip-handle">
+                        <button class="strip-nav-btn" onclick="event.stopPropagation(); pagePrev()" id="btn-page-prev" title="前のページ (←)"><span class="material-icons">chevron_left</span></button>
+                        <span id="page-strip-counter" class="strip-page-counter">1 / 1</span>
+                        <button class="strip-nav-btn" onclick="event.stopPropagation(); pageNext()" id="btn-page-next" title="次のページ (→)"><span class="material-icons">chevron_right</span></button>
+                        <div class="strip-toggle-area" onclick="togglePageStrip()" title="ページパネルを開閉">
+                            <span class="material-icons" id="page-strip-chevron">expand_more</span>
+                            <span id="page-strip-handle-label" data-i18n="page_strip_label">ページ</span>
+                        </div>
+                        <button class="strip-nav-btn strip-spread-btn" onclick="event.stopPropagation(); toggleSpreadView()" id="btn-spread-view" title="見開き表示切り替え"><span class="material-icons">auto_stories</span></button>
                     </div>
                     <div id="page-strip-body">
                         <div id="page-strip-thumbs"></div>
@@ -389,8 +426,23 @@
                         <label id="text-body-label" class="field-label"></label>
                         <textarea id="prop-body-text" rows="12"
                             oninput="updateTextSectionBody(this.value)"></textarea>
-                        <div id="text-overflow-badge" class="text-overflow-badge text-overflow-badge--flow" style="display:none;"
-                            data-i18n="label_text_overflow">溢れあり</div>
+                        <div class="text-paper-section">
+                            <label class="field-label">紙</label>
+                            <div class="text-paper-options" role="group" aria-label="本文ページの紙">
+                                <button class="text-paper-btn" type="button" data-text-paper-preset="white"
+                                    onclick="updateTextSectionPaperPreset('white')">
+                                    <span class="text-paper-swatch" style="background:#ffffff;color:#000000;">あ</span>
+                                    <span>白紙</span>
+                                </button>
+                                <button class="text-paper-btn" type="button" data-text-paper-preset="book"
+                                    onclick="updateTextSectionPaperPreset('book')">
+                                    <span class="text-paper-swatch" style="background:#f7f1df;color:#1f1b16;">あ</span>
+                                    <span>書籍用紙</span>
+                                </button>
+                            </div>
+                        </div>
+                        <button id="text-overflow-badge" class="text-overflow-badge text-overflow-badge--flow" style="display:none;"
+                            onclick="autoFlowTextSection()" type="button">溢れあり</button>
                         <div class="text-input-hints">
                             <span class="ruby-input-hint" data-i18n="hint_ruby_syntax">{漢字|かんじ} でルビ入力</span>
                             <button class="page-break-btn" onclick="insertPageBreak()" data-i18n="btn_insert_page_break" title="改ページを挿入 (===)">改ページ</button>
@@ -504,59 +556,62 @@
                 <button class="btn-sm" onclick="switchRoom('editor')" data-i18n="btn_back_editor">← Editor に戻る</button>
             </div>
             <div class="press-room-body">
-                <aside class="press-panel press-pages-panel">
-                    <h3 data-i18n="press_pages">ページ一覧</h3>
-                    <div id="press-page-thumbs" class="press-page-thumbs"></div>
-                </aside>
-                <main class="press-panel press-settings-panel">
-                    <h3 data-i18n="press_settings">レンダリング設定</h3>
-                    <div class="press-field">
-                        <label data-i18n="press_target_lang">対象言語</label>
-                        <div id="press-lang-tabs" class="lang-tabs"></div>
-                    </div>
-                    <div class="press-field">
-                        <label data-i18n="press_webp_quality">WebP 品質</label>
-                        <div class="press-slider-row">
-                            <input type="range" id="press-quality" min="60" max="100" value="85"
-                                oninput="document.getElementById('press-quality-val').textContent=this.value+'%'">
-                            <span id="press-quality-val">85%</span>
+                <main class="press-workspace">
+                    <section class="press-panel press-pages-panel">
+                        <div class="press-panel-head">
+                            <h3 data-i18n="press_pages">ページ一覧</h3>
+                            <div id="press-thumb-lang-tabs" class="lang-tabs press-thumb-lang-tabs"></div>
                         </div>
-                    </div>
-                    <div class="press-field">
-                        <label data-i18n="press_output_size">出力サイズ</label>
-                        <div class="press-resolution-row">
-                            <select id="press-resolution">
-                                <option value="360x640" data-i18n="press_res_360">360×640（プレビュー・開発）</option>
-                                <option value="720x1280" data-i18n="press_res_720">720×1280（プレビュー）</option>
-                                <option value="1080x1920" selected data-i18n="press_res_1080">1080×1920（FHD・既定）</option>
-                                <option value="1440x2560" data-i18n="press_res_1440">1440×2560（WQHD）</option>
-                                <option value="2160x3840" data-i18n="press_res_2160">2160×3840（4K）</option>
-                            </select>
-                            <span id="press-size-estimate" class="press-size-estimate"></span>
-                        </div>
-                    </div>
-                    <div class="press-preview-note">
-                        <span class="material-icons">info_outline</span>
-                        <span data-i18n="press_render_note">レンダリングはエクスポート時に実行されます</span>
+                        <div id="press-page-thumbs" class="press-page-thumbs"></div>
+                    </section>
+                    <div class="press-lower-row">
+                        <section class="press-panel press-settings-panel">
+                            <h3 data-i18n="press_settings">レンダリング設定</h3>
+                            <div class="press-field">
+                                <label data-i18n="press_target_lang">対象言語</label>
+                                <div id="press-lang-tabs" class="lang-tabs"></div>
+                            </div>
+                            <div class="press-field">
+                                <label data-i18n="press_output_size">出力サイズ</label>
+                                <div class="press-resolution-row">
+                                    <select id="press-resolution">
+                                        <option value="360x640" data-i18n="press_res_360">360×640（プレビュー・開発）</option>
+                                        <option value="720x1280" data-i18n="press_res_720">720×1280（プレビュー）</option>
+                                        <option value="1080x1920" selected data-i18n="press_res_1080">1080×1920（FHD・既定）</option>
+                                        <option value="1440x2560" data-i18n="press_res_1440">1440×2560（WQHD）</option>
+                                        <option value="2160x3840" data-i18n="press_res_2160">2160×3840（4K）</option>
+                                    </select>
+                                    <span id="press-size-estimate" class="press-size-estimate"></span>
+                                </div>
+                            </div>
+                            <div class="press-field press-book-field">
+                                <label data-i18n="press_book_structure">表紙構成</label>
+                                <div id="press-book-settings" class="press-book-settings"></div>
+                            </div>
+                            <div class="press-preview-note">
+                                <span class="material-icons">info_outline</span>
+                                <span data-i18n="press_render_note">レンダリングはエクスポート時に実行されます</span>
+                            </div>
+                        </section>
+                        <aside class="press-panel press-publish-panel">
+                            <h3 data-i18n="press_publish">発行</h3>
+                            <div class="press-publish-actions">
+                                <button class="press-publish-btn primary" onclick="exportDSF()">
+                                    <span class="material-icons">download</span>
+                                    <span><span data-i18n="btn_export_dsf">DSF 書き出し</span><small data-i18n="btn_export_dsf_sub">.dsf ファイルを保存</small></span>
+                                </button>
+                                <button id="press-publish-cloud-btn" class="press-publish-btn" onclick="publishToCloud()" data-auth-required>
+                                    <span class="material-icons">cloud_upload</span>
+                                    <span><span data-i18n="btn_publish_cloud">クラウドに発行</span><small data-i18n="btn_publish_cloud_sub">R2 にレンダリング・発行</small></span>
+                                </button>
+                                <button class="press-publish-btn" onclick="switchRoom('works')" data-auth-required>
+                                    <span class="material-icons">library_books</span>
+                                    <span><span data-i18n="btn_goto_works">Works Room へ</span><small data-i18n="btn_goto_works_sub">発行済み作品のステータス管理</small></span>
+                                </button>
+                            </div>
+                        </aside>
                     </div>
                 </main>
-                <aside class="press-panel press-publish-panel">
-                    <h3 data-i18n="press_publish">発行</h3>
-                    <div class="press-publish-actions">
-                        <button class="press-publish-btn primary" onclick="exportDSF()">
-                            <span class="material-icons">download</span>
-                            <span><span data-i18n="btn_export_dsf">DSF 書き出し</span><small data-i18n="btn_export_dsf_sub">.dsf ファイルを保存</small></span>
-                        </button>
-                        <button id="press-publish-cloud-btn" class="press-publish-btn" onclick="publishToCloud()" data-auth-required>
-                            <span class="material-icons">cloud_upload</span>
-                            <span><span data-i18n="btn_publish_cloud">クラウドに発行</span><small data-i18n="btn_publish_cloud_sub">R2 にレンダリング・発行</small></span>
-                        </button>
-                        <button class="press-publish-btn" onclick="switchRoom('works')" data-auth-required>
-                            <span class="material-icons">library_books</span>
-                            <span><span data-i18n="btn_goto_works">Works Room へ</span><small data-i18n="btn_goto_works_sub">発行済み作品のステータス管理</small></span>
-                        </button>
-                    </div>
-                </aside>
             </div>
         </div><!-- /press-room -->
 
