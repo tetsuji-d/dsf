@@ -3,11 +3,11 @@
  * DSP → DSF レンダリング・R2アップロード・Firestore発行
  */
 import {
-    doc, setDoc, serverTimestamp
+    doc, setDoc, deleteDoc, serverTimestamp
 } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
 import { state, dispatch, actionTypes } from './state.js';
 import { extractSectionsFromBlocks } from './blocks.js';
-import { db, uploadPressPage, triggerAutoSave } from './firebase.js';
+import { db, uploadPressPage, triggerAutoSave, auth } from './firebase.js';
 import { loadImageForCanvas } from './asset-fetch.js';
 import { renderPositionedThumbImageHtml } from './sections.js';
 import { t } from './i18n-studio.js';
@@ -19,22 +19,162 @@ import {
     clampPressPublishResolutionKey
 } from './page-geometry.js';
 import {
-    composeText,
-    getWritingModeFromConfigs,
-    getFontPresetFromConfigs,
-    parseRubyTokens,
-    tokensToPlainText,
-    alignRubyToLines
+    getWritingModeFromConfigs
 } from './layout.js';
-import { verticalGlyphText } from './text-press-html.js';
+import { verticalGlyphText, composeTextPreviewModel } from './text-press-html.js';
 import { encodeCanvasToWebP } from './canvas-encoding.js';
+import { getLangProps } from './lang.js';
 
 let _estimateTimer = null;
 let _estimateRunId = 0;
 let _pressListenersBound = false;
 let _pressThumbLang = '';
-const PRESS_IMAGE_WEBP_QUALITY = 0.85;
+const PRESS_IMAGE_WEBP_QUALITY_BY_SCALE = Object.freeze({
+    1: 0.84,
+    2: 0.86,
+    3: 0.90,
+    4: 0.92,
+    6: 0.94
+});
 const PRESS_TEXT_WEBP_QUALITY = 0.90;
+
+const PRESS_TRIAL_TEXT_BINARY_KEY = 'pressTrialTextBinary';
+
+/** Horizon 発行 / DSF 書き出しの長時間レンダリングをユーザーが中断するための共有フラグ */
+let _pressRenderCancelled = false;
+
+export function resetPressRenderCancel() {
+    _pressRenderCancelled = false;
+}
+
+export function requestPressRenderCancel() {
+    _pressRenderCancelled = true;
+}
+
+export function throwIfPressRenderCancelled() {
+    if (_pressRenderCancelled) {
+        const e = new Error('PRESS_RENDER_CANCELLED');
+        e.code = 'PRESS_RENDER_CANCELLED';
+        throw e;
+    }
+}
+
+/** Press Room: テキスト二値化＋高 q WebP の試行ルート（DSF 書き出し／クラウド発行の両方） */
+function _isPressTextBinarizeTrialEnabled() {
+    return document.getElementById('press-trial-text-binary')?.checked === true;
+}
+
+function _parseCssColorToRgb(str) {
+    const s = String(str || '').trim() || '#ffffff';
+    if (s.startsWith('#')) {
+        const hex = s.slice(1);
+        if (hex.length === 3) {
+            return {
+                r: parseInt(hex[0] + hex[0], 16),
+                g: parseInt(hex[1] + hex[1], 16),
+                b: parseInt(hex[2] + hex[2], 16)
+            };
+        }
+        if (hex.length === 6) {
+            return {
+                r: parseInt(hex.slice(0, 2), 16),
+                g: parseInt(hex.slice(2, 4), 16),
+                b: parseInt(hex.slice(4, 6), 16)
+            };
+        }
+    }
+    const c = document.createElement('canvas').getContext('2d');
+    if (!c) return { r: 255, g: 255, b: 255 };
+    c.fillStyle = '#ffffff';
+    c.fillStyle = s;
+    const out = c.fillStyle;
+    if (typeof out === 'string' && out.startsWith('#') && out.length >= 7) {
+        const h = out.slice(1);
+        return {
+            r: parseInt(h.slice(0, 2), 16),
+            g: parseInt(h.slice(2, 4), 16),
+            b: parseInt(h.slice(4, 6), 16)
+        };
+    }
+    const m = /^rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)/i.exec(String(out));
+    if (m) return { r: +m[1], g: +m[2], b: +m[3] };
+    return { r: 255, g: 255, b: 255 };
+}
+
+function _colorDistSq(a, b) {
+    const dr = a.r - b.r;
+    const dg = a.g - b.g;
+    const db = a.b - b.b;
+    return dr * dr + dg * dg + db * db;
+}
+
+/**
+ * アンチエイリアスを捨て、紙色・文字色のどちらか近い方へ量子化する（試行用）。
+ */
+function _binarizeTextCanvasForTrial(canvas, section) {
+    const bg = _parseCssColorToRgb(section?.backgroundColor || '#ffffff');
+    const fg = _parseCssColorToRgb(section?.textColor || '#000000');
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    const { width, height } = canvas;
+    const img = ctx.getImageData(0, 0, width, height);
+    const d = img.data;
+    for (let i = 0; i < d.length; i += 4) {
+        const px = { r: d[i], g: d[i + 1], b: d[i + 2] };
+        const a = d[i + 3];
+        if (a < 16) {
+            d[i] = bg.r;
+            d[i + 1] = bg.g;
+            d[i + 2] = bg.b;
+            d[i + 3] = 255;
+            continue;
+        }
+        const toBg = _colorDistSq(px, bg);
+        const toFg = _colorDistSq(px, fg);
+        if (toBg <= toFg) {
+            d[i] = bg.r;
+            d[i + 1] = bg.g;
+            d[i + 2] = bg.b;
+        } else {
+            d[i] = fg.r;
+            d[i + 1] = fg.g;
+            d[i + 2] = fg.b;
+        }
+        d[i + 3] = 255;
+    }
+    ctx.putImageData(img, 0, 0);
+}
+
+function _encodeTextSectionWebP(canvas, section, kindLabel) {
+    if (_isPressTextBinarizeTrialEnabled()) {
+        _binarizeTextCanvasForTrial(canvas, section);
+        // iOS 等 WASM ロッシー q=100 は二値画に不向きで肥大化しやすい → libwebp ロスレス
+        return encodeCanvasToWebP(canvas, 1, `${kindLabel}（試行・二値）`, { lossless: true });
+    }
+    return encodeCanvasToWebP(canvas, PRESS_TEXT_WEBP_QUALITY, kindLabel);
+}
+
+function _bindPressPublishCancelOnce() {
+    const btn = document.getElementById('press-publish-cancel-btn');
+    if (!btn || btn.dataset.pressCancelBound === '1') return;
+    btn.dataset.pressCancelBound = '1';
+    btn.addEventListener('click', () => requestPressRenderCancel());
+}
+
+function _bindPressTrialTextBinaryOnce() {
+    const el = document.getElementById('press-trial-text-binary');
+    if (!el || el.dataset.pressBound === '1') return;
+    el.dataset.pressBound = '1';
+    try {
+        if (sessionStorage.getItem(PRESS_TRIAL_TEXT_BINARY_KEY) === '1') el.checked = true;
+    } catch (_) { /* sessionStorage 不可環境 */ }
+    el.addEventListener('change', () => {
+        try {
+            sessionStorage.setItem(PRESS_TRIAL_TEXT_BINARY_KEY, el.checked ? '1' : '0');
+        } catch (_) { /* noop */ }
+        _queueSizeEstimate();
+    });
+}
 
 // ─── Press Room 入室 ─────────────────────────────────────────────────────────
 
@@ -47,6 +187,8 @@ export function enterPressRoom() {
     _renderLangTabs();
     _renderBookSettings();
     _updatePublishBtn();
+    _bindPressTrialTextBinaryOnce();
+    _bindPressPublishCancelOnce();
     _queueSizeEstimate();
     if (!_pressListenersBound) {
         _pressListenersBound = true;
@@ -68,15 +210,49 @@ function _getPressThumbLang() {
     return _pressThumbLang || state.defaultLang || 'ja';
 }
 
+function _getLangDirection(code) {
+    const props = getLangProps(code);
+    const fallback = props.directions?.[0]?.value || 'ltr';
+    return state.languageConfigs?.[code]?.pageDirection || fallback;
+}
+
+function _getLangDirectionArrow(code) {
+    return _getLangDirection(code) === 'rtl' ? '&lt;&lt;' : '&gt;&gt;';
+}
+
+function _getLangBadgeModifier(code) {
+    const normalized = String(code || '').trim().toLowerCase();
+    if (normalized === 'ja') return 'ja';
+    if (normalized === 'en' || normalized === 'en-us') return 'en-us';
+    if (normalized === 'en-gb') return 'en-gb';
+    if (normalized === 'zh-cn') return 'zh-cn';
+    if (normalized === 'zh-tw') return 'zh-tw';
+    return 'generic';
+}
+
+function _renderPressLangTabContent(code) {
+    const props = getLangProps(code);
+    const modifier = _getLangBadgeModifier(code);
+    const codeLabel = String(code || '').toUpperCase();
+    return `
+        <span class="lang-tab-badge home-lang-${modifier}" title="${_esc(codeLabel)}">${modifier === 'generic' ? _esc(codeLabel) : ''}</span>
+        <span class="lang-tab-label">${_esc(props.label)}</span>
+        <span class="lang-tab-code">${_esc(codeLabel)}</span>
+        <span class="lang-tab-dir">${_getLangDirectionArrow(code)}</span>
+    `;
+}
+
 function _renderThumbLangTabs() {
     const container = document.getElementById('press-thumb-lang-tabs');
     if (!container) return;
     const langs = state.languages || ['ja'];
     const current = _getPressThumbLang();
+    container.classList.toggle('press-thumb-lang-tabs--rtl', _getLangDirection(current) === 'rtl');
     container.innerHTML = langs.map(code =>
         `<button class="lang-tab press-thumb-lang-tab ${code === current ? 'active' : ''}"
             data-lang="${code}"
-            onclick="switchPressThumbLang('${code}')">${code.toUpperCase()}</button>`
+            onclick="switchPressThumbLang('${code}')"
+            title="${_esc(`${getLangProps(code).label} ${String(code).toUpperCase()} ${_getLangDirection(code) === 'rtl' ? '<<' : '>>'}`)}">${_renderPressLangTabContent(code)}</button>`
     ).join('');
 }
 
@@ -89,9 +265,10 @@ function _renderPageThumbs() {
         container.innerHTML = '<p class="press-empty">ページがありません</p>';
         return;
     }
+    const lang = _getPressThumbLang();
+    container.classList.toggle('press-page-thumbs--rtl', _getLangDirection(lang) === 'rtl');
 
     container.innerHTML = pages.map((section, i) => {
-        const lang = _getPressThumbLang();
         const label = String(i + 1);
         const roles = _getCoverRolesForPage(i);
         const badges = roles.length
@@ -141,7 +318,8 @@ function _renderLangTabs() {
     container.innerHTML = langs.map(code =>
         `<button class="lang-tab press-lang-tab active"
             data-lang="${code}"
-            onclick="togglePressLang('${code}')">${code.toUpperCase()}</button>`
+            onclick="togglePressLang('${code}')"
+            title="${_esc(`${getLangProps(code).label} ${String(code).toUpperCase()} ${_getLangDirection(code) === 'rtl' ? '<<' : '>>'}`)}">${_renderPressLangTabContent(code)}</button>`
     ).join('');
 }
 
@@ -307,7 +485,7 @@ async function _updateSizeEstimate() {
     try {
         let totalSampleBytes = 0;
         for (const task of sampleTasks) {
-            const quality = _getPressQualityForTask(task);
+            const quality = _getPressQualityForTask(task, w, h);
             const blob = task.kind === 'text'
                 ? await _renderTextSectionToWebP(task.section, task.lang, w, h, quality)
                 : await _renderPageToWebP(task.bgUrl, task.pos, w, h, quality);
@@ -364,11 +542,16 @@ window.updatePressBookCover = (key, value) => {
 
 // ─── レンダリング & 発行 ─────────────────────────────────────────────────────
 
-/** Press Room の「クラウドに発行」ボタンから呼ばれる */
+/** Press Room の「Horizonに発行」ボタンから呼ばれる */
 window.publishToCloud = async () => {
-    if (!state.uid) {
+    const uid = auth.currentUser?.uid;
+    if (!uid) {
         alert('ログインしてください');
         return;
+    }
+    if (state.uid && state.uid !== uid) {
+        console.warn('[Press] state.uid does not match auth; syncing from Firebase');
+        state.uid = uid;
     }
     if (!state.projectId) {
         alert('プロジェクトをクラウドに保存してから発行してください');
@@ -396,78 +579,145 @@ window.publishToCloud = async () => {
     ).map(el => el.dataset.lang).filter(Boolean);
     const langs = selectedLangs.length ? selectedLangs : (state.languages || ['ja']);
 
-    // プログレス表示
-    const btn = document.getElementById('press-publish-cloud-btn');
-    const origLabel = btn?.innerHTML;
-    const setProgress = (msg) => {
-        if (btn) btn.innerHTML = `<span class="material-icons">hourglass_top</span><span>${msg}</span>`;
-    };
-    const resetBtn = () => { if (btn && origLabel) btn.innerHTML = origLabel; };
-
-    setProgress(t('press_preparing'));
-
-    try {
-        let totalOps = 0;
-        for (const section of pages) {
-            for (const lang of langs) {
-                if (section.type === 'text') {
-                    if ((section.texts?.[lang] || '').trim()) totalOps += 1;
-                } else if (section.backgrounds?.[lang] || section.background) {
-                    totalOps += 1;
-                }
+    let totalOps = 0;
+    for (const section of pages) {
+        for (const lang of langs) {
+            if (section.type === 'text') {
+                if ((section.texts?.[lang] || '').trim()) totalOps += 1;
+            } else if (section.backgrounds?.[lang] || section.background) {
+                totalOps += 1;
             }
         }
-        if (!totalOps) {
-            alert('選択した言語にレンダリングできるコンテンツがありません（画像または本文を確認してください）');
-            resetBtn();
-            return;
-        }
+    }
+    if (!totalOps) {
+        alert('選択した言語にレンダリングできるコンテンツがありません（画像または本文を確認してください）');
+        return;
+    }
 
+    const openPressPublishModal = () => {
+        const el = document.getElementById('press-publish-modal');
+        if (el) {
+            el.style.display = 'flex';
+            el.setAttribute('aria-hidden', 'false');
+        }
+        const bar = document.getElementById('press-publish-modal-bar');
+        if (bar) {
+            bar.max = 100;
+            bar.value = 0;
+        }
+        requestAnimationFrame(() => {
+            document.getElementById('press-publish-cancel-btn')?.focus();
+        });
+    };
+
+    const closePressPublishModal = () => {
+        const el = document.getElementById('press-publish-modal');
+        if (el) {
+            el.style.display = 'none';
+            el.setAttribute('aria-hidden', 'true');
+        }
+        const bar = document.getElementById('press-publish-modal-bar');
+        if (bar) {
+            bar.max = 100;
+            bar.value = 0;
+        }
+    };
+
+    /** @param {string} msg @param {number | null} fraction 0..1、null は不定（準備中） */
+    const setModalProgress = (msg, fraction) => {
+        const statusEl = document.getElementById('press-publish-modal-status');
+        const bar = document.getElementById('press-publish-modal-bar');
+        if (statusEl) statusEl.textContent = msg;
+        if (!bar) return;
+        if (fraction == null) {
+            bar.removeAttribute('value');
+        } else {
+            bar.max = 100;
+            bar.value = Math.round(Math.min(100, Math.max(0, fraction * 100)));
+        }
+    };
+
+    resetPressRenderCancel();
+    const onEscKey = (e) => {
+        if (e.key === 'Escape') {
+            e.preventDefault();
+            requestPressRenderCancel();
+        }
+    };
+    window.addEventListener('keydown', onEscKey, true);
+
+    openPressPublishModal();
+    setModalProgress(t('press_preparing'), null);
+
+    try {
         const dsfPages = [];
         let pageNum = 0;
         let totalBytes = 0;
         let done = 0;
         const renderStamp = Date.now();
 
+        try {
+            await auth.currentUser.getIdToken(true);
+        } catch (_) {
+            /* トークン更新に失敗しても getIdToken(false) で再試行される */
+        }
+
         for (const section of pages) {
+            throwIfPressRenderCancelled();
             pageNum++;
             const langUrls = {};
+            const langBytes = {};
+            let pageTotalBytes = 0;
 
             for (const lang of langs) {
+                throwIfPressRenderCancelled();
                 let blob;
                 if (section.type === 'text') {
                     const raw = section.texts?.[lang];
                     if (!raw || !String(raw).trim()) continue;
                     done++;
-                    setProgress(t('press_rendering_progress', { done, total: totalOps }));
-                    blob = await _renderTextSectionToWebP(section, lang, targetW, targetH, _getPressQualityForSection(section));
+                    setModalProgress(
+                        t('press_rendering_progress', { done, total: totalOps }),
+                        done / totalOps
+                    );
+                    blob = await _renderTextSectionToWebP(section, lang, targetW, targetH, _getPressQualityForSection(section, targetW, targetH));
                 } else {
                     const bgUrl = section.backgrounds?.[lang] || section.background;
                     if (!bgUrl) continue;
                     done++;
-                    setProgress(t('press_rendering_progress', { done, total: totalOps }));
+                    setModalProgress(
+                        t('press_rendering_progress', { done, total: totalOps }),
+                        done / totalOps
+                    );
                     blob = await _renderPageToWebP(
-                        bgUrl, section.imagePositions?.[lang] || section.imagePosition, targetW, targetH, _getPressQualityForSection(section)
+                        bgUrl, section.imagePositions?.[lang] || section.imagePosition, targetW, targetH, _getPressQualityForSection(section, targetW, targetH)
                     );
                 }
+                throwIfPressRenderCancelled();
                 totalBytes += blob.size;
+                pageTotalBytes += blob.size;
 
-                const path = `users/${state.uid}/dsf/${state.projectId}/${renderStamp}/${lang}/page_${String(pageNum).padStart(3, '0')}.webp`;
+                const path = `users/${uid}/dsf/${state.projectId}/${renderStamp}/${lang}/page_${String(pageNum).padStart(3, '0')}.webp`;
                 langUrls[lang] = await uploadPressPage(blob, path);
+                langBytes[lang] = blob.size;
             }
 
             dsfPages.push({
                 pageNum,
                 pageType: section.type === 'text' ? 'normal_text' : 'normal_image',
                 urls: langUrls,
+                bytesByLang: langBytes,
+                totalBytes: pageTotalBytes,
             });
         }
 
-        setProgress(t('press_saving_firestore'));
+        throwIfPressRenderCancelled();
+        setModalProgress(t('press_saving_firestore'), 1);
 
         // Firestoreに DSF メタデータを保存
+        const qualityProfile = getPressQualityProfile(resStr);
         await setDoc(
-            doc(db, 'users', state.uid, 'projects', state.projectId),
+            doc(db, 'users', uid, 'projects', state.projectId),
             {
                 dsfPages,
                 ...getPressBookConfigForExport(dsfPages.length),
@@ -475,28 +725,42 @@ window.publishToCloud = async () => {
                 dsfPublishedAt: serverTimestamp(),
                 dsfRenderStamp: renderStamp,
                 dsfResolution:  resStr,
-                dsfQuality:     Math.round(PRESS_IMAGE_WEBP_QUALITY * 100),
-                dsfQualityMode: 'auto',
+                dsfQuality:     Math.round(qualityProfile.image * 100),
+                dsfQualityMode: 'auto-resolution',
                 dsfQualityProfile: {
-                    image: Math.round(PRESS_IMAGE_WEBP_QUALITY * 100),
+                    image: Math.round(qualityProfile.image * 100),
                     text: Math.round(PRESS_TEXT_WEBP_QUALITY * 100),
                 },
                 dsfLangs:       langs,
                 dsfTotalBytes:  totalBytes,
+                visibility:     'private',
             },
             { merge: true }
         );
 
+        // Press は新しい DSF を draft として作り直す。
+        // 公開インデックスは Works が管理するため、再発行時は stale な公開行を外す。
+        await deleteDoc(doc(db, 'public_projects', state.projectId))
+            .catch((e) => console.warn('[Press] Failed to clear public_projects on draft publish:', e?.message || e));
+
         console.log(`[Press] Published ${dsfPages.length} pages → draft`);
-        resetBtn();
+        closePressPublishModal();
 
         // Works Room へ遷移
         window.switchRoom('works');
 
     } catch (e) {
-        console.error('[Press] publishToCloud error:', e);
-        alert('発行中にエラーが発生しました:\n' + (e?.message || String(e)));
-        resetBtn();
+        if (e?.code === 'PRESS_RENDER_CANCELLED') {
+            console.info('[Press] publishToCloud cancelled by user');
+            alert(t('press_render_cancelled'));
+        } else {
+            console.error('[Press] publishToCloud error:', e);
+            alert('発行中にエラーが発生しました:\n' + (e?.message || String(e)));
+        }
+        closePressPublishModal();
+    } finally {
+        window.removeEventListener('keydown', onEscKey, true);
+        resetPressRenderCancel();
     }
 };
 
@@ -560,12 +824,17 @@ function _getRenderablePages() {
     return authoringSections.filter(s => s && (s.type === 'image' || s.type === 'text'));
 }
 
-function _getPressQualityForSection(section) {
-    return section?.type === 'text' ? PRESS_TEXT_WEBP_QUALITY : PRESS_IMAGE_WEBP_QUALITY;
+function _getImagePressQuality(targetW, targetH) {
+    const scale = Math.max(1, Math.round(Math.min(targetW / CANONICAL_PAGE_WIDTH, targetH / CANONICAL_PAGE_HEIGHT)));
+    return PRESS_IMAGE_WEBP_QUALITY_BY_SCALE[scale] || 0.94;
 }
 
-function _getPressQualityForTask(task) {
-    return task?.kind === 'text' ? PRESS_TEXT_WEBP_QUALITY : PRESS_IMAGE_WEBP_QUALITY;
+function _getPressQualityForSection(section, targetW, targetH) {
+    return section?.type === 'text' ? PRESS_TEXT_WEBP_QUALITY : _getImagePressQuality(targetW, targetH);
+}
+
+function _getPressQualityForTask(task, targetW, targetH) {
+    return task?.kind === 'text' ? PRESS_TEXT_WEBP_QUALITY : _getImagePressQuality(targetW, targetH);
 }
 
 export function getRenderablePressPages() {
@@ -576,10 +845,12 @@ export function getSelectedPressLangs() {
     return _getSelectedPressLangs();
 }
 
-export function getPressQualityProfile() {
+export function getPressQualityProfile(resolutionKey = '') {
+    const { width, height } = getPressResolutionDims(resolutionKey || resolvePressResolutionKey(document.getElementById('press-resolution')?.value || '1080x1920'));
+    const textQ = _isPressTextBinarizeTrialEnabled() ? 1 : PRESS_TEXT_WEBP_QUALITY;
     return {
-        image: PRESS_IMAGE_WEBP_QUALITY,
-        text: PRESS_TEXT_WEBP_QUALITY
+        image: _getImagePressQuality(width, height),
+        text: textQ
     };
 }
 
@@ -598,7 +869,7 @@ export async function renderPressSectionToWebP(section, lang, targetW, targetH) 
     if (section?.type === 'text') {
         const raw = section.texts?.[lang];
         if (!raw || !String(raw).trim()) return null;
-        return _renderTextSectionToWebP(section, lang, targetW, targetH, _getPressQualityForSection(section));
+        return _renderTextSectionToWebP(section, lang, targetW, targetH, _getPressQualityForSection(section, targetW, targetH));
     }
     const bgUrl = section?.backgrounds?.[lang] || section?.background;
     if (!bgUrl) return null;
@@ -607,37 +878,12 @@ export async function renderPressSectionToWebP(section, lang, targetW, targetH) 
         section.imagePositions?.[lang] || section.imagePosition,
         targetW,
         targetH,
-        _getPressQualityForSection(section)
+        _getPressQualityForSection(section, targetW, targetH)
     );
 }
 
 function _prepareTextComposition(section, lang) {
-    const raw = section.texts?.[lang] ?? '';
-    const writingMode = getWritingModeFromConfigs(lang, state.languageConfigs || {});
-    const fontPreset = getFontPresetFromConfigs(lang, state.languageConfigs || {});
-
-    let rubyTokens = [];
-    let hasRuby = false;
-    let plainText = raw;
-    try {
-        rubyTokens = parseRubyTokens(raw);
-        hasRuby = rubyTokens.some(t => t.kind === 'ruby');
-        plainText = hasRuby ? tokensToPlainText(rubyTokens) : raw;
-    } catch {
-        rubyTokens = [];
-        hasRuby = false;
-        plainText = raw;
-    }
-
-    const composed = composeText(plainText, lang, writingMode, fontPreset);
-    let rubyLines = null;
-    try {
-        rubyLines = hasRuby ? alignRubyToLines(rubyTokens, composed.lines) : null;
-    } catch {
-        rubyLines = null;
-    }
-
-    return { raw, composed, rubyLines };
+    return composeTextPreviewModel(section, lang, state.languageConfigs || {});
 }
 
 const SMALL_KANA_VERTICAL_OFFSET = Object.freeze({
@@ -690,7 +936,7 @@ function _drawVerticalRubyText(ctx, tokenLine, x, metrics) {
     }
 }
 
-async function _renderVerticalTextSectionToWebP(section, lang, targetW, targetH, quality) {
+async function _renderVerticalTextSectionToWebP(section, lang, targetW, targetH, _quality) {
     const { raw, composed, rubyLines } = _prepareTextComposition(section, lang);
     const canvas = document.createElement('canvas');
     canvas.width = targetW;
@@ -704,7 +950,7 @@ async function _renderVerticalTextSectionToWebP(section, lang, targetW, targetH,
     ctx.fillStyle = section.backgroundColor || '#ffffff';
     ctx.fillRect(0, 0, targetW, targetH);
     if (!raw) {
-        return encodeCanvasToWebP(canvas, quality, '空テキストページ');
+        return _encodeTextSectionWebP(canvas, section, '空テキストページ');
     }
 
     await document.fonts.ready;
@@ -742,10 +988,10 @@ async function _renderVerticalTextSectionToWebP(section, lang, targetW, targetH,
         }
     });
 
-    return encodeCanvasToWebP(canvas, quality, '縦書きテキストページ');
+    return _encodeTextSectionWebP(canvas, section, '縦書きテキストページ');
 }
 
-async function _renderHorizontalTextSectionToWebP(section, lang, targetW, targetH, quality) {
+async function _renderHorizontalTextSectionToWebP(section, lang, targetW, targetH, _quality) {
     const { raw, composed } = _prepareTextComposition(section, lang);
     const canvas = document.createElement('canvas');
     canvas.width = targetW;
@@ -760,7 +1006,7 @@ async function _renderHorizontalTextSectionToWebP(section, lang, targetW, target
     ctx.fillStyle = section.backgroundColor || '#ffffff';
     ctx.fillRect(0, 0, targetW, targetH);
     if (!raw) {
-        return encodeCanvasToWebP(canvas, quality, '空テキストページ');
+        return _encodeTextSectionWebP(canvas, section, '空テキストページ');
     }
 
     await document.fonts.ready;
@@ -791,7 +1037,7 @@ async function _renderHorizontalTextSectionToWebP(section, lang, targetW, target
         _drawHorizontalLine(ctx, text, frameX, baseline, frameW, !isLastParaLine);
     });
 
-    return encodeCanvasToWebP(canvas, quality, '横書きテキストページ');
+    return _encodeTextSectionWebP(canvas, section, '横書きテキストページ');
 }
 
 function _drawHorizontalLine(ctx, line, x, baseline, width, justify) {

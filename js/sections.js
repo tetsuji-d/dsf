@@ -1,5 +1,9 @@
 /**
- * sections.js — page block operations + thumbnail rendering
+ * sections.js — editor-facing page operations + thumbnail rendering
+ *
+ * Historical note:
+ * editor UI still manipulates `sections` in several flows, but every content edit
+ * must be resynchronized back into canonical `blocks` and derived `pages`.
  */
 import { state, dispatch, actionTypes } from './state.js';
 import { deepClone, createId } from './utils.js';

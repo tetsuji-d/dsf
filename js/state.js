@@ -1,6 +1,7 @@
 /**
  * state.js — アプリケーション共有ステート
- * 全モジュールがこのオブジェクトを参照・変更する
+ * `blocks` が authoring canonical。
+ * `sections` と `pages` は互換レンダリング/出力のための派生面として保持する。
  */
 export const state = {
     user: null,
@@ -36,8 +37,8 @@ export const state = {
             }
         }
     ],
-    pages: [],
-    sections: [
+    pages: [], // derived viewer/export surface (v5 page objects)
+    sections: [ // legacy-compatible flat surface used by some editor flows
         {
             type: 'image',
             background: 'https://picsum.photos/id/10/600/1066',
@@ -92,15 +93,22 @@ export const actionTypes = {
 };
 
 /**
- * Dispatch function to handle state mutations centrally
+ * Dispatch function to handle state mutations centrally.
+ * Content edits should converge back to canonical `blocks` via sync helpers.
  */
 export function dispatch(action) {
     const { type, payload } = action;
 
     switch (type) {
-        case actionTypes.LOAD_PROJECT:
-            Object.assign(state, payload);
+        case actionTypes.LOAD_PROJECT: {
+            // バックアップ/DSP 復元に含まれる uid・user は古いセッションの残骸で
+            // Firebase Auth の現在ユーザーとズレると R2 の path と ID トークンが不一致になる。
+            const projectPayload = { ...(payload || {}) };
+            delete projectPayload.uid;
+            delete projectPayload.user;
+            Object.assign(state, projectPayload);
             break;
+        }
 
         case actionTypes.SET_AUTH_STATE:
             state.user = payload.user;

@@ -1,5 +1,8 @@
 # Progress Log
 
+> Status: historical process artifact.
+> マルチエージェント運用期のハンドオフログ用テンプレートです。現在の開発体制の正本は `AGENTS.md` を参照してください。
+
 このファイルは、エージェントを切り替えながら作業する際の共通ハンドオフログです。
 
 ## Rules

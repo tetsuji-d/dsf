@@ -65,15 +65,31 @@ const TCY_STYLE = [
     '-webkit-font-feature-settings:normal'
 ].join(';');
 
-function markupTcyText(text) {
+function markupTcyText(text, useVerticalGlyphs = true) {
     if (!text) return '';
-    const chars = Array.from(String(text || ''));
-    return chars.map(ch => escHtml(verticalGlyphText(ch))).join('');
+    const source = String(text || '');
+    const parts = [];
+    let lastIdx = 0;
+    const re = /(?:[0-9]{2,4}|[\uFF10-\uFF19]{2,4})/g;
+    let m;
+    while ((m = re.exec(source)) !== null) {
+        if (m.index > lastIdx) {
+            const chunk = source.slice(lastIdx, m.index);
+            parts.push(escHtml(useVerticalGlyphs ? verticalGlyphText(chunk) : chunk));
+        }
+        parts.push(`<span class="tcy" style="${TCY_STYLE}">${escHtml(m[0])}</span>`);
+        lastIdx = re.lastIndex;
+    }
+    if (lastIdx < source.length) {
+        const chunk = source.slice(lastIdx);
+        parts.push(escHtml(useVerticalGlyphs ? verticalGlyphText(chunk) : chunk));
+    }
+    return parts.join('');
 }
 
 function markupVerticalLine(rawLine) {
     if (!rawLine) return '\u00a0';
-    return markupTcyText(rawLine) || '\u00a0';
+    return markupTcyText(rawLine, true) || '\u00a0';
 }
 
 const VERTICAL_CONTAINER_STYLE = [
@@ -140,7 +156,7 @@ function baseTextFromTokenLine(tokenLine) {
     if (!tokenLine || !tokenLine.length) return '\u00a0';
     const parts = [];
     for (const tok of tokenLine) {
-        parts.push(markupTcyText(tok.kind === 'ruby' ? tok.base : (tok.text || '')));
+        parts.push(markupTcyText(tok.kind === 'ruby' ? tok.base : (tok.text || ''), true));
     }
     return parts.join('') || '\u00a0';
 }
@@ -202,11 +218,7 @@ function getHorizontalTextOffsetY(composed) {
     return 0;
 }
 
-/**
- * @returns {{ rootHtml: string, empty: boolean }}
- *   rootHtml — 360×640 のラスタ用ラッパー内に差し込む HTML（背景・フレーム・本文）
- */
-export function buildPressTextRasterHtml(section, lang, languageConfigs) {
+export function composeTextPreviewModel(section, lang, languageConfigs) {
     const raw = section.texts?.[lang] ?? '';
     const writingMode = getWritingModeFromConfigs(lang, languageConfigs);
     const fontPreset = getFontPresetFromConfigs(lang, languageConfigs);
@@ -249,10 +261,32 @@ export function buildPressTextRasterHtml(section, lang, languageConfigs) {
         `letter-spacing:${composed.font.letterSpacing ? `${composed.font.letterSpacing}px` : '0'}`
     ].join(';');
 
+    return {
+        raw,
+        langAttr: lang.toLowerCase(),
+        pageBg,
+        frameStyle,
+        composed,
+        rubyLines
+    };
+}
+
+/**
+ * 共通の text composition を HTML に変換する。
+ * Editor preview / spread preview / Press raster host がこの結果を共有する。
+ */
+export function buildTextPreviewMarkup(section, lang, languageConfigs) {
+    const { raw, langAttr, pageBg, frameStyle, composed, rubyLines } =
+        composeTextPreviewModel(section, lang, languageConfigs);
+
     if (!raw) {
         return {
             empty: true,
-            rootHtml: `<div class="press-raster-page" style="position:relative;width:360px;height:640px;background:${pageBg}"></div>`
+            pageBg,
+            frameStyle,
+            langAttr,
+            contentInner: '',
+            composed
         };
     }
 
@@ -316,7 +350,7 @@ export function buildPressTextRasterHtml(section, lang, languageConfigs) {
                     ? `<div class="tpv-blank" style="height:${lineH}px"></div>`
                     : `<p class="tpv-para" style="${PARA_STYLE}">${p.map(tok =>
                         tok.kind === 'ruby'
-                            ? `<ruby>${markupTcyText(tok.base)}<rt>${escHtml(tok.ruby || '')}</rt></ruby>`
+                            ? `<ruby>${markupTcyText(tok.base, false)}<rt>${escHtml(tok.ruby || '')}</rt></ruby>`
                             : escHtml(tok.text || '')
                     ).join('')}</p>`
             ).join('');
@@ -329,13 +363,36 @@ export function buildPressTextRasterHtml(section, lang, languageConfigs) {
             ).join('');
         }
         contentInner =
-            `<div class="tpv-horizontal" lang="${lang.toLowerCase()}" style="${HORIZONTAL_BASE_STYLE};line-height:${lineH}px;transform:translateY(${offsetY}px)">${html}</div>`;
+            `<div class="tpv-horizontal" lang="${langAttr}" style="${HORIZONTAL_BASE_STYLE};line-height:${lineH}px;transform:translateY(${offsetY}px)">${html}</div>`;
+    }
+
+    return {
+        empty: false,
+        pageBg,
+        frameStyle,
+        langAttr,
+        contentInner,
+        composed
+    };
+}
+
+/**
+ * @returns {{ rootHtml: string, empty: boolean }}
+ *   rootHtml — 360×640 のラスタ用ラッパー内に差し込む HTML（背景・フレーム・本文）
+ */
+export function buildPressTextRasterHtml(section, lang, languageConfigs) {
+    const markup = buildTextPreviewMarkup(section, lang, languageConfigs);
+    if (markup.empty) {
+        return {
+            empty: true,
+            rootHtml: `<div class="press-raster-page" style="position:relative;width:360px;height:640px;background:${markup.pageBg}"></div>`
+        };
     }
 
     const rootHtml =
-        `<div class="press-raster-page" style="position:relative;width:360px;height:640px;background:${pageBg};overflow:hidden">` +
-        `<div class="press-raster-frame" style="${frameStyle}" lang="${lang.toLowerCase()}">` +
-        `<div class="press-raster-content">${contentInner}</div>` +
+        `<div class="press-raster-page" style="position:relative;width:360px;height:640px;background:${markup.pageBg};overflow:hidden">` +
+        `<div class="press-raster-frame" style="${markup.frameStyle}" lang="${markup.langAttr}">` +
+        `<div class="press-raster-content">${markup.contentInner}</div>` +
         `</div></div>`;
 
     return { empty: false, rootHtml };

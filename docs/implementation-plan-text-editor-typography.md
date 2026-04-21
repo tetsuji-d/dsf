@@ -1,5 +1,9 @@
 # 実装計画: テキスト入力 → エディタープレビュー → WebP レンダリング
 
+> Status: historical implementation plan.
+> この文書はテキスト組版実装前の計画メモです。現状と一致しない「未接続」記述を含みます。
+> 現行の実装判断には `js/layout.js`、`js/app.js`、`js/press.js`、`js/text-press-html.js` を優先してください。
+
 ## 0. 現状と目標
 
 ### 現在のパイプライン（未接続）

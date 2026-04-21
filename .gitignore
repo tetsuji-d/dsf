@@ -6,4 +6,7 @@ dist
 # env ファイルは意図的にコミット対象（Firebase web API key はクライアント公開前提）
 # ローカル上書き用は .env.local に記載すること
 .env.local
+.env.staging.local
+.local-test-accounts.json
+firebase-debug.log
 .claude/worktrees/

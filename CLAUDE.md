@@ -90,7 +90,7 @@ npx wrangler pages deploy dist --project-name dsf-studio --branch staging # stag
 
 ### Gen3（DSF のページ表現）
 
-**配信ページは WebP 画像として出力する。** テキスト組版はエディターで完結し、結果を WebP に焼き付けてビューアーに渡す。ビューアーは **`<img>` 中心の軽量表示**に専念する。
+**配信ページは WebP 画像として出力する。** テキスト組版はエディターで完結し、結果を WebP に焼き付けてビューアーに渡す。ビューアーは **`<img>` 中心の軽量表示**に専念し、共有 URL では **発行済み DSF（`dsfPages`）のみ**を扱う。
 
 - ビューアー側での SVG レンダリング・WebGL・richText によるリッチ組版は採用しない
 - `bodyKind: 'text'` / `richText` フィールドは将来的に廃止方向
@@ -150,7 +150,7 @@ CSS はエントリーポイントごとに分離: `css/studio.css`, `css/viewer
 - **Sections モデル** (`state.sections`): レンダリング互換性のために残されたレガシーなフラット配列。
 - **Pages モデル** (`state.pages`): blocks/sections から導出されるビューアー出力（v5 スキーマ）のフラット配列。
 
-コンテンツを編集する際は必ず Blocks モデルを更新し、`syncBlocksWithSections()` で Sections へ伝播させます。
+コンテンツの**仕様上の正本**は Blocks モデルです。`Sections` と `Pages` は互換面 / 消費面として扱い、編集経路が `sections` から入る場合も保存前に `blocks` へ再同期します。
 
 ### 状態管理
 
@@ -196,6 +196,7 @@ CSS はエントリーポイントごとに分離: `css/studio.css`, `css/viewer
 - **フキダシシェイプ**: `shapes.js` に SVG パスジェネレーターとして定義。シェイプ ID はサイズ／スタイルパラメーターを受け取る関数にマッピング。
 - **タイポグラフィ**: 日本語テキストは `writingMode: "vertical-rl"` の固定幅レイアウト（12 行）。英語は横書きで 21 行。
 - **blob: URL**: ゲストモードで発生。Firestore に書き込む前に `resolveBlobUrlsInSections/Blocks()` で解決すること。
+- **公開境界**: 通常保存は `users/{uid}/projects/{pid}` の DSP 本体だけを更新する。`public_projects` の更新は Works Room の `public` 切り替えだけが行い、Press Room は新しい DSF を `draft` として生成する。
 
 ## Studio ルーム構成（DSF Studio 内）
 

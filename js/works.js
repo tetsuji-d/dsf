@@ -164,6 +164,7 @@ async function _updateDsfStatus(pid, newStatus, proj) {
     try {
         await updateDoc(doc(db, 'users', state.uid, 'projects', pid), {
             dsfStatus: newStatus,
+            visibility: newStatus === 'draft' ? 'private' : newStatus,
         });
 
         const publicRef = doc(db, 'public_projects', pid);

@@ -13,7 +13,6 @@
         href="https://fonts.googleapis.com/css2?family=Noto+Sans:wght@400;700&family=Noto+Sans+JP:wght@400;700&family=Noto+Serif:wght@400;700&family=Noto+Serif+JP:wght@400;700&display=swap"
         rel="stylesheet">
     <link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet">
-    <script src="https://accounts.google.com/gsi/client" async defer></script>
 </head>
 
 <body data-room="editor" data-device="desktop">
@@ -22,7 +21,7 @@
         <!-- ===== Room Navigation Bar ===== -->
         <nav id="room-nav">
             <div class="room-nav-brand">
-                <a href="/" target="_blank" rel="noopener" class="room-nav-brand-link" data-i18n-title="logo_title" title="DSF Portal を開く">
+                <a href="/" target="_blank" rel="noopener" class="room-nav-brand-link" data-i18n-title="logo_title" title="DSF Horizon を開く">
                     <span class="room-logo-dsf">DSF</span><span class="room-logo-studio">Studio</span>
                 </a>
             </div>
@@ -464,6 +463,24 @@
         <div id="mobile-lang-bar"><div id="lang-tabs-mobile" class="lang-tabs"></div></div>
 
         <div id="mobile-header">
+            <button id="mobile-studio-logo-btn" class="mobile-studio-logo-btn" type="button" onclick="toggleMobileStudioNavMenu(event)" data-i18n-title="mobile_nav_open" title="メニューを開く" aria-haspopup="menu" aria-expanded="false">
+                <span class="mobile-studio-logo-dsf">DSF</span>
+                <span class="mobile-studio-logo-sub">Studio</span>
+            </button>
+            <div id="mobile-studio-nav-menu" class="mobile-studio-nav-menu" role="menu" hidden>
+                <div class="mobile-studio-nav-head">
+                    <div class="mobile-menu-logo"><span>DSF</span><small>Studio</small></div>
+                    <p data-i18n="mobile_nav_rooms">ルーム一覧</p>
+                </div>
+                <a href="/" target="_blank" rel="noopener" class="mobile-studio-nav-link" role="menuitem" data-i18n-title="logo_title" title="DSF Horizon を開く" onclick="closeMobileStudioNavMenu()">
+                    <span class="material-icons" aria-hidden="true">public</span>
+                    <span data-i18n="nav_horizon">Horizon</span>
+                </a>
+                <button class="mobile-studio-nav-link" role="menuitem" data-mobile-room-nav="home" onclick="closeMobileStudioNavMenu(); switchRoom('home')"><span class="material-icons" aria-hidden="true">folder_open</span><span data-i18n="nav_projects">プロジェクト</span></button>
+                <button class="mobile-studio-nav-link" role="menuitem" data-mobile-room-nav="editor" onclick="closeMobileStudioNavMenu(); switchRoom('editor')"><span class="material-icons" aria-hidden="true">edit</span><span data-i18n="nav_editor">エディター</span></button>
+                <button class="mobile-studio-nav-link" role="menuitem" data-mobile-room-nav="press" onclick="closeMobileStudioNavMenu(); switchRoom('press')" data-auth-required><span class="material-icons" aria-hidden="true">publish</span><span data-i18n="nav_press">プレス</span></button>
+                <button class="mobile-studio-nav-link" role="menuitem" data-mobile-room-nav="works" onclick="closeMobileStudioNavMenu(); switchRoom('works')" data-auth-required><span class="material-icons" aria-hidden="true">library_books</span><span data-i18n="nav_works">作品</span></button>
+            </div>
             <button id="mobile-header-nav" class="mobile-header-nav-btn" type="button" onclick="handleMobileHeaderNav()" hidden>
                 <span class="material-icons">arrow_back</span>
             </button>
@@ -476,48 +493,20 @@
                     <button class="ui-lang-btn" data-lang="ja" onclick="setStudioUILang('ja')">JA</button>
                     <button class="ui-lang-btn" data-lang="en" onclick="setStudioUILang('en')">EN</button>
                 </div>
-                <div id="studio-auth-slot-mobile" class="studio-auth-slot-mobile"></div>
+                <div id="studio-auth-slot-mobile" class="studio-auth-slot studio-auth-slot-mobile"></div>
             </div>
         </div>
 
         <div id="mobile-overlay-backdrop" onclick="closeMobileOverlays()"></div>
 
-        <aside id="mobile-home-drawer">
-            <div class="mobile-home-drawer-header">
-                <span class="mobile-home-drawer-title" data-i18n="tab_home">ホーム</span>
-                <button class="btn-sm" type="button" onclick="closeMobileHomeDrawer()" data-i18n="btn_close">閉じる</button>
-            </div>
-            <div class="mobile-home-drawer-actions">
-                <button class="mobile-home-action" type="button" onclick="performUndo(); closeMobileHomeDrawer();">
-                    <span class="mobile-home-action-icon material-icons" aria-hidden="true">undo</span>
-                    <span class="mobile-home-action-label" data-i18n="mobile_home_undo">元に戻す</span>
-                </button>
-                <button class="mobile-home-action" type="button" onclick="performRedo(); closeMobileHomeDrawer();">
-                    <span class="mobile-home-action-icon material-icons" aria-hidden="true">redo</span>
-                    <span class="mobile-home-action-label" data-i18n="mobile_home_redo">やり直す</span>
-                </button>
-                <button class="mobile-home-action" type="button" onclick="saveProject(); closeMobileHomeDrawer();" data-auth-required>
-                    <span class="mobile-home-action-icon material-icons" aria-hidden="true">save</span>
-                    <span class="mobile-home-action-label" data-i18n="mobile_home_save">保存</span>
-                </button>
-                <button class="mobile-home-action" type="button" onclick="openProjectSettings(); closeMobileHomeDrawer();">
-                    <span class="mobile-home-action-icon material-icons" aria-hidden="true">settings</span>
-                    <span class="mobile-home-action-label" data-i18n="mobile_home_project_settings">プロジェクト設定</span>
-                </button>
-            </div>
-        </aside>
-
         <div id="mobile-action-sheet">
             <div id="mobile-sheet-menu" class="mobile-sheet-content mobile-sheet-menu">
-                <button class="btn-tool" onclick="switchRoom('home')" data-i18n="nav_projects">プロジェクト</button>
-                <button class="btn-tool" onclick="switchRoom('editor')" data-i18n="nav_editor">エディター</button>
-                <button class="btn-tool" onclick="switchRoom('press')" data-auth-required data-i18n="nav_press">プレス</button>
-                <button class="btn-tool" onclick="switchRoom('works')" data-auth-required data-i18n="nav_works">作品</button>
-                <button class="btn-tool" onclick="openMobileSheet('lang')" data-i18n="bottom_lang">作品言語</button>
+                <button class="btn-tool btn-tool-icon" onclick="openMobileSheet('lang')"><span class="material-icons" aria-hidden="true">translate</span><span data-i18n="bottom_lang">作品言語</span></button>
                 <button class="btn-tool btn-tool-icon" onclick="saveProject()" data-auth-required data-mobile-room-only="editor"><span class="material-icons" aria-hidden="true">save</span><span data-i18n="btn_save">保存</span></button>
                 <button class="btn-tool btn-tool-icon" onclick="shareProject()" data-auth-required data-mobile-room-only="editor"><span class="material-icons" aria-hidden="true">share</span><span data-i18n="btn_share">共有</span></button>
                 <button class="btn-tool btn-tool-icon" onclick="performUndo()" data-mobile-room-only="editor"><span class="material-icons" aria-hidden="true">undo</span><span data-i18n="btn_undo">元に戻す</span></button>
                 <button class="btn-tool btn-tool-icon" onclick="performRedo()" data-mobile-room-only="editor"><span class="material-icons" aria-hidden="true">redo</span><span data-i18n="btn_redo">やり直す</span></button>
+                <button class="btn-tool btn-tool-icon" onclick="closeMobileSheet(); openProjectSettings();" data-mobile-room-only="editor"><span class="material-icons" aria-hidden="true">settings</span><span data-i18n="mobile_home_project_settings">プロジェクト設定</span></button>
             </div>
             <div id="mobile-sheet-add" class="mobile-sheet-content">
                 <button class="btn-tool btn-tool-icon" onclick="addSection()"><span class="material-icons" aria-hidden="true">add_box</span><span data-i18n="btn_add_section">セクション追加</span></button>
@@ -592,6 +581,13 @@
                                 <span class="material-icons">info_outline</span>
                                 <span data-i18n="press_render_note">レンダリングはエクスポート時に実行されます</span>
                             </div>
+                            <div class="press-field press-trial-field">
+                                <label class="press-trial-label" for="press-trial-text-binary">
+                                    <input type="checkbox" id="press-trial-text-binary" />
+                                    <span data-i18n="press_trial_text_binary">試行: テキストを二値化して WebP 高品質（容量比較用）</span>
+                                </label>
+                                <p class="press-trial-hint" data-i18n="press_trial_text_binary_hint">テキストページのみ。紙色・文字色に近い方へ画素を量子化し、WebP は quality=1（ブラウザはロスレスとは限りません）。</p>
+                            </div>
                         </section>
                         <aside class="press-panel press-publish-panel">
                             <h3 data-i18n="press_publish">発行</h3>
@@ -602,7 +598,7 @@
                                 </button>
                                 <button id="press-publish-cloud-btn" class="press-publish-btn" onclick="publishToCloud()" data-auth-required>
                                     <span class="material-icons">cloud_upload</span>
-                                    <span><span data-i18n="btn_publish_cloud">クラウドに発行</span><small data-i18n="btn_publish_cloud_sub">R2 にレンダリング・発行</small></span>
+                                    <span><span data-i18n="btn_publish_cloud">Horizonに発行</span><small data-i18n="btn_publish_cloud_sub">Horizon で作品を公開します</small></span>
                                 </button>
                                 <button class="press-publish-btn" onclick="switchRoom('works')" data-auth-required>
                                     <span class="material-icons">library_books</span>
@@ -621,7 +617,7 @@
                 <div class="works-room-title">
                     <span class="material-icons">library_books</span>
                     <h2>Works Room</h2>
-                    <span class="works-room-subtitle">発行済み作品のステータス管理</span>
+                    <span class="works-room-subtitle" data-i18n="btn_goto_works_sub">発行済み作品のステータス管理</span>
                 </div>
                 <button class="btn-sm" onclick="switchRoom('home')" data-i18n="btn_back_home">← Home</button>
             </div>
@@ -630,6 +626,33 @@
 
         </div><!-- /room-container -->
     </div><!-- /app-shell -->
+
+    <!-- Horizon 発行: 下書き説明・進捗・キャンセル（レンダリング中のみ表示） -->
+    <div id="press-publish-modal" class="press-publish-modal-overlay" style="display:none;" aria-hidden="true">
+        <div class="press-publish-modal-dialog" role="dialog" aria-modal="true" aria-labelledby="press-publish-modal-title" onclick="event.stopPropagation()">
+            <div class="press-publish-modal-header">
+                <h2 id="press-publish-modal-title" data-i18n="press_publish_modal_title">Horizonに発行</h2>
+            </div>
+            <div class="press-publish-modal-body">
+                <div class="press-publish-modal-draft">
+                    <span class="material-icons press-publish-modal-draft-icon" aria-hidden="true">edit_note</span>
+                    <div>
+                        <strong data-i18n="press_draft_notice_title">初回の公開ステータスは「下書き」</strong>
+                        <p data-i18n="press_draft_notice_body">Horizon にアップロードした時点では、まだ読者向けには公開されません。公開や掲載は Works Room などから別途行ってください。</p>
+                    </div>
+                </div>
+                <p class="press-publish-modal-hint" data-i18n="press_render_cancel_hint">レンダリング中はこの画面の「キャンセル」または Esc キーで中断できます。</p>
+                <div class="press-publish-modal-progress-block">
+                    <p id="press-publish-modal-status" class="press-publish-modal-status" aria-live="polite"></p>
+                    <progress id="press-publish-modal-bar" class="press-publish-modal-bar" max="100" value="0"></progress>
+                </div>
+                <button type="button" class="press-publish-modal-cancel" id="press-publish-cancel-btn">
+                    <span class="material-icons" aria-hidden="true">close</span>
+                    <span data-i18n="press_cancel">キャンセル</span>
+                </button>
+            </div>
+        </div>
+    </div>
 
     <!-- ===== Project Settings Modal ===== -->
     <div id="project-settings-modal" class="ps-overlay" style="display:none;" onclick="closeProjectSettings(event)">

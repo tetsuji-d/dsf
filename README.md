@@ -9,6 +9,20 @@
 - **[CLAUDE.md](CLAUDE.md)** — フォーマット思想、エコシステム、インフラ、モジュール構成、開発コマンド
 - **[PROJECT_STATUS.md](PROJECT_STATUS.md)** — 実装済み機能・既知課題・TODO
 - **[docs/file-format-spec.md](docs/file-format-spec.md)** — `.dsp` / `.dsf` ZIP 構造
+- **[docs/remediation-roadmap.md](docs/remediation-roadmap.md)** — 中期の減債と分割の進め方
+- **[docs/staging-email-login.md](docs/staging-email-login.md)** — staging 限定 email ログインの運用
+- **[docs/security-hardening.md](docs/security-hardening.md)** — API key / auth / Functions の hardening メモ
+
+### Current source of truth
+
+- **[CLAUDE.md](CLAUDE.md)** — プロダクト方針・実装原則
+- **[docs/data-model.md](docs/data-model.md)** — ランタイム canonical / compatibility 関係
+- **[docs/file-format-spec.md](docs/file-format-spec.md)** — 配信フォーマット仕様
+- **[docs/pressroom-spec.md](docs/pressroom-spec.md)** — 公開境界と Press / Works の責務
+
+### Historical / planning docs
+
+`DSF_SITEMAP.md`、`docs/editor-menu-sitemap.md`、`docs/implementation-plan-text-editor-typography.md`、`docs/progress.md`、`docs/page-architecture-plan.md` は履歴資料または計画メモを含みます。現行アーキテクチャの判断には上の source of truth を優先してください。
 
 ## 実行方法
 

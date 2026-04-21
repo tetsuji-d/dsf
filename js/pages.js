@@ -429,6 +429,18 @@ export function blocksToPages(blocks) {
     return ensureCoverBoundaries(pages);
 }
 
+/**
+ * Normalize project payloads into the current runtime contract.
+ *
+ * Canonical authoring source:
+ *   1. `blocks`
+ * Fallback compatibility sources:
+ *   2. `sections`
+ *   3. `pages`
+ *
+ * Returned `sections` / `pages` are compatibility/consumer surfaces derived from
+ * canonical authoring data, not the source of truth for new edits.
+ */
 export function normalizeProjectDataV5(data = {}) {
     const languages = ensureLanguages(data);
     const defaultLang = (typeof data.defaultLang === 'string' && languages.includes(data.defaultLang))

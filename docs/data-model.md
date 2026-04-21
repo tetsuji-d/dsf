@@ -29,7 +29,7 @@
   "projectName": "String (編集用プロジェクト名。可変)",
   "title": "String (作品タイトル)",
   "lastUpdated": "Timestamp",
-  "visibility": "'private' | 'unlisted' | 'public'",
+  "visibility": "String (互換フィールド。公開判定の正本は dsfStatus)",
   "uid": "String (オーナーの Firebase Auth UID)",
   "languages": ["String (言語コード: 'ja', 'en' など)"],
   "languageConfigs": {
@@ -56,7 +56,7 @@
 }
 ```
 
-#### Page Object v5（`state.pages` の各要素）— **正規スキーマ**
+#### Page Object v5（`state.pages` の各要素）— **派生 / 出力スキーマ**
 
 ```json
 {
@@ -104,6 +104,11 @@
 }
 ```
 
+> 注:
+> - authoring canonical は **`blocks`**。`pages` は viewer/export/互換用途の派生面
+> - `sections` は editor 互換フローのために残るフラット投影
+> - 新しい仕様判断は `blocks` を起点に行い、`pages` 単体を正本として扱わない
+>
 > ⚠️ **廃止予定フィールド（2026-03-25）**:
 > - `ar` — WebGL/WebXR 廃止に伴い不要。既存データは無視する。
 > - `content.richText` / `content.richTextLangs` — bodyKind:'text' 廃止に伴い不要。
@@ -140,7 +145,7 @@
   "authorName": "String",
   "thumbnail": "String (カバー画像URL)",
   "updatedAt": "Timestamp",
-  "visibility": "'public' | 'unlisted'"
+  "dsfStatus": "'public'"
 }
 ```
 
@@ -151,11 +156,12 @@
 | 操作 | JSファイル | メソッド | 説明 |
 |------|-----------|---------|------|
 | 一覧取得 | `js/projects.js` | `openProjectModal` | `users/{uid}/projects` を getDocs |
-| 読み込み | `js/firebase.js` | `loadWork` | 指定 pid を getDoc |
-| 保存 | `js/firebase.js` | `performSave` | `setDoc(..., { merge: true })` で編集内容を保存し、DSF発行メタデータは保持 |
+| 読み込み | `js/firebase.js` / `js/viewer.js` | `loadWork` / `loadFromFirestore` | 指定 pid を getDoc。Viewer の共有 URL は `dsfPages` がある発行済みデータだけを扱う |
+| 保存 | `js/firebase.js` | `performSave` | `setDoc(..., { merge: true })` で編集内容を保存し、公開インデックスは更新しない |
 | 削除 | `js/projects.js` | — | deleteDoc |
-| 公開登録 | `js/firebase.js` | `performSave` 内 | visibility 変更時に public_projects へ setDoc |
-| 公開解除 | `js/firebase.js` | `performSave` 内 | deleteDoc from public_projects |
+| draft 作成 | `js/press.js` | publish handler | `dsfPages` を保存し `dsfStatus='draft'` にする。既存 `public_projects` は削除 |
+| 公開登録 | `js/works.js` | `_updateDsfStatus` | `public` 切り替え時に `public_projects` へ setDoc |
+| 公開解除 | `js/works.js` | `_updateDsfStatus` | `public` 以外へ切り替えたとき `public_projects` を削除 |
 
 ---
 
@@ -192,7 +198,7 @@ users/{uid}/dsf/
 ```
 users/{uid}/projects/{pid}:
   - read/write: 認証済みオーナー (auth.uid == uid)
-  - read: visibility が 'public' または 'unlisted' の場合は誰でも可
+  - read: dsfStatus が 'public' または 'unlisted' の場合は誰でも可
 
 public_projects/{pid}:
   - read: 誰でも可（未認証含む）
@@ -210,18 +216,20 @@ users/{uid}/dsf/**:
 
 ---
 
-## デュアルデータモデル（同期構造）
+## ランタイムモデル関係
 
 ```
-state.blocks   ← 正規モデル（編集の起点）
-    ↓ syncBlocksWithSections()
-state.sections ← レガシー互換（レンダリング互換性のために維持）
+state.blocks   ← authoring canonical（編集判断の起点）
+    ↓ extract/sync compatibility surfaces
+state.sections ← editor/render compatibility surface
     ↓ blocksToPages()
-state.pages    ← ビューワー出力（v5 Page Object の配列）
+state.pages    ← viewer/export surface（v5 Page Object の配列）
 ```
 
-**原則**: コンテンツ編集は必ず `state.blocks` を更新し、`syncBlocksWithSections()` で伝播させる。
-`state.pages` や `state.sections` を直接変更しない。
+**原則**:
+- 仕様上の正本は `state.blocks`
+- `state.sections` / `state.pages` は互換面として再生成可能であることを優先する
+- 現行 editor 実装では `sections` から編集が入る経路が残るが、保存前には必ず `blocks` へ再同期する
 
 ---
 

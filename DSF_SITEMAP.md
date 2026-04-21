@@ -1,5 +1,9 @@
 # DSF エコシステム サイトマップ
 
+> Status: historical / superseded.
+> 現行アーキテクチャの判断には `CLAUDE.md`、`docs/data-model.md`、`docs/file-format-spec.md`、`docs/pressroom-spec.md` を優先してください。
+> この文書には現行 repo 構造と一致しない旧導線・将来構想が含まれます。
+
 > v1.1 — 2026-04-12（製品叙述を DSF / Digital Spread Format に整合）
 
 ---

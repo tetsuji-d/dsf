@@ -8,8 +8,8 @@
 import { state, dispatch, actionTypes } from './state.js';
 import { renderBubbleHTML } from './bubbles.js';
 import { getLangProps } from './lang.js';
-import { db } from './firebase.js';
-import { initGIS, signInWithGoogle, signOutUser, onAuthChanged, handleRedirectResult } from './gis-auth.js';
+import { db, auth as firebaseAuth } from './firebase.js';
+import { initGIS, renderGISButton, signInWithGoogle, signOutUser, onAuthChanged, handleRedirectResult } from './gis-auth.js';
 import { getOptimizedImageUrl } from './sections.js';
 import { applyTheme, bindThemePreferenceListener, getThemeMode, setThemeMode } from './theme.js';
 import { doc, getDoc } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
@@ -21,6 +21,9 @@ let sharedProjectRef = null;
 let isProjectLoading = false;
 let projectLoaded = false;
 let lastLoadErrorCode = '';
+let privateLoginPromptActive = false;
+let privateLoginRequested = false;
+let privateLoginDeclined = false;
 
 // 見開き表示フラグ
 let spreadMode = false;
@@ -48,8 +51,25 @@ let activeGesturePointerId = null;
 let pointerGestureConsumed = false;
 let pageAnimationToken = 0;
 const VIEWER_UI_LANG_KEY = 'dsf_viewer_ui_lang';
+const VIEWER_DEV_MODE_KEY = 'dsf_viewer_dev_mode';
+const VIEWER_DEV_SMOOTHING_KEY = 'dsf_viewer_dev_smoothing';
+const VIEWER_DEV_MORPH_KEY = 'dsf_viewer_dev_morph';
+const VIEWER_DEV_HOLD_MS = 1200;
+/** インク判定（輝度しきい値・低いほど「濃い部分だけがインク」）。高すぎるとアンチエイリアスまで膨張して潰れる。 */
+const VIEWER_DEV_MORPH_LUM_THRESHOLD = 168;
 let viewerUiLang = localStorage.getItem(VIEWER_UI_LANG_KEY)
     || (navigator.language?.toLowerCase().startsWith('ja') ? 'ja' : 'en');
+let viewerDevMode = localStorage.getItem(VIEWER_DEV_MODE_KEY) === '1';
+let viewerDevSmoothing = localStorage.getItem(VIEWER_DEV_SMOOTHING_KEY) === '1';
+let viewerDevMorph = localStorage.getItem(VIEWER_DEV_MORPH_KEY) === '1';
+/** モルフォ試行の直近結果（パネル表示用） */
+let viewerDevMorphLastRun = { pending: false, replaced: 0, skipped: 0, lastErr: '' };
+let viewerProjectMeta = {
+    source: 'file',
+    resolution: '',
+    totalBytes: 0,
+    qualityProfile: null
+};
 
 const VIEWER_UI = {
     ja: {
@@ -70,13 +90,26 @@ const VIEWER_UI = {
         authError: '認証エラー: {message}',
         uidRequired: 'URLにuidが必要です。',
         projectNotFound: 'プロジェクトが見つかりません: {pid}',
-        privatePrompt: 'この作品は非公開です。\n作者の方はログインすると閲覧できます。\nログインしますか？',
+        privateTitle: 'この作品は非公開です',
+        privateBody: '作者の方は Google でサインインすると閲覧できます。',
+        privateCancel: 'キャンセル',
         privateProject: 'この作品は非公開です。',
+        unpublishedProject: 'このURLには発行済みの DSF データがありません。',
+        developerModeOn: 'Developer mode: ON',
+        developerModeOff: 'Developer mode: OFF',
         loadError: '読み込みエラー: {message}',
         standaloneTitle: 'DSFファイルを開く',
         standaloneBody: 'ローカルの .dsf / .dsp / .zip / .json をこのビューワーで表示できます。',
         standaloneOpen: 'ファイルを選択',
-        standaloneHint: 'ファイルをここへドラッグして開くこともできます。'
+        standaloneHint: 'ファイルをここへドラッグして開くこともできます。',
+        devSmoothing: 'ごく弱いコントラスト（試行）',
+        devSmoothingNote: 'アンシャープはハロ・痩せが出やすいため廃止。効果は控えめです。基本オフ推奨。',
+        devMorph: 'モルフォロジー膨張（試行）',
+        devMorphNote: 'ラスタ膨張はアンチエイリアスと相性が悪く、太字というより潰れやすい。読みの改善は Press の書き出し（解像度・階調）を優先。技術デモ向け。fetch／media-proxy。',
+        devMorphStatusPending: 'Morph: 処理中…',
+        devMorphStatusOff: 'Morph: —（オフ）',
+        devMorphStatusResult: 'Morph: 置換 {replaced} / スキップ {skipped}',
+        devMorphStatusHint: 'スキップ時: メディアの CORS（AllowedOrigins にこのビューワのオリジン）を確認。'
     },
     en: {
         close: 'Close',
@@ -96,20 +129,33 @@ const VIEWER_UI = {
         authError: 'Authentication error: {message}',
         uidRequired: 'The URL requires a uid parameter.',
         projectNotFound: 'Project not found: {pid}',
-        privatePrompt: 'This work is private.\nIf you are the author, sign in to view it.\nSign in now?',
+        privateTitle: 'This work is private',
+        privateBody: 'If you are the author, sign in with Google to view it.',
+        privateCancel: 'Cancel',
         privateProject: 'This work is private.',
+        unpublishedProject: 'This URL does not have published DSF data yet.',
+        developerModeOn: 'Developer mode: ON',
+        developerModeOff: 'Developer mode: OFF',
         loadError: 'Load error: {message}',
         standaloneTitle: 'Open a DSF file',
         standaloneBody: 'View a local .dsf, .dsp, .zip, or .json file in this viewer.',
         standaloneOpen: 'Choose file',
-        standaloneHint: 'You can also drag a file here.'
+        standaloneHint: 'You can also drag a file here.',
+        devSmoothing: 'Mild contrast (trial)',
+        devSmoothingNote: 'Unsharp removed (halos/thin strokes). Very subtle contrast; usually leave off.',
+        devMorph: 'Morphology dilation (trial)',
+        devMorphNote: 'Raster dilation fights anti-aliasing; tends to crush strokes. Prefer Press export (resolution/tones) for legibility. Demo-grade. fetch / media-proxy.',
+        devMorphStatusPending: 'Morph: running…',
+        devMorphStatusOff: 'Morph: — (off)',
+        devMorphStatusResult: 'Morph: replaced {replaced} / skipped {skipped}',
+        devMorphStatusHint: 'If skipped: check media CORS (AllowedOrigins must include this viewer origin).'
     }
 };
 
 if (!VIEWER_UI[viewerUiLang]) viewerUiLang = 'ja';
 
 // ── Init ──────────────────────────────────────────────────────
-function init() {
+async function init() {
     applyTheme();
     bindThemePreferenceListener(() => {
         applyTheme();
@@ -129,8 +175,9 @@ function init() {
     window.addEventListener('resize', resizeCanvas);
     setupStandaloneFileDrop();
 
-    initAuth();
+    await initAuth().catch((e) => console.warn('[Viewer] initAuth failed:', e));
     applyViewerUiLanguage();
+    applyViewerDevSmoothingClass();
 
     const params = new URLSearchParams(window.location.search);
     const pid = params.get('project') || params.get('id');
@@ -151,27 +198,96 @@ function init() {
 }
 
 // ── Auth ─────────────────────────────────────────────────────
-function initAuth() {
-    handleRedirectResult();
-    initGIS();
-    onAuthChanged(user => {
-        dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'user', value: user || null } });
-        dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'uid', value: user?.uid || null } });
-        renderViewerAuthSlot(user || null);
-        if (sharedProjectRef && (!projectLoaded || lastLoadErrorCode === 'permission-denied')) {
-            attemptLoad();
-        }
+async function initAuth() {
+    const redirectOutcome = await handleRedirectResult(firebaseAuth);
+    if (redirectOutcome?.error) {
+        alert(vt('authError', { message: redirectOutcome.error?.message || String(redirectOutcome.error) }));
+    }
+    await initGIS({ authInstance: firebaseAuth });
+    let firstState = true;
+    return new Promise((resolve) => {
+        onAuthChanged(user => {
+            dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'user', value: user || null } });
+            dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'uid', value: user?.uid || null } });
+            if (user) {
+                privateLoginRequested = false;
+                privateLoginDeclined = false;
+                closePrivateLoginModal();
+            }
+            renderViewerAuthSlot(user || null);
+            if (firstState) {
+                firstState = false;
+                resolve(user || null);
+                return;
+            }
+            if (sharedProjectRef && (!projectLoaded || lastLoadErrorCode === 'permission-denied')) {
+                attemptLoad();
+            }
+        }, firebaseAuth);
     });
 }
 
 window.viewerToggleAuth = async () => {
     try {
-        if (state.uid) await signOutUser();
-        else await signInWithGoogle();
+        if (state.uid) await signOutUser(firebaseAuth);
+        else await signInWithGoogle({ authInstance: firebaseAuth });
     } catch (e) {
         alert(vt('authError', { message: e.message }));
     }
 };
+
+function closePrivateLoginModal() {
+    const modal = document.getElementById('viewer-private-login-modal');
+    if (!modal) return;
+    modal.remove();
+    privateLoginPromptActive = false;
+}
+
+function showPrivateLoginModal() {
+    if (document.getElementById('viewer-private-login-modal')) return;
+    privateLoginPromptActive = true;
+    const modal = document.createElement('div');
+    modal.id = 'viewer-private-login-modal';
+    modal.className = 'viewer-private-login-modal';
+    modal.innerHTML = `
+        <div class="viewer-private-login-panel" role="dialog" aria-modal="true" aria-labelledby="viewer-private-login-title">
+            <div id="viewer-private-login-title" class="viewer-private-login-title">${esc(vt('privateTitle'))}</div>
+            <div class="viewer-private-login-body">${esc(vt('privateBody'))}</div>
+            <div id="gis-btn-private-login" class="viewer-private-login-gis"></div>
+            <div class="viewer-private-login-actions">
+                <button type="button" class="viewer-private-login-cancel" data-private-login-cancel>${esc(vt('privateCancel'))}</button>
+            </div>
+        </div>
+    `;
+    document.body.appendChild(modal);
+    requestAnimationFrame(() => {
+        requestAnimationFrame(() => mountPrivateLoginGisButton());
+    });
+
+    const cancel = modal.querySelector('[data-private-login-cancel]');
+    cancel?.addEventListener('click', () => {
+        privateLoginDeclined = true;
+        closePrivateLoginModal();
+    });
+}
+
+function mountPrivateLoginGisButton() {
+    if (state.uid) return;
+    const host = document.getElementById('gis-btn-private-login');
+    if (!host) return;
+    host.innerHTML = '';
+    renderGISButton('gis-btn-private-login', {
+        authInstance: firebaseAuth,
+        buttonOptions: {
+            theme: 'outline',
+            size: 'large',
+            type: 'standard',
+            shape: 'rectangular',
+            text: 'signin_with',
+            logo_alignment: 'left',
+        }
+    }).catch((error) => console.warn('[Viewer] private GIS button render failed:', error));
+}
 
 async function attemptLoad() {
     if (!sharedProjectRef || isProjectLoading) return;
@@ -192,17 +308,14 @@ async function loadFromFirestore(pid, uid) {
         if (!snap.exists()) { alert(vt('projectNotFound', { pid })); return false; }
         const data = snap.data();
         data.projectId = pid;
-        loadProjectData(data);
+        loadProjectData(data, { source: 'shared' });
         return true;
     } catch (e) {
         lastLoadErrorCode = e?.code || '';
         if (lastLoadErrorCode === 'permission-denied') {
             if (!state.uid) {
-                // 未ログイン → 作者本人かもしれないのでログインを促す
-                const doLogin = confirm(vt('privatePrompt'));
-                if (doLogin) {
-                    try { await signInWithGoogle(); } catch (_) { /* onAuthChanged が retry する */ }
-                }
+                if (privateLoginPromptActive || privateLoginRequested || privateLoginDeclined) return false;
+                showPrivateLoginModal();
             } else {
                 alert(vt('privateProject'));
             }
@@ -244,9 +357,9 @@ async function loadViewerFile(file) {
     document.body.style.cursor = 'wait';
     try {
         if (/\.(dsf|dsp|zip)$/i.test(file.name)) {
-            loadProjectData(await parseAndLoadDSF(file));
+            loadProjectData(await parseAndLoadDSF(file), { source: 'file' });
         } else {
-            loadProjectData(JSON.parse(await file.text()));
+            loadProjectData(JSON.parse(await file.text()), { source: 'file' });
         }
     } catch (e) {
         alert(vt('loadError', { message: e.message }));
@@ -264,9 +377,12 @@ async function loadRemoteDsf(src) {
         const blob = await res.blob();
         const name = decodeURIComponent(new URL(src, window.location.href).pathname.split('/').pop() || 'remote.dsf');
         if (/\.(dsf|dsp|zip)$/i.test(name) || /zip|octet-stream/i.test(blob.type || '')) {
-            loadProjectData(await parseAndLoadDSF(new File([blob], name, { type: blob.type || 'application/zip' })));
+            loadProjectData(
+                await parseAndLoadDSF(new File([blob], name, { type: blob.type || 'application/zip' })),
+                { source: 'file' }
+            );
         } else {
-            loadProjectData(JSON.parse(await blob.text()));
+            loadProjectData(JSON.parse(await blob.text()), { source: 'file' });
         }
     } catch (e) {
         alert(vt('loadError', { message: e.message }));
@@ -306,14 +422,20 @@ window.loadDsf = async (input) => {
 };
 
 // ── Project Data ──────────────────────────────────────────────
-function loadProjectData(raw) {
-    const pages = raw.dsfPages?.length
+function loadProjectData(raw, options = {}) {
+    const source = options.source || 'file';
+    const hasDsfPages = Array.isArray(raw.dsfPages) && raw.dsfPages.length > 0;
+    if (source === 'shared' && !hasDsfPages) {
+        throw new Error(vt('unpublishedProject'));
+    }
+    const pages = hasDsfPages
         ? normalizeDsfPages(raw.dsfPages)
         : normalizePagesGen3(raw.pages || raw.sections || []);
-    const languages = raw.languages?.length ? raw.languages : ['ja'];
-    const defaultLang = raw.defaultLang || languages[0];
+    const languages = resolveViewerLanguages(raw, hasDsfPages);
+    const defaultLang = languages.includes(raw.defaultLang) ? raw.defaultLang : languages[0];
     const languageConfigs = normalizeLanguageConfigs(raw.languageConfigs, languages);
     viewerBookModel = buildViewerBookModel(raw, pages);
+    viewerProjectMeta = buildViewerProjectMeta(raw, source);
     bookSpreadIndex = 0;
 
     dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'title', value: raw.title || '' } });
@@ -335,12 +457,60 @@ function loadProjectData(raw) {
     refresh();
 }
 
+function buildViewerProjectMeta(raw, source) {
+    const explicitTotal = Number(raw?.dsfTotalBytes);
+    const dsfPages = Array.isArray(raw?.dsfPages) ? raw.dsfPages : [];
+    const derivedTotal = dsfPages.reduce((sum, page) => {
+        const totalBytes = Number(page?.totalBytes);
+        if (Number.isFinite(totalBytes) && totalBytes > 0) return sum + totalBytes;
+        const bytesByLang = page?.bytesByLang && typeof page.bytesByLang === 'object'
+            ? Object.values(page.bytesByLang).reduce((inner, value) => inner + (Number(value) || 0), 0)
+            : 0;
+        return sum + bytesByLang;
+    }, 0);
+    return {
+        source,
+        resolution: String(raw?.dsfResolution || raw?.resolution || ''),
+        totalBytes: Number.isFinite(explicitTotal) && explicitTotal > 0 ? explicitTotal : derivedTotal,
+        qualityProfile: raw?.dsfQualityProfile || raw?.qualityProfile || null
+    };
+}
+
+function resolveViewerLanguages(raw, hasDsfPages) {
+    if (hasDsfPages) {
+        const dsfLangs = Array.isArray(raw.dsfLangs)
+            ? raw.dsfLangs.map((code) => String(code || '').trim()).filter(Boolean)
+            : [];
+        if (dsfLangs.length) return [...new Set(dsfLangs)];
+
+        const langsFromPages = new Set();
+        for (const page of raw.dsfPages || []) {
+            const urls = page?.urls;
+            if (!urls || typeof urls !== 'object') continue;
+            Object.keys(urls).forEach((code) => {
+                if (code && code !== '__all') langsFromPages.add(code);
+            });
+        }
+        if (langsFromPages.size) return [...langsFromPages];
+    }
+
+    const projectLangs = Array.isArray(raw.languages)
+        ? raw.languages.map((code) => String(code || '').trim()).filter(Boolean)
+        : [];
+    return projectLangs.length ? [...new Set(projectLangs)] : ['ja'];
+}
+
 /**
  * DSF ページ正規化（dsfPages: R2 WebP URLs）
  */
 function normalizeDsfPages(dsfPages) {
     return dsfPages.map((p, i) => ({
         id: `dsf_${p.pageNum || i + 1}`,
+        devMeta: {
+            pageType: p.pageType || '',
+            bytesByLang: { ...(p.bytesByLang || {}) },
+            totalBytes: Number(p.totalBytes) || 0
+        },
         content: {
             backgrounds: { ...(p.urls || {}) },
             thumbnail: '',
@@ -720,6 +890,25 @@ function closeViewerAuthDropdown() {
     trigger?.setAttribute('aria-expanded', 'false');
 }
 
+/** Google 公式ボタンは表示中のコンテナ向け。閉じたドロップダウン内では 0 サイズになりがちなので開いた直後に描画する。 */
+function tryMountViewerGisButton() {
+    if (state.uid) return;
+    const host = document.getElementById('gis-btn-viewer');
+    if (!host) return;
+    host.innerHTML = '';
+    renderGISButton('gis-btn-viewer', {
+        authInstance: firebaseAuth,
+        buttonOptions: {
+            theme: 'outline',
+            size: 'large',
+            type: 'standard',
+            shape: 'rectangular',
+            text: 'signin_with',
+            logo_alignment: 'left'
+        }
+    }).catch((err) => console.warn('[Viewer] GIS button render failed:', err));
+}
+
 function renderViewerAuthSlot(user = state.user || null) {
     const slot = document.getElementById('viewer-auth-slot');
     if (!slot) return;
@@ -727,6 +916,19 @@ function renderViewerAuthSlot(user = state.user || null) {
     const themeMode = getThemeMode();
     const nameRaw = user?.displayName || user?.email || vt('guest');
     const initial = ((nameRaw || 'U').trim()[0] || 'U').toUpperCase();
+
+    const signInOutBlock = user
+        ? `<button type="button" class="viewer-auth-action" data-auth-toggle>${esc(vt('signOut'))}</button>`
+        : `
+                <div class="viewer-auth-section-label">${esc(vt('signIn'))}</div>
+                <div class="viewer-auth-gis-slot">
+                    <div id="gis-btn-viewer"></div>
+                    <button type="button" class="viewer-auth-signin-fallback" data-viewer-auth-signin-fallback aria-label="${esc(vt('signIn'))}">
+                        <svg width="18" height="18" viewBox="0 0 18 18" aria-hidden="true"><path fill="#4285F4" d="M17.64 9.2c0-.637-.057-1.251-.164-1.84H9v3.481h4.844c-.209 1.125-.843 2.078-1.796 2.717v2.258h2.908c1.702-1.567 2.684-3.874 2.684-6.615z"/><path fill="#34A853" d="M9 18c2.43 0 4.467-.806 5.956-2.18l-2.908-2.259c-.806.54-1.837.86-3.048.86-2.344 0-4.328-1.584-5.036-3.711H.957v2.332A8.997 8.997 0 0 0 9 18z"/><path fill="#FBBC05" d="M3.964 10.71A5.41 5.41 0 0 1 3.682 9c0-.593.102-1.17.282-1.71V4.958H.957A8.996 8.996 0 0 0 0 9c0 1.452.348 2.827.957 4.042l3.007-2.332z"/><path fill="#EA4335" d="M9 3.58c1.321 0 2.508.454 3.44 1.345l2.582-2.58C13.463.891 11.426 0 9 0A8.997 8.997 0 0 0 .957 4.958L3.964 6.29C4.672 4.163 6.656 3.58 9 3.58z"/></svg>
+                        ${esc(vt('signIn'))}
+                    </button>
+                </div>
+            `;
 
     slot.innerHTML = `
         <div class="viewer-auth">
@@ -745,7 +947,8 @@ function renderViewerAuthSlot(user = state.user || null) {
                     <button type="button" class="viewer-theme-btn ${themeMode === 'light' ? 'active' : ''}" data-theme-mode="light">${esc(vt('modeLight'))}</button>
                     <button type="button" class="viewer-theme-btn ${themeMode === 'dark' ? 'active' : ''}" data-theme-mode="dark">${esc(vt('modeDark'))}</button>
                 </div>
-                <button type="button" class="viewer-auth-action" data-auth-toggle>${esc(user ? vt('signOut') : vt('signIn'))}</button>
+                ${signInOutBlock}
+                <button type="button" class="viewer-dev-hotspot" aria-hidden="true" tabindex="-1"></button>
             </div>
         </div>
     `;
@@ -759,6 +962,11 @@ function renderViewerAuthSlot(user = state.user || null) {
         if (shouldOpen) {
             authRoot?.classList.add('open');
             trigger?.setAttribute('aria-expanded', 'true');
+            if (!user) {
+                requestAnimationFrame(() => {
+                    requestAnimationFrame(() => tryMountViewerGisButton());
+                });
+            }
         }
     });
 
@@ -772,8 +980,75 @@ function renderViewerAuthSlot(user = state.user || null) {
 
     slot.querySelector('[data-auth-toggle]')?.addEventListener('click', async () => {
         closeViewerAuthDropdown();
-        await window.viewerToggleAuth();
+        try {
+            await signOutUser(firebaseAuth);
+        } catch (e) {
+            alert(vt('authError', { message: e?.message || String(e) }));
+        }
     });
+
+    slot.querySelector('[data-viewer-auth-signin-fallback]')?.addEventListener('click', async () => {
+        closeViewerAuthDropdown();
+        try {
+            await signInWithGoogle({ authInstance: firebaseAuth });
+        } catch (e) {
+            alert(vt('authError', { message: e?.message || String(e) }));
+        }
+    });
+
+    const hotspot = slot.querySelector('.viewer-dev-hotspot');
+    let holdTimer = null;
+    let holdTriggered = false;
+    const clearHold = () => {
+        if (holdTimer) {
+            window.clearTimeout(holdTimer);
+            holdTimer = null;
+        }
+    };
+    hotspot?.addEventListener('pointerdown', (event) => {
+        event.stopPropagation();
+        holdTriggered = false;
+        clearHold();
+        holdTimer = window.setTimeout(() => {
+            holdTriggered = true;
+            toggleViewerDevMode();
+        }, VIEWER_DEV_HOLD_MS);
+    });
+    ['pointerup', 'pointerleave', 'pointercancel'].forEach((type) => {
+        hotspot?.addEventListener(type, (event) => {
+            clearHold();
+            if (holdTriggered) {
+                event.preventDefault();
+                event.stopPropagation();
+            }
+        });
+    });
+}
+
+function applyViewerDevSmoothingClass() {
+    document.body.classList.toggle('viewer-dev-smooth-page', viewerDevSmoothing);
+}
+
+function toggleViewerDevMode() {
+    viewerDevMode = !viewerDevMode;
+    localStorage.setItem(VIEWER_DEV_MODE_KEY, viewerDevMode ? '1' : '0');
+    showViewerDevToast(vt(viewerDevMode ? 'developerModeOn' : 'developerModeOff'));
+    renderViewerDevMetrics(getPages()[getIndex()], state.activeLang);
+}
+
+function showViewerDevToast(message) {
+    let toast = document.getElementById('viewer-dev-toast');
+    if (!toast) {
+        toast = document.createElement('div');
+        toast.id = 'viewer-dev-toast';
+        document.body.appendChild(toast);
+    }
+    toast.textContent = message;
+    toast.classList.add('visible');
+    window.clearTimeout(showViewerDevToast._timerId);
+    showViewerDevToast._timerId = window.setTimeout(() => {
+        toast.classList.remove('visible');
+    }, 1600);
 }
 
 window.setViewerUiLang = (lang) => {
@@ -802,6 +1077,7 @@ function applyViewerUiLanguage() {
     if (zoneNext) zoneNext.title = vt('nextPage');
     updateStandaloneEmptyText();
     renderViewerAuthSlot(state.user || null);
+    if (viewerDevMode) renderViewerDevMetrics();
 }
 
 // ── Navigation ────────────────────────────────────────────────
@@ -815,11 +1091,199 @@ function getPageAssetUrl(page, lang) {
     return rawUrl ? getOptimizedImageUrl(rawUrl) : '';
 }
 
+function scheduleViewerDevMorphPipeline() {
+    if (!viewerDevMorph) return;
+    viewerDevMorphLastRun = { pending: true, replaced: 0, skipped: 0, lastErr: '' };
+    queueMicrotask(() => {
+        void runViewerDevMorphPipeline();
+    });
+}
+
+/**
+ * 輝度しきい値でインクマスクを作り、3×3 1 回膨張。新規インク画素は単色で塗る（試行用）。
+ */
+function dilateInkOnceLuminance(imageData, lumThreshold) {
+    const { data, width, height } = imageData;
+    const n = width * height;
+    const ink = new Uint8Array(n);
+    for (let i = 0, p = 0; p < n; i += 4, p++) {
+        const r = data[i];
+        const g = data[i + 1];
+        const b = data[i + 2];
+        const L = 0.2126 * r + 0.7152 * g + 0.0722 * b;
+        ink[p] = L < lumThreshold ? 1 : 0;
+    }
+    const dil = new Uint8Array(n);
+    for (let y = 0; y < height; y++) {
+        for (let x = 0; x < width; x++) {
+            const p = y * width + x;
+            if (ink[p]) {
+                dil[p] = 1;
+                continue;
+            }
+            let v = 0;
+            neighbor: for (let dy = -1; dy <= 1; dy++) {
+                for (let dx = -1; dx <= 1; dx++) {
+                    const nx = x + dx;
+                    const ny = y + dy;
+                    if (nx < 0 || nx >= width || ny < 0 || ny >= height) continue;
+                    if (ink[ny * width + nx]) {
+                        v = 1;
+                        break neighbor;
+                    }
+                }
+            }
+            dil[p] = v;
+        }
+    }
+    const newInkRgb = 26;
+    for (let p = 0, i = 0; p < n; p++, i += 4) {
+        if (!dil[p] || ink[p]) continue;
+        data[i] = newInkRgb;
+        data[i + 1] = newInkRgb;
+        data[i + 2] = newInkRgb;
+        data[i + 3] = 255;
+    }
+}
+
+/** Hosted viewer only: same-origin /media-proxy fallback when direct fetch() is CORS-blocked. */
+function canUseMorphMediaProxy() {
+    if (typeof window === 'undefined') return false;
+    const { protocol, hostname } = window.location;
+    if (protocol === 'file:') return false;
+    if (hostname === 'localhost' || hostname === '127.0.0.1') return false;
+    return true;
+}
+
+async function fetchImageForMorphDev(url) {
+    const res = await fetch(url, { mode: 'cors', credentials: 'omit' });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    return res;
+}
+
+async function morphReplaceImgWithCanvasIfNeeded(img) {
+    if (!img || img.tagName !== 'IMG' || !viewerDevMorph) return { ok: false, err: '' };
+    const src = String(img.currentSrc || img.src || '').trim();
+    if (!src) return { ok: false, err: 'no src' };
+
+    const canvas = document.createElement('canvas');
+    const ctx = canvas.getContext('2d', { willReadFrequently: true });
+    if (!ctx) return { ok: false, err: 'no 2d context' };
+
+    let w = 0;
+    let h = 0;
+
+    try {
+        if (src.startsWith('blob:') || src.startsWith('data:')) {
+            let nw = img.naturalWidth;
+            let nh = img.naturalHeight;
+            if (!nw || !nh) {
+                try {
+                    if (img.decode) await img.decode();
+                    nw = img.naturalWidth;
+                    nh = img.naturalHeight;
+                } catch (_) {
+                    await new Promise((resolve, reject) => {
+                        const ok = () => {
+                            nw = img.naturalWidth;
+                            nh = img.naturalHeight;
+                            if (nw && nh) resolve();
+                            else reject(new Error('no natural size'));
+                        };
+                        if (img.complete) ok();
+                        else {
+                            img.onload = ok;
+                            img.onerror = () => reject(new Error('image load error'));
+                        }
+                    });
+                }
+            }
+            w = nw;
+            h = nh;
+            canvas.width = w;
+            canvas.height = h;
+            ctx.drawImage(img, 0, 0);
+        } else {
+            let res;
+            if (canUseMorphMediaProxy()) {
+                try {
+                    res = await fetchImageForMorphDev(src);
+                } catch {
+                    const proxyUrl = new URL('/media-proxy', window.location.origin);
+                    proxyUrl.searchParams.set('u', src);
+                    res = await fetch(proxyUrl.toString(), { credentials: 'omit' });
+                    if (!res.ok) throw new Error(`proxy HTTP ${res.status}`);
+                }
+            } else {
+                res = await fetchImageForMorphDev(src);
+            }
+            const blob = await res.blob();
+            const bitmap = await createImageBitmap(blob);
+            w = bitmap.width;
+            h = bitmap.height;
+            canvas.width = w;
+            canvas.height = h;
+            ctx.drawImage(bitmap, 0, 0);
+            bitmap.close();
+        }
+
+        const imageData = ctx.getImageData(0, 0, w, h);
+        dilateInkOnceLuminance(imageData, VIEWER_DEV_MORPH_LUM_THRESHOLD);
+        ctx.putImageData(imageData, 0, 0);
+    } catch (e) {
+        const msg = e?.message || String(e);
+        console.warn('[Viewer] dev morph skipped:', msg);
+        return { ok: false, err: msg };
+    }
+
+    canvas.className = img.className;
+    img.replaceWith(canvas);
+    return { ok: true };
+}
+
+async function runViewerDevMorphPipeline() {
+    if (!viewerDevMorph) {
+        viewerDevMorphLastRun = { pending: false, replaced: 0, skipped: 0, lastErr: '' };
+        return;
+    }
+
+    const imgs = document.querySelectorAll(
+        '#viewer-content img.viewer-page-image, #viewer-spread-content img.viewer-page-image'
+    );
+    let replaced = 0;
+    let skipped = 0;
+    let lastErr = '';
+    for (const img of imgs) {
+        try {
+            const r = await morphReplaceImgWithCanvasIfNeeded(img);
+            if (r?.ok) replaced += 1;
+            else {
+                skipped += 1;
+                if (r?.err) lastErr = r.err;
+            }
+        } catch (e) {
+            skipped += 1;
+            lastErr = e?.message || String(e);
+            console.warn('[Viewer] dev morph failed:', lastErr);
+        }
+    }
+    viewerDevMorphLastRun = {
+        pending: false,
+        replaced,
+        skipped,
+        lastErr: lastErr || ''
+    };
+    if (viewerDevMode) renderViewerDevMetrics();
+}
+
 function renderPageContentHTML(page, lang) {
     const url = getPageAssetUrl(page, lang);
-    return url
-        ? `<img class="viewer-page-image" src="${esc(url)}" loading="eager">`
-        : `<div style="width:100%;height:100%;display:flex;align-items:center;justify-content:center;color:#666;font-size:14px;">${vt('imageMissing')}</div>`;
+    if (!url) {
+        return `<div style="width:100%;height:100%;display:flex;align-items:center;justify-content:center;color:#666;font-size:14px;">${vt('imageMissing')}</div>`;
+    }
+    // Never set crossOrigin on the displayed img: without media CORS the image fails to decode (broken image).
+    // Morph uses fetch() + createImageBitmap so pixels are readable when R2 CORS allows the viewer origin.
+    return `<img class="viewer-page-image" src="${esc(url)}" loading="eager">`;
 }
 
 function renderPageBubblesHTML(page, lang) {
@@ -846,6 +1310,179 @@ function renderPageIntoDom(page, lang) {
     const bubblesEl = document.getElementById('viewer-bubbles');
     if (contentEl) contentEl.innerHTML = renderSurfaceContentHTML(page, lang);
     if (bubblesEl) bubblesEl.innerHTML = renderSurfaceBubblesHTML(page, lang);
+    scheduleViewerDevMorphPipeline();
+    renderViewerDevMetrics();
+}
+
+function renderViewerDevMetrics() {
+    let panel = document.getElementById('viewer-dev-metrics');
+    if (!panel) {
+        panel = document.createElement('div');
+        panel.id = 'viewer-dev-metrics';
+        document.body.appendChild(panel);
+    }
+    if (!viewerDevMode) {
+        panel.hidden = true;
+        panel.innerHTML = '';
+        return;
+    }
+
+    const lang = state.activeLang;
+    const pageEntries = getViewerDevMetricEntries(lang);
+    const totalBytes = Number(viewerProjectMeta.totalBytes) || 0;
+    const totalPages = getPages().length;
+    const avgBytes = totalPages > 0 && totalBytes > 0 ? Math.round(totalBytes / totalPages) : 0;
+    const quality = viewerProjectMeta.qualityProfile?.image
+        ? `${viewerProjectMeta.qualityProfile.image}%`
+        : '—';
+    const pageSummary = pageEntries.map((entry) => `${entry.label} ${entry.pageRef}`).join(' / ') || '—';
+
+    let morphStatusMain = '';
+    let morphStatusErrHtml = '';
+    if (!viewerDevMorph) {
+        morphStatusMain = vt('devMorphStatusOff');
+    } else if (viewerDevMorphLastRun.pending) {
+        morphStatusMain = vt('devMorphStatusPending');
+    } else {
+        morphStatusMain = vt('devMorphStatusResult', {
+            replaced: viewerDevMorphLastRun.replaced,
+            skipped: viewerDevMorphLastRun.skipped
+        });
+        if (viewerDevMorphLastRun.skipped > 0) {
+            morphStatusMain += ` ${vt('devMorphStatusHint')}`;
+        }
+    }
+    if (viewerDevMorph && !viewerDevMorphLastRun.pending && viewerDevMorphLastRun.skipped > 0 && viewerDevMorphLastRun.lastErr) {
+        morphStatusErrHtml = viewerDevMorphLastRun.lastErr.slice(0, 160);
+    }
+
+    panel.hidden = false;
+    panel.innerHTML = `
+        <div class="viewer-dev-metrics-title">Developer mode</div>
+        <div class="viewer-dev-smooth-row">
+            <label class="viewer-dev-smooth-label" for="viewer-dev-smooth-input">
+                <input type="checkbox" id="viewer-dev-smooth-input" ${viewerDevSmoothing ? 'checked' : ''} />
+                <span>${esc(vt('devSmoothing'))}</span>
+            </label>
+            <div class="viewer-dev-smooth-note">${esc(vt('devSmoothingNote'))}</div>
+        </div>
+        <div class="viewer-dev-morph-row">
+            <label class="viewer-dev-smooth-label" for="viewer-dev-morph-input">
+                <input type="checkbox" id="viewer-dev-morph-input" ${viewerDevMorph ? 'checked' : ''} />
+                <span>${esc(vt('devMorph'))}</span>
+            </label>
+            <div class="viewer-dev-smooth-note">${esc(vt('devMorphNote'))}</div>
+            <div class="viewer-dev-morph-status">${esc(morphStatusMain)}</div>
+            ${morphStatusErrHtml ? `<div class="viewer-dev-morph-status-err">${esc(morphStatusErrHtml)}</div>` : ''}
+        </div>
+        <div class="viewer-dev-metrics-grid">
+            <span>Lang</span><strong>${esc(String(lang || '').toUpperCase())}</strong>
+            <span>Pages</span><strong>${esc(pageSummary)}</strong>
+            <span>Total pages</span><strong>${esc(String(totalPages || '—'))}</strong>
+            <span>Avg/page</span><strong>${formatBytes(avgBytes)}</strong>
+            <span>Total</span><strong>${formatBytes(totalBytes)}</strong>
+            <span>Res</span><strong>${esc(viewerProjectMeta.resolution || '—')}</strong>
+            <span>Q(img)</span><strong>${esc(quality)}</strong>
+        </div>
+        <div class="viewer-dev-metrics-pages">
+            ${pageEntries.map((entry) => `
+                <div class="viewer-dev-page-card">
+                    <div class="viewer-dev-page-card-title">${esc(entry.label)} ${esc(entry.pageRef)}</div>
+                    <div class="viewer-dev-page-card-meta">
+                        <span>${esc(entry.pageType)}</span>
+                        <strong>${formatBytes(entry.bytes)}</strong>
+                    </div>
+                    ${entry.imageUrl ? `<div class="viewer-dev-metrics-url">${esc(entry.imageUrl)}</div>` : ''}
+                </div>
+            `).join('')}
+        </div>
+    `;
+    panel.querySelector('#viewer-dev-smooth-input')?.addEventListener('change', (e) => {
+        viewerDevSmoothing = !!e.target?.checked;
+        localStorage.setItem(VIEWER_DEV_SMOOTHING_KEY, viewerDevSmoothing ? '1' : '0');
+        applyViewerDevSmoothingClass();
+    });
+    panel.querySelector('#viewer-dev-morph-input')?.addEventListener('change', (e) => {
+        viewerDevMorph = !!e.target?.checked;
+        localStorage.setItem(VIEWER_DEV_MORPH_KEY, viewerDevMorph ? '1' : '0');
+        refresh();
+    });
+}
+
+function getViewerDevMetricEntries(lang) {
+    if (spreadMode && hasBookModel()) {
+        return getBookMetricEntries(lang);
+    }
+    if (spreadMode) {
+        return getRegularSpreadMetricEntries(lang);
+    }
+    const page = getPages()[getIndex()];
+    return page ? [buildViewerDevMetricEntry('Page', page, lang)] : [];
+}
+
+function getBookMetricEntries(lang) {
+    const unit = getCurrentBookUnit();
+    if (!unit) return [];
+    if (unit.type === 'single') {
+        return unit.center ? [buildViewerDevMetricEntry(unit.role || 'Page', unit.center, lang)] : [];
+    }
+    return [
+        buildViewerDevMetricEntry('Left', unit.left, lang),
+        buildViewerDevMetricEntry('Right', unit.right, lang)
+    ].filter(Boolean);
+}
+
+function getRegularSpreadMetricEntries(lang) {
+    const pages = getPages();
+    const idx = getIndex();
+    const current = pages[idx];
+    if (!current) return [];
+    const dir = getPageDirection();
+    const adjIdx = dir === 'rtl' ? idx - 1 : idx + 1;
+    const adjacent = (adjIdx >= 0 && adjIdx < pages.length) ? pages[adjIdx] : null;
+    if (dir === 'rtl') {
+        return [
+            buildViewerDevMetricEntry('Left', adjacent, lang),
+            buildViewerDevMetricEntry('Right', current, lang)
+        ].filter(Boolean);
+    }
+    return [
+        buildViewerDevMetricEntry('Left', current, lang),
+        buildViewerDevMetricEntry('Right', adjacent, lang)
+    ].filter(Boolean);
+}
+
+function buildViewerDevMetricEntry(label, page, lang) {
+    if (!page) return null;
+    if (page.virtualBlank) {
+        return {
+            label,
+            pageRef: 'blank',
+            pageType: 'blank',
+            bytes: 0,
+            imageUrl: ''
+        };
+    }
+    const sourcePageIndex = Number.isInteger(page?.sourcePageIndex) && page.sourcePageIndex >= 0
+        ? page.sourcePageIndex + 1
+        : null;
+    return {
+        label,
+        pageRef: sourcePageIndex ? `#${sourcePageIndex}` : (page?.bookRole || '—'),
+        pageType: page?.devMeta?.pageType || page?.pageType || 'page',
+        bytes: Number(page?.devMeta?.bytesByLang?.[lang])
+            || Number(page?.devMeta?.bytesByLang?.__all)
+            || Number(page?.devMeta?.totalBytes)
+            || 0,
+        imageUrl: getPageAssetUrl(page, lang)
+    };
+}
+
+function formatBytes(bytes) {
+    const num = Number(bytes);
+    if (!Number.isFinite(num) || num <= 0) return '—';
+    if (num >= 1024 * 1024) return `${(num / (1024 * 1024)).toFixed(2)} MB`;
+    return `${Math.round(num / 1024)} KB`;
 }
 
 function createTransitionLayer(contentHtml, bubblesHtml) {
@@ -1199,6 +1836,8 @@ function renderSpreadPage() {
     spreadStage.style.display = 'block';
     const adjPage = pages[adjIdx];
     spreadContent.innerHTML = renderPageContentHTML(adjPage, lang);
+    scheduleViewerDevMorphPipeline();
+    if (viewerDevMode) renderViewerDevMetrics();
 }
 
 window.toggleViewerSpread = () => {
@@ -1419,4 +2058,4 @@ function esc(s) {
 }
 
 // ── Boot ──────────────────────────────────────────────────────
-init();
+void init().catch((e) => console.warn('[Viewer] init failed:', e));

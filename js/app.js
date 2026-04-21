@@ -1,9 +1,19 @@
 /**
- * app.js — メインエントリポイント・描画・UI同期
+ * app.js — Studio メインエントリ（描画・UI 同期・room 切り替え）
+ *
+ * Room 境界・認証（Google GIS + Firebase + ステージングメール）の地図:
+ *   docs/studio-app-room-boundaries.md
+ *
+ * 大まかな塊:
+ *   - Home: ダッシュボード（renderHomeDashboard）
+ *   - Editor: refresh / キャンバス / サムネ（このファイルが最も長い）
+ *   - Press / Works: enterPressRoom（press.js）, openWorksRoom（works.js）は switchRoom から委譲
+ *   - 認証 UI: getStudioAuthMarkup → renderStudioAuthSlot（GIS ボタン + フォールバック + 条件付きメール）
  */
 import { state, dispatch, actionTypes } from './state.js';
-import { saveProject as persistProject, loadProject, uploadToStorage, uploadCoverToStorage, uploadStructureToStorage, triggerAutoSave, flushSave, generateCroppedThumbnail, listLocalRecentProjects, loadLocalRecentProject, cacheLocalRecentProject } from './firebase.js';
+import { saveProject as persistProject, loadProject, uploadToStorage, uploadCoverToStorage, uploadStructureToStorage, triggerAutoSave, flushSave, generateCroppedThumbnail, listLocalRecentProjects, loadLocalRecentProject, cacheLocalRecentProject, auth as firebaseAuth, authReady } from './firebase.js';
 import { initGIS, renderGISButton, signInWithGoogle, signOutUser, onAuthChanged, handleRedirectResult } from './gis-auth.js';
+import { signInWithEmail, isStagingEmailLoginEnabled } from './email-auth.js';
 import { handleCanvasClick, selectBubble, renderBubbleHTML, getBubbleText, setBubbleText, addBubbleAtCenter, startDrag, startTailDrag, startSpikeDrag } from './bubbles.js';
 import { addSection, addTextSection, changeSection, changeBlock, insertStructureBlock, renderThumbs, deleteActive, deleteSectionAt, insertSectionAt, duplicateSectionAt, moveSection, insertPageNearBlock, duplicateBlockAt, moveBlockAt, getOptimizedImageUrl } from './sections.js';
 import { pushState, undo, redo, getHistoryInfo, clearHistory } from './history.js';
@@ -300,24 +310,25 @@ function formatProjectLanguages(languages) {
     return list.map((code) => String(code).toUpperCase()).join(', ');
 }
 
+function getStudioLanguageBadgeModifier(code) {
+    const normalized = String(code || '').trim().toLowerCase();
+    if (normalized === 'ja') return 'ja';
+    if (normalized === 'en' || normalized === 'en-us') return 'en-us';
+    if (normalized === 'en-gb') return 'en-gb';
+    if (normalized === 'zh-cn') return 'zh-cn';
+    if (normalized === 'zh-tw') return 'zh-tw';
+    return 'generic';
+}
+
+function renderStudioLanguageBadge(code, className = 'home-lang-badge') {
+    const modifier = getStudioLanguageBadgeModifier(code);
+    const label = String(code || '').toUpperCase();
+    return `<span class="${className} home-lang-${modifier}" title="${escapeStudioHtml(label)}">${modifier === 'generic' ? escapeStudioHtml(label) : ''}</span>`;
+}
+
 function renderLanguageBadges(languages) {
     const list = Array.isArray(languages) && languages.length > 0 ? languages : ['ja'];
-    return list.map((code) => {
-        const normalized = String(code).trim().toLowerCase();
-        const modifier = normalized === 'ja'
-            ? 'ja'
-            : (normalized === 'en' || normalized === 'en-us')
-                ? 'en-us'
-                : normalized === 'en-gb'
-                    ? 'en-gb'
-                    : normalized === 'zh-cn'
-                        ? 'zh-cn'
-                        : normalized === 'zh-tw'
-                            ? 'zh-tw'
-                            : 'generic';
-        const label = normalized.toUpperCase();
-        return `<span class="home-lang-badge home-lang-${modifier}" title="${label}">${modifier === 'generic' ? label : ''}</span>`;
-    }).join('');
+    return list.map((code) => renderStudioLanguageBadge(code)).join('');
 }
 
 function formatProjectBytes(bytes) {
@@ -327,6 +338,8 @@ function formatProjectBytes(bytes) {
     if (size < 1024 * 1024) return `${(size / 1024).toFixed(size < 10 * 1024 ? 1 : 0)} KB`;
     return `${(size / (1024 * 1024)).toFixed(1)} MB`;
 }
+
+// ── Home room — ダッシュボード（クラウド / ローカル一覧） ─────────────────
 
 function renderHomeCard(project, source) {
     const displayName = project.projectName || project.title || project.id || '無題';
@@ -457,14 +470,22 @@ async function renderHomeDashboard() {
     syncStudioShell();
 }
 
+// ── Studio 認証 UI — GIS ボタン + フォールバック Google + ステージングメール（email-auth） ──
+//    実体のサインインは gis-auth.js / email-auth.js。ここはマークアップとスロット束ね。
+
 function updateAuthUI() {
-    const signedIn = !!state.uid;
+    const effectiveUser = state.user || firebaseAuth.currentUser || null;
+    if (effectiveUser?.uid && state.uid !== effectiveUser.uid) {
+        state.user = effectiveUser;
+        state.uid = effectiveUser.uid;
+    }
+    const signedIn = !!(state.uid || effectiveUser?.uid);
     const saveStatus = document.getElementById('save-status');
     const authSlotNav = document.getElementById('studio-auth-slot-nav');
     const authSlotMobile = document.getElementById('studio-auth-slot-mobile');
 
-    if (authSlotNav) renderStudioAuthSlot(authSlotNav, state.user, { mobile: false, slotName: 'nav' });
-    if (authSlotMobile) renderStudioAuthSlot(authSlotMobile, state.user, { mobile: true, slotName: 'mobile' });
+    if (authSlotNav) renderStudioAuthSlot(authSlotNav, effectiveUser, { mobile: false, slotName: 'nav' });
+    if (authSlotMobile) renderStudioAuthSlot(authSlotMobile, effectiveUser, { mobile: true, slotName: 'mobile' });
 
     if (!signedIn && saveStatus && !saveStatus.textContent.trim()) {
         saveStatus.textContent = t('login_prompt');
@@ -476,6 +497,12 @@ function updateAuthUI() {
         el.title = !signedIn ? t('login_required') : '';
     });
     syncStudioShell();
+}
+
+function applyStudioAuthUser(user) {
+    state.user = user || null;
+    state.uid = user?.uid || null;
+    updateAuthUI();
 }
 
 let studioAuthGlobalBound = false;
@@ -546,10 +573,26 @@ function getStudioAuthMarkup(user, { mobile = false, slotName = 'nav' } = {}) {
             : `<span class="material-icons" aria-hidden="true">account_circle</span>`;
     const gisButtonId = `gis-btn-studio-${slotName}`;
     const fallbackClass = mobile ? 'mobile-auth-btn studio-signin-fallback' : 'btn-tool studio-signin-fallback';
+    const emailAuthEnabled = isStagingEmailLoginEnabled();
+    const emailFormSection = !user && emailAuthEnabled ? `
+        <form class="studio-email-auth-form" data-auth-email-form>
+            <div class="studio-email-auth-title">${escapeStudioHtml(t('staging_email_login'))}</div>
+            <label class="studio-email-auth-label">
+                <span>${escapeStudioHtml(t('field_email'))}</span>
+                <input type="email" class="studio-email-auth-input" data-auth-email autocomplete="username" placeholder="test@example.com">
+            </label>
+            <label class="studio-email-auth-label">
+                <span>${escapeStudioHtml(t('field_password'))}</span>
+                <input type="password" class="studio-email-auth-input" data-auth-password autocomplete="current-password" placeholder="••••••••">
+            </label>
+            <button type="submit" class="btn-tool studio-email-auth-submit" data-auth-email-submit>${escapeStudioHtml(t('btn_signin_email'))}</button>
+        </form>
+    ` : '';
     const signedOutSection = user ? '' : `
         <div class="auth-panel-section studio-auth-signin-section">
             <div id="${gisButtonId}" class="studio-gis-slot"></div>
             <button type="button" class="${fallbackClass}" data-auth-signin-fallback>${escapeStudioHtml(mobile ? t('btn_auth_mobile') : t('btn_signin'))}</button>
+            ${emailFormSection}
         </div>
     `;
 
@@ -576,6 +619,26 @@ function updateStudioThemeSwitchers() {
     });
 }
 
+function mountStudioGisButton(container, { mobile = false } = {}) {
+    if (state.uid) return;
+    const gisTarget = container.querySelector('.studio-gis-slot')?.id;
+    if (!gisTarget) return;
+    const device = getDeviceKey();
+    const renderGisHere = mobile ? device === 'mobile' : device === 'desktop';
+    if (!renderGisHere) return;
+    renderGISButton(gisTarget, {
+        authInstance: firebaseAuth,
+        buttonOptions: {
+            theme: 'outline',
+            size: 'medium',
+            type: 'standard',
+            shape: 'rectangular',
+            text: 'signin_with',
+            logo_alignment: 'left',
+        }
+    }).catch((error) => console.warn(`[Auth] GIS ${mobile ? 'mobile' : 'desktop'} button render failed:`, error));
+}
+
 function bindStudioAuthSlot(container, user, { mobile = false } = {}) {
     const trigger = container.querySelector('[data-auth-trigger]');
     const dropdown = container.querySelector('[data-auth-dropdown]');
@@ -585,6 +648,11 @@ function bindStudioAuthSlot(container, user, { mobile = false } = {}) {
         closeAllStudioAuthDropdowns();
         dropdown?.classList.toggle('open', willOpen);
         trigger.setAttribute('aria-expanded', String(willOpen));
+        if (willOpen && !user) {
+            requestAnimationFrame(() => {
+                requestAnimationFrame(() => mountStudioGisButton(container, { mobile }));
+            });
+        }
     });
     dropdown?.addEventListener('click', async (event) => {
         const themeBtn = event.target.closest('.theme-mode-btn');
@@ -594,36 +662,51 @@ function bindStudioAuthSlot(container, user, { mobile = false } = {}) {
             return;
         }
         if (event.target.closest('[data-auth-signout]')) {
-            await signOutUser();
+            try {
+                await signOutUser(firebaseAuth);
+            } catch (error) {
+                console.error('[Auth] sign-out error:', error);
+            }
             return;
         }
     });
     container.querySelector('[data-auth-signin-fallback]')?.addEventListener('click', async () => {
-        await signInWithGoogle();
+        try {
+            const result = await signInWithGoogle({ authInstance: firebaseAuth });
+            if (result?.user) {
+                applyStudioAuthUser(result.user);
+                closeAllStudioAuthDropdowns();
+            }
+        } catch (error) {
+            console.error('[Auth] Google sign-in error:', error);
+            alert(t('auth_google_failed', { message: error?.message || String(error) }));
+        }
+    });
+    container.querySelector('[data-auth-email-form]')?.addEventListener('submit', async (event) => {
+        event.preventDefault();
+        const form = event.currentTarget;
+        const emailInput = form.querySelector('[data-auth-email]');
+        const passwordInput = form.querySelector('[data-auth-password]');
+        const submitBtn = form.querySelector('[data-auth-email-submit]');
+        const email = emailInput?.value || '';
+        const password = passwordInput?.value || '';
+        if (!email.trim() || !password) {
+            alert(t('auth_email_missing'));
+            return;
+        }
+        if (submitBtn) submitBtn.disabled = true;
+        try {
+            await signInWithEmail(email, password);
+            passwordInput.value = '';
+            closeAllStudioAuthDropdowns();
+        } catch (error) {
+            console.error('[Auth] email sign-in error:', error);
+            alert(t('auth_email_failed', { message: error?.message || String(error) }));
+        } finally {
+            if (submitBtn) submitBtn.disabled = false;
+        }
     });
 
-    if (!user) {
-        const gisTarget = container.querySelector('.studio-gis-slot')?.id;
-        if (gisTarget) {
-            renderGISButton(gisTarget, {
-                buttonOptions: mobile
-                    ? {
-                        theme: 'outline',
-                        size: 'medium',
-                        type: 'icon',
-                        shape: 'pill',
-                    }
-                    : {
-                        theme: 'outline',
-                        size: 'medium',
-                        type: 'standard',
-                        shape: 'rectangular',
-                        text: 'signin_with',
-                        logo_alignment: 'left',
-                    }
-            }).catch((error) => console.warn(`[Auth] GIS ${mobile ? 'mobile' : 'desktop'} button render failed:`, error));
-        }
-    }
 }
 
 function renderStudioAuthSlot(container, user, options = {}) {
@@ -632,6 +715,8 @@ function renderStudioAuthSlot(container, user, options = {}) {
     container.innerHTML = getStudioAuthMarkup(user, options);
     bindStudioAuthSlot(container, user, options);
 }
+
+// ── Studio shell — data-room・デバイス・サムネ列・リボン（editor 以外も共通） ─────────
 
 const THUMB_COLUMN_OPTIONS = [8, 5, 4, 2, 1];
 const MOBILE_THUMB_SIZE_MAP = { s: 4, m: 2, l: 1 };
@@ -669,10 +754,6 @@ function getMobileHeaderNavTarget(room) {
     return null;
 }
 
-function isMobileHomeDrawerOpen() {
-    return document.body.classList.contains('mobile-home-drawer-open');
-}
-
 function syncMobileHeader() {
     const room = getCurrentRoom();
     const navBtn = document.getElementById('mobile-header-nav');
@@ -691,15 +772,12 @@ function syncMobileHeader() {
     if (navBtn) {
         navBtn.hidden = !navTarget;
         navBtn.dataset.targetRoom = navTarget || '';
-        navBtn.title = navTarget ? getRoomLabel(navTarget) : '';
-        navBtn.setAttribute('aria-label', navBtn.title || roomText);
+        const backLabel = navTarget ? getRoomLabel(navTarget) : '';
+        navBtn.title = backLabel;
+        navBtn.setAttribute('aria-label', backLabel || roomText);
         const icon = navBtn.querySelector('.material-icons');
         if (icon) {
-            icon.textContent = room === 'editor' ? 'menu_open' : 'arrow_back';
-        }
-        if (room === 'editor') {
-            navBtn.title = t('tab_home');
-            navBtn.setAttribute('aria-label', t('tab_home'));
+            icon.textContent = 'arrow_back';
         }
     }
 }
@@ -723,9 +801,6 @@ function syncStudioShell() {
 
     if ((device !== 'mobile' || room !== 'editor') && typeof window.closeMobileSheet === 'function') {
         window.closeMobileSheet();
-    }
-    if (device !== 'mobile' || room !== 'editor') {
-        closeMobileHomeDrawer();
     }
 
     syncMobileHeader();
@@ -1049,11 +1124,32 @@ function syncThumbSelectionDom() {
 // ──────────────────────────────────────
 //  言語UI
 // ──────────────────────────────────────
+function getEditorLangDirection(code) {
+    const props = getLangProps(code);
+    const fallback = props.directions?.[0]?.value || 'ltr';
+    return state.languageConfigs?.[code]?.pageDirection || fallback;
+}
+
+function getEditorLangDirectionArrow(code) {
+    return getEditorLangDirection(code) === 'rtl' ? '&lt;&lt;' : '&gt;&gt;';
+}
+
+function renderEditorLangTabContent(code) {
+    const props = getLangProps(code);
+    const codeLabel = String(code || '').toUpperCase();
+    return `
+        ${renderStudioLanguageBadge(code, 'lang-tab-badge')}
+        <span class="lang-tab-label">${escapeStudioHtml(props.label)}</span>
+        <span class="lang-tab-code">${escapeStudioHtml(codeLabel)}</span>
+        <span class="lang-tab-dir">${getEditorLangDirectionArrow(code)}</span>
+    `;
+}
+
 function renderLangTabs() {
     const html = state.languages.map(code => {
-        const props = getLangProps(code);
         const active = code === state.activeLang ? 'active' : '';
-        return `<button class="lang-tab ${active}" onclick="switchLang('${code}')">${props.label}</button>`;
+        const label = `${getLangProps(code).label} ${String(code).toUpperCase()} ${getEditorLangDirection(code) === 'rtl' ? '<<' : '>>'}`;
+        return `<button class="lang-tab ${active}" onclick="switchLang('${code}')" title="${escapeStudioHtml(label)}">${renderEditorLangTabContent(code)}</button>`;
     }).join('');
     ['lang-tabs', 'lang-tabs-mobile', 'lang-tabs-top', 'lang-tabs-pages-panel'].forEach((id) => {
         const container = document.getElementById(id);
@@ -3800,7 +3896,11 @@ window.exportDSF = async () => {
         await buildDSF();
     } catch (e) {
         console.error("Export DSF failed:", e);
-        alert("エクスポート中にエラーが発生しました。\n" + e.message);
+        if (e?.code === 'PRESS_RENDER_CANCELLED') {
+            alert(t('press_render_cancelled'));
+        } else {
+            alert("エクスポート中にエラーが発生しました。\n" + e.message);
+        }
     } finally {
         btnDataList.forEach(btn => btn.textContent = '⬇ 配信データ出力 (.dsf)');
     }
@@ -4360,18 +4460,19 @@ window.saveProjectSettings = () => {
     triggerAutoSave();
 };
 
-// ===== Room Navigation =====
+// ===== Room Navigation（body.dataset.room の単一入口。各 room の「中身」は下記のみ委譲） =====
 window.switchRoom = (room) => {
     document.body.dataset.room = room;
     syncStudioShell();
     if (room === 'home') {
         renderHomeDashboard().catch((e) => console.warn('[Home] render failed:', e));
     }
+    // press / works は専用モジュールが DOM・イベントを持つ
     if (room === 'press') {
         enterPressRoom();
     }
     if (room === 'works') {
-        loadWorksRoom();
+        loadWorksRoom(); // openWorksRoom(true) と同義（ルームモード）
     }
 };
 
@@ -4386,10 +4487,6 @@ window.togglePageStrip = () => {
 };
 
 window.handleMobileHeaderNav = () => {
-    if (getCurrentRoom() === 'editor' && window.innerWidth < 1024) {
-        window.toggleMobileHomeDrawer();
-        return;
-    }
     const navBtn = document.getElementById('mobile-header-nav');
     const targetRoom = navBtn?.dataset.targetRoom;
     if (targetRoom) {
@@ -4469,11 +4566,40 @@ function syncMobileMenuSheet() {
     document.querySelectorAll('[data-mobile-room-only]').forEach((el) => {
         el.hidden = el.dataset.mobileRoomOnly !== room;
     });
+    document.querySelectorAll('[data-mobile-room-nav]').forEach((el) => {
+        el.classList.toggle('active', el.dataset.mobileRoomNav === room);
+    });
 }
+
+function setMobileStudioNavOpen(open) {
+    const menu = document.getElementById('mobile-studio-nav-menu');
+    const btn = document.getElementById('mobile-studio-logo-btn');
+    if (!menu) return;
+    menu.hidden = !open;
+    document.body.classList.toggle('mobile-studio-nav-open', open);
+    btn?.setAttribute('aria-expanded', open ? 'true' : 'false');
+    if (open) {
+        syncMobileMenuSheet();
+    }
+}
+
+window.closeMobileStudioNavMenu = () => {
+    setMobileStudioNavOpen(false);
+};
+
+window.toggleMobileStudioNavMenu = (event) => {
+    event?.stopPropagation();
+    if (window.innerWidth >= 1024) return;
+    const menu = document.getElementById('mobile-studio-nav-menu');
+    const shouldOpen = !!menu?.hidden;
+    closeMobileSheet();
+    setMobileStudioNavOpen(shouldOpen);
+};
 
 function handleMobileBottomAction(actionKey) {
     const action = getMobileActionConfigs().find((item) => item.key === actionKey);
     if (!action) return;
+    closeMobileStudioNavMenu();
     if (action.sheet) {
         openMobileSheet(action.sheet);
         return;
@@ -4525,27 +4651,9 @@ window.closeMobileSheet = () => {
     setBottomBarActive(null);
 };
 
-window.closeMobileHomeDrawer = () => {
-    document.body.classList.remove('mobile-home-drawer-open');
-};
-
-window.openMobileHomeDrawer = () => {
-    if (window.innerWidth >= 1024 || getCurrentRoom() !== 'editor') return;
-    closeMobileSheet();
-    document.body.classList.add('mobile-home-drawer-open');
-};
-
-window.toggleMobileHomeDrawer = () => {
-    if (isMobileHomeDrawerOpen()) {
-        closeMobileHomeDrawer();
-    } else {
-        openMobileHomeDrawer();
-    }
-};
-
 window.closeMobileOverlays = () => {
+    closeMobileStudioNavMenu();
     closeMobileSheet();
-    closeMobileHomeDrawer();
 };
 
 function openMobileActionSheet(contentId) {
@@ -4564,7 +4672,7 @@ window.openMobileSheet = (sheetName) => {
         return;
     }
 
-    closeMobileHomeDrawer();
+    closeMobileStudioNavMenu();
     closeMobileSheet();
     activeMobileSheet = sheetName;
     document.body.classList.add('mobile-sheet-active');
@@ -4596,73 +4704,33 @@ function initUIChrome() {
     document.getElementById('btn-toggle-sidebar')?.addEventListener('click', () => window.toggleDrawer('assets'));
     document.getElementById('btn-toggle-panel')?.addEventListener('click', () => toggleDesktopPanel('right'));
 
-    let mobileHomeDrawerSwipe = null;
-    document.addEventListener('touchstart', (e) => {
-        if (window.innerWidth >= 1024 || getCurrentRoom() !== 'editor' || activeMobileSheet || isMobileHomeDrawerOpen()) return;
-        const touch = e.touches?.[0];
-        if (!touch) return;
-        if (touch.clientX > 24) return;
-        mobileHomeDrawerSwipe = {
-            startX: touch.clientX,
-            startY: touch.clientY,
-            opened: false
-        };
-    }, { passive: true });
-
-    document.addEventListener('touchmove', (e) => {
-        if (!mobileHomeDrawerSwipe || mobileHomeDrawerSwipe.opened) return;
-        const touch = e.touches?.[0];
-        if (!touch) return;
-        const dx = touch.clientX - mobileHomeDrawerSwipe.startX;
-        const dy = Math.abs(touch.clientY - mobileHomeDrawerSwipe.startY);
-        if (dy > 36) {
-            mobileHomeDrawerSwipe = null;
-            return;
+    window.addEventListener('dsf-auth-signed-in', (event) => {
+        const user = event.detail?.user || firebaseAuth.currentUser || null;
+        if (user) {
+            applyStudioAuthUser(user);
+            closeAllStudioAuthDropdowns();
+            renderHomeDashboard().catch((e) => console.warn('[Home] render failed after auth event:', e));
         }
-        if (dx > 56) {
-            openMobileHomeDrawer();
-            mobileHomeDrawerSwipe.opened = true;
-            mobileHomeDrawerSwipe = null;
+    });
+    window.addEventListener('dsf-auth-error', (event) => {
+        const error = event.detail?.error;
+        console.error('[Auth] Google credential sign-in error:', error);
+        alert(t('auth_google_failed', { message: error?.message || String(error || '') }));
+    });
+
+    document.addEventListener('click', (event) => {
+        const menu = document.getElementById('mobile-studio-nav-menu');
+        const btn = document.getElementById('mobile-studio-logo-btn');
+        if (!menu || menu.hidden) return;
+        if (menu.contains(event.target) || btn?.contains(event.target)) return;
+        closeMobileStudioNavMenu();
+    });
+
+    document.addEventListener('keydown', (event) => {
+        if (event.key === 'Escape') {
+            closeMobileStudioNavMenu();
         }
-    }, { passive: true });
-
-    document.addEventListener('touchend', () => {
-        mobileHomeDrawerSwipe = null;
-    }, { passive: true });
-
-    const mobileHomeDrawer = document.getElementById('mobile-home-drawer');
-    let mobileHomeDrawerCloseSwipe = null;
-    mobileHomeDrawer?.addEventListener('touchstart', (e) => {
-        if (!isMobileHomeDrawerOpen()) return;
-        const touch = e.touches?.[0];
-        if (!touch) return;
-        const rect = mobileHomeDrawer.getBoundingClientRect();
-        if ((rect.right - touch.clientX) > 36) return;
-        mobileHomeDrawerCloseSwipe = {
-            startX: touch.clientX,
-            startY: touch.clientY
-        };
-    }, { passive: true });
-
-    mobileHomeDrawer?.addEventListener('touchmove', (e) => {
-        if (!mobileHomeDrawerCloseSwipe) return;
-        const touch = e.touches?.[0];
-        if (!touch) return;
-        const dx = touch.clientX - mobileHomeDrawerCloseSwipe.startX;
-        const dy = Math.abs(touch.clientY - mobileHomeDrawerCloseSwipe.startY);
-        if (dy > 36) {
-            mobileHomeDrawerCloseSwipe = null;
-            return;
-        }
-        if (dx < -48) {
-            closeMobileHomeDrawer();
-            mobileHomeDrawerCloseSwipe = null;
-        }
-    }, { passive: true });
-
-    mobileHomeDrawer?.addEventListener('touchend', () => {
-        mobileHomeDrawerCloseSwipe = null;
-    }, { passive: true });
+    });
 
     window.addEventListener('resize', () => {
         const currentDeviceKey = getDeviceKey();
@@ -4670,6 +4738,7 @@ function initUIChrome() {
             lastDeviceKey = currentDeviceKey;
             applyThumbColumnsFromPrefs();
             refresh();
+            updateAuthUI();
         }
         syncStudioShell();
     });
@@ -4689,26 +4758,26 @@ window.toggleMobilePanel = (panelName) => {
 window.toggleAuth = async () => {
     try {
         if (state.uid) {
-            await signOutUser();
+            await signOutUser(firebaseAuth);
         } else {
-            await signInWithGoogle();
+            const result = await signInWithGoogle({ authInstance: firebaseAuth });
+            if (result?.user) applyStudioAuthUser(result.user);
         }
     } catch (e) {
         console.error('[Auth] toggleAuth error:', e);
+        alert(t('auth_google_failed', { message: e?.message || String(e) }));
     }
 };
 
+// Firebase Auth → state.user / uid。ログイン後にだけ URL ?id= のクラウドプロジェクトを開く。
 onAuthChanged((user) => {
-    state.user = user || null;
-    state.uid = user?.uid || null;
-    updateAuthUI();
+    applyStudioAuthUser(user);
     renderHomeDashboard().catch((e) => console.warn('[Home] render failed after auth:', e));
-    // Auto-load project from URL param after login
     if (user) {
         const pid = new URLSearchParams(window.location.search).get('id');
         if (pid) loadProject(pid, refresh);
     }
-});
+}, firebaseAuth);
 
 // ── UI言語スイッチャー（windowに公開） ──────────────────────────
 window.setStudioUILang = (lang) => {
@@ -4729,9 +4798,10 @@ window.setStudioUILang = (lang) => {
     syncStudioShell();
 };
 
-// --- 初回描画 ---
+// --- 初回描画: UI 骨組み → リダイレクト認証結果 → GIS 初期化 → ローカル復元 → ?room= ---
 async function bootstrapApp() {
     initUIChrome();
+    await authReady;
     ensureUiPrefs();
     applyThumbColumnsFromPrefs();
     applyTheme();
@@ -4744,8 +4814,16 @@ async function bootstrapApp() {
     const urlParams = new URLSearchParams(window.location.search);
     const hasCloudId = urlParams.has('id');
 
-    handleRedirectResult();
-    initGIS();
+    const redirectOutcome = await handleRedirectResult(firebaseAuth);
+    if (redirectOutcome?.error) {
+        alert(t('auth_google_failed', { message: redirectOutcome.error?.message || String(redirectOutcome.error) }));
+    }
+    if (redirectOutcome?.result?.user) {
+        applyStudioAuthUser(redirectOutcome.result.user);
+    } else if (firebaseAuth.currentUser) {
+        applyStudioAuthUser(firebaseAuth.currentUser);
+    }
+    await initGIS({ authInstance: firebaseAuth });
 
     if (!hasCloudId) {
         try {

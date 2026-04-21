@@ -18,9 +18,10 @@ const SUPPORTED_LANGS = ["ja", "en"];
 
 const STRINGS = {
     ja: {
-        libraryName:     "Library",
-        libraryHomeTitle:"読む、探す、集める。",
-        libraryHomeDesc: "公開作品を探して、気になる作品をすぐ開ける Reader 向けホームです。",
+        horizonBrand:    "DSF Horizon",
+        libraryName:     "Horizon",
+        libraryHomeTitle:"情報の広がりは、地平線を超えていく。",
+        libraryHomeDesc: "公開作品を探し、気になる作品をすぐ開ける Reader 向けホームです。",
         createMenu:      "作成",
         drawerHome:      "ホーム",
         drawerHistory:   "履歴",
@@ -36,6 +37,7 @@ const STRINGS = {
         navWorks:        "ワークス",
         signinBtn:       "サインイン",
         signoutBtn:      "サインアウト",
+        authError:       "認証エラー",
         uiLabel:         "UI",
         themeLabel:      "表示モード",
         modeDevice:      "デバイス",
@@ -62,9 +64,10 @@ const STRINGS = {
         unavailableNote: (base, n) => `${base}（${n}件は公開準備中）`,
     },
     en: {
-        libraryName:     "Library",
-        libraryHomeTitle:"Read, discover, and collect.",
-        libraryHomeDesc: "A reader-focused home for browsing public works and opening them quickly.",
+        horizonBrand:    "DSF Horizon",
+        libraryName:     "Horizon",
+        libraryHomeTitle:"Where the information spreads beyond the line.",
+        libraryHomeDesc: "Browse public works and open them in moments—a reader-first home.",
         createMenu:      "Create",
         drawerHome:      "Home",
         drawerHistory:   "History",
@@ -80,6 +83,7 @@ const STRINGS = {
         navWorks:        "Works",
         signinBtn:       "Sign in",
         signoutBtn:      "Sign out",
+        authError:       "Authentication error",
         uiLabel:         "UI",
         themeLabel:      "Theme",
         modeDevice:      "Device",
@@ -359,6 +363,24 @@ async function loadPublicProjects() {
 
 // ---- Auth UI -------------------------------------------------------------
 
+function mountPortalGisButton() {
+    if (auth.currentUser) return;
+    const host = document.getElementById('gis-btn-portal');
+    if (!host) return;
+    host.innerHTML = '';
+    renderGISButton('gis-btn-portal', {
+        authInstance: auth,
+        buttonOptions: {
+            theme: 'outline',
+            size: 'large',
+            type: 'standard',
+            shape: 'rectangular',
+            text: 'signin_with',
+            logo_alignment: 'left',
+        }
+    }).catch((err) => console.warn('[Portal] GIS button render failed:', err));
+}
+
 function renderAuthArea(user) {
     const authArea = document.getElementById("auth-area");
     if (!authArea) return;
@@ -405,7 +427,12 @@ function renderAuthArea(user) {
         });
         document.addEventListener("click", () => dropdown.classList.remove("open"));
         document.getElementById("btn-signout").addEventListener("click", async () => {
-            await signOutUser(auth);
+            try {
+                await signOutUser(auth);
+            } catch (error) {
+                console.error('[Portal] sign-out failed:', error);
+                showFeedback("error", t("authError"), error?.message || String(error), true);
+            }
         });
         bindThemeSwitcher();
     } else {
@@ -447,20 +474,21 @@ function renderAuthArea(user) {
             e.stopPropagation();
             const isOpen = dropdown.classList.toggle("open");
             avatarBtn.setAttribute("aria-expanded", String(isOpen));
+            if (isOpen) {
+                requestAnimationFrame(() => {
+                    requestAnimationFrame(() => mountPortalGisButton());
+                });
+            }
         });
         document.addEventListener("click", () => dropdown.classList.remove("open"));
-        document.getElementById('btn-signin-fallback')?.addEventListener('click', () => signInWithGoogle({ authInstance: auth }));
-        renderGISButton('gis-btn-portal', {
-            authInstance: auth,
-            buttonOptions: {
-                theme: 'outline',
-                size: 'large',
-                type: 'standard',
-                shape: 'rectangular',
-                text: 'signin_with',
-                logo_alignment: 'left',
+        document.getElementById('btn-signin-fallback')?.addEventListener('click', async () => {
+            try {
+                await signInWithGoogle({ authInstance: auth });
+            } catch (error) {
+                console.error('[Portal] sign-in failed:', error);
+                showFeedback("error", t("authError"), error?.message || String(error), true);
             }
-        }).catch((err) => console.warn('[Portal] GIS button render failed:', err));
+        });
         bindThemeSwitcher();
     }
 }
@@ -571,17 +599,22 @@ function bindEvents() {
 // ---- Init ----------------------------------------------------------------
 
 document.addEventListener("DOMContentLoaded", () => {
-    applyTheme();
-    bindThemePreferenceListener(() => {
+    void (async () => {
+        applyTheme();
+        bindThemePreferenceListener(() => {
+            updateThemeSwitcher();
+        });
+        applyI18n();
+        updateLangSwitcher();
+        bindLangSwitcher();
         updateThemeSwitcher();
-    });
-    applyI18n();
-    updateLangSwitcher();
-    bindLangSwitcher();
-    updateThemeSwitcher();
-    bindEvents();
-    handleRedirectResult(auth);
-    initGIS({ authInstance: auth });
-    onAuthStateChanged(auth, (user) => renderAuthArea(user));
-    loadPublicProjects();
+        bindEvents();
+        const redirectOutcome = await handleRedirectResult(auth);
+        if (redirectOutcome?.error) {
+            showFeedback("error", t("authError"), redirectOutcome.error?.message || String(redirectOutcome.error), true);
+        }
+        await initGIS({ authInstance: auth });
+        onAuthStateChanged(auth, (user) => renderAuthArea(user));
+        loadPublicProjects();
+    })().catch((e) => console.warn('[Portal] bootstrap failed:', e));
 });

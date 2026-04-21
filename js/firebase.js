@@ -16,10 +16,10 @@ import { composeCanonicalLayoutsForSections } from './layout.js';
 import { set as idbSet, get as idbGet } from 'idb-keyval';
 import { createId } from './utils.js';
 import { loadImageForCanvas, fetchAssetBlob, shouldEmbedAsset } from './asset-fetch.js';
-import { db, storage, auth } from './firebase-core.js';
+import { db, storage, auth, authReady } from './firebase-core.js';
 import { encodeCanvasToWebP, isWebPBlob } from './canvas-encoding.js';
 
-export { db, storage, auth } from './firebase-core.js';
+export { db, storage, auth, authReady } from './firebase-core.js';
 
 window.localImageMap = window.localImageMap || {};
 
@@ -36,6 +36,10 @@ const LOCAL_RECENT_INDEX_KEY = 'dsf_local_recent_index';
 const LOCAL_RECENT_PREFIX = 'dsf_local_recent_project_';
 const LOCAL_RECENT_LIMIT = 12;
 const projectAssetByteCache = new Map();
+const AUTHORING_IMAGE_MAX_LONG_EDGE = 2160;
+const AUTHORING_IMAGE_WEBP_QUALITY = 0.9;
+const THUMBNAIL_IMAGE_MAX_LONG_EDGE = 320;
+const THUMBNAIL_IMAGE_WEBP_QUALITY = 0.8;
 
 /**
  * Upload a Blob to R2 via the /upload Pages Function.
@@ -604,21 +608,8 @@ async function performSave() {
                 lastUpdated: new Date()
             });
 
-            // 3. public_projects コレクションへの同期
-            const publicProjectRef = doc(db, 'public_projects', state.projectId);
-            if (visibility === 'public') {
-                await setDoc(publicProjectRef, {
-                    title: state.title || '無題のプロジェクト',
-                    authorName: state.user?.displayName || state.user?.email?.split('@')[0] || '名無し',
-                    authorUid: state.uid,
-                    thumbnail: listThumbnail || getProjectPreviewSource(persistedProject).thumbnail || '',
-                    publishedAt: serverTimestamp() // Bumps to top on save
-                }, { merge: true });
-            } else {
-                // private や unlisted になった場合は一覧から削除
-                await deleteDoc(publicProjectRef).catch(e => console.warn('[DSF] Failed to remove from public_projects:', e));
-            }
-
+            // 公開インデックス（public_projects）は Press / Works が管理する。
+            // 通常の編集保存では DSP 本体だけを更新し、公開状態は変えない。
             updateSaveIndicator('saved', '保存済み (Cloud)');
             console.log(`[DSF] Auto-saved project to cloud: ${state.projectId}`);
         } catch (e) {
@@ -656,11 +647,11 @@ export async function saveProject(pid) {
 /**
  * 画像を圧縮・リサイズするヘルパー関数
  * @param {File} file - 入力ファイル
- * @param {number} maxWidth - 最大幅
+ * @param {number} maxLongEdge - 長辺の上限
  * @param {number} quality - 画質 (0.0 - 1.0)
  * @returns {Promise<Blob>} - 圧縮されたBlob (image/webp)
  */
-function compressImage(file, maxWidth, quality) {
+function compressImage(file, maxLongEdge, quality) {
     return new Promise((resolve, reject) => {
         const img = new Image();
         const reader = new FileReader();
@@ -670,10 +661,12 @@ function compressImage(file, maxWidth, quality) {
             img.onload = () => {
                 let width = img.width;
                 let height = img.height;
+                const longEdge = Math.max(width, height);
 
-                if (width > maxWidth) {
-                    height = Math.round(height * (maxWidth / width));
-                    width = maxWidth;
+                if (longEdge > maxLongEdge) {
+                    const scale = maxLongEdge / longEdge;
+                    width = Math.round(width * scale);
+                    height = Math.round(height * scale);
                 }
 
                 const canvas = document.createElement('canvas');
@@ -800,10 +793,11 @@ export async function uploadToStorage(input, refresh) {
     setLabel("処理中...");
 
     try {
-        // 1. 画像圧縮 (メイン: max 1280px, サムネイル: max 320px)
+        // 1. 画像圧縮
+        // 編集用背景は中品質マスターとして保持し、サムネイルだけを強く小さくする。
         const [mainBlob, thumbBlob] = await Promise.all([
-            compressImage(file, 1280, 0.8),
-            compressImage(file, 320, 0.8)
+            compressImage(file, AUTHORING_IMAGE_MAX_LONG_EDGE, AUTHORING_IMAGE_WEBP_QUALITY),
+            compressImage(file, THUMBNAIL_IMAGE_MAX_LONG_EDGE, THUMBNAIL_IMAGE_WEBP_QUALITY)
         ]);
 
         const timestamp = Date.now();
@@ -943,8 +937,8 @@ export async function uploadCoverToStorage(input, refresh) {
 
     try {
         const [mainBlob, thumbBlob] = await Promise.all([
-            compressImage(file, 1280, 0.8),
-            compressImage(file, 320, 0.8)
+            compressImage(file, AUTHORING_IMAGE_MAX_LONG_EDGE, AUTHORING_IMAGE_WEBP_QUALITY),
+            compressImage(file, THUMBNAIL_IMAGE_MAX_LONG_EDGE, THUMBNAIL_IMAGE_WEBP_QUALITY)
         ]);
 
         const timestamp = Date.now();
@@ -995,8 +989,8 @@ export async function uploadStructureToStorage(input, refresh) {
 
     try {
         const [mainBlob, thumbBlob] = await Promise.all([
-            compressImage(file, 1280, 0.8),
-            compressImage(file, 320, 0.8)
+            compressImage(file, AUTHORING_IMAGE_MAX_LONG_EDGE, AUTHORING_IMAGE_WEBP_QUALITY),
+            compressImage(file, THUMBNAIL_IMAGE_MAX_LONG_EDGE, THUMBNAIL_IMAGE_WEBP_QUALITY)
         ]);
         const timestamp = Date.now();
         const filename = file.name.replace(/\.[^/.]+$/, "");

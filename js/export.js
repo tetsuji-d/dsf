@@ -8,7 +8,10 @@ import {
     getSelectedPressLangs,
     getPressQualityProfile,
     getPressBookConfigForExport,
-    renderPressSectionToWebP
+    renderPressSectionToWebP,
+    resetPressRenderCancel,
+    requestPressRenderCancel,
+    throwIfPressRenderCancelled
 } from './press.js';
 import {
     CANONICAL_PAGE_WIDTH,
@@ -137,107 +140,130 @@ export async function buildDSP() {
 
 // --- Build .dsf (Content/Publish Archive) ---
 export async function buildDSF() {
-    const zip = new JSZip();
-
-    // 1. Mimetype
-    zip.file("mimetype", "application/vnd.dsf.content+zip");
-
-    // 2. Metadata
-    const meta = buildMetadata("dsf");
-    zip.file("meta.json", JSON.stringify(meta, null, 2));
-
-    const assetsFolder = zip.folder("assets");
-    const imagesFolder = assetsFolder.folder("images");
-    let exportPages = [];
-    let exportDsfPages = [];
-
-    const rawResKey = resolvePressResolutionKey(document.getElementById('press-resolution')?.value || '1080x1920');
-    const exportResKey = clampPressPublishResolutionKey(rawResKey);
-    const { width: targetW, height: targetH } = getPressResolutionDims(exportResKey);
-    const langs = getSelectedPressLangs();
-    const pages = getRenderablePressPages();
-    const qualityProfile = getPressQualityProfile();
-
-    if (!pages.length) {
-        throw new Error('DSF に書き出すページがありません。');
-    }
-
-    for (let pageIndex = 0; pageIndex < pages.length; pageIndex++) {
-        const section = pages[pageIndex];
-        const exportedBackgrounds = {};
-
-        for (const lang of langs) {
-            const blob = await renderPressSectionToWebP(section, lang, targetW, targetH);
-            if (!blob) continue;
-            const filename = `page_${String(pageIndex + 1).padStart(3, '0')}_${lang}.webp`;
-            const assetPath = `assets/images/${filename}`;
-            imagesFolder.file(filename, blob);
-            exportedBackgrounds[lang] = assetPath;
+    resetPressRenderCancel();
+    const onEscKey = (e) => {
+        if (e.key === 'Escape') {
+            e.preventDefault();
+            requestPressRenderCancel();
         }
-
-        if (!Object.keys(exportedBackgrounds).length) {
-            continue;
-        }
-
-        const pageType = section.type === 'text' ? 'normal_text' : 'normal_image';
-        exportPages.push({
-            id: `dsf_${pageIndex + 1}`,
-            role: 'normal',
-            bodyKind: section.type === 'text' ? 'text' : 'image',
-            pageType,
-            content: {
-                backgrounds: { ...exportedBackgrounds },
-                background: exportedBackgrounds[state.defaultLang] || Object.values(exportedBackgrounds)[0] || '',
-                thumbnail: '',
-                bubbles: {}
-            }
-        });
-
-        exportDsfPages.push({
-            pageNum: pageIndex + 1,
-            pageType,
-            urls: { ...exportedBackgrounds },
-        });
-    }
-
-    if (!exportDsfPages.length) {
-        throw new Error('選択した言語に DSF 書き出し可能なページがありません。');
-    }
-
-    const contentData = {
-        dsfPages: exportDsfPages,
-        pages: exportPages,
-        resolution: exportResKey,
-        qualityMode: 'auto',
-        qualityProfile: {
-            image: Math.round(qualityProfile.image * 100),
-            text: Math.round(qualityProfile.text * 100)
-        },
-        languages: langs
     };
-    Object.assign(contentData, getPressBookConfigForExport(exportDsfPages.length));
+    window.addEventListener('keydown', onEscKey, true);
+    try {
+        const zip = new JSZip();
 
-    zip.file("content.json", JSON.stringify(contentData, null, 2));
+        // 1. Mimetype
+        zip.file("mimetype", "application/vnd.dsf.content+zip");
 
-    // 4. Determine Filename
-    const safeTitle = (meta.title || 'comic').replace(/[\\/:*?"<>|]/g, '_');
-    const defaultFilename = `${safeTitle}.dsf`;
-    let filename = prompt("配信データのエクスポート名を入力してください:", defaultFilename);
+        // 2. Metadata
+        const meta = buildMetadata("dsf");
+        zip.file("meta.json", JSON.stringify(meta, null, 2));
 
-    if (filename === null) {
-        return; // User cancelled
+        const assetsFolder = zip.folder("assets");
+        const imagesFolder = assetsFolder.folder("images");
+        let exportPages = [];
+        let exportDsfPages = [];
+
+        const rawResKey = resolvePressResolutionKey(document.getElementById('press-resolution')?.value || '1080x1920');
+        const exportResKey = clampPressPublishResolutionKey(rawResKey);
+        const { width: targetW, height: targetH } = getPressResolutionDims(exportResKey);
+        const langs = getSelectedPressLangs();
+        const pages = getRenderablePressPages();
+        const qualityProfile = getPressQualityProfile(exportResKey);
+
+        if (!pages.length) {
+            throw new Error('DSF に書き出すページがありません。');
+        }
+
+        for (let pageIndex = 0; pageIndex < pages.length; pageIndex++) {
+            throwIfPressRenderCancelled();
+            const section = pages[pageIndex];
+            const exportedBackgrounds = {};
+            const bytesByLang = {};
+            let totalPageBytes = 0;
+
+            for (const lang of langs) {
+                throwIfPressRenderCancelled();
+                const blob = await renderPressSectionToWebP(section, lang, targetW, targetH);
+                if (!blob) continue;
+                const filename = `page_${String(pageIndex + 1).padStart(3, '0')}_${lang}.webp`;
+                const assetPath = `assets/images/${filename}`;
+                imagesFolder.file(filename, blob);
+                exportedBackgrounds[lang] = assetPath;
+                bytesByLang[lang] = blob.size;
+                totalPageBytes += blob.size;
+            }
+
+            if (!Object.keys(exportedBackgrounds).length) {
+                continue;
+            }
+
+            const pageType = section.type === 'text' ? 'normal_text' : 'normal_image';
+            exportPages.push({
+                id: `dsf_${pageIndex + 1}`,
+                role: 'normal',
+                bodyKind: section.type === 'text' ? 'text' : 'image',
+                pageType,
+                content: {
+                    backgrounds: { ...exportedBackgrounds },
+                    background: exportedBackgrounds[state.defaultLang] || Object.values(exportedBackgrounds)[0] || '',
+                    thumbnail: '',
+                    bubbles: {}
+                }
+            });
+
+            exportDsfPages.push({
+                pageNum: pageIndex + 1,
+                pageType,
+                urls: { ...exportedBackgrounds },
+                bytesByLang: { ...bytesByLang },
+                totalBytes: totalPageBytes,
+            });
+        }
+
+        if (!exportDsfPages.length) {
+            throw new Error('選択した言語に DSF 書き出し可能なページがありません。');
+        }
+
+        const contentData = {
+            dsfPages: exportDsfPages,
+            pages: exportPages,
+            resolution: exportResKey,
+            qualityMode: 'auto',
+            qualityProfile: {
+                image: Math.round(qualityProfile.image * 100),
+                text: Math.round(qualityProfile.text * 100)
+            },
+            languages: langs
+        };
+        Object.assign(contentData, getPressBookConfigForExport(exportDsfPages.length));
+
+        zip.file("content.json", JSON.stringify(contentData, null, 2));
+
+        // 4. Determine Filename
+        const safeTitle = (meta.title || 'comic').replace(/[\\/:*?"<>|]/g, '_');
+        const defaultFilename = `${safeTitle}.dsf`;
+        let filename = prompt("配信データのエクスポート名を入力してください:", defaultFilename);
+
+        if (filename === null) {
+            return; // User cancelled
+        }
+        if (!filename.trim()) {
+            filename = defaultFilename;
+        } else if (!filename.toLowerCase().endsWith('.dsf')) {
+            filename += '.dsf';
+        }
+
+        throwIfPressRenderCancelled();
+
+        // 5. Generate ZIP ArrayBuffer
+        const content = await zip.generateAsync({ type: "blob" });
+
+        // 6. Trigger Download
+        saveAs(content, filename);
+    } finally {
+        window.removeEventListener('keydown', onEscKey, true);
+        resetPressRenderCancel();
     }
-    if (!filename.trim()) {
-        filename = defaultFilename;
-    } else if (!filename.toLowerCase().endsWith('.dsf')) {
-        filename += '.dsf';
-    }
-
-    // 5. Generate ZIP ArrayBuffer
-    const content = await zip.generateAsync({ type: "blob" });
-
-    // 6. Trigger Download
-    saveAs(content, filename);
 }
 
 // --- Parse .dsp (Project Import) ---
