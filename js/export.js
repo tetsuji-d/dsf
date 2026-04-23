@@ -23,15 +23,44 @@ import {
 } from './page-geometry.js';
 
 // --- Common Metadata Builder ---
+function pickLocalizedMeta(key) {
+    const langs = Array.isArray(state.languages) && state.languages.length ? state.languages : ['ja'];
+    const defaultLang = state.defaultLang || langs[0] || 'ja';
+    const value = state.meta?.[defaultLang]?.[key];
+    if (value) return value;
+    for (const lang of langs) {
+        const next = state.meta?.[lang]?.[key];
+        if (next) return next;
+    }
+    return '';
+}
+
+function pickLocalizedMetaMap(key) {
+    const out = {};
+    const source = state.meta || {};
+    Object.entries(source).forEach(([lang, meta]) => {
+        const value = meta?.[key];
+        if (value) out[lang] = value;
+    });
+    return out;
+}
+
 function buildMetadata(formatStr) {
     const generator = "DSF Studio Pro v1.2";
     const dateStr = new Date().toISOString();
+    const localizedMeta = state.meta || {};
+    const linerNotes = pickLocalizedMetaMap('linerNotes');
     return {
         version: "1.0.0",
         schemaVersion: 1,
         format: formatStr, // "dsp" or "dsf"
-        title: state.title || "Untitled",
-        author: state.user?.email || "Unknown Author",
+        title: state.title || pickLocalizedMeta('title') || "Untitled",
+        author: pickLocalizedMeta('author') || state.user?.email || "Unknown Author",
+        labelName: state.labelName || "",
+        rating: state.rating || "all",
+        license: state.license || "all-rights-reserved",
+        meta: localizedMeta,
+        linerNotes,
         languages: state.languages || ["ja"],
         defaultLang: state.defaultLang || "ja",
         created: state.created ? new Date(state.created).toISOString() : dateStr,
@@ -106,6 +135,11 @@ export async function buildDSP() {
     const projectData = {
         projectId: state.projectId,
         projectName: state.projectName || '',
+        title: state.title || '',
+        labelName: state.labelName || '',
+        rating: state.rating || 'all',
+        license: state.license || 'all-rights-reserved',
+        meta: state.meta || {},
         languageConfigs: state.languageConfigs,
         uiPrefs: state.uiPrefs,
         bookMode: book.mode,
@@ -233,6 +267,10 @@ export async function buildDSF() {
                 image: Math.round(qualityProfile.image * 100),
                 text: Math.round(qualityProfile.text * 100)
             },
+            labelName: state.labelName || '',
+            rating: state.rating || 'all',
+            license: state.license || 'all-rights-reserved',
+            meta: state.meta || {},
             languages: langs
         };
         Object.assign(contentData, getPressBookConfigForExport(exportDsfPages.length));
@@ -321,6 +359,10 @@ export async function parseAndLoadDSP(file) {
         projectId: projectData.projectId || "local_import",
         projectName: projectData.projectName || '',
         title: meta.title || "Untitled",
+        labelName: projectData.labelName || meta.labelName || '',
+        rating: projectData.rating || meta.rating || 'all',
+        license: projectData.license || meta.license || 'all-rights-reserved',
+        meta: projectData.meta || meta.meta || {},
         languages: meta.languages || ["ja"],
         languageConfigs: projectData.languageConfigs || { ja: { writingMode: 'vertical-rl', fontPreset: 'gothic' } },
         uiPrefs: projectData.uiPrefs || null,
@@ -464,6 +506,10 @@ export async function parseAndLoadDSF(file) {
     return {
         projectId: contentData.projectId || "local_import",
         title: meta.title || "Untitled",
+        labelName: contentData.labelName || meta.labelName || '',
+        rating: contentData.rating || meta.rating || 'all',
+        license: contentData.license || meta.license || 'all-rights-reserved',
+        meta: contentData.meta || meta.meta || {},
         languageConfigs: contentData.languageConfigs || { ja: { writingMode: 'vertical-rl', fontPreset: 'gothic' } },
         languages: meta.languages || ["ja"],
         defaultLang: meta.defaultLang || "ja",

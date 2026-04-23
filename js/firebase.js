@@ -227,6 +227,10 @@ async function computeProjectBytes(snapshotState) {
         version: snapshotState.version || PAGE_SCHEMA_VERSION,
         projectName: snapshotState.projectName || '',
         title: snapshotState.title || '',
+        labelName: snapshotState.labelName || '',
+        rating: snapshotState.rating || 'all',
+        license: snapshotState.license || 'all-rights-reserved',
+        meta: snapshotState.meta || {},
         pages: snapshotState.pages || [],
         blocks: snapshotState.blocks || [],
         sections: snapshotState.sections || [],
@@ -311,6 +315,7 @@ async function buildLocalRecentMeta(snapshotState) {
         localProjectId: snapshotState.localProjectId || null,
         projectName: snapshotState.projectName || '',
         title: snapshotState.title || '',
+        labelName: snapshotState.labelName || '',
         thumbnail: listThumbnail || getProjectPreviewSource(snapshotState).thumbnail || '',
         listThumbnail,
         pageCount: getProjectPageCount(snapshotState),
@@ -569,6 +574,10 @@ async function performSave() {
                 version: PAGE_SCHEMA_VERSION,
                 projectName: state.projectName || '',
                 title: state.title || '',
+                labelName: state.labelName || '',
+                rating: state.rating || 'all',
+                license: state.license || 'all-rights-reserved',
+                meta: state.meta || {},
                 pages: pagesToSave,
                 blocks: cleanBlocks,
                 sections: cleanSections,
@@ -901,6 +910,10 @@ export async function loadProject(pid, refresh) {
         dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'projectId', value: pid } });
         dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'projectName', value: data.projectName || pid } });
         dispatch({ type: actionTypes.SET_TITLE, payload: data.title || '' });
+        dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'labelName', value: data.labelName || '' } });
+        dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'rating', value: data.rating || 'all' } });
+        dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'license', value: data.license || 'all-rights-reserved' } });
+        dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'meta', value: data.meta || {} } });
         dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'pages', value: data.pages || [] } });
         dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'blocks', value: data.blocks || [] } });
         dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'sections', value: data.sections } });
@@ -909,6 +922,7 @@ export async function loadProject(pid, refresh) {
         dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'book', value: data.book || { mode: data.bookMode || 'simple', covers: { c1: { pageIndex: 0 }, c4: { pageIndex: Math.max(0, (data.sections || []).length - 1) } } } } });
         dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'languages', value: data.languages && data.languages.length > 0 ? data.languages : ['ja'] } });
         dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'defaultLang', value: data.defaultLang || (data.languages && data.languages.length > 0 ? data.languages[0] : 'ja') } });
+        dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'languageConfigs', value: data.languageConfigs || { ja: { pageDirection: 'rtl' } } } });
         dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'uiPrefs', value: data.uiPrefs || state.uiPrefs || {} } });
         dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'visibility', value: data.visibility || 'private' } });
         dispatch({ type: actionTypes.SET_ACTIVE_LANGUAGE, payload: data.defaultLang || (data.languages && data.languages.length > 0 ? data.languages[0] : 'ja') });

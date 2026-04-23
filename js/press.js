@@ -721,6 +721,10 @@ window.publishToCloud = async () => {
             {
                 dsfPages,
                 ...getPressBookConfigForExport(dsfPages.length),
+                labelName:      state.labelName || '',
+                rating:         state.rating || 'all',
+                license:        state.license || 'all-rights-reserved',
+                meta:           state.meta || {},
                 dsfStatus:      'draft',
                 dsfPublishedAt: serverTimestamp(),
                 dsfRenderStamp: renderStamp,

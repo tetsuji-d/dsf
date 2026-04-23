@@ -47,9 +47,10 @@ export const state = {
         }
     ],
     // Project metadata (language-independent)
+    labelName: '',
     rating: 'all',
     license: 'all-rights-reserved',
-    // Per-language metadata: { ja: { title, author, description, copyright }, en: { ... } }
+    // Per-language metadata: { ja: { title, author, description, linerNotes, copyright }, en: { ... } }
     meta: {},
 
     activeIdx: 0,

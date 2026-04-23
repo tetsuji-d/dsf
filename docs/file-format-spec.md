@@ -68,6 +68,21 @@ filename.dsf / filename.dsp
   "schemaVersion": 1,               // 内部データの構造バージョン番号（後方互換性用）
   "title": "作品タイトル",
   "author": "作者名",
+  "labelName": "レーベル名",
+  "rating": "all",
+  "license": "all-rights-reserved",
+  "meta": {
+    "ja": {
+      "title": "作品タイトル",
+      "author": "作者名",
+      "description": "作品の概要",
+      "linerNotes": "ライナーノーツ本文。リンクは {{公式サイト|https://example.com}} のように記述",
+      "copyright": "© 2026 作者名"
+    }
+  },
+  "linerNotes": {
+    "ja": "ライナーノーツ本文。リンクは {{公式サイト|https://example.com}} のように記述"
+  },
   "languages": ["ja", "en", "zh"],  // 収録されている言語コード
   "defaultLang": "ja",
   "created": "2026-02-21T12:00:00Z",

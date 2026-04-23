@@ -28,6 +28,18 @@
 {
   "projectName": "String (編集用プロジェクト名。可変)",
   "title": "String (作品タイトル)",
+  "labelName": "String (作品レーベル名。将来の labels コレクション導入までの暫定フィールド)",
+  "rating": "String (レーティング)",
+  "license": "String (ライセンス)",
+  "meta": {
+    "ja": {
+      "title": "String",
+      "author": "String",
+      "description": "String",
+      "linerNotes": "String (ライナーノーツ。リンク記法 {{テキスト|URL}} を許可)",
+      "copyright": "String"
+    }
+  },
   "lastUpdated": "Timestamp",
   "visibility": "String (互換フィールド。公開判定の正本は dsfStatus)",
   "uid": "String (オーナーの Firebase Auth UID)",

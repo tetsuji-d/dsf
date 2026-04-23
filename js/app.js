@@ -4068,6 +4068,10 @@ window.newProject = () => {
     dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'projectId', value: null } });
     dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'projectName', value: '' } });
     dispatch({ type: actionTypes.SET_TITLE, payload: '' });
+    dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'labelName', value: '' } });
+    dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'rating', value: 'all' } });
+    dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'license', value: 'all-rights-reserved' } });
+    dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'meta', value: {} } });
     dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'languages', value: ['ja'] } });
     dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'defaultLang', value: 'ja' } });
     dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'languageConfigs', value: { ja: { pageDirection: 'rtl' } } } });
@@ -4171,6 +4175,7 @@ const PS_META_FIELDS = [
     { key: 'title',       get label() { return t('field_title'); },       type: 'input'    },
     { key: 'author',      get label() { return t('field_author'); },      type: 'input'    },
     { key: 'description', get label() { return t('field_description'); }, type: 'textarea' },
+    { key: 'linerNotes',  get label() { return t('field_liner_notes'); }, type: 'textarea' },
     { key: 'copyright',   get label() { return t('field_copyright'); },   type: 'input'    },
 ];
 
@@ -4184,6 +4189,7 @@ function _cloneProjectSettingsDraft() {
     const activeLang = languages.includes(state.activeLang) ? state.activeLang : defaultLang;
     return {
         projectName: state.projectName || '',
+        labelName: state.labelName || '',
         rating: state.rating || 'all',
         license: state.license || 'all-rights-reserved',
         languages,
@@ -4204,6 +4210,9 @@ function _getPsSettingsSource() {
         languages: state.languages || ['ja'],
         defaultLang: state.defaultLang || 'ja',
         activeLang: state.activeLang || state.defaultLang || 'ja',
+        labelName: state.labelName || '',
+        rating: state.rating || 'all',
+        license: state.license || 'all-rights-reserved',
         languageConfigs: state.languageConfigs || {},
         meta: state.meta || {}
     };
@@ -4214,6 +4223,9 @@ function _capturePsInputsToDraft() {
 
     const nameEl = document.getElementById('ps-project-name');
     if (nameEl) draft.projectName = nameEl.value.trim();
+
+    const labelEl = document.getElementById('ps-label-name');
+    if (labelEl) draft.labelName = labelEl.value.trim();
 
     ['rating', 'license'].forEach(key => {
         const el = document.getElementById(`ps-${key}`);
@@ -4302,8 +4314,8 @@ function renderProjectSettingsTable() {
                 ? `<span class="ps-default-badge">${t('ps_default_badge')}</span>`
                 : '';
             const fields = PS_META_FIELDS.map(field => {
-                const val = (meta[lang]?.[field.key] || '').replace(/"/g, '&quot;');
-                const ph = (getLangProps(lang).placeholders?.[field.key] || '').replace(/"/g, '&quot;');
+                const val = escapeStudioHtml(meta[lang]?.[field.key] || '');
+                const ph = escapeStudioHtml(getLangProps(lang).placeholders?.[field.key] || '');
                 const control = field.type === 'textarea'
                     ? `<textarea class="ps-meta-input" data-lang="${lang}" data-key="${field.key}" placeholder="${ph}">${val}</textarea>`
                     : `<input type="text" class="ps-meta-input" data-lang="${lang}" data-key="${field.key}" value="${val}" placeholder="${ph}">`;
@@ -4365,8 +4377,8 @@ function renderProjectSettingsTable() {
     PS_META_FIELDS.forEach(field => {
         html += `<div class="ps-meta-cell ps-meta-row-label">${field.label}</div>`;
         langs.forEach(lang => {
-            const val = (meta[lang]?.[field.key] || '').replace(/"/g, '&quot;');
-            const ph  = (getLangProps(lang).placeholders?.[field.key] || '').replace(/"/g, '&quot;');
+            const val = escapeStudioHtml(meta[lang]?.[field.key] || '');
+            const ph  = escapeStudioHtml(getLangProps(lang).placeholders?.[field.key] || '');
             if (field.type === 'textarea') {
                 html += `<div class="ps-meta-cell"><textarea class="ps-meta-input" data-lang="${lang}" data-key="${field.key}" placeholder="${ph}">${val}</textarea></div>`;
             } else {
@@ -4399,6 +4411,9 @@ window.openProjectSettings = () => {
     // Project name
     const nameEl = document.getElementById('ps-project-name');
     if (nameEl) nameEl.value = draft.projectName || '';
+
+    const labelEl = document.getElementById('ps-label-name');
+    if (labelEl) labelEl.value = draft.labelName || '';
 
     // Global settings
     const ratingEl = document.getElementById('ps-rating');
@@ -4437,6 +4452,7 @@ window.saveProjectSettings = () => {
     if (titleDisplay) titleDisplay.textContent = newName || '新規プロジェクト';
 
     // Global settings
+    dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'labelName', value: draft.labelName || '' } });
     dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'rating', value: draft.rating || 'all' } });
     dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'license', value: draft.license || 'all-rights-reserved' } });
 

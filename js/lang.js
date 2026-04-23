@@ -24,6 +24,7 @@ const LANGS = {
             title:       '例: 我が家のヒーロー',
             author:      '例: 山田 太郎',
             description: '作品の概要...',
+            linerNotes:  '制作背景や関連リンク... {{公式サイト|https://example.com}}',
             copyright:   '© 2025 山田 太郎'
         }
     },
@@ -41,6 +42,7 @@ const LANGS = {
             title:       'e.g. My Hero Next Door',
             author:      'e.g. John Smith',
             description: 'Story overview...',
+            linerNotes:  'Production notes and links... {{Official site|https://example.com}}',
             copyright:   '© 2025 John Smith'
         }
     },
@@ -58,6 +60,7 @@ const LANGS = {
             title:       'e.g. My Hero Next Door',
             author:      'e.g. John Smith',
             description: 'Story overview...',
+            linerNotes:  'Production notes and links... {{Official site|https://example.com}}',
             copyright:   '© 2025 John Smith'
         }
     },
@@ -75,6 +78,7 @@ const LANGS = {
             title:       'e.g. My Neighbourhood Hero',
             author:      'e.g. John Smith',
             description: 'Story overview...',
+            linerNotes:  'Production notes and links... {{Official site|https://example.com}}',
             copyright:   '© 2025 John Smith'
         }
     },
@@ -213,7 +217,7 @@ export function getLangProps(code) {
         writingModes: ['horizontal-tb'],
         defaultWritingMode: 'horizontal-tb',
         directions: [{ value: 'ltr', label: null }],
-        placeholders: { title: '', author: '', description: '', copyright: '' }
+        placeholders: { title: '', author: '', description: '', linerNotes: '', copyright: '' }
     };
 }
 
