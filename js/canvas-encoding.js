@@ -56,10 +56,8 @@ async function tryNativeCanvasWebP(canvas, quality) {
  */
 export async function encodeCanvasToWebP(canvas, quality = 0.82, label = 'Canvas', opts = {}) {
     const lossless = !!(opts && opts.lossless);
-    if (!lossless) {
-        const native = await tryNativeCanvasWebP(canvas, quality);
-        if (native) return native;
-    }
+    const native = await tryNativeCanvasWebP(canvas, lossless ? 1 : quality);
+    if (native) return native;
     try {
         return await encodeCanvasToWebPWithWasm(canvas, quality, label, lossless);
     } catch (e) {

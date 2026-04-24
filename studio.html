@@ -146,10 +146,10 @@
                 </div>
                 <div class="ribbon-panel" data-ribbon-panel="insert">
                     <div class="ribbon-group">
-                        <button class="btn-tool btn-tool-icon" onclick="addTextSection()">
+                        <button class="btn-tool btn-tool-icon" onclick="insertTextSectionBeforeActive()">
                             <span class="material-icons" aria-hidden="true">article</span><span data-i18n="btn_add_text_section">テキストページ</span>
                         </button>
-                        <button class="btn-tool btn-tool-icon" onclick="addSection()">
+                        <button class="btn-tool btn-tool-icon" onclick="insertSectionBeforeActive()">
                             <span class="material-icons" aria-hidden="true">add_photo_alternate</span><span data-i18n="btn_add_section">画像ページ</span>
                         </button>
                         <button class="btn-tool btn-tool-icon" onclick="addBubbleFab()">
@@ -520,7 +520,7 @@
                 <button class="btn-tool btn-tool-icon" onclick="closeMobileSheet(); openProjectSettings();" data-mobile-room-only="editor"><span class="material-icons" aria-hidden="true">settings</span><span data-i18n="mobile_home_project_settings">プロジェクト設定</span></button>
             </div>
             <div id="mobile-sheet-add" class="mobile-sheet-content">
-                <button class="btn-tool btn-tool-icon" onclick="addSection()"><span class="material-icons" aria-hidden="true">add_box</span><span data-i18n="btn_add_section">セクション追加</span></button>
+                <button class="btn-tool btn-tool-icon" onclick="insertSectionBeforeActive()"><span class="material-icons" aria-hidden="true">add_box</span><span data-i18n="btn_add_section">セクション追加</span></button>
                 <button class="btn-tool btn-tool-icon" onclick="addBubbleFab()"><span class="material-icons" aria-hidden="true">text_fields</span><span data-i18n="btn_add_bubble">テキスト追加</span></button>
                 <button class="btn-tool btn-tool-icon" onclick="document.getElementById('file-upload').click()"><span class="material-icons" aria-hidden="true">image</span><span data-i18n="btn_add_image">画像追加</span></button>
             </div>

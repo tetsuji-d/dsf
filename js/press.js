@@ -449,8 +449,6 @@ async function _updateSizeEstimate() {
     for (const section of pages) {
         for (const lang of langs) {
             if (section.type === 'text') {
-                const raw = section.texts?.[lang];
-                if (!raw || !String(raw).trim()) continue;
                 tasks.push({ kind: 'text', section, lang });
             } else {
                 const bgUrl = section.backgrounds?.[lang] || section.background;
@@ -583,7 +581,7 @@ window.publishToCloud = async () => {
     for (const section of pages) {
         for (const lang of langs) {
             if (section.type === 'text') {
-                if ((section.texts?.[lang] || '').trim()) totalOps += 1;
+                totalOps += 1;
             } else if (section.backgrounds?.[lang] || section.background) {
                 totalOps += 1;
             }
@@ -673,8 +671,6 @@ window.publishToCloud = async () => {
                 throwIfPressRenderCancelled();
                 let blob;
                 if (section.type === 'text') {
-                    const raw = section.texts?.[lang];
-                    if (!raw || !String(raw).trim()) continue;
                     done++;
                     setModalProgress(
                         t('press_rendering_progress', { done, total: totalOps }),
@@ -871,8 +867,6 @@ export function getPressBookConfigForExport(pageCount = _getRenderablePages().le
 
 export async function renderPressSectionToWebP(section, lang, targetW, targetH) {
     if (section?.type === 'text') {
-        const raw = section.texts?.[lang];
-        if (!raw || !String(raw).trim()) return null;
         return _renderTextSectionToWebP(section, lang, targetW, targetH, _getPressQualityForSection(section, targetW, targetH));
     }
     const bgUrl = section?.backgrounds?.[lang] || section?.background;

@@ -3143,8 +3143,70 @@ window.handleCanvasClick = (e) => {
     triggerAutoSave();
 };
 window.selectBubble = (e, i) => selectBubble(e, i, refresh);
+function hideContextMenu() {
+    const contextMenu = document.getElementById('context-menu');
+    if (!contextMenu) return;
+    contextMenu.style.display = 'none';
+    contextMenu.dataset.pointerX = '';
+    contextMenu.dataset.pointerY = '';
+}
+function showContextMenuAt(x, y, html) {
+    const contextMenu = document.getElementById('context-menu');
+    if (!contextMenu) return;
+    contextMenu.innerHTML = html;
+    contextMenu.style.display = 'flex';
+    const rect = contextMenu.getBoundingClientRect();
+    let menuX = x;
+    let menuY = y;
+    if (menuX + rect.width > window.innerWidth) menuX = window.innerWidth - rect.width - 8;
+    if (menuY + rect.height > window.innerHeight) menuY = window.innerHeight - rect.height - 8;
+    contextMenu.style.left = `${Math.max(8, menuX)}px`;
+    contextMenu.style.top = `${Math.max(8, menuY)}px`;
+}
+function insertSectionBeforeActiveByType(sectionType = 'image') {
+    const activeIdx = Number.isInteger(state.activeIdx) ? state.activeIdx : -1;
+    const insertAt = activeIdx >= 0 ? activeIdx : (state.sections || []).length;
+    pushState();
+    insertSectionAt(insertAt, refresh, sectionType);
+    triggerAutoSave();
+}
 window.addSection = () => { pushState(); addSection(refresh); triggerAutoSave(); };
 window.addTextSection = () => { pushState(); addTextSection(refresh); triggerAutoSave(); };
+window.insertSectionBeforeActive = () => insertSectionBeforeActiveByType('image');
+window.insertTextSectionBeforeActive = () => insertSectionBeforeActiveByType('text');
+window.addSectionByType = (sectionType = 'image', e) => {
+    if (e) {
+        e.preventDefault();
+        e.stopPropagation();
+    }
+    hideContextMenu();
+    if (sectionType === 'text') {
+        window.addTextSection();
+        return;
+    }
+    window.addSection();
+};
+window.showTailPageAddMenu = (e) => {
+    if (e) {
+        e.preventDefault();
+        e.stopPropagation();
+    }
+    const anchor = e?.currentTarget;
+    if (!anchor) return;
+    const rect = anchor.getBoundingClientRect();
+    showContextMenuAt(
+        rect.left + rect.width - 220,
+        rect.top - 8,
+        `
+            <div class="context-menu-item" onclick="addSectionByType('image', event)">
+                <span class="material-icons">add_photo_alternate</span> ${t('btn_add_section')}
+            </div>
+            <div class="context-menu-item" onclick="addSectionByType('text', event)">
+                <span class="material-icons">article</span> ${t('btn_add_text_section')}
+            </div>
+        `
+    );
+};
 window.updateTextSectionBody = updateTextSectionBody;
 
 /** テキストエリアのカーソル位置に改ページマーカーを挿入する */
@@ -5109,23 +5171,13 @@ function initContextMenu() {
             contextMenu.dataset.pointerY = e.clientY;
         }
 
-        // メニューの表示位置を計算 (画面外にはみ出ないように調整)
-        contextMenu.style.display = 'flex';
-        const rect = contextMenu.getBoundingClientRect();
-        let x = e.clientX;
-        let y = e.clientY;
-
-        if (x + rect.width > window.innerWidth) x = window.innerWidth - rect.width - 8;
-        if (y + rect.height > window.innerHeight) y = window.innerHeight - rect.height - 8;
-
-        contextMenu.style.left = `${x}px`;
-        contextMenu.style.top = `${y}px`;
+        showContextMenuAt(e.clientX, e.clientY, contextMenu.innerHTML);
     });
 
     // 画面のどこかをクリックしたらコンテキストメニューを閉じる
     document.addEventListener('click', (e) => {
         if (!contextMenu.contains(e.target)) {
-            contextMenu.style.display = 'none';
+            hideContextMenu();
         }
     });
 }
@@ -5134,7 +5186,7 @@ function initContextMenu() {
 window.addBubbleAtPointer = function (e) {
     const contextMenu = document.getElementById('context-menu');
     if (!contextMenu) return;
-    contextMenu.style.display = 'none';
+    hideContextMenu();
 
     const clientX = parseFloat(contextMenu.dataset.pointerX);
     const clientY = parseFloat(contextMenu.dataset.pointerY);
@@ -5179,7 +5231,7 @@ window.addBubbleAtPointer = function (e) {
 
 window.duplicateSelectedBubble = function (bubbleIndex) {
     const contextMenu = document.getElementById('context-menu');
-    if (contextMenu) contextMenu.style.display = 'none';
+    if (contextMenu) hideContextMenu();
 
     const section = state.sections[state.activeIdx];
     if (!section || !section.bubbles || !section.bubbles[bubbleIndex]) return;
@@ -5200,7 +5252,7 @@ window.duplicateSelectedBubble = function (bubbleIndex) {
 
 window.deleteSelectedBubble = function (bubbleIndex) {
     const contextMenu = document.getElementById('context-menu');
-    if (contextMenu) contextMenu.style.display = 'none';
+    if (contextMenu) hideContextMenu();
 
     const section = state.sections[state.activeIdx];
     if (!section || !section.bubbles || !section.bubbles[bubbleIndex]) return;

@@ -80,6 +80,10 @@ function createTextSection() {
     };
 }
 
+function createSectionByType(sectionType = 'image') {
+    return sectionType === 'text' ? createTextSection() : createDefaultSection();
+}
+
 function truncateText(v, max = 22) {
     const s = String(v || '').replace(/\s+/g, ' ').trim();
     if (!s) return '';
@@ -295,10 +299,10 @@ export function addTextSection(refresh) {
  * @param {number} insertIndex - 挿入位置
  * @param {function} refresh - 画面更新コールバック
  */
-export function insertSectionAt(insertIndex, refresh) {
+export function insertSectionAt(insertIndex, refresh, sectionType = 'image') {
     const idx = Math.max(0, Math.min(Number(insertIndex) || 0, state.sections.length));
     const list = [...state.sections];
-    list.splice(idx, 0, createDefaultSection());
+    list.splice(idx, 0, createSectionByType(sectionType));
     dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'sections', value: list } });
     dispatch({ type: actionTypes.SET_ACTIVE_INDEX, payload: idx });
     dispatch({ type: actionTypes.SET_ACTIVE_BLOCK_INDEX, payload: null });
@@ -664,13 +668,13 @@ export function renderThumbs() {
 
     if (isDesktop) {
         container.innerHTML += `
-            <button class="page-strip-add-btn" onclick="addSection()" title="ページ追加">
+            <button class="page-strip-add-btn" onclick="showTailPageAddMenu(event)" title="ページ追加">
                 <span class="material-icons">add</span>
             </button>
         `;
     } else {
         container.innerHTML += `
-            <button class="thumb-add-card" onclick="addSection()" title="ページ追加">
+            <button class="thumb-add-card" onclick="showTailPageAddMenu(event)" title="ページ追加">
                 <span class="material-icons">add</span>
             </button>
         `;
