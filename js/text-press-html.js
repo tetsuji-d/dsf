@@ -144,13 +144,42 @@ const HORIZONTAL_BASE_STYLE = [
 
 const PARA_STYLE = [
     'margin:0',
-    'text-align:justify',
-    'text-justify:inter-word',
+    'text-align:start',
+    'text-justify:auto',
     'hyphens:auto',
     '-webkit-hyphens:auto',
     'word-break:break-word',
     'overflow-wrap:break-word'
 ].join(';');
+
+const TEXT_ALIGN_VALUES = Object.freeze(['start', 'center', 'end']);
+
+function getTextSectionAlign(section) {
+    const value = section?.textAlign || 'start';
+    return TEXT_ALIGN_VALUES.includes(value) ? value : 'start';
+}
+
+function getHorizontalTextAlignCss(section) {
+    const align = getTextSectionAlign(section);
+    if (align === 'center') return 'center';
+    if (align === 'end') return 'flex-end';
+    return 'flex-start';
+}
+
+function getVerticalTextAlignCss(section) {
+    const align = getTextSectionAlign(section);
+    if (align === 'center') return 'center';
+    if (align === 'end') return 'flex-end';
+    return 'flex-start';
+}
+
+function getVerticalBlockOffsetPx(section, frameW, usedCols, colW) {
+    const groupW = Math.min(frameW, usedCols * colW);
+    const align = getTextSectionAlign(section);
+    if (align === 'center') return Math.max(0, (frameW - groupW) / 2);
+    if (align === 'end') return 0;
+    return Math.max(0, frameW - groupW);
+}
 
 function baseTextFromTokenLine(tokenLine) {
     if (!tokenLine || !tokenLine.length) return '\u00a0';
@@ -278,6 +307,7 @@ export function composeTextPreviewModel(section, lang, languageConfigs) {
 export function buildTextPreviewMarkup(section, lang, languageConfigs) {
     const { raw, langAttr, pageBg, frameStyle, composed, rubyLines } =
         composeTextPreviewModel(section, lang, languageConfigs);
+    const { w, h } = composed.frame;
 
     if (!raw) {
         return {
@@ -294,6 +324,7 @@ export function buildTextPreviewMarkup(section, lang, languageConfigs) {
     if (composed.writingMode === 'vertical-rl') {
         const fw = w;
         const fh = h;
+        const verticalJustify = getVerticalTextAlignCss(section);
         const maxCols = composed.rules?.maxLines || 12;
         const charsPerCol = composed.rules?.charsPerLine || 33;
         const fontSize = composed.font.size;
@@ -304,6 +335,9 @@ export function buildTextPreviewMarkup(section, lang, languageConfigs) {
         const rubyFontSize = Math.round(fontSize * 0.5);
         const rubyColW = Math.round(fontSize * 0.65);
         const charRightOffset = Math.round((colW - fontSize) / 2);
+        const usedCols = composed.lines.length;
+        const groupW = usedCols * colW;
+        const blockOffsetX = getVerticalBlockOffsetPx(section, fw, usedCols, colW);
 
         const cols = composed.lines.map((line, i) => {
             const content = rubyLines
@@ -322,13 +356,13 @@ export function buildTextPreviewMarkup(section, lang, languageConfigs) {
                         ? Array.from(tok.base || '').length
                         : Array.from(tok.text || '').length;
                     if (tok.kind === 'ruby' && tok.ruby) {
-                        const annLeft = fw - i * colW - charRightOffset;
+                        const annLeft = groupW - i * colW - charRightOffset;
                         const rubyLen = Array.from(tok.ruby).length;
                         const rubyH = Math.round(rubyLen * rubyFontSize * 1.2);
                         const baseH = Math.round(baseLen * charPitch);
                         const annTop = Math.round(charOffset * charPitch + Math.max(0, (baseH - rubyH) / 2));
                         anns.push(
-                            `<span class="tpv-ruby-ann" style="${RUBY_ANN_BASE_STYLE};left:${annLeft}px;top:${annTop}px;width:${rubyColW}px;font-size:${rubyFontSize}px">${escHtml(verticalGlyphText(tok.ruby))}</span>`
+                            `<span class="tpv-ruby-ann" style="${RUBY_ANN_BASE_STYLE};left:${Math.round(blockOffsetX + annLeft)}px;top:${annTop}px;width:${rubyColW}px;font-size:${rubyFontSize}px">${escHtml(verticalGlyphText(tok.ruby))}</span>`
                         );
                     }
                     charOffset += baseLen;
@@ -338,32 +372,31 @@ export function buildTextPreviewMarkup(section, lang, languageConfigs) {
                 rubyOverlay = `<div class="tpv-ruby-overlay" style="${RUBY_OVERLAY_STYLE}">${anns.join('')}</div>`;
             }
         }
-        contentInner = `<div class="tpv-vertical" style="${VERTICAL_CONTAINER_STYLE}">${cols}</div>${rubyOverlay}`;
+        contentInner = `<div class="tpv-vertical" style="${VERTICAL_CONTAINER_STYLE};justify-content:${verticalJustify}">${cols}</div>${rubyOverlay}`;
     } else {
         const lineH = composed.frame.h / (composed.rules?.maxLines || 20);
         const offsetY = getHorizontalTextOffsetY(composed);
+        const horizontalJustify = getHorizontalTextAlignCss(section);
         let html;
         if (rubyLines) {
-            const tokenParas = tokenLinesIntoParagraphs(rubyLines, composed.lines, composed.lineBreaks);
-            html = tokenParas.map(p =>
-                p === null
+            html = rubyLines.map((tokenLine, idx) =>
+                !composed.lines[idx]
                     ? `<div class="tpv-blank" style="height:${lineH}px"></div>`
-                    : `<p class="tpv-para" style="${PARA_STYLE}">${p.map(tok =>
+                    : `<div class="tpv-line">${tokenLine.map(tok =>
                         tok.kind === 'ruby'
                             ? `<ruby>${markupTcyText(tok.base, false)}<rt>${escHtml(tok.ruby || '')}</rt></ruby>`
                             : escHtml(tok.text || '')
-                    ).join('')}</p>`
+                    ).join('')}</div>`
             ).join('');
         } else {
-            const paras = linesIntoParagraphs(composed.lines, composed.lineBreaks);
-            html = paras.map(p =>
-                p === null
+            html = (composed.lines || []).map(line =>
+                !line
                     ? `<div class="tpv-blank" style="height:${lineH}px"></div>`
-                    : `<p class="tpv-para" style="${PARA_STYLE}">${escHtml(p)}</p>`
+                    : `<div class="tpv-line">${escHtml(line)}</div>`
             ).join('');
         }
         contentInner =
-            `<div class="tpv-horizontal" lang="${langAttr}" style="${HORIZONTAL_BASE_STYLE};line-height:${lineH}px;transform:translateY(${offsetY}px)">${html}</div>`;
+            `<div class="tpv-horizontal" lang="${langAttr}" style="${HORIZONTAL_BASE_STYLE};line-height:${lineH}px;transform:translateY(${offsetY}px);justify-content:${horizontalJustify}"><div class="tpv-horizontal-block">${html}</div></div>`;
     }
 
     return {

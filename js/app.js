@@ -47,6 +47,7 @@ const TEXT_PAPER_PRESETS = Object.freeze({
         textColor: '#1f1b16'
     }
 });
+const TEXT_ALIGN_VALUES = Object.freeze(['start', 'center', 'end']);
 const EMPTY_IMAGE_SNAP_STATE = Object.freeze({
     centerX: false,
     centerY: false,
@@ -2277,6 +2278,33 @@ function _getHorizontalTextOffsetY(composed) {
     return 0;
 }
 
+function _getTextSectionAlign(section) {
+    const value = section?.textAlign || 'start';
+    return TEXT_ALIGN_VALUES.includes(value) ? value : 'start';
+}
+
+function _getHorizontalBlockJustifyCss(section) {
+    const align = _getTextSectionAlign(section);
+    if (align === 'center') return 'center';
+    if (align === 'end') return 'flex-end';
+    return 'flex-start';
+}
+
+function _getVerticalBlockJustifyCss(section) {
+    const align = _getTextSectionAlign(section);
+    if (align === 'center') return 'center';
+    if (align === 'end') return 'flex-end';
+    return 'flex-start';
+}
+
+function _getVerticalBlockOffsetPx(section, frameW, usedCols, colW) {
+    const groupW = Math.min(frameW, usedCols * colW);
+    const align = _getTextSectionAlign(section);
+    if (align === 'center') return Math.max(0, (frameW - groupW) / 2);
+    if (align === 'end') return 0;
+    return Math.max(0, frameW - groupW);
+}
+
 /**
  * テキストセクションの組版結果をキャンバス上の HTML オーバーレイとして描画する。
  *
@@ -2288,9 +2316,8 @@ function _getHorizontalTextOffsetY(composed) {
  *   - {base|ruby} 記法を <ruby> タグに変換（ルビ）
  *
  * ▼ 横書き (horizontal-tb)
- *   - 行を段落ごとに結合し、<p class="tpv-para"> として流し込む
- *   - CSS が text-align:justify + hyphens:auto で再ラップ
- *   - lang 属性を設定しブラウザの自動ハイフネーション辞書を有効化
+ *   - composeText() が確定した行をそのまま 1 行ずつ描画
+ *   - 行頭は揃えたまま、ブロック全体を start / center / end に配置
  *   - {base|ruby} 記法を <ruby> タグに変換（ルビ）
  */
 function renderTextPreview(section) {
@@ -2314,6 +2341,7 @@ function renderTextPreview(section) {
     }
 
     const composed = composeText(plainText, lang, writingMode, fontPreset);
+    const textAlign = _getTextSectionAlign(section);
 
     // ルビあり: 行ごとのトークン配列を構築
     try {
@@ -2372,6 +2400,10 @@ function renderTextPreview(section) {
             const charPitch   = h / charsPerCol; // 1 文字あたりの縦ピクセル（canonical）
             const rubyFontSize = Math.round(fontSize * 0.5); // rt のフォントサイズ（canonical）
             const rubyColW    = Math.round(fontSize * 0.65); // ルビ注釈の横幅（canonical）
+            const verticalJustify = _getVerticalBlockJustifyCss(section);
+            const usedCols = composed.lines.length;
+            const groupW = usedCols * colW;
+            const blockOffsetX = _getVerticalBlockOffsetPx(section, w, usedCols, colW);
             // 字形は line-height の中央に配置されるため、ルビは字形右端 = 列右端 - (colW - fontSize)/2 に置く
             const charRightOffset = Math.round((colW - fontSize) / 2);
 
@@ -2399,7 +2431,7 @@ function renderTextPreview(section) {
                             // 字形は line-height の中央にある。
                             // 字形右端 = 列右端 - charRightOffset = w - i*colW - charRightOffset
                             // ルビはその右（字形右端）から配置し、字形に密着させる。
-                            const annLeft = w - i * colW - charRightOffset;
+                            const annLeft = groupW - i * colW - charRightOffset;
                             // ルビテキストを base 文字スパンの中央に揃えるため top を調整する
                             const rubyLen = Array.from(tok.ruby).length;
                             const rubyH   = Math.round(rubyLen * rubyFontSize * 1.2);
@@ -2407,7 +2439,7 @@ function renderTextPreview(section) {
                             const annTop  = Math.round(charOffset * charPitch + Math.max(0, (baseH - rubyH) / 2));
                             anns.push(
                                 `<span class="tpv-ruby-ann"` +
-                                ` style="left:${annLeft}px;top:${annTop}px;` +
+                                ` style="left:${Math.round(blockOffsetX + annLeft)}px;top:${annTop}px;` +
                                 `width:${rubyColW}px;` +
                                 `font-size:${rubyFontSize}px"` +
                                 `>${_escHtml(_verticalGlyphText(tok.ruby))}</span>`
@@ -2421,35 +2453,34 @@ function renderTextPreview(section) {
                 }
             }
 
-            contentEl.innerHTML = `<div class="tpv-vertical">${cols}</div>${rubyOverlay}`;
+            contentEl.innerHTML = `<div class="tpv-vertical" style="justify-content:${verticalJustify}">${cols}</div>${rubyOverlay}`;
         } else {
-            // 横書き: 段落単位に行を結合し、CSS の justify + hyphens に委ねる
+            // 横書き: 行頭は揃えたまま、行ブロック全体だけを配置する
             const lineH  = composed.frame.h / (composed.rules?.maxLines || 20);
             const offsetY = _getHorizontalTextOffsetY(composed);
+            const horizontalJustify = _getHorizontalBlockJustifyCss(section);
 
             let html;
             if (rubyLines) {
-                // ルビあり: token-line をそのまま段落に変換
-                const tokenParas = _tokenLinesIntoParagraphs(rubyLines, composed.lines, composed.lineBreaks);
-                html = tokenParas.map(p =>
-                    p === null
-                        ? `<div class="tpv-blank" style="height:${lineH}px"></div>`
-                        : `<p class="tpv-para">${p.map(tok =>
-                            tok.kind === 'ruby'
-                                ? `<ruby>${_markupTcyText(tok.base)}<rt>${_escHtml(tok.ruby || '')}</rt></ruby>`
-                                : _escHtml(tok.text || '')
-                          ).join('')}</p>`
-                ).join('');
+                html = rubyLines.map((tokenLine, idx) => {
+                    if (!composed.lines[idx]) {
+                        return `<div class="tpv-blank" style="height:${lineH}px"></div>`;
+                    }
+                    return `<div class="tpv-line">${tokenLine.map(tok =>
+                        tok.kind === 'ruby'
+                            ? `<ruby>${_markupTcyText(tok.base)}<rt>${_escHtml(tok.ruby || '')}</rt></ruby>`
+                            : _escHtml(tok.text || '')
+                    ).join('')}</div>`;
+                }).join('');
             } else {
-                const paras = _linesIntoParagraphs(composed.lines, composed.lineBreaks);
-                html = paras.map(p =>
-                    p === null
+                html = (composed.lines || []).map(line =>
+                    !line
                         ? `<div class="tpv-blank" style="height:${lineH}px"></div>`
-                        : `<p class="tpv-para">${_escHtml(p)}</p>`
+                        : `<div class="tpv-line">${_escHtml(line)}</div>`
                 ).join('');
             }
             contentEl.innerHTML =
-                `<div class="tpv-horizontal" lang="${lang.toLowerCase()}" style="line-height:${lineH}px;transform:translateY(${offsetY}px)">${html}</div>`;
+                `<div class="tpv-horizontal" lang="${lang.toLowerCase()}" style="line-height:${lineH}px;transform:translateY(${offsetY}px);justify-content:${horizontalJustify}"><div class="tpv-horizontal-block">${html}</div></div>`;
         }
     }
 
@@ -2477,6 +2508,7 @@ function _syncTextSectionPanel(section) {
     if (label) label.textContent = `本文 [${lang.toUpperCase()}]`;
 
     _syncTextPaperPresetControls(section);
+    _syncTextAlignControls(section);
     _updateTextOverflowBadge(section, lang);
 }
 
@@ -2499,6 +2531,70 @@ function _syncTextPaperPresetControls(section) {
         button.classList.toggle('active', isActive);
         button.setAttribute('aria-pressed', isActive ? 'true' : 'false');
     });
+}
+
+function _syncTextAlignControls(section) {
+    const activeAlign = _getTextSectionAlign(section);
+    document.querySelectorAll('[data-text-align]').forEach((button) => {
+        const isActive = button.dataset.textAlign === activeAlign;
+        button.classList.toggle('active', isActive);
+        button.setAttribute('aria-pressed', isActive ? 'true' : 'false');
+    });
+}
+
+function updateTextSectionAlign(value) {
+    if (!TEXT_ALIGN_VALUES.includes(value)) return;
+
+    const idx = state.activeIdx;
+    const section = state.sections?.[idx];
+    if (!section || section.type !== 'text') return;
+
+    pushState();
+
+    const sectionIndices = new Set([idx]);
+    const blockIdx = Number.isInteger(state.activeBlockIdx) && state.activeBlockIdx >= 0
+        ? state.activeBlockIdx
+        : getBlockIndexFromPageIndex(state.blocks, idx);
+    const activeBlock = state.blocks?.[blockIdx];
+    const flowId = activeBlock?.kind === 'page' ? activeBlock.content?._flow?.id : '';
+
+    let touchedBlock = false;
+    const newBlocks = Array.isArray(state.blocks)
+        ? state.blocks.map((block, bi) => {
+            if (block?.kind !== 'page') return block;
+            const sameFlow = flowId && block.content?._flow?.id === flowId;
+            const samePage = bi === blockIdx;
+            if (!sameFlow && !samePage) return block;
+            const pageIdx = getPageIndexFromBlockIndex(state.blocks, bi);
+            if (pageIdx >= 0) sectionIndices.add(pageIdx);
+            touchedBlock = true;
+            return {
+                ...block,
+                content: {
+                    ...block.content,
+                    textAlign: value
+                }
+            };
+        })
+        : [];
+
+    const newSections = (state.sections || []).map((item, sectionIdx) => {
+        if (!sectionIndices.has(sectionIdx) || item?.type !== 'text') return item;
+        return { ...item, textAlign: value };
+    });
+
+    const blocks = touchedBlock
+        ? newBlocks
+        : syncBlocksWithSections(state.blocks, newSections, state.languages);
+
+    dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'sections', value: newSections } });
+    dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'blocks', value: blocks } });
+    dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'pages', value: blocksToPages(blocks) } });
+
+    renderTextPreview(newSections[idx]);
+    _syncTextAlignControls(newSections[idx]);
+    refresh();
+    triggerAutoSave();
 }
 
 function updateTextSectionPaperPreset(key) {
@@ -2564,6 +2660,7 @@ function updateTextSectionPaperPreset(key) {
 }
 
 window.updateTextSectionPaperPreset = updateTextSectionPaperPreset;
+window.updateTextSectionAlign = updateTextSectionAlign;
 
 /**
  * 溢れバッジを更新する（溢れ時はページ数を表示）
@@ -2621,6 +2718,7 @@ function _createContinuationBlock(masterBlock, text, flowId, flowIdx, lang) {
             paperPreset: masterBlock.content?.paperPreset || 'white',
             backgroundColor: masterBlock.content?.backgroundColor || '',
             textColor: masterBlock.content?.textColor || '',
+            textAlign: masterBlock.content?.textAlign || 'start',
             texts,
             bubbles: [],
             _flow: { id: flowId, idx: flowIdx }
@@ -3161,6 +3259,7 @@ function _renderTextIntoSpread(section, lang, outerEl, frameEl, contentEl) {
     }
 
     const composed = composeText(plainText, lang, writingMode, fontPreset);
+    const textAlign = _getTextSectionAlign(section);
     try { rubyLines = hasRuby ? alignRubyToLines(rubyTokens, composed.lines) : null; }
     catch (_) { rubyLines = null; }
 
@@ -3191,6 +3290,10 @@ function _renderTextIntoSpread(section, lang, outerEl, frameEl, contentEl) {
         const rubyFontSize = Math.round(fontSize * 0.5);
         const rubyColW     = Math.round(fontSize * 0.65);
         const charRightOffset = Math.round((colW - fontSize) / 2);
+        const verticalJustify = _getVerticalBlockJustifyCss(section);
+        const usedCols = composed.lines.length;
+        const groupW = usedCols * colW;
+        const blockOffsetX = _getVerticalBlockOffsetPx(section, w, usedCols, colW);
 
         const cols = composed.lines.map((line, i) => {
             const content = rubyLines
@@ -3211,14 +3314,14 @@ function _renderTextIntoSpread(section, lang, outerEl, frameEl, contentEl) {
                         ? Array.from(tok.base || '').length
                         : Array.from(tok.text || '').length;
                     if (tok.kind === 'ruby' && tok.ruby) {
-                        const annLeft = w - i * colW - charRightOffset;
+                        const annLeft = groupW - i * colW - charRightOffset;
                         const rubyLen = Array.from(tok.ruby).length;
                         const rubyH   = Math.round(rubyLen * rubyFontSize * 1.2);
                         const baseH   = Math.round(baseLen * charPitch);
                         const annTop  = Math.round(charOffset * charPitch + Math.max(0, (baseH - rubyH) / 2));
                         anns.push(
                             `<span class="tpv-ruby-ann"` +
-                            ` style="left:${annLeft}px;top:${annTop}px;` +
+                            ` style="left:${Math.round(blockOffsetX + annLeft)}px;top:${annTop}px;` +
                             `width:${rubyColW}px;font-size:${rubyFontSize}px"` +
                             `>${_escHtml(_verticalGlyphText(tok.ruby))}</span>`
                         );
@@ -3228,32 +3331,31 @@ function _renderTextIntoSpread(section, lang, outerEl, frameEl, contentEl) {
             }
             if (anns.length) rubyOverlay = `<div class="tpv-ruby-overlay">${anns.join('')}</div>`;
         }
-        contentEl.innerHTML = `<div class="tpv-vertical">${cols}</div>${rubyOverlay}`;
+        contentEl.innerHTML = `<div class="tpv-vertical" style="justify-content:${verticalJustify}">${cols}</div>${rubyOverlay}`;
     } else {
         const lineH = h / (composed.rules?.maxLines || 20);
         const offsetY = _getHorizontalTextOffsetY(composed);
+        const horizontalJustify = _getHorizontalBlockJustifyCss(section);
         let html;
         if (rubyLines) {
-                const tokenParas = _tokenLinesIntoParagraphs(rubyLines, composed.lines, composed.lineBreaks);
-            html = tokenParas.map(p =>
-                p === null
+            html = rubyLines.map((tokenLine, idx) =>
+                !composed.lines[idx]
                     ? `<div class="tpv-blank" style="height:${lineH}px"></div>`
-                    : `<p class="tpv-para">${p.map(tok =>
+                    : `<div class="tpv-line">${tokenLine.map(tok =>
                         tok.kind === 'ruby'
                             ? `<ruby>${_markupTcyText(tok.base)}<rt>${_escHtml(tok.ruby || '')}</rt></ruby>`
                             : _escHtml(tok.text || '')
-                      ).join('')}</p>`
+                      ).join('')}</div>`
             ).join('');
         } else {
-            const paras = _linesIntoParagraphs(composed.lines, composed.lineBreaks);
-            html = paras.map(p =>
-                p === null
+            html = (composed.lines || []).map(line =>
+                !line
                     ? `<div class="tpv-blank" style="height:${lineH}px"></div>`
-                    : `<p class="tpv-para">${_escHtml(p)}</p>`
+                    : `<div class="tpv-line">${_escHtml(line)}</div>`
             ).join('');
         }
         contentEl.innerHTML =
-            `<div class="tpv-horizontal" lang="${lang.toLowerCase()}" style="line-height:${lineH}px;transform:translateY(${offsetY}px)">${html}</div>`;
+            `<div class="tpv-horizontal" lang="${lang.toLowerCase()}" style="line-height:${lineH}px;transform:translateY(${offsetY}px);justify-content:${horizontalJustify}"><div class="tpv-horizontal-block">${html}</div></div>`;
     }
 }
 

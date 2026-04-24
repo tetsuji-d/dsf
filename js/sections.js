@@ -72,6 +72,7 @@ function createTextSection() {
         type: 'text',
         texts: {},
         layout: {},
+        textAlign: 'start',
         paperPreset: 'white',
         backgroundColor: '#ffffff',
         textColor: '#000000',

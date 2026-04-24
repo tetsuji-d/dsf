@@ -902,7 +902,7 @@ function _drawVerticalPlainText(ctx, text, x, startSlot, metrics) {
     const chars = Array.from(String(text || ''));
     let slot = startSlot;
     for (let i = 0; i < chars.length;) {
-        const y = metrics.frameY + slot * metrics.charPitch + metrics.charPitch / 2;
+        const y = metrics.frameY + (slot + (metrics.slotOffset || 0)) * metrics.charPitch + metrics.charPitch / 2;
         const glyph = verticalGlyphText(chars[i]);
         ctx.font = `${metrics.fontPx}px ${metrics.family}`;
         ctx.textAlign = 'center';
@@ -928,7 +928,7 @@ function _drawVerticalRubyText(ctx, tokenLine, x, metrics) {
             const rubyX = x + metrics.fontPx * 0.68;
             const rubyBlockH = rubyChars.length * metrics.rubyPitch;
             const baseBlockH = Math.max(used, 1) * metrics.charPitch;
-            const rubyTop = metrics.frameY + startSlot * metrics.charPitch + Math.max(0, (baseBlockH - rubyBlockH) / 2);
+            const rubyTop = metrics.frameY + (startSlot + (metrics.slotOffset || 0)) * metrics.charPitch + Math.max(0, (baseBlockH - rubyBlockH) / 2);
             ctx.font = `${metrics.rubyFontPx}px ${metrics.family}`;
             ctx.textAlign = 'center';
             ctx.textBaseline = 'middle';
@@ -938,6 +938,24 @@ function _drawVerticalRubyText(ctx, tokenLine, x, metrics) {
         }
         slot += used;
     }
+}
+
+function _getTextSectionAlign(section) {
+    const value = section?.textAlign || 'start';
+    return value === 'center' || value === 'end' ? value : 'start';
+}
+
+function _getVerticalBlockOffsetPx(frameW, usedCols, colW, align) {
+    const groupW = Math.min(frameW, usedCols * colW);
+    if (align === 'center') return Math.max(0, (frameW - groupW) / 2);
+    if (align === 'end') return 0;
+    return Math.max(0, frameW - groupW);
+}
+
+function _getHorizontalBlockOffsetPx(frameW, blockW, align) {
+    if (align === 'center') return Math.max(0, (frameW - blockW) / 2);
+    if (align === 'end') return Math.max(0, frameW - blockW);
+    return 0;
 }
 
 async function _renderVerticalTextSectionToWebP(section, lang, targetW, targetH, _quality) {
@@ -972,6 +990,7 @@ async function _renderVerticalTextSectionToWebP(section, lang, targetW, targetH,
 
     ctx.fillStyle = section.textColor || '#000000';
     ctx.imageSmoothingEnabled = true;
+    const textAlign = _getTextSectionAlign(section);
 
     const metrics = {
         frameY,
@@ -984,11 +1003,13 @@ async function _renderVerticalTextSectionToWebP(section, lang, targetW, targetH,
     };
 
     composed.lines.forEach((line, i) => {
-        const xCenter = frameX + frameW - i * colW - colW / 2;
+        const blockOffsetX = _getVerticalBlockOffsetPx(frameW, composed.lines.length, colW, textAlign);
+        const xCenter = frameX + blockOffsetX + (composed.lines.length - i - 0.5) * colW;
+        const lineMetrics = { ...metrics, slotOffset: 0 };
         if (rubyLines) {
-            _drawVerticalRubyText(ctx, rubyLines[i] || [], xCenter, metrics);
+            _drawVerticalRubyText(ctx, rubyLines[i] || [], xCenter, lineMetrics);
         } else {
-            _drawVerticalPlainText(ctx, line, xCenter, 0, metrics);
+            _drawVerticalPlainText(ctx, line, xCenter, 0, lineMetrics);
         }
     });
 
@@ -1028,27 +1049,38 @@ async function _renderHorizontalTextSectionToWebP(section, lang, targetW, target
     ctx.textAlign = 'left';
     ctx.textBaseline = 'alphabetic';
     ctx.imageSmoothingEnabled = true;
+    const textAlign = _getTextSectionAlign(section);
 
     const lines = composed.lines || [];
-    const lineBreaks = composed.lineBreaks || [];
     const baselineOffset = Math.max(fontPx, (lineH - fontPx) / 2 + fontPx * 0.86);
+    const lineWidths = lines.map((line) => ctx.measureText(String(line || '').trimEnd()).width);
+    const blockWidth = Math.min(frameW, lineWidths.reduce((max, width) => Math.max(max, width), 0));
+    const blockOffsetX = _getHorizontalBlockOffsetPx(frameW, blockWidth, textAlign);
+    const blockStartX = frameX + blockOffsetX;
 
     lines.forEach((line, i) => {
         const text = String(line || '');
         if (!text) return;
         const baseline = frameY + i * lineH + baselineOffset;
-        const isLastParaLine = !!lineBreaks[i] || i === lines.length - 1 || lines[i + 1] === '';
-        _drawHorizontalLine(ctx, text, frameX, baseline, frameW, !isLastParaLine);
+        _drawHorizontalLine(ctx, text, blockStartX, baseline, frameW, false, 'start');
     });
 
     return _encodeTextSectionWebP(canvas, section, '横書きテキストページ');
 }
 
-function _drawHorizontalLine(ctx, line, x, baseline, width, justify) {
+function _drawHorizontalLine(ctx, line, x, baseline, width, justify, align = 'start') {
     const text = String(line || '').trimEnd();
     if (!text) return;
 
     const naturalWidth = ctx.measureText(text).width;
+    if (align === 'center') {
+        ctx.fillText(text, x + Math.max(0, width - naturalWidth) / 2, baseline);
+        return;
+    }
+    if (align === 'end') {
+        ctx.fillText(text, x + Math.max(0, width - naturalWidth), baseline);
+        return;
+    }
     if (!justify || !/\s/.test(text) || naturalWidth / width < 0.88) {
         ctx.fillText(text, x, baseline);
         return;

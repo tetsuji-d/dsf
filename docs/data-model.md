@@ -105,6 +105,7 @@
     "interactions":  "Array",
     "text":   "String (互換フィールド)",
     "texts":  { "ja": "String", "en": "String" },
+    "textAlign": "'start' | 'center' | 'end' (テキストページの本文揃え)",
     "layout": "Object (組版設定)"
   },
 

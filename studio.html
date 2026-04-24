@@ -425,6 +425,17 @@
                         <label id="text-body-label" class="field-label"></label>
                         <textarea id="prop-body-text" rows="12"
                             oninput="updateTextSectionBody(this.value)"></textarea>
+                        <div class="text-align-section">
+                            <label class="field-label" data-i18n="label_text_align">揃え</label>
+                            <div class="text-align-options" role="group" aria-label="本文ページの揃え">
+                                <button class="text-align-btn" type="button" data-text-align="start"
+                                    onclick="updateTextSectionAlign('start')" data-i18n="text_align_start">先頭</button>
+                                <button class="text-align-btn" type="button" data-text-align="center"
+                                    onclick="updateTextSectionAlign('center')" data-i18n="text_align_center">中央</button>
+                                <button class="text-align-btn" type="button" data-text-align="end"
+                                    onclick="updateTextSectionAlign('end')" data-i18n="text_align_end">後端</button>
+                            </div>
+                        </div>
                         <div class="text-paper-section">
                             <label class="field-label">紙</label>
                             <div class="text-paper-options" role="group" aria-label="本文ページの紙">

@@ -3016,20 +3016,22 @@ body[data-theme="light"] .strip-spread-btn.active { color: #2b6cb0; }
 
 /* ══ 横書きレイアウト ══════════════════════════════════════════ */
 .tpv-horizontal {
+    display: flex;
     width: 100%;
     overflow: hidden;
     /* line-height は JS でインライン設定 */
 }
 
-/* 段落: justify + ハイフネーション（lang 属性が祖先に必要） */
-.tpv-para {
+.tpv-horizontal-block {
+    display: inline-flex;
+    flex-direction: column;
+    align-items: flex-start;
+    max-width: 100%;
+}
+
+.tpv-line {
     margin: 0;
-    text-align: justify;
-    text-justify: inter-word;
-    hyphens: auto;
-    -webkit-hyphens: auto;
-    word-break: break-word;
-    overflow-wrap: break-word;
+    white-space: pre;
 }
 
 /* 空行スペーサー（height は JS でインライン設定） */
@@ -6863,8 +6865,15 @@ textarea.ps-meta-input {
     margin-bottom: 6px;
 }
 
+.text-align-section,
 .text-paper-section {
     margin: 8px 0 10px;
+}
+
+.text-align-options {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 6px;
 }
 
 .text-paper-options {
@@ -6873,9 +6882,11 @@ textarea.ps-meta-input {
     gap: 8px;
 }
 
+.text-align-btn,
 .text-paper-btn {
     display: flex;
     align-items: center;
+    justify-content: center;
     gap: 8px;
     min-height: 42px;
     padding: 7px 8px;
@@ -6889,6 +6900,11 @@ textarea.ps-meta-input {
     cursor: pointer;
 }
 
+.text-align-btn {
+    min-height: 36px;
+}
+
+.text-align-btn.active,
 .text-paper-btn.active {
     border-color: var(--primary, #3182ce);
     box-shadow: 0 0 0 2px rgba(49, 130, 206, 0.18);
@@ -6940,12 +6956,14 @@ body[data-theme="dark"] #text-section-props #prop-body-text {
     color: #e2e8f0;
 }
 
+body[data-theme="dark"] .text-align-btn,
 body[data-theme="dark"] .text-paper-btn {
     background: #1a202c;
     border-color: #4a5568;
     color: #e2e8f0;
 }
 
+body[data-theme="dark"] .text-align-btn.active,
 body[data-theme="dark"] .text-paper-btn.active {
     border-color: #63b3ed;
     box-shadow: 0 0 0 2px rgba(99, 179, 237, 0.18);
