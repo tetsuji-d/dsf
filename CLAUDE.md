@@ -40,7 +40,7 @@ DSP（`.dsp`）は直接公開せず、**Press Room で DSF 化 → Works で公
 
 ## このリポジトリ（実装）の概要
 
-クライアントサイド **SPA**（バックエンドなし）。認証・DB は **Firebase**（Auth, Firestore）、画像ストレージは本番・staging で **Cloudflare R2**、ホスティングは **Cloudflare Pages（`dsf.ink`）** を想定します。ローカル開発では **Vite** と Firebase Storage を使う構成です。
+クライアントサイド **SPA**。配信面は **Cloudflare Pages**、認証・DB は **Firebase**（Auth, Firestore）、画像ストレージは本番・staging で **Cloudflare R2** を使います。ローカル開発では **Vite** と Firebase Storage を使う構成です。環境の役割分担と運用は [docs/environment-topology.md](docs/environment-topology.md) を参照。
 
 3 つのエントリーポイント:
 
@@ -57,6 +57,7 @@ npm run preview   # 本番ビルドをローカルでプレビュー
 npm run build:staging       # staging ビルド (Cloudflare preview / R2 想定)
 npm run dev:pages           # Cloudflare Pages Functions 付きローカル確認
 npm run deploy:pages:staging # Cloudflare Pages preview へ staging デプロイ
+npm run deploy:staging      # Firebase Hosting staging + rules へ反映
 
 # デプロイ（Cloudflare Pages）
 npx wrangler pages deploy dist --project-name dsf-studio --branch main  # 本番
@@ -74,6 +75,11 @@ npx wrangler pages deploy dist --project-name dsf-studio --branch staging # stag
 | 画像アップロード API | Cloudflare Pages Function (`/upload`) | ローカル開発: Firebase Storage SDK / staging: Cloudflare Pages Function (`/upload`) |
 | 認証 | Firebase Auth | Firebase Auth |
 | データベース | Firestore | Firestore |
+
+補足:
+- `staging.dsf-studio.pages.dev` は **Cloudflare Pages staging**
+- `vmnn-26345-stg.web.app` は **Firebase Hosting staging**
+- 日常の確認先は前者を基本とし、後者は補助確認用
 
 ### ストレージ切り替え
 `VITE_STORAGE_BACKEND` 環境変数で制御:

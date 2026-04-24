@@ -4,16 +4,23 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "dev:local": "vite",
     "build": "vite build",
     "preview": "vite preview",
     "build:staging": "vite build --mode staging",
     "deploy:prod": "npm run build && firebase deploy --project prod",
     "deploy:staging": "npm run build:staging && firebase deploy --project staging",
+    "deploy:firebase:prod": "npm run deploy:prod",
+    "deploy:firebase:staging": "npm run deploy:staging",
     "preview:staging": "npm run build:staging && firebase hosting:channel:deploy staging-review --project staging",
+    "preview:firebase:staging": "npm run preview:staging",
     "test:firebase": "node scripts/verify-firebase.js",
     "deploy:pages": "npm run build && npx wrangler pages deploy dist --project-name dsf-studio",
     "deploy:pages:staging": "npm run build:staging && npx wrangler pages deploy dist --project-name dsf-studio --branch staging",
-    "dev:pages": "npx wrangler pages dev dist --port 8788"
+    "deploy:cf:prod": "npm run deploy:pages",
+    "deploy:cf:staging": "npm run deploy:pages:staging",
+    "dev:pages": "npx wrangler pages dev dist --port 8788",
+    "dev:cf": "npm run dev:pages"
   },
   "devDependencies": {
     "firebase-tools": "^15.5.1",

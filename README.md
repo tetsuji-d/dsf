@@ -12,6 +12,7 @@
 - **[docs/remediation-roadmap.md](docs/remediation-roadmap.md)** — 中期の減債と分割の進め方
 - **[docs/staging-email-login.md](docs/staging-email-login.md)** — staging 限定 email ログインの運用
 - **[docs/security-hardening.md](docs/security-hardening.md)** — API key / auth / Functions の hardening メモ
+- **[docs/environment-topology.md](docs/environment-topology.md)** — Cloudflare Pages / Firebase / R2 の役割分担と環境運用
 
 ### Current source of truth
 
@@ -34,6 +35,46 @@ npm run dev
 ```
 
 ブラウザで表示された URL（通常 `http://localhost:5173`）を開きます。
+
+## 環境の考え方
+
+DSF は現在、単一ホスティングではなく次の構成です。
+
+- **Cloudflare Pages**: `studio.html` / `viewer.html` / `index.html` などの配信面
+- **Firebase**: 認証、Firestore、ユーザー状態
+- **Cloudflare R2**: staging / production の画像保存
+
+つまり、`staging.dsf-studio.pages.dev` で動いていても、裏では Firebase を使っています。  
+環境の詳細は [docs/environment-topology.md](docs/environment-topology.md) を参照してください。
+
+## よく使うコマンド
+
+```bash
+# ローカル開発（Vite + staging Firebase + Firebase Storage）
+npm run dev
+
+# staging ビルド
+npm run build:staging
+
+# Cloudflare Pages staging へ反映（通常の確認先）
+npm run deploy:pages:staging
+# alias
+npm run deploy:cf:staging
+
+# Firebase Hosting staging へ反映（補助確認用）
+npm run deploy:staging
+# alias
+npm run deploy:firebase:staging
+```
+
+## ステージング運用ルール
+
+- **日常のステージング確認先**: `https://staging.dsf-studio.pages.dev/`
+- **補助確認先**: `https://vmnn-26345-stg.web.app`
+- バグ報告や確認依頼では、**どのURLで見たか**を必ず添える
+
+`git push` はコードを GitHub に送るだけで、確認用URLは更新しません。  
+確認先を更新するには `deploy:*` 系コマンドが必要です。
 
 ## レガシー表記について
 
