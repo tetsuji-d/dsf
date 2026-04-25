@@ -124,7 +124,9 @@ function buildUserBootstrapDefaults(user) {
         roles: {
             reader: true,
             creator: true,
-            admin: false
+            admin: false,
+            operator: false,
+            moderator: false
         },
         status: {
             disabled: false,
@@ -173,7 +175,9 @@ export async function ensureUserBootstrap(user = auth.currentUser) {
             roles: {
                 reader: typeof data.roles?.reader === 'boolean' ? data.roles.reader : defaults.roles.reader,
                 creator: typeof data.roles?.creator === 'boolean' ? data.roles.creator : defaults.roles.creator,
-                admin: typeof data.roles?.admin === 'boolean' ? data.roles.admin : defaults.roles.admin
+                admin: typeof data.roles?.admin === 'boolean' ? data.roles.admin : defaults.roles.admin,
+                operator: typeof data.roles?.operator === 'boolean' ? data.roles.operator : defaults.roles.operator,
+                moderator: typeof data.roles?.moderator === 'boolean' ? data.roles.moderator : defaults.roles.moderator
             },
             status: {
                 disabled: typeof data.status?.disabled === 'boolean' ? data.status.disabled : defaults.status.disabled,

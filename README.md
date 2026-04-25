@@ -14,6 +14,7 @@
 - **[docs/security-hardening.md](docs/security-hardening.md)** — API key / auth / Functions の hardening メモ
 - **[docs/environment-topology.md](docs/environment-topology.md)** — Cloudflare Pages / Firebase / R2 の役割分担と環境運用
 - **[docs/user-account-audit.md](docs/user-account-audit.md)** — Google-only 認証、ユーザーアカウント棚卸し、今後のブートストラップ方針
+- **[docs/admin-role-model.md](docs/admin-role-model.md)** — admin / operator / moderator の権限モデルと運営管理画面の前提
 - **[docs/viewer-info-panel-spec.md](docs/viewer-info-panel-spec.md)** — Viewer のハーフモーダル / 右ドロワー仕様
 
 ### 読む順番
