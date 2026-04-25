@@ -59,6 +59,8 @@ const VIEWER_INFO_SWIPE_OPEN_MIN = 42;
 const VIEWER_INFO_SWIPE_OPEN_FULL = 120;
 const VIEWER_INFO_SWIPE_ZONE = 120;
 const VIEWER_INFO_HANDLE_SENSITIVITY = 1.18;
+const VIEWER_DRAWER_WIDTH = 420;
+const VIEWER_DRAWER_GAP = 0;
 /** インク判定（輝度しきい値・低いほど「濃い部分だけがインク」）。高すぎるとアンチエイリアスまで膨張して潰れる。 */
 const VIEWER_DEV_MORPH_LUM_THRESHOLD = 168;
 let viewerUiLang = localStorage.getItem(VIEWER_UI_LANG_KEY)
@@ -532,8 +534,15 @@ function getViewerInfoLayoutMode() {
     return window.innerWidth >= 1024 ? 'drawer' : 'sheet';
 }
 
+function normalizeViewerInfoPanelState(nextState, layout = viewerInfoLayoutMode) {
+    if (!VIEWER_INFO_STATES.includes(nextState)) return 'closed';
+    if (layout === 'drawer') return nextState === 'closed' ? 'closed' : 'full';
+    return nextState;
+}
+
 function updateViewerInfoPanelLayout() {
     viewerInfoLayoutMode = getViewerInfoLayoutMode();
+    viewerInfoPanelState = normalizeViewerInfoPanelState(viewerInfoPanelState, viewerInfoLayoutMode);
     const panel = document.getElementById('viewer-info-panel');
     if (!panel) return;
     panel.dataset.layout = viewerInfoLayoutMode;
@@ -565,7 +574,9 @@ function stepViewerInfoState(from, direction) {
 }
 
 function shouldShowViewerInfoBody() {
-    return viewerInfoPanelState === 'full';
+    return viewerInfoLayoutMode === 'drawer'
+        ? viewerInfoPanelState !== 'closed'
+        : viewerInfoPanelState === 'full';
 }
 
 function buildViewerInfoKicker(meta) {
@@ -603,9 +614,9 @@ function parseViewerRichText(text) {
 function renderViewerInfoPanel() {
     const panel = document.getElementById('viewer-info-panel');
     if (!panel) return;
-    panel.dataset.state = viewerInfoPanelState;
-    panel.hidden = viewerInfoPanelState === 'closed';
     updateViewerInfoPanelLayout();
+    panel.dataset.state = viewerInfoPanelState;
+    panel.hidden = viewerInfoLayoutMode === 'sheet' && viewerInfoPanelState === 'closed';
     syncViewerInfoChromeState();
     if (viewerInfoPanelState === 'closed') return;
 
@@ -630,6 +641,7 @@ function renderViewerInfoPanel() {
     const reviewEl = document.getElementById('viewer-info-reviews');
     const expandBtn = document.getElementById('viewer-info-expand-btn');
     const peekBtn = document.getElementById('viewer-info-peek-btn');
+    const handleBtn = document.getElementById('viewer-info-handle');
 
     if (kickerEl) kickerEl.textContent = buildViewerInfoKicker(meta);
     if (titleEl) titleEl.textContent = title;
@@ -654,8 +666,9 @@ function renderViewerInfoPanel() {
 
     if (reviewSection) reviewSection.hidden = !shouldShowViewerInfoBody();
     if (reviewEl) reviewEl.textContent = vt('infoReviewsPending');
-    if (expandBtn) expandBtn.hidden = viewerInfoPanelState === 'full';
-    if (peekBtn) peekBtn.hidden = viewerInfoPanelState === 'peek';
+    if (expandBtn) expandBtn.hidden = viewerInfoLayoutMode === 'drawer' || viewerInfoPanelState === 'full';
+    if (peekBtn) peekBtn.hidden = viewerInfoLayoutMode === 'drawer' || viewerInfoPanelState === 'peek';
+    if (handleBtn) handleBtn.hidden = viewerInfoLayoutMode === 'drawer';
 }
 
 function applyViewerInfoPanelLabels() {
@@ -815,8 +828,10 @@ function isViewerInfoSheetOpen() {
 
 function syncViewerInfoChromeState() {
     const ui = document.getElementById('viewer-ui');
+    const layout = document.getElementById('viewer-layout');
     if (!ui) return;
     ui.classList.toggle('viewer-sheet-open', isViewerInfoSheetOpen());
+    layout?.classList.toggle('viewer-drawer-open', viewerInfoLayoutMode === 'drawer' && viewerInfoPanelState !== 'closed');
 }
 
 function isViewerBottomSwipeStart(clientX, clientY) {
@@ -829,12 +844,16 @@ function isViewerBottomSwipeStart(clientX, clientY) {
 }
 
 window.setViewerInfoPanelState = (nextState) => {
-    if (!VIEWER_INFO_STATES.includes(nextState)) return;
-    viewerInfoPanelState = nextState;
+    viewerInfoPanelState = normalizeViewerInfoPanelState(nextState, getViewerInfoLayoutMode());
     renderViewerInfoPanel();
+    if (getViewerInfoLayoutMode() === 'drawer') requestAnimationFrame(() => resizeCanvas());
 };
 
 window.toggleViewerInfoPanel = () => {
+    if (getViewerInfoLayoutMode() === 'drawer') {
+        window.setViewerInfoPanelState(viewerInfoPanelState === 'closed' ? 'full' : 'closed');
+        return;
+    }
     if (viewerInfoPanelState === 'closed' || viewerInfoPanelState === 'peek') {
         window.setViewerInfoPanelState('summary');
         return;
@@ -843,16 +862,28 @@ window.toggleViewerInfoPanel = () => {
 };
 
 window.stepUpViewerInfoPanel = () => {
+    if (viewerInfoLayoutMode === 'drawer') {
+        window.setViewerInfoPanelState('full');
+        return;
+    }
     const from = viewerInfoPanelState === 'closed' ? 'peek' : viewerInfoPanelState;
     window.setViewerInfoPanelState(stepViewerInfoState(from, 1));
 };
 
 window.stepDownViewerInfoPanel = () => {
+    if (viewerInfoLayoutMode === 'drawer') {
+        window.setViewerInfoPanelState('closed');
+        return;
+    }
     const from = viewerInfoPanelState === 'closed' ? 'peek' : viewerInfoPanelState;
     window.setViewerInfoPanelState(stepViewerInfoState(from, -1));
 };
 
 window.advanceViewerInfoPanel = () => {
+    if (viewerInfoLayoutMode === 'drawer') {
+        window.setViewerInfoPanelState(viewerInfoPanelState === 'closed' ? 'full' : 'closed');
+        return;
+    }
     if (viewerInfoPanelState === 'closed') {
         window.setViewerInfoPanelState('summary');
         return;
@@ -869,6 +900,7 @@ window.advanceViewerInfoPanel = () => {
 };
 
 function collapseViewerInfoPanelForNavigation() {
+    if (viewerInfoLayoutMode === 'drawer') return;
     if (viewerInfoPanelState === 'full') {
         viewerInfoPanelState = 'summary';
         renderViewerInfoPanel();
@@ -2150,7 +2182,8 @@ function resizeCanvas() {
     updateViewerInfoPanelLayout();
     const canvas = document.getElementById('viewer-canvas');
     if (!canvas) return;
-    const W = window.innerWidth;
+    const drawerOpen = viewerInfoLayoutMode === 'drawer' && viewerInfoPanelState !== 'closed';
+    const W = Math.max(280, window.innerWidth - (drawerOpen ? VIEWER_DRAWER_WIDTH + VIEWER_DRAWER_GAP : 0));
     const H = window.innerHeight;
     const aspect = CANONICAL_PAGE_ASPECT;
     const bookSingle = spreadMode && hasBookModel() && getCurrentBookUnit()?.type === 'single';
