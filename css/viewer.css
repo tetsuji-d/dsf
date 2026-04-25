@@ -271,9 +271,14 @@ body[data-theme="dark"] .viewer-ui-lang-switcher {
     transform: translateY(0);
 }
 
+#viewer-ui.viewer-sheet-open #viewer-footer {
+    transform: translateY(calc(100% + 18px));
+    pointer-events: none;
+}
+
 .viewer-info-panel {
     position: fixed;
-    z-index: 940;
+    z-index: 1040;
     pointer-events: none;
     transition: opacity 180ms ease;
 }
@@ -299,17 +304,22 @@ body[data-theme="dark"] .viewer-ui-lang-switcher {
 }
 
 .viewer-info-panel[data-layout="sheet"] {
-    left: max(12px, env(safe-area-inset-left, 0px));
-    right: max(12px, env(safe-area-inset-right, 0px));
-    bottom: calc(64px + env(safe-area-inset-bottom, 0px));
+    left: 0;
+    right: 0;
+    bottom: 0;
 }
 
 .viewer-info-panel[data-layout="sheet"] .viewer-info-panel-shell {
-    border-radius: 22px;
+    border-radius: 22px 22px 0 0;
     min-height: 72px;
-    max-height: calc(100dvh - 144px - env(safe-area-inset-bottom, 0px));
+    max-height: calc(100dvh - 136px - env(safe-area-inset-bottom, 0px));
     transform: translateY(0);
     transition: height 220ms ease, max-height 220ms ease, transform 220ms ease;
+    will-change: height;
+}
+
+.viewer-info-panel[data-layout="sheet"] .viewer-info-panel-shell.is-dragging {
+    transition: none;
 }
 
 .viewer-info-panel[data-layout="sheet"][data-state="peek"] .viewer-info-panel-shell {
@@ -1730,9 +1740,9 @@ body[data-theme="dark"] .viewer-empty-open-btn {
     }
 
     .viewer-info-panel[data-layout="sheet"] {
-        left: max(8px, env(safe-area-inset-left, 0px));
-        right: max(8px, env(safe-area-inset-right, 0px));
-        bottom: calc(62px + env(safe-area-inset-bottom, 0px));
+        left: 0;
+        right: 0;
+        bottom: 0;
     }
 
     .viewer-info-panel[data-layout="sheet"][data-state="summary"] .viewer-info-panel-shell {
@@ -1740,7 +1750,7 @@ body[data-theme="dark"] .viewer-empty-open-btn {
     }
 
     .viewer-info-panel[data-layout="sheet"][data-state="full"] .viewer-info-panel-shell {
-        height: min(72dvh, calc(100dvh - 132px - env(safe-area-inset-bottom, 0px)));
+        height: min(72dvh, calc(100dvh - 128px - env(safe-area-inset-bottom, 0px)));
     }
 
     .viewer-info-panel[data-layout="sheet"][data-state="peek"] .viewer-info-panel-shell {

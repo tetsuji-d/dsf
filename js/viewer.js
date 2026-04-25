@@ -55,6 +55,10 @@ const VIEWER_DEV_MODE_KEY = 'dsf_viewer_dev_mode';
 const VIEWER_DEV_SMOOTHING_KEY = 'dsf_viewer_dev_smoothing';
 const VIEWER_DEV_MORPH_KEY = 'dsf_viewer_dev_morph';
 const VIEWER_DEV_HOLD_MS = 1200;
+const VIEWER_INFO_SWIPE_OPEN_MIN = 42;
+const VIEWER_INFO_SWIPE_OPEN_FULL = 120;
+const VIEWER_INFO_SWIPE_ZONE = 120;
+const VIEWER_INFO_HANDLE_SENSITIVITY = 1.18;
 /** インク判定（輝度しきい値・低いほど「濃い部分だけがインク」）。高すぎるとアンチエイリアスまで膨張して潰れる。 */
 const VIEWER_DEV_MORPH_LUM_THRESHOLD = 168;
 let viewerUiLang = localStorage.getItem(VIEWER_UI_LANG_KEY)
@@ -76,6 +80,15 @@ let viewerProjectMeta = {
 const VIEWER_INFO_STATES = ['closed', 'peek', 'summary', 'full'];
 let viewerInfoPanelState = 'closed';
 let viewerInfoLayoutMode = 'sheet';
+let viewerInfoHandleDrag = {
+    active: false,
+    pointerId: null,
+    startY: 0,
+    startHeight: 0,
+    currentHeight: 0,
+    startedInBody: false,
+    bodyScrollTop: 0
+};
 
 const VIEWER_UI = {
     ja: {
@@ -209,6 +222,7 @@ async function init() {
     applyViewerUiLanguage();
     updateViewerInfoPanelLayout();
     renderViewerInfoPanel();
+    bindViewerInfoHandle();
     applyViewerDevSmoothingClass();
 
     const params = new URLSearchParams(window.location.search);
@@ -523,6 +537,7 @@ function updateViewerInfoPanelLayout() {
     const panel = document.getElementById('viewer-info-panel');
     if (!panel) return;
     panel.dataset.layout = viewerInfoLayoutMode;
+    syncViewerInfoChromeState();
 }
 
 function getViewerLocalizedMeta(lang = state.activeLang) {
@@ -591,6 +606,7 @@ function renderViewerInfoPanel() {
     panel.dataset.state = viewerInfoPanelState;
     panel.hidden = viewerInfoPanelState === 'closed';
     updateViewerInfoPanelLayout();
+    syncViewerInfoChromeState();
     if (viewerInfoPanelState === 'closed') return;
 
     const meta = getViewerLocalizedMeta();
@@ -662,6 +678,154 @@ function applyViewerInfoPanelLabels() {
     if (notesTitle) notesTitle.textContent = vt('infoLinerNotes');
     const reviewTitle = document.querySelector('#viewer-info-review-section .viewer-info-section-title');
     if (reviewTitle) reviewTitle.textContent = vt('infoReviews');
+}
+
+function bindViewerInfoHandle() {
+    const shell = getViewerInfoPanelShell();
+    if (!shell || shell.dataset.dragBound === '1') return;
+    shell.dataset.dragBound = '1';
+    shell.addEventListener('pointerdown', onViewerInfoHandlePointerDown);
+    shell.addEventListener('pointermove', onViewerInfoHandlePointerMove);
+    shell.addEventListener('pointerup', onViewerInfoHandlePointerUp);
+    shell.addEventListener('pointercancel', onViewerInfoHandlePointerCancel);
+}
+
+function getViewerInfoPanelShell() {
+    return document.querySelector('#viewer-info-panel .viewer-info-panel-shell');
+}
+
+function getViewerInfoSheetHeights() {
+    const isCompact = window.innerWidth <= 768;
+    const peek = isCompact ? 104 : 98;
+    const summary = isCompact ? 208 : 220;
+    const full = Math.min(
+        Math.round(window.innerHeight * (isCompact ? 0.72 : 0.76)),
+        Math.max(summary + 40, window.innerHeight - (isCompact ? 128 : 136))
+    );
+    return { peek, summary, full };
+}
+
+function getViewerInfoCurrentSheetHeight() {
+    const shell = getViewerInfoPanelShell();
+    const measured = shell?.getBoundingClientRect?.().height || 0;
+    if (measured > 0) return measured;
+    const heights = getViewerInfoSheetHeights();
+    if (viewerInfoPanelState === 'full') return heights.full;
+    if (viewerInfoPanelState === 'summary') return heights.summary;
+    if (viewerInfoPanelState === 'peek') return heights.peek;
+    return 0;
+}
+
+function setViewerInfoSheetDragHeight(height) {
+    const shell = getViewerInfoPanelShell();
+    if (!shell) return;
+    shell.classList.add('is-dragging');
+    shell.style.height = `${Math.max(0, height)}px`;
+}
+
+function clearViewerInfoSheetDragHeight() {
+    const shell = getViewerInfoPanelShell();
+    if (!shell) return;
+    shell.classList.remove('is-dragging');
+    shell.style.removeProperty('height');
+}
+
+function getViewerInfoStateFromHeight(height) {
+    const { peek, summary, full } = getViewerInfoSheetHeights();
+    if (height <= peek * 0.48) return 'closed';
+    const candidates = [
+        { state: 'peek', height: peek },
+        { state: 'summary', height: summary },
+        { state: 'full', height: full }
+    ];
+    return candidates
+        .map((item) => ({ ...item, distance: Math.abs(item.height - height) }))
+        .sort((a, b) => a.distance - b.distance)[0]?.state || 'peek';
+}
+
+function onViewerInfoHandlePointerDown(event) {
+    if (viewerInfoLayoutMode !== 'sheet') return;
+    if (event.target.closest('a, button, input, textarea, select, label')) return;
+    viewerInfoHandleDrag.active = true;
+    viewerInfoHandleDrag.pointerId = event.pointerId;
+    viewerInfoHandleDrag.startY = event.clientY;
+    viewerInfoHandleDrag.startHeight = getViewerInfoCurrentSheetHeight();
+    viewerInfoHandleDrag.currentHeight = viewerInfoHandleDrag.startHeight;
+    const body = document.getElementById('viewer-info-body');
+    viewerInfoHandleDrag.startedInBody = !!event.target.closest('#viewer-info-body');
+    viewerInfoHandleDrag.bodyScrollTop = body?.scrollTop || 0;
+    try { event.currentTarget?.setPointerCapture?.(event.pointerId); } catch (_) { /* ignore */ }
+}
+
+function onViewerInfoHandlePointerMove(event) {
+    if (!viewerInfoHandleDrag.active || viewerInfoHandleDrag.pointerId !== event.pointerId) return;
+    const dy = event.clientY - viewerInfoHandleDrag.startY;
+    const body = document.getElementById('viewer-info-body');
+    const bodyScrollTop = body?.scrollTop || 0;
+    const draggingDown = dy > 0;
+    const draggingUp = dy < 0;
+    const fullState = viewerInfoPanelState === 'full';
+
+    if (viewerInfoHandleDrag.startedInBody && fullState) {
+        if (draggingUp) return;
+        if (draggingDown && bodyScrollTop > 0) return;
+    }
+
+    event.preventDefault();
+    const { full } = getViewerInfoSheetHeights();
+    const nextHeight = Math.max(
+        0,
+        Math.min(full, viewerInfoHandleDrag.startHeight - (dy * VIEWER_INFO_HANDLE_SENSITIVITY))
+    );
+    viewerInfoHandleDrag.currentHeight = nextHeight;
+    setViewerInfoSheetDragHeight(nextHeight);
+}
+
+function onViewerInfoHandlePointerUp(event) {
+    if (!viewerInfoHandleDrag.active || viewerInfoHandleDrag.pointerId !== event.pointerId) return;
+    const dy = event.clientY - viewerInfoHandleDrag.startY;
+    const magnitude = Math.abs(dy);
+    try { event.currentTarget?.releasePointerCapture?.(event.pointerId); } catch (_) { /* ignore */ }
+    viewerInfoHandleDrag.active = false;
+    viewerInfoHandleDrag.pointerId = null;
+    viewerInfoHandleDrag.startedInBody = false;
+    viewerInfoHandleDrag.bodyScrollTop = 0;
+    clearViewerInfoSheetDragHeight();
+    if (magnitude < 8) {
+        window.advanceViewerInfoPanel();
+        return;
+    }
+    const next = getViewerInfoStateFromHeight(viewerInfoHandleDrag.currentHeight);
+    window.setViewerInfoPanelState(next);
+}
+
+function onViewerInfoHandlePointerCancel(event) {
+    if (viewerInfoHandleDrag.pointerId !== event.pointerId) return;
+    try { event.currentTarget?.releasePointerCapture?.(event.pointerId); } catch (_) { /* ignore */ }
+    viewerInfoHandleDrag.active = false;
+    viewerInfoHandleDrag.pointerId = null;
+    viewerInfoHandleDrag.startedInBody = false;
+    viewerInfoHandleDrag.bodyScrollTop = 0;
+    clearViewerInfoSheetDragHeight();
+}
+
+function isViewerInfoSheetOpen() {
+    return viewerInfoLayoutMode === 'sheet' && viewerInfoPanelState !== 'closed';
+}
+
+function syncViewerInfoChromeState() {
+    const ui = document.getElementById('viewer-ui');
+    if (!ui) return;
+    ui.classList.toggle('viewer-sheet-open', isViewerInfoSheetOpen());
+}
+
+function isViewerBottomSwipeStart(clientX, clientY) {
+    if (viewerInfoLayoutMode !== 'sheet' || viewerInfoPanelState !== 'closed') return false;
+    const canvas = document.getElementById('viewer-canvas');
+    if (!canvas) return false;
+    const rect = canvas.getBoundingClientRect();
+    if (clientX < rect.left || clientX > rect.right || clientY < rect.top || clientY > rect.bottom) return false;
+    return clientY >= rect.bottom - Math.min(VIEWER_INFO_SWIPE_ZONE, rect.height * 0.18);
 }
 
 window.setViewerInfoPanelState = (nextState) => {
@@ -1948,7 +2112,9 @@ window.toggleUi = (force) => {
 };
 
 function updateUiVisibility() {
-    document.getElementById('viewer-ui')?.classList.toggle('visible', isUiVisible);
+    const ui = document.getElementById('viewer-ui');
+    ui?.classList.toggle('visible', isUiVisible);
+    syncViewerInfoChromeState();
 }
 
 document.addEventListener('click', (e) => {
@@ -2212,6 +2378,7 @@ function onPointerUp(e) {
         if (!pointerGestureConsumed && viewScale <= 1.05) {
             const dx = e.clientX - pointerStartX;
             const dy = e.clientY - pointerStartY;
+            const fromBottom = isViewerBottomSwipeStart(pointerStartX, pointerStartY);
 
             if (Math.abs(dx) < 10 && Math.abs(dy) < 10) {
                 // ダブルタップでズームトグル（モバイルのみ）
@@ -2227,6 +2394,21 @@ function onPointerUp(e) {
                     }
                 }
                 // シングルタップはゾーンの onclick に委任
+            } else if (
+                e.pointerType !== 'mouse'
+                && fromBottom
+                && Math.abs(dy) > Math.abs(dx)
+                && dy < -VIEWER_INFO_SWIPE_OPEN_MIN
+            ) {
+                pointerGestureConsumed = true;
+                suppressZoneClickUntil = Date.now() + 900;
+                e.preventDefault();
+                e.stopPropagation();
+                if (dy < -VIEWER_INFO_SWIPE_OPEN_FULL) {
+                    window.setViewerInfoPanelState('summary');
+                } else {
+                    window.setViewerInfoPanelState('peek');
+                }
             } else if (e.pointerType !== 'mouse' && Math.abs(dx) > Math.abs(dy) && Math.abs(dx) > 40) {
                 // 横スワイプでページ送り
                 pointerGestureConsumed = true;
