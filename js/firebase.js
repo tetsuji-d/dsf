@@ -40,6 +40,7 @@ const AUTHORING_IMAGE_MAX_LONG_EDGE = 2160;
 const AUTHORING_IMAGE_WEBP_QUALITY = 0.9;
 const THUMBNAIL_IMAGE_MAX_LONG_EDGE = 320;
 const THUMBNAIL_IMAGE_WEBP_QUALITY = 0.8;
+const userBootstrapPromiseCache = new Map();
 
 /**
  * Upload a Blob to R2 via the /upload Pages Function.
@@ -104,6 +105,103 @@ function requireUid() {
 function projectDocRef(projectId) {
     const uid = requireUid();
     return doc(db, "users", uid, "projects", projectId);
+}
+
+function userDocRef(uid) {
+    if (!uid) throw new Error("ユーザー UID が必要です");
+    return doc(db, "users", uid);
+}
+
+function buildUserBootstrapDefaults(user) {
+    const uid = user?.uid || '';
+    return {
+        uid,
+        authProvider: 'google',
+        displayName: user?.displayName || '',
+        photoURL: user?.photoURL || '',
+        email: user?.email || '',
+        handle: null,
+        roles: {
+            reader: true,
+            creator: true,
+            admin: false
+        },
+        status: {
+            disabled: false,
+            moderationHold: false
+        },
+        storage: {
+            authoringRoot: `users/${uid}/dsp/`,
+            publishRoot: `users/${uid}/dsf/`,
+            initialized: true
+        }
+    };
+}
+
+export async function ensureUserBootstrap(user = auth.currentUser) {
+    if (!user?.uid) return null;
+    if (userBootstrapPromiseCache.has(user.uid)) {
+        return userBootstrapPromiseCache.get(user.uid);
+    }
+
+    const bootstrapPromise = (async () => {
+        const ref = userDocRef(user.uid);
+        const snapshot = await getDoc(ref);
+        const defaults = buildUserBootstrapDefaults(user);
+
+        if (!snapshot.exists()) {
+            await setDoc(ref, {
+                ...defaults,
+                createdAt: serverTimestamp(),
+                lastLoginAt: serverTimestamp()
+            });
+            return {
+                ...defaults,
+                createdAt: null,
+                lastLoginAt: null
+            };
+        }
+
+        const data = snapshot.data() || {};
+        const merged = {
+            uid: data.uid || defaults.uid,
+            authProvider: data.authProvider || defaults.authProvider,
+            displayName: user.displayName || data.displayName || defaults.displayName,
+            photoURL: user.photoURL || data.photoURL || defaults.photoURL,
+            email: user.email || data.email || defaults.email,
+            handle: typeof data.handle === 'string' ? data.handle : defaults.handle,
+            roles: {
+                reader: typeof data.roles?.reader === 'boolean' ? data.roles.reader : defaults.roles.reader,
+                creator: typeof data.roles?.creator === 'boolean' ? data.roles.creator : defaults.roles.creator,
+                admin: typeof data.roles?.admin === 'boolean' ? data.roles.admin : defaults.roles.admin
+            },
+            status: {
+                disabled: typeof data.status?.disabled === 'boolean' ? data.status.disabled : defaults.status.disabled,
+                moderationHold: typeof data.status?.moderationHold === 'boolean' ? data.status.moderationHold : defaults.status.moderationHold
+            },
+            storage: {
+                authoringRoot: data.storage?.authoringRoot || defaults.storage.authoringRoot,
+                publishRoot: data.storage?.publishRoot || defaults.storage.publishRoot,
+                initialized: typeof data.storage?.initialized === 'boolean' ? data.storage.initialized : defaults.storage.initialized
+            },
+            lastLoginAt: serverTimestamp()
+        };
+
+        await setDoc(ref, merged, { merge: true });
+        return {
+            ...data,
+            ...merged,
+            createdAt: data.createdAt || null,
+            lastLoginAt: null
+        };
+    })();
+
+    userBootstrapPromiseCache.set(user.uid, bootstrapPromise);
+    try {
+        return await bootstrapPromise;
+    } finally {
+        userBootstrapPromiseCache.delete(user.uid);
+    }
 }
 
 function ensureProjectIdentity() {

@@ -8,7 +8,7 @@
 import { state, dispatch, actionTypes } from './state.js';
 import { renderBubbleHTML } from './bubbles.js';
 import { getLangProps } from './lang.js';
-import { db, auth as firebaseAuth } from './firebase.js';
+import { db, auth as firebaseAuth, ensureUserBootstrap } from './firebase.js';
 import { initGIS, renderGISButton, signInWithGoogle, signOutUser, onAuthChanged, handleRedirectResult } from './gis-auth.js';
 import { getOptimizedImageUrl } from './sections.js';
 import { applyTheme, bindThemePreferenceListener, getThemeMode, setThemeMode } from './theme.js';
@@ -258,6 +258,7 @@ async function initAuth() {
             dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'user', value: user || null } });
             dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'uid', value: user?.uid || null } });
             if (user) {
+                void ensureUserBootstrap(user).catch((e) => console.warn('[Viewer] user bootstrap failed:', e));
                 privateLoginRequested = false;
                 privateLoginDeclined = false;
                 closePrivateLoginModal();

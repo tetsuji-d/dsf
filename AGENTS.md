@@ -1,6 +1,7 @@
-# AGENTS.md — DSF 開発ガイド
+# AGENTS.md — DSF 開発運用ルール
 
-このファイルは **DSF Studio**（および **DSF / Digital Spread Format** エコシステム）の開発ルールと状態を記録します。
+このファイルは、**DSF Studio / Viewer / Library の開発運用ルール**をまとめたものです。  
+プロダクト全体像や文書の読み順は **[CLAUDE.md](CLAUDE.md)** を起点にしてください。
 
 **プロダクト前提（要約）**: DSF はスマホ向け固定レイアウト出版。「レイアウトはコンテンツ」。9:16 WebP ページ、ZIP コンテナ（`manifest.json` 等）、広告なしの読書体験、オープンなファイル仕様を重視。詳細は `CLAUDE.md` を参照。
 
@@ -34,6 +35,19 @@ Claude はスコープ制限なく全ファイルを編集可。
 | [docs/page-architecture-plan.md](docs/page-architecture-plan.md) | Page v5 スキーマ |
 
 データ形式変更は人間（Architect）と合意してから実装する。
+
+## 2.5 読み順
+
+新しく参加した人間 / AI は、以下の順で読む。
+
+1. [CLAUDE.md](CLAUDE.md)
+2. [AGENTS.md](AGENTS.md)
+3. 必要に応じて:
+   - [docs/data-model.md](docs/data-model.md)
+   - [docs/file-format-spec.md](docs/file-format-spec.md)
+   - [docs/environment-topology.md](docs/environment-topology.md)
+   - [docs/user-account-audit.md](docs/user-account-audit.md)
+   - [docs/viewer-info-panel-spec.md](docs/viewer-info-panel-spec.md)
 
 ---
 

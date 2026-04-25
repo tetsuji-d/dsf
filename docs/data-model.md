@@ -15,10 +15,52 @@
 
 | コレクション | パス | 用途 |
 |------------|------|------|
+| ユーザー正本 | `users/{uid}` | DSF アカウントの正本。Google 初回ログイン時にブートストラップ |
 | ユーザープロジェクト | `users/{uid}/projects/{pid}` | 編集可能なプロジェクト本体 |
 | 公開プロジェクト一覧 | `public_projects/{pid}` | ポータル向け公開インデックス |
 
 > **注意**: 旧仕様の `works` コレクションは廃止済み。コード上は `users/{uid}/projects/{pid}` を使用。
+
+---
+
+### `users/{uid}` — ユーザー正本ドキュメント
+
+Google サインイン成功時に、Firebase Auth のユーザーとは別に DSF アプリ側の正本として作成する。
+Storage/R2 側に空フォルダを作るのではなく、namespace をここで固定する。
+
+```json
+{
+  "uid": "String (Firebase Auth UID)",
+  "authProvider": "String ('google')",
+  "displayName": "String",
+  "photoURL": "String",
+  "email": "String",
+  "handle": "String | null (将来の公開プロフィール用。初期値 null)",
+  "roles": {
+    "reader": "Boolean",
+    "creator": "Boolean",
+    "admin": "Boolean"
+  },
+  "status": {
+    "disabled": "Boolean",
+    "moderationHold": "Boolean"
+  },
+  "storage": {
+    "authoringRoot": "String (users/{uid}/dsp/)",
+    "publishRoot": "String (users/{uid}/dsf/)",
+    "initialized": "Boolean"
+  },
+  "createdAt": "Timestamp",
+  "lastLoginAt": "Timestamp"
+}
+```
+
+#### ブートストラップ方針
+
+- Firebase Auth の初回 Google ログイン直後に `users/{uid}` を自動作成する
+- 既存ユーザーは不足フィールドだけ補完し、`lastLoginAt` を更新する
+- `roles.admin` は後から運営側が付与する。初期値は `false`
+- `storage.authoringRoot` / `storage.publishRoot` は namespace 宣言であり、実フォルダ作成は行わない
 
 ---
 
@@ -168,6 +210,7 @@
 
 | 操作 | JSファイル | メソッド | 説明 |
 |------|-----------|---------|------|
+| ユーザー初期化 | `js/firebase.js` | `ensureUserBootstrap` | Google ログイン時に `users/{uid}` を作成/補完し `lastLoginAt` を更新 |
 | 一覧取得 | `js/projects.js` | `openProjectModal` | `users/{uid}/projects` を getDocs |
 | 読み込み | `js/firebase.js` / `js/viewer.js` | `loadWork` / `loadFromFirestore` | 指定 pid を getDoc。Viewer の共有 URL は `dsfPages` がある発行済みデータだけを扱う |
 | 保存 | `js/firebase.js` | `performSave` | `setDoc(..., { merge: true })` で編集内容を保存し、公開インデックスは更新しない |
@@ -209,6 +252,9 @@ users/{uid}/dsf/
 ### Firestore Rules（`firestore.rules` — デプロイ済み 2026-02-25）
 
 ```
+users/{uid}:
+  - read/write: 認証済みオーナー (auth.uid == uid)
+
 users/{uid}/projects/{pid}:
   - read/write: 認証済みオーナー (auth.uid == uid)
   - read: dsfStatus が 'public' または 'unlisted' の場合は誰でも可
@@ -252,3 +298,4 @@ state.pages    ← viewer/export surface（v5 Page Object の配列）
 |------|---------|
 | 2026-02-25 | 全面改訂: `works` → `users/{uid}/projects/{pid}` に修正、v5 Page スキーマ追加、AR フィールド追加、Security Rules を実態に更新 |
 | 2026-03-25 | DSF Gen 3 方針確定: WebP 画像のみ。`ar`・`richText`・`layout`・`text` 系フィールドを廃止予定に明記 |
+| 2026-04-25 | `users/{uid}` をユーザー正本として追加。Google 初回ログイン時のブートストラップ仕様と self read/write ルールを明文化 |

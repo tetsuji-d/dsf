@@ -1,6 +1,6 @@
 # Studio (`app.js`) — Room 境界と認証の地図
 
-Phase 1「room 境界の明文化」用。実装の正本は `js/app.js`・`js/gis-auth.js`・`js/email-auth.js`・`js/press.js`・`js/works.js`。
+Phase 1「room 境界の明文化」用。実装の正本は `js/app.js`・`js/gis-auth.js`・`js/press.js`・`js/works.js`。
 
 ## Room モデル
 
@@ -39,7 +39,6 @@ switchRoom('editor')→ 専用 hook なし（シェル同期のみ）
 2. **`app.js`（Studio UI）**
    - `getStudioAuthMarkup` / `renderStudioAuthSlot`: ナビ用・モバイル用の **2 スロット**に同じパターンを描画
    - **GIS スロット**（`#gis-btn-studio-nav` 等）+ **フォールバック** `data-auth-signin-fallback` → `signInWithGoogle()`
-   - **ステージング限定** `email-auth.js`: `isStagingEmailLoginEnabled()` のときフォーム表示 → `signInWithEmail`
    - `updateAuthUI`: ログイン状態で `[data-auth-required]` の disabled と `auth-guest` クラス
    - `onAuthChanged` コールバック（`app.js` 末尾）: `state.user` / `state.uid` 更新、`renderHomeDashboard`、URL `?id=` からの `loadProject`
 
@@ -66,7 +65,6 @@ switchRoom('editor')→ 専用 hook なし（シェル同期のみ）
 | ファイル | 役割 |
 |----------|------|
 | `js/gis-auth.js` | GIS・Firebase 認証の実体 |
-| `js/email-auth.js` | ステージング用メールログイン |
 | `js/firebase-core.js` | `auth` インスタンス |
 | `js/press.js` | Press room の中身 |
 | `js/works.js` | Works room の中身 |

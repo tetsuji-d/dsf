@@ -1,6 +1,64 @@
 # CLAUDE.md
 
-このファイルは、リポジトリ内のコードを操作する Claude Code (claude.ai/code) へのガイダンスを提供します。
+このファイルは、このリポジトリの**総合入口**です。  
+プロダクト思想、実装方針、インフラ、現在の正本文書への導線をここに集約します。
+
+AI エージェント、人間の開発者ともに、まずこの文書を読み、次に必要な詳細文書へ進んでください。
+
+## 最初に読む順番
+
+### 1. 全体像
+
+- **[CLAUDE.md](CLAUDE.md)**  
+  プロダクト思想、実装方針、エコシステム、開発コマンド、文書の読み順
+
+### 2. 実務ルール
+
+- **[AGENTS.md](AGENTS.md)**  
+  ブランチ運用、編集方針、参照必須文書、現在の開発運用ルール
+
+### 3. 正本ドキュメント
+
+- **[docs/data-model.md](docs/data-model.md)**  
+  Firestore スキーマ、保存面、Security Rules の正本
+- **[docs/file-format-spec.md](docs/file-format-spec.md)**  
+  `.dsp` / `.dsf` の ZIP 構造仕様
+- **[docs/pressroom-spec.md](docs/pressroom-spec.md)**  
+  Press / Works / Viewer の公開境界
+
+### 4. 最近の重要テーマ
+
+- **[docs/environment-topology.md](docs/environment-topology.md)**  
+  Cloudflare Pages / Firebase / R2 の役割分担
+- **[docs/user-account-audit.md](docs/user-account-audit.md)**  
+  ユーザーアカウント、Google-only 認証、今後のブートストラップ方針
+- **[docs/viewer-info-panel-spec.md](docs/viewer-info-panel-spec.md)**  
+  Viewer のハーフモーダル / 右ドロワー仕様
+- **[docs/auth-unified-surfaces.md](docs/auth-unified-surfaces.md)**  
+  Portal / Studio / Viewer の認証サーフェス整理
+
+### 5. 履歴・計画メモ
+
+以下は補助資料です。現行判断の正本ではありません。
+
+- `DSF_SITEMAP.md`
+- `docs/editor-menu-sitemap.md`
+- `docs/page-architecture-plan.md`
+- `docs/progress.md`
+- `docs/implementation-plan-*.md`
+- `docs/remediation-roadmap.md`
+
+## 文書の役割分担
+
+| 文書 | 役割 |
+|------|------|
+| `CLAUDE.md` | 総合入口。読む順番と、どれが正本かを示す |
+| `AGENTS.md` | 開発運用ルール。AI/開発者が守る実務ルール |
+| `docs/data-model.md` | データ憲法。Firestore / Storage / Security の正本 |
+| `docs/file-format-spec.md` | DSF / DSP ファイル仕様の正本 |
+| `docs/*.md` | テーマ別仕様、監査、設計メモ |
+
+> 原則として、**全体像は `CLAUDE.md`、実務ルールは `AGENTS.md`、厳密仕様は `docs/`** を見る構成にします。
 
 ## DSF（Digital Spread Format）とは
 
@@ -215,11 +273,14 @@ CSS はエントリーポイントごとに分離: `css/studio.css`, `css/viewer
 
 ## ドキュメント
 
-アーキテクチャに関するドキュメントは `docs/` に格納されています:
+アーキテクチャに関する詳細文書は `docs/` にあります。  
+ただし、**どれが正本かは上の「最初に読む順番」と「文書の役割分担」を優先**してください。
+
+主な参照先:
 
 - `file-format-spec.md` — `.dsp`/`.dsf` の ZIP 構造
 - `data-model.md` — Firestore スキーマとセキュリティルール
-- `ui-architecture.md` — リボンメニューとサイドバーのレイアウト
-- `page-architecture-plan.md` — Blocks v5 スキーマの変遷
-- `editor-menu-sitemap.md` — リボンタブごとの機能マップ
-- `pressroom-spec.md` — Press Room の仕様
+- `pressroom-spec.md` — Press Room / Works / Viewer の公開境界
+- `environment-topology.md` — Pages / Firebase / R2 の構成
+- `user-account-audit.md` — アカウント周りの棚卸し
+- `viewer-info-panel-spec.md` — Viewer 情報パネル仕様

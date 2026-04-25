@@ -5,6 +5,7 @@
 import { collection, query, orderBy, limit, getDocs } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
 import { onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js";
 import { db, auth } from './firebase-core.js';
+import { ensureUserBootstrap } from './firebase.js';
 import { initGIS, renderGISButton, signInWithGoogle, handleRedirectResult, signOutUser } from './gis-auth.js';
 import { applyTheme, bindThemePreferenceListener, getThemeMode, setThemeMode as persistThemeMode } from './theme.js';
 
@@ -613,8 +614,18 @@ document.addEventListener("DOMContentLoaded", () => {
         if (redirectOutcome?.error) {
             showFeedback("error", t("authError"), redirectOutcome.error?.message || String(redirectOutcome.error), true);
         }
+        if (redirectOutcome?.result?.user) {
+            await ensureUserBootstrap(redirectOutcome.result.user).catch((e) => console.warn('[Portal] redirect bootstrap failed:', e));
+        } else if (auth.currentUser) {
+            await ensureUserBootstrap(auth.currentUser).catch((e) => console.warn('[Portal] current-user bootstrap failed:', e));
+        }
         await initGIS({ authInstance: auth });
-        onAuthStateChanged(auth, (user) => renderAuthArea(user));
+        onAuthStateChanged(auth, (user) => {
+            if (user) {
+                void ensureUserBootstrap(user).catch((e) => console.warn('[Portal] user bootstrap failed:', e));
+            }
+            renderAuthArea(user);
+        });
         loadPublicProjects();
     })().catch((e) => console.warn('[Portal] bootstrap failed:', e));
 });

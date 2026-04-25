@@ -2,12 +2,19 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    // ユーザーごとのプロジェクト
-    // - オーナーのみ読み書き可
-    // - DSF 発行済みの dsfStatus が 'public' または 'unlisted' の場合のみ誰でも読み取り可
-    match /users/{uid}/projects/{pid} {
+    // ユーザー正本
+    // - 自分のアカウント情報だけ self read/write を許可
+    // - reviews / admin UI の前提になる正本
+    match /users/{uid} {
       allow read, write: if request.auth != null && request.auth.uid == uid;
-      allow read: if resource.data.dsfStatus in ['public', 'unlisted'];
+
+      // ユーザーごとのプロジェクト
+      // - オーナーのみ読み書き可
+      // - DSF 発行済みの dsfStatus が 'public' または 'unlisted' の場合のみ誰でも読み取り可
+      match /projects/{pid} {
+        allow read, write: if request.auth != null && request.auth.uid == uid;
+        allow read: if resource.data.dsfStatus in ['public', 'unlisted'];
+      }
     }
 
     // 公開プロジェクト一覧（ポータル向け）

@@ -37,7 +37,6 @@ Firebase の Web API key は **secret ではない**。
 
 4. **staging / production provider 設定の定期確認**
    - Google
-   - Email/Password（staging only）
 
 5. **scripts の config 直書き整理**
    - `scripts/verify-firebase.js` の扱いを明確化
@@ -51,4 +50,4 @@ Firebase の Web API key は **secret ではない**。
 
 ## Recommended next step
 
-email login の staging 導入後、次は `functions/upload.js` / `functions/asset-proxy.js` の token verify 共通化を行う。
+次は `functions/upload.js` / `functions/asset-proxy.js` の token verify 共通化を行う。

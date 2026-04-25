@@ -24,7 +24,7 @@ YouTube のように「別サブドメインでも一本化」するには、**F
 | Surface | 未ログイン時の UI |
 |---------|-------------------|
 | **Library** (`portal.js`) | GIS 公式ボタン + SVG フォールバック + テーマ |
-| **Studio** (`app.js`) | ナビ/モバイル 2 スロットに GIS + フォールバック +（ステージングのみ）メール |
+| **Studio** (`app.js`) | ナビ/モバイル 2 スロットに GIS + フォールバック |
 | **Viewer** (`viewer.js`) | 未ログイン時: GIS 公式ボタン + Google アイコン付きフォールバック（Portal と同型、`renderViewerAuthSlot`）。ログイン後: サインアウトのみ。 |
 
 ## 運用チェックリスト

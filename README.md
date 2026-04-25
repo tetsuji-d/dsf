@@ -6,17 +6,27 @@
 
 ## ドキュメント
 
-- **[CLAUDE.md](CLAUDE.md)** — フォーマット思想、エコシステム、インフラ、モジュール構成、開発コマンド
+- **[CLAUDE.md](CLAUDE.md)** — 総合入口。フォーマット思想、エコシステム、インフラ、モジュール構成、開発コマンド、読む順番
+- **[AGENTS.md](AGENTS.md)** — 開発運用ルール
 - **[PROJECT_STATUS.md](PROJECT_STATUS.md)** — 実装済み機能・既知課題・TODO
 - **[docs/file-format-spec.md](docs/file-format-spec.md)** — `.dsp` / `.dsf` ZIP 構造
 - **[docs/remediation-roadmap.md](docs/remediation-roadmap.md)** — 中期の減債と分割の進め方
-- **[docs/staging-email-login.md](docs/staging-email-login.md)** — staging 限定 email ログインの運用
 - **[docs/security-hardening.md](docs/security-hardening.md)** — API key / auth / Functions の hardening メモ
 - **[docs/environment-topology.md](docs/environment-topology.md)** — Cloudflare Pages / Firebase / R2 の役割分担と環境運用
+- **[docs/user-account-audit.md](docs/user-account-audit.md)** — Google-only 認証、ユーザーアカウント棚卸し、今後のブートストラップ方針
+- **[docs/viewer-info-panel-spec.md](docs/viewer-info-panel-spec.md)** — Viewer のハーフモーダル / 右ドロワー仕様
+
+### 読む順番
+
+1. **[CLAUDE.md](CLAUDE.md)** — 全体像と文書構造
+2. **[AGENTS.md](AGENTS.md)** — 実務ルール
+3. **[docs/data-model.md](docs/data-model.md)** / **[docs/file-format-spec.md](docs/file-format-spec.md)** — 正本仕様
+4. テーマ別 docs
 
 ### Current source of truth
 
-- **[CLAUDE.md](CLAUDE.md)** — プロダクト方針・実装原則
+- **[CLAUDE.md](CLAUDE.md)** — 総合入口・プロダクト方針・実装原則
+- **[AGENTS.md](AGENTS.md)** — 開発運用ルール
 - **[docs/data-model.md](docs/data-model.md)** — ランタイム canonical / compatibility 関係
 - **[docs/file-format-spec.md](docs/file-format-spec.md)** — 配信フォーマット仕様
 - **[docs/pressroom-spec.md](docs/pressroom-spec.md)** — 公開境界と Press / Works の責務

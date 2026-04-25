@@ -1,19 +1,18 @@
 /**
  * app.js — Studio メインエントリ（描画・UI 同期・room 切り替え）
  *
- * Room 境界・認証（Google GIS + Firebase + ステージングメール）の地図:
+ * Room 境界・認証（Google GIS + Firebase）の地図:
  *   docs/studio-app-room-boundaries.md
  *
  * 大まかな塊:
  *   - Home: ダッシュボード（renderHomeDashboard）
  *   - Editor: refresh / キャンバス / サムネ（このファイルが最も長い）
  *   - Press / Works: enterPressRoom（press.js）, openWorksRoom（works.js）は switchRoom から委譲
- *   - 認証 UI: getStudioAuthMarkup → renderStudioAuthSlot（GIS ボタン + フォールバック + 条件付きメール）
+ *   - 認証 UI: getStudioAuthMarkup → renderStudioAuthSlot（GIS ボタン + フォールバック）
  */
 import { state, dispatch, actionTypes } from './state.js';
-import { saveProject as persistProject, loadProject, uploadToStorage, uploadCoverToStorage, uploadStructureToStorage, triggerAutoSave, flushSave, generateCroppedThumbnail, listLocalRecentProjects, loadLocalRecentProject, cacheLocalRecentProject, auth as firebaseAuth, authReady } from './firebase.js';
+import { saveProject as persistProject, loadProject, uploadToStorage, uploadCoverToStorage, uploadStructureToStorage, triggerAutoSave, flushSave, generateCroppedThumbnail, listLocalRecentProjects, loadLocalRecentProject, cacheLocalRecentProject, ensureUserBootstrap, auth as firebaseAuth, authReady } from './firebase.js';
 import { initGIS, renderGISButton, signInWithGoogle, signOutUser, onAuthChanged, handleRedirectResult } from './gis-auth.js';
-import { signInWithEmail, isStagingEmailLoginEnabled } from './email-auth.js';
 import { handleCanvasClick, selectBubble, renderBubbleHTML, getBubbleText, setBubbleText, addBubbleAtCenter, startDrag, startTailDrag, startSpikeDrag } from './bubbles.js';
 import { addSection, addTextSection, changeSection, changeBlock, insertStructureBlock, renderThumbs, deleteActive, deleteSectionAt, insertSectionAt, duplicateSectionAt, moveSection, insertPageNearBlock, duplicateBlockAt, moveBlockAt, getOptimizedImageUrl } from './sections.js';
 import { pushState, undo, redo, getHistoryInfo, clearHistory } from './history.js';
@@ -471,8 +470,8 @@ async function renderHomeDashboard() {
     syncStudioShell();
 }
 
-// ── Studio 認証 UI — GIS ボタン + フォールバック Google + ステージングメール（email-auth） ──
-//    実体のサインインは gis-auth.js / email-auth.js。ここはマークアップとスロット束ね。
+// ── Studio 認証 UI — GIS ボタン + フォールバック Google ──
+//    実体のサインインは gis-auth.js。ここはマークアップとスロット束ね。
 
 function updateAuthUI() {
     const effectiveUser = state.user || firebaseAuth.currentUser || null;
@@ -574,26 +573,10 @@ function getStudioAuthMarkup(user, { mobile = false, slotName = 'nav' } = {}) {
             : `<span class="material-icons" aria-hidden="true">account_circle</span>`;
     const gisButtonId = `gis-btn-studio-${slotName}`;
     const fallbackClass = mobile ? 'mobile-auth-btn studio-signin-fallback' : 'btn-tool studio-signin-fallback';
-    const emailAuthEnabled = isStagingEmailLoginEnabled();
-    const emailFormSection = !user && emailAuthEnabled ? `
-        <form class="studio-email-auth-form" data-auth-email-form>
-            <div class="studio-email-auth-title">${escapeStudioHtml(t('staging_email_login'))}</div>
-            <label class="studio-email-auth-label">
-                <span>${escapeStudioHtml(t('field_email'))}</span>
-                <input type="email" class="studio-email-auth-input" data-auth-email autocomplete="username" placeholder="test@example.com">
-            </label>
-            <label class="studio-email-auth-label">
-                <span>${escapeStudioHtml(t('field_password'))}</span>
-                <input type="password" class="studio-email-auth-input" data-auth-password autocomplete="current-password" placeholder="••••••••">
-            </label>
-            <button type="submit" class="btn-tool studio-email-auth-submit" data-auth-email-submit>${escapeStudioHtml(t('btn_signin_email'))}</button>
-        </form>
-    ` : '';
     const signedOutSection = user ? '' : `
         <div class="auth-panel-section studio-auth-signin-section">
             <div id="${gisButtonId}" class="studio-gis-slot"></div>
             <button type="button" class="${fallbackClass}" data-auth-signin-fallback>${escapeStudioHtml(mobile ? t('btn_auth_mobile') : t('btn_signin'))}</button>
-            ${emailFormSection}
         </div>
     `;
 
@@ -683,31 +666,6 @@ function bindStudioAuthSlot(container, user, { mobile = false } = {}) {
             alert(t('auth_google_failed', { message: error?.message || String(error) }));
         }
     });
-    container.querySelector('[data-auth-email-form]')?.addEventListener('submit', async (event) => {
-        event.preventDefault();
-        const form = event.currentTarget;
-        const emailInput = form.querySelector('[data-auth-email]');
-        const passwordInput = form.querySelector('[data-auth-password]');
-        const submitBtn = form.querySelector('[data-auth-email-submit]');
-        const email = emailInput?.value || '';
-        const password = passwordInput?.value || '';
-        if (!email.trim() || !password) {
-            alert(t('auth_email_missing'));
-            return;
-        }
-        if (submitBtn) submitBtn.disabled = true;
-        try {
-            await signInWithEmail(email, password);
-            passwordInput.value = '';
-            closeAllStudioAuthDropdowns();
-        } catch (error) {
-            console.error('[Auth] email sign-in error:', error);
-            alert(t('auth_email_failed', { message: error?.message || String(error) }));
-        } finally {
-            if (submitBtn) submitBtn.disabled = false;
-        }
-    });
-
 }
 
 function renderStudioAuthSlot(container, user, options = {}) {
@@ -4954,6 +4912,7 @@ onAuthChanged((user) => {
     applyStudioAuthUser(user);
     renderHomeDashboard().catch((e) => console.warn('[Home] render failed after auth:', e));
     if (user) {
+        void ensureUserBootstrap(user).catch((e) => console.warn('[Auth] user bootstrap failed:', e));
         const pid = new URLSearchParams(window.location.search).get('id');
         if (pid) loadProject(pid, refresh);
     }
@@ -5000,8 +4959,10 @@ async function bootstrapApp() {
     }
     if (redirectOutcome?.result?.user) {
         applyStudioAuthUser(redirectOutcome.result.user);
+        await ensureUserBootstrap(redirectOutcome.result.user).catch((e) => console.warn('[Auth] redirect bootstrap failed:', e));
     } else if (firebaseAuth.currentUser) {
         applyStudioAuthUser(firebaseAuth.currentUser);
+        await ensureUserBootstrap(firebaseAuth.currentUser).catch((e) => console.warn('[Auth] current-user bootstrap failed:', e));
     }
     await initGIS({ authInstance: firebaseAuth });
 
