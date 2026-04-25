@@ -77,6 +77,9 @@
                     <div id="lang-picker-menu" class="viewer-lang-picker-menu"></div>
                 </div>
                 <div id="viewer-auth-slot" class="viewer-auth-slot"></div>
+                <button id="viewer-info-btn" class="btn-icon header-btn" onclick="toggleViewerInfoPanel()" title="作品情報">
+                    <span class="material-icons" aria-hidden="true">info</span>
+                </button>
                 <button id="viewer-spread-btn" class="btn-icon header-btn" onclick="toggleViewerSpread()" title="見開き表示">
                     <span class="material-icons" aria-hidden="true">auto_stories</span>
                 </button>
@@ -112,6 +115,53 @@
             </div>
         </div>
     </div>
+
+    <aside id="viewer-info-panel" class="viewer-info-panel" data-state="closed" data-layout="sheet" hidden>
+        <div class="viewer-info-panel-shell">
+            <button id="viewer-info-handle" class="viewer-info-handle" type="button" onclick="advanceViewerInfoPanel()" aria-label="作品情報を開く">
+                <span class="viewer-info-handle-bar"></span>
+            </button>
+            <div class="viewer-info-panel-head">
+                <div class="viewer-info-panel-kicker" id="viewer-info-kicker"></div>
+                <div class="viewer-info-panel-actions">
+                    <button id="viewer-info-peek-btn" class="viewer-info-action" type="button" onclick="stepDownViewerInfoPanel()" title="縮小">
+                        <span class="material-icons" aria-hidden="true">keyboard_arrow_down</span>
+                    </button>
+                    <button id="viewer-info-expand-btn" class="viewer-info-action" type="button" onclick="stepUpViewerInfoPanel()" title="展開">
+                        <span class="material-icons" aria-hidden="true">keyboard_arrow_up</span>
+                    </button>
+                    <button id="viewer-info-close-btn" class="viewer-info-action" type="button" onclick="setViewerInfoPanelState('closed')" title="閉じる">
+                        <span class="material-icons" aria-hidden="true">close</span>
+                    </button>
+                </div>
+            </div>
+            <div class="viewer-info-panel-summary">
+                <h2 id="viewer-info-title" class="viewer-info-title"></h2>
+                <div id="viewer-info-series" class="viewer-info-series" hidden></div>
+                <div class="viewer-info-meta-list">
+                    <div id="viewer-info-label-row" class="viewer-info-meta-row" hidden>
+                        <span class="viewer-info-meta-label">Label</span>
+                        <span id="viewer-info-label" class="viewer-info-meta-value"></span>
+                    </div>
+                    <div id="viewer-info-author-row" class="viewer-info-meta-row" hidden>
+                        <span class="viewer-info-meta-label">Author</span>
+                        <span id="viewer-info-author" class="viewer-info-meta-value"></span>
+                    </div>
+                </div>
+                <p id="viewer-info-description" class="viewer-info-description" hidden></p>
+            </div>
+            <div id="viewer-info-body" class="viewer-info-panel-body">
+                <section id="viewer-info-notes-section" class="viewer-info-section" hidden>
+                    <h3 class="viewer-info-section-title">Liner Notes</h3>
+                    <div id="viewer-info-notes" class="viewer-info-richtext"></div>
+                </section>
+                <section id="viewer-info-review-section" class="viewer-info-section" hidden>
+                    <h3 class="viewer-info-section-title">Reviews</h3>
+                    <div id="viewer-info-reviews" class="viewer-info-placeholder"></div>
+                </section>
+            </div>
+        </div>
+    </aside>
 
     <!-- Hidden File Input -->
     <input type="file" id="file-input" onchange="loadDsf(this)">

@@ -68,8 +68,14 @@ let viewerProjectMeta = {
     source: 'file',
     resolution: '',
     totalBytes: 0,
-    qualityProfile: null
+    qualityProfile: null,
+    labelName: '',
+    meta: {},
+    rootTitle: ''
 };
+const VIEWER_INFO_STATES = ['closed', 'peek', 'summary', 'full'];
+let viewerInfoPanelState = 'closed';
+let viewerInfoLayoutMode = 'sheet';
 
 const VIEWER_UI = {
     ja: {
@@ -102,6 +108,18 @@ const VIEWER_UI = {
         standaloneBody: 'ローカルの .dsf / .dsp / .zip / .json をこのビューワーで表示できます。',
         standaloneOpen: 'ファイルを選択',
         standaloneHint: 'ファイルをここへドラッグして開くこともできます。',
+        infoPanel: '作品情報',
+        infoPanelOpen: '作品情報を開く',
+        infoPanelClose: '作品情報を閉じる',
+        infoPanelExpand: '情報を広げる',
+        infoPanelCollapse: '情報を縮小する',
+        infoLabel: 'レーベル',
+        infoSeries: 'シリーズ',
+        infoAuthor: '著者',
+        infoDescription: '概要',
+        infoLinerNotes: 'ライナーノーツ',
+        infoReviews: 'レビュー',
+        infoReviewsPending: 'レビュー表示は今後追加します。',
         devSmoothing: 'ごく弱いコントラスト（試行）',
         devSmoothingNote: 'アンシャープはハロ・痩せが出やすいため廃止。効果は控えめです。基本オフ推奨。',
         devMorph: 'モルフォロジー膨張（試行）',
@@ -141,6 +159,18 @@ const VIEWER_UI = {
         standaloneBody: 'View a local .dsf, .dsp, .zip, or .json file in this viewer.',
         standaloneOpen: 'Choose file',
         standaloneHint: 'You can also drag a file here.',
+        infoPanel: 'Work info',
+        infoPanelOpen: 'Open work info',
+        infoPanelClose: 'Close work info',
+        infoPanelExpand: 'Expand info',
+        infoPanelCollapse: 'Collapse info',
+        infoLabel: 'Label',
+        infoSeries: 'Series',
+        infoAuthor: 'Author',
+        infoDescription: 'Overview',
+        infoLinerNotes: 'Liner Notes',
+        infoReviews: 'Reviews',
+        infoReviewsPending: 'Reviews will be added later.',
         devSmoothing: 'Mild contrast (trial)',
         devSmoothingNote: 'Unsharp removed (halos/thin strokes). Very subtle contrast; usually leave off.',
         devMorph: 'Morphology dilation (trial)',
@@ -177,6 +207,8 @@ async function init() {
 
     await initAuth().catch((e) => console.warn('[Viewer] initAuth failed:', e));
     applyViewerUiLanguage();
+    updateViewerInfoPanelLayout();
+    renderViewerInfoPanel();
     applyViewerDevSmoothingClass();
 
     const params = new URLSearchParams(window.location.search);
@@ -437,6 +469,7 @@ function loadProjectData(raw, options = {}) {
     viewerBookModel = buildViewerBookModel(raw, pages);
     viewerProjectMeta = buildViewerProjectMeta(raw, source);
     bookSpreadIndex = 0;
+    viewerInfoPanelState = 'closed';
 
     dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'title', value: raw.title || '' } });
     dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'pages', value: pages } });
@@ -453,6 +486,8 @@ function loadProjectData(raw, options = {}) {
     lastLoadErrorCode = '';
     hideStandaloneEmpty();
     renderViewerLanguagePicker();
+    updateViewerInfoPanelLayout();
+    renderViewerInfoPanel();
 
     refresh();
 }
@@ -472,8 +507,208 @@ function buildViewerProjectMeta(raw, source) {
         source,
         resolution: String(raw?.dsfResolution || raw?.resolution || ''),
         totalBytes: Number.isFinite(explicitTotal) && explicitTotal > 0 ? explicitTotal : derivedTotal,
-        qualityProfile: raw?.dsfQualityProfile || raw?.qualityProfile || null
+        qualityProfile: raw?.dsfQualityProfile || raw?.qualityProfile || null,
+        labelName: String(raw?.labelName || '').trim(),
+        meta: raw?.meta && typeof raw.meta === 'object' ? raw.meta : {},
+        rootTitle: String(raw?.title || '').trim()
     };
+}
+
+function getViewerInfoLayoutMode() {
+    return window.innerWidth >= 1024 ? 'drawer' : 'sheet';
+}
+
+function updateViewerInfoPanelLayout() {
+    viewerInfoLayoutMode = getViewerInfoLayoutMode();
+    const panel = document.getElementById('viewer-info-panel');
+    if (!panel) return;
+    panel.dataset.layout = viewerInfoLayoutMode;
+}
+
+function getViewerLocalizedMeta(lang = state.activeLang) {
+    const meta = viewerProjectMeta.meta && typeof viewerProjectMeta.meta === 'object'
+        ? viewerProjectMeta.meta
+        : {};
+    const current = meta?.[lang] && typeof meta[lang] === 'object' ? meta[lang] : {};
+    const fallback = meta?.[state.defaultLang] && typeof meta[state.defaultLang] === 'object'
+        ? meta[state.defaultLang]
+        : {};
+    return {
+        title: String(current.title || fallback.title || state.title || viewerProjectMeta.rootTitle || '').trim(),
+        author: String(current.author || fallback.author || '').trim(),
+        description: String(current.description || fallback.description || '').trim(),
+        linerNotes: String(current.linerNotes || fallback.linerNotes || '').trim(),
+        series: String(current.series || fallback.series || '').trim()
+    };
+}
+
+function stepViewerInfoState(from, direction) {
+    const idx = VIEWER_INFO_STATES.indexOf(from);
+    if (idx < 0) return 'closed';
+    const next = idx + direction;
+    return VIEWER_INFO_STATES[Math.max(0, Math.min(VIEWER_INFO_STATES.length - 1, next))];
+}
+
+function shouldShowViewerInfoBody() {
+    return viewerInfoPanelState === 'full';
+}
+
+function buildViewerInfoKicker(meta) {
+    const parts = [];
+    const langCode = String(state.activeLang || '').toUpperCase();
+    if (langCode) parts.push(langCode);
+    if (viewerProjectMeta.labelName) parts.push(viewerProjectMeta.labelName);
+    else if (meta.author) parts.push(meta.author);
+    return parts.join(' / ');
+}
+
+function parseViewerRichText(text) {
+    const source = String(text || '').trim();
+    if (!source) return '';
+    const paragraphs = source.split(/\n{2,}/).map((block) => block.trim()).filter(Boolean);
+    return paragraphs.map((block) => {
+        const html = esc(block)
+            .replace(/\{\{([^|{}]+)\|([^{}]+)\}\}/g, (_, label, link) => {
+                const safeLabel = esc(String(label || '').trim());
+                const rawLink = String(link || '').trim();
+                if (!safeLabel) return '';
+                if (/^https?:\/\//i.test(rawLink)) {
+                    return `<a href="${esc(rawLink)}" target="_blank" rel="noreferrer noopener">${safeLabel}</a>`;
+                }
+                if (/^(\/|\.\/|\.\.\/)/.test(rawLink)) {
+                    return `<a href="${esc(rawLink)}">${safeLabel}</a>`;
+                }
+                return `<span class="viewer-info-inline-link-disabled" title="${esc(rawLink)}">${safeLabel}</span>`;
+            })
+            .replace(/\n/g, '<br>');
+        return `<p>${html}</p>`;
+    }).join('');
+}
+
+function renderViewerInfoPanel() {
+    const panel = document.getElementById('viewer-info-panel');
+    if (!panel) return;
+    panel.dataset.state = viewerInfoPanelState;
+    panel.hidden = viewerInfoPanelState === 'closed';
+    updateViewerInfoPanelLayout();
+    if (viewerInfoPanelState === 'closed') return;
+
+    const meta = getViewerLocalizedMeta();
+    const title = meta.title || state.title || viewerProjectMeta.rootTitle || 'Untitled';
+    const label = viewerProjectMeta.labelName;
+    const description = meta.description;
+    const linerNotes = meta.linerNotes;
+    const series = meta.series;
+
+    const kickerEl = document.getElementById('viewer-info-kicker');
+    const titleEl = document.getElementById('viewer-info-title');
+    const seriesEl = document.getElementById('viewer-info-series');
+    const labelRow = document.getElementById('viewer-info-label-row');
+    const labelEl = document.getElementById('viewer-info-label');
+    const authorRow = document.getElementById('viewer-info-author-row');
+    const authorEl = document.getElementById('viewer-info-author');
+    const descEl = document.getElementById('viewer-info-description');
+    const notesSection = document.getElementById('viewer-info-notes-section');
+    const notesEl = document.getElementById('viewer-info-notes');
+    const reviewSection = document.getElementById('viewer-info-review-section');
+    const reviewEl = document.getElementById('viewer-info-reviews');
+    const expandBtn = document.getElementById('viewer-info-expand-btn');
+    const peekBtn = document.getElementById('viewer-info-peek-btn');
+
+    if (kickerEl) kickerEl.textContent = buildViewerInfoKicker(meta);
+    if (titleEl) titleEl.textContent = title;
+
+    if (seriesEl) {
+        seriesEl.hidden = !series;
+        seriesEl.textContent = series;
+    }
+
+    if (labelRow) labelRow.hidden = !label;
+    if (labelEl) labelEl.textContent = label;
+    if (authorRow) authorRow.hidden = !meta.author;
+    if (authorEl) authorEl.textContent = meta.author;
+
+    if (descEl) {
+        descEl.hidden = !description;
+        descEl.textContent = description;
+    }
+
+    if (notesSection) notesSection.hidden = !shouldShowViewerInfoBody() || !linerNotes;
+    if (notesEl) notesEl.innerHTML = linerNotes ? parseViewerRichText(linerNotes) : '';
+
+    if (reviewSection) reviewSection.hidden = !shouldShowViewerInfoBody();
+    if (reviewEl) reviewEl.textContent = vt('infoReviewsPending');
+    if (expandBtn) expandBtn.hidden = viewerInfoPanelState === 'full';
+    if (peekBtn) peekBtn.hidden = viewerInfoPanelState === 'peek';
+}
+
+function applyViewerInfoPanelLabels() {
+    const infoBtn = document.getElementById('viewer-info-btn');
+    if (infoBtn) infoBtn.title = vt('infoPanel');
+    const handleBtn = document.getElementById('viewer-info-handle');
+    if (handleBtn) handleBtn.setAttribute('aria-label', vt('infoPanelOpen'));
+    const closeBtn = document.getElementById('viewer-info-close-btn');
+    if (closeBtn) closeBtn.title = vt('infoPanelClose');
+    const expandBtn = document.getElementById('viewer-info-expand-btn');
+    if (expandBtn) expandBtn.title = vt('infoPanelExpand');
+    const peekBtn = document.getElementById('viewer-info-peek-btn');
+    if (peekBtn) peekBtn.title = vt('infoPanelCollapse');
+
+    const labelLabels = document.querySelectorAll('#viewer-info-label-row .viewer-info-meta-label');
+    labelLabels.forEach((node) => { node.textContent = vt('infoLabel'); });
+    const authorLabels = document.querySelectorAll('#viewer-info-author-row .viewer-info-meta-label');
+    authorLabels.forEach((node) => { node.textContent = vt('infoAuthor'); });
+    const notesTitle = document.querySelector('#viewer-info-notes-section .viewer-info-section-title');
+    if (notesTitle) notesTitle.textContent = vt('infoLinerNotes');
+    const reviewTitle = document.querySelector('#viewer-info-review-section .viewer-info-section-title');
+    if (reviewTitle) reviewTitle.textContent = vt('infoReviews');
+}
+
+window.setViewerInfoPanelState = (nextState) => {
+    if (!VIEWER_INFO_STATES.includes(nextState)) return;
+    viewerInfoPanelState = nextState;
+    renderViewerInfoPanel();
+};
+
+window.toggleViewerInfoPanel = () => {
+    if (viewerInfoPanelState === 'closed' || viewerInfoPanelState === 'peek') {
+        window.setViewerInfoPanelState('summary');
+        return;
+    }
+    window.setViewerInfoPanelState('closed');
+};
+
+window.stepUpViewerInfoPanel = () => {
+    const from = viewerInfoPanelState === 'closed' ? 'peek' : viewerInfoPanelState;
+    window.setViewerInfoPanelState(stepViewerInfoState(from, 1));
+};
+
+window.stepDownViewerInfoPanel = () => {
+    const from = viewerInfoPanelState === 'closed' ? 'peek' : viewerInfoPanelState;
+    window.setViewerInfoPanelState(stepViewerInfoState(from, -1));
+};
+
+window.advanceViewerInfoPanel = () => {
+    if (viewerInfoPanelState === 'closed') {
+        window.setViewerInfoPanelState('summary');
+        return;
+    }
+    if (viewerInfoPanelState === 'peek') {
+        window.setViewerInfoPanelState('summary');
+        return;
+    }
+    if (viewerInfoPanelState === 'summary') {
+        window.setViewerInfoPanelState('full');
+        return;
+    }
+    window.setViewerInfoPanelState('summary');
+};
+
+function collapseViewerInfoPanelForNavigation() {
+    if (viewerInfoPanelState === 'full') {
+        viewerInfoPanelState = 'summary';
+        renderViewerInfoPanel();
+    }
 }
 
 function resolveViewerLanguages(raw, hasDsfPages) {
@@ -1076,6 +1311,8 @@ function applyViewerUiLanguage() {
     if (zonePrev) zonePrev.title = vt('prevPage');
     if (zoneNext) zoneNext.title = vt('nextPage');
     updateStandaloneEmptyText();
+    applyViewerInfoPanelLabels();
+    renderViewerInfoPanel();
     renderViewerAuthSlot(state.user || null);
     if (viewerDevMode) renderViewerDevMetrics();
 }
@@ -1573,6 +1810,7 @@ function transitionToIndex(nextIndex, kind = 'jump') {
     const fromPage = pages[currentIndex];
     const toPage = pages[nextIndex];
     dispatch({ type: actionTypes.SET_ACTIVE_INDEX, payload: nextIndex });
+    collapseViewerInfoPanelForNavigation();
     resetZoom();
     animatePageTransition(fromPage, toPage, state.activeLang, motionDir);
     refreshChrome();
@@ -1590,6 +1828,7 @@ function transitionToBookUnit(nextIndex) {
     if (pageIndex >= 0) {
         dispatch({ type: actionTypes.SET_ACTIVE_INDEX, payload: pageIndex });
     }
+    collapseViewerInfoPanelForNavigation();
     resetZoom();
     refresh();
 }
@@ -1697,6 +1936,7 @@ function refreshChrome() {
     if (countEl) countEl.textContent = `${displayIndex + 1} / ${total}`;
     renderViewerLanguagePicker();
     renderViewerAuthSlot(state.user || null);
+    renderViewerInfoPanel();
 }
 
 // ── UI ───────────────────────────────────────────────────────
@@ -1715,6 +1955,7 @@ document.addEventListener('click', (e) => {
     if (!isUiVisible) {
         if (Date.now() <= suppressZoneClickUntil) return;
         if (e.target.closest?.('#viewer-ui')) return;
+        if (e.target.closest?.('#viewer-info-panel')) return;
         if (e.target.closest?.('#zone-prev, #zone-menu, #zone-next')) return;
         window.toggleUi(true);
         return;
@@ -1727,7 +1968,8 @@ document.addEventListener('click', (e) => {
     if (authSlot && !authSlot.contains(e.target)) closeViewerAuthDropdown();
     const header = document.getElementById('viewer-header');
     const footer = document.getElementById('viewer-footer');
-    if (!(header?.contains(e.target) || footer?.contains(e.target))) {
+    const infoPanel = document.getElementById('viewer-info-panel');
+    if (!(header?.contains(e.target) || footer?.contains(e.target) || infoPanel?.contains(e.target))) {
         window.toggleUi(false);
     }
 });
@@ -1739,6 +1981,7 @@ document.addEventListener('click', (e) => {
  * 高さは `innerHeight` 基準（`100dvh` は body 側で扱い、将来 visualViewport に差し替え可能）。
  */
 function resizeCanvas() {
+    updateViewerInfoPanelLayout();
     const canvas = document.getElementById('viewer-canvas');
     if (!canvas) return;
     const W = window.innerWidth;
