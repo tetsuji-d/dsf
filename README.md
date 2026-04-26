@@ -77,6 +77,9 @@ npm run deploy:cf:staging
 npm run deploy:staging
 # alias
 npm run deploy:firebase:staging
+
+# custom claims の付与/剥奪（service account 必須）
+npm run claims:set -- --email ops@example.com --operator true --reason "staging operator"
 ```
 
 ## ステージング運用ルール

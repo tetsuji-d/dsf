@@ -20,9 +20,11 @@
     "deploy:cf:prod": "npm run deploy:pages",
     "deploy:cf:staging": "npm run deploy:pages:staging",
     "dev:pages": "npx wrangler pages dev dist --port 8788",
-    "dev:cf": "npm run dev:pages"
+    "dev:cf": "npm run dev:pages",
+    "claims:set": "node scripts/set-custom-claims.js"
   },
   "devDependencies": {
+    "firebase-admin": "^13.3.0",
     "firebase-tools": "^15.5.1",
     "vite": "^5.0.0",
     "wrangler": "^3.0.0"

@@ -214,6 +214,47 @@ users/{uid}
 
 ---
 
+## 5.5 custom claims の付与運用
+
+### 原則
+
+- custom claims は **Firebase Admin SDK だけ**が更新する
+- Firestore `users/{uid}.roles.*` は claims のミラーであり、正本ではない
+- claims 更新時は同時に:
+  1. `users/{uid}.roles.*` を更新
+  2. `users/{uid}.adminRoleSync.*` を更新
+  3. `admin_audit_logs/{logId}` を記録
+
+### 現在の運用経路
+
+当面はローカル管理スクリプトを使う。
+
+```bash
+npm run claims:set -- --email ops@example.com --operator true --reason "staging operator"
+```
+
+必要条件:
+
+- `GOOGLE_APPLICATION_CREDENTIALS` に service account JSON のパスを指定
+  または `FIREBASE_SERVICE_ACCOUNT_JSON` に JSON 文字列を指定
+- 必要に応じて `FIREBASE_PROJECT_ID` を指定
+
+### 反映タイミング
+
+custom claims は ID トークン再取得まで反映されない。
+
+- 付与 / 剥奪直後は再ログイン
+- または `getIdToken(true)` による強制更新
+
+を行う。
+
+### 実行できる人
+
+- 現段階では Architect / 運営のローカル端末のみ
+- 将来は admin console の privileged endpoint に移行する
+
+---
+
 ## 6. 運営管理画面の最小スコープ
 
 最初の運営管理画面は以下で十分。
