@@ -120,6 +120,9 @@ function buildNextClaims(existingClaims, updates) {
 
     return {
         ...(existingClaims || {}),
+        admin: dsfRoles.admin,
+        operator: dsfRoles.operator,
+        moderator: dsfRoles.moderator,
         dsfRoles
     };
 }

@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, viewport-fit=cover">
+    <title>DSF Admin</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Noto+Sans+JP:wght@400;500;700;900&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet">
+    <link rel="stylesheet" href="../css/variables.css">
+    <link rel="stylesheet" href="../css/admin.css">
+    <script src="https://accounts.google.com/gsi/client" async defer></script>
+</head>
+<body>
+    <div class="admin-shell is-booting" id="admin-shell">
+        <aside class="admin-sidebar">
+            <a href="/" class="admin-brand">
+                <span class="admin-brand-mark">DSF</span>
+                <span class="admin-brand-text">Admin Console</span>
+            </a>
+            <nav class="admin-nav">
+                <button type="button" class="admin-nav-link is-active" data-section="users">
+                    <span class="material-icons" aria-hidden="true">group</span>
+                    <span>Users</span>
+                </button>
+                <button type="button" class="admin-nav-link" data-section="works" disabled>
+                    <span class="material-icons" aria-hidden="true">auto_stories</span>
+                    <span>Works</span>
+                </button>
+                <button type="button" class="admin-nav-link" data-section="reviews" disabled>
+                    <span class="material-icons" aria-hidden="true">rate_review</span>
+                    <span>Reviews</span>
+                </button>
+            </nav>
+            <div class="admin-sidebar-footer">
+                <a class="admin-back-link" href="/">Horizon</a>
+                <a class="admin-back-link" href="/studio.html?room=home">Studio</a>
+            </div>
+        </aside>
+
+        <main class="admin-main">
+            <header class="admin-header">
+                <div>
+                    <p class="admin-kicker">Operations</p>
+                    <h1 class="admin-title">Users</h1>
+                </div>
+                <div class="admin-header-actions">
+                    <div id="admin-auth-area"></div>
+                </div>
+            </header>
+
+            <div id="admin-feedback" class="admin-feedback" aria-live="polite"></div>
+
+            <section id="admin-auth-gate" class="admin-gate">
+                <div class="admin-gate-card">
+                    <p id="admin-gate-kicker" class="admin-gate-kicker">DSF ADMIN CONSOLE</p>
+                    <h2 id="admin-gate-title">権限を確認しています</h2>
+                    <p id="admin-gate-message">この画面は DSF 運営向けです。ログイン状態と custom claims を確認しています。</p>
+                    <div id="admin-gate-account" class="admin-gate-account" hidden></div>
+                    <div id="gis-btn-admin"></div>
+                </div>
+            </section>
+
+            <section id="admin-users-view" class="admin-content" hidden>
+                <div class="admin-toolbar">
+                    <label class="admin-search">
+                        <span class="material-icons" aria-hidden="true">search</span>
+                        <input id="admin-user-search" type="search" placeholder="displayName / email / uid で検索">
+                    </label>
+                    <div class="admin-toolbar-meta">
+                        <span id="admin-role-badge" class="admin-role-badge">STAFF</span>
+                        <span id="admin-user-count" class="admin-user-count">0 users</span>
+                    </div>
+                </div>
+
+                <div class="admin-users-layout">
+                    <section class="admin-panel admin-list-panel">
+                        <div id="admin-user-list" class="admin-user-list" role="list"></div>
+                    </section>
+
+                    <aside class="admin-panel admin-detail-panel">
+                        <div id="admin-user-detail" class="admin-user-detail">
+                            <div class="admin-empty-state">
+                                <span class="material-icons" aria-hidden="true">person_search</span>
+                                <p>ユーザーを選択してください。</p>
+                            </div>
+                        </div>
+                    </aside>
+                </div>
+            </section>
+        </main>
+    </div>
+
+    <script type="module" src="../js/admin.js"></script>
+</body>
+</html>

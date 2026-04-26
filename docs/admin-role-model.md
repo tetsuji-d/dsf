@@ -130,6 +130,9 @@ Studio を使って制作するユーザー。初期値 `true`。
 
 ```json
 {
+  "admin": true,
+  "operator": false,
+  "moderator": false,
   "dsfRoles": {
     "admin": true,
     "operator": false,
@@ -141,6 +144,8 @@ Studio を使って制作するユーザー。初期値 `true`。
 補足:
 - `reader` / `creator` は初期状態で全員に付与されるため、claims に持たせなくてもよい
 - claims は昇格権限だけを持つ方が安全
+- Firestore Rules では top-level の `admin` / `operator` / `moderator` を判定に使う
+- `dsfRoles.*` は将来のクライアント表示や移行互換のための namespaced mirror
 
 ### 3.2 Firestore `users/{uid}` ミラー
 
