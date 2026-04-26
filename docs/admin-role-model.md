@@ -218,6 +218,8 @@ users/{uid}
 
 最初の運営管理画面は以下で十分。
 
+詳細 UI 仕様は [docs/admin-console-spec.md](admin-console-spec.md) を参照。
+
 ### 6.1 Users
 
 - ユーザー一覧

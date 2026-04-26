@@ -128,6 +128,22 @@ function buildUserBootstrapDefaults(user) {
             operator: false,
             moderator: false
         },
+        plan: {
+            tier: 'free',
+            status: 'active',
+            provider: 'none',
+            trialEndsAt: null,
+            currentPeriodEnd: null,
+            cancelAtPeriodEnd: false,
+            updatedAt: null
+        },
+        entitlements: {
+            canCreateProject: true,
+            canUsePremiumPaper: false,
+            canPublishPrivately: false,
+            canUseAdvancedAnalytics: false,
+            canManageLabel: false
+        },
         status: {
             disabled: false,
             moderationHold: false
@@ -178,6 +194,22 @@ export async function ensureUserBootstrap(user = auth.currentUser) {
                 admin: typeof data.roles?.admin === 'boolean' ? data.roles.admin : defaults.roles.admin,
                 operator: typeof data.roles?.operator === 'boolean' ? data.roles.operator : defaults.roles.operator,
                 moderator: typeof data.roles?.moderator === 'boolean' ? data.roles.moderator : defaults.roles.moderator
+            },
+            plan: {
+                tier: typeof data.plan?.tier === 'string' ? data.plan.tier : defaults.plan.tier,
+                status: typeof data.plan?.status === 'string' ? data.plan.status : defaults.plan.status,
+                provider: typeof data.plan?.provider === 'string' ? data.plan.provider : defaults.plan.provider,
+                trialEndsAt: data.plan?.trialEndsAt ?? defaults.plan.trialEndsAt,
+                currentPeriodEnd: data.plan?.currentPeriodEnd ?? defaults.plan.currentPeriodEnd,
+                cancelAtPeriodEnd: typeof data.plan?.cancelAtPeriodEnd === 'boolean' ? data.plan.cancelAtPeriodEnd : defaults.plan.cancelAtPeriodEnd,
+                updatedAt: data.plan?.updatedAt ?? defaults.plan.updatedAt
+            },
+            entitlements: {
+                canCreateProject: typeof data.entitlements?.canCreateProject === 'boolean' ? data.entitlements.canCreateProject : defaults.entitlements.canCreateProject,
+                canUsePremiumPaper: typeof data.entitlements?.canUsePremiumPaper === 'boolean' ? data.entitlements.canUsePremiumPaper : defaults.entitlements.canUsePremiumPaper,
+                canPublishPrivately: typeof data.entitlements?.canPublishPrivately === 'boolean' ? data.entitlements.canPublishPrivately : defaults.entitlements.canPublishPrivately,
+                canUseAdvancedAnalytics: typeof data.entitlements?.canUseAdvancedAnalytics === 'boolean' ? data.entitlements.canUseAdvancedAnalytics : defaults.entitlements.canUseAdvancedAnalytics,
+                canManageLabel: typeof data.entitlements?.canManageLabel === 'boolean' ? data.entitlements.canManageLabel : defaults.entitlements.canManageLabel
             },
             status: {
                 disabled: typeof data.status?.disabled === 'boolean' ? data.status.disabled : defaults.status.disabled,

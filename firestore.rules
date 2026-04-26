@@ -2,31 +2,161 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(uid) {
+      return isSignedIn() && request.auth.uid == uid;
+    }
+
+    function hasClaim(name) {
+      return isSignedIn() && request.auth.token[name] == true;
+    }
+
+    function isAdmin() {
+      return hasClaim('admin');
+    }
+
+    function isOperator() {
+      return hasClaim('operator');
+    }
+
+    function isModerator() {
+      return hasClaim('moderator');
+    }
+
+    function isStaff() {
+      return isAdmin() || isOperator() || isModerator();
+    }
+
+    function defaultAuthoringRoot(uid) {
+      return 'users/' + uid + '/dsp/';
+    }
+
+    function defaultPublishRoot(uid) {
+      return 'users/' + uid + '/dsf/';
+    }
+
+    function ownerUserCreateIsValid(uid) {
+      return request.resource.data.uid == uid
+        && request.resource.data.authProvider == 'google'
+        && request.resource.data.handle == null
+        && request.resource.data.roles.reader == true
+        && request.resource.data.roles.creator == true
+        && request.resource.data.roles.admin == false
+        && request.resource.data.roles.operator == false
+        && request.resource.data.roles.moderator == false
+        && request.resource.data.plan.tier == 'free'
+        && request.resource.data.plan.status == 'active'
+        && request.resource.data.plan.provider == 'none'
+        && request.resource.data.plan.trialEndsAt == null
+        && request.resource.data.plan.currentPeriodEnd == null
+        && request.resource.data.plan.cancelAtPeriodEnd == false
+        && request.resource.data.plan.updatedAt == null
+        && request.resource.data.entitlements.canCreateProject == true
+        && request.resource.data.entitlements.canUsePremiumPaper == false
+        && request.resource.data.entitlements.canPublishPrivately == false
+        && request.resource.data.entitlements.canUseAdvancedAnalytics == false
+        && request.resource.data.entitlements.canManageLabel == false
+        && request.resource.data.status.disabled == false
+        && request.resource.data.status.moderationHold == false
+        && request.resource.data.storage.authoringRoot == defaultAuthoringRoot(uid)
+        && request.resource.data.storage.publishRoot == defaultPublishRoot(uid)
+        && request.resource.data.storage.initialized == true;
+    }
+
+    function ownerUserUpdateTouchesOnlyAllowedTopLevelKeys() {
+      return request.resource.data.diff(resource.data).changedKeys().hasOnly([
+        'displayName',
+        'photoURL',
+        'email',
+        'handle',
+        'lastLoginAt',
+        'roles',
+        'plan',
+        'entitlements',
+        'status',
+        'storage'
+      ]);
+    }
+
+    function ownerProtectedUserFieldsRemainSafe(uid) {
+      return request.resource.data.uid == resource.data.uid
+        && request.resource.data.authProvider == resource.data.authProvider
+        && request.resource.data.createdAt == resource.data.createdAt
+        && request.resource.data.roles.reader == (resource.data.roles == null || resource.data.roles.reader == null ? true : resource.data.roles.reader)
+        && request.resource.data.roles.creator == (resource.data.roles == null || resource.data.roles.creator == null ? true : resource.data.roles.creator)
+        && request.resource.data.roles.admin == (resource.data.roles == null || resource.data.roles.admin == null ? false : resource.data.roles.admin)
+        && request.resource.data.roles.operator == (resource.data.roles == null || resource.data.roles.operator == null ? false : resource.data.roles.operator)
+        && request.resource.data.roles.moderator == (resource.data.roles == null || resource.data.roles.moderator == null ? false : resource.data.roles.moderator)
+        && request.resource.data.plan.tier == (resource.data.plan == null || resource.data.plan.tier == null ? 'free' : resource.data.plan.tier)
+        && request.resource.data.plan.status == (resource.data.plan == null || resource.data.plan.status == null ? 'active' : resource.data.plan.status)
+        && request.resource.data.plan.provider == (resource.data.plan == null || resource.data.plan.provider == null ? 'none' : resource.data.plan.provider)
+        && request.resource.data.plan.trialEndsAt == (resource.data.plan == null || resource.data.plan.trialEndsAt == null ? null : resource.data.plan.trialEndsAt)
+        && request.resource.data.plan.currentPeriodEnd == (resource.data.plan == null || resource.data.plan.currentPeriodEnd == null ? null : resource.data.plan.currentPeriodEnd)
+        && request.resource.data.plan.cancelAtPeriodEnd == (resource.data.plan == null || resource.data.plan.cancelAtPeriodEnd == null ? false : resource.data.plan.cancelAtPeriodEnd)
+        && request.resource.data.plan.updatedAt == (resource.data.plan == null || resource.data.plan.updatedAt == null ? null : resource.data.plan.updatedAt)
+        && request.resource.data.entitlements.canCreateProject == (resource.data.entitlements == null || resource.data.entitlements.canCreateProject == null ? true : resource.data.entitlements.canCreateProject)
+        && request.resource.data.entitlements.canUsePremiumPaper == (resource.data.entitlements == null || resource.data.entitlements.canUsePremiumPaper == null ? false : resource.data.entitlements.canUsePremiumPaper)
+        && request.resource.data.entitlements.canPublishPrivately == (resource.data.entitlements == null || resource.data.entitlements.canPublishPrivately == null ? false : resource.data.entitlements.canPublishPrivately)
+        && request.resource.data.entitlements.canUseAdvancedAnalytics == (resource.data.entitlements == null || resource.data.entitlements.canUseAdvancedAnalytics == null ? false : resource.data.entitlements.canUseAdvancedAnalytics)
+        && request.resource.data.entitlements.canManageLabel == (resource.data.entitlements == null || resource.data.entitlements.canManageLabel == null ? false : resource.data.entitlements.canManageLabel)
+        && request.resource.data.status.disabled == (resource.data.status == null || resource.data.status.disabled == null ? false : resource.data.status.disabled)
+        && request.resource.data.status.moderationHold == (resource.data.status == null || resource.data.status.moderationHold == null ? false : resource.data.status.moderationHold)
+        && request.resource.data.storage.authoringRoot == (resource.data.storage == null || resource.data.storage.authoringRoot == null ? defaultAuthoringRoot(uid) : resource.data.storage.authoringRoot)
+        && request.resource.data.storage.publishRoot == (resource.data.storage == null || resource.data.storage.publishRoot == null ? defaultPublishRoot(uid) : resource.data.storage.publishRoot)
+        && request.resource.data.storage.initialized == (resource.data.storage == null || resource.data.storage.initialized == null ? true : resource.data.storage.initialized);
+    }
+
+    function operatorUserUpdateTouchesOnlyAllowedTopLevelKeys() {
+      return request.resource.data.diff(resource.data).changedKeys().hasOnly([
+        'status',
+        'plan',
+        'entitlements',
+        'lastLoginAt'
+      ]);
+    }
+
+    function operatorUserUpdateKeepsIdentity() {
+      return request.resource.data.uid == resource.data.uid
+        && request.resource.data.authProvider == resource.data.authProvider
+        && request.resource.data.displayName == resource.data.displayName
+        && request.resource.data.photoURL == resource.data.photoURL
+        && request.resource.data.email == resource.data.email
+        && request.resource.data.handle == resource.data.handle
+        && request.resource.data.roles == resource.data.roles
+        && request.resource.data.storage == resource.data.storage
+        && request.resource.data.createdAt == resource.data.createdAt;
+    }
+
     // ユーザー正本
-    // - 自分のアカウント情報だけ self read/write を許可
-    // - reviews / admin UI の前提になる正本
     match /users/{uid} {
-      allow read, write: if request.auth != null && request.auth.uid == uid;
+      allow read: if isOwner(uid) || isStaff();
+      allow create: if isOwner(uid) && ownerUserCreateIsValid(uid);
+      allow update: if (isOwner(uid)
+                        && ownerUserUpdateTouchesOnlyAllowedTopLevelKeys()
+                        && ownerProtectedUserFieldsRemainSafe(uid))
+                    || (isAdmin())
+                    || (isOperator()
+                        && operatorUserUpdateTouchesOnlyAllowedTopLevelKeys()
+                        && operatorUserUpdateKeepsIdentity());
+      allow delete: if isAdmin();
 
       // ユーザーごとのプロジェクト
-      // - オーナーのみ読み書き可
-      // - DSF 発行済みの dsfStatus が 'public' または 'unlisted' の場合のみ誰でも読み取り可
       match /projects/{pid} {
-        allow read, write: if request.auth != null && request.auth.uid == uid;
+        allow read, write: if isOwner(uid);
         allow read: if resource.data.dsfStatus in ['public', 'unlisted'];
       }
     }
 
-    // 公開プロジェクト一覧（ポータル向け）
-    // - 誰でも読み取り可（認証不要）
-    // - 作成・更新: 認証済みユーザーが自分の authorUid でのみ可
-    // - 削除: authorUid が一致する認証済みユーザーのみ可
     match /public_projects/{pid} {
       allow read: if true;
-      allow create, update: if request.auth != null
+      allow create, update: if isSignedIn()
                             && request.resource.data.authorUid == request.auth.uid;
-      allow delete: if request.auth != null
-                   && resource.data.authorUid == request.auth.uid;
+      allow delete: if (isSignedIn() && resource.data.authorUid == request.auth.uid)
+                    || isAdmin()
+                    || isOperator();
     }
   }
 }
