@@ -84,8 +84,10 @@ npm run claims:set -- --email ops@example.com --operator true --reason "staging 
 
 ## ステージング運用ルール
 
-- **日常のステージング確認先**: `https://staging.dsf-studio.pages.dev/`
-- **補助確認先**: `https://vmnn-26345-stg.web.app`
+- **Primary staging**: `https://staging.dsf-studio.pages.dev/`
+- **Secondary staging**: `https://vmnn-26345-stg.web.app`
+- 日常の確認、共有、UI 検証は **Cloudflare Pages staging を正面** にする
+- Firebase Hosting staging は **補助確認用**。Hosting 差分や Rules 反映切り分けに使う
 - バグ報告や確認依頼では、**どのURLで見たか**を必ず添える
 
 `git push` はコードを GitHub に送るだけで、確認用URLは更新しません。  
