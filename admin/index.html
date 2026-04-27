@@ -42,10 +42,14 @@
         <main class="admin-main">
             <header class="admin-header">
                 <div>
-                    <p class="admin-kicker">Operations</p>
-                    <h1 class="admin-title">Users</h1>
+                    <p class="admin-kicker" data-admin-i18n="kicker_operations">Operations</p>
+                    <h1 class="admin-title" data-admin-i18n="title_users">Users</h1>
                 </div>
                 <div class="admin-header-actions">
+                    <div class="admin-ui-lang-switcher" role="group" aria-label="Admin UI language">
+                        <button type="button" class="admin-ui-lang-btn" data-admin-ui-lang="ja">JA</button>
+                        <button type="button" class="admin-ui-lang-btn" data-admin-ui-lang="en">EN</button>
+                    </div>
                     <div id="admin-auth-area"></div>
                 </div>
             </header>
