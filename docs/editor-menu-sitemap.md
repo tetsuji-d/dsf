@@ -1,5 +1,9 @@
 # Editor Menu Sitemap
 
+> Status: historical / superseded.
+> 2026-02 時点の ribbon-centric IA を記録した文書です。現在の room-based shell とは一致しません。
+> 現行のプロダクト境界は `CLAUDE.md` と `studio.html` を優先してください。
+
 最終更新: 2026-02-17
 対象: `index.html`, `js/app.js`
 

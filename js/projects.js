@@ -1,7 +1,7 @@
 /**
  * projects.js — プロジェクト一覧モーダル管理
  */
-import { collection, getDocs, deleteDoc, doc } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
+import { collection, getDocs, deleteDoc, doc, getDoc } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
 import { state } from './state.js';
 import { db } from './firebase.js';
 
@@ -19,11 +19,15 @@ export async function fetchCloudProjects() {
         const lastUpdated = raw.lastUpdated?.toDate?.() ?? new Date(0);
         projects.push({
             id: docSnap.id,
+            workId: typeof raw.workId === 'string' ? raw.workId : '',
             projectName: typeof raw.projectName === 'string' ? raw.projectName : '',
             title: typeof raw.title === 'string' ? raw.title : '',
             languages: Array.isArray(raw.languages) ? raw.languages : ['ja'],
             dsfPages: Array.isArray(raw.dsfPages) ? raw.dsfPages : [],
-            dsfStatus: typeof raw.dsfStatus === 'string' ? raw.dsfStatus : '',
+            dsfStatus: typeof raw.dsfStatus === 'string' ? raw.dsfStatus : 'draft',
+            dsfPublishedAt: raw.dsfPublishedAt || null,
+            releaseId: typeof raw.releaseId === 'string' ? raw.releaseId : '',
+            dsfLangs: Array.isArray(raw.dsfLangs) ? raw.dsfLangs : [],
             dsfTotalBytes: Number.isFinite(Number(raw.dsfTotalBytes)) ? Number(raw.dsfTotalBytes) : 0,
             dsfResolution: typeof raw.dsfResolution === 'string' ? raw.dsfResolution : '',
             dsfQuality: Number.isFinite(Number(raw.dsfQuality)) ? Number(raw.dsfQuality) : 0,
@@ -40,7 +44,16 @@ export async function fetchCloudProjects() {
 
 export async function deleteCloudProject(projectId) {
     if (!state.uid) throw new Error('ログインしてください');
+    const projectRef = doc(db, "users", state.uid, "projects", projectId);
+    const snap = await getDoc(projectRef);
+    const workId = snap.exists() && typeof snap.data()?.workId === 'string'
+        ? snap.data().workId
+        : '';
     await deleteDoc(doc(db, "users", state.uid, "projects", projectId));
+    if (workId) {
+        await deleteDoc(doc(db, "public_projects", workId)).catch(() => {});
+    }
+    await deleteDoc(doc(db, "public_projects", projectId)).catch(() => {});
 }
 
 /**
@@ -96,7 +109,7 @@ export async function openProjectModal(onLoadProject) {
                 const pid = card.dataset.id;
                 const project = projects.find(p => p.id === pid);
                 if (project) {
-                    onLoadProject(pid, project.projectName, project.sections, project.languages, project.defaultLang, project.languageConfigs, project.title, project.uiPrefs, project.pages, project.blocks, project.version);
+                    onLoadProject(pid, project.projectName, project.sections, project.languages, project.defaultLang, project.languageConfigs, project.title, project.uiPrefs, project.pages, project.blocks, project.version, project.bookMode, project.book, project.textPaperPreset);
                     closeProjectModal();
                 }
             });

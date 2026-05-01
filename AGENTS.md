@@ -1,6 +1,9 @@
-# AGENTS.md — DSF 開発ガイド
+# AGENTS.md — DSF 開発運用ルール
 
-このファイルはDSF Studio Pro の開発ルールと状態を記録します。
+このファイルは、**DSF Studio / Viewer / Library の開発運用ルール**をまとめたものです。  
+プロダクト全体像や文書の読み順は **[CLAUDE.md](CLAUDE.md)** を起点にしてください。
+
+**プロダクト前提（要約）**: DSF はスマホ向け固定レイアウト出版。「レイアウトはコンテンツ」。9:16 WebP ページ、ZIP コンテナ（`manifest.json` 等）、広告なしの読書体験、オープンなファイル仕様を重視。詳細は `CLAUDE.md` を参照。
 
 **開発体制**: Claude (claude-sonnet-4-6) 単体 + 人間（Architect）
 
@@ -33,23 +36,36 @@ Claude はスコープ制限なく全ファイルを編集可。
 
 データ形式変更は人間（Architect）と合意してから実装する。
 
+## 2.5 読み順
+
+新しく参加した人間 / AI は、以下の順で読む。
+
+1. [CLAUDE.md](CLAUDE.md)
+2. [AGENTS.md](AGENTS.md)
+3. 必要に応じて:
+   - [docs/data-model.md](docs/data-model.md)
+   - [docs/file-format-spec.md](docs/file-format-spec.md)
+   - [docs/environment-topology.md](docs/environment-topology.md)
+   - [docs/user-account-audit.md](docs/user-account-audit.md)
+   - [docs/viewer-info-panel-spec.md](docs/viewer-info-panel-spec.md)
+
 ---
 
-## 3. DSF フォーマット方針（2026-03-25 確定）
+## 3. DSF / Gen3 フォーマット方針（2026-03-25 確定、名称は 2026-04 更新）
 
-**Gen 3: WebP 画像のみ**でページを構成する。
+**DSF（Digital Spread Format）** の配信ページは **WebP 画像（9:16 前提のマスター）** で表現する。
 
 | 世代 | 方式 | 状態 |
 |------|------|------|
 | Gen 1 | Webテキスト組版 + 画像の混在 | 廃止 |
 | Gen 2 | WebGL によるフォント・画像統合レンダリング | **廃止**（複雑・重い・端末差） |
-| Gen 3 | **WebP 画像のみ** | ✅ 現行方針 |
+| Gen 3 | **WebP 画像のみ（固定レイアウトのマスター）** | ✅ 現行方針 |
 
-- すべてのページは WebP 画像として扱う
-- テキスト組版はエディタ側でレンダリングして画像化
-- ビューワーは WebP 画像の高速表示に専念
+- 組版・タイポグラフィはエディター側で完結し、ビューアーは軽量表示に専念する
+- EPUB 的リフローではなく、**作者意図のレイアウトをそのまま配信**する
 - `bodyKind:'text'` / richText 系は廃止方向
 - WebGL / Three.js は使用しない
+- 多言語は **言語別 WebP** とメタデータ（`meta.json` / `content.json` 等）で表現
 
 ---
 
@@ -58,7 +74,7 @@ Claude はスコープ制限なく全ファイルを編集可。
 ### 命名規則
 
 | 種別 | パターン | 例 |
-|------|---------|-----|
+|------|---------|------|
 | 機能追加 | `feature/<説明>` | `feature/webp-viewer` |
 | バグ修正 | `fix/<説明>` | `fix/thumbnail-race` |
 | リファクタ | `refactor/<説明>` | `refactor/app-split` |
@@ -101,3 +117,4 @@ main（常に安定・マージ済みコードのみ）
 | 2026-02-24 | マルチエージェント体制で開発開始 |
 | 2026-02-25 | CSS分割・Firebase Staging・AR fields 等を実装 |
 | 2026-03-25 | マルチエージェント廃止 → Claude 単体開発に移行。WebGL 廃止・WebP 統一方針を確定 |
+| 2026-04-12 | プロダクト叙述を DSF（Digital Spread Format）・固定レイアウト前提に更新（ドキュメント） |

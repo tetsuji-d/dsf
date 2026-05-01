@@ -1,11 +1,14 @@
 /**
  * state.js — アプリケーション共有ステート
- * 全モジュールがこのオブジェクトを参照・変更する
+ * `blocks` が authoring canonical。
+ * `sections` と `pages` は互換レンダリング/出力のための派生面として保持する。
  */
 export const state = {
     user: null,
     uid: null,
     projectId: null,
+    workId: null,
+    releaseId: null,
     localProjectId: null,
     projectName: '',
     title: '',               // 作品タイトル（ヘッダー表示用）
@@ -14,6 +17,14 @@ export const state = {
     defaultLang: 'ja',
     languageConfigs: {
         ja: { pageDirection: 'rtl' }
+    },
+    bookMode: 'simple',
+    book: {
+        mode: 'simple',
+        covers: {
+            c1: { pageIndex: 0 },
+            c4: { pageIndex: 0 }
+        }
     },
     activeLang: 'ja',        // エディタで表示中の言語
     blocks: [
@@ -28,8 +39,8 @@ export const state = {
             }
         }
     ],
-    pages: [],
-    sections: [
+    pages: [], // derived viewer/export surface (v5 page objects)
+    sections: [ // legacy-compatible flat surface used by some editor flows
         {
             type: 'image',
             background: 'https://picsum.photos/id/10/600/1066',
@@ -38,9 +49,11 @@ export const state = {
         }
     ],
     // Project metadata (language-independent)
+    labelName: '',
     rating: 'all',
     license: 'all-rights-reserved',
-    // Per-language metadata: { ja: { title, author, description, copyright }, en: { ... } }
+    textPaperPreset: 'white',
+    // Per-language metadata: { ja: { title, author, description, linerNotes, copyright }, en: { ... } }
     meta: {},
 
     activeIdx: 0,
@@ -84,15 +97,22 @@ export const actionTypes = {
 };
 
 /**
- * Dispatch function to handle state mutations centrally
+ * Dispatch function to handle state mutations centrally.
+ * Content edits should converge back to canonical `blocks` via sync helpers.
  */
 export function dispatch(action) {
     const { type, payload } = action;
 
     switch (type) {
-        case actionTypes.LOAD_PROJECT:
-            Object.assign(state, payload);
+        case actionTypes.LOAD_PROJECT: {
+            // バックアップ/DSP 復元に含まれる uid・user は古いセッションの残骸で
+            // Firebase Auth の現在ユーザーとズレると R2 の path と ID トークンが不一致になる。
+            const projectPayload = { ...(payload || {}) };
+            delete projectPayload.uid;
+            delete projectPayload.user;
+            Object.assign(state, projectPayload);
             break;
+        }
 
         case actionTypes.SET_AUTH_STATE:
             state.user = payload.user;
@@ -129,6 +149,15 @@ export function dispatch(action) {
                 state.uiPrefs[payload.device].thumbColumns = payload.columns;
             }
             break;
+
+        case actionTypes.UPDATE_SECTION_TEXT: {
+            const { idx, lang, text } = payload;
+            const s = state.sections[idx];
+            if (s) {
+                state.sections[idx] = { ...s, texts: { ...s.texts, [lang]: text } };
+            }
+            break;
+        }
 
         case actionTypes.SET_STATE_FIELD:
             // Generic setter for simple root-level assignments

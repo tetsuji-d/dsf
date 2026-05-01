@@ -50,8 +50,13 @@ export async function onRequestPost({ request, env }) {
             return jsonError('R2 bucket not configured', 500);
         }
         const buffer = await file.arrayBuffer();
+        const isWebPPath = String(path).toLowerCase().endsWith('.webp');
+        const isWebPContent = isWebPArrayBuffer(buffer);
+        if (isWebPPath && !isWebPContent) {
+            return jsonError('Expected image/webp content for .webp upload path', 415);
+        }
         await env.R2_BUCKET.put(path, buffer, {
-            httpMetadata: { contentType: file.type || 'image/webp' },
+            httpMetadata: { contentType: isWebPContent ? 'image/webp' : (file.type || 'application/octet-stream') },
         });
 
         // 4. Return the public URL
@@ -80,6 +85,13 @@ function corsHeaders() {
 
 function jsonError(msg, status) {
     return Response.json({ error: msg }, { status, headers: corsHeaders() });
+}
+
+function isWebPArrayBuffer(buffer) {
+    const bytes = new Uint8Array(buffer, 0, Math.min(buffer.byteLength, 12));
+    if (bytes.length < 12) return false;
+    return bytes[0] === 0x52 && bytes[1] === 0x49 && bytes[2] === 0x46 && bytes[3] === 0x46
+        && bytes[8] === 0x57 && bytes[9] === 0x45 && bytes[10] === 0x42 && bytes[11] === 0x50;
 }
 
 // ── Firebase ID token verification via Web Crypto API ────────────────────────

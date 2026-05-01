@@ -18,25 +18,93 @@
 
 <body>
 
-    <div id="viewer-canvas">
-        <div id="viewer-stage"
-            style="width:100%; height:100%; position:absolute; top:0; left:0; transform-origin:center center;">
-            <!-- Fixed resolution stage (360x640) for consistent rendering -->
-            <div id="content-stage"
-                style="position:absolute; top:0; left:0; width:360px; height:640px; transform-origin:top left; background:#fff; overflow:hidden;">
-                <div id="viewer-content"></div>
-                <div id="viewer-bubbles"></div>
+    <div id="viewer-layout">
+        <div id="viewer-canvas">
+            <div id="viewer-stage">
+                <!-- Fixed logical page stage (9:16). Size: css/variables.css + js/page-geometry.js -->
+                <div id="content-stage">
+                    <div id="viewer-content"></div>
+                    <div id="viewer-bubbles"></div>
+                </div>
+                <!-- 見開き時の隣ページ -->
+                <div id="viewer-spread-stage" style="display:none;">
+                    <div id="viewer-spread-content"></div>
+                </div>
+            </div>
+            <!-- UD Touch Zones for navigation -->
+            <!-- Center zone is 40% to prevent mis-clicks near the edges -->
+            <div id="click-layer" style="position:absolute; inset:0; z-index:100; display:flex;">
+                <div id="zone-prev" style="flex: 0 0 30%; height:100%; cursor:pointer;" onclick="viewerNavLeft()"
+                    title="前のページ"></div>
+                <div id="zone-menu" style="flex: 0 0 40%; height:100%; cursor:pointer;" onclick="toggleUi()"
+                    title="メニュー表示/非表示"></div>
+                <div id="zone-next" style="flex: 0 0 30%; height:100%; cursor:pointer;" onclick="viewerNavRight()"
+                    title="次のページ"></div>
             </div>
         </div>
-        <!-- UD Touch Zones for navigation -->
-        <!-- Center zone is 40% to prevent mis-clicks near the edges -->
-        <div id="click-layer" style="position:absolute; inset:0; z-index:100; display:flex;">
-            <div id="zone-prev" style="flex: 0 0 30%; height:100%; cursor:pointer;" onclick="viewerNavLeft()"
-                title="前のページ"></div>
-            <div id="zone-menu" style="flex: 0 0 40%; height:100%; cursor:pointer;" onclick="toggleUi()"
-                title="メニュー表示/非表示"></div>
-            <div id="zone-next" style="flex: 0 0 30%; height:100%; cursor:pointer;" onclick="viewerNavRight()"
-                title="次のページ"></div>
+        <aside id="viewer-info-panel" class="viewer-info-panel" data-state="closed" data-layout="sheet" hidden>
+            <div class="viewer-info-panel-shell">
+                <button id="viewer-info-handle" class="viewer-info-handle" type="button" aria-label="作品情報を開く">
+                    <span class="viewer-info-handle-bar"></span>
+                </button>
+                <div class="viewer-info-panel-head">
+                    <div class="viewer-info-panel-kicker" id="viewer-info-kicker"></div>
+                    <div class="viewer-info-panel-actions">
+                        <button id="viewer-info-peek-btn" class="viewer-info-action" type="button" onclick="stepDownViewerInfoPanel()" title="縮小">
+                            <span class="material-icons" aria-hidden="true">keyboard_arrow_down</span>
+                        </button>
+                        <button id="viewer-info-expand-btn" class="viewer-info-action" type="button" onclick="stepUpViewerInfoPanel()" title="展開">
+                            <span class="material-icons" aria-hidden="true">keyboard_arrow_up</span>
+                        </button>
+                        <button id="viewer-info-close-btn" class="viewer-info-action" type="button" onclick="setViewerInfoPanelState('closed')" title="閉じる">
+                            <span class="material-icons" aria-hidden="true">close</span>
+                        </button>
+                    </div>
+                </div>
+                <div class="viewer-info-panel-summary">
+                    <h2 id="viewer-info-title" class="viewer-info-title"></h2>
+                    <div id="viewer-info-series" class="viewer-info-series" hidden></div>
+                    <div class="viewer-info-meta-list">
+                        <div id="viewer-info-label-row" class="viewer-info-meta-row" hidden>
+                            <span class="viewer-info-meta-label">Label</span>
+                            <span id="viewer-info-label" class="viewer-info-meta-value"></span>
+                        </div>
+                        <div id="viewer-info-author-row" class="viewer-info-meta-row" hidden>
+                            <span class="viewer-info-meta-label">Author</span>
+                            <span id="viewer-info-author" class="viewer-info-meta-value"></span>
+                        </div>
+                    </div>
+                    <p id="viewer-info-description" class="viewer-info-description" hidden></p>
+                </div>
+                <div id="viewer-info-body" class="viewer-info-panel-body">
+                    <section id="viewer-info-bookmark-section" class="viewer-info-section">
+                        <h3 class="viewer-info-section-title">Bookmark</h3>
+                        <div id="viewer-info-bookmark" class="viewer-info-bookmark"></div>
+                    </section>
+                    <section id="viewer-info-notes-section" class="viewer-info-section" hidden>
+                        <h3 class="viewer-info-section-title">Liner Notes</h3>
+                        <div id="viewer-info-notes" class="viewer-info-richtext"></div>
+                    </section>
+                    <section id="viewer-info-review-section" class="viewer-info-section" hidden>
+                        <h3 class="viewer-info-section-title">Reviews</h3>
+                        <div id="viewer-info-reviews" class="viewer-info-placeholder"></div>
+                    </section>
+                </div>
+            </div>
+        </aside>
+    </div>
+
+    <div id="viewer-empty-state" class="viewer-empty-state" hidden>
+        <div class="viewer-empty-panel">
+            <div class="viewer-empty-brand">DSF Viewer</div>
+            <h1 id="viewer-empty-title"></h1>
+            <p id="viewer-empty-body"></p>
+            <button id="viewer-empty-open" class="viewer-empty-open-btn" type="button"
+                onclick="document.getElementById('file-input').click()">
+                <span class="material-icons" aria-hidden="true">folder_open</span>
+                <span id="viewer-empty-open-label"></span>
+            </button>
+            <div id="viewer-empty-hint" class="viewer-empty-hint"></div>
         </div>
     </div>
 
@@ -60,6 +128,13 @@
                     <button id="lang-picker-button" class="viewer-lang-picker-button" type="button" onclick="toggleViewerLangMenu()"></button>
                     <div id="lang-picker-menu" class="viewer-lang-picker-menu"></div>
                 </div>
+                <div id="viewer-auth-slot" class="viewer-auth-slot"></div>
+                <button id="viewer-info-btn" class="btn-icon header-btn" onclick="toggleViewerInfoPanel()" title="作品情報">
+                    <span class="material-icons" aria-hidden="true">info</span>
+                </button>
+                <button id="viewer-spread-btn" class="btn-icon header-btn" onclick="toggleViewerSpread()" title="見開き表示">
+                    <span class="material-icons" aria-hidden="true">auto_stories</span>
+                </button>
                 <button id="viewer-file-btn" class="btn-icon header-btn" onclick="document.getElementById('file-input').click()"
                     title="ファイルを開く">
                     <span class="material-icons" aria-hidden="true">folder_open</span>

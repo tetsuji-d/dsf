@@ -4,7 +4,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0">
-    <title>DSF Studio Pro - Ultimate Edition</title>
+    <title>DSF Studio</title>
     <link rel="stylesheet" href="css/variables.css">
     <link rel="stylesheet" href="css/studio.css">
     <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -13,22 +13,35 @@
         href="https://fonts.googleapis.com/css2?family=Noto+Sans:wght@400;700&family=Noto+Sans+JP:wght@400;700&family=Noto+Serif:wght@400;700&family=Noto+Serif+JP:wght@400;700&display=swap"
         rel="stylesheet">
     <link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet">
-    <script src="https://accounts.google.com/gsi/client" async defer></script>
 </head>
 
-<body data-room="editor" data-device="desktop">
+<body data-room="home" data-device="desktop" data-booting="true">
     <div id="app-shell">
 
         <!-- ===== Room Navigation Bar ===== -->
         <nav id="room-nav">
             <div class="room-nav-brand">
-                <a href="/" target="_blank" rel="noopener" class="room-nav-brand-link" data-i18n-title="logo_title" title="DSF Portal を開く">
+                <button id="studio-logo-menu-btn" class="room-nav-brand-link room-nav-brand-btn" type="button" onclick="toggleStudioLogoMenu(event)" data-i18n-title="mobile_nav_open" title="メニューを開く" aria-haspopup="menu" aria-expanded="false">
                     <span class="room-logo-dsf">DSF</span><span class="room-logo-studio">Studio</span>
-                </a>
+                </button>
+                <div id="studio-logo-menu" class="studio-logo-menu" role="menu" hidden>
+                    <div class="studio-logo-menu-head">
+                        <div class="mobile-menu-logo"><span>DSF</span><small>Studio</small></div>
+                        <p data-i18n="mobile_nav_rooms">ルーム一覧</p>
+                    </div>
+                    <a href="/" target="_blank" rel="noopener" class="studio-logo-menu-link" role="menuitem" data-i18n-title="logo_title" title="DSF Horizon を開く" onclick="closeStudioLogoMenu()">
+                        <span class="material-icons" aria-hidden="true">public</span>
+                        <span data-i18n="nav_horizon">Horizon</span>
+                    </a>
+                    <button class="studio-logo-menu-link" role="menuitem" data-studio-room-nav="home" onclick="closeStudioLogoMenu(); switchRoom('home')"><span class="material-icons" aria-hidden="true">dashboard</span><span data-i18n="nav_dashboard">ダッシュボード</span></button>
+                    <button class="studio-logo-menu-link" role="menuitem" data-studio-room-nav="editor" onclick="closeStudioLogoMenu(); switchRoom('editor')"><span class="material-icons" aria-hidden="true">edit</span><span data-i18n="nav_editor">エディター</span></button>
+                    <button class="studio-logo-menu-link" role="menuitem" data-studio-room-nav="press" onclick="closeStudioLogoMenu(); switchRoom('press')" data-auth-required><span class="material-icons" aria-hidden="true">publish</span><span data-i18n="nav_press">プレス</span></button>
+                    <button class="studio-logo-menu-link" role="menuitem" data-studio-room-nav="works" onclick="closeStudioLogoMenu(); switchRoom('works')" data-auth-required><span class="material-icons" aria-hidden="true">library_books</span><span data-i18n="nav_works">作品</span></button>
+                </div>
             </div>
             <div class="room-nav-tabs">
                 <button class="room-tab" data-room="home" onclick="switchRoom('home')">
-                    <span class="material-icons">folder_open</span> <span data-i18n="nav_projects">プロジェクト</span>
+                    <span class="material-icons">dashboard</span> <span data-i18n="nav_dashboard">ダッシュボード</span>
                 </button>
                 <button class="room-tab" data-room="editor" onclick="switchRoom('editor')">
                     <span class="material-icons">edit</span> <span data-i18n="nav_editor">エディター</span>
@@ -45,7 +58,7 @@
                     <button class="ui-lang-btn" data-lang="ja" onclick="setStudioUILang('ja')">JA</button>
                     <button class="ui-lang-btn" data-lang="en" onclick="setStudioUILang('en')">EN</button>
                 </div>
-                <span id="room-user-display" class="room-user-display"></span>
+                <div id="studio-auth-slot-nav" class="studio-auth-slot studio-auth-slot-nav"></div>
             </div>
         </nav>
 
@@ -55,18 +68,43 @@
         <!-- Home Room -->
         <div id="home-room" class="room">
             <div class="home-room-header">
-                <h2 data-i18n="home_title">プロジェクト</h2>
+                <h2 data-i18n="home_title">Dashboard</h2>
             </div>
             <div class="home-room-body">
-                <div class="home-quick-actions">
-                    <button class="home-action-btn primary home-action-large" onclick="if (newProject()) switchRoom('editor')">
-                        <span class="material-icons">add</span> <span data-i18n="btn_new_project">新規プロジェクト</span>
-                    </button>
-                </div>
+                <section class="home-dashboard-hero">
+                    <div class="home-dashboard-copy">
+                        <span class="home-dashboard-kicker" data-i18n="home_dashboard_kicker">作品運用</span>
+                        <h3 data-i18n="home_dashboard_title">作品の状態を確認する</h3>
+                        <p data-i18n="home_dashboard_subtitle">公開状態、レビュー、読者反応を確認し、必要な作品やプロジェクトへ移動します。</p>
+                    </div>
+                    <div class="home-dashboard-actions">
+                        <button class="home-action-btn primary" onclick="switchRoom('works')">
+                            <span class="material-icons">library_books</span> <span data-i18n="nav_works">作品</span>
+                        </button>
+                        <button class="home-action-btn" onclick="if (newProject()) switchRoom('editor')">
+                            <span class="material-icons">add</span> <span data-i18n="btn_new_project">新規プロジェクト</span>
+                        </button>
+                    </div>
+                </section>
+                <section id="home-dashboard-stats" class="home-dashboard-stats" aria-live="polite"></section>
+                <section class="home-work-section">
+                    <div class="home-section-head">
+                        <div class="home-section-title-wrap">
+                            <h3 data-i18n="home_section_works">作品アナリティクス</h3>
+                            <span id="home-work-count" class="home-section-count">0</span>
+                        </div>
+                        <div class="home-section-actions">
+                            <button class="home-action-btn" onclick="switchRoom('works')">
+                                <span class="material-icons">open_in_new</span> <span data-i18n="home_open_works">Works Room</span>
+                            </button>
+                        </div>
+                    </div>
+                    <div id="home-work-grid" class="home-work-grid"></div>
+                </section>
                 <section class="home-project-section">
                     <div class="home-section-head">
                         <div class="home-section-title-wrap">
-                            <h3 data-i18n="home_section_cloud">クラウド</h3>
+                            <h3 data-i18n="home_section_cloud">クラウドプロジェクト</h3>
                             <span id="home-cloud-count" class="home-section-count">0</span>
                         </div>
                     </div>
@@ -108,8 +146,6 @@
                 <div id="lang-tabs-top" class="lang-tabs lang-tabs-top"></div>
                 <div class="ribbon-auth">
                     <span id="auth-warning-badge" class="auth-warning-badge" data-i18n="auth_warning">ログインでクラウド機能が有効化されます</span>
-                    <span id="auth-status" class="auth-status"></span>
-                    <button id="btn-auth" class="btn-tool" onclick="toggleAuth()" data-i18n="btn_signin">Googleでサインイン</button>
                 </div>
             </div>
             <div class="ribbon-row ribbon-panel-row">
@@ -149,8 +185,14 @@
                 </div>
                 <div class="ribbon-panel" data-ribbon-panel="insert">
                     <div class="ribbon-group">
-                        <button class="btn-tool btn-tool-icon" onclick="addSection()">
-                            <span class="material-icons" aria-hidden="true">add_box</span><span data-i18n="btn_add_section">セクション追加</span>
+                        <button class="btn-tool btn-tool-icon" onclick="insertTextSectionBeforeActive()">
+                            <span class="material-icons" aria-hidden="true">article</span><span data-i18n="btn_add_text_section">テキストページ</span>
+                        </button>
+                        <button class="btn-tool btn-tool-icon" onclick="insertSectionBeforeActive()">
+                            <span class="material-icons" aria-hidden="true">add_photo_alternate</span><span data-i18n="btn_add_section">画像ページ</span>
+                        </button>
+                        <button class="btn-tool btn-tool-icon" onclick="insertSpreadImageBeforeActive()">
+                            <span class="material-icons" aria-hidden="true">view_week</span><span data-i18n="btn_add_spread_image_section">見開き画像ページ</span>
                         </button>
                         <button class="btn-tool btn-tool-icon" onclick="addBubbleFab()">
                             <span class="material-icons" aria-hidden="true">text_fields</span><span data-i18n="btn_add_bubble">テキスト追加</span>
@@ -193,9 +235,6 @@
                         <button class="btn-tool" onclick="fitCanvasView()" data-i18n="btn_fit">フィット</button>
                         <button class="btn-tool" onclick="setCanvasZoomPercent(100)">100%</button>
                     </div>
-                    <div class="ribbon-group">
-                        <div id="lang-tabs" class="lang-tabs"></div>
-                    </div>
                 </div>
                 <div class="ribbon-panel" data-ribbon-panel="export">
                     <div class="ribbon-group">
@@ -215,12 +254,30 @@
 
         <div id="workspace">
             <div id="icon-bar">
-                <button class="icon-bar-btn" data-panel="assets" onclick="toggleDrawer('assets')" title="アセット">
+                <button class="icon-bar-btn" data-panel="toc" data-drawer="toc" onclick="toggleDrawer('toc')" title="目次">
+                    <span class="material-icons">format_list_bulleted</span>
+                    <span class="icon-bar-label" data-i18n="icon_toc">目次</span>
+                </button>
+                <button class="icon-bar-btn" data-panel="assets" data-drawer="assets" onclick="toggleDrawer('assets')" title="アセット">
                     <span class="material-icons">image</span>
                     <span class="icon-bar-label" data-i18n="icon_assets">アセット</span>
                 </button>
             </div>
             <aside id="sidebar">
+                <!-- Desktop: TOC panel -->
+                <div class="sidebar-toc">
+                    <div class="panel-head">
+                        <h3 data-i18n="toc_preview_title">目次プレビュー</h3>
+                        <button class="btn-sm" type="button" onclick="closeDrawer()" data-i18n="btn_close">閉じる</button>
+                    </div>
+                    <div class="toc-preview-panel js-toc-preview-panel" style="display:none;">
+                        <div class="toc-preview-head">
+                            <span class="material-icons" aria-hidden="true">format_list_bulleted</span>
+                            <span data-i18n="toc_preview_title">目次プレビュー</span>
+                        </div>
+                        <div class="toc-preview-list js-toc-preview-list"></div>
+                    </div>
+                </div>
                 <!-- Desktop: Asset panel -->
                 <div class="sidebar-assets">
                     <div class="panel-head">
@@ -241,13 +298,42 @@
                         <h3 data-i18n="panel_pages">ページ</h3>
                         <button class="btn-sm" type="button" onclick="togglePagesPanel()" data-i18n="btn_close">閉じる</button>
                     </div>
-                    <div class="thumb-tools">
-                        <label data-i18n="label_thumb_size">サイズ:</label>
-                        <div class="thumb-size-buttons">
-                            <button class="btn-sm" data-thumb-size="s" onclick="setThumbSize('s')">S</button>
-                            <button class="btn-sm" data-thumb-size="m" onclick="setThumbSize('m')">M</button>
-                            <button class="btn-sm" data-thumb-size="l" onclick="setThumbSize('l')">L</button>
+                    <!-- 作品言語切替 -->
+                    <div class="sidebar-pages-toolbar">
+                        <div class="sidebar-pages-lang-row">
+                            <span class="sidebar-pages-lang-label" data-i18n="label_content_lang">作品言語</span>
+                            <div id="lang-tabs-pages-panel" class="lang-tabs lang-tabs-compact"></div>
                         </div>
+                        <div class="sidebar-pages-controls">
+                            <div class="thumb-tools-inline">
+                                <label data-i18n="label_thumb_size">サイズ:</label>
+                                <div class="thumb-size-buttons">
+                                    <button class="btn-sm" data-thumb-size="s" onclick="setThumbSize('s')">S</button>
+                                    <button class="btn-sm" data-thumb-size="m" onclick="setThumbSize('m')">M</button>
+                                    <button class="btn-sm" data-thumb-size="l" onclick="setThumbSize('l')">L</button>
+                                </div>
+                            </div>
+                            <!-- 見開き表示切替 -->
+                            <button class="btn-sm sidebar-spread-btn" id="btn-spread-view-mobile"
+                                onclick="toggleSpreadView()"
+                                title="見開き表示切り替え">
+                                <span class="material-icons" style="font-size:16px;vertical-align:middle;">auto_stories</span>
+                                <span data-i18n="label_spread_view">見開き表示</span>
+                            </button>
+                        </div>
+                        <!-- ページナビ -->
+                        <div class="sidebar-pages-nav">
+                            <button class="strip-nav-btn" onclick="pageVisualLeft()" data-i18n-title="title_page_left" title="左のページへ"><span class="material-icons">chevron_left</span></button>
+                            <span id="page-strip-counter-mobile" class="strip-page-counter">1 / 1</span>
+                            <button class="strip-nav-btn" onclick="pageVisualRight()" data-i18n-title="title_page_right" title="右のページへ"><span class="material-icons">chevron_right</span></button>
+                        </div>
+                    </div>
+                    <div class="toc-preview-panel js-toc-preview-panel" style="display:none;">
+                        <div class="toc-preview-head">
+                            <span class="material-icons" aria-hidden="true">format_list_bulleted</span>
+                            <span data-i18n="toc_preview_title">目次プレビュー</span>
+                        </div>
+                        <div class="toc-preview-list js-toc-preview-list"></div>
                     </div>
                     <div id="thumb-container"></div>
                     <div id="thumb-delete-dropzone" aria-hidden="true">
@@ -258,11 +344,41 @@
             </aside>
 
             <main id="editor-main">
-                <div id="canvas-view" onmousedown="handleCanvasClick(event)" ontouchstart="handleCanvasClick(event)">
-                    <div id="canvas-transform-layer">
-                        <div id="content-render"></div>
-                        <div id="bubble-layer"></div>
-                        <div id="canvas-page-label"></div>
+                <div id="canvas-view"
+                    onmousedown="handleCanvasClick(event)"
+                    ontouchstart="handleCanvasClick(event)"
+                    ondragover="handleCanvasDragOver(event)"
+                    ondragleave="handleCanvasDragLeave(event)"
+                    ondrop="handleCanvasDrop(event)">
+                    <div id="canvas-stage">
+                        <div id="canvas-transform-layer">
+                            <div id="canvas-page-heading-props"
+                                onmousedown="event.stopPropagation()"
+                                ontouchstart="event.stopPropagation()"
+                                onclick="event.stopPropagation()"
+                                style="display:none;">
+                                <input id="canvas-page-heading-input" type="text"
+                                    oninput="updatePageHeading(this.value)"
+                                    data-i18n-placeholder="page_heading_placeholder"
+                                    placeholder="目次に表示する見出し">
+                            </div>
+                            <div id="content-render"></div>
+                            <div id="bubble-layer"></div>
+                            <div id="text-preview-overlay" aria-live="polite">
+                                <div id="text-preview-frame">
+                                    <div id="text-preview-content"></div>
+                                </div>
+                                <div id="text-preview-placeholder"></div>
+                            </div>
+                            <div id="canvas-page-label"></div>
+                        </div>
+                        <div id="canvas-spread-page" style="display:none;"
+                            onmousedown="event.stopPropagation()"
+                            ontouchstart="event.stopPropagation()"
+                            onclick="spreadPageActivate(event)">
+                            <div id="canvas-spread-content"></div>
+                            <div id="canvas-spread-label" class="canvas-page-label"></div>
+                        </div>
                     </div>
                     <div id="image-zoom-controls-floating">
                         <button class="btn-sm zoom-btn img-zoom-btn" onmousedown="event.stopPropagation()"
@@ -296,15 +412,30 @@
                             </div>
                             <input id="image-rotate-slider" class="img-rotate-slider" type="range" min="-180" max="180" step="1" value="0" orient="vertical" aria-hidden="true" tabindex="-1">
                         </div>
+                        <button id="image-flip-btn" class="btn-sm zoom-btn img-zoom-btn" onmousedown="event.stopPropagation()"
+                            ontouchstart="event.stopPropagation()" onclick="toggleImageFlipX()" title="左右反転">⇄</button>
                     </div>
                     <button id="fab-add-bubble" class="fab-btn" onclick="addBubbleFab()" title="テキスト追加">
                         <span class="material-icons">text_fields</span>
                     </button>
                 </div>
                 <div id="page-strip">
-                    <div id="page-strip-handle" onclick="togglePageStrip()" title="ページパネルを開閉">
-                        <span class="material-icons" id="page-strip-chevron">expand_more</span>
-                        <span id="page-strip-handle-label" data-i18n="page_strip_label">ページ</span>
+                    <div id="page-strip-handle">
+                        <button class="strip-nav-btn" onclick="event.stopPropagation(); pageVisualLeft()" id="btn-page-prev" data-i18n-title="title_page_left" title="左のページへ"><span class="material-icons">chevron_left</span></button>
+                        <div id="page-nav-slider-wrap" class="page-nav-slider-wrap" onclick="event.stopPropagation()">
+                            <span id="page-nav-slider-bubble" class="page-nav-slider-bubble">1</span>
+                            <input id="page-nav-slider" class="page-nav-slider" type="range" min="0" max="0" step="1" value="0"
+                                oninput="onPageSliderInput(this.value)"
+                                aria-label="ページ移動">
+                            <span id="page-nav-slider-total" class="page-nav-slider-total">1</span>
+                        </div>
+                        <button class="strip-nav-btn" onclick="event.stopPropagation(); pageVisualRight()" id="btn-page-next" data-i18n-title="title_page_right" title="右のページへ"><span class="material-icons">chevron_right</span></button>
+                        <div class="strip-toggle-area" onclick="togglePageStrip()" data-i18n-title="title_page_strip_toggle" title="ページパネルを開閉">
+                            <span class="material-icons" id="page-strip-chevron">expand_more</span>
+                            <span id="page-strip-handle-label" data-i18n="page_strip_label">ページ</span>
+                        </div>
+                        <button class="strip-nav-btn strip-language-compare-btn" onclick="event.stopPropagation(); toggleLanguageCompareView()" id="btn-language-compare-view" data-i18n-title="title_language_compare" title="言語を並べて表示"><span class="material-icons">translate</span></button>
+                        <button class="strip-nav-btn strip-spread-btn" onclick="event.stopPropagation(); toggleSpreadView()" id="btn-spread-view" data-i18n-title="title_spread_view" title="見開き表示切り替え"><span class="material-icons">auto_stories</span></button>
                     </div>
                     <div id="page-strip-body">
                         <div id="page-strip-thumbs"></div>
@@ -318,8 +449,8 @@
                     <h3 data-i18n="panel_edit">編集</h3>
                     <button class="btn-sm" type="button" onclick="toggleEditPanel()" data-i18n="btn_close">閉じる</button>
                 </div>
-                <div class="control-group">
-                    <div id="page-lock-note" class="panel-lock-note" style="display:none;"></div>
+                    <div class="control-group">
+                        <div id="page-lock-note" class="panel-lock-note" style="display:none;"></div>
 
                     <div id="image-only-props">
                         <label data-i18n="label_bg_image">背景画像変更 / 位置調整</label>
@@ -374,6 +505,30 @@
                         </div>
                     </div>
 
+                    <div id="text-section-props" style="display:none;">
+                        <label id="text-body-label" class="field-label"></label>
+                        <textarea id="prop-body-text" rows="12"
+                            oninput="updateTextSectionBody(this.value)"></textarea>
+                        <div class="text-align-section">
+                            <label class="field-label" data-i18n="label_text_align">揃え</label>
+                            <div class="text-align-options" role="group" aria-label="本文ページの揃え">
+                                <button class="text-align-btn" type="button" data-text-align="start"
+                                    onclick="updateTextSectionAlign('start')" data-i18n="text_align_start">先頭</button>
+                                <button class="text-align-btn" type="button" data-text-align="center"
+                                    onclick="updateTextSectionAlign('center')" data-i18n="text_align_center">中央</button>
+                                <button class="text-align-btn" type="button" data-text-align="end"
+                                    onclick="updateTextSectionAlign('end')" data-i18n="text_align_end">後端</button>
+                            </div>
+                        </div>
+                        <button id="text-overflow-badge" class="text-overflow-badge text-overflow-badge--flow" style="display:none;"
+                            onclick="autoFlowTextSection()" type="button">溢れあり</button>
+                        <div class="text-input-hints">
+                            <span class="ruby-input-hint" data-i18n="hint_ruby_syntax">{漢字|かんじ} でルビ入力</span>
+                            <button class="page-break-btn" onclick="insertRubyMarkup()" data-i18n="btn_insert_ruby" title="ルビを挿入">ルビ挿入</button>
+                            <button class="page-break-btn" onclick="insertPageBreak()" data-i18n="btn_insert_page_break" title="改ページを挿入 (===)">改ページ</button>
+                        </div>
+                    </div>
+
                     <div id="generic-text-editor" style="display:none;">
                         <textarea id="prop-text" rows="5" oninput="updateActiveText(this.value, event)"></textarea>
                         <div id="text-fit-status" class="field-label" style="margin:-4px 0 8px 0;"></div>
@@ -386,7 +541,27 @@
 
         </div><!-- /editor-room -->
 
+        <div id="mobile-lang-bar"><div id="lang-tabs-mobile" class="lang-tabs"></div></div>
+
         <div id="mobile-header">
+            <button id="mobile-studio-logo-btn" class="mobile-studio-logo-btn" type="button" onclick="toggleMobileStudioNavMenu(event)" data-i18n-title="mobile_nav_open" title="メニューを開く" aria-haspopup="menu" aria-expanded="false">
+                <span class="mobile-studio-logo-dsf">DSF</span>
+                <span class="mobile-studio-logo-sub">Studio</span>
+            </button>
+            <div id="mobile-studio-nav-menu" class="mobile-studio-nav-menu" role="menu" hidden>
+                <div class="mobile-studio-nav-head">
+                    <div class="mobile-menu-logo"><span>DSF</span><small>Studio</small></div>
+                    <p data-i18n="mobile_nav_rooms">ルーム一覧</p>
+                </div>
+                <a href="/" target="_blank" rel="noopener" class="mobile-studio-nav-link" role="menuitem" data-i18n-title="logo_title" title="DSF Horizon を開く" onclick="closeMobileStudioNavMenu()">
+                    <span class="material-icons" aria-hidden="true">public</span>
+                    <span data-i18n="nav_horizon">Horizon</span>
+                </a>
+                <button class="mobile-studio-nav-link" role="menuitem" data-mobile-room-nav="home" onclick="closeMobileStudioNavMenu(); switchRoom('home')"><span class="material-icons" aria-hidden="true">dashboard</span><span data-i18n="nav_dashboard">ダッシュボード</span></button>
+                <button class="mobile-studio-nav-link" role="menuitem" data-mobile-room-nav="editor" onclick="closeMobileStudioNavMenu(); switchRoom('editor')"><span class="material-icons" aria-hidden="true">edit</span><span data-i18n="nav_editor">エディター</span></button>
+                <button class="mobile-studio-nav-link" role="menuitem" data-mobile-room-nav="press" onclick="closeMobileStudioNavMenu(); switchRoom('press')" data-auth-required><span class="material-icons" aria-hidden="true">publish</span><span data-i18n="nav_press">プレス</span></button>
+                <button class="mobile-studio-nav-link" role="menuitem" data-mobile-room-nav="works" onclick="closeMobileStudioNavMenu(); switchRoom('works')" data-auth-required><span class="material-icons" aria-hidden="true">library_books</span><span data-i18n="nav_works">作品</span></button>
+            </div>
             <button id="mobile-header-nav" class="mobile-header-nav-btn" type="button" onclick="handleMobileHeaderNav()" hidden>
                 <span class="material-icons">arrow_back</span>
             </button>
@@ -399,51 +574,24 @@
                     <button class="ui-lang-btn" data-lang="ja" onclick="setStudioUILang('ja')">JA</button>
                     <button class="ui-lang-btn" data-lang="en" onclick="setStudioUILang('en')">EN</button>
                 </div>
-                <button id="btn-auth-mobile" class="mobile-auth-btn" onclick="toggleAuth()" data-i18n="btn_auth_mobile">サインイン</button>
+                <div id="studio-auth-slot-mobile" class="studio-auth-slot studio-auth-slot-mobile"></div>
             </div>
         </div>
 
         <div id="mobile-overlay-backdrop" onclick="closeMobileOverlays()"></div>
 
-        <aside id="mobile-home-drawer">
-            <div class="mobile-home-drawer-header">
-                <span class="mobile-home-drawer-title" data-i18n="tab_home">ホーム</span>
-                <button class="btn-sm" type="button" onclick="closeMobileHomeDrawer()" data-i18n="btn_close">閉じる</button>
-            </div>
-            <div class="mobile-home-drawer-actions">
-                <button class="mobile-home-action" type="button" onclick="performUndo(); closeMobileHomeDrawer();">
-                    <span class="mobile-home-action-icon material-icons" aria-hidden="true">undo</span>
-                    <span class="mobile-home-action-label" data-i18n="mobile_home_undo">元に戻す</span>
-                </button>
-                <button class="mobile-home-action" type="button" onclick="performRedo(); closeMobileHomeDrawer();">
-                    <span class="mobile-home-action-icon material-icons" aria-hidden="true">redo</span>
-                    <span class="mobile-home-action-label" data-i18n="mobile_home_redo">やり直す</span>
-                </button>
-                <button class="mobile-home-action" type="button" onclick="saveProject(); closeMobileHomeDrawer();" data-auth-required>
-                    <span class="mobile-home-action-icon material-icons" aria-hidden="true">save</span>
-                    <span class="mobile-home-action-label" data-i18n="mobile_home_save">保存</span>
-                </button>
-                <button class="mobile-home-action" type="button" onclick="openProjectSettings(); closeMobileHomeDrawer();">
-                    <span class="mobile-home-action-icon material-icons" aria-hidden="true">settings</span>
-                    <span class="mobile-home-action-label" data-i18n="mobile_home_project_settings">プロジェクト設定</span>
-                </button>
-            </div>
-        </aside>
-
         <div id="mobile-action-sheet">
             <div id="mobile-sheet-menu" class="mobile-sheet-content mobile-sheet-menu">
-                <button class="btn-tool" onclick="switchRoom('home')" data-i18n="nav_projects">プロジェクト</button>
-                <button class="btn-tool" onclick="switchRoom('editor')" data-i18n="nav_editor">エディター</button>
-                <button class="btn-tool" onclick="switchRoom('press')" data-auth-required data-i18n="nav_press">プレス</button>
-                <button class="btn-tool" onclick="switchRoom('works')" data-auth-required data-i18n="nav_works">作品</button>
-                <button class="btn-tool" onclick="openMobileSheet('lang')" data-i18n="bottom_lang">作品言語</button>
+                <button class="btn-tool btn-tool-icon" onclick="openMobileSheet('lang')"><span class="material-icons" aria-hidden="true">translate</span><span data-i18n="bottom_lang">作品言語</span></button>
                 <button class="btn-tool btn-tool-icon" onclick="saveProject()" data-auth-required data-mobile-room-only="editor"><span class="material-icons" aria-hidden="true">save</span><span data-i18n="btn_save">保存</span></button>
                 <button class="btn-tool btn-tool-icon" onclick="shareProject()" data-auth-required data-mobile-room-only="editor"><span class="material-icons" aria-hidden="true">share</span><span data-i18n="btn_share">共有</span></button>
                 <button class="btn-tool btn-tool-icon" onclick="performUndo()" data-mobile-room-only="editor"><span class="material-icons" aria-hidden="true">undo</span><span data-i18n="btn_undo">元に戻す</span></button>
                 <button class="btn-tool btn-tool-icon" onclick="performRedo()" data-mobile-room-only="editor"><span class="material-icons" aria-hidden="true">redo</span><span data-i18n="btn_redo">やり直す</span></button>
+                <button class="btn-tool btn-tool-icon" onclick="closeMobileSheet(); openProjectSettings();" data-mobile-room-only="editor"><span class="material-icons" aria-hidden="true">settings</span><span data-i18n="mobile_home_project_settings">プロジェクト設定</span></button>
             </div>
             <div id="mobile-sheet-add" class="mobile-sheet-content">
-                <button class="btn-tool btn-tool-icon" onclick="addSection()"><span class="material-icons" aria-hidden="true">add_box</span><span data-i18n="btn_add_section">セクション追加</span></button>
+                <button class="btn-tool btn-tool-icon" onclick="insertSectionBeforeActive()"><span class="material-icons" aria-hidden="true">add_box</span><span data-i18n="btn_add_section">画像ページ</span></button>
+                <button class="btn-tool btn-tool-icon" onclick="insertSpreadImageBeforeActive()"><span class="material-icons" aria-hidden="true">view_week</span><span data-i18n="btn_add_spread_image_section">見開き画像ページ</span></button>
                 <button class="btn-tool btn-tool-icon" onclick="addBubbleFab()"><span class="material-icons" aria-hidden="true">text_fields</span><span data-i18n="btn_add_bubble">テキスト追加</span></button>
                 <button class="btn-tool btn-tool-icon" onclick="document.getElementById('file-upload').click()"><span class="material-icons" aria-hidden="true">image</span><span data-i18n="btn_add_image">画像追加</span></button>
             </div>
@@ -456,9 +604,7 @@
                 <button class="btn-tool btn-tool-icon" onclick="exportDSF()"><span class="material-icons" aria-hidden="true">publish</span><span data-i18n="mobile_export_dsf">Publish (.dsf)</span></button>
                 <button class="btn-tool btn-tool-icon" onclick="openProjectModal()" data-auth-required><span class="material-icons" aria-hidden="true">folder</span><span data-i18n="mobile_projects">プロジェクト一覧</span></button>
             </div>
-            <div id="mobile-sheet-lang" class="mobile-sheet-content">
-                <div id="lang-tabs-mobile" class="lang-tabs"></div>
-            </div>
+            <div id="mobile-sheet-lang" class="mobile-sheet-content" hidden></div>
         </div>
 
         <div id="mobile-canvas-zoom-bar" hidden>
@@ -481,57 +627,65 @@
                 <button class="btn-sm" onclick="switchRoom('editor')" data-i18n="btn_back_editor">← Editor に戻る</button>
             </div>
             <div class="press-room-body">
-                <aside class="press-panel press-pages-panel">
-                    <h3 data-i18n="press_pages">ページ一覧</h3>
-                    <div id="press-page-thumbs" class="press-page-thumbs"></div>
-                </aside>
-                <main class="press-panel press-settings-panel">
-                    <h3 data-i18n="press_settings">レンダリング設定</h3>
-                    <div class="press-field">
-                        <label data-i18n="press_target_lang">対象言語</label>
-                        <div id="press-lang-tabs" class="lang-tabs"></div>
-                    </div>
-                    <div class="press-field">
-                        <label data-i18n="press_webp_quality">WebP 品質</label>
-                        <div class="press-slider-row">
-                            <input type="range" id="press-quality" min="60" max="100" value="85"
-                                oninput="document.getElementById('press-quality-val').textContent=this.value+'%'">
-                            <span id="press-quality-val">85%</span>
+                <main class="press-workspace">
+                    <section class="press-panel press-pages-panel">
+                        <div class="press-panel-head">
+                            <h3 data-i18n="press_pages">ページ一覧</h3>
+                            <div id="press-thumb-lang-tabs" class="lang-tabs press-thumb-lang-tabs"></div>
                         </div>
-                    </div>
-                    <div class="press-field">
-                        <label data-i18n="press_output_size">出力サイズ</label>
-                        <div class="press-resolution-row">
-                            <select id="press-resolution">
-                                <option value="1080x1920" selected>1080×1920 (FHD)</option>
-                                <option value="1440x2560">1440×2560 (WQHD)</option>
-                                <option value="2160x3840">2160×3840 (4K)</option>
-                            </select>
-                            <span id="press-size-estimate" class="press-size-estimate"></span>
-                        </div>
-                    </div>
-                    <div class="press-preview-note">
-                        <span class="material-icons">info_outline</span>
-                        <span data-i18n="press_render_note">レンダリングはエクスポート時に実行されます</span>
+                        <div id="press-page-thumbs" class="press-page-thumbs"></div>
+                    </section>
+                    <div class="press-lower-row">
+                        <section class="press-panel press-settings-panel">
+                            <h3 data-i18n="press_settings">レンダリング設定</h3>
+                            <div class="press-field">
+                                <label data-i18n="press_target_lang">対象言語</label>
+                                <div id="press-lang-tabs" class="lang-tabs"></div>
+                            </div>
+                            <div class="press-field">
+                                <label data-i18n="press_output_size">出力サイズ</label>
+                                <div class="press-resolution-row">
+                                    <select id="press-resolution">
+                                        <option value="360x640" data-i18n="press_res_360">360×640（プレビュー・開発）</option>
+                                        <option value="720x1280" data-i18n="press_res_720">720×1280（プレビュー）</option>
+                                        <option value="1080x1920" selected data-i18n="press_res_1080">1080×1920（FHD・既定）</option>
+                                        <option value="1440x2560" data-i18n="press_res_1440">1440×2560（WQHD）</option>
+                                        <option value="2160x3840" data-i18n="press_res_2160">2160×3840（4K）</option>
+                                    </select>
+                                    <span id="press-size-estimate" class="press-size-estimate"></span>
+                                </div>
+                            </div>
+                            <div class="press-preview-note">
+                                <span class="material-icons">info_outline</span>
+                                <span data-i18n="press_render_note">レンダリングはエクスポート時に実行されます</span>
+                            </div>
+                            <div class="press-field press-trial-field">
+                                <label class="press-trial-label" for="press-trial-text-binary">
+                                    <input type="checkbox" id="press-trial-text-binary" />
+                                    <span data-i18n="press_trial_text_binary">試行: テキストを二値化して WebP 高品質（容量比較用）</span>
+                                </label>
+                                <p class="press-trial-hint" data-i18n="press_trial_text_binary_hint">テキストページのみ。紙色・文字色に近い方へ画素を量子化し、WebP は quality=1（ブラウザはロスレスとは限りません）。</p>
+                            </div>
+                        </section>
+                        <aside class="press-panel press-publish-panel">
+                            <h3 data-i18n="press_publish">発行</h3>
+                            <div class="press-publish-actions">
+                                <button class="press-publish-btn primary" onclick="exportDSF()">
+                                    <span class="material-icons">download</span>
+                                    <span><span data-i18n="btn_export_dsf">DSF 書き出し</span><small data-i18n="btn_export_dsf_sub">.dsf ファイルを保存</small></span>
+                                </button>
+                                <button id="press-publish-cloud-btn" class="press-publish-btn" onclick="publishToCloud()" data-auth-required>
+                                    <span class="material-icons">cloud_upload</span>
+                                    <span><span data-i18n="btn_publish_cloud">Horizonに発行</span><small data-i18n="btn_publish_cloud_sub">Horizon で作品を公開します</small></span>
+                                </button>
+                                <button class="press-publish-btn" onclick="switchRoom('works')" data-auth-required>
+                                    <span class="material-icons">library_books</span>
+                                    <span><span data-i18n="btn_goto_works">Works Room へ</span><small data-i18n="btn_goto_works_sub">発行済み作品のステータス管理</small></span>
+                                </button>
+                            </div>
+                        </aside>
                     </div>
                 </main>
-                <aside class="press-panel press-publish-panel">
-                    <h3 data-i18n="press_publish">発行</h3>
-                    <div class="press-publish-actions">
-                        <button class="press-publish-btn primary" onclick="exportDSF()">
-                            <span class="material-icons">download</span>
-                            <span><span data-i18n="btn_export_dsf">DSF 書き出し</span><small data-i18n="btn_export_dsf_sub">.dsf ファイルを保存</small></span>
-                        </button>
-                        <button id="press-publish-cloud-btn" class="press-publish-btn" onclick="publishToCloud()" data-auth-required>
-                            <span class="material-icons">cloud_upload</span>
-                            <span><span data-i18n="btn_publish_cloud">クラウドに発行</span><small data-i18n="btn_publish_cloud_sub">R2 にレンダリング・発行</small></span>
-                        </button>
-                        <button class="press-publish-btn" onclick="switchRoom('works')" data-auth-required>
-                            <span class="material-icons">library_books</span>
-                            <span><span data-i18n="btn_goto_works">Works Room へ</span><small data-i18n="btn_goto_works_sub">発行済み作品のステータス管理</small></span>
-                        </button>
-                    </div>
-                </aside>
             </div>
         </div><!-- /press-room -->
 
@@ -541,7 +695,7 @@
                 <div class="works-room-title">
                     <span class="material-icons">library_books</span>
                     <h2>Works Room</h2>
-                    <span class="works-room-subtitle">発行済み作品のステータス管理</span>
+                    <span class="works-room-subtitle" data-i18n="btn_goto_works_sub">発行済み作品のステータス管理</span>
                 </div>
                 <button class="btn-sm" onclick="switchRoom('home')" data-i18n="btn_back_home">← Home</button>
             </div>
@@ -550,6 +704,33 @@
 
         </div><!-- /room-container -->
     </div><!-- /app-shell -->
+
+    <!-- Horizon 発行: 下書き説明・進捗・キャンセル（レンダリング中のみ表示） -->
+    <div id="press-publish-modal" class="press-publish-modal-overlay" style="display:none;" aria-hidden="true">
+        <div class="press-publish-modal-dialog" role="dialog" aria-modal="true" aria-labelledby="press-publish-modal-title" onclick="event.stopPropagation()">
+            <div class="press-publish-modal-header">
+                <h2 id="press-publish-modal-title" data-i18n="press_publish_modal_title">Horizonに発行</h2>
+            </div>
+            <div class="press-publish-modal-body">
+                <div class="press-publish-modal-draft">
+                    <span class="material-icons press-publish-modal-draft-icon" aria-hidden="true">edit_note</span>
+                    <div>
+                        <strong data-i18n="press_draft_notice_title">初回の公開ステータスは「下書き」</strong>
+                        <p data-i18n="press_draft_notice_body">Horizon にアップロードした時点では、まだ読者向けには公開されません。公開や掲載は Works Room などから別途行ってください。</p>
+                    </div>
+                </div>
+                <p class="press-publish-modal-hint" data-i18n="press_render_cancel_hint">レンダリング中はこの画面の「キャンセル」または Esc キーで中断できます。</p>
+                <div class="press-publish-modal-progress-block">
+                    <p id="press-publish-modal-status" class="press-publish-modal-status" aria-live="polite"></p>
+                    <progress id="press-publish-modal-bar" class="press-publish-modal-bar" max="100" value="0"></progress>
+                </div>
+                <button type="button" class="press-publish-modal-cancel" id="press-publish-cancel-btn">
+                    <span class="material-icons" aria-hidden="true">close</span>
+                    <span data-i18n="press_cancel">キャンセル</span>
+                </button>
+            </div>
+        </div>
+    </div>
 
     <!-- ===== Project Settings Modal ===== -->
     <div id="project-settings-modal" class="ps-overlay" style="display:none;" onclick="closeProjectSettings(event)">
@@ -590,9 +771,41 @@
                     <div id="ps-meta-table"></div>
                 </section>
 
+                <!-- 4. 表紙構成 -->
+                <section class="ps-section">
+                    <h3 data-i18n="ps_section_book_structure">表紙構成</h3>
+                    <div id="ps-book-settings" class="press-book-settings ps-book-settings"></div>
+                </section>
+
+                <!-- 5. 本文ページ設定 -->
+                <section class="ps-section">
+                    <h3 data-i18n="ps_section_text_pages">本文ページ設定</h3>
+                    <div class="ps-field">
+                        <label data-i18n="label_text_paper">紙</label>
+                        <div class="text-paper-options" role="group" aria-label="本文ページの紙">
+                            <button class="text-paper-btn" type="button" data-project-text-paper-preset="white"
+                                onclick="updateProjectTextPaperPreset('white')">
+                                <span class="text-paper-swatch" style="background:#ffffff;color:#000000;">あ</span>
+                                <span data-i18n="text_paper_white">白紙</span>
+                            </button>
+                            <button class="text-paper-btn" type="button" data-project-text-paper-preset="book"
+                                onclick="updateProjectTextPaperPreset('book')">
+                                <span class="text-paper-swatch" style="background:#f7f1df;color:#1f1b16;">あ</span>
+                                <span data-i18n="text_paper_book">書籍用紙</span>
+                            </button>
+                        </div>
+                        <p class="ps-hint" data-i18n="text_paper_project_hint">全テキストページに適用されます。</p>
+                    </div>
+                </section>
+
                 <!-- 4. グローバル設定 -->
                 <section class="ps-section">
                     <h3 data-i18n="ps_section_global">グローバル設定</h3>
+                    <div class="ps-field">
+                        <label for="ps-label-name" data-i18n="ps_label_name_label">レーベル名</label>
+                        <input type="text" id="ps-label-name" data-i18n-placeholder="ps_label_name_placeholder" placeholder="例: DSF Originals">
+                        <p class="ps-hint" data-i18n="ps_label_name_hint">YouTube のチャンネルに相当する発行レーベル名です。シリーズ管理は後続で追加します。</p>
+                    </div>
                     <div class="ps-field">
                         <label for="ps-rating" data-i18n="ps_rating_label">レーティング（対象年齢）</label>
                         <select id="ps-rating">

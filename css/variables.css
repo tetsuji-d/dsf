@@ -3,6 +3,10 @@
    Architect 管理 / 変更には Architect 承認が必要
    ============================================================ */
 :root {
+    /* Canonical logical page (9:16). Keep in sync with js/page-geometry.js */
+    --dsf-canonical-page-width: 360px;
+    --dsf-canonical-page-height: 640px;
+
     --primary: #0a6cff;
     --bg: #1f2126;
     --panel-bg: #ffffff;

@@ -1,32 +1,98 @@
-# DSF Studio Pro - Ultimate Edition
+# DSF Studio & DSF Library
 
-このプロジェクトは、画像やテキストを組み合わせてストーリーを作成できるシングルページアプリケーション（SPA）です。
+**DSF（Digital Spread Format）** は、スマートフォン向けの**固定レイアウト型**デジタル出版のためのオープンな ZIP ベース仕様です。リフロー型の EPUB とは異なり、「レイアウトはコンテンツである」という前提で、9:16 比率の **WebP** ページなどをマスターとして配信します。
 
-## 機能概要
+このリポジトリは **DSF Studio**（制作）、**DSF Library（ポータル）**（配信・一覧）、**Viewer**（閲覧）をひとつのクライアント SPA として実装しています。
 
-- **セクション管理**: サイドバーでページの追加・切り替え・並べ替えができます。
-- **キャンバス編集**:
-  - **画像モード**: 背景画像をアップロードし、その上に「吹き出し」を配置できます。
-  - **テキストモード**: テキストのみのページを作成できます（縦書き・横書き対応）。
-- **吹き出し編集**: ドラッグ移動、テキスト編集、尻尾の位置調整が可能です。
-- **クラウド保存**: Firebaseと連携して作品の保存・読み込みが可能です。
+## ドキュメント
+
+- **[CLAUDE.md](CLAUDE.md)** — 総合入口。フォーマット思想、エコシステム、インフラ、モジュール構成、開発コマンド、読む順番
+- **[AGENTS.md](AGENTS.md)** — 開発運用ルール
+- **[PROJECT_STATUS.md](PROJECT_STATUS.md)** — 実装済み機能・既知課題・TODO
+- **[docs/file-format-spec.md](docs/file-format-spec.md)** — `.dsp` / `.dsf` ZIP 構造
+- **[docs/remediation-roadmap.md](docs/remediation-roadmap.md)** — 中期の減債と分割の進め方
+- **[docs/security-hardening.md](docs/security-hardening.md)** — API key / auth / Functions の hardening メモ
+- **[docs/environment-topology.md](docs/environment-topology.md)** — Cloudflare Pages / Firebase / R2 の役割分担と環境運用
+- **[docs/user-account-audit.md](docs/user-account-audit.md)** — Google-only 認証、ユーザーアカウント棚卸し、今後のブートストラップ方針
+- **[docs/admin-role-model.md](docs/admin-role-model.md)** — admin / operator / moderator の権限モデルと運営管理画面の前提
+- **[docs/admin-console-spec.md](docs/admin-console-spec.md)** — 運営管理画面の最小仕様
+- **[docs/viewer-info-panel-spec.md](docs/viewer-info-panel-spec.md)** — Viewer のハーフモーダル / 右ドロワー仕様
+
+### 読む順番
+
+1. **[CLAUDE.md](CLAUDE.md)** — 全体像と文書構造
+2. **[AGENTS.md](AGENTS.md)** — 実務ルール
+3. **[docs/data-model.md](docs/data-model.md)** / **[docs/file-format-spec.md](docs/file-format-spec.md)** — 正本仕様
+4. テーマ別 docs
+
+### Current source of truth
+
+- **[CLAUDE.md](CLAUDE.md)** — 総合入口・プロダクト方針・実装原則
+- **[AGENTS.md](AGENTS.md)** — 開発運用ルール
+- **[docs/data-model.md](docs/data-model.md)** — ランタイム canonical / compatibility 関係
+- **[docs/file-format-spec.md](docs/file-format-spec.md)** — 配信フォーマット仕様
+- **[docs/pressroom-spec.md](docs/pressroom-spec.md)** — 公開境界と Press / Works の責務
+
+### Historical / planning docs
+
+`DSF_SITEMAP.md`、`docs/editor-menu-sitemap.md`、`docs/implementation-plan-text-editor-typography.md`、`docs/progress.md`、`docs/page-architecture-plan.md` は履歴資料または計画メモを含みます。現行アーキテクチャの判断には上の source of truth を優先してください。
 
 ## 実行方法
 
-このプロジェクトはWebサーバー上で動作させる必要があります（ローカルファイルの直接オープンでは動作しません）。
-
-以下のコマンドで開発サーバーを起動できます：
+ローカルファイルを直接 `file://` で開かず、開発サーバー経由で動かしてください。
 
 ```bash
-# 推奨
 npm install
 npm run dev
 ```
 
-または、インストールせずに実行する場合：
+ブラウザで表示された URL（通常 `http://localhost:5173`）を開きます。
+
+## 環境の考え方
+
+DSF は現在、単一ホスティングではなく次の構成です。
+
+- **Cloudflare Pages**: `studio.html` / `viewer.html` / `index.html` などの配信面
+- **Firebase**: 認証、Firestore、ユーザー状態
+- **Cloudflare R2**: staging / production の画像保存
+
+つまり、`staging.dsf-studio.pages.dev` で動いていても、裏では Firebase を使っています。  
+環境の詳細は [docs/environment-topology.md](docs/environment-topology.md) を参照してください。
+
+## よく使うコマンド
 
 ```bash
-npx http-server .
+# ローカル開発（Vite + staging Firebase + Firebase Storage）
+npm run dev
+
+# staging ビルド
+npm run build:staging
+
+# Cloudflare Pages staging へ反映（通常の確認先）
+npm run deploy:pages:staging
+# alias
+npm run deploy:cf:staging
+
+# Firebase Hosting staging へ反映（補助確認用）
+npm run deploy:staging
+# alias
+npm run deploy:firebase:staging
+
+# custom claims の付与/剥奪（service account 必須）
+npm run claims:set -- --email ops@example.com --operator true --reason "staging operator"
 ```
 
-ブラウザで `http://127.0.0.1:8080` を開いてください。
+## ステージング運用ルール
+
+- **Primary staging**: `https://staging.dsf-studio.pages.dev/`
+- **Secondary staging**: `https://vmnn-26345-stg.web.app`
+- 日常の確認、共有、UI 検証は **Cloudflare Pages staging を正面** にする
+- Firebase Hosting staging は **補助確認用**。Hosting 差分や Rules 反映切り分けに使う
+- バグ報告や確認依頼では、**どのURLで見たか**を必ず添える
+
+`git push` はコードを GitHub に送るだけで、確認用URLは更新しません。  
+確認先を更新するには `deploy:*` 系コマンドが必要です。
+
+## レガシー表記について
+
+資料によっては **DSF** を旧称「Digital Smart Format」、拡張子 **`.dsf`** の説明と併記している箇所があります。現在のプロダクト定義では **Digital Spread Format** を正式名称とします（`.dsf` 拡張子は変更しません）。

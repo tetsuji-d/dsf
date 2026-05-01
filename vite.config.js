@@ -6,6 +6,7 @@ export default defineConfig(({ mode }) => ({
         rollupOptions: {
             input: {
                 index: resolve(__dirname, 'index.html'),
+                admin: resolve(__dirname, 'admin/index.html'),
                 studio: resolve(__dirname, 'studio.html'),
                 viewer: resolve(__dirname, 'viewer.html'),
             },

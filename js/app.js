@@ -1,27 +1,54 @@
 /**
- * app.js — メインエントリポイント・描画・UI同期
+ * app.js — Studio メインエントリ（描画・UI 同期・room 切り替え）
+ *
+ * Room 境界・認証（Google GIS + Firebase）の地図:
+ *   docs/studio-app-room-boundaries.md
+ *
+ * 大まかな塊:
+ *   - Home: ダッシュボード（renderHomeDashboard）
+ *   - Editor: refresh / キャンバス / サムネ（このファイルが最も長い）
+ *   - Press / Works: enterPressRoom（press.js）, openWorksRoom（works.js）は switchRoom から委譲
+ *   - 認証 UI: getStudioAuthMarkup → renderStudioAuthSlot（GIS ボタン + フォールバック）
  */
 import { state, dispatch, actionTypes } from './state.js';
-import { saveProject as persistProject, loadProject, uploadToStorage, uploadCoverToStorage, uploadStructureToStorage, triggerAutoSave, flushSave, generateCroppedThumbnail, listLocalRecentProjects, loadLocalRecentProject, cacheLocalRecentProject } from './firebase.js';
-import { initGIS, signInWithGoogle, signOutUser, onAuthChanged } from './gis-auth.js';
+import { saveProject as persistProject, loadProject, uploadToStorage, uploadCoverToStorage, uploadStructureToStorage, triggerAutoSave, flushSave, generateCroppedThumbnail, listLocalRecentProjects, loadLocalRecentProject, cacheLocalRecentProject, ensureUserBootstrap, auth as firebaseAuth, authReady, db } from './firebase.js';
+import { initGIS, renderGISButton, signInWithGoogle, signOutUser, onAuthChanged, handleRedirectResult } from './gis-auth.js';
 import { handleCanvasClick, selectBubble, renderBubbleHTML, getBubbleText, setBubbleText, addBubbleAtCenter, startDrag, startTailDrag, startSpikeDrag } from './bubbles.js';
-import { addSection, changeSection, changeBlock, insertStructureBlock, renderThumbs, deleteActive, deleteSectionAt, insertSectionAt, duplicateSectionAt, moveSection, insertPageNearBlock, duplicateBlockAt, moveBlockAt, getOptimizedImageUrl } from './sections.js';
+import { addSection, addTextSection, changeSection, changeBlock, insertStructureBlock, renderThumbs, deleteActive, deleteSectionAt, insertSectionAt, insertSpreadImageAt, duplicateSectionAt, moveSection, moveSectionRange, insertPageNearBlock, duplicateBlockAt, moveBlockAt, getOptimizedImageUrl } from './sections.js';
 import { pushState, undo, redo, getHistoryInfo, clearHistory } from './history.js';
 import { openProjectModal, closeProjectModal, fetchCloudProjects, getCoverImage, getPageCount, deleteCloudProject } from './projects.js';
 import { openWorksRoom, closeWorksRoom } from './works.js';
 import { enterPressRoom } from './press.js';
 import { getLangProps, getAllLangs } from './lang.js';
 import { t, applyI18n, setUILang, getUILang } from './i18n-studio.js';
-import { getBlockIndexFromPageIndex, getPageIndexFromBlockIndex, migrateSectionsToBlocks, syncBlocksWithSections } from './blocks.js';
+import { getBlockIndexFromPageIndex, getPageIndexFromBlockIndex, migrateSectionsToBlocks, syncBlocksWithSections, extractSectionsFromBlocks } from './blocks.js';
 import { blocksToPages, normalizeProjectDataV5 } from './pages.js';
 import { buildDSP, buildDSF, parseAndLoadDSP } from './export.js';
+import { applyTheme, bindThemePreferenceListener, getThemeMode, setThemeMode } from './theme.js';
 import { get as idbGet } from 'idb-keyval';
 import { createId } from './utils.js';
+import { CANONICAL_PAGE_WIDTH, CANONICAL_PAGE_HEIGHT } from './page-geometry.js';
+import { canInsertSpreadImageAt, getBookCompositionIssues, getPageDisplayLabel, getReadablePageCount, normalizeBookSettings, getPageCoverKey } from './page-labels.js';
+import { composeText, paginateText, PAGE_BREAK_MARKER, getWritingModeFromConfigs, getFontPresetFromConfigs, getFontPresetOptions, parseRubyTokens, tokensToPlainText, alignRubyToLines } from './layout.js';
+import { collection, getDocs, query, where, limit } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
 
-const EDITOR_FRAME_WIDTH = 360;
-const EDITOR_FRAME_HEIGHT = 640;
+const EDITOR_FRAME_WIDTH = CANONICAL_PAGE_WIDTH;
+const EDITOR_FRAME_HEIGHT = CANONICAL_PAGE_HEIGHT;
 const IMAGE_SNAP_THRESHOLD = 12;
 const editorImageAspectCache = new Map();
+const TEXT_PAPER_PRESETS = Object.freeze({
+    white: {
+        label: '白紙',
+        backgroundColor: '#ffffff',
+        textColor: '#000000'
+    },
+    book: {
+        label: '書籍用紙',
+        backgroundColor: '#f7f1df',
+        textColor: '#1f1b16'
+    }
+});
+const TEXT_ALIGN_VALUES = Object.freeze(['start', 'center', 'end']);
 const EMPTY_IMAGE_SNAP_STATE = Object.freeze({
     centerX: false,
     centerY: false,
@@ -32,26 +59,30 @@ const EMPTY_IMAGE_SNAP_STATE = Object.freeze({
 });
 let imageSnapState = { ...EMPTY_IMAGE_SNAP_STATE };
 
-function getEditorImageFrameMetrics(bgUrl) {
+// 見開きクリックで「隣ページをアクティブ化」した時、元のアクティブページを隣として維持するための一時保持
+let _spreadActivationPinnedAdjIdx = -1;
+let _pageHeadingPushTimer = null;
+
+function getEditorImageFrameMetrics(bgUrl, frameWidth = EDITOR_FRAME_WIDTH, frameHeight = EDITOR_FRAME_HEIGHT, percentBaseWidth = EDITOR_FRAME_WIDTH, percentBaseHeight = EDITOR_FRAME_HEIGHT) {
     const aspect = editorImageAspectCache.get(bgUrl);
     if (!aspect || !Number.isFinite(aspect) || aspect <= 0) {
         return {
-            widthPercent: 100,
-            heightPercent: 100
+            widthPercent: (frameWidth / percentBaseWidth) * 100,
+            heightPercent: (frameHeight / percentBaseHeight) * 100
         };
     }
 
-    const frameAspect = EDITOR_FRAME_WIDTH / EDITOR_FRAME_HEIGHT;
+    const frameAspect = frameWidth / frameHeight;
     if (aspect > frameAspect) {
         return {
-            widthPercent: (EDITOR_FRAME_HEIGHT * aspect / EDITOR_FRAME_WIDTH) * 100,
-            heightPercent: 100
+            widthPercent: (frameHeight * aspect / percentBaseWidth) * 100,
+            heightPercent: (frameHeight / percentBaseHeight) * 100
         };
     }
 
     return {
-        widthPercent: 100,
-        heightPercent: (EDITOR_FRAME_WIDTH / aspect / EDITOR_FRAME_HEIGHT) * 100
+        widthPercent: (frameWidth / percentBaseWidth) * 100,
+        heightPercent: (frameWidth / aspect / percentBaseHeight) * 100
     };
 }
 
@@ -128,28 +159,34 @@ function applyImageSnapping(pos, bgUrl) {
     imageSnapState = nextState;
 }
 
-function getImageAdjustRenderMetrics(bgUrl, pos) {
-    const frameMetrics = getEditorImageFrameMetrics(bgUrl);
+function getImageAdjustRenderMetrics(bgUrl, pos, options = {}) {
+    const frameWidth = Number(options.frameWidth) || EDITOR_FRAME_WIDTH;
+    const frameHeight = Number(options.frameHeight) || EDITOR_FRAME_HEIGHT;
+    const percentBaseWidth = Number(options.percentBaseWidth) || EDITOR_FRAME_WIDTH;
+    const percentBaseHeight = Number(options.percentBaseHeight) || EDITOR_FRAME_HEIGHT;
+    const offsetX = Number(options.offsetX) || 0;
+    const frameMetrics = getEditorImageFrameMetrics(bgUrl, frameWidth, frameHeight, percentBaseWidth, percentBaseHeight);
     const scale = Math.max(0.1, Number(pos?.scale) || 1);
     const rotation = Number(pos?.rotation) || 0;
+    const flipX = pos?.flipX ? ' scaleX(-1)' : '';
     return {
         frameMetrics,
         invScale: 1 / scale,
-        targetTransform: `translate(calc(-50% + ${Number(pos?.x) || 0}px), calc(-50% + ${Number(pos?.y) || 0}px)) scale(${scale}) rotate(${rotation}deg)`
+        targetTransform: `translate(calc(-50% + ${(Number(pos?.x) || 0) + offsetX}px), calc(-50% + ${Number(pos?.y) || 0}px)) scale(${scale}) rotate(${rotation}deg)${flipX}`
     };
 }
 
 function syncImageAdjustDom() {
     const s = state.sections?.[state.activeIdx];
     if (!s || s.type !== 'image') return false;
-    const pos = s.imagePosition;
+    const pos = getActiveImagePosition();
     if (!pos) return false;
 
     const target = document.getElementById('image-adjust-target');
     if (!target) return false;
 
-    const bgUrl = getOptimizedImageUrl(s?.backgrounds?.[state.activeLang] || s?.background || '');
-    const { frameMetrics, invScale, targetTransform } = getImageAdjustRenderMetrics(bgUrl, pos);
+    const bgUrl = getOptimizedImageUrl(s?.backgrounds?.[state.activeLang] || s?.backgrounds?.[state.defaultLang] || s?.background || '');
+    const { frameMetrics, invScale, targetTransform } = getImageAdjustRenderMetrics(bgUrl, pos, getSpreadImageRenderOptions(s, state.activeIdx));
 
     target.style.width = `${frameMetrics.widthPercent}%`;
     target.style.height = `${frameMetrics.heightPercent}%`;
@@ -191,16 +228,32 @@ function syncImageAdjustDom() {
     const horizontalGuide = document.querySelector('#image-stage-overlay .image-center-guide.horizontal');
     if (horizontalGuide) horizontalGuide.classList.toggle('active', !!imageSnapState.centerY);
 
+    const flipBtn = document.getElementById('image-flip-btn');
+    if (flipBtn) flipBtn.classList.toggle('active', !!pos.flipX);
+
     return true;
 }
 
 let imageAdjustRaf = null;
 let isAdjustingRotationSlider = false;
+let imageAdjustThumbTimer = null;
+function scheduleImageAdjustThumbUpdate() {
+    if (imageAdjustThumbTimer) clearTimeout(imageAdjustThumbTimer);
+    imageAdjustThumbTimer = setTimeout(() => {
+        imageAdjustThumbTimer = null;
+        renderThumbs();
+    }, 80);
+}
+
 function scheduleImageAdjustDomUpdate() {
     if (imageAdjustRaf) return;
     imageAdjustRaf = requestAnimationFrame(() => {
         imageAdjustRaf = null;
-        if (!syncImageAdjustDom()) refresh();
+        if (syncImageAdjustDom()) {
+            scheduleImageAdjustThumbUpdate();
+        } else {
+            refresh();
+        }
     });
 }
 
@@ -256,6 +309,9 @@ function ensureProjectIdentity() {
     if (!state.projectId) {
         dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'projectId', value: createId('proj') } });
     }
+    if (!state.workId) {
+        dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'workId', value: createId('work') } });
+    }
 
     if (!state.projectName) {
         const headerText = (document.getElementById('project-title')?.textContent || '').trim();
@@ -267,7 +323,9 @@ function ensureProjectIdentity() {
 }
 
 function formatHomeDate(value) {
-    const date = value instanceof Date ? value : new Date(value || 0);
+    const date = value instanceof Date
+        ? value
+        : (typeof value?.toDate === 'function' ? value.toDate() : new Date(value || 0));
     if (Number.isNaN(date.getTime())) return '';
     const locale = getUILang() === 'en' ? 'en-US' : 'ja-JP';
     return date.toLocaleDateString(locale);
@@ -278,24 +336,25 @@ function formatProjectLanguages(languages) {
     return list.map((code) => String(code).toUpperCase()).join(', ');
 }
 
+function getStudioLanguageBadgeModifier(code) {
+    const normalized = String(code || '').trim().toLowerCase();
+    if (normalized === 'ja') return 'ja';
+    if (normalized === 'en' || normalized === 'en-us') return 'en-us';
+    if (normalized === 'en-gb') return 'en-gb';
+    if (normalized === 'zh-cn') return 'zh-cn';
+    if (normalized === 'zh-tw') return 'zh-tw';
+    return 'generic';
+}
+
+function renderStudioLanguageBadge(code, className = 'home-lang-badge') {
+    const modifier = getStudioLanguageBadgeModifier(code);
+    const label = String(code || '').toUpperCase();
+    return `<span class="${className} home-lang-${modifier}" title="${escapeStudioHtml(label)}">${modifier === 'generic' ? escapeStudioHtml(label) : ''}</span>`;
+}
+
 function renderLanguageBadges(languages) {
     const list = Array.isArray(languages) && languages.length > 0 ? languages : ['ja'];
-    return list.map((code) => {
-        const normalized = String(code).trim().toLowerCase();
-        const modifier = normalized === 'ja'
-            ? 'ja'
-            : (normalized === 'en' || normalized === 'en-us')
-                ? 'en-us'
-                : normalized === 'en-gb'
-                    ? 'en-gb'
-                    : normalized === 'zh-cn'
-                        ? 'zh-cn'
-                        : normalized === 'zh-tw'
-                            ? 'zh-tw'
-                            : 'generic';
-        const label = normalized.toUpperCase();
-        return `<span class="home-lang-badge home-lang-${modifier}" title="${label}">${modifier === 'generic' ? label : ''}</span>`;
-    }).join('');
+    return list.map((code) => renderStudioLanguageBadge(code)).join('');
 }
 
 function formatProjectBytes(bytes) {
@@ -305,6 +364,8 @@ function formatProjectBytes(bytes) {
     if (size < 1024 * 1024) return `${(size / 1024).toFixed(size < 10 * 1024 ? 1 : 0)} KB`;
     return `${(size / (1024 * 1024)).toFixed(1)} MB`;
 }
+
+// ── Home room — ダッシュボード（クラウド / ローカル一覧） ─────────────────
 
 function renderHomeCard(project, source) {
     const displayName = project.projectName || project.title || project.id || '無題';
@@ -342,13 +403,157 @@ function renderHomeCard(project, source) {
     `;
 }
 
+function isPublishedHomeWork(project) {
+    return Array.isArray(project?.dsfPages) && project.dsfPages.length > 0;
+}
+
+function getHomeWorkStatus(project) {
+    return String(project?.dsfStatus || project?.visibility || 'draft');
+}
+
+function getHomeWorkStatusLabel(status) {
+    const map = {
+        draft: t('home_status_draft'),
+        public: t('home_status_public'),
+        unlisted: t('home_status_unlisted'),
+        private: t('home_status_private')
+    };
+    return map[status] || status;
+}
+
+function getHomeWorkDate(project) {
+    return formatHomeDate(project?.dsfPublishedAt || project?.updatedAt || project?.lastUpdated);
+}
+
+async function loadHomeReviewSummary(workId) {
+    if (!workId) return { reviewCount: 0, goodCount: 0, badCount: 0, unavailable: false };
+    try {
+        const reviewQuery = query(
+            collection(db, 'reviews', workId, 'items'),
+            where('status', '==', 'published'),
+            limit(50)
+        );
+        const snap = await getDocs(reviewQuery);
+        let reviewCount = 0;
+        let goodCount = 0;
+        let badCount = 0;
+        snap.forEach((entry) => {
+            const data = entry.data() || {};
+            reviewCount += 1;
+            goodCount += Math.max(0, Number(data.goodCount) || 0);
+            badCount += Math.max(0, Number(data.badCount) || 0);
+        });
+        return { reviewCount, goodCount, badCount, unavailable: false };
+    } catch (e) {
+        console.warn('[Home] Failed to load review summary:', workId, e);
+        return { reviewCount: 0, goodCount: 0, badCount: 0, unavailable: true };
+    }
+}
+
+async function loadHomeReviewSummaries(works) {
+    const entries = await Promise.all(
+        works.slice(0, 12).map(async (work) => {
+            const workId = work.workId || work.id;
+            return [workId, await loadHomeReviewSummary(workId)];
+        })
+    );
+    return new Map(entries);
+}
+
+function renderHomeStatCard(icon, label, value, hint = '') {
+    return `
+        <article class="home-stat-card">
+            <span class="material-icons" aria-hidden="true">${escapeStudioHtml(icon)}</span>
+            <div>
+                <strong>${escapeStudioHtml(value)}</strong>
+                <span>${escapeStudioHtml(label)}</span>
+                ${hint ? `<small>${escapeStudioHtml(hint)}</small>` : ''}
+            </div>
+        </article>
+    `;
+}
+
+function renderHomeDashboardStats({ cloudProjects, localProjects, works, reviewTotals }) {
+    const cloudCount = Array.isArray(cloudProjects) ? cloudProjects.length : 0;
+    const publicCount = works.filter((work) => getHomeWorkStatus(work) === 'public').length;
+    const visibleCount = works.filter((work) => ['public', 'unlisted'].includes(getHomeWorkStatus(work))).length;
+    const draftCount = works.filter((work) => !['public', 'unlisted'].includes(getHomeWorkStatus(work))).length;
+    return [
+        renderHomeStatCard('library_books', t('home_stat_works'), String(works.length), t('home_stat_works_hint', { count: visibleCount })),
+        renderHomeStatCard('public', t('home_stat_public'), String(publicCount), t('home_stat_public_hint', { count: draftCount })),
+        renderHomeStatCard('rate_review', t('home_stat_reviews'), String(reviewTotals.reviewCount), t('home_stat_reviews_hint', { count: reviewTotals.goodCount })),
+        renderHomeStatCard('folder', t('home_stat_projects'), String(cloudCount), t('home_stat_projects_hint', { count: localProjects.length }))
+    ].join('');
+}
+
+function renderHomeWorkCard(work, reviewSummary) {
+    const workId = work.workId || work.id;
+    const status = getHomeWorkStatus(work);
+    const title = work.title || work.projectName || work.id || 'Untitled';
+    const thumb = getCoverImage(work.dsfPages, work.pages, work.blocks, work.sections);
+    const pageCount = Array.isArray(work.dsfPages) && work.dsfPages.length
+        ? work.dsfPages.length
+        : getPageCount(work.pages, work.blocks, work.sections);
+    const langs = Array.isArray(work.dsfLangs) && work.dsfLangs.length ? work.dsfLangs : work.languages;
+    const languageBadges = renderLanguageBadges(langs);
+    const date = getHomeWorkDate(work);
+    const reviewText = reviewSummary?.unavailable
+        ? t('home_reviews_unavailable')
+        : t('home_work_reviews', {
+            reviews: reviewSummary?.reviewCount || 0,
+            good: reviewSummary?.goodCount || 0,
+            bad: reviewSummary?.badCount || 0
+        });
+
+    return `
+        <article class="home-work-card" data-work-id="${escapeStudioHtml(workId)}" data-project-id="${escapeStudioHtml(work.id)}">
+            <div class="home-work-thumb">
+                ${thumb
+                    ? `<img src="${escapeStudioHtml(thumb)}" alt="${escapeStudioHtml(title)}" loading="lazy">`
+                    : `<div class="home-work-thumb-fallback"><span class="material-icons">auto_stories</span></div>`}
+            </div>
+            <div class="home-work-main">
+                <div class="home-work-topline">
+                    <span class="home-work-status home-work-status-${escapeStudioHtml(status)}">${escapeStudioHtml(getHomeWorkStatusLabel(status))}</span>
+                    <span class="home-lang-badges">${languageBadges}</span>
+                </div>
+                <h4>${escapeStudioHtml(title)}</h4>
+                <p>${escapeStudioHtml(t('home_work_meta', { pages: pageCount, date: date || '—' }))}</p>
+                <div class="home-work-metrics">
+                    <span><strong>${escapeStudioHtml(String(reviewSummary?.reviewCount || 0))}</strong>${escapeStudioHtml(t('home_metric_reviews'))}</span>
+                    <span><strong>${escapeStudioHtml(String(reviewSummary?.goodCount || 0))}</strong>${escapeStudioHtml(t('home_metric_good'))}</span>
+                    <span><strong>${escapeStudioHtml(String(reviewSummary?.badCount || 0))}</strong>${escapeStudioHtml(t('home_metric_bad'))}</span>
+                </div>
+                <div class="home-work-review-note">${escapeStudioHtml(reviewText)}</div>
+                <div class="home-work-actions">
+                    <button type="button" class="home-work-action" data-home-open-project="${escapeStudioHtml(work.id)}">
+                        <span class="material-icons">edit</span>${escapeStudioHtml(t('home_open_project'))}
+                    </button>
+                    <button type="button" class="home-work-action" data-home-copy-work="${escapeStudioHtml(workId)}">
+                        <span class="material-icons">link</span>${escapeStudioHtml(t('home_copy_viewer'))}
+                    </button>
+                    <button type="button" class="home-work-action" onclick="switchRoom('works')">
+                        <span class="material-icons">tune</span>${escapeStudioHtml(t('home_manage_work'))}
+                    </button>
+                </div>
+            </div>
+        </article>
+    `;
+}
+
 async function renderHomeDashboard() {
     const cloudGrid = document.getElementById('home-cloud-grid');
     const localGrid = document.getElementById('home-local-grid');
     const cloudCount = document.getElementById('home-cloud-count');
     const localCount = document.getElementById('home-local-count');
+    const statsEl = document.getElementById('home-dashboard-stats');
+    const workGrid = document.getElementById('home-work-grid');
+    const workCount = document.getElementById('home-work-count');
     if (!cloudGrid || !localGrid) return;
 
+    if (statsEl) statsEl.innerHTML = renderHomeStatCard('sync', t('home_loading'), '...', '');
+    if (workGrid) workGrid.innerHTML = `<div class="home-empty-state"><span class="material-icons">analytics</span><p>${t('home_loading')}</p></div>`;
+    if (workCount) workCount.textContent = '...';
     cloudGrid.innerHTML = `<div class="home-empty-state"><span class="material-icons">cloud_sync</span><p>${t('home_loading')}</p></div>`;
     localGrid.innerHTML = `<div class="home-empty-state"><span class="material-icons">history</span><p>${t('home_loading')}</p></div>`;
     if (cloudCount) cloudCount.textContent = '...';
@@ -364,6 +569,48 @@ async function renderHomeDashboard() {
             return [];
         })
     ]);
+
+    const works = Array.isArray(cloudProjects)
+        ? cloudProjects.filter(isPublishedHomeWork).sort((a, b) => {
+            const aTime = Number(a?.dsfPublishedAt?.toMillis?.() || a?.updatedAt?.toMillis?.() || 0);
+            const bTime = Number(b?.dsfPublishedAt?.toMillis?.() || b?.updatedAt?.toMillis?.() || 0);
+            return bTime - aTime;
+        })
+        : [];
+    const reviewSummaries = await loadHomeReviewSummaries(works);
+    const reviewTotals = works.reduce((acc, work) => {
+        const summary = reviewSummaries.get(work.workId || work.id) || {};
+        acc.reviewCount += Number(summary.reviewCount) || 0;
+        acc.goodCount += Number(summary.goodCount) || 0;
+        acc.badCount += Number(summary.badCount) || 0;
+        return acc;
+    }, { reviewCount: 0, goodCount: 0, badCount: 0 });
+
+    if (statsEl) {
+        statsEl.innerHTML = renderHomeDashboardStats({
+            cloudProjects: Array.isArray(cloudProjects) ? cloudProjects : [],
+            localProjects,
+            works,
+            reviewTotals
+        });
+    }
+    if (workCount) workCount.textContent = String(works.length);
+    if (workGrid) {
+        if (!state.uid) {
+            workGrid.innerHTML = `<div class="home-empty-state"><span class="material-icons">lock</span><p>${t('home_cloud_login')}</p></div>`;
+        } else if (cloudProjects === null) {
+            workGrid.innerHTML = `<div class="home-empty-state"><span class="material-icons">cloud_off</span><p>${t('home_cloud_error')}</p></div>`;
+        } else if (!works.length) {
+            workGrid.innerHTML = `
+                <div class="home-empty-state">
+                    <span class="material-icons">rocket_launch</span>
+                    <p>${t('home_works_empty')}</p>
+                    <button class="home-action-btn" onclick="switchRoom('press')"><span class="material-icons">publish</span>${t('btn_press_room')}</button>
+                </div>`;
+        } else {
+            workGrid.innerHTML = works.slice(0, 6).map((work) => renderHomeWorkCard(work, reviewSummaries.get(work.workId || work.id))).join('');
+        }
+    }
 
     if (cloudProjects === null) {
         cloudGrid.innerHTML = `<div class="home-empty-state"><span class="material-icons">cloud_off</span><p>${t('home_cloud_error')}</p></div>`;
@@ -432,44 +679,248 @@ async function renderHomeDashboard() {
         });
     });
 
+    workGrid?.querySelectorAll('[data-home-open-project]').forEach((btn) => {
+        btn.addEventListener('click', async () => {
+            const pid = btn.dataset.homeOpenProject;
+            const project = (cloudProjects || []).find((item) => item.id === pid);
+            if (!project) return;
+            onLoadProject(pid, project.projectName, project.sections, project.languages, project.defaultLang, project.languageConfigs, project.title, project.uiPrefs, project.pages, project.blocks, project.version, project.bookMode, project.book, project.textPaperPreset);
+            await cacheLocalRecentProject(JSON.parse(JSON.stringify(state)), window.localImageMap);
+            refresh();
+            window.switchRoom('editor');
+        });
+    });
+
+    workGrid?.querySelectorAll('[data-home-copy-work]').forEach((btn) => {
+        btn.addEventListener('click', async () => {
+            const workId = btn.dataset.homeCopyWork;
+            if (!workId) return;
+            const url = `${window.location.origin}/viewer?work=${encodeURIComponent(workId)}`;
+            try {
+                await navigator.clipboard.writeText(url);
+                alert(t('home_copied_viewer_url', { url }));
+            } catch (_) {
+                prompt(t('home_copy_viewer_prompt'), url);
+            }
+        });
+    });
+
     syncStudioShell();
 }
 
-function updateAuthUI() {
-    const signedIn = !!state.uid;
-    const authBtn = document.getElementById('btn-auth');
-    const authBtnMobile = document.getElementById('btn-auth-mobile');
-    const authStatus = document.getElementById('auth-status');
-    const saveStatus = document.getElementById('save-status');
+// ── Studio 認証 UI — GIS ボタン + フォールバック Google ──
+//    実体のサインインは gis-auth.js。ここはマークアップとスロット束ね。
 
-    if (authBtn) {
-        authBtn.textContent = signedIn ? t('btn_signout') : t('btn_signin');
+function updateAuthUI() {
+    const effectiveUser = state.user || firebaseAuth.currentUser || null;
+    if (effectiveUser?.uid && state.uid !== effectiveUser.uid) {
+        state.user = effectiveUser;
+        state.uid = effectiveUser.uid;
     }
-    if (authBtnMobile) {
-        authBtnMobile.textContent = signedIn ? t('btn_signout') : t('btn_auth_mobile');
-    }
-    if (authStatus) {
-        authStatus.textContent = signedIn
-            ? `${state.user?.displayName || state.user?.email || 'Signed in'}`
-            : t('guest_label');
-    }
+    const signedIn = !!(state.uid || effectiveUser?.uid);
+    const saveStatus = document.getElementById('save-status');
+    const authSlotNav = document.getElementById('studio-auth-slot-nav');
+    const authSlotMobile = document.getElementById('studio-auth-slot-mobile');
+
+    if (authSlotNav) renderStudioAuthSlot(authSlotNav, effectiveUser, { mobile: false, slotName: 'nav' });
+    if (authSlotMobile) renderStudioAuthSlot(authSlotMobile, effectiveUser, { mobile: true, slotName: 'mobile' });
+
     if (!signedIn && saveStatus && !saveStatus.textContent.trim()) {
         saveStatus.textContent = t('login_prompt');
         saveStatus.style.color = '#8a5d00';
     }
-    const roomUserDisplay = document.getElementById('room-user-display');
-    if (roomUserDisplay) {
-        roomUserDisplay.textContent = signedIn ? (state.user?.displayName || state.user?.email || '') : '';
-    }
     document.body.classList.toggle('auth-guest', !signedIn);
     document.querySelectorAll('[data-auth-required]').forEach((el) => {
         el.disabled = !signedIn;
-        if (!signedIn) {
-            el.title = t('login_required');
-        }
+        el.title = !signedIn ? t('login_required') : '';
     });
     syncStudioShell();
 }
+
+function applyStudioAuthUser(user) {
+    state.user = user || null;
+    state.uid = user?.uid || null;
+    updateAuthUI();
+}
+
+let studioAuthGlobalBound = false;
+
+function escapeStudioHtml(value) {
+    if (value == null) return '';
+    return String(value)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#039;');
+}
+
+function getActiveLanguageWorkTitle() {
+    const lang = state.activeLang || state.defaultLang || 'ja';
+    const localizedTitle = state.meta?.[lang]?.title;
+    if (localizedTitle) return localizedTitle;
+    return lang === (state.defaultLang || 'ja') ? (state.title || '') : '';
+}
+
+function closeAllStudioAuthDropdowns() {
+    document.querySelectorAll('.studio-auth-slot [data-auth-dropdown].open').forEach((dropdown) => {
+        dropdown.classList.remove('open');
+    });
+    document.querySelectorAll('.studio-auth-slot [data-auth-trigger][aria-expanded="true"]').forEach((trigger) => {
+        trigger.setAttribute('aria-expanded', 'false');
+    });
+}
+
+function bindStudioAuthGlobalHandlers() {
+    if (studioAuthGlobalBound) return;
+    studioAuthGlobalBound = true;
+    document.addEventListener('click', (event) => {
+        if (event.target.closest('.studio-auth-slot')) return;
+        closeAllStudioAuthDropdowns();
+    });
+}
+
+function getStudioThemeButtonsMarkup() {
+    const currentThemeMode = getThemeMode();
+    return `
+        <div class="auth-panel-section">
+            <div class="auth-panel-label">${escapeStudioHtml(t('themeLabel'))}</div>
+            <div class="theme-mode-switcher js-theme-switcher" role="group" aria-label="${escapeStudioHtml(t('themeLabel'))}">
+                <button type="button" class="theme-mode-btn ${currentThemeMode === 'device' ? 'active' : ''}" data-theme-mode="device">${escapeStudioHtml(t('modeDevice'))}</button>
+                <button type="button" class="theme-mode-btn ${currentThemeMode === 'light' ? 'active' : ''}" data-theme-mode="light">${escapeStudioHtml(t('modeLight'))}</button>
+                <button type="button" class="theme-mode-btn ${currentThemeMode === 'dark' ? 'active' : ''}" data-theme-mode="dark">${escapeStudioHtml(t('modeDark'))}</button>
+            </div>
+        </div>
+    `;
+}
+
+function getStudioAccountLinksMarkup() {
+    return `
+        <div class="auth-panel-links">
+            <button type="button" class="auth-panel-link"><span class="material-icons">visibility_off</span><span>${escapeStudioHtml(t('restrictedMode'))}</span></button>
+            <button type="button" class="auth-panel-link"><span class="material-icons">public</span><span>${escapeStudioHtml(t('location'))}</span></button>
+            <button type="button" class="auth-panel-link"><span class="material-icons">settings</span><span>${escapeStudioHtml(t('settings'))}</span></button>
+            <button type="button" class="auth-panel-link"><span class="material-icons">help_outline</span><span>${escapeStudioHtml(t('help'))}</span></button>
+            <button type="button" class="auth-panel-link"><span class="material-icons">feedback</span><span>${escapeStudioHtml(t('feedback'))}</span></button>
+        </div>
+    `;
+}
+
+function getStudioAuthMarkup(user, { mobile = false, slotName = 'nav' } = {}) {
+    const displayName = escapeStudioHtml(user?.displayName || user?.email || t('guest_label'));
+    const photoUrl = escapeStudioHtml(user?.photoURL || '');
+    const initials = escapeStudioHtml((user?.displayName || user?.email || 'U').trim().charAt(0).toUpperCase() || 'U');
+    const avatarLabel = user ? displayName : escapeStudioHtml(t('btn_signin'));
+    const avatarInner = photoUrl
+        ? `<img src="${photoUrl}" alt="${displayName}" referrerpolicy="no-referrer">`
+        : user
+            ? `<span class="auth-initials">${initials}</span>`
+            : `<span class="material-icons" aria-hidden="true">account_circle</span>`;
+    const gisButtonId = `gis-btn-studio-${slotName}`;
+    const fallbackClass = mobile ? 'mobile-auth-btn studio-signin-fallback' : 'btn-tool studio-signin-fallback';
+    const signedOutSection = user ? '' : `
+        <div class="auth-panel-section studio-auth-signin-section">
+            <div id="${gisButtonId}" class="studio-gis-slot"></div>
+            <button type="button" class="${fallbackClass}" data-auth-signin-fallback>${escapeStudioHtml(mobile ? t('btn_auth_mobile') : t('btn_signin'))}</button>
+        </div>
+    `;
+
+    return `
+        <div class="auth-user studio-auth-user ${mobile ? 'is-mobile' : 'is-desktop'}">
+            <button type="button" class="auth-avatar-btn studio-auth-trigger" data-auth-trigger aria-label="${avatarLabel}" aria-expanded="false">
+                ${avatarInner}
+            </button>
+            <div class="auth-dropdown auth-panel studio-auth-dropdown" data-auth-dropdown>
+                <div class="auth-dropdown-name">${displayName}</div>
+                ${getStudioThemeButtonsMarkup()}
+                ${signedOutSection}
+                ${getStudioAccountLinksMarkup()}
+                ${user ? `<button type="button" class="btn-signout" data-auth-signout>${escapeStudioHtml(t('btn_signout'))}</button>` : ''}
+            </div>
+        </div>
+    `;
+}
+
+function updateStudioThemeSwitchers() {
+    const currentThemeMode = getThemeMode();
+    document.querySelectorAll('.studio-auth-slot .js-theme-switcher .theme-mode-btn').forEach((btn) => {
+        btn.classList.toggle('active', btn.dataset.themeMode === currentThemeMode);
+    });
+}
+
+function mountStudioGisButton(container, { mobile = false } = {}) {
+    if (state.uid) return;
+    const gisTarget = container.querySelector('.studio-gis-slot')?.id;
+    if (!gisTarget) return;
+    const device = getDeviceKey();
+    const renderGisHere = mobile ? device === 'mobile' : device === 'desktop';
+    if (!renderGisHere) return;
+    renderGISButton(gisTarget, {
+        authInstance: firebaseAuth,
+        buttonOptions: {
+            theme: 'outline',
+            size: 'medium',
+            type: 'standard',
+            shape: 'rectangular',
+            text: 'signin_with',
+            logo_alignment: 'left',
+        }
+    }).catch((error) => console.warn(`[Auth] GIS ${mobile ? 'mobile' : 'desktop'} button render failed:`, error));
+}
+
+function bindStudioAuthSlot(container, user, { mobile = false } = {}) {
+    const trigger = container.querySelector('[data-auth-trigger]');
+    const dropdown = container.querySelector('[data-auth-dropdown]');
+    trigger?.addEventListener('click', (event) => {
+        event.stopPropagation();
+        const willOpen = !dropdown?.classList.contains('open');
+        closeAllStudioAuthDropdowns();
+        dropdown?.classList.toggle('open', willOpen);
+        trigger.setAttribute('aria-expanded', String(willOpen));
+        if (willOpen && !user) {
+            requestAnimationFrame(() => {
+                requestAnimationFrame(() => mountStudioGisButton(container, { mobile }));
+            });
+        }
+    });
+    dropdown?.addEventListener('click', async (event) => {
+        const themeBtn = event.target.closest('.theme-mode-btn');
+        if (themeBtn?.dataset.themeMode) {
+            setThemeMode(themeBtn.dataset.themeMode);
+            updateStudioThemeSwitchers();
+            return;
+        }
+        if (event.target.closest('[data-auth-signout]')) {
+            try {
+                await signOutUser(firebaseAuth);
+            } catch (error) {
+                console.error('[Auth] sign-out error:', error);
+            }
+            return;
+        }
+    });
+    container.querySelector('[data-auth-signin-fallback]')?.addEventListener('click', async () => {
+        try {
+            const result = await signInWithGoogle({ authInstance: firebaseAuth });
+            if (result?.user) {
+                applyStudioAuthUser(result.user);
+                closeAllStudioAuthDropdowns();
+            }
+        } catch (error) {
+            console.error('[Auth] Google sign-in error:', error);
+            alert(t('auth_google_failed', { message: error?.message || String(error) }));
+        }
+    });
+}
+
+function renderStudioAuthSlot(container, user, options = {}) {
+    if (!container) return;
+    bindStudioAuthGlobalHandlers();
+    container.innerHTML = getStudioAuthMarkup(user, options);
+    bindStudioAuthSlot(container, user, options);
+}
+
+// ── Studio shell — data-room・デバイス・サムネ列・リボン（editor 以外も共通） ─────────
 
 const THUMB_COLUMN_OPTIONS = [8, 5, 4, 2, 1];
 const MOBILE_THUMB_SIZE_MAP = { s: 4, m: 2, l: 1 };
@@ -485,7 +936,7 @@ function getCurrentRoom() {
 
 function getRoomLabel(room) {
     const keyMap = {
-        home: 'nav_projects',
+        home: 'nav_dashboard',
         editor: 'nav_editor',
         press: 'nav_press',
         works: 'nav_works'
@@ -507,16 +958,11 @@ function getMobileHeaderNavTarget(room) {
     return null;
 }
 
-function isMobileHomeDrawerOpen() {
-    return document.body.classList.contains('mobile-home-drawer-open');
-}
-
 function syncMobileHeader() {
     const room = getCurrentRoom();
     const navBtn = document.getElementById('mobile-header-nav');
     const roomLabel = document.getElementById('mobile-header-room-label');
     const title = document.getElementById('mobile-header-title');
-    const authBtn = document.getElementById('btn-auth-mobile');
     const navTarget = getMobileHeaderNavTarget(room);
     const roomText = getRoomLabel(room);
 
@@ -530,19 +976,13 @@ function syncMobileHeader() {
     if (navBtn) {
         navBtn.hidden = !navTarget;
         navBtn.dataset.targetRoom = navTarget || '';
-        navBtn.title = navTarget ? getRoomLabel(navTarget) : '';
-        navBtn.setAttribute('aria-label', navBtn.title || roomText);
+        const backLabel = navTarget ? getRoomLabel(navTarget) : '';
+        navBtn.title = backLabel;
+        navBtn.setAttribute('aria-label', backLabel || roomText);
         const icon = navBtn.querySelector('.material-icons');
         if (icon) {
-            icon.textContent = room === 'editor' ? 'menu_open' : 'arrow_back';
+            icon.textContent = 'arrow_back';
         }
-        if (room === 'editor') {
-            navBtn.title = t('tab_home');
-            navBtn.setAttribute('aria-label', t('tab_home'));
-        }
-    }
-    if (authBtn) {
-        authBtn.classList.toggle('signed-in', !!state.uid);
     }
 }
 
@@ -566,14 +1006,33 @@ function syncStudioShell() {
     if ((device !== 'mobile' || room !== 'editor') && typeof window.closeMobileSheet === 'function') {
         window.closeMobileSheet();
     }
-    if (device !== 'mobile' || room !== 'editor') {
-        closeMobileHomeDrawer();
-    }
 
     syncMobileHeader();
     syncMobileCanvasZoomBar();
     syncMobileMenuSheet();
     renderMobileBottomBar();
+}
+
+function getValidStudioRoom(room) {
+    return ['home', 'editor', 'press', 'works'].includes(room) ? room : 'home';
+}
+
+function normalizeStudioRouteUrl() {
+    const url = new URL(window.location.href);
+    if (url.pathname.endsWith('/studio.html')) {
+        url.pathname = url.pathname.replace(/\/studio\.html$/, '/studio');
+        window.history.replaceState(window.history.state, '', url);
+    }
+}
+
+function syncStudioRoomUrl(room) {
+    const url = new URL(window.location.href);
+    if (url.pathname.endsWith('/studio.html')) {
+        url.pathname = url.pathname.replace(/\/studio\.html$/, '/studio');
+    }
+    if (!url.pathname.endsWith('/studio')) return;
+    url.searchParams.set('room', getValidStudioRoom(room));
+    window.history.replaceState(window.history.state, '', url);
 }
 
 function sanitizeThumbColumns(value) {
@@ -652,60 +1111,71 @@ function refresh(options = {}) {
 
     // メインキャンバスの描画 — image pages only
     if (s && s.type === 'image') {
-        if (!s.imagePosition) s.imagePosition = {};
-        const toNum = (v, fallback) => {
-            const n = Number(v);
-            return Number.isFinite(n) ? n : fallback;
-        };
-        s.imagePosition.x = toNum(s.imagePosition.x, 0);
-        s.imagePosition.y = toNum(s.imagePosition.y, 0);
-        s.imagePosition.scale = Math.max(0.1, toNum(s.imagePosition.scale, 1));
-        s.imagePosition.rotation = toNum(s.imagePosition.rotation, 0);
-        const pos = s.imagePosition;
+        const pos = getActiveImagePosition();
         if (!s.imageBasePosition) {
-            s.imageBasePosition = { x: 0, y: 0, scale: 1, rotation: 0 };
+            s.imageBasePosition = { x: 0, y: 0, scale: 1, rotation: 0, flipX: false };
         }
-        const bgUrl = getOptimizedImageUrl(s.backgrounds?.[state.activeLang] || s.background || '');
-        const { frameMetrics, targetTransform, invScale } = getImageAdjustRenderMetrics(bgUrl, pos);
-        const targetStyle = [
-            `width:${frameMetrics.widthPercent}%`,
-            `height:${frameMetrics.heightPercent}%`,
-            `transform:${targetTransform};`
-        ].join('; ');
-        const stageOverlay = isImageAdjusting ? `
-            <div id="image-stage-overlay">
-                <div class="image-safe-frame${imageSnapState.edgeLeft ? ' active-left' : ''}${imageSnapState.edgeRight ? ' active-right' : ''}${imageSnapState.edgeTop ? ' active-top' : ''}${imageSnapState.edgeBottom ? ' active-bottom' : ''}"></div>
-                <div class="image-center-guide vertical${imageSnapState.centerX ? ' active' : ''}"></div>
-                <div class="image-center-guide horizontal${imageSnapState.centerY ? ' active' : ''}"></div>
-            </div>
-        ` : '';
+        const bgUrl = getOptimizedImageUrl(s.backgrounds?.[state.activeLang] || s.backgrounds?.[state.defaultLang] || s.background || '');
+        _hideTextPreviewOverlay();
 
-        const overlayInTarget = isImageAdjusting ? `
-            <div id="image-adjust-overlay" style="--inv-handle-scale:${invScale};">
-                <div class="adjust-frame"></div>
-                <button class="img-handle corner nw" onmousedown="startImageHandleDrag(event, 'nw')" ontouchstart="startImageHandleDrag(event, 'nw')" title="左上ハンドル"></button>
-                <button class="img-handle corner ne" onmousedown="startImageHandleDrag(event, 'ne')" ontouchstart="startImageHandleDrag(event, 'ne')" title="右上ハンドル"></button>
-                <button class="img-handle corner sw" onmousedown="startImageHandleDrag(event, 'sw')" ontouchstart="startImageHandleDrag(event, 'sw')" title="左下ハンドル"></button>
-                <button class="img-handle corner se" onmousedown="startImageHandleDrag(event, 'se')" ontouchstart="startImageHandleDrag(event, 'se')" title="右下ハンドル"></button>
-                <button class="img-handle rotate" onmousedown="startImageHandleDrag(event, 'rotate')" ontouchstart="startImageHandleDrag(event, 'rotate')" title="回転ハンドル">⟳</button>
-            </div>
-        ` : '';
-
-        render.innerHTML = `
-            <div id="image-adjust-stage">
-                ${stageOverlay}
-                <div id="image-adjust-target" style="${targetStyle}">
-                    <img id="main-img" src="${bgUrl}" onload="handleEditorImageLoad(event)">
-                    ${overlayInTarget}
-                </div>
+        if (!bgUrl) {
+            // 画像未設定 → アップロード誘導プレースホルダーを表示
+            render.innerHTML = `<div id="image-upload-placeholder" onclick="document.getElementById('file-upload').click()">
+                <span class="material-icons">add_photo_alternate</span>
+                <span class="placeholder-main" data-i18n="placeholder_drop_image">画像をドロップ</span>
+                <span class="placeholder-sub" data-i18n="placeholder_or_click">またはクリックして選択</span>
             </div>`;
-        document.getElementById('image-only-props').style.display = 'block';
-        document.getElementById('bubble-layer').style.display = 'block';
+            document.getElementById('image-only-props').style.display = 'block';
+            document.getElementById('bubble-layer').style.display = 'none';
+        } else {
+            const { frameMetrics, targetTransform, invScale } = getImageAdjustRenderMetrics(bgUrl, pos, getSpreadImageRenderOptions(s, state.activeIdx));
+            const targetStyle = [
+                `width:${frameMetrics.widthPercent}%`,
+                `height:${frameMetrics.heightPercent}%`,
+                `transform:${targetTransform};`
+            ].join('; ');
+            const stageOverlay = isImageAdjusting ? `
+                <div id="image-stage-overlay">
+                    <div class="image-safe-frame${imageSnapState.edgeLeft ? ' active-left' : ''}${imageSnapState.edgeRight ? ' active-right' : ''}${imageSnapState.edgeTop ? ' active-top' : ''}${imageSnapState.edgeBottom ? ' active-bottom' : ''}"></div>
+                    <div class="image-center-guide vertical${imageSnapState.centerX ? ' active' : ''}"></div>
+                    <div class="image-center-guide horizontal${imageSnapState.centerY ? ' active' : ''}"></div>
+                </div>
+            ` : '';
+
+            const overlayInTarget = isImageAdjusting ? `
+                <div id="image-adjust-overlay" style="--inv-handle-scale:${invScale};">
+                    <div class="adjust-frame"></div>
+                    <button class="img-handle corner nw" onmousedown="startImageHandleDrag(event, 'nw')" ontouchstart="startImageHandleDrag(event, 'nw')" title="左上ハンドル"></button>
+                    <button class="img-handle corner ne" onmousedown="startImageHandleDrag(event, 'ne')" ontouchstart="startImageHandleDrag(event, 'ne')" title="右上ハンドル"></button>
+                    <button class="img-handle corner sw" onmousedown="startImageHandleDrag(event, 'sw')" ontouchstart="startImageHandleDrag(event, 'sw')" title="左下ハンドル"></button>
+                    <button class="img-handle corner se" onmousedown="startImageHandleDrag(event, 'se')" ontouchstart="startImageHandleDrag(event, 'se')" title="右下ハンドル"></button>
+                    <button class="img-handle rotate" onmousedown="startImageHandleDrag(event, 'rotate')" ontouchstart="startImageHandleDrag(event, 'rotate')" title="回転ハンドル">⟳</button>
+                </div>
+            ` : '';
+
+            render.innerHTML = `
+                <div id="image-adjust-stage">
+                    ${stageOverlay}
+                    <div id="image-adjust-target" style="${targetStyle}">
+                        <img id="main-img" src="${bgUrl}" onload="handleEditorImageLoad(event)">
+                        ${overlayInTarget}
+                    </div>
+                </div>`;
+            document.getElementById('image-only-props').style.display = 'block';
+            document.getElementById('bubble-layer').style.display = 'block';
+        }
+    } else if (s && s.type === 'text') {
+        render.innerHTML = '';
+        document.getElementById('image-only-props').style.display = 'none';
+        document.getElementById('bubble-layer').style.display = 'none';
+        document.getElementById('bubble-shape-props').style.display = 'none';
+        renderTextPreview(s);
     } else if (s) {
         render.innerHTML = '';
         document.getElementById('image-only-props').style.display = 'none';
         document.getElementById('bubble-layer').style.display = 'none';
         document.getElementById('bubble-shape-props').style.display = 'none';
+        _hideTextPreviewOverlay();
     }
 
     // 吹き出し描画
@@ -730,18 +1200,49 @@ function refresh(options = {}) {
         deleteBtn.disabled = false;
         deleteBtn.title = '';
     }
+
+    const isTextSection = s?.type === 'text';
+    const isPageSection = s?.type === 'image' || s?.type === 'text';
+
+    // FAB「テキスト追加」ボタンをテキストページでは非表示
+    const fabAddBubble = document.getElementById('fab-add-bubble');
+    if (fabAddBubble) fabAddBubble.style.display = isTextSection ? 'none' : '';
+
+    // テキストページではキャンバスのクリックカーソルをデフォルトに戻す
+    const canvasView = document.getElementById('canvas-view');
+    if (canvasView) canvasView.style.cursor = isTextSection ? 'default' : '';
+
+    // テキストセクション専用パネル
+    const textSectionProps = document.getElementById('text-section-props');
+    if (textSectionProps) {
+        textSectionProps.style.display = isTextSection ? 'block' : 'none';
+        if (isTextSection) {
+            _syncTextSectionPanel(s);
+        }
+    }
+
+    const pageHeadingProps = document.getElementById('canvas-page-heading-props');
+    if (pageHeadingProps) pageHeadingProps.style.display = isPageSection ? 'flex' : 'none';
+    if (isPageSection) {
+        syncPageHeadingField(s);
+    }
+    renderEditorTocPreview();
+
+    const hasSelectedBubble = !isTextSection && state.activeBubbleIdx !== null && s?.bubbles?.[state.activeBubbleIdx];
+
+    // 吹き出しテキストエディター（バブル選択時のみ表示）
     const genericTextEditor = document.getElementById('generic-text-editor');
-    if (genericTextEditor) genericTextEditor.style.display = 'block';
+    if (genericTextEditor) genericTextEditor.style.display = hasSelectedBubble ? 'block' : 'none';
 
     // テキストエリア: バブル選択時のテキスト表示
     const propTextEl = document.getElementById('prop-text');
     if (propTextEl) {
-        if (state.activeBubbleIdx !== null && s?.bubbles?.[state.activeBubbleIdx]) {
+        if (hasSelectedBubble) {
             propTextEl.value = getBubbleText(s.bubbles[state.activeBubbleIdx]);
-        } else {
+        } else if (!isTextSection) {
             propTextEl.value = '';
         }
-        propTextEl.style.display = 'block';
+        propTextEl.style.display = hasSelectedBubble ? 'block' : 'none';
         propTextEl.readOnly = false;
     }
 
@@ -751,9 +1252,9 @@ function refresh(options = {}) {
         textLabel.textContent = `テキスト入力 [${langProps.label}]`;
     }
 
-    // 吹き出し形状＆カラーセレクタの同期
+    // 吹き出し形状＆カラーセレクタの同期（テキストセクションでは非表示）
     const shapeProps = document.getElementById('bubble-shape-props');
-    if (state.activeBubbleIdx !== null && s?.bubbles?.[state.activeBubbleIdx]) {
+    if (!isTextSection && state.activeBubbleIdx !== null && s?.bubbles?.[state.activeBubbleIdx]) {
         if (shapeProps) shapeProps.style.display = 'block';
         updateBubblePropPanel(s.bubbles[state.activeBubbleIdx]);
     } else {
@@ -770,16 +1271,42 @@ function refresh(options = {}) {
     // 作品タイトル同期
     const propTitle = document.getElementById('prop-title');
     if (propTitle && document.activeElement !== propTitle) {
-        propTitle.value = state.title || '';
+        propTitle.value = getActiveLanguageWorkTitle();
     }
-    // キャンバス下部のページ番号ラベルを更新
+    // キャンバス下部の旧ページ番号ラベルはスライダー表示へ移行したため非表示のまま同期のみ残す
     const canvasPageLabel = document.getElementById('canvas-page-label');
     if (canvasPageLabel) {
         const totalPages = (state.sections || []).length;
-        const currentPage = (state.activeIdx ?? 0) + 1;
+        const currentPage = getPageDisplayLabel(state.activeIdx ?? 0, totalPages, state.book, state.bookMode);
+        const readableTotal = getReadablePageCount(totalPages, state.book, state.bookMode) || totalPages;
         const langCode = (state.activeLang || 'ja').toUpperCase();
-        canvasPageLabel.textContent = `${currentPage} / ${totalPages} ${langCode}`;
+        canvasPageLabel.textContent = `${currentPage} / ${readableTotal} ${langCode}`;
     }
+
+    // ストリップヘッダーのページカウンターを更新（デスクトップ・モバイル共通）
+    const _totalPages   = (state.sections || []).length;
+    const _currentPage  = getPageDisplayLabel(state.activeIdx ?? 0, _totalPages, state.book, state.bookMode);
+    const _readableTotal = getReadablePageCount(_totalPages, state.book, state.bookMode) || _totalPages;
+    const _counterText  = `${_currentPage} / ${_readableTotal}`;
+    const stripCounter = document.getElementById('page-strip-counter');
+    if (stripCounter) stripCounter.textContent = _counterText;
+    const mobileCounter = document.getElementById('page-strip-counter-mobile');
+    if (mobileCounter) mobileCounter.textContent = _counterText;
+    syncPageNavigationSlider();
+
+    const prevBtn = document.getElementById('btn-page-prev');
+    const nextBtn = document.getElementById('btn-page-next');
+    const _pageDir = getEditorLangDirection(state.activeLang || state.defaultLang || 'ja');
+    const _activeIdx = state.activeIdx ?? 0;
+    if (prevBtn) prevBtn.disabled = _pageDir === 'rtl' ? _activeIdx >= _totalPages - 1 : _activeIdx <= 0;
+    if (nextBtn) nextBtn.disabled = _pageDir === 'rtl' ? _activeIdx <= 0 : _activeIdx >= _totalPages - 1;
+
+    // モバイル見開きボタンのアクティブ状態
+    const mobileSpreadBtn = document.getElementById('btn-spread-view-mobile');
+    if (mobileSpreadBtn) mobileSpreadBtn.classList.toggle('active', !!(state.uiPrefs?.spreadView));
+
+    // 見開きページを更新
+    refreshSpreadPage();
 
     // 言語タブの更新
     if (!skipAncillary) {
@@ -838,13 +1365,34 @@ function syncThumbSelectionDom() {
 // ──────────────────────────────────────
 //  言語UI
 // ──────────────────────────────────────
+function getEditorLangDirection(code) {
+    const props = getLangProps(code);
+    const fallback = props.directions?.[0]?.value || 'ltr';
+    return state.languageConfigs?.[code]?.pageDirection || fallback;
+}
+
+function getEditorLangDirectionArrow(code) {
+    return getEditorLangDirection(code) === 'rtl' ? '&lt;&lt;' : '&gt;&gt;';
+}
+
+function renderEditorLangTabContent(code) {
+    const props = getLangProps(code);
+    const codeLabel = String(code || '').toUpperCase();
+    return `
+        ${renderStudioLanguageBadge(code, 'lang-tab-badge')}
+        <span class="lang-tab-label">${escapeStudioHtml(props.label)}</span>
+        <span class="lang-tab-code">${escapeStudioHtml(codeLabel)}</span>
+        <span class="lang-tab-dir">${getEditorLangDirectionArrow(code)}</span>
+    `;
+}
+
 function renderLangTabs() {
     const html = state.languages.map(code => {
-        const props = getLangProps(code);
         const active = code === state.activeLang ? 'active' : '';
-        return `<button class="lang-tab ${active}" onclick="switchLang('${code}')">${props.label}</button>`;
+        const label = `${getLangProps(code).label} ${String(code).toUpperCase()} ${getEditorLangDirection(code) === 'rtl' ? '<<' : '>>'}`;
+        return `<button class="lang-tab ${active}" onclick="switchLang('${code}')" title="${escapeStudioHtml(label)}">${renderEditorLangTabContent(code)}</button>`;
     }).join('');
-    ['lang-tabs', 'lang-tabs-mobile', 'lang-tabs-top'].forEach((id) => {
+    ['lang-tabs', 'lang-tabs-mobile', 'lang-tabs-top', 'lang-tabs-pages-panel'].forEach((id) => {
         const container = document.getElementById(id);
         if (container) container.innerHTML = html;
     });
@@ -853,9 +1401,12 @@ function renderLangTabs() {
 function renderLangSettings() {
     const list = document.getElementById('lang-list');
     if (!list) return;
-    list.innerHTML = state.languages.map(code => {
+    const draft = _getPsSettingsSource();
+    const languages = draft.languages || ['ja'];
+    const configs = draft.languageConfigs || {};
+    list.innerHTML = languages.map(code => {
         const props = getLangProps(code);
-        const canRemove = state.languages.length > 1;
+        const canRemove = languages.length > 1;
         const removeBtn = canRemove
             ? `<button class="btn-sm lang-item-remove" onclick="removeLang('${code}')">✕</button>`
             : '';
@@ -863,7 +1414,7 @@ function renderLangSettings() {
         // 複数方向対応の言語にはインラインセレクトを表示
         let dirSelect = '';
         if (props.directions && props.directions.length > 1) {
-            const currentDir = state.languageConfigs?.[code]?.pageDirection || props.directions[0].value;
+            const currentDir = configs?.[code]?.pageDirection || props.directions[0].value;
             const options = props.directions.map(d => {
                 const sel = d.value === currentDir ? ' selected' : '';
                 return `<option value="${d.value}"${sel}>${d.label}</option>`;
@@ -876,12 +1427,13 @@ function renderLangSettings() {
 }
 
 window.changeLangDirection = (code, dir) => {
-    if (!state.languageConfigs) state.languageConfigs = {};
-    if (!state.languageConfigs[code]) state.languageConfigs[code] = {};
-    state.languageConfigs[code].pageDirection = dir;
+    _capturePsInputsToDraft();
+    const draft = _ensurePsDraft();
+    if (!draft.languageConfigs) draft.languageConfigs = {};
+    if (!draft.languageConfigs[code]) draft.languageConfigs[code] = {};
+    draft.languageConfigs[code].pageDirection = dir;
     renderLangSettings();
     renderProjectSettingsTable();
-    triggerAutoSave();
 };
 
 // ──────────────────────────────────────
@@ -917,6 +1469,40 @@ function clearThumbDropHints() {
 
 function getThumbElement(index) {
     return document.querySelector(`.thumb-wrap[data-section-index="${index}"]`);
+}
+
+function getSpreadGroupIdByIndex(index) {
+    const idx = Number(index);
+    if (!Number.isInteger(idx)) return '';
+    return state.sections?.[idx]?.spreadImage?.groupId || '';
+}
+
+function getSpreadPairIndices(index) {
+    const idx = Number(index);
+    if (!Number.isInteger(idx)) return [];
+    const groupId = getSpreadGroupIdByIndex(idx);
+    if (!groupId) return [idx];
+    const pair = (state.sections || [])
+        .map((section, pageIdx) => section?.spreadImage?.groupId === groupId ? pageIdx : -1)
+        .filter((pageIdx) => pageIdx >= 0)
+        .sort((a, b) => a - b);
+    return pair.length ? pair : [idx];
+}
+
+function getSpreadPairStart(index) {
+    const pair = getSpreadPairIndices(index);
+    return pair[0] ?? Number(index);
+}
+
+function getSpreadPairEnd(index) {
+    const pair = getSpreadPairIndices(index);
+    return pair[pair.length - 1] ?? Number(index);
+}
+
+function addThumbClassToSpreadPair(index, className) {
+    getSpreadPairIndices(index).forEach((pageIdx) => {
+        getThumbElement(pageIdx)?.classList.add(className);
+    });
 }
 
 function setThumbDeleteDropzoneActive(active) {
@@ -977,7 +1563,8 @@ function getMobileThumbInsertTarget(clientX) {
     const sourceEl = getThumbElement(sourceIndex);
     if (!sourceEl) return null;
     const sourceRect = sourceEl.getBoundingClientRect();
-    const visualThumbs = getThumbVisualThumbs().filter((thumb) => Number(thumb.dataset.sectionIndex) !== sourceIndex);
+    const sourcePair = new Set(getSpreadPairIndices(sourceIndex));
+    const visualThumbs = getThumbVisualThumbs().filter((thumb) => !sourcePair.has(Number(thumb.dataset.sectionIndex)));
     const dir = container.dataset.dir === 'rtl' ? 'rtl' : 'ltr';
     if (!visualThumbs.length) {
         const containerRect = container.getBoundingClientRect();
@@ -1041,7 +1628,7 @@ function showMobileThumbInsertPreview(target) {
     const sourceEl = getThumbElement(thumbTouchState?.sourceIndex ?? thumbDragSourceIdx);
     if (!container || !sourceEl || !target) return;
     clearThumbDropHints();
-    sourceEl.classList.add('drag-source');
+    addThumbClassToSpreadPair(thumbTouchState?.sourceIndex ?? thumbDragSourceIdx, 'drag-source');
 
     const containerRect = container.getBoundingClientRect();
     const leftPx = target.boundary - containerRect.left + container.scrollLeft;
@@ -1077,9 +1664,9 @@ function showMobileThumbInsertPreview(target) {
 
 function markThumbDropHint(index, position) {
     clearThumbDropHints();
-    const sourceEl = getThumbElement(thumbDragSourceIdx);
-    if (sourceEl) sourceEl.classList.add('drag-source');
-    const el = getThumbElement(index);
+    addThumbClassToSpreadPair(thumbDragSourceIdx, 'drag-source');
+    const targetIndex = position === 'before' ? getSpreadPairStart(index) : getSpreadPairEnd(index);
+    const el = getThumbElement(targetIndex);
     if (!el) return;
     el.classList.add(position === 'before' ? 'drop-before' : 'drop-after');
 }
@@ -1096,21 +1683,37 @@ function getDropPositionByPoint(el, clientX, clientY) {
 }
 
 function moveSectionWithHistory(fromIndex, targetIndex, position) {
-    const insertIndex = position === 'before' ? targetIndex : targetIndex + 1;
-    const from = Number(fromIndex);
-    let to = Math.max(0, Math.min(insertIndex, state.sections.length));
-    if (to === from || to === from + 1) return false;
-    pushState();
-    moveSection(from, to, refresh);
-    triggerAutoSave();
-    return true;
+    const insertIndex = position === 'before' ? getSpreadPairStart(targetIndex) : getSpreadPairEnd(targetIndex) + 1;
+    return moveSectionToInsertIndexWithHistory(fromIndex, insertIndex);
 }
 
 function moveSectionToInsertIndexWithHistory(fromIndex, insertIndex) {
     const from = Number(fromIndex);
-    const to = Math.max(0, Math.min(Number(insertIndex), state.sections.length));
-    if (!Number.isInteger(from) || !Number.isInteger(to)) return false;
+    const pair = getSpreadPairIndices(from);
+    if (pair.length > 1) {
+        const fromStart = pair[0];
+        const count = pair.length;
+        let to = Math.max(0, Math.min(Number(insertIndex), state.sections.length));
+        if (!Number.isInteger(fromStart) || !Number.isInteger(to)) return false;
+        if (to > fromStart && to < fromStart + count) return false;
+        if (to === fromStart || to === fromStart + count) return false;
+        const simulated = [...(state.sections || [])];
+        const moved = simulated.splice(fromStart, count);
+        const simulatedTo = to > fromStart ? to - count : to;
+        simulated.splice(simulatedTo, 0, ...moved);
+        if (!validateSpreadImageCompositionForSections(simulated)) return false;
+        pushState();
+        moveSectionRange(fromStart, count, to, refresh);
+        triggerAutoSave();
+        return true;
+    }
+    let to = Math.max(0, Math.min(insertIndex, state.sections.length));
     if (to === from || to === from + 1) return false;
+    const simulated = [...(state.sections || [])];
+    const [moved] = simulated.splice(from, 1);
+    const simulatedTo = to > from ? to - 1 : to;
+    simulated.splice(simulatedTo, 0, moved);
+    if (!validateSpreadImageCompositionForSections(simulated)) return false;
     pushState();
     moveSection(from, to, refresh);
     triggerAutoSave();
@@ -1161,15 +1764,13 @@ function onThumbTouchMove(e) {
         if (dy <= -12 && Math.abs(dy) > Math.abs(dx) + 4) {
             thumbTouchState.active = true;
             thumbTouchState.mode = 'move';
-            const sourceEl = getThumbElement(thumbTouchState.sourceIndex);
-            if (sourceEl) sourceEl.classList.add('drag-source');
+            addThumbClassToSpreadPair(thumbTouchState.sourceIndex, 'drag-source');
         } else if (dy >= 12 && Math.abs(dy) > Math.abs(dx) + 4) {
             thumbTouchState.active = true;
             thumbTouchState.mode = 'delete';
             document.body.classList.add('thumb-delete-mode');
             setThumbDeleteDropzoneActive(false);
-            const sourceEl = getThumbElement(thumbTouchState.sourceIndex);
-            if (sourceEl) sourceEl.classList.add('drag-source');
+            addThumbClassToSpreadPair(thumbTouchState.sourceIndex, 'drag-source');
         } else {
             return;
         }
@@ -1297,34 +1898,122 @@ let imageHandleDrag = null;
 function calcMobileAdjustScale(pos) {
     const view = document.getElementById('canvas-view');
     if (!view) return 0.6;
-    const cw = view.clientWidth || 360;
-    const ch = view.clientHeight || 640;
+    const cw = view.clientWidth || CANONICAL_PAGE_WIDTH;
+    const ch = view.clientHeight || CANONICAL_PAGE_HEIGHT;
+    const halfW = CANONICAL_PAGE_WIDTH / 2;
+    const halfH = CANONICAL_PAGE_HEIGHT / 2;
     const visibilityFactor = Math.max(
         1,
         pos?.scale || 1,
-        1 + Math.abs(pos?.x || 0) / 180,
-        1 + Math.abs(pos?.y || 0) / 320
+        1 + Math.abs(pos?.x || 0) / halfW,
+        1 + Math.abs(pos?.y || 0) / halfH
     );
-    const needW = 360 * visibilityFactor;
-    const needH = 640 * visibilityFactor;
+    const needW = CANONICAL_PAGE_WIDTH * visibilityFactor;
+    const needH = CANONICAL_PAGE_HEIGHT * visibilityFactor;
     const s = Math.min(cw / needW, ch / needH) * 0.82;
     return Math.min(Math.max(s, 0.22), 0.9);
+}
+
+function isSpreadImageSection(section) {
+    return section?.type === 'image'
+        && section.spreadImage
+        && typeof section.spreadImage === 'object'
+        && !!section.spreadImage.groupId;
+}
+
+function getSpreadImagePhysicalRole(pageIndex) {
+    const idx = Number(pageIndex);
+    if (!Number.isInteger(idx) || idx < 0) return '';
+    const adjIdx = getSpreadAdjacentPageIndexForRole(idx);
+    if (adjIdx < 0) return '';
+    const lang = state.activeLang || state.defaultLang || 'ja';
+    const pageDir = getEditorLangDirection(lang);
+    const pageOnLeft = pageDir === 'rtl' ? idx >= adjIdx : idx <= adjIdx;
+    return pageOnLeft ? 'left' : 'right';
+}
+
+function getSpreadImageRenderOptions(section, pageIndex = -1) {
+    if (!isSpreadImageSection(section)) return {};
+    const resolvedIndex = Number.isInteger(pageIndex) && pageIndex >= 0
+        ? pageIndex
+        : (state.sections || []).indexOf(section);
+    const physicalRole = getSpreadImagePhysicalRole(resolvedIndex);
+    const role = physicalRole || (section.spreadImage.role === 'left' ? 'left' : 'right');
+    return {
+        frameWidth: CANONICAL_PAGE_WIDTH * 2,
+        frameHeight: CANONICAL_PAGE_HEIGHT,
+        percentBaseWidth: CANONICAL_PAGE_WIDTH,
+        percentBaseHeight: CANONICAL_PAGE_HEIGHT,
+        offsetX: role === 'left' ? CANONICAL_PAGE_WIDTH / 2 : -CANONICAL_PAGE_WIDTH / 2
+    };
+}
+
+function normalizeImagePosition(pos = {}) {
+    const toNum = (v, fallback) => {
+        const n = Number(v);
+        return Number.isFinite(n) ? n : fallback;
+    };
+    return {
+        x: toNum(pos.x, 0),
+        y: toNum(pos.y, 0),
+        scale: Math.max(0.1, toNum(pos.scale, 1)),
+        rotation: toNum(pos.rotation, 0),
+        flipX: !!pos.flipX
+    };
+}
+
+function syncSpreadImageGroupForLang(activeIdx, lang) {
+    const active = state.sections?.[activeIdx];
+    if (!isSpreadImageSection(active)) return null;
+    const groupId = active.spreadImage.groupId;
+    const members = (state.sections || []).filter((section) => section?.spreadImage?.groupId === groupId);
+    if (members.length < 2) return null;
+
+    let shared = active.imagePositions?.[lang]
+        || members.find((section) => section.imagePositions?.[lang])?.imagePositions?.[lang]
+        || active.imagePosition
+        || members.find((section) => section.imagePosition)?.imagePosition
+        || { x: 0, y: 0, scale: 1, rotation: 0, flipX: false };
+    shared = normalizeImagePosition(shared);
+
+    members.forEach((section) => {
+        if (!section.imagePositions) section.imagePositions = {};
+        section.imagePositions[lang] = shared;
+        section.imagePosition = shared;
+        if (!section.imageBasePosition) {
+            section.imageBasePosition = { x: 0, y: 0, scale: 1, rotation: 0, flipX: false };
+        }
+    });
+    return shared;
 }
 
 function getActiveImagePosition() {
     const s = state.sections[state.activeIdx];
     if (!s || s.type !== 'image') return null;
-    if (!s.imagePosition) s.imagePosition = {};
-    const toNum = (v, fallback) => {
-        const n = Number(v);
-        return Number.isFinite(n) ? n : fallback;
-    };
-    s.imagePosition.x = toNum(s.imagePosition.x, 0);
-    s.imagePosition.y = toNum(s.imagePosition.y, 0);
-    s.imagePosition.scale = Math.max(0.1, toNum(s.imagePosition.scale, 1));
-    s.imagePosition.rotation = toNum(s.imagePosition.rotation, 0);
-    if (!s.imageBasePosition) s.imageBasePosition = { x: 0, y: 0, scale: 1, rotation: 0 };
-    return s.imagePosition;
+    const lang = state.activeLang || state.defaultLang || 'ja';
+    const spreadShared = syncSpreadImageGroupForLang(state.activeIdx, lang);
+    if (spreadShared) return spreadShared;
+    if (!s.imagePositions) s.imagePositions = {};
+    if (!s.imagePositions[lang]) {
+        // Migrate from legacy shared imagePosition on first access
+        const legacy = s.imagePosition || {};
+        s.imagePositions[lang] = {
+            x: Number.isFinite(Number(legacy.x)) ? Number(legacy.x) : 0,
+            y: Number.isFinite(Number(legacy.y)) ? Number(legacy.y) : 0,
+            scale: Math.max(0.1, Number.isFinite(Number(legacy.scale)) ? Number(legacy.scale) : 1),
+            rotation: Number.isFinite(Number(legacy.rotation)) ? Number(legacy.rotation) : 0,
+            flipX: legacy.flipX || false
+        };
+    }
+    const pos = s.imagePositions[lang];
+    const toNum = (v, fallback) => { const n = Number(v); return Number.isFinite(n) ? n : fallback; };
+    pos.x = toNum(pos.x, 0);
+    pos.y = toNum(pos.y, 0);
+    pos.scale = Math.max(0.1, toNum(pos.scale, 1));
+    pos.rotation = toNum(pos.rotation, 0);
+    if (pos.flipX === undefined) pos.flipX = false;
+    if (!s.imageBasePosition) s.imageBasePosition = { x: 0, y: 0, scale: 1, rotation: 0, flipX: false };
+    return pos;
 }
 
 function getPointerClientPoint(e) {
@@ -1345,7 +2034,7 @@ window.adjustImageZoom = (delta) => {
     pushState();
     pos.scale = Math.max(0.1, pos.scale + delta);
     const s = state.sections[state.activeIdx];
-    const bgUrl = getOptimizedImageUrl(s?.backgrounds?.[state.activeLang] || s?.background || '');
+    const bgUrl = getOptimizedImageUrl(s?.backgrounds?.[state.activeLang] || s?.backgrounds?.[state.defaultLang] || s?.background || '');
     applyImageSnapping(pos, bgUrl);
     scheduleImageAdjustDomUpdate();
     triggerAutoSave();
@@ -1355,13 +2044,23 @@ window.resetImageTransform = () => {
     const s = state.sections[state.activeIdx];
     const pos = getActiveImagePosition();
     if (!isImageAdjusting || !s || !pos) return;
-    const base = s.imageBasePosition || { x: 0, y: 0, scale: 1, rotation: 0 };
+    const base = s.imageBasePosition || { x: 0, y: 0, scale: 1, rotation: 0, flipX: false };
     pushState();
     pos.x = base.x || 0;
     pos.y = base.y || 0;
     pos.scale = base.scale || 1;
     pos.rotation = base.rotation || 0;
+    pos.flipX = base.flipX || false;
     resetImageSnapState();
+    scheduleImageAdjustDomUpdate();
+    triggerAutoSave();
+};
+
+window.toggleImageFlipX = () => {
+    const pos = getActiveImagePosition();
+    if (!isImageAdjusting || !pos) return;
+    pushState();
+    pos.flipX = !pos.flipX;
     scheduleImageAdjustDomUpdate();
     triggerAutoSave();
 };
@@ -1372,7 +2071,7 @@ window.setImageRotationFromSlider = (value) => {
     const rotation = roundRotationHalfStep(Math.max(-180, Math.min(180, Number(value) || 0)));
     pos.rotation = rotation;
     const s = state.sections[state.activeIdx];
-    const bgUrl = getOptimizedImageUrl(s?.backgrounds?.[state.activeLang] || s?.background || '');
+    const bgUrl = getOptimizedImageUrl(s?.backgrounds?.[state.activeLang] || s?.backgrounds?.[state.defaultLang] || s?.background || '');
     applyImageSnapping(pos, bgUrl);
     scheduleImageAdjustDomUpdate();
 };
@@ -1467,7 +2166,7 @@ function onImageHandleDragMove(e) {
         pos.y = imageHandleDrag.base.y + dy / (2 * canvasScale);
     }
     const s = state.sections[state.activeIdx];
-    const bgUrl = getOptimizedImageUrl(s?.backgrounds?.[state.activeLang] || s?.background || '');
+    const bgUrl = getOptimizedImageUrl(s?.backgrounds?.[state.activeLang] || s?.backgrounds?.[state.defaultLang] || s?.background || '');
     applyImageSnapping(pos, bgUrl);
     scheduleImageAdjustDomUpdate();
 }
@@ -1479,12 +2178,14 @@ function onImageHandleDragEnd() {
     window.removeEventListener('mousemove', onImageHandleDragMove);
     window.removeEventListener('mouseup', onImageHandleDragEnd);
     const s = state.sections[state.activeIdx];
-    if (s && s.background && state.uid) {
-        generateCroppedThumbnail(
-            s.background,
-            s.imagePosition || { x: 0, y: 0, scale: 1, rotation: 0 },
-            refresh
-        ).catch(e => console.warn('[DSF] Thumbnail update skipped (onImageHandleDragEnd):', e));
+    if (s && state.uid) {
+        const lang = state.activeLang || state.defaultLang || 'ja';
+        const thumbBgUrl = s.backgrounds?.[lang] || s.backgrounds?.[state.defaultLang] || s.background || '';
+        const thumbPos = getActiveImagePosition() || s.imagePosition || { x: 0, y: 0, scale: 1, rotation: 0 };
+        if (thumbBgUrl) {
+            generateCroppedThumbnail(thumbBgUrl, thumbPos, refresh)
+                .catch(e => console.warn('[DSF] Thumbnail update skipped (onImageHandleDragEnd):', e));
+        }
     }
     triggerAutoSave();
 }
@@ -1535,7 +2236,7 @@ window.toggleImageAdjustment = () => {
             scale: canvasScale,
             translate: { ...canvasTranslate }
         };
-        const pos = s.imagePosition || { x: 0, y: 0, scale: 1 };
+        const pos = getActiveImagePosition() || s.imagePosition || { x: 0, y: 0, scale: 1 };
         canvasScale = calcMobileAdjustScale(pos);
         canvasTranslate = { x: 0, y: 0 };
         updateCanvasTransform();
@@ -1556,15 +2257,19 @@ window.toggleImageAdjustment = () => {
         imgInfo.textContent = isImageAdjusting ? "画像をドラッグ/ピンチして調整" : "テキスト入力";
     }
 
+    // 調整モード確定: refresh で handles 表示/非表示を切り替える
+    refresh();
     // 調整モード終了時に値を確定して保存＋サムネイル再生成
     if (!isImageAdjusting) {
         triggerAutoSave();
-        refresh(); // Ensure handles disappear immediately
-        // サムネイル更新
-        if (s.background && state.uid) {
+        // サムネイル更新（多言語対応: backgrounds[activeLang] を優先使用）
+        const lang = state.activeLang || state.defaultLang || 'ja';
+        const thumbBgUrl = s.backgrounds?.[lang] || s.backgrounds?.[state.defaultLang] || s.background || '';
+        const thumbPos = getActiveImagePosition() || s.imagePosition || { x: 0, y: 0, scale: 1, rotation: 0 };
+        if (thumbBgUrl && state.uid) {
             generateCroppedThumbnail(
-                s.background,
-                s.imagePosition || { x: 0, y: 0, scale: 1, rotation: 0 },
+                thumbBgUrl,
+                thumbPos,
                 refresh
             ).catch(e => console.warn('[DSF] Thumbnail update skipped (toggleImageAdjustment):', e));
         }
@@ -1582,23 +2287,18 @@ function initImageAdjustment() {
     let startScale = 1;
     let initialPinchDist = null;
 
-    // Helper to get image transform state
-    const getImgState = () => {
-        const s = state.sections[state.activeIdx];
-        if (!s.imagePosition) s.imagePosition = { x: 0, y: 0, scale: 1 };
-        return s.imagePosition;
-    };
-
     // Events
+
     const onMove = (clientX, clientY) => {
         if (isAdjustingRotationSlider) return;
         const dx = clientX - startPos.x;
         const dy = clientY - startPos.y;
-        const pos = getImgState();
+        const pos = getActiveImagePosition();
+        if (!pos) return;
         pos.x = startTransform.x + dx / canvasScale;
         pos.y = startTransform.y + dy / canvasScale;
         const s = state.sections[state.activeIdx];
-        const bgUrl = getOptimizedImageUrl(s?.backgrounds?.[state.activeLang] || s?.background || '');
+        const bgUrl = getOptimizedImageUrl(s?.backgrounds?.[state.activeLang] || s?.backgrounds?.[state.defaultLang] || s?.background || '');
         applyImageSnapping(pos, bgUrl);
         scheduleImageAdjustDomUpdate();
     };
@@ -1610,12 +2310,14 @@ function initImageAdjustment() {
             isDraggingImg = false;
             resetImageSnapState();
             const s = state.sections[state.activeIdx];
-            if (s && s.background && state.uid) {
-                generateCroppedThumbnail(
-                    s.background,
-                    s.imagePosition || { x: 0, y: 0, scale: 1, rotation: 0 },
-                    refresh
-                ).catch(e => console.warn('[DSF] Thumbnail update skipped (onEnd):', e));
+            if (s && state.uid) {
+                const lang = state.activeLang || state.defaultLang || 'ja';
+                const thumbBgUrl = s.backgrounds?.[lang] || s.backgrounds?.[state.defaultLang] || s.background || '';
+                const thumbPos = getActiveImagePosition() || s.imagePosition || { x: 0, y: 0, scale: 1, rotation: 0 };
+                if (thumbBgUrl) {
+                    generateCroppedThumbnail(thumbBgUrl, thumbPos, refresh)
+                        .catch(e => console.warn('[DSF] Thumbnail update skipped (onEnd):', e));
+                }
             }
             triggerAutoSave();
         }
@@ -1627,8 +2329,8 @@ function initImageAdjustment() {
         if (!isImageAdjusting || isAdjustingRotationSlider) return;
         isDraggingImg = true;
         startPos = { x: clientX, y: clientY };
-        const pos = getImgState();
-        startTransform = { x: pos.x, y: pos.y };
+        const pos = getActiveImagePosition();
+        startTransform = pos ? { x: pos.x, y: pos.y } : { x: 0, y: 0 };
         window.addEventListener('mousemove', onMoveWrap);
         window.addEventListener('mouseup', onEnd);
     };
@@ -1660,8 +2362,8 @@ function initImageAdjustment() {
                     e.touches[0].clientY - e.touches[1].clientY
                 );
                 initialPinchDist = dist;
-                const pos = getImgState();
-                startScale = pos.scale || 1;
+                const pos = getActiveImagePosition();
+                startScale = pos?.scale || 1;
             }
         }
     }, { passive: false });
@@ -1683,10 +2385,11 @@ function initImageAdjustment() {
                 e.touches[0].clientY - e.touches[1].clientY
             );
             const scale = dist / initialPinchDist;
-            const pos = getImgState();
+            const pos = getActiveImagePosition();
+            if (!pos) return;
             pos.scale = Math.max(0.1, startScale * scale);
             const s = state.sections[state.activeIdx];
-            const bgUrl = getOptimizedImageUrl(s?.backgrounds?.[state.activeLang] || s?.background || '');
+            const bgUrl = getOptimizedImageUrl(s?.backgrounds?.[state.activeLang] || s?.backgrounds?.[state.defaultLang] || s?.background || '');
             applyImageSnapping(pos, bgUrl);
             scheduleImageAdjustDomUpdate();
         }
@@ -1703,11 +2406,11 @@ function initImageAdjustment() {
         if (isImageAdjusting) {
             e.preventDefault();
             e.stopPropagation();
-            const pos = getActiveImagePosition() || getImgState();
+            const pos = getActiveImagePosition();
             const delta = e.deltaY > 0 ? 0.9 : 1.1;
             pos.scale = Math.max(0.1, (pos.scale || 1) * delta);
             const s = state.sections[state.activeIdx];
-            const bgUrl = getOptimizedImageUrl(s?.backgrounds?.[state.activeLang] || s?.background || '');
+            const bgUrl = getOptimizedImageUrl(s?.backgrounds?.[state.activeLang] || s?.backgrounds?.[state.defaultLang] || s?.background || '');
             applyImageSnapping(pos, bgUrl);
             scheduleImageAdjustDomUpdate();
             // Debounce save?
@@ -1735,6 +2438,978 @@ function updateActiveText(v) {
         setBubbleText(s.bubbles[state.activeBubbleIdx], v);
     }
     refresh();
+    triggerAutoSave();
+}
+
+// ──────────────────────────────────────────────────────────────
+//  テキストセクション キャンバスプレビュー
+// ──────────────────────────────────────────────────────────────
+
+function _hideTextPreviewOverlay() {
+    const overlay = document.getElementById('text-preview-overlay');
+    if (overlay) overlay.style.display = 'none';
+}
+
+/** HTML 特殊文字をエスケープ */
+function _escHtml(str) {
+    return String(str || '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;');
+}
+
+const VERTICAL_GLYPH_MAP = Object.freeze({
+    'ー': '︱',
+    '―': '︱',
+    '—': '︱',
+    '–': '︲',
+    '…': '︙',
+    '‥': '︰',
+    '、': '︑',
+    '。': '︒',
+    '，': '︐',
+    '：': '︓',
+    '；': '︔',
+    '！': '︕',
+    '？': '︖',
+    '（': '︵',
+    '）': '︶',
+    '｛': '︷',
+    '｝': '︸',
+    '〔': '︹',
+    '〕': '︺',
+    '【': '︻',
+    '】': '︼',
+    '《': '︽',
+    '》': '︾',
+    '〈': '︿',
+    '〉': '﹀',
+    '「': '﹁',
+    '」': '﹂',
+    '『': '﹃',
+    '』': '﹄',
+    '［': '﹇',
+    '］': '﹈'
+});
+
+function _verticalGlyphText(text) {
+    return Array.from(String(text || ''), ch => VERTICAL_GLYPH_MAP[ch] || ch).join('');
+}
+
+function _markupVerticalDigits(text) {
+    const chars = Array.from(String(text || ''));
+    return chars.map(ch => _escHtml(_verticalGlyphText(ch))).join('');
+}
+
+/**
+ * 縦書き列の 1 行を HTML にマークアップする。
+ * 2〜4 桁の半角または全角数字を <span class="tcy"> でラップし縦中横（Tate-Chu-Yoko）を適用する。
+ * ルビなし plain-text 用。ruby 付き行は _markupTokenLine を使用する。
+ */
+function _markupVerticalLine(rawLine) {
+    if (!rawLine) return '\u00a0';
+    return _markupTcyText(rawLine) || '\u00a0';
+}
+
+/**
+ * トークン行からベーステキストのみ HTML を生成する（縦書き列用）。
+ * ruby token は base テキストだけを出力し、<ruby> 要素を使わない。
+ * ルビ注釈は別レイヤー（.tpv-ruby-overlay）で描画する。
+ */
+function _baseTextFromTokenLine(tokenLine) {
+    if (!tokenLine || !tokenLine.length) return '\u00a0';
+    const parts = [];
+    for (const tok of tokenLine) {
+        parts.push(_markupTcyText(tok.kind === 'ruby' ? tok.base : (tok.text || '')));
+    }
+    return parts.join('') || '\u00a0';
+}
+
+/**
+ * トークン行（alignRubyToLines の 1 要素）を HTML にマークアップする。
+ * - plain text token: _escHtml + TCY 数字ラップ（_markupVerticalLine 相当）
+ * - ruby token: <ruby>base<rt>ruby</rt></ruby>（base にも TCY 適用）
+ * 横書きで使用する。
+ */
+function _markupTokenLine(tokenLine) {
+    if (!tokenLine || !tokenLine.length) return '\u00a0';
+    const parts = [];
+    for (const tok of tokenLine) {
+        if (tok.kind === 'ruby') {
+            const markedBase = _markupTcyText(tok.base);
+            const rubyText = _escHtml(tok.ruby || '');
+            parts.push(`<ruby>${markedBase}<rt>${rubyText}</rt></ruby>`);
+        } else {
+            parts.push(_markupTcyText(tok.text || ''));
+        }
+    }
+    const html = parts.join('');
+    return html || '\u00a0';
+}
+
+/** 文字列内の 2〜4 桁の半角・全角数字に TCY span を適用する（内部ヘルパー） */
+function _markupTcyText(text) {
+    if (!text) return '';
+    return _markupVerticalDigits(text);
+}
+
+/**
+ * composeText の lines 配列を縦書き連続フロー用 HTML に変換する。
+ * 空行（段落区切り）は全角スペース（字下げ代わり）に変換し、
+ * 行間スペースを入れずに連結することで CSS のマルチカラムフロー
+ * （column-fill: auto）が列を上から下まで充填できるようにする。
+ */
+function _buildCjkHtmlFlow(lines) {
+    const parts = [];
+    for (const line of lines) {
+        if (line === '') {
+            parts.push('\u3000'); // 段落区切り → 字下げ（U+3000 ideographic space）
+        } else {
+            parts.push(_markupVerticalLine(line));
+        }
+    }
+    return parts.join('');
+}
+
+/**
+ * composeText の lines 配列を段落単位に再結合する（横書き向け）。
+ * 連続する非空行をスペースで繋ぎ、空行は null（ブランク行）として返す。
+ * CSS が justify + hyphens で再ラップできるよう、行分割を解除する。
+ */
+function _linesIntoParagraphs(lines, lineBreaks = []) {
+    const result = [];
+    let buf = [];
+    function flushBuf() {
+        if (!buf.length) return;
+        result.push(buf.join(' '));
+        buf = [];
+    }
+    for (let i = 0; i < lines.length; i += 1) {
+        const line = lines[i];
+        if (line === '') {
+            flushBuf();
+            result.push(null);
+        } else {
+            buf.push(line);
+            if (lineBreaks[i]) flushBuf();
+        }
+    }
+    flushBuf();
+    return result;
+}
+
+/**
+ * ルビあり横書き向け: alignRubyToLines の token-line 配列を段落単位に結合する。
+ * 空行（lines[i] === ''）は null として返す。
+ * 連続する token 行のトークンを結合し、text トークン間にスペースを挿入する。
+ * @param {Array<Array>} rubyLines  alignRubyToLines の返り値
+ * @param {string[]} lines          composeText の lines（空行判定用）
+ * @returns {Array<Array<token>|null>}
+ */
+function _tokenLinesIntoParagraphs(rubyLines, lines, lineBreaks = []) {
+    const result = [];
+    let buf = [];
+
+    function flushBuf() {
+        if (!buf.length) return;
+        // 複数行のトークンをスペース区切りで結合（行境界にスペースを挿入）
+        const merged = [];
+        for (let i = 0; i < buf.length; i++) {
+            merged.push(...buf[i]);
+            if (i < buf.length - 1) {
+                merged.push({ kind: 'text', text: ' ' });
+            }
+        }
+        result.push(merged);
+        buf = [];
+    }
+
+    for (let i = 0; i < lines.length; i++) {
+        if (lines[i] === '') {
+            flushBuf();
+            result.push(null);
+        } else {
+            buf.push(rubyLines[i] || []);
+            if (lineBreaks[i]) flushBuf();
+        }
+    }
+    flushBuf();
+    return result;
+}
+
+function _getHorizontalTextOffsetY(composed) {
+    if (!composed || composed.writingMode !== 'horizontal-tb') return 0;
+    return 0;
+}
+
+function _getTextSectionAlign(section) {
+    const value = section?.textAlign || 'start';
+    return TEXT_ALIGN_VALUES.includes(value) ? value : 'start';
+}
+
+function _getHorizontalBlockJustifyCss(section) {
+    const align = _getTextSectionAlign(section);
+    if (align === 'center') return 'center';
+    if (align === 'end') return 'flex-end';
+    return 'flex-start';
+}
+
+function _getVerticalBlockJustifyCss(section) {
+    const align = _getTextSectionAlign(section);
+    if (align === 'center') return 'center';
+    if (align === 'end') return 'flex-end';
+    return 'flex-start';
+}
+
+function _getVerticalBlockOffsetPx(section, frameW, usedCols, colW) {
+    const groupW = Math.min(frameW, usedCols * colW);
+    const align = _getTextSectionAlign(section);
+    if (align === 'center') return Math.max(0, (frameW - groupW) / 2);
+    if (align === 'end') return 0;
+    return Math.max(0, frameW - groupW);
+}
+
+/**
+ * テキストセクションの組版結果をキャンバス上の HTML オーバーレイとして描画する。
+ *
+ * ▼ 縦書き (vertical-rl)
+ *   - 列ごとに <span class="tpv-col"> を生成し、flex row-reverse で右端から配置
+ *   - 列幅   = frame.w / maxLines（全列が枠内に収まるよう均等割り）
+ *   - 文字ピッチ = frame.h / charsPerLine（縦方向均等割り）
+ *   - 2〜4 桁の半角・全角数字に <span class="tcy"> を自動付与（縦中横）
+ *   - {base|ruby} 記法を <ruby> タグに変換（ルビ）
+ *
+ * ▼ 横書き (horizontal-tb)
+ *   - composeText() が確定した行をそのまま 1 行ずつ描画
+ *   - 行頭は揃えたまま、ブロック全体を start / center / end に配置
+ *   - {base|ruby} 記法を <ruby> タグに変換（ルビ）
+ */
+function renderTextPreview(section) {
+    const overlay = document.getElementById('text-preview-overlay');
+    if (!overlay) return;
+
+    const lang = state.activeLang || state.defaultLang || 'ja';
+    const raw = section.texts?.[lang] ?? '';
+    const writingMode = getWritingModeFromConfigs(lang, state.languageConfigs);
+    const fontPreset = getFontPresetFromConfigs(lang, state.languageConfigs);
+
+    // ルビマークアップを解析し、ベーステキストで組版する
+    let rubyTokens, hasRuby, plainText, rubyLines;
+    try {
+        rubyTokens = parseRubyTokens(raw);
+        hasRuby = rubyTokens.some(t => t.kind === 'ruby');
+        plainText = hasRuby ? tokensToPlainText(rubyTokens) : raw;
+    } catch (e) {
+        console.error('[renderTextPreview] ruby parse error:', e);
+        rubyTokens = []; hasRuby = false; plainText = raw;
+    }
+
+    const composed = composeText(plainText, lang, writingMode, fontPreset);
+    const textAlign = _getTextSectionAlign(section);
+
+    // ルビあり: 行ごとのトークン配列を構築
+    try {
+        rubyLines = hasRuby ? alignRubyToLines(rubyTokens, composed.lines) : null;
+    } catch (e) {
+        console.error('[renderTextPreview] ruby align error:', e);
+        rubyLines = null;
+    }
+
+    const paperStyle = _getTextPaperStyle(_getTextPaperPresetKey(section));
+    overlay.style.backgroundColor = paperStyle.backgroundColor;
+    overlay.style.display = 'block';
+
+    const frameEl = document.getElementById('text-preview-frame');
+    if (frameEl) {
+        const { x, y, w, h } = composed.frame;
+        frameEl.style.left          = `${x}px`;
+        frameEl.style.top           = `${y}px`;
+        frameEl.style.width         = `${w}px`;
+        frameEl.style.height        = `${h}px`;
+        frameEl.style.fontFamily    = composed.font.family;
+        frameEl.style.fontSize      = `${composed.font.size}px`;
+        frameEl.style.color         = paperStyle.textColor;
+        frameEl.style.writingMode   = '';
+        frameEl.style.lineHeight    = '';
+        frameEl.style.letterSpacing = composed.font.letterSpacing
+            ? `${composed.font.letterSpacing}px` : '0';
+        // hyphens:auto などが言語固有処理を使えるよう lang 属性を設定
+        frameEl.setAttribute('lang', lang.toLowerCase());
+    }
+
+    const contentEl = document.getElementById('text-preview-content');
+    if (contentEl) {
+        if (!raw) {
+            contentEl.innerHTML = '';
+        } else if (composed.writingMode === 'vertical-rl') {
+            // 縦書き: 2 レイヤー方式
+            //
+            // Layer 1 (.tpv-vertical): ベーステキスト列のみ（<ruby> なし）
+            //   列幅・文字ピッチの計算はルビに左右されないため安定する。
+            //
+            // Layer 2 (.tpv-ruby-overlay): ルビ注釈を絶対座標で独立描画
+            //   列レイアウトへの影響ゼロ。文字の行間が詰まらない。
+            //
+            // 座標系（canonical px、contentEl の左上が原点）:
+            //   列 i（0=最右列）の左端 = w - (i+1)*colW
+            //   列 i の右端           = w - i*colW
+            //   ルビは列 i の右側（右端から右へ rubyW px）に配置
+            //   文字オフセット co の上端 = co * charPitch
+            const { w, h }    = composed.frame;
+            const maxCols     = composed.rules?.maxLines    || 12;
+            const charsPerCol = composed.rules?.charsPerLine || 33;
+            const fontSize    = composed.font.size;
+            const colW        = Math.floor(w / maxCols);
+            const lineHeight  = (colW / fontSize).toFixed(3);
+            const letterSpacing = ((h / charsPerCol) - fontSize).toFixed(3);
+            const charPitch   = h / charsPerCol; // 1 文字あたりの縦ピクセル（canonical）
+            const rubyFontSize = Math.round(fontSize * 0.5); // rt のフォントサイズ（canonical）
+            const rubyColW    = Math.round(fontSize * 0.65); // ルビ注釈の横幅（canonical）
+            const verticalJustify = _getVerticalBlockJustifyCss(section);
+            const usedCols = composed.lines.length;
+            const groupW = usedCols * colW;
+            const blockOffsetX = _getVerticalBlockOffsetPx(section, w, usedCols, colW);
+            // 字形は line-height の中央に配置されるため、ルビは字形右端 = 列右端 - (colW - fontSize)/2 に置く
+            const charRightOffset = Math.round((colW - fontSize) / 2);
+
+            // Layer 1: ベーステキスト列（ruby 要素なし）
+            const cols = composed.lines.map((line, i) => {
+                const content = rubyLines
+                    ? _baseTextFromTokenLine(rubyLines[i])
+                    : _markupVerticalLine(line);
+                return `<span class="tpv-col"` +
+                    ` style="width:${colW}px;line-height:${lineHeight};letter-spacing:${letterSpacing}px"` +
+                    `>${content}</span>`;
+            }).join('');
+
+            // Layer 2: ルビ注釈オーバーレイ
+            let rubyOverlay = '';
+            if (rubyLines) {
+                const anns = [];
+                for (let i = 0; i < rubyLines.length; i++) {
+                    let charOffset = 0;
+                    for (const tok of rubyLines[i]) {
+                        const baseLen = tok.kind === 'ruby'
+                            ? Array.from(tok.base || '').length
+                            : Array.from(tok.text || '').length;
+                        if (tok.kind === 'ruby' && tok.ruby) {
+                            // 字形は line-height の中央にある。
+                            // 字形右端 = 列右端 - charRightOffset = w - i*colW - charRightOffset
+                            // ルビはその右（字形右端）から配置し、字形に密着させる。
+                            const annLeft = groupW - i * colW - charRightOffset;
+                            // ルビテキストを base 文字スパンの中央に揃えるため top を調整する
+                            const rubyLen = Array.from(tok.ruby).length;
+                            const rubyH   = Math.round(rubyLen * rubyFontSize * 1.2);
+                            const baseH   = Math.round(baseLen * charPitch);
+                            const annTop  = Math.round(charOffset * charPitch + Math.max(0, (baseH - rubyH) / 2));
+                            anns.push(
+                                `<span class="tpv-ruby-ann"` +
+                                ` style="left:${Math.round(blockOffsetX + annLeft)}px;top:${annTop}px;` +
+                                `width:${rubyColW}px;` +
+                                `font-size:${rubyFontSize}px"` +
+                                `>${_escHtml(_verticalGlyphText(tok.ruby))}</span>`
+                            );
+                        }
+                        charOffset += baseLen;
+                    }
+                }
+                if (anns.length) {
+                    rubyOverlay = `<div class="tpv-ruby-overlay">${anns.join('')}</div>`;
+                }
+            }
+
+            contentEl.innerHTML = `<div class="tpv-vertical" style="justify-content:${verticalJustify}">${cols}</div>${rubyOverlay}`;
+        } else {
+            // 横書き: 行頭は揃えたまま、行ブロック全体だけを配置する
+            const lineH  = composed.frame.h / (composed.rules?.maxLines || 20);
+            const offsetY = _getHorizontalTextOffsetY(composed);
+            const horizontalJustify = _getHorizontalBlockJustifyCss(section);
+
+            let html;
+            if (rubyLines) {
+                html = rubyLines.map((tokenLine, idx) => {
+                    if (!composed.lines[idx]) {
+                        return `<div class="tpv-blank" style="height:${lineH}px"></div>`;
+                    }
+                    return `<div class="tpv-line">${tokenLine.map(tok =>
+                        tok.kind === 'ruby'
+                            ? `<ruby>${_markupTcyText(tok.base)}<rt>${_escHtml(tok.ruby || '')}</rt></ruby>`
+                            : _escHtml(tok.text || '')
+                    ).join('')}</div>`;
+                }).join('');
+            } else {
+                html = (composed.lines || []).map(line =>
+                    !line
+                        ? `<div class="tpv-blank" style="height:${lineH}px"></div>`
+                        : `<div class="tpv-line">${_escHtml(line)}</div>`
+                ).join('');
+            }
+            contentEl.innerHTML =
+                `<div class="tpv-horizontal" lang="${lang.toLowerCase()}" style="line-height:${lineH}px;transform:translateY(${offsetY}px);justify-content:${horizontalJustify}"><div class="tpv-horizontal-block">${html}</div></div>`;
+        }
+    }
+
+    const placeholder = document.getElementById('text-preview-placeholder');
+    if (placeholder) placeholder.style.display = raw ? 'none' : 'flex';
+}
+
+// ──────────────────────────────────────────────────────────────
+//  テキストセクション パネル同期・入力ハンドラ
+// ──────────────────────────────────────────────────────────────
+
+let _textBodyPushTimer = null;
+let _textBodyDebounceTimer = null;
+
+/**
+ * テキストセクションパネルを現在のセクション内容で同期する
+ */
+function _syncTextSectionPanel(section) {
+    const lang = state.activeLang || state.defaultLang || 'ja';
+    const textarea = document.getElementById('prop-body-text');
+    if (textarea && document.activeElement !== textarea) {
+        textarea.value = section.texts?.[lang] ?? '';
+    }
+    const label = document.getElementById('text-body-label');
+    if (label) label.textContent = `本文 [${lang.toUpperCase()}]`;
+
+    _syncTextPaperPresetControls(section);
+    _syncTextAlignControls(section);
+    _updateTextOverflowBadge(section, lang);
+}
+
+function _inferTextPaperPresetKey(section) {
+    if (section?.paperPreset && TEXT_PAPER_PRESETS[section.paperPreset]) {
+        return section.paperPreset;
+    }
+    const bg = String(section?.backgroundColor || '').toLowerCase();
+    const ink = String(section?.textColor || '').toLowerCase();
+    const match = Object.entries(TEXT_PAPER_PRESETS).find(([, preset]) =>
+        preset.backgroundColor.toLowerCase() === bg && preset.textColor.toLowerCase() === ink
+    );
+    return match?.[0] || 'white';
+}
+
+function _getTextPaperPresetKey(section) {
+    if (state.textPaperPreset && TEXT_PAPER_PRESETS[state.textPaperPreset]) {
+        return state.textPaperPreset;
+    }
+    return _inferTextPaperPresetKey(section);
+}
+
+function _syncTextPaperPresetControls(section) {
+    const activeKey = _getTextPaperPresetKey(section);
+    document.querySelectorAll('[data-text-paper-preset], [data-project-text-paper-preset]').forEach((button) => {
+        const key = button.dataset.textPaperPreset || button.dataset.projectTextPaperPreset;
+        const isActive = key === activeKey;
+        button.classList.toggle('active', isActive);
+        button.setAttribute('aria-pressed', isActive ? 'true' : 'false');
+    });
+}
+
+function _getProjectTextPaperPresetKey(source = state) {
+    if (source?.textPaperPreset && TEXT_PAPER_PRESETS[source.textPaperPreset]) return source.textPaperPreset;
+    const textSection = (source?.sections || []).find((section) => section?.type === 'text');
+    return _inferTextPaperPresetKey(textSection);
+}
+
+function _getTextPaperStyle(key) {
+    const presetKey = TEXT_PAPER_PRESETS[key] ? key : 'white';
+    const preset = TEXT_PAPER_PRESETS[presetKey];
+    return {
+        paperPreset: presetKey,
+        backgroundColor: preset.backgroundColor,
+        textColor: preset.textColor
+    };
+}
+
+function _applyTextPaperStyleToSections(sections, key) {
+    const nextStyle = _getTextPaperStyle(key);
+    return (sections || []).map((section) => {
+        if (section?.type !== 'text') return section;
+        return { ...section, ...nextStyle };
+    });
+}
+
+function _applyTextPaperStyleToBlocks(blocks, key) {
+    const nextStyle = _getTextPaperStyle(key);
+    return (blocks || []).map((block) => {
+        if (block?.kind !== 'page' || block.content?.pageKind !== 'text') return block;
+        return {
+            ...block,
+            content: {
+                ...(block.content || {}),
+                ...nextStyle
+            }
+        };
+    });
+}
+
+function _syncTextAlignControls(section) {
+    const activeAlign = _getTextSectionAlign(section);
+    document.querySelectorAll('[data-text-align]').forEach((button) => {
+        const isActive = button.dataset.textAlign === activeAlign;
+        button.classList.toggle('active', isActive);
+        button.setAttribute('aria-pressed', isActive ? 'true' : 'false');
+    });
+}
+
+function updateTextSectionAlign(value) {
+    if (!TEXT_ALIGN_VALUES.includes(value)) return;
+
+    const idx = state.activeIdx;
+    const section = state.sections?.[idx];
+    if (!section || section.type !== 'text') return;
+
+    pushState();
+
+    const sectionIndices = new Set([idx]);
+    const blockIdx = Number.isInteger(state.activeBlockIdx) && state.activeBlockIdx >= 0
+        ? state.activeBlockIdx
+        : getBlockIndexFromPageIndex(state.blocks, idx);
+    const activeBlock = state.blocks?.[blockIdx];
+    const flowId = activeBlock?.kind === 'page' ? activeBlock.content?._flow?.id : '';
+
+    let touchedBlock = false;
+    const newBlocks = Array.isArray(state.blocks)
+        ? state.blocks.map((block, bi) => {
+            if (block?.kind !== 'page') return block;
+            const sameFlow = flowId && block.content?._flow?.id === flowId;
+            const samePage = bi === blockIdx;
+            if (!sameFlow && !samePage) return block;
+            const pageIdx = getPageIndexFromBlockIndex(state.blocks, bi);
+            if (pageIdx >= 0) sectionIndices.add(pageIdx);
+            touchedBlock = true;
+            return {
+                ...block,
+                content: {
+                    ...block.content,
+                    textAlign: value
+                }
+            };
+        })
+        : [];
+
+    const newSections = (state.sections || []).map((item, sectionIdx) => {
+        if (!sectionIndices.has(sectionIdx) || item?.type !== 'text') return item;
+        return { ...item, textAlign: value };
+    });
+
+    const blocks = touchedBlock
+        ? newBlocks
+        : syncBlocksWithSections(state.blocks, newSections, state.languages);
+
+    dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'sections', value: newSections } });
+    dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'blocks', value: blocks } });
+    dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'pages', value: blocksToPages(blocks) } });
+
+    renderTextPreview(newSections[idx]);
+    _syncTextAlignControls(newSections[idx]);
+    refresh();
+    triggerAutoSave();
+}
+
+function updateTextSectionPaperPreset(key) {
+    if (!TEXT_PAPER_PRESETS[key]) return;
+
+    pushState();
+
+    const newSections = _applyTextPaperStyleToSections(state.sections, key);
+    const newBlocks = _applyTextPaperStyleToBlocks(state.blocks, key);
+
+    dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'textPaperPreset', value: key } });
+    dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'sections', value: newSections } });
+    dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'blocks', value: newBlocks } });
+    dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'pages', value: blocksToPages(newBlocks) } });
+
+    const section = newSections[state.activeIdx];
+    if (section?.type === 'text') renderTextPreview(section);
+    _syncTextPaperPresetControls(section);
+    refresh();
+    triggerAutoSave();
+}
+
+window.updateTextSectionPaperPreset = updateTextSectionPaperPreset;
+window.updateTextSectionAlign = updateTextSectionAlign;
+
+/**
+ * 溢れバッジを更新する（溢れ時はページ数を表示）
+ */
+function _updateTextOverflowBadge(section, lang) {
+    const badge = document.getElementById('text-overflow-badge');
+    if (!badge) return;
+    const raw = section.texts?.[lang] ?? '';
+    if (!raw) { badge.style.display = 'none'; return; }
+    const writingMode = getWritingModeFromConfigs(lang, state.languageConfigs);
+    const fontPreset = getFontPresetFromConfigs(lang, state.languageConfigs);
+    const tokens = parseRubyTokens(raw);
+    const plainText = tokens.some(t => t.kind === 'ruby') ? tokensToPlainText(tokens) : raw;
+    const result = composeText(plainText, lang, writingMode, fontPreset);
+    if (!result.overflow) {
+        badge.style.display = 'none';
+    } else {
+        // ページ数を計算して表示
+        const pages = paginateText(plainText, lang, writingMode, fontPreset);
+        const count = pages.length;
+        badge.style.display = 'block';
+        badge.textContent = t('label_text_flow', { count }) || `→ ${count} ページに展開`;
+    }
+}
+
+// ──────────────────────────────────────
+//  テキスト自動ページ流し込み (Auto Text Flow)
+// ──────────────────────────────────────
+
+let _autoFlowDebounceTimer = null;
+
+/** flowId に属する継続ページブロック（idx > 0）のインデックスを取得する */
+function _findFlowContinuationIndices(blocks, flowId) {
+    const result = [];
+    for (let i = 0; i < blocks.length; i++) {
+        const b = blocks[i];
+        if (b?.kind === 'page' && b.content?._flow?.id === flowId && b.content._flow.idx > 0) {
+            result.push(i);
+        }
+    }
+    result.sort((a, b) => blocks[a].content._flow.idx - blocks[b].content._flow.idx);
+    return result;
+}
+
+/** フロー継続ページブロックを新規作成する */
+function _createContinuationBlock(masterBlock, text, flowId, flowIdx, lang) {
+    const texts = {};
+    texts[lang] = text;
+    return {
+        id: createId('page'),
+        kind: 'page',
+        content: {
+            pageKind: 'text',
+            background: masterBlock.content?.background || '',
+            paperPreset: masterBlock.content?.paperPreset || 'white',
+            backgroundColor: masterBlock.content?.backgroundColor || '',
+            textColor: masterBlock.content?.textColor || '',
+            textAlign: masterBlock.content?.textAlign || 'start',
+            texts,
+            bubbles: [],
+            _flow: { id: flowId, idx: flowIdx }
+        }
+    };
+}
+
+/**
+ * テキストセクションを自動ページ分割する。
+ *
+ * 多言語動作ルール:
+ *  - 言語 A で溢れてページ追加した場合、他言語の継続スロットは空のまま追加するだけ。
+ *  - 言語 B に切り替えて溢れが発生した場合:
+ *      ・継続スロットの B テキストが「空」→ そのスロットを上書きして埋める
+ *      ・継続スロットの B テキストが「非空」→ 上書きせず末尾に新規スロットを挿入
+ *      ・既存スロット数を超えて新規ページが必要な場合 → 末尾に新規ブロックを追加
+ *      ・他言語のページ数を超えた分 → 他言語は空スロットとして追加済み
+ *  - B テキストが必要ページ数より少ない（テキスト削減）場合は、余剰スロットの
+ *    B テキストをクリア。他言語コンテンツがあれば削除せず保持。
+ */
+function autoFlowTextSection() {
+    const lang = state.activeLang || state.defaultLang || 'ja';
+    const pageIdx = state.activeIdx;
+    const blockIdx = getBlockIndexFromPageIndex(state.blocks, pageIdx);
+    if (blockIdx < 0) return;
+
+    const masterBlock = state.blocks[blockIdx];
+    if (masterBlock?.kind !== 'page' || masterBlock.content?.pageKind !== 'text') return;
+    // 継続ブロック上ではマスターフローのみ処理する
+    if ((masterBlock.content._flow?.idx ?? 0) > 0) return;
+
+    const rawText = masterBlock.content.texts?.[lang] ?? '';
+    const writingMode = getWritingModeFromConfigs(lang, state.languageConfigs);
+    const fontPreset = getFontPresetFromConfigs(lang, state.languageConfigs);
+
+    const tokens = parseRubyTokens(rawText);
+    const plainText = tokens.some(t => t.kind === 'ruby') ? tokensToPlainText(tokens) : rawText;
+    const pageTexts = paginateText(plainText, lang, writingMode, fontPreset);
+
+    let flowId = masterBlock.content._flow?.id;
+    if (!flowId && pageTexts.length > 1) flowId = createId('flow');
+
+    const newBlocks = [...state.blocks];
+
+    // マスターブロックの _flow を更新
+    const masterContent = { ...masterBlock.content };
+    if (pageTexts.length > 1) {
+        masterContent._flow = { id: flowId, idx: 0 };
+    } else {
+        delete masterContent._flow;
+    }
+    newBlocks[blockIdx] = { ...masterBlock, content: masterContent };
+
+    const neededCount = pageTexts.length - 1;
+
+    if (!flowId) {
+        // フローなし・溢れなし
+        _applyBlocksAndRefresh(newBlocks);
+        return;
+    }
+
+    // 継続ブロックを配列上の位置順に収集
+    const contIndices = [];
+    for (let i = 0; i < newBlocks.length; i++) {
+        const b = newBlocks[i];
+        if (b?.kind === 'page' && b.content?._flow?.id === flowId && (b.content._flow?.idx ?? 0) > 0) {
+            contIndices.push(i);
+        }
+    }
+    contIndices.sort((a, b) => a - b);
+
+    const getLangText = (bi) => (newBlocks[bi]?.content?.texts?.[lang] ?? '').trim();
+    const hasOtherLang = (bi) =>
+        Object.entries(newBlocks[bi]?.content?.texts || {})
+            .some(([l, txt]) => l !== lang && txt?.trim());
+
+    // ── 空スロットと非空スロットを分類 ──
+    const emptySlots   = contIndices.filter(bi => !getLangText(bi));
+    const nonEmptySlots = contIndices.filter(bi => !!getLangText(bi));
+
+    if (neededCount === 0) {
+        // 溢れなし: 全継続ブロックの lang テキストをクリア（他言語があれば削除しない）
+        for (let i = contIndices.length - 1; i >= 0; i--) {
+            const bi = contIndices[i];
+            if (hasOtherLang(bi)) {
+                newBlocks[bi] = {
+                    ...newBlocks[bi],
+                    content: { ...newBlocks[bi].content, texts: { ...newBlocks[bi].content.texts, [lang]: '' } }
+                };
+            } else {
+                newBlocks.splice(bi, 1);
+            }
+        }
+    } else {
+        let assigned = 0; // pageTexts[1..] の割り当て済み数
+
+        // Step 1: 空スロットを前から順に埋める
+        for (let i = 0; i < emptySlots.length && assigned < neededCount; i++) {
+            const bi = emptySlots[i];
+            newBlocks[bi] = {
+                ...newBlocks[bi],
+                content: {
+                    ...newBlocks[bi].content,
+                    texts: { ...newBlocks[bi].content.texts, [lang]: pageTexts[assigned + 1] }
+                }
+            };
+            assigned++;
+        }
+
+        // Step 2: まだ足りない場合 → 末尾に新規ブロックを追加
+        const stillNeeded = neededCount - assigned;
+        if (stillNeeded > 0) {
+            // 現時点での最後の継続ブロック位置を再取得（splice後の変化考慮）
+            let insertAfter = blockIdx;
+            for (let i = 0; i < newBlocks.length; i++) {
+                const b = newBlocks[i];
+                if (b?.kind === 'page' && b.content?._flow?.id === flowId) {
+                    insertAfter = i;
+                }
+            }
+            const newConts = [];
+            for (let i = 0; i < stillNeeded; i++) {
+                newConts.push(_createContinuationBlock(
+                    newBlocks[blockIdx], pageTexts[assigned + 1 + i], flowId, contIndices.length + i + 1, lang
+                ));
+            }
+            newBlocks.splice(insertAfter + 1, 0, ...newConts);
+        }
+
+        // Step 3: 非空スロットが neededCount を超えている場合は余剰をクリア
+        // （割り当て済み空スロット + 非空スロット > neededCount のとき末尾から削除）
+        const totalExisting = Math.min(emptySlots.length, neededCount) + nonEmptySlots.length;
+        if (totalExisting > neededCount) {
+            const excessCount = totalExisting - neededCount;
+            const toExcess = nonEmptySlots.slice(-excessCount);
+            for (let i = toExcess.length - 1; i >= 0; i--) {
+                const bi = toExcess[i];
+                if (hasOtherLang(bi)) {
+                    newBlocks[bi] = {
+                        ...newBlocks[bi],
+                        content: { ...newBlocks[bi].content, texts: { ...newBlocks[bi].content.texts, [lang]: '' } }
+                    };
+                } else {
+                    newBlocks.splice(bi, 1);
+                }
+            }
+        }
+    }
+
+    // _flow.idx を配列上の出現順に再番号付け
+    let flowIdx = 0;
+    for (let i = 0; i < newBlocks.length; i++) {
+        const b = newBlocks[i];
+        if (b?.kind === 'page' && b.content?._flow?.id === flowId) {
+            newBlocks[i] = { ...b, content: { ...b.content, _flow: { id: flowId, idx: flowIdx++ } } };
+        }
+    }
+
+    _applyBlocksAndRefresh(newBlocks);
+}
+
+function _applyBlocksAndRefresh(newBlocks) {
+    dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'blocks', value: newBlocks } });
+    const newSections = extractSectionsFromBlocks(newBlocks);
+    dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'sections', value: newSections } });
+    dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'pages', value: blocksToPages(newBlocks) } });
+    refresh();
+    triggerAutoSave();
+}
+
+// HTML から onclick で呼べるよう window に公開
+window.autoFlowTextSection = autoFlowTextSection;
+
+function _getActiveSectionHeading(section, lang) {
+    if (!section || !lang) return '';
+    return section.headings?.[lang] || '';
+}
+
+function syncPageHeadingField(section) {
+    const lang = state.activeLang || state.defaultLang || 'ja';
+    const input = document.getElementById('canvas-page-heading-input');
+    if (input && document.activeElement !== input) {
+        input.value = _getActiveSectionHeading(section, lang);
+    }
+}
+
+function _getSectionHeadingForToc(section, lang) {
+    if (!section || (section.type !== 'image' && section.type !== 'text')) return '';
+    const defaultLang = state.defaultLang || 'ja';
+    return (
+        section.headings?.[lang] ||
+        (lang !== defaultLang ? section.headings?.[defaultLang] : '') ||
+        ''
+    ).trim();
+}
+
+function getEditorTocItems() {
+    const lang = state.activeLang || state.defaultLang || 'ja';
+    const pageCount = (state.sections || []).length;
+    return (state.sections || [])
+        .map((section, pageIndex) => {
+            const heading = _getSectionHeadingForToc(section, lang);
+            if (!heading) return null;
+            return {
+                pageIndex,
+                label: getPageDisplayLabel(pageIndex, pageCount, state.book, state.bookMode),
+                heading
+            };
+        })
+        .filter(Boolean);
+}
+
+function renderEditorTocPreview() {
+    const panels = [...document.querySelectorAll('.js-toc-preview-panel')];
+    if (!panels.length) return;
+    const activeSection = state.sections?.[state.activeIdx];
+    const isPageSection = activeSection?.type === 'image' || activeSection?.type === 'text';
+    panels.forEach((panel) => { panel.style.display = isPageSection ? 'block' : 'none'; });
+    if (!isPageSection) return;
+
+    const items = getEditorTocItems();
+    const html = !items.length
+        ? `<div class="toc-preview-empty">${escapeStudioHtml(t('toc_preview_empty'))}</div>`
+        : items.map((item) => {
+            const active = item.pageIndex === state.activeIdx;
+            const activeLabel = active ? `<span class="toc-preview-current">${escapeStudioHtml(t('toc_preview_current'))}</span>` : '';
+            return `
+                <button type="button" class="toc-preview-item${active ? ' active' : ''}" onclick="jumpToTocPage(${item.pageIndex})">
+                    <span class="toc-preview-page">${escapeStudioHtml(item.label)}</span>
+                    <span class="toc-preview-heading">${escapeStudioHtml(item.heading)}</span>
+                    ${activeLabel}
+                </button>
+            `;
+        }).join('');
+
+    panels.forEach((panel) => {
+        const list = panel.querySelector('.js-toc-preview-list');
+        if (list) list.innerHTML = html;
+    });
+}
+
+function updatePageHeading(value, langOverride) {
+    const idx = state.activeIdx;
+    const section = state.sections[idx];
+    if (!section || (section.type !== 'image' && section.type !== 'text')) return;
+    const lang = langOverride || state.activeLang || state.defaultLang || 'ja';
+
+    if (!_pageHeadingPushTimer) {
+        pushState();
+    } else {
+        clearTimeout(_pageHeadingPushTimer);
+    }
+    _pageHeadingPushTimer = setTimeout(() => { _pageHeadingPushTimer = null; }, 600);
+    const nextSections = (state.sections || []).map((sec, secIdx) => {
+        if (secIdx !== idx) return sec;
+        return {
+            ...sec,
+            headings: {
+                ...(sec.headings || {}),
+                [lang]: value || ''
+            }
+        };
+    });
+    dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'sections', value: nextSections } });
+
+    const activeBlockIdx = getBlockIndexFromPageIndex(state.blocks, idx);
+    const nextBlocks = (state.blocks || []).map((block, blockIdx) => {
+        if (blockIdx !== activeBlockIdx || block?.kind !== 'page') return block;
+        return {
+            ...block,
+            content: {
+                ...(block.content || {}),
+                headings: {
+                    ...(block.content?.headings || {}),
+                    [lang]: value || ''
+                }
+            }
+        };
+    });
+    dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'blocks', value: nextBlocks } });
+    dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'pages', value: blocksToPages(nextBlocks) } });
+
+    refresh({ skipThumbs: true });
+    triggerAutoSave();
+}
+
+/**
+ * テキストセクションの本文入力ハンドラ（debounce 付き）
+ */
+function updateTextSectionBody(v) {
+    const idx = state.activeIdx;
+    const s = state.sections[idx];
+    if (!s || s.type !== 'text') return;
+    const lang = state.activeLang || state.defaultLang || 'ja';
+
+    if (!_textBodyPushTimer) {
+        pushState();
+    } else {
+        clearTimeout(_textBodyPushTimer);
+    }
+    _textBodyPushTimer = setTimeout(() => { _textBodyPushTimer = null; }, 600);
+
+    dispatch({ type: actionTypes.UPDATE_SECTION_TEXT, payload: { idx, lang, text: v } });
+
+    // blocks/pages を同期
+    dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'blocks', value: syncBlocksWithSections(state.blocks, state.sections, state.languages) } });
+    dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'pages', value: blocksToPages(state.blocks) } });
+
+    // プレビューと溢れバッジをリアルタイム更新（debounce）
+    clearTimeout(_textBodyDebounceTimer);
+    _textBodyDebounceTimer = setTimeout(() => {
+        const sec = state.sections[idx];
+        _updateTextOverflowBadge(sec, lang);
+        renderTextPreview(sec);
+    }, 300);
+
+    // 自動ページ流し込み（少し長めに待つ）
+    clearTimeout(_autoFlowDebounceTimer);
+    _autoFlowDebounceTimer = setTimeout(() => {
+        autoFlowTextSection();
+    }, 1000);
+
     triggerAutoSave();
 }
 
@@ -1861,7 +3536,7 @@ function syncLangPanel() {
 }
 
 
-function onLoadProject(pid, projectName, sections, languages, defaultLang, languageConfigs, title, uiPrefs, pages, blocks, version) {
+function onLoadProject(pid, projectName, sections, languages, defaultLang, languageConfigs, title, uiPrefs, pages, blocks, version, bookMode, book, textPaperPreset) {
     const normalized = normalizeProjectDataV5({
         version,
         projectName,
@@ -1872,8 +3547,15 @@ function onLoadProject(pid, projectName, sections, languages, defaultLang, langu
         defaultLang,
         languageConfigs,
         title,
-        uiPrefs
+        uiPrefs,
+        bookMode,
+        book,
+        textPaperPreset
     });
+    const normalizedTextPaperPreset = _getProjectTextPaperPresetKey(normalized);
+    normalized.sections = _applyTextPaperStyleToSections(normalized.sections, normalizedTextPaperPreset);
+    normalized.blocks = _applyTextPaperStyleToBlocks(normalized.blocks, normalizedTextPaperPreset);
+    normalized.pages = blocksToPages(normalized.blocks);
 
     state.projectId = pid;
     state.localProjectId = null;
@@ -1882,8 +3564,17 @@ function onLoadProject(pid, projectName, sections, languages, defaultLang, langu
     state.pages = normalized.pages || [];
     state.blocks = normalized.blocks;
     state.sections = normalized.sections;
+    state.textPaperPreset = normalizedTextPaperPreset;
     state.languages = normalized.languages;
     state.defaultLang = normalized.defaultLang || normalized.languages[0] || 'ja';
+    state.bookMode = normalized.bookMode || normalized.book?.mode || 'simple';
+    state.book = normalized.book || {
+        mode: state.bookMode,
+        covers: {
+            c1: { pageIndex: 0 },
+            c4: { pageIndex: Math.max(0, (normalized.sections || []).length - 1) }
+        }
+    };
 
     // languageConfigs Migration
     state.languageConfigs = normalized.languageConfigs || {};
@@ -1931,13 +3622,838 @@ document.addEventListener('keydown', (e) => {
 });
 
 // --- グローバル関数の登録 ---
-window.handleCanvasClick = (e) => { pushState(); handleCanvasClick(e, refresh); triggerAutoSave(); };
+window.handleCanvasClick = (e) => {
+    // テキストページはキャンバスクリックを無効にする（吹き出し追加・画像操作不要）
+    const activeSection = state.sections?.[state.activeIdx];
+    if (activeSection?.type === 'text') return;
+    pushState();
+    handleCanvasClick(e, refresh);
+    triggerAutoSave();
+};
 window.selectBubble = (e, i) => selectBubble(e, i, refresh);
+function hideContextMenu() {
+    const contextMenu = document.getElementById('context-menu');
+    if (!contextMenu) return;
+    contextMenu.style.display = 'none';
+    contextMenu.dataset.pointerX = '';
+    contextMenu.dataset.pointerY = '';
+}
+function showContextMenuAt(x, y, html) {
+    const contextMenu = document.getElementById('context-menu');
+    if (!contextMenu) return;
+    contextMenu.innerHTML = html;
+    contextMenu.style.display = 'flex';
+    const rect = contextMenu.getBoundingClientRect();
+    let menuX = x;
+    let menuY = y;
+    if (menuX + rect.width > window.innerWidth) menuX = window.innerWidth - rect.width - 8;
+    if (menuY + rect.height > window.innerHeight) menuY = window.innerHeight - rect.height - 8;
+    contextMenu.style.left = `${Math.max(8, menuX)}px`;
+    contextMenu.style.top = `${Math.max(8, menuY)}px`;
+}
+function insertSectionBeforeActiveByType(sectionType = 'image') {
+    const activeIdx = Number.isInteger(state.activeIdx) ? state.activeIdx : -1;
+    const insertAt = activeIdx >= 0 ? activeIdx : (state.sections || []).length;
+    pushState();
+    insertSectionAt(insertAt, refresh, sectionType);
+    triggerAutoSave();
+}
+function isActiveCoverPage() {
+    const activeIdx = Number.isInteger(state.activeIdx) ? state.activeIdx : -1;
+    if (activeIdx < 0) return false;
+    return isCoverPage(activeIdx);
+}
+
+function getCompositionIssueMessage(issue) {
+    const messages = {
+        cover_requires_even_pages: '表紙あり構成では総ページ数を偶数にしてください。',
+        cover_requires_two_or_more_pages: '表紙あり構成には最低2ページが必要です。',
+        cover_disallows_three_pages: '表紙あり3ページ構成は使用できません。2ページ、または4ページ以上の偶数にしてください。',
+        spread_image_requires_covers: '表紙なし構成では見開き画像ページを使用できません。',
+        spread_image_requires_full_covers: '見開き画像ページは C1/C2/C3/C4 構成の見開き位置でのみ使用できます。',
+        spread_image_requires_adjacent_pair: '見開き画像ページは隣接する2ページ単位で配置してください。',
+        spread_image_cannot_include_cover: '見開き画像ページに C1/C4 外側表紙ページを含めることはできません。',
+        spread_image_invalid_body_pair: '見開き画像ページは C2|1、2|3、最終ページ|C3 のような紙面上の隣接見開き位置にだけ挿入できます。'
+    };
+    return messages[issue] || issue;
+}
+
+function alertCompositionIssues(issues) {
+    const unique = [...new Set(issues || [])];
+    if (!unique.length) return;
+    alert(unique.map(getCompositionIssueMessage).join('\n'));
+}
+
+function validateSpreadImageCompositionForSections(sections) {
+    const issues = getBookCompositionIssues({
+        pageCount: (sections || []).length,
+        book: state.book || {},
+        bookMode: state.bookMode || state.book?.mode || 'simple',
+        sections
+    }).filter((issue) => issue.startsWith('spread_image_'));
+    if (!issues.length) return true;
+    alertCompositionIssues(issues);
+    return false;
+}
+
+function insertSpreadImageBeforeActive() {
+    const activeIdx = Number.isInteger(state.activeIdx) ? state.activeIdx : -1;
+    const insertAt = activeIdx >= 0 ? activeIdx : (state.sections || []).length;
+    const decision = canInsertSpreadImageAt(insertAt, (state.sections || []).length, state.book || {}, state.bookMode || state.book?.mode || 'simple');
+    if (!decision.ok) {
+        alertCompositionIssues(decision.issues);
+        return;
+    }
+    pushState();
+    insertSpreadImageAt(insertAt, refresh);
+    triggerAutoSave();
+}
 window.addSection = () => { pushState(); addSection(refresh); triggerAutoSave(); };
+window.addTextSection = () => { pushState(); addTextSection(refresh); triggerAutoSave(); };
+window.insertSectionBeforeActive = () => insertSectionBeforeActiveByType('image');
+window.insertTextSectionBeforeActive = () => insertSectionBeforeActiveByType('text');
+window.insertSpreadImageBeforeActive = insertSpreadImageBeforeActive;
+window.addSectionByType = (sectionType = 'image', e) => {
+    if (e) {
+        e.preventDefault();
+        e.stopPropagation();
+    }
+    hideContextMenu();
+    if (sectionType === 'text') {
+        window.addTextSection();
+        return;
+    }
+    if (sectionType === 'spread-image') {
+        insertSpreadImageBeforeActive();
+        return;
+    }
+    window.addSection();
+};
+window.showTailPageAddMenu = (e) => {
+    if (e) {
+        e.preventDefault();
+        e.stopPropagation();
+    }
+    const anchor = e?.currentTarget;
+    if (!anchor) return;
+    const rect = anchor.getBoundingClientRect();
+    showContextMenuAt(
+        rect.left + rect.width - 220,
+        rect.top - 8,
+        `
+            <div class="context-menu-item" onclick="addSectionByType('image', event)">
+                <span class="material-icons">add_photo_alternate</span> ${t('btn_add_section')}
+            </div>
+            <div class="context-menu-item" onclick="addSectionByType('spread-image', event)">
+                <span class="material-icons">view_week</span> ${t('btn_add_spread_image_section')}
+            </div>
+            <div class="context-menu-item" onclick="addSectionByType('text', event)">
+                <span class="material-icons">article</span> ${t('btn_add_text_section')}
+            </div>
+        `
+    );
+};
+window.updateTextSectionBody = updateTextSectionBody;
+window.updatePageHeading = updatePageHeading;
+window.jumpToTocPage = (pageIndex) => {
+    changeSection(Number(pageIndex), refreshForThumbSelection);
+};
+
+/** テキストエリアのカーソル位置に改ページマーカーを挿入する */
+window.insertPageBreak = function() {
+    const ta = document.getElementById('prop-body-text');
+    if (!ta) return;
+    const start = ta.selectionStart;
+    const end = ta.selectionEnd;
+    const val = ta.value;
+    // 前後に改行を挿入（連続改ページを防ぐ）
+    const before = start > 0 && val[start - 1] !== '\n' ? '\n' : '';
+    const after  = end < val.length && val[end] !== '\n' ? '\n' : '';
+    const marker = `${before}${PAGE_BREAK_MARKER}\n${after}`;
+    const newVal = val.slice(0, start) + marker + val.slice(end);
+    ta.value = newVal;
+    const newCursor = start + marker.length;
+    ta.setSelectionRange(newCursor, newCursor);
+    ta.focus();
+    updateTextSectionBody(newVal);
+};
+
+/** テキストエリアの選択範囲をルビ記法に変換する */
+window.insertRubyMarkup = function() {
+    const ta = document.getElementById('prop-body-text');
+    if (!ta) return;
+    const start = ta.selectionStart ?? 0;
+    const end = ta.selectionEnd ?? start;
+    const val = ta.value || '';
+    const selected = val.slice(start, end);
+    const baseText = selected || '漢字';
+    const rubyText = 'かんじ';
+    const markup = `{${baseText}|${rubyText}}`;
+    const newVal = val.slice(0, start) + markup + val.slice(end);
+    ta.value = newVal;
+
+    const rubyStart = start + 1 + baseText.length + 1;
+    const rubyEnd = rubyStart + rubyText.length;
+    ta.focus();
+    ta.setSelectionRange(rubyStart, rubyEnd);
+    updateTextSectionBody(newVal);
+};
+
+// ── キャンバスへのドラッグ&ドロップ（画像アップロード） ──────────────────────
+window.handleCanvasDragOver = (e) => {
+    const s = state.sections?.[state.activeIdx];
+    if (s?.type !== 'image') return;
+    // 画像ファイルを含むドラッグのみ受け付ける
+    if ([...e.dataTransfer.types].some(t => t === 'Files')) {
+        e.preventDefault();
+        e.dataTransfer.dropEffect = 'copy';
+        document.getElementById('canvas-view')?.classList.add('drag-over');
+    }
+};
+
+window.handleCanvasDragLeave = (e) => {
+    // canvas-view の外へ出たときのみ解除（子要素への移動は無視）
+    if (!e.currentTarget.contains(e.relatedTarget)) {
+        document.getElementById('canvas-view')?.classList.remove('drag-over');
+    }
+};
+
+window.handleCanvasDrop = (e) => {
+    e.preventDefault();
+    document.getElementById('canvas-view')?.classList.remove('drag-over');
+    const s = state.sections?.[state.activeIdx];
+    if (s?.type !== 'image') return;
+    const file = e.dataTransfer.files[0];
+    if (!file || !file.type.startsWith('image/')) return;
+    // 既存の uploadToStorage に File を渡すため擬似 input を作成
+    pushState();
+    uploadToStorage({ files: [file] }, refresh);
+    triggerAutoSave();
+};
 window.changeSection = (i) => {
     if (Date.now() < suppressThumbClickUntil) return;
+    _spreadActivationPinnedAdjIdx = -1; // サムネ選択時はピンを解除
     changeSection(i, refreshForThumbSelection);
 };
+
+// ──────────────────────────────────────
+//  ページナビゲーション（ストリップヘッダーボタン・キーボード）
+// ──────────────────────────────────────
+
+function isOuterCoverPage(pageIndex) {
+    const total = (state.sections || []).length;
+    const coverKey = getPageCoverKey(pageIndex, state.book, state.bookMode, total);
+    return coverKey === 'c1' || coverKey === 'c4';
+}
+
+function isCoverPage(pageIndex) {
+    const total = (state.sections || []).length;
+    return !!getPageCoverKey(pageIndex, state.book, state.bookMode, total);
+}
+
+function getReadablePageOrdinal(pageIndex) {
+    const total = (state.sections || []).length;
+    const idx = Number(pageIndex);
+    if (!Number.isInteger(idx) || idx < 0 || idx >= total) return 0;
+    let ordinal = 0;
+    for (let i = 0; i <= idx; i += 1) {
+        if (!isCoverPage(i)) ordinal += 1;
+    }
+    return ordinal;
+}
+
+function getPageLabelForIndex(pageIndex) {
+    const total = (state.sections || []).length;
+    return getPageDisplayLabel(pageIndex, total, state.book, state.bookMode);
+}
+
+function getActiveCompareLang() {
+    const langs = Array.isArray(state.languages) ? state.languages : [];
+    if (langs.length < 2) return '';
+    const active = state.activeLang || state.defaultLang || langs[0];
+    return langs.find((code) => code !== active) || '';
+}
+
+function getLangShortCode(code) {
+    return String(code || '').toUpperCase();
+}
+
+function getSpreadAdjacentPageIndex(activeIdx) {
+    const sections = state.sections || [];
+    const total = sections.length;
+    if (activeIdx < 0 || activeIdx >= total) return -1;
+    if (isOuterCoverPage(activeIdx)) return -1;
+    const pinned = _spreadActivationPinnedAdjIdx;
+    if (pinned >= 0 && pinned !== activeIdx && !isOuterCoverPage(pinned)) return pinned;
+
+    const coverKey = getPageCoverKey(activeIdx, state.book, state.bookMode, total);
+    const mode = state.bookMode || state.book?.mode || 'simple';
+    const readableOrdinal = getReadablePageOrdinal(activeIdx);
+    let candidate;
+    if (coverKey === 'c2') {
+        candidate = activeIdx + 1;
+    } else if (coverKey === 'c3') {
+        candidate = activeIdx - 1;
+    } else if (mode === 'full') {
+        candidate = readableOrdinal % 2 === 1 ? activeIdx - 1 : activeIdx + 1;
+    } else {
+        candidate = readableOrdinal % 2 === 1 ? activeIdx + 1 : activeIdx - 1;
+    }
+    if (candidate < 0 || candidate >= total) return -1;
+    if (isOuterCoverPage(candidate)) return -1;
+    return candidate;
+}
+
+function getSpreadAdjacentPageIndexForRole(pageIndex) {
+    const sections = state.sections || [];
+    const total = sections.length;
+    if (pageIndex < 0 || pageIndex >= total) return -1;
+    if (isOuterCoverPage(pageIndex)) return -1;
+
+    const coverKey = getPageCoverKey(pageIndex, state.book, state.bookMode, total);
+    const mode = state.bookMode || state.book?.mode || 'simple';
+    const readableOrdinal = getReadablePageOrdinal(pageIndex);
+    let candidate;
+    if (coverKey === 'c2') {
+        candidate = pageIndex + 1;
+    } else if (coverKey === 'c3') {
+        candidate = pageIndex - 1;
+    } else if (mode === 'full') {
+        candidate = readableOrdinal % 2 === 1 ? pageIndex - 1 : pageIndex + 1;
+    } else {
+        candidate = readableOrdinal % 2 === 1 ? pageIndex + 1 : pageIndex - 1;
+    }
+    if (candidate < 0 || candidate >= total) return -1;
+    if (isOuterCoverPage(candidate)) return -1;
+    return candidate;
+}
+
+function getVisualSpreadPageIndices(activeIdx, adjIdx, pageDir) {
+    const activeFirst = pageDir === 'rtl'
+        ? activeIdx >= adjIdx
+        : activeIdx <= adjIdx;
+    return activeFirst ? [activeIdx, adjIdx] : [adjIdx, activeIdx];
+}
+
+function getPageSliderBubbleText() {
+    const activeIdx = state.activeIdx ?? 0;
+    const compareLang = state.uiPrefs?.languageCompareView ? getActiveCompareLang() : '';
+    if (compareLang) {
+        const label = getPageLabelForIndex(activeIdx);
+        return `${getLangShortCode(state.activeLang)} ${label} | ${label} ${getLangShortCode(compareLang)}`;
+    }
+
+    const adjIdx = getSpreadAdjacentPageIndex(activeIdx);
+    if (adjIdx >= 0) {
+        const lang = state.activeLang || state.defaultLang || 'ja';
+        const pageDir = getEditorLangDirection(lang);
+        const [leftIdx, rightIdx] = getVisualSpreadPageIndices(activeIdx, adjIdx, pageDir);
+        return `${getPageLabelForIndex(leftIdx)} | ${getPageLabelForIndex(rightIdx)}`;
+    }
+    return getPageLabelForIndex(activeIdx);
+}
+
+function getPageSliderBubbleParts() {
+    const activeIdx = state.activeIdx ?? 0;
+    const compareLang = state.uiPrefs?.languageCompareView ? getActiveCompareLang() : '';
+    if (compareLang) {
+        const label = getPageLabelForIndex(activeIdx);
+        return {
+            left: `${getLangShortCode(state.activeLang)} ${label}`,
+            right: `${label} ${getLangShortCode(compareLang)}`,
+            activeSide: 'left'
+        };
+    }
+
+    const adjIdx = getSpreadAdjacentPageIndex(activeIdx);
+    if (adjIdx >= 0) {
+        const lang = state.activeLang || state.defaultLang || 'ja';
+        const pageDir = getEditorLangDirection(lang);
+        const [leftIdx, rightIdx] = getVisualSpreadPageIndices(activeIdx, adjIdx, pageDir);
+        return {
+            left: getPageLabelForIndex(leftIdx),
+            right: getPageLabelForIndex(rightIdx),
+            activeSide: leftIdx === activeIdx ? 'left' : 'right'
+        };
+    }
+    return null;
+}
+
+function syncPageNavigationSlider() {
+    const sections = state.sections || [];
+    const total = sections.length;
+    const activeIdx = Math.min(Math.max(state.activeIdx ?? 0, 0), Math.max(0, total - 1));
+    const slider = document.getElementById('page-nav-slider');
+    const bubble = document.getElementById('page-nav-slider-bubble');
+    const totalEl = document.getElementById('page-nav-slider-total');
+    const compareBtn = document.getElementById('btn-language-compare-view');
+    const pageDirection = getEditorLangDirection(state.activeLang || state.defaultLang || 'ja');
+    const isRtl = pageDirection === 'rtl';
+    const ratio = total > 1 ? activeIdx / (total - 1) : 0;
+    const visualRatio = isRtl ? 1 - ratio : ratio;
+    const pct = ratio * 100;
+
+    if (slider) {
+        slider.max = String(Math.max(0, total - 1));
+        slider.value = String(activeIdx);
+        slider.disabled = total <= 1;
+        slider.style.setProperty('--page-slider-progress', `${pct}%`);
+        slider.dir = isRtl ? 'rtl' : 'ltr';
+        slider.dataset.dir = pageDirection;
+    }
+    if (bubble) {
+        const parts = getPageSliderBubbleParts();
+        if (parts) {
+            bubble.classList.add('is-pair');
+            bubble.classList.toggle('active-left', parts.activeSide === 'left');
+            bubble.classList.toggle('active-right', parts.activeSide === 'right');
+            bubble.innerHTML = `<span class="page-nav-bubble-left">${escapeStudioHtml(parts.left)}</span><span class="page-nav-bubble-divider">|</span><span class="page-nav-bubble-right">${escapeStudioHtml(parts.right)}</span>`;
+        } else {
+            bubble.classList.remove('is-pair');
+            bubble.classList.remove('active-left', 'active-right');
+            bubble.textContent = getPageSliderBubbleText();
+        }
+        const width = slider?.clientWidth || bubble.parentElement?.clientWidth || 0;
+        const thumb = 16;
+        const x = width > thumb ? (thumb / 2) + (width - thumb) * visualRatio : 0;
+        bubble.style.left = `${x}px`;
+    }
+    if (totalEl) {
+        totalEl.textContent = String(getReadablePageCount(total, state.book, state.bookMode) || total);
+    }
+    if (compareBtn) {
+        const enabled = !!state.uiPrefs?.languageCompareView && !!getActiveCompareLang();
+        compareBtn.classList.toggle('active', enabled);
+        compareBtn.disabled = !Array.isArray(state.languages) || state.languages.length < 2;
+    }
+}
+
+window.onPageSliderInput = (value) => {
+    const nextIdx = Number(value);
+    const sections = state.sections || [];
+    if (!Number.isInteger(nextIdx) || nextIdx < 0 || nextIdx >= sections.length) return;
+    _spreadActivationPinnedAdjIdx = -1;
+    changeSection(nextIdx, refreshForThumbSelection);
+};
+
+window.pagePrev = () => {
+    _spreadActivationPinnedAdjIdx = -1; // 通常ナビ時はピンを解除
+    const idx = state.activeIdx ?? 0;
+    if (idx > 0) changeSection(idx - 1, refreshForThumbSelection);
+};
+
+window.pageNext = () => {
+    _spreadActivationPinnedAdjIdx = -1; // 通常ナビ時はピンを解除
+    const idx = state.activeIdx ?? 0;
+    if (idx < (state.sections || []).length - 1) changeSection(idx + 1, refreshForThumbSelection);
+};
+
+window.pageVisualLeft = () => movePageSelectionByVisualDirection('left');
+window.pageVisualRight = () => movePageSelectionByVisualDirection('right');
+
+function movePageSelectionByVisualDirection(direction) {
+    const idx = state.activeIdx ?? 0;
+    const pages = state.sections || [];
+    if (!pages.length) return;
+    const pageDirection = getEditorLangDirection(state.activeLang || state.defaultLang || 'ja');
+    const delta = direction === 'right'
+        ? (pageDirection === 'rtl' ? -1 : 1)
+        : (pageDirection === 'rtl' ? 1 : -1);
+    const pair = getSpreadPairIndices(idx);
+    const nextIdx = pair.length > 1
+        ? (delta > 0 ? pair[pair.length - 1] + 1 : pair[0] - 1)
+        : idx + delta;
+    if (nextIdx < 0 || nextIdx >= pages.length) return;
+    _spreadActivationPinnedAdjIdx = -1;
+    changeSection(nextIdx, refreshForThumbSelection);
+}
+
+// ──────────────────────────────────────
+//  見開き表示 (Spread View)
+// ──────────────────────────────────────
+
+window.toggleSpreadView = () => {
+    const current = state.uiPrefs?.spreadView || false;
+    const next = !current;
+    dispatch({ type: actionTypes.SET_STATE_FIELD, payload: {
+        key: 'uiPrefs', value: { ...(state.uiPrefs || {}), spreadView: next, languageCompareView: next ? false : !!state.uiPrefs?.languageCompareView }
+    }});
+    // デスクトップ・モバイル両方のボタンを同期
+    document.getElementById('btn-spread-view')?.classList.toggle('active', next);
+    document.getElementById('btn-spread-view-mobile')?.classList.toggle('active', next);
+    document.getElementById('btn-language-compare-view')?.classList.remove('active');
+    // キャンバスサイズ再計算 → 見開きページ表示/非表示を更新
+    fitCanvasView();
+    refreshSpreadPage();
+    syncPageNavigationSlider();
+};
+
+window.toggleLanguageCompareView = () => {
+    if (!getActiveCompareLang()) return;
+    const current = !!state.uiPrefs?.languageCompareView;
+    const next = !current;
+    dispatch({ type: actionTypes.SET_STATE_FIELD, payload: {
+        key: 'uiPrefs', value: { ...(state.uiPrefs || {}), languageCompareView: next, spreadView: next ? false : !!state.uiPrefs?.spreadView }
+    }});
+    document.getElementById('btn-language-compare-view')?.classList.toggle('active', next);
+    document.getElementById('btn-spread-view')?.classList.remove('active');
+    document.getElementById('btn-spread-view-mobile')?.classList.remove('active');
+    fitCanvasView();
+    refreshSpreadPage();
+    syncPageNavigationSlider();
+    triggerAutoSave();
+};
+
+/**
+ * 見開きページ（隣接ページ）を描画・更新する
+ */
+/**
+ * テキストセクションの組版 HTML を任意のコンテナへ描画する
+ * renderTextPreview と同じロジックだが DOM id に依存せず要素を受け取る。
+ */
+function _renderTextIntoSpread(section, lang, outerEl, frameEl, contentEl) {
+    const writingMode  = getWritingModeFromConfigs(lang, state.languageConfigs);
+    const fontPreset   = getFontPresetFromConfigs(lang, state.languageConfigs);
+    const raw          = section.texts?.[lang] ?? '';
+
+    let rubyTokens, hasRuby, plainText, rubyLines;
+    try {
+        rubyTokens = parseRubyTokens(raw);
+        hasRuby    = rubyTokens.some(t => t.kind === 'ruby');
+        plainText  = hasRuby ? tokensToPlainText(rubyTokens) : raw;
+    } catch (_) {
+        rubyTokens = []; hasRuby = false; plainText = raw;
+    }
+
+    const composed = composeText(plainText, lang, writingMode, fontPreset);
+    const textAlign = _getTextSectionAlign(section);
+    try { rubyLines = hasRuby ? alignRubyToLines(rubyTokens, composed.lines) : null; }
+    catch (_) { rubyLines = null; }
+
+    const paperStyle = _getTextPaperStyle(_getTextPaperPresetKey(section));
+    outerEl.style.backgroundColor = paperStyle.backgroundColor;
+
+    const { x, y, w, h } = composed.frame;
+    frameEl.style.cssText = [
+        `position:absolute`,
+        `left:${x}px`, `top:${y}px`,
+        `width:${w}px`, `height:${h}px`,
+        `font-family:${composed.font.family}`,
+        `font-size:${composed.font.size}px`,
+        `color:${paperStyle.textColor}`,
+        `letter-spacing:${composed.font.letterSpacing ? composed.font.letterSpacing + 'px' : '0'}`,
+    ].join(';');
+    frameEl.setAttribute('lang', lang.toLowerCase());
+
+    if (!raw) { contentEl.innerHTML = ''; return; }
+
+    if (composed.writingMode === 'vertical-rl') {
+        const maxCols      = composed.rules?.maxLines    || 12;
+        const charsPerCol  = composed.rules?.charsPerLine || 33;
+        const fontSize     = composed.font.size;
+        const colW         = Math.floor(w / maxCols);
+        const lineHeight   = (colW / fontSize).toFixed(3);
+        const letterSpacing = ((h / charsPerCol) - fontSize).toFixed(3);
+        const charPitch    = h / charsPerCol;
+        const rubyFontSize = Math.round(fontSize * 0.5);
+        const rubyColW     = Math.round(fontSize * 0.65);
+        const charRightOffset = Math.round((colW - fontSize) / 2);
+        const verticalJustify = _getVerticalBlockJustifyCss(section);
+        const usedCols = composed.lines.length;
+        const groupW = usedCols * colW;
+        const blockOffsetX = _getVerticalBlockOffsetPx(section, w, usedCols, colW);
+
+        const cols = composed.lines.map((line, i) => {
+            const content = rubyLines
+                ? _baseTextFromTokenLine(rubyLines[i])
+                : _markupVerticalLine(line);
+            return `<span class="tpv-col"` +
+                ` style="width:${colW}px;line-height:${lineHeight};letter-spacing:${letterSpacing}px"` +
+                `>${content}</span>`;
+        }).join('');
+
+        let rubyOverlay = '';
+        if (rubyLines) {
+            const anns = [];
+            for (let i = 0; i < rubyLines.length; i++) {
+                let charOffset = 0;
+                for (const tok of rubyLines[i]) {
+                    const baseLen = tok.kind === 'ruby'
+                        ? Array.from(tok.base || '').length
+                        : Array.from(tok.text || '').length;
+                    if (tok.kind === 'ruby' && tok.ruby) {
+                        const annLeft = groupW - i * colW - charRightOffset;
+                        const rubyLen = Array.from(tok.ruby).length;
+                        const rubyH   = Math.round(rubyLen * rubyFontSize * 1.2);
+                        const baseH   = Math.round(baseLen * charPitch);
+                        const annTop  = Math.round(charOffset * charPitch + Math.max(0, (baseH - rubyH) / 2));
+                        anns.push(
+                            `<span class="tpv-ruby-ann"` +
+                            ` style="left:${Math.round(blockOffsetX + annLeft)}px;top:${annTop}px;` +
+                            `width:${rubyColW}px;font-size:${rubyFontSize}px"` +
+                            `>${_escHtml(_verticalGlyphText(tok.ruby))}</span>`
+                        );
+                    }
+                    charOffset += baseLen;
+                }
+            }
+            if (anns.length) rubyOverlay = `<div class="tpv-ruby-overlay">${anns.join('')}</div>`;
+        }
+        contentEl.innerHTML = `<div class="tpv-vertical" style="justify-content:${verticalJustify}">${cols}</div>${rubyOverlay}`;
+    } else {
+        const lineH = h / (composed.rules?.maxLines || 20);
+        const offsetY = _getHorizontalTextOffsetY(composed);
+        const horizontalJustify = _getHorizontalBlockJustifyCss(section);
+        let html;
+        if (rubyLines) {
+            html = rubyLines.map((tokenLine, idx) =>
+                !composed.lines[idx]
+                    ? `<div class="tpv-blank" style="height:${lineH}px"></div>`
+                    : `<div class="tpv-line">${tokenLine.map(tok =>
+                        tok.kind === 'ruby'
+                            ? `<ruby>${_markupTcyText(tok.base)}<rt>${_escHtml(tok.ruby || '')}</rt></ruby>`
+                            : _escHtml(tok.text || '')
+                      ).join('')}</div>`
+            ).join('');
+        } else {
+            html = (composed.lines || []).map(line =>
+                !line
+                    ? `<div class="tpv-blank" style="height:${lineH}px"></div>`
+                    : `<div class="tpv-line">${_escHtml(line)}</div>`
+            ).join('');
+        }
+        contentEl.innerHTML =
+            `<div class="tpv-horizontal" lang="${lang.toLowerCase()}" style="line-height:${lineH}px;transform:translateY(${offsetY}px);justify-content:${horizontalJustify}"><div class="tpv-horizontal-block">${html}</div></div>`;
+    }
+}
+
+function refreshSpreadPage() {
+    const isSpread = state.uiPrefs?.spreadView || false;
+    const compareLang = state.uiPrefs?.languageCompareView ? getActiveCompareLang() : '';
+    const isLanguageCompare = !!compareLang;
+    const spreadEl = document.getElementById('canvas-spread-page');
+    const stage    = document.getElementById('canvas-stage');
+    if (!spreadEl || !stage) return;
+
+    // スプレッドボタンのアクティブ状態を同期
+    const btn = document.getElementById('btn-spread-view');
+    if (btn) btn.classList.toggle('active', isSpread);
+
+    // 見出し入力はアクティブページ上端の外側に出すため、ページレイヤー自体は clip しない。
+    const transformLayer = document.getElementById('canvas-transform-layer');
+    if (transformLayer) {
+        transformLayer.style.overflow = 'visible';
+        transformLayer.classList.toggle('active-pair-page', isSpread || isLanguageCompare);
+    }
+    stage.classList.remove('spread-image-pair-active');
+    spreadEl.classList.remove('spread-image-pair-active');
+
+    if (!isSpread && !isLanguageCompare) {
+        spreadEl.style.display = 'none';
+        stage.style.flexDirection = '';
+        if (transformLayer) transformLayer.classList.remove('active-pair-page');
+        return;
+    }
+
+    const lang    = state.activeLang || state.defaultLang || 'ja';
+    // languageConfigs に保存された pageDirection を参照（'rtl' | 'ltr'）
+    const pageDir = state.languageConfigs?.[lang]?.pageDirection || (lang === 'ja' ? 'rtl' : 'ltr');
+    const isRTL   = pageDir === 'rtl';
+
+    const sections  = state.sections || [];
+    const activeIdx = state.activeIdx ?? 0;
+    const total     = sections.length;
+    const adjIdx = isLanguageCompare ? activeIdx : getSpreadAdjacentPageIndex(activeIdx);
+    const renderLang = isLanguageCompare ? compareLang : lang;
+
+    if (adjIdx < 0 || adjIdx >= total) {
+        spreadEl.style.display = 'none';
+        stage.style.flexDirection = '';
+        return;
+    }
+
+    // flex 方向: ページ番号（インデックス）が小さい方を右（RTL）または左（LTR）に固定する。
+    // #canvas-transform-layer（アクティブ）が常に低インデックス側とは限らないため、
+    // activeIdx と adjIdx の大小で flex-direction を決定する。
+    //   RTL: 低インデックス → 右 (transform-layer が右) → activeIdx < adjIdx なら row-reverse, それ以外は row
+    //   LTR: 低インデックス → 左 (transform-layer が左) → activeIdx < adjIdx なら row, それ以外は row-reverse
+    if (isLanguageCompare) {
+        stage.style.flexDirection = 'row';
+    } else if (isRTL) {
+        stage.style.flexDirection = activeIdx < adjIdx ? 'row-reverse' : 'row';
+    } else {
+        stage.style.flexDirection = activeIdx < adjIdx ? 'row' : 'row-reverse';
+    }
+
+    spreadEl.style.display = 'block';
+    spreadEl.dataset.adjIdx = adjIdx;
+
+    const adjSection = sections[adjIdx];
+    const activeSection = sections[activeIdx];
+    const sharedSpreadGroup = !isLanguageCompare
+        && activeSection?.spreadImage?.groupId
+        && activeSection.spreadImage.groupId === adjSection?.spreadImage?.groupId;
+    stage.classList.toggle('spread-image-pair-active', !!sharedSpreadGroup);
+    spreadEl.classList.toggle('spread-image-pair-active', !!sharedSpreadGroup);
+
+    // ページ番号ラベル
+    const labelEl = document.getElementById('canvas-spread-label');
+    if (labelEl) {
+        const adjLabel = getPageDisplayLabel(adjIdx, total, state.book, state.bookMode);
+        labelEl.textContent = `${adjLabel} ${renderLang.toUpperCase()}`;
+    }
+
+    // ── 隣ページのコンテンツを描画 ──────────────────────────────
+    const contentEl = document.getElementById('canvas-spread-content');
+    if (!contentEl) return;
+
+    if (adjSection.type === 'text') {
+        // テキストページ: renderTextPreview と同じロジックで描画
+        contentEl.innerHTML = '';
+        contentEl.style.backgroundImage = '';
+        contentEl.style.backgroundColor = '';
+        contentEl.style.position = 'relative';
+        contentEl.style.width  = '100%';
+        contentEl.style.height = '100%';
+        contentEl.style.overflow = 'hidden';
+
+        // フレーム要素を確保（初回は作成）
+        let spFrame = contentEl.querySelector('.spread-text-frame');
+        let spContent = contentEl.querySelector('.spread-text-content');
+        if (!spFrame) {
+            spFrame   = document.createElement('div');
+            spFrame.className = 'spread-text-frame';
+            spContent = document.createElement('div');
+            spContent.className = 'spread-text-content';
+            spFrame.appendChild(spContent);
+            contentEl.appendChild(spFrame);
+        }
+        contentEl.style.backgroundColor = _getTextPaperStyle(_getTextPaperPresetKey(adjSection)).backgroundColor;
+        _renderTextIntoSpread(adjSection, renderLang, contentEl, spFrame, spContent);
+    } else {
+        // 画像ページ: メインキャンバスと同じ位置・トリミングで描画
+        contentEl.innerHTML = '';
+        contentEl.style.backgroundImage = '';
+        contentEl.style.position = 'relative';
+        contentEl.style.width  = '100%';
+        contentEl.style.height = '100%';
+        contentEl.style.overflow = 'hidden';
+        contentEl.style.backgroundColor = adjSection.backgroundColor || '#fff';
+
+        const bgUrl = getOptimizedImageUrl(
+            adjSection.backgrounds?.[renderLang] || adjSection.backgrounds?.[state.defaultLang] || adjSection.background || ''
+        );
+
+        if (!bgUrl) {
+            // 画像未設定: プレースホルダー
+            contentEl.innerHTML =
+                `<div style="width:100%;height:100%;display:flex;align-items:center;justify-content:center;color:#aaa;">
+                    <span class="material-icons" style="font-size:48px;">add_photo_alternate</span>
+                </div>`;
+        } else {
+            // 言語別位置 → 共通位置 → レガシー → デフォルトの優先順で取得（main canvas と同じロジック）
+            const pos = adjSection.imagePositions?.[renderLang]
+                || adjSection.imagePositions?.[state.defaultLang]
+                || adjSection.imageBasePosition
+                || adjSection.imagePosition
+                || { x: 0, y: 0, scale: 1, rotation: 0, flipX: false };
+            const cached = editorImageAspectCache.get(bgUrl);
+
+            const _renderSpreadImg = () => {
+                const { frameMetrics, targetTransform } = getImageAdjustRenderMetrics(bgUrl, pos, getSpreadImageRenderOptions(adjSection, adjIdx));
+                // 画像レイヤー（メインキャンバスと同じ transform）
+                const imgEl = document.createElement('img');
+                imgEl.src = bgUrl;
+                imgEl.style.cssText = [
+                    'position:absolute',
+                    'top:50%', 'left:50%',
+                    `width:${frameMetrics.widthPercent}%`,
+                    `height:${frameMetrics.heightPercent}%`,
+                    `transform:${targetTransform}`,
+                    'transform-origin:center center',
+                    'pointer-events:none',
+                ].join(';');
+                contentEl.appendChild(imgEl);
+
+                // 吹き出しレイヤー
+                const bubbles = adjSection.bubbles || [];
+                if (bubbles.length > 0) {
+                    const langProps = getLangProps(renderLang);
+                    const bLayer = document.createElement('div');
+                    bLayer.style.cssText = 'position:absolute;inset:0;pointer-events:none;overflow:hidden;';
+                    bLayer.innerHTML = bubbles.map((b, i) =>
+                        renderBubbleHTML(b, i, false, langProps.defaultWritingMode || 'horizontal-tb')
+                    ).join('');
+                    contentEl.appendChild(bLayer);
+                }
+            };
+
+            if (cached) {
+                // アスペクト比がキャッシュ済み → 即座に描画
+                _renderSpreadImg();
+            } else {
+                // アスペクト比未キャッシュ → object-fit:cover で仮表示し、ロード後に再描画
+                const tmpImg = document.createElement('img');
+                tmpImg.src = bgUrl;
+                tmpImg.style.cssText = 'width:100%;height:100%;object-fit:cover;display:block;';
+                contentEl.appendChild(tmpImg);
+                const loader = new Image();
+                loader.onload = () => {
+                    if (loader.naturalWidth && loader.naturalHeight) {
+                        editorImageAspectCache.set(bgUrl, loader.naturalWidth / loader.naturalHeight);
+                    }
+                    // キャッシュが埋まったら正確な位置で再描画
+                    if ((state.uiPrefs?.spreadView) &&
+                        document.getElementById('canvas-spread-content') === contentEl) {
+                        contentEl.innerHTML = '';
+                        contentEl.style.backgroundColor = adjSection.backgroundColor || '#fff';
+                        _renderSpreadImg();
+                    }
+                };
+                loader.src = bgUrl;
+            }
+        }
+    }
+}
+
+/**
+ * 見開きの隣ページをクリック → そのページをアクティブにして編集可能にする。
+ * 見開きに表示されている 2 ページは変わらない（ページ送りなし）。
+ */
+window.spreadPageActivate = (e) => {
+    if (e) e.stopPropagation();
+    const spreadEl = document.getElementById('canvas-spread-page');
+    if (!spreadEl) return;
+    const adjIdx = parseInt(spreadEl.dataset.adjIdx, 10);
+    if (!Number.isInteger(adjIdx) || adjIdx < 0) return;
+
+    // 現在のアクティブページを「次の隣ページ」としてピン留めする。
+    // refreshSpreadPage はこの値を参照して表示を維持する。
+    _spreadActivationPinnedAdjIdx = state.activeIdx ?? 0;
+    changeSection(adjIdx, refreshForThumbSelection);
+    // changeSection → refresh → refreshSpreadPage が同期的に完了した後にリセット
+    _spreadActivationPinnedAdjIdx = -1;
+};
+
+// ──────────────────────────────────────
+//  キーボードナビゲーション（エディター）
+// ──────────────────────────────────────
+
+document.addEventListener('keydown', (e) => {
+    // テキスト入力中・モーダル表示中はスキップ
+    const tag = document.activeElement?.tagName || '';
+    if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+    if (document.activeElement?.getAttribute('contenteditable') === 'true') return;
+    if (e.ctrlKey || e.metaKey || e.altKey || e.shiftKey) return;
+    if (getCurrentRoom() !== 'editor') return;
+    // ページストリップが折りたたまれていてもナビは有効にする
+    if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
+        // 画像調整モード中は矢印キーを使わない
+        if (document.getElementById('canvas-transform-layer')?.classList.contains('adjust-image-mode')) return;
+        e.preventDefault();
+        movePageSelectionByVisualDirection(e.key === 'ArrowRight' ? 'right' : 'left');
+    }
+});
 window.changeBlock = (idx) => {
     if (Date.now() < suppressThumbClickUntil) return;
     changeBlock(idx, refreshForThumbSelection);
@@ -1947,8 +4463,12 @@ window.insertSectionAtIndex = (idx, e) => {
         e.preventDefault();
         e.stopPropagation();
     }
+    const insertAt = Math.max(0, Math.min(Number(idx) || 0, (state.sections || []).length));
+    const simulated = [...(state.sections || [])];
+    simulated.splice(insertAt, 0, { type: 'image' });
+    if (!validateSpreadImageCompositionForSections(simulated)) return;
     pushState();
-    insertSectionAt(idx, refresh);
+    insertSectionAt(insertAt, refresh);
     triggerAutoSave();
 };
 window.duplicateSectionByIndex = (idx, e) => {
@@ -1989,8 +4509,7 @@ window.moveBlockByIndex = (blockIdx, direction, e) => {
 };
 window.startThumbDrag = (e, idx) => {
     thumbDragSourceIdx = idx;
-    const el = getThumbElement(idx);
-    if (el) el.classList.add('drag-source');
+    addThumbClassToSpreadPair(idx, 'drag-source');
     if (e.dataTransfer) {
         e.dataTransfer.effectAllowed = 'move';
         e.dataTransfer.setData('text/plain', String(idx));
@@ -2058,7 +4577,18 @@ window.changeBubbleShapeFromMenu = (idx, shapeName) => {
     }
 };
 window.updateTitle = (v) => {
-    dispatch({ type: actionTypes.SET_TITLE, payload: v });
+    const lang = state.activeLang || state.defaultLang || 'ja';
+    const defaultLang = state.defaultLang || lang;
+    const nextMeta = {
+        ...(state.meta || {}),
+        [lang]: {
+            ...(state.meta?.[lang] || {}),
+            title: v || ''
+        }
+    };
+    const representativeTitle = nextMeta?.[defaultLang]?.title || v || '';
+    dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'meta', value: nextMeta } });
+    dispatch({ type: actionTypes.SET_TITLE, payload: representativeTitle });
     const headerGuideTitle = document.getElementById('header-guide-title');
     if (headerGuideTitle) headerGuideTitle.textContent = v || 'タイトル未設定';
     triggerAutoSave();
@@ -2146,8 +4676,11 @@ window.fitCanvasView = () => {
     if (container) {
         const cw = container.clientWidth;
         const ch = container.clientHeight;
-        const targetW = 360;
-        const targetH = 640;
+        const activeIdx = state.activeIdx ?? 0;
+        const isSpreadPair = !!state.uiPrefs?.spreadView && getSpreadAdjacentPageIndex(activeIdx) >= 0;
+        const isLanguageCompare = !!state.uiPrefs?.languageCompareView && !!getActiveCompareLang();
+        const targetW = (isSpreadPair || isLanguageCompare) ? CANONICAL_PAGE_WIDTH * 2 : CANONICAL_PAGE_WIDTH;
+        const targetH = CANONICAL_PAGE_HEIGHT;
 
         let s = Math.min(cw / targetW, ch / targetH) * 0.9;
         if (s > 1.2) s = 1.0;
@@ -2160,9 +4693,10 @@ window.fitCanvasView = () => {
 };
 
 function updateCanvasTransform() {
-    const layer = document.getElementById('canvas-transform-layer');
-    if (layer) {
-        layer.style.transform = `translate(-50%, -50%) translate(${canvasTranslate.x}px, ${canvasTranslate.y}px) scale(${canvasScale})`;
+    // #canvas-stage を transform する（旧: #canvas-transform-layer）
+    const stage = document.getElementById('canvas-stage');
+    if (stage) {
+        stage.style.transform = `translate(-50%, -50%) translate(${canvasTranslate.x}px, ${canvasTranslate.y}px) scale(${canvasScale})`;
     }
     syncCanvasZoomUI();
 }
@@ -2179,6 +4713,17 @@ function initCanvasZoom() {
 
     // 初期化時にリセット（flex レイアウト確定後に実行）
     requestAnimationFrame(() => fitCanvasView());
+
+    // #canvas-view のサイズ変化（ページストリップ開閉・パネル開閉・ウィンドウリサイズ等）
+    // に対して自動的にキャンバススケールを再計算する
+    if (typeof ResizeObserver !== 'undefined') {
+        let _fitRaf = null;
+        const ro = new ResizeObserver(() => {
+            if (_fitRaf) cancelAnimationFrame(_fitRaf);
+            _fitRaf = requestAnimationFrame(() => { fitCanvasView(); _fitRaf = null; });
+        });
+        ro.observe(view);
+    }
 
     // Pan handling
     let isPanning = false;
@@ -2348,7 +4893,11 @@ window.exportDSF = async () => {
         await buildDSF();
     } catch (e) {
         console.error("Export DSF failed:", e);
-        alert("エクスポート中にエラーが発生しました。\n" + e.message);
+        if (e?.code === 'PRESS_RENDER_CANCELLED') {
+            alert(t('press_render_cancelled'));
+        } else {
+            alert("エクスポート中にエラーが発生しました。\n" + e.message);
+        }
     } finally {
         btnDataList.forEach(btn => btn.textContent = '⬇ 配信データ出力 (.dsf)');
     }
@@ -2357,6 +4906,10 @@ window.exportDSF = async () => {
 window.shareProject = async () => {
     if (!state.projectId) {
         alert("プロジェクトが保存されていません。");
+        return;
+    }
+    if (!state.workId) {
+        alert("作品IDがまだありません。保存してからもう一度共有してください。");
         return;
     }
     if (!state.uid) {
@@ -2372,7 +4925,7 @@ window.shareProject = async () => {
         alert('現在の状態は「非公開」です。\nこのままでは作品を共有できません。上部メニューから「限定公開」か「公開」に変更してください。');
         return;
     }
-    const url = `${window.location.protocol}//${host}/viewer?project=${encodeURIComponent(state.projectId)}&author=${encodeURIComponent(state.uid)}`;
+    const url = `${window.location.protocol}//${host}/viewer?work=${encodeURIComponent(state.workId)}`;
 
     try {
         await navigator.clipboard.writeText(url);
@@ -2425,7 +4978,8 @@ window.switchLang = (code) => {
 function renderLangAddSelect() {
     const select = document.getElementById('lang-add-select');
     if (!select) return;
-    const added = new Set(state.languages);
+    const draft = _getPsSettingsSource();
+    const added = new Set(draft.languages || ['ja']);
     const allLangs = getAllLangs();
     const options = [];
     allLangs.forEach(({ code, label, directions }) => {
@@ -2446,29 +5000,29 @@ window.addLang = () => {
     const select = document.getElementById('lang-add-select');
     if (!select || !select.value || select.value.startsWith('—')) return;
     const [code, dir] = select.value.split(':');
-    if (!code || state.languages.includes(code)) return;
-    state.languages.push(code);
-    if (!state.languageConfigs) state.languageConfigs = {};
-    state.languageConfigs[code] = { pageDirection: dir || 'ltr' };
+    _capturePsInputsToDraft();
+    const draft = _ensurePsDraft();
+    if (!code || draft.languages.includes(code)) return;
+    draft.languages.push(code);
+    if (!draft.languageConfigs) draft.languageConfigs = {};
+    draft.languageConfigs[code] = { pageDirection: dir || 'ltr' };
     renderLangSettings();
-    renderLangTabs();
     renderLangAddSelect();
     renderProjectSettingsTable();
-    triggerAutoSave();
 };
 
 // 言語削除
 window.removeLang = (code) => {
-    if (state.languages.length <= 1) return;
+    _capturePsInputsToDraft();
+    const draft = _ensurePsDraft();
+    if (draft.languages.length <= 1) return;
     if (!confirm(t('confirm_remove_lang', { lang: getLangProps(code).label }))) return;
-    state.languages = state.languages.filter(c => c !== code);
-    if (state.defaultLang === code) state.defaultLang = state.languages[0] || 'ja';
-    if (state.activeLang === code) state.activeLang = state.defaultLang || state.languages[0];
+    draft.languages = draft.languages.filter(c => c !== code);
+    if (draft.defaultLang === code) draft.defaultLang = draft.languages[0] || 'ja';
+    if (draft.activeLang === code) draft.activeLang = draft.defaultLang || draft.languages[0];
     renderLangSettings();
     renderLangAddSelect();
     renderProjectSettingsTable();
-    refresh();
-    triggerAutoSave();
 };
 
 // プロジェクトモーダル
@@ -2493,7 +5047,8 @@ window.loadAndOpenProject = (pid) => {
     });
 };
 window.copyViewerUrl = async (pid) => {
-    const url = `${window.location.origin}/viewer?project=${encodeURIComponent(pid)}&author=${encodeURIComponent(state.uid)}`;
+    const projectWorkId = document.querySelector(`.works-row[data-pid="${CSS.escape(pid)}"]`)?.dataset.workId || pid;
+    const url = `${window.location.origin}/viewer?work=${encodeURIComponent(projectWorkId)}`;
     try {
         await navigator.clipboard.writeText(url);
         alert('URLをコピーしました:\n' + url);
@@ -2513,11 +5068,20 @@ window.loadAndRepress = (pid) => {
 window.newProject = () => {
     if (state.projectId && !confirm('現在のプロジェクトを閉じて新しいプロジェクトを作成しますか？')) return false;
     dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'projectId', value: null } });
+    dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'workId', value: createId('work') } });
+    dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'releaseId', value: null } });
     dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'projectName', value: '' } });
     dispatch({ type: actionTypes.SET_TITLE, payload: '' });
+    dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'labelName', value: '' } });
+    dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'rating', value: 'all' } });
+    dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'license', value: 'all-rights-reserved' } });
+    dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'textPaperPreset', value: 'white' } });
+    dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'meta', value: {} } });
     dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'languages', value: ['ja'] } });
     dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'defaultLang', value: 'ja' } });
     dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'languageConfigs', value: { ja: { pageDirection: 'rtl' } } } });
+    dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'bookMode', value: 'simple' } });
+    dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'book', value: { mode: 'simple', covers: { c1: { pageIndex: 0 }, c4: { pageIndex: 0 } } } } });
     dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'uiPrefs', value: { desktop: { thumbColumns: 2 }, mobile: { thumbColumns: 2 } } } });
     applyThumbColumnsFromPrefs();
     dispatch({ type: actionTypes.SET_ACTIVE_LANGUAGE, payload: 'ja' });
@@ -2592,7 +5156,7 @@ window.toggleDrawer = (drawerName) => {
     }
     activeDrawer = drawerName;
     document.body.classList.add('drawer-open');
-    document.querySelectorAll('.sidebar-assets, .sidebar-pages').forEach((el) => {
+    document.querySelectorAll('.sidebar-assets, .sidebar-pages, .sidebar-toc').forEach((el) => {
         el.style.display = 'none';
     });
     const target = document.querySelector(`.sidebar-${drawerName}`);
@@ -2616,11 +5180,99 @@ const PS_META_FIELDS = [
     { key: 'title',       get label() { return t('field_title'); },       type: 'input'    },
     { key: 'author',      get label() { return t('field_author'); },      type: 'input'    },
     { key: 'description', get label() { return t('field_description'); }, type: 'textarea' },
+    { key: 'linerNotes',  get label() { return t('field_liner_notes'); }, type: 'textarea' },
     { key: 'copyright',   get label() { return t('field_copyright'); },   type: 'input'    },
 ];
 
 // ── PS テーブル列ドラッグ ──
 let _psDragLang = null;
+let _psDraft = null;
+
+function _cloneProjectSettingsDraft() {
+    const languages = [...(state.languages && state.languages.length ? state.languages : ['ja'])];
+    const defaultLang = languages.includes(state.defaultLang) ? state.defaultLang : languages[0];
+    const activeLang = languages.includes(state.activeLang) ? state.activeLang : defaultLang;
+    const pageCount = (state.sections || []).length;
+    const bookMode = state.bookMode || state.book?.mode || 'simple';
+    const book = normalizeBookSettings(state.book || { mode: bookMode }, bookMode, pageCount);
+    return {
+        projectName: state.projectName || '',
+        labelName: state.labelName || '',
+        rating: state.rating || 'all',
+        license: state.license || 'all-rights-reserved',
+        textPaperPreset: _getProjectTextPaperPresetKey(state),
+        bookMode: book.mode,
+        book,
+        languages,
+        defaultLang,
+        activeLang,
+        languageConfigs: state.languageConfigs ? JSON.parse(JSON.stringify(state.languageConfigs)) : {},
+        meta: state.meta ? JSON.parse(JSON.stringify(state.meta)) : {}
+    };
+}
+
+function _ensurePsDraft() {
+    if (!_psDraft) _psDraft = _cloneProjectSettingsDraft();
+    return _psDraft;
+}
+
+function _getPsSettingsSource() {
+    return _psDraft || {
+        languages: state.languages || ['ja'],
+        defaultLang: state.defaultLang || 'ja',
+        activeLang: state.activeLang || state.defaultLang || 'ja',
+        labelName: state.labelName || '',
+        rating: state.rating || 'all',
+        license: state.license || 'all-rights-reserved',
+        textPaperPreset: _getProjectTextPaperPresetKey(state),
+        bookMode: state.bookMode || state.book?.mode || 'simple',
+        book: normalizeBookSettings(state.book || {}, state.bookMode || state.book?.mode || 'simple', (state.sections || []).length),
+        languageConfigs: state.languageConfigs || {},
+        meta: state.meta || {}
+    };
+}
+
+function _capturePsInputsToDraft() {
+    const draft = _ensurePsDraft();
+
+    const nameEl = document.getElementById('ps-project-name');
+    if (nameEl) draft.projectName = nameEl.value.trim();
+
+    const labelEl = document.getElementById('ps-label-name');
+    if (labelEl) draft.labelName = labelEl.value.trim();
+
+    ['rating', 'license'].forEach(key => {
+        const el = document.getElementById(`ps-${key}`);
+        if (el) draft[key] = el.value;
+    });
+
+    const bookModeEl = document.getElementById('ps-book-mode');
+    if (bookModeEl) {
+        const requestedMode = bookModeEl.value === 'none' ? 'none' : 'cover';
+        const normalizedBook = normalizeBookSettings({ mode: requestedMode }, requestedMode, (state.sections || []).length);
+        draft.bookMode = normalizedBook.mode;
+        draft.book = normalizedBook;
+    }
+
+    document.querySelectorAll('#ps-meta-table .ps-meta-input').forEach(input => {
+        const lang = input.dataset.lang;
+        const key  = input.dataset.key;
+        if (lang && key) {
+            if (!draft.meta[lang]) draft.meta[lang] = {};
+            draft.meta[lang][key] = input.value;
+        }
+    });
+
+    document.querySelectorAll('#ps-meta-table .ps-font-select').forEach(sel => {
+        const lang = sel.dataset.lang;
+        if (lang) {
+            if (!draft.languageConfigs[lang]) draft.languageConfigs[lang] = {};
+            draft.languageConfigs[lang].fontPreset = sel.value;
+        }
+    });
+
+    return draft;
+}
 
 window.psColDragStart = (e, lang) => {
     _psDragLang = lang;
@@ -2647,55 +5299,45 @@ window.psColDrop = (e, targetLang) => {
     e.currentTarget.classList.remove('ps-col-drag-over');
     if (!_psDragLang || _psDragLang === targetLang) { _psDragLang = null; return; }
 
-    // Save current input values before re-render
-    const currentMeta = state.meta ? JSON.parse(JSON.stringify(state.meta)) : {};
-    document.querySelectorAll('#ps-meta-table .ps-meta-input').forEach(input => {
-        const lang = input.dataset.lang;
-        const key  = input.dataset.key;
-        if (lang && key) {
-            if (!currentMeta[lang]) currentMeta[lang] = {};
-            currentMeta[lang][key] = input.value;
-        }
-    });
-    state.meta = currentMeta;
+    const draft = _capturePsInputsToDraft();
 
     // Reorder languages
-    const langs = [...state.languages];
+    const langs = [...draft.languages];
     const fromIdx = langs.indexOf(_psDragLang);
     const toIdx   = langs.indexOf(targetLang);
     if (fromIdx === -1 || toIdx === -1) { _psDragLang = null; return; }
     langs.splice(fromIdx, 1);
     langs.splice(toIdx, 0, _psDragLang);
-    state.languages = langs;
-    state.defaultLang = langs[0];
+    draft.languages = langs;
+    draft.defaultLang = langs[0];
     _psDragLang = null;
 
     renderProjectSettingsTable();
     renderLangSettings();
-    renderLangTabs();
-    triggerAutoSave();
 };
 
 function renderProjectSettingsTable() {
     const container = document.getElementById('ps-meta-table');
     if (!container) return;
 
-    const langs = state.languages || ['ja'];
-    const meta = state.meta || {};
+    const draft = _getPsSettingsSource();
+    const langs = draft.languages || ['ja'];
+    const meta = draft.meta || {};
+    const configs = draft.languageConfigs || {};
     const isMobile = window.innerWidth < 768 || document.body.dataset.device === 'mobile';
 
     if (isMobile) {
         const cards = langs.map((lang, idx) => {
             const props = getLangProps(lang);
-            const dir = (state.languageConfigs?.[lang]?.pageDirection || 'ltr').toUpperCase();
+            const dir = (configs?.[lang]?.pageDirection || 'ltr').toUpperCase();
             const code = lang.toUpperCase();
             const isDefault = idx === 0;
             const defaultBadge = isDefault
                 ? `<span class="ps-default-badge">${t('ps_default_badge')}</span>`
                 : '';
             const fields = PS_META_FIELDS.map(field => {
-                const val = (meta[lang]?.[field.key] || '').replace(/"/g, '&quot;');
-                const ph = (getLangProps(lang).placeholders?.[field.key] || '').replace(/"/g, '&quot;');
+                const val = escapeStudioHtml(meta[lang]?.[field.key] || '');
+                const ph = escapeStudioHtml(getLangProps(lang).placeholders?.[field.key] || '');
                 const control = field.type === 'textarea'
                     ? `<textarea class="ps-meta-input" data-lang="${lang}" data-key="${field.key}" placeholder="${ph}">${val}</textarea>`
                     : `<input type="text" class="ps-meta-input" data-lang="${lang}" data-key="${field.key}" value="${val}" placeholder="${ph}">`;
@@ -2732,7 +5374,7 @@ function renderProjectSettingsTable() {
     html += `<div class="ps-meta-cell ps-meta-header ps-meta-corner"></div>`;
     langs.forEach((lang, idx) => {
         const props = getLangProps(lang);
-        const dir  = (state.languageConfigs?.[lang]?.pageDirection || 'ltr').toUpperCase();
+        const dir  = (configs?.[lang]?.pageDirection || 'ltr').toUpperCase();
         const code = lang.toUpperCase();
         const isDefault = idx === 0;
         const defaultBadge = isDefault
@@ -2757,8 +5399,8 @@ function renderProjectSettingsTable() {
     PS_META_FIELDS.forEach(field => {
         html += `<div class="ps-meta-cell ps-meta-row-label">${field.label}</div>`;
         langs.forEach(lang => {
-            const val = (meta[lang]?.[field.key] || '').replace(/"/g, '&quot;');
-            const ph  = (getLangProps(lang).placeholders?.[field.key] || '').replace(/"/g, '&quot;');
+            const val = escapeStudioHtml(meta[lang]?.[field.key] || '');
+            const ph  = escapeStudioHtml(getLangProps(lang).placeholders?.[field.key] || '');
             if (field.type === 'textarea') {
                 html += `<div class="ps-meta-cell"><textarea class="ps-meta-input" data-lang="${lang}" data-key="${field.key}" placeholder="${ph}">${val}</textarea></div>`;
             } else {
@@ -2767,24 +5409,108 @@ function renderProjectSettingsTable() {
         });
     });
 
+    // フォントプリセット行
+    const fontOptions = getFontPresetOptions();
+    html += `<div class="ps-meta-cell ps-meta-row-label">${t('field_font')}</div>`;
+    langs.forEach(lang => {
+        const current = configs?.[lang]?.fontPreset || 'gothic';
+        const opts = fontOptions.map(o =>
+            `<option value="${o.value}"${o.value === current ? ' selected' : ''}>${o.label}</option>`
+        ).join('');
+        html += `<div class="ps-meta-cell"><select class="ps-font-select" data-lang="${lang}">${opts}</select></div>`;
+    });
+
     html += `</div>`;
     container.innerHTML = html;
 }
 
+function renderProjectBookSettings() {
+    const container = document.getElementById('ps-book-settings');
+    if (!container) return;
+    const draft = _getPsSettingsSource();
+    const pageCount = (state.sections || []).length;
+    if (!pageCount) {
+        container.innerHTML = `<p class="press-book-empty">${escapeStudioHtml(t('press_book_no_pages'))}</p>`;
+        return;
+    }
+
+    const settings = normalizeBookSettings(draft.book || {}, draft.bookMode || 'simple', pageCount);
+    const coverRow = (key, labelKey) => {
+        const pageIndex = settings.covers[key]?.pageIndex;
+        if (pageIndex === undefined) return '';
+        return `<div class="press-book-cover-fixed">
+            <span>${escapeStudioHtml(t(labelKey))}</span>
+            <strong>${escapeStudioHtml(t('press_cover_page', { page: pageIndex + 1 }))}</strong>
+        </div>`;
+    };
+
+    container.innerHTML = `
+        <div class="press-book-mode-row">
+            <span>${escapeStudioHtml(t('press_book_layout'))}</span>
+            <select id="ps-book-mode">
+                <option value="none" ${settings.mode === 'none' ? 'selected' : ''}>${escapeStudioHtml(t('press_book_none'))}</option>
+                <option value="cover" ${settings.mode !== 'none' ? 'selected' : ''}>${escapeStudioHtml(t('press_book_cover_auto'))}</option>
+            </select>
+        </div>
+        <div class="press-book-fixed-hint">${escapeStudioHtml(t('press_book_fixed_hint'))}</div>
+        <div class="press-book-covers-fixed">
+            ${coverRow('c1', 'press_cover_c1')}
+            ${coverRow('c2', 'press_cover_c2')}
+            ${coverRow('c3', 'press_cover_c3')}
+            ${coverRow('c4', 'press_cover_c4')}
+        </div>
+    `;
+
+    const modeEl = container.querySelector('#ps-book-mode');
+    if (modeEl) modeEl.addEventListener('change', () => window.updateProjectBookMode(modeEl.value));
+}
+
+window.updateProjectBookMode = (mode) => {
+    _capturePsInputsToDraft();
+    const draft = _ensurePsDraft();
+    const requestedMode = mode === 'none' ? 'none' : 'cover';
+    const normalizedBook = normalizeBookSettings({ mode: requestedMode }, requestedMode, (state.sections || []).length);
+    draft.bookMode = normalizedBook.mode;
+    draft.book = normalizedBook;
+    renderProjectBookSettings();
+};
+
+function renderProjectTextPaperSettings() {
+    const draft = _getPsSettingsSource();
+    const activeKey = _getProjectTextPaperPresetKey(draft);
+    document.querySelectorAll('[data-project-text-paper-preset]').forEach((button) => {
+        const isActive = button.dataset.projectTextPaperPreset === activeKey;
+        button.classList.toggle('active', isActive);
+        button.setAttribute('aria-pressed', isActive ? 'true' : 'false');
+    });
+}
+
+window.updateProjectTextPaperPreset = (key) => {
+    if (!TEXT_PAPER_PRESETS[key]) return;
+    const draft = _ensurePsDraft();
+    draft.textPaperPreset = key;
+    renderProjectTextPaperSettings();
+};
+
 window.openProjectSettings = () => {
     const modal = document.getElementById('project-settings-modal');
     if (!modal) return;
+    _psDraft = _cloneProjectSettingsDraft();
+    const draft = _ensurePsDraft();
 
     // Project name
     const nameEl = document.getElementById('ps-project-name');
-    if (nameEl) nameEl.value = state.projectName || '';
+    if (nameEl) nameEl.value = draft.projectName || '';
+
+    const labelEl = document.getElementById('ps-label-name');
+    if (labelEl) labelEl.value = draft.labelName || '';
 
     // Global settings
     const ratingEl = document.getElementById('ps-rating');
-    if (ratingEl) ratingEl.value = state.rating || 'all';
+    if (ratingEl) ratingEl.value = draft.rating || 'all';
 
     const licenseEl = document.getElementById('ps-license');
-    if (licenseEl) licenseEl.value = state.license || 'all-rights-reserved';
+    if (licenseEl) licenseEl.value = draft.license || 'all-rights-reserved';
 
     // Language settings
     renderLangSettings();
@@ -2792,6 +5518,8 @@ window.openProjectSettings = () => {
 
     // Per-language meta table
     renderProjectSettingsTable();
+    renderProjectBookSettings();
+    renderProjectTextPaperSettings();
 
     modal.style.display = 'flex';
 };
@@ -2800,54 +5528,81 @@ window.closeProjectSettings = (e) => {
     if (e && e.currentTarget !== e.target) return;
     const modal = document.getElementById('project-settings-modal');
     if (modal) modal.style.display = 'none';
+    _psDraft = null;
 };
 
 window.saveProjectSettings = () => {
+    const draft = _capturePsInputsToDraft();
+    const nextLanguages = draft.languages && draft.languages.length ? [...draft.languages] : ['ja'];
+    const nextDefaultLang = nextLanguages.includes(draft.defaultLang) ? draft.defaultLang : nextLanguages[0];
+    const nextActiveLang = nextLanguages.includes(draft.activeLang) ? draft.activeLang : nextDefaultLang;
+
     // Project name
-    const nameEl = document.getElementById('ps-project-name');
-    if (nameEl) {
-        const newName = nameEl.value.trim();
-        dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'projectName', value: newName } });
-        const titleDisplay = document.getElementById('project-title');
-        if (titleDisplay) titleDisplay.textContent = newName || '新規プロジェクト';
-    }
+    const newName = draft.projectName || '';
+    dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'projectName', value: newName } });
+    const titleDisplay = document.getElementById('project-title');
+    if (titleDisplay) titleDisplay.textContent = newName || '新規プロジェクト';
 
     // Global settings
-    ['rating', 'license'].forEach(key => {
-        const el = document.getElementById(`ps-${key}`);
-        if (el) dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key, value: el.value } });
+    dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'labelName', value: draft.labelName || '' } });
+    dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'rating', value: draft.rating || 'all' } });
+    dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'license', value: draft.license || 'all-rights-reserved' } });
+    const nextTextPaperPreset = _getProjectTextPaperPresetKey(draft);
+    dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'textPaperPreset', value: nextTextPaperPreset } });
+    const nextBook = normalizeBookSettings(draft.book || {}, draft.bookMode || 'simple', (state.sections || []).length);
+    const compositionIssues = getBookCompositionIssues({
+        pageCount: (state.sections || []).length,
+        book: nextBook,
+        bookMode: nextBook.mode,
+        sections: state.sections || []
     });
+    if (compositionIssues.includes('spread_image_requires_covers')) {
+        alertCompositionIssues(compositionIssues);
+        return;
+    }
+    dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'bookMode', value: nextBook.mode } });
+    dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'book', value: nextBook } });
 
-    // Per-language meta table
-    const meta = state.meta ? JSON.parse(JSON.stringify(state.meta)) : {};
-    document.querySelectorAll('#ps-meta-table .ps-meta-input').forEach(input => {
-        const lang = input.dataset.lang;
-        const key  = input.dataset.key;
-        if (lang && key) {
-            if (!meta[lang]) meta[lang] = {};
-            meta[lang][key] = input.value;
-        }
-    });
-    dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'meta', value: meta } });
+    dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'languages', value: nextLanguages } });
+    dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'defaultLang', value: nextDefaultLang } });
+    dispatch({ type: actionTypes.SET_ACTIVE_LANGUAGE, payload: nextActiveLang });
+    dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'meta', value: draft.meta || {} } });
+    dispatch({ type: actionTypes.SET_TITLE, payload: draft.meta?.[nextDefaultLang]?.title || '' });
+    dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'languageConfigs', value: draft.languageConfigs || {} } });
+
+    const nextSections = _applyTextPaperStyleToSections(state.sections, nextTextPaperPreset);
+    dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'sections', value: nextSections } });
+
+    const syncedBlocks = syncBlocksWithSections(state.blocks, nextSections, nextLanguages);
+    const nextBlocks = _applyTextPaperStyleToBlocks(syncedBlocks, nextTextPaperPreset);
+    dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'blocks', value: nextBlocks } });
+    dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'pages', value: blocksToPages(nextBlocks) } });
 
     const modal = document.getElementById('project-settings-modal');
     if (modal) modal.style.display = 'none';
+    _psDraft = null;
 
+    renderLangSettings();
+    renderLangTabs();
+    refresh();
     triggerAutoSave();
 };
 
-// ===== Room Navigation =====
+// ===== Room Navigation（body.dataset.room の単一入口。各 room の「中身」は下記のみ委譲） =====
 window.switchRoom = (room) => {
-    document.body.dataset.room = room;
+    const targetRoom = getValidStudioRoom(room);
+    document.body.dataset.room = targetRoom;
+    syncStudioRoomUrl(targetRoom);
     syncStudioShell();
-    if (room === 'home') {
+    if (targetRoom === 'home') {
         renderHomeDashboard().catch((e) => console.warn('[Home] render failed:', e));
     }
-    if (room === 'press') {
+    // press / works は専用モジュールが DOM・イベントを持つ
+    if (targetRoom === 'press') {
         enterPressRoom();
     }
-    if (room === 'works') {
-        loadWorksRoom();
+    if (targetRoom === 'works') {
+        loadWorksRoom(); // openWorksRoom(true) と同義（ルームモード）
     }
 };
 
@@ -2857,13 +5612,11 @@ window.togglePageStrip = () => {
     if (chevron) {
         chevron.textContent = document.body.classList.contains('strip-collapsed') ? 'expand_less' : 'expand_more';
     }
+    // #page-strip の CSS transition（200ms）完了後にキャンバスサイズを再計算
+    setTimeout(() => fitCanvasView(), 220);
 };
 
 window.handleMobileHeaderNav = () => {
-    if (getCurrentRoom() === 'editor' && window.innerWidth < 1024) {
-        window.toggleMobileHomeDrawer();
-        return;
-    }
     const navBtn = document.getElementById('mobile-header-nav');
     const targetRoom = navBtn?.dataset.targetRoom;
     if (targetRoom) {
@@ -2943,11 +5696,62 @@ function syncMobileMenuSheet() {
     document.querySelectorAll('[data-mobile-room-only]').forEach((el) => {
         el.hidden = el.dataset.mobileRoomOnly !== room;
     });
+    document.querySelectorAll('[data-mobile-room-nav]').forEach((el) => {
+        el.classList.toggle('active', el.dataset.mobileRoomNav === room);
+    });
+    document.querySelectorAll('[data-studio-room-nav]').forEach((el) => {
+        el.classList.toggle('active', el.dataset.studioRoomNav === room);
+    });
 }
+
+function setStudioLogoMenuOpen(open) {
+    const menu = document.getElementById('studio-logo-menu');
+    const btn = document.getElementById('studio-logo-menu-btn');
+    if (!menu) return;
+    menu.hidden = !open;
+    btn?.setAttribute('aria-expanded', open ? 'true' : 'false');
+    if (open) syncMobileMenuSheet();
+}
+
+window.closeStudioLogoMenu = () => {
+    setStudioLogoMenuOpen(false);
+};
+
+window.toggleStudioLogoMenu = (event) => {
+    event?.stopPropagation();
+    const menu = document.getElementById('studio-logo-menu');
+    setStudioLogoMenuOpen(!!menu?.hidden);
+};
+
+function setMobileStudioNavOpen(open) {
+    const menu = document.getElementById('mobile-studio-nav-menu');
+    const btn = document.getElementById('mobile-studio-logo-btn');
+    if (!menu) return;
+    menu.hidden = !open;
+    document.body.classList.toggle('mobile-studio-nav-open', open);
+    btn?.setAttribute('aria-expanded', open ? 'true' : 'false');
+    if (open) {
+        syncMobileMenuSheet();
+    }
+}
+
+window.closeMobileStudioNavMenu = () => {
+    setMobileStudioNavOpen(false);
+};
+
+window.toggleMobileStudioNavMenu = (event) => {
+    event?.stopPropagation();
+    if (window.innerWidth >= 1024) return;
+    const menu = document.getElementById('mobile-studio-nav-menu');
+    const shouldOpen = !!menu?.hidden;
+    closeMobileSheet();
+    setMobileStudioNavOpen(shouldOpen);
+};
 
 function handleMobileBottomAction(actionKey) {
     const action = getMobileActionConfigs().find((item) => item.key === actionKey);
     if (!action) return;
+    closeMobileStudioNavMenu();
     if (action.sheet) {
         openMobileSheet(action.sheet);
         return;
@@ -2999,27 +5803,9 @@ window.closeMobileSheet = () => {
     setBottomBarActive(null);
 };
 
-window.closeMobileHomeDrawer = () => {
-    document.body.classList.remove('mobile-home-drawer-open');
-};
-
-window.openMobileHomeDrawer = () => {
-    if (window.innerWidth >= 1024 || getCurrentRoom() !== 'editor') return;
-    closeMobileSheet();
-    document.body.classList.add('mobile-home-drawer-open');
-};
-
-window.toggleMobileHomeDrawer = () => {
-    if (isMobileHomeDrawerOpen()) {
-        closeMobileHomeDrawer();
-    } else {
-        openMobileHomeDrawer();
-    }
-};
-
 window.closeMobileOverlays = () => {
+    closeMobileStudioNavMenu();
     closeMobileSheet();
-    closeMobileHomeDrawer();
 };
 
 function openMobileActionSheet(contentId) {
@@ -3038,7 +5824,7 @@ window.openMobileSheet = (sheetName) => {
         return;
     }
 
-    closeMobileHomeDrawer();
+    closeMobileStudioNavMenu();
     closeMobileSheet();
     activeMobileSheet = sheetName;
     document.body.classList.add('mobile-sheet-active');
@@ -3070,73 +5856,40 @@ function initUIChrome() {
     document.getElementById('btn-toggle-sidebar')?.addEventListener('click', () => window.toggleDrawer('assets'));
     document.getElementById('btn-toggle-panel')?.addEventListener('click', () => toggleDesktopPanel('right'));
 
-    let mobileHomeDrawerSwipe = null;
-    document.addEventListener('touchstart', (e) => {
-        if (window.innerWidth >= 1024 || getCurrentRoom() !== 'editor' || activeMobileSheet || isMobileHomeDrawerOpen()) return;
-        const touch = e.touches?.[0];
-        if (!touch) return;
-        if (touch.clientX > 24) return;
-        mobileHomeDrawerSwipe = {
-            startX: touch.clientX,
-            startY: touch.clientY,
-            opened: false
-        };
-    }, { passive: true });
-
-    document.addEventListener('touchmove', (e) => {
-        if (!mobileHomeDrawerSwipe || mobileHomeDrawerSwipe.opened) return;
-        const touch = e.touches?.[0];
-        if (!touch) return;
-        const dx = touch.clientX - mobileHomeDrawerSwipe.startX;
-        const dy = Math.abs(touch.clientY - mobileHomeDrawerSwipe.startY);
-        if (dy > 36) {
-            mobileHomeDrawerSwipe = null;
-            return;
+    window.addEventListener('dsf-auth-signed-in', (event) => {
+        const user = event.detail?.user || firebaseAuth.currentUser || null;
+        if (user) {
+            applyStudioAuthUser(user);
+            closeAllStudioAuthDropdowns();
+            renderHomeDashboard().catch((e) => console.warn('[Home] render failed after auth event:', e));
         }
-        if (dx > 56) {
-            openMobileHomeDrawer();
-            mobileHomeDrawerSwipe.opened = true;
-            mobileHomeDrawerSwipe = null;
+    });
+    window.addEventListener('dsf-auth-error', (event) => {
+        const error = event.detail?.error;
+        console.error('[Auth] Google credential sign-in error:', error);
+        alert(t('auth_google_failed', { message: error?.message || String(error || '') }));
+    });
+
+    document.addEventListener('click', (event) => {
+        const desktopMenu = document.getElementById('studio-logo-menu');
+        const desktopBtn = document.getElementById('studio-logo-menu-btn');
+        if (desktopMenu && !desktopMenu.hidden && !desktopMenu.contains(event.target) && !desktopBtn?.contains(event.target)) {
+            closeStudioLogoMenu();
         }
-    }, { passive: true });
 
-    document.addEventListener('touchend', () => {
-        mobileHomeDrawerSwipe = null;
-    }, { passive: true });
+        const menu = document.getElementById('mobile-studio-nav-menu');
+        const btn = document.getElementById('mobile-studio-logo-btn');
+        if (!menu || menu.hidden) return;
+        if (menu.contains(event.target) || btn?.contains(event.target)) return;
+        closeMobileStudioNavMenu();
+    });
 
-    const mobileHomeDrawer = document.getElementById('mobile-home-drawer');
-    let mobileHomeDrawerCloseSwipe = null;
-    mobileHomeDrawer?.addEventListener('touchstart', (e) => {
-        if (!isMobileHomeDrawerOpen()) return;
-        const touch = e.touches?.[0];
-        if (!touch) return;
-        const rect = mobileHomeDrawer.getBoundingClientRect();
-        if ((rect.right - touch.clientX) > 36) return;
-        mobileHomeDrawerCloseSwipe = {
-            startX: touch.clientX,
-            startY: touch.clientY
-        };
-    }, { passive: true });
-
-    mobileHomeDrawer?.addEventListener('touchmove', (e) => {
-        if (!mobileHomeDrawerCloseSwipe) return;
-        const touch = e.touches?.[0];
-        if (!touch) return;
-        const dx = touch.clientX - mobileHomeDrawerCloseSwipe.startX;
-        const dy = Math.abs(touch.clientY - mobileHomeDrawerCloseSwipe.startY);
-        if (dy > 36) {
-            mobileHomeDrawerCloseSwipe = null;
-            return;
+    document.addEventListener('keydown', (event) => {
+        if (event.key === 'Escape') {
+            closeStudioLogoMenu();
+            closeMobileStudioNavMenu();
         }
-        if (dx < -48) {
-            closeMobileHomeDrawer();
-            mobileHomeDrawerCloseSwipe = null;
-        }
-    }, { passive: true });
-
-    mobileHomeDrawer?.addEventListener('touchend', () => {
-        mobileHomeDrawerCloseSwipe = null;
-    }, { passive: true });
+    });
 
     window.addEventListener('resize', () => {
         const currentDeviceKey = getDeviceKey();
@@ -3144,12 +5897,18 @@ function initUIChrome() {
             lastDeviceKey = currentDeviceKey;
             applyThumbColumnsFromPrefs();
             refresh();
+            updateAuthUI();
         }
         syncStudioShell();
     });
 
     setRibbonTab('home');
     syncDesktopToggleButtons();
+    syncStudioShell();
+}
+
+function finishInitialRoomBoot() {
+    document.body.removeAttribute('data-booting');
     syncStudioShell();
 }
 
@@ -3163,53 +5922,82 @@ window.toggleMobilePanel = (panelName) => {
 window.toggleAuth = async () => {
     try {
         if (state.uid) {
-            await signOutUser();
+            await signOutUser(firebaseAuth);
         } else {
-            await signInWithGoogle();
+            const result = await signInWithGoogle({ authInstance: firebaseAuth });
+            if (result?.user) applyStudioAuthUser(result.user);
         }
     } catch (e) {
         console.error('[Auth] toggleAuth error:', e);
+        alert(t('auth_google_failed', { message: e?.message || String(e) }));
     }
 };
 
+// Firebase Auth → state.user / uid。ログイン後にだけ URL ?id= のクラウドプロジェクトを開く。
 onAuthChanged((user) => {
-    state.user = user || null;
-    state.uid = user?.uid || null;
-    updateAuthUI();
+    applyStudioAuthUser(user);
     renderHomeDashboard().catch((e) => console.warn('[Home] render failed after auth:', e));
-    // Auto-load project from URL param after login
     if (user) {
+        void ensureUserBootstrap(user).catch((e) => console.warn('[Auth] user bootstrap failed:', e));
         const pid = new URLSearchParams(window.location.search).get('id');
         if (pid) loadProject(pid, refresh);
     }
-});
+}, firebaseAuth);
 
 // ── UI言語スイッチャー（windowに公開） ──────────────────────────
 window.setStudioUILang = (lang) => {
     setUILang(lang);
     // 動的レンダリング済みコンポーネントを再描画
     renderLangTabs();
+    updateAuthUI();
     renderHomeDashboard().catch((e) => console.warn('[Home] render failed after language switch:', e));
     if (document.getElementById('project-settings-modal')?.style.display !== 'none') {
+        _capturePsInputsToDraft();
         renderProjectSettingsTable();
         renderLangSettings();
         renderLangAddSelect();
+        renderProjectBookSettings();
+    }
+    if (getCurrentRoom() === 'press') {
+        enterPressRoom();
     }
     syncStudioShell();
 };
 
-// --- 初回描画 ---
+// --- 初回描画: UI 骨組み → リダイレクト認証結果 → GIS 初期化 → ローカル復元 → ?room= ---
 async function bootstrapApp() {
     initUIChrome();
+    normalizeStudioRouteUrl();
+    const urlParams = new URLSearchParams(window.location.search);
+    const targetRoom = getValidStudioRoom(urlParams.get('room'));
+
     ensureUiPrefs();
     applyThumbColumnsFromPrefs();
+    applyTheme();
+    bindThemePreferenceListener(() => {
+        updateStudioThemeSwitchers();
+    });
     applyI18n(); // UI言語を適用
+    window.switchRoom(targetRoom);
+    finishInitialRoomBoot();
+
+    await authReady;
 
     // Prevent local restore if we are explicitly loading a cloud project via URL
-    const urlParams = new URLSearchParams(window.location.search);
     const hasCloudId = urlParams.has('id');
 
-    initGIS();
+    const redirectOutcome = await handleRedirectResult(firebaseAuth);
+    if (redirectOutcome?.error) {
+        alert(t('auth_google_failed', { message: redirectOutcome.error?.message || String(redirectOutcome.error) }));
+    }
+    if (redirectOutcome?.result?.user) {
+        applyStudioAuthUser(redirectOutcome.result.user);
+        await ensureUserBootstrap(redirectOutcome.result.user).catch((e) => console.warn('[Auth] redirect bootstrap failed:', e));
+    } else if (firebaseAuth.currentUser) {
+        applyStudioAuthUser(firebaseAuth.currentUser);
+        await ensureUserBootstrap(firebaseAuth.currentUser).catch((e) => console.warn('[Auth] current-user bootstrap failed:', e));
+    }
+    await initGIS({ authInstance: firebaseAuth });
 
     if (!hasCloudId) {
         try {
@@ -3247,10 +6035,8 @@ async function bootstrapApp() {
     refresh();
     renderLangSettings();
     updateAuthUI();
-    await renderHomeDashboard();
-    const requestedRoom = urlParams.get('room');
-    if (requestedRoom && ['home', 'editor', 'press', 'works'].includes(requestedRoom)) {
-        window.switchRoom(requestedRoom);
+    if (getCurrentRoom() === 'home') {
+        renderHomeDashboard().catch((e) => console.warn('[Home] initial render failed:', e));
     }
 }
 
@@ -3377,23 +6163,13 @@ function initContextMenu() {
             contextMenu.dataset.pointerY = e.clientY;
         }
 
-        // メニューの表示位置を計算 (画面外にはみ出ないように調整)
-        contextMenu.style.display = 'flex';
-        const rect = contextMenu.getBoundingClientRect();
-        let x = e.clientX;
-        let y = e.clientY;
-
-        if (x + rect.width > window.innerWidth) x = window.innerWidth - rect.width - 8;
-        if (y + rect.height > window.innerHeight) y = window.innerHeight - rect.height - 8;
-
-        contextMenu.style.left = `${x}px`;
-        contextMenu.style.top = `${y}px`;
+        showContextMenuAt(e.clientX, e.clientY, contextMenu.innerHTML);
     });
 
     // 画面のどこかをクリックしたらコンテキストメニューを閉じる
     document.addEventListener('click', (e) => {
         if (!contextMenu.contains(e.target)) {
-            contextMenu.style.display = 'none';
+            hideContextMenu();
         }
     });
 }
@@ -3402,7 +6178,7 @@ function initContextMenu() {
 window.addBubbleAtPointer = function (e) {
     const contextMenu = document.getElementById('context-menu');
     if (!contextMenu) return;
-    contextMenu.style.display = 'none';
+    hideContextMenu();
 
     const clientX = parseFloat(contextMenu.dataset.pointerX);
     const clientY = parseFloat(contextMenu.dataset.pointerY);
@@ -3447,7 +6223,7 @@ window.addBubbleAtPointer = function (e) {
 
 window.duplicateSelectedBubble = function (bubbleIndex) {
     const contextMenu = document.getElementById('context-menu');
-    if (contextMenu) contextMenu.style.display = 'none';
+    if (contextMenu) hideContextMenu();
 
     const section = state.sections[state.activeIdx];
     if (!section || !section.bubbles || !section.bubbles[bubbleIndex]) return;
@@ -3468,7 +6244,7 @@ window.duplicateSelectedBubble = function (bubbleIndex) {
 
 window.deleteSelectedBubble = function (bubbleIndex) {
     const contextMenu = document.getElementById('context-menu');
-    if (contextMenu) contextMenu.style.display = 'none';
+    if (contextMenu) hideContextMenu();
 
     const section = state.sections[state.activeIdx];
     if (!section || !section.bubbles || !section.bubbles[bubbleIndex]) return;

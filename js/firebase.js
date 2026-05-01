@@ -5,11 +5,8 @@
  *   VITE_STORAGE_BACKEND=firebase  → Firebase Storage (local Vite development)
  *   VITE_STORAGE_BACKEND=r2        → Cloudflare R2 via Pages Function at /upload (Pages production/preview)
  */
-import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
-import { getFirestore, doc, setDoc, getDoc, deleteDoc, serverTimestamp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
-import { getStorage, ref, uploadBytes, getDownloadURL } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-storage.js";
+import { doc, setDoc, getDoc, deleteDoc, serverTimestamp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
 import {
-    getAuth,
     onAuthStateChanged
 } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js";
 import { state, dispatch, actionTypes } from './state.js';
@@ -19,6 +16,11 @@ import { composeCanonicalLayoutsForSections } from './layout.js';
 import { set as idbSet, get as idbGet } from 'idb-keyval';
 import { createId } from './utils.js';
 import { loadImageForCanvas, fetchAssetBlob, shouldEmbedAsset } from './asset-fetch.js';
+import { db, storage, auth, authReady } from './firebase-core.js';
+import { encodeCanvasToWebP, isWebPBlob } from './canvas-encoding.js';
+import { normalizeBookSettings } from './page-labels.js';
+
+export { db, storage, auth, authReady } from './firebase-core.js';
 
 window.localImageMap = window.localImageMap || {};
 
@@ -27,21 +29,6 @@ window.localImageMap = window.localImageMap || {};
 // npm run dev              → .env.development（staging Firebase 接続 / Storage は Firebase）
 // npm run build            → .env.production（本番 接続 / Storage は R2）
 // npm run build:staging    → .env.staging（staging 接続 / Storage は R2）
-const firebaseConfig = {
-    apiKey:            import.meta.env.VITE_FIREBASE_API_KEY,
-    authDomain:        import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
-    projectId:         import.meta.env.VITE_FIREBASE_PROJECT_ID,
-    storageBucket:     import.meta.env.VITE_FIREBASE_STORAGE_BUCKET,
-    messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID,
-    appId:             import.meta.env.VITE_FIREBASE_APP_ID,
-    measurementId:     import.meta.env.VITE_FIREBASE_MEASUREMENT_ID,
-};
-
-const app = initializeApp(firebaseConfig);
-export const db = getFirestore(app);
-export const storage = getStorage(app);
-export const auth = getAuth(app);
-
 // ── Storage backend abstraction ───────────────────────────────────────────────
 // When VITE_STORAGE_BACKEND=r2, uploads go to Cloudflare R2 via the Pages
 // Function at /upload. Otherwise, Firebase Storage is used.
@@ -50,6 +37,11 @@ const LOCAL_RECENT_INDEX_KEY = 'dsf_local_recent_index';
 const LOCAL_RECENT_PREFIX = 'dsf_local_recent_project_';
 const LOCAL_RECENT_LIMIT = 12;
 const projectAssetByteCache = new Map();
+const AUTHORING_IMAGE_MAX_LONG_EDGE = 2160;
+const AUTHORING_IMAGE_WEBP_QUALITY = 0.9;
+const THUMBNAIL_IMAGE_MAX_LONG_EDGE = 320;
+const THUMBNAIL_IMAGE_WEBP_QUALITY = 0.8;
+const userBootstrapPromiseCache = new Map();
 
 /**
  * Upload a Blob to R2 via the /upload Pages Function.
@@ -58,9 +50,12 @@ const projectAssetByteCache = new Map();
 async function _uploadToR2(blob, path) {
     const token = await auth.currentUser?.getIdToken(false);
     if (!token) throw new Error('R2 upload requires authentication');
+    const uploadBlob = blob instanceof Blob ? blob : new Blob([blob], { type: 'image/webp' });
+    if (String(path || '').toLowerCase().endsWith('.webp') && !(await isWebPBlob(uploadBlob))) {
+        throw new Error('WebP ではない画像を .webp としてアップロードしようとしました。');
+    }
     const fd = new FormData();
-    // Pass blob with the correct MIME type (already webp after compressImage)
-    fd.append('file', blob instanceof Blob ? blob : new Blob([blob], { type: 'image/webp' }), path.split('/').pop());
+    fd.append('file', uploadBlob, path.split('/').pop());
     fd.append('path', path);
     const res = await fetch('/upload', {
         method: 'POST',
@@ -80,6 +75,9 @@ async function _uploadToR2(blob, path) {
  * Use this instead of calling uploadBytes/getDownloadURL directly.
  */
 async function _storeFile(blob, path) {
+    if (String(path || '').toLowerCase().endsWith('.webp') && !(await isWebPBlob(blob))) {
+        throw new Error('WebP ではない画像を .webp として保存しようとしました。');
+    }
     if (_USE_R2) return _uploadToR2(blob, path);
     const storageRef = ref(storage, path);
     const snap = await uploadBytes(storageRef, blob);
@@ -110,9 +108,145 @@ function projectDocRef(projectId) {
     return doc(db, "users", uid, "projects", projectId);
 }
 
+function userDocRef(uid) {
+    if (!uid) throw new Error("ユーザー UID が必要です");
+    return doc(db, "users", uid);
+}
+
+function buildUserBootstrapDefaults(user) {
+    const uid = user?.uid || '';
+    return {
+        uid,
+        authProvider: 'google',
+        displayName: user?.displayName || '',
+        photoURL: user?.photoURL || '',
+        email: user?.email || '',
+        handle: null,
+        roles: {
+            reader: true,
+            creator: true,
+            admin: false,
+            operator: false,
+            moderator: false
+        },
+        plan: {
+            tier: 'free',
+            status: 'active',
+            provider: 'none',
+            trialEndsAt: null,
+            currentPeriodEnd: null,
+            cancelAtPeriodEnd: false,
+            updatedAt: null
+        },
+        entitlements: {
+            canCreateProject: true,
+            canUsePremiumPaper: false,
+            canPublishPrivately: false,
+            canUseAdvancedAnalytics: false,
+            canManageLabel: false
+        },
+        status: {
+            disabled: false,
+            moderationHold: false
+        },
+        storage: {
+            authoringRoot: `users/${uid}/dsp/`,
+            publishRoot: `users/${uid}/dsf/`,
+            initialized: true
+        }
+    };
+}
+
+export async function ensureUserBootstrap(user = auth.currentUser) {
+    if (!user?.uid) return null;
+    if (userBootstrapPromiseCache.has(user.uid)) {
+        return userBootstrapPromiseCache.get(user.uid);
+    }
+
+    const bootstrapPromise = (async () => {
+        const ref = userDocRef(user.uid);
+        const snapshot = await getDoc(ref);
+        const defaults = buildUserBootstrapDefaults(user);
+
+        if (!snapshot.exists()) {
+            await setDoc(ref, {
+                ...defaults,
+                createdAt: serverTimestamp(),
+                lastLoginAt: serverTimestamp()
+            });
+            return {
+                ...defaults,
+                createdAt: null,
+                lastLoginAt: null
+            };
+        }
+
+        const data = snapshot.data() || {};
+        const merged = {
+            uid: data.uid || defaults.uid,
+            authProvider: data.authProvider || defaults.authProvider,
+            displayName: user.displayName || data.displayName || defaults.displayName,
+            photoURL: user.photoURL || data.photoURL || defaults.photoURL,
+            email: user.email || data.email || defaults.email,
+            handle: typeof data.handle === 'string' ? data.handle : defaults.handle,
+            roles: {
+                reader: typeof data.roles?.reader === 'boolean' ? data.roles.reader : defaults.roles.reader,
+                creator: typeof data.roles?.creator === 'boolean' ? data.roles.creator : defaults.roles.creator,
+                admin: typeof data.roles?.admin === 'boolean' ? data.roles.admin : defaults.roles.admin,
+                operator: typeof data.roles?.operator === 'boolean' ? data.roles.operator : defaults.roles.operator,
+                moderator: typeof data.roles?.moderator === 'boolean' ? data.roles.moderator : defaults.roles.moderator
+            },
+            plan: {
+                tier: typeof data.plan?.tier === 'string' ? data.plan.tier : defaults.plan.tier,
+                status: typeof data.plan?.status === 'string' ? data.plan.status : defaults.plan.status,
+                provider: typeof data.plan?.provider === 'string' ? data.plan.provider : defaults.plan.provider,
+                trialEndsAt: data.plan?.trialEndsAt ?? defaults.plan.trialEndsAt,
+                currentPeriodEnd: data.plan?.currentPeriodEnd ?? defaults.plan.currentPeriodEnd,
+                cancelAtPeriodEnd: typeof data.plan?.cancelAtPeriodEnd === 'boolean' ? data.plan.cancelAtPeriodEnd : defaults.plan.cancelAtPeriodEnd,
+                updatedAt: data.plan?.updatedAt ?? defaults.plan.updatedAt
+            },
+            entitlements: {
+                canCreateProject: typeof data.entitlements?.canCreateProject === 'boolean' ? data.entitlements.canCreateProject : defaults.entitlements.canCreateProject,
+                canUsePremiumPaper: typeof data.entitlements?.canUsePremiumPaper === 'boolean' ? data.entitlements.canUsePremiumPaper : defaults.entitlements.canUsePremiumPaper,
+                canPublishPrivately: typeof data.entitlements?.canPublishPrivately === 'boolean' ? data.entitlements.canPublishPrivately : defaults.entitlements.canPublishPrivately,
+                canUseAdvancedAnalytics: typeof data.entitlements?.canUseAdvancedAnalytics === 'boolean' ? data.entitlements.canUseAdvancedAnalytics : defaults.entitlements.canUseAdvancedAnalytics,
+                canManageLabel: typeof data.entitlements?.canManageLabel === 'boolean' ? data.entitlements.canManageLabel : defaults.entitlements.canManageLabel
+            },
+            status: {
+                disabled: typeof data.status?.disabled === 'boolean' ? data.status.disabled : defaults.status.disabled,
+                moderationHold: typeof data.status?.moderationHold === 'boolean' ? data.status.moderationHold : defaults.status.moderationHold
+            },
+            storage: {
+                authoringRoot: data.storage?.authoringRoot || defaults.storage.authoringRoot,
+                publishRoot: data.storage?.publishRoot || defaults.storage.publishRoot,
+                initialized: typeof data.storage?.initialized === 'boolean' ? data.storage.initialized : defaults.storage.initialized
+            },
+            lastLoginAt: serverTimestamp()
+        };
+
+        await setDoc(ref, merged, { merge: true });
+        return {
+            ...data,
+            ...merged,
+            createdAt: data.createdAt || null,
+            lastLoginAt: null
+        };
+    })();
+
+    userBootstrapPromiseCache.set(user.uid, bootstrapPromise);
+    try {
+        return await bootstrapPromise;
+    } finally {
+        userBootstrapPromiseCache.delete(user.uid);
+    }
+}
+
 function ensureProjectIdentity() {
     if (!state.projectId) {
         state.projectId = createId('proj');
+    }
+    if (!state.workId) {
+        state.workId = createId('work');
     }
     if (!state.projectName) {
         state.projectName = state.title || '新規プロジェクト';
@@ -139,7 +273,7 @@ function getProjectPreviewSource(snapshotState) {
         return {
             background: page.content.backgrounds?.[activeLang] || page.content.background || '',
             thumbnail: page.content.thumbnail || '',
-            imagePosition: page.content.imagePosition || { x: 0, y: 0, scale: 1, rotation: 0 }
+            imagePosition: page.content.imagePositions?.[activeLang] || page.content.imagePosition || { x: 0, y: 0, scale: 1, rotation: 0, flipX: false }
         };
     }
 
@@ -149,7 +283,7 @@ function getProjectPreviewSource(snapshotState) {
         return {
             background: block.content.backgrounds?.[activeLang] || block.content.background || '',
             thumbnail: block.content.thumbnail || '',
-            imagePosition: block.content.imagePosition || { x: 0, y: 0, scale: 1, rotation: 0 }
+            imagePosition: block.content.imagePositions?.[activeLang] || block.content.imagePosition || { x: 0, y: 0, scale: 1, rotation: 0, flipX: false }
         };
     }
 
@@ -159,14 +293,14 @@ function getProjectPreviewSource(snapshotState) {
         return {
             background: '',
             thumbnail: '',
-            imagePosition: { x: 0, y: 0, scale: 1, rotation: 0 }
+            imagePosition: { x: 0, y: 0, scale: 1, rotation: 0, flipX: false }
         };
     }
 
     return {
         background: section.backgrounds?.[activeLang] || section.background || '',
         thumbnail: section.thumbnail || '',
-        imagePosition: section.imagePosition || { x: 0, y: 0, scale: 1, rotation: 0 }
+        imagePosition: section.imagePositions?.[activeLang] || section.imagePosition || { x: 0, y: 0, scale: 1, rotation: 0, flipX: false }
     };
 }
 
@@ -231,6 +365,11 @@ async function computeProjectBytes(snapshotState) {
         version: snapshotState.version || PAGE_SCHEMA_VERSION,
         projectName: snapshotState.projectName || '',
         title: snapshotState.title || '',
+        labelName: snapshotState.labelName || '',
+        rating: snapshotState.rating || 'all',
+        license: snapshotState.license || 'all-rights-reserved',
+        textPaperPreset: snapshotState.textPaperPreset || 'white',
+        meta: snapshotState.meta || {},
         pages: snapshotState.pages || [],
         blocks: snapshotState.blocks || [],
         sections: snapshotState.sections || [],
@@ -266,7 +405,8 @@ async function buildProjectListThumbnail(snapshotState) {
             x: Number.isFinite(Number(preview.imagePosition?.x)) ? Number(preview.imagePosition.x) : 0,
             y: Number.isFinite(Number(preview.imagePosition?.y)) ? Number(preview.imagePosition.y) : 0,
             scale: Math.max(0.1, Number.isFinite(Number(preview.imagePosition?.scale)) ? Number(preview.imagePosition.scale) : 1),
-            rotation: Number.isFinite(Number(preview.imagePosition?.rotation)) ? Number(preview.imagePosition.rotation) : 0
+            rotation: Number.isFinite(Number(preview.imagePosition?.rotation)) ? Number(preview.imagePosition.rotation) : 0,
+            flipX: !!preview.imagePosition?.flipX
         };
 
         const baseW = 360;
@@ -277,7 +417,7 @@ async function buildProjectListThumbnail(snapshotState) {
         ctx.translate(targetW / 2, targetH / 2);
         ctx.translate(safePos.x * ratio, safePos.y * ratio);
         ctx.rotate((safePos.rotation * Math.PI) / 180);
-        ctx.scale(safePos.scale, safePos.scale);
+        ctx.scale(safePos.flipX ? -safePos.scale : safePos.scale, safePos.scale);
 
         const imgAspect = img.width / img.height;
         const frameAspect = baseW / baseH;
@@ -314,6 +454,7 @@ async function buildLocalRecentMeta(snapshotState) {
         localProjectId: snapshotState.localProjectId || null,
         projectName: snapshotState.projectName || '',
         title: snapshotState.title || '',
+        labelName: snapshotState.labelName || '',
         thumbnail: listThumbnail || getProjectPreviewSource(snapshotState).thumbnail || '',
         listThumbnail,
         pageCount: getProjectPageCount(snapshotState),
@@ -511,6 +652,10 @@ function stripBlobUrls(obj) {
     return out;
 }
 
+function buildFixedBookConfig(mode, pageCount) {
+    return normalizeBookSettings({ mode }, mode, pageCount);
+}
+
 // ──────────────────────────────────────────────────────────────────────────────
 
 /**
@@ -525,12 +670,15 @@ async function performSave() {
     // blocks / pages は保存専用のローカル変数に計算し、グローバル state を dispatch なしに書き換えない
     const blocksToSave = syncBlocksWithSections(state.blocks, state.sections, state.languages);
     const pagesToSave = blocksToPages(blocksToSave);
+    const bookToSave = buildFixedBookConfig(state.bookMode || state.book?.mode || 'simple', pagesToSave.length);
+    state.bookMode = bookToSave.mode;
+    state.book = bookToSave;
 
     updateSaveIndicator('saving', '保存中...');
 
     // 1. ローカルバックアップ (常に実行)
     try {
-        const localSnapshot = JSON.parse(JSON.stringify({ ...state, blocks: blocksToSave, pages: pagesToSave }));
+        const localSnapshot = JSON.parse(JSON.stringify({ ...state, blocks: blocksToSave, pages: pagesToSave, bookMode: bookToSave.mode, book: bookToSave }));
         ensureLocalProjectIdentity(localSnapshot);
         state.localProjectId = localSnapshot.localProjectId;
         await idbSet('dsf_autosave', {
@@ -553,14 +701,24 @@ async function performSave() {
             const cleanBlocks   = await resolveBlobUrlsInBlocks(blocksToSave, state.uid);
             const persistedProject = {
                 version: PAGE_SCHEMA_VERSION,
+                projectId: state.projectId,
+                workId: state.workId || '',
+                releaseId: state.releaseId || null,
                 projectName: state.projectName || '',
                 title: state.title || '',
+                labelName: state.labelName || '',
+                rating: state.rating || 'all',
+                license: state.license || 'all-rights-reserved',
+                textPaperPreset: state.textPaperPreset || 'white',
+                meta: state.meta || {},
                 pages: pagesToSave,
                 blocks: cleanBlocks,
                 sections: cleanSections,
                 languages: state.languages,
                 defaultLang: state.defaultLang || state.languages?.[0] || 'ja',
                 languageConfigs: state.languageConfigs,
+                bookMode: bookToSave.mode,
+                book: bookToSave,
                 uiPrefs: state.uiPrefs || null
             };
 
@@ -577,7 +735,7 @@ async function performSave() {
             const existingSnap = await getDoc(projectDocRef(state.projectId));
             const existingData = existingSnap.exists() ? existingSnap.data() : {};
             const pressFields = {};
-            for (const key of ['dsfPages', 'dsfStatus', 'dsfTotalBytes', 'dsfResolution', 'dsfQuality', 'dsfPageCount', 'updatedAt']) {
+            for (const key of ['dsfPages', 'dsfStatus', 'dsfTotalBytes', 'dsfResolution', 'dsfQuality', 'dsfPageCount', 'updatedAt', 'dsfPublishedAt', 'dsfRenderStamp', 'dsfLangs', 'releaseId']) {
                 if (existingData[key] !== undefined) pressFields[key] = existingData[key];
             }
 
@@ -587,8 +745,8 @@ async function performSave() {
               || (persistedProject.sections || []).length;
 
             await setDoc(projectDocRef(state.projectId), {
-                ...pressFields,
                 ...persistedProject,
+                ...pressFields,
                 listThumbnail,
                 projectBytes,
                 pageCount,
@@ -598,21 +756,25 @@ async function performSave() {
                 lastUpdated: new Date()
             });
 
-            // 3. public_projects コレクションへの同期
-            const publicProjectRef = doc(db, 'public_projects', state.projectId);
-            if (visibility === 'public') {
-                await setDoc(publicProjectRef, {
-                    title: state.title || '無題のプロジェクト',
-                    authorName: state.user?.displayName || state.user?.email?.split('@')[0] || '名無し',
-                    authorUid: state.uid,
-                    thumbnail: listThumbnail || getProjectPreviewSource(persistedProject).thumbnail || '',
-                    publishedAt: serverTimestamp() // Bumps to top on save
+            if (state.workId) {
+                await setDoc(doc(db, "users", state.uid, "works", state.workId), {
+                    workId: state.workId,
+                    projectId: state.projectId,
+                    ownerUid: state.uid,
+                    title: state.title || '',
+                    labelName: state.labelName || '',
+                    rating: state.rating || 'all',
+                    license: state.license || 'all-rights-reserved',
+                    textPaperPreset: state.textPaperPreset || 'white',
+                    meta: state.meta || {},
+                    languages: state.languages || ['ja'],
+                    defaultLang: state.defaultLang || state.languages?.[0] || 'ja',
+                    updatedAt: serverTimestamp()
                 }, { merge: true });
-            } else {
-                // private や unlisted になった場合は一覧から削除
-                await deleteDoc(publicProjectRef).catch(e => console.warn('[DSF] Failed to remove from public_projects:', e));
             }
 
+            // 公開インデックス（public_projects）は Press / Works が管理する。
+            // 通常の編集保存では DSP 本体だけを更新し、公開状態は変えない。
             updateSaveIndicator('saved', '保存済み (Cloud)');
             console.log(`[DSF] Auto-saved project to cloud: ${state.projectId}`);
         } catch (e) {
@@ -650,11 +812,11 @@ export async function saveProject(pid) {
 /**
  * 画像を圧縮・リサイズするヘルパー関数
  * @param {File} file - 入力ファイル
- * @param {number} maxWidth - 最大幅
+ * @param {number} maxLongEdge - 長辺の上限
  * @param {number} quality - 画質 (0.0 - 1.0)
  * @returns {Promise<Blob>} - 圧縮されたBlob (image/webp)
  */
-function compressImage(file, maxWidth, quality) {
+function compressImage(file, maxLongEdge, quality) {
     return new Promise((resolve, reject) => {
         const img = new Image();
         const reader = new FileReader();
@@ -664,10 +826,12 @@ function compressImage(file, maxWidth, quality) {
             img.onload = () => {
                 let width = img.width;
                 let height = img.height;
+                const longEdge = Math.max(width, height);
 
-                if (width > maxWidth) {
-                    height = Math.round(height * (maxWidth / width));
-                    width = maxWidth;
+                if (longEdge > maxLongEdge) {
+                    const scale = maxLongEdge / longEdge;
+                    width = Math.round(width * scale);
+                    height = Math.round(height * scale);
                 }
 
                 const canvas = document.createElement('canvas');
@@ -676,10 +840,7 @@ function compressImage(file, maxWidth, quality) {
                 const ctx = canvas.getContext('2d');
                 ctx.drawImage(img, 0, 0, width, height);
 
-                canvas.toBlob((blob) => {
-                    if (blob) resolve(blob);
-                    else reject(new Error("Canvas to Blob failed"));
-                }, 'image/webp', quality);
+                encodeCanvasToWebP(canvas, quality, '画像').then(resolve, reject);
             };
             img.onerror = (e) => reject(e);
         };
@@ -749,7 +910,7 @@ export async function generateCroppedThumbnail(bgUrl, pos, refresh) {
         ctx.restore();
         revoke();
 
-        const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/webp', 0.8));
+        const blob = await encodeCanvasToWebP(canvas, 0.8, 'サムネイル');
         let thumbUrl = '';
         if (!state.uid) {
             const thumbKey = `local_img_thumb_adjusted_${timestamp}`;
@@ -779,6 +940,34 @@ export async function generateCroppedThumbnail(bgUrl, pos, refresh) {
     }
 }
 
+function getDefaultImagePosition() {
+    return { x: 0, y: 0, scale: 1, rotation: 0, flipX: false };
+}
+
+function applyUploadedImageToSectionGroup(sections, activeIdx, lang, mainUrl, thumbUrl, isMultiLang) {
+    const active = sections?.[activeIdx];
+    if (!active) return;
+
+    const groupId = active.spreadImage?.groupId || '';
+    const targetIndices = groupId
+        ? sections.map((section, index) => section?.spreadImage?.groupId === groupId ? index : -1).filter((index) => index >= 0)
+        : [activeIdx];
+    const sharedPosition = getDefaultImagePosition();
+
+    targetIndices.forEach((index) => {
+        const section = sections[index];
+        if (!section) return;
+        if (!section.backgrounds) section.backgrounds = {};
+        section.backgrounds[lang] = mainUrl;
+        if (!isMultiLang) section.background = mainUrl;
+        section.thumbnail = thumbUrl;
+        if (!section.imagePositions) section.imagePositions = {};
+        section.imagePositions[lang] = sharedPosition;
+        section.imagePosition = sharedPosition;
+        section.imageBasePosition = getDefaultImagePosition();
+    });
+}
+
 /**
  * 画像をアップロードし、セクションの背景に設定する
  * クライアント側でWebP変換・サムネイル生成を行う
@@ -797,10 +986,11 @@ export async function uploadToStorage(input, refresh) {
     setLabel("処理中...");
 
     try {
-        // 1. 画像圧縮 (メイン: max 1280px, サムネイル: max 320px)
+        // 1. 画像圧縮
+        // 編集用背景は中品質マスターとして保持し、サムネイルだけを強く小さくする。
         const [mainBlob, thumbBlob] = await Promise.all([
-            compressImage(file, 1280, 0.8),
-            compressImage(file, 320, 0.8)
+            compressImage(file, AUTHORING_IMAGE_MAX_LONG_EDGE, AUTHORING_IMAGE_WEBP_QUALITY),
+            compressImage(file, THUMBNAIL_IMAGE_MAX_LONG_EDGE, THUMBNAIL_IMAGE_WEBP_QUALITY)
         ]);
 
         const timestamp = Date.now();
@@ -827,13 +1017,9 @@ export async function uploadToStorage(input, refresh) {
 
             // ステート更新
             const lang = state.activeLang || state.defaultLang || 'ja';
+            const isMultiLang = (state.languages || ['ja']).length > 1;
             const newSections = [...state.sections];
-            if (!newSections[state.activeIdx].backgrounds) newSections[state.activeIdx].backgrounds = {};
-            newSections[state.activeIdx].backgrounds[lang] = mainUrl;
-            newSections[state.activeIdx].background = mainUrl; // 後方互換
-            newSections[state.activeIdx].thumbnail = thumbUrl;
-            newSections[state.activeIdx].imagePosition = { x: 0, y: 0, scale: 1, rotation: 0 };
-            newSections[state.activeIdx].imageBasePosition = { x: 0, y: 0, scale: 1, rotation: 0 };
+            applyUploadedImageToSectionGroup(newSections, state.activeIdx, lang, mainUrl, thumbUrl, isMultiLang);
             dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'sections', value: newSections } });
 
             refresh();
@@ -859,13 +1045,9 @@ export async function uploadToStorage(input, refresh) {
 
         // 4. ステート更新
         const lang = state.activeLang || state.defaultLang || 'ja';
+        const isMultiLang = (state.languages || ['ja']).length > 1;
         const newSections = [...state.sections];
-        if (!newSections[state.activeIdx].backgrounds) newSections[state.activeIdx].backgrounds = {};
-        newSections[state.activeIdx].backgrounds[lang] = mainUrl;
-        newSections[state.activeIdx].background = mainUrl; // 後方互換
-        newSections[state.activeIdx].thumbnail = thumbUrl;
-        newSections[state.activeIdx].imagePosition = { x: 0, y: 0, scale: 1, rotation: 0 };
-        newSections[state.activeIdx].imageBasePosition = { x: 0, y: 0, scale: 1, rotation: 0 };
+        applyUploadedImageToSectionGroup(newSections, state.activeIdx, lang, mainUrl, thumbUrl, isMultiLang);
         dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'sections', value: newSections } });
 
         refresh();
@@ -896,14 +1078,24 @@ export async function loadProject(pid, refresh) {
         // 既存データに残存する blob: URL を除去（マイグレーション・クラッシュ防止）
         const data = stripBlobUrls(raw);
         dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'projectId', value: pid } });
+        dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'workId', value: data.workId || pid } });
+        dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'releaseId', value: data.releaseId || null } });
         dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'projectName', value: data.projectName || pid } });
         dispatch({ type: actionTypes.SET_TITLE, payload: data.title || '' });
+        dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'labelName', value: data.labelName || '' } });
+        dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'rating', value: data.rating || 'all' } });
+        dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'license', value: data.license || 'all-rights-reserved' } });
+        dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'textPaperPreset', value: data.textPaperPreset || 'white' } });
+        dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'meta', value: data.meta || {} } });
         dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'pages', value: data.pages || [] } });
         dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'blocks', value: data.blocks || [] } });
         dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'sections', value: data.sections } });
         dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'dsfPages', value: Array.isArray(data.dsfPages) ? data.dsfPages : [] } });
+        dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'bookMode', value: data.bookMode || data.book?.mode || 'simple' } });
+        dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'book', value: data.book || { mode: data.bookMode || 'simple', covers: { c1: { pageIndex: 0 }, c4: { pageIndex: Math.max(0, (data.sections || []).length - 1) } } } } });
         dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'languages', value: data.languages && data.languages.length > 0 ? data.languages : ['ja'] } });
         dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'defaultLang', value: data.defaultLang || (data.languages && data.languages.length > 0 ? data.languages[0] : 'ja') } });
+        dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'languageConfigs', value: data.languageConfigs || { ja: { pageDirection: 'rtl' } } } });
         dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'uiPrefs', value: data.uiPrefs || state.uiPrefs || {} } });
         dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'visibility', value: data.visibility || 'private' } });
         dispatch({ type: actionTypes.SET_ACTIVE_LANGUAGE, payload: data.defaultLang || (data.languages && data.languages.length > 0 ? data.languages[0] : 'ja') });
@@ -932,8 +1124,8 @@ export async function uploadCoverToStorage(input, refresh) {
 
     try {
         const [mainBlob, thumbBlob] = await Promise.all([
-            compressImage(file, 1280, 0.8),
-            compressImage(file, 320, 0.8)
+            compressImage(file, AUTHORING_IMAGE_MAX_LONG_EDGE, AUTHORING_IMAGE_WEBP_QUALITY),
+            compressImage(file, THUMBNAIL_IMAGE_MAX_LONG_EDGE, THUMBNAIL_IMAGE_WEBP_QUALITY)
         ]);
 
         const timestamp = Date.now();
@@ -984,8 +1176,8 @@ export async function uploadStructureToStorage(input, refresh) {
 
     try {
         const [mainBlob, thumbBlob] = await Promise.all([
-            compressImage(file, 1280, 0.8),
-            compressImage(file, 320, 0.8)
+            compressImage(file, AUTHORING_IMAGE_MAX_LONG_EDGE, AUTHORING_IMAGE_WEBP_QUALITY),
+            compressImage(file, THUMBNAIL_IMAGE_MAX_LONG_EDGE, THUMBNAIL_IMAGE_WEBP_QUALITY)
         ]);
         const timestamp = Date.now();
         const filename = file.name.replace(/\.[^/.]+$/, "");

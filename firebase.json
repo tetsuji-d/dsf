@@ -12,6 +12,15 @@
             "**/.*",
             "**/node_modules/**"
         ],
-        "rewrites": []
+        "rewrites": [
+            {
+                "source": "/studio",
+                "destination": "/studio.html"
+            },
+            {
+                "source": "/viewer",
+                "destination": "/viewer.html"
+            }
+        ]
     }
 }

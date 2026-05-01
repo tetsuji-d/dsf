@@ -1,4 +1,4 @@
-# DSF Studio Pro - UI Menu & Feature Architecture (Universal Design)
+# DSF Studio - UI Menu & Feature Architecture (Universal Design)
 
 本ドキュメントは、ユニバーサルデザイン（UD）化に向けて再設計・整理された「エディタ（PC）」および「ビューワー（Mobile/PC）」のUI構造と機能のグループ分けを定義します。
 

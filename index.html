@@ -4,8 +4,8 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport"
-        content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-    <title>DSF - Digital Smart Format</title>
+        content="width=device-width, initial-scale=1.0, maximum-scale=5.0, viewport-fit=cover">
+    <title>DSF Horizon</title>
     <!-- Google Fonts -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -20,15 +20,19 @@
 
 <body>
     <header id="portal-header">
-        <div class="logo-group">
-            <a href="/" class="logo-area" title="DSF Portal">
-                <span class="logo-text">DSF</span>
-                <span class="logo-subtext">Digital Smart Format</span>
-            </a>
-            <!-- Language Switcher -->
-            <div id="lang-switcher" class="lang-switcher" role="group" aria-label="言語切り替え / Language">
-                <button class="lang-btn active" data-lang="ja">JA</button>
-                <button class="lang-btn" data-lang="en">EN</button>
+        <div class="portal-header-left">
+            <button type="button" class="header-icon-btn" id="btn-library-menu" aria-label="Horizon menu" aria-expanded="false" title="Horizon menu">
+                <span class="material-icons" aria-hidden="true">menu</span>
+            </button>
+            <div class="logo-group">
+                <a href="/" class="logo-area" title="DSF Horizon">
+                    <span class="logo-text">DSF</span>
+                    <span class="logo-subtext" data-i18n="libraryName">Horizon</span>
+                </a>
+                <div id="lang-switcher-brand" class="lang-switcher js-lang-switcher" role="group" aria-label="言語切り替え / Language">
+                    <button class="lang-btn active" data-lang="ja">JA</button>
+                    <button class="lang-btn" data-lang="en">EN</button>
+                </div>
             </div>
         </div>
 
@@ -42,17 +46,72 @@
         </div>
 
         <div class="header-actions">
-            <!-- Auth Area -->
+            <div class="create-menu-wrap">
+                <button type="button" class="header-pill-btn" id="btn-create-menu" aria-expanded="false">
+                    <span class="material-icons" aria-hidden="true">add</span>
+                    <span data-i18n="createMenu">作成</span>
+                </button>
+                <div class="header-popover create-menu-popover" id="create-menu-popover" role="menu">
+                    <a href="/studio.html?room=home" class="popover-link" data-i18n="navProjects">Projects</a>
+                    <a href="/studio.html?room=editor" class="popover-link" data-i18n="navEditor">Editor</a>
+                    <a href="/studio.html?room=press" class="popover-link" data-i18n="navPress">Press</a>
+                    <a href="/studio.html?room=works" class="popover-link" data-i18n="navWorks">Works</a>
+                </div>
+            </div>
+
+            <button type="button" class="header-icon-btn" id="btn-notifications" aria-label="Notifications" title="Notifications">
+                <span class="material-icons" aria-hidden="true">notifications_none</span>
+            </button>
+
             <div id="auth-area"></div>
-            <!-- Studio Access Btn -->
-            <a href="/studio.html?room=home" class="btn-studio" aria-label="Studio">
-                <span class="material-icons" aria-hidden="true">edit</span>
-                <span data-i18n="studioBtn">Studioを起動</span>
-            </a>
         </div>
     </header>
 
+    <aside id="library-drawer" aria-label="Horizon drawer" aria-hidden="true">
+        <div class="drawer-head">
+            <div>
+                <div class="drawer-kicker" data-i18n="horizonBrand">DSF Horizon</div>
+                <strong data-i18n="libraryName">Horizon</strong>
+            </div>
+            <button type="button" class="header-icon-btn" id="btn-library-menu-close" aria-label="Close Horizon menu">
+                <span class="material-icons" aria-hidden="true">close</span>
+            </button>
+        </div>
+        <nav class="drawer-nav">
+            <button type="button" class="drawer-link is-active">
+                <span class="material-icons" aria-hidden="true">home</span>
+                <span data-i18n="drawerHome">ホーム</span>
+            </button>
+            <button type="button" class="drawer-link">
+                <span class="material-icons" aria-hidden="true">history</span>
+                <span data-i18n="drawerHistory">履歴</span>
+            </button>
+            <button type="button" class="drawer-link">
+                <span class="material-icons" aria-hidden="true">category</span>
+                <span data-i18n="drawerCategories">コンテンツカテゴリ</span>
+            </button>
+            <button type="button" class="drawer-link">
+                <span class="material-icons" aria-hidden="true">download_done</span>
+                <span data-i18n="drawerOffline">オフライン</span>
+            </button>
+        </nav>
+    </aside>
+    <div id="portal-scrim" hidden></div>
+
     <main>
+        <section class="library-hero">
+            <div class="library-hero-copy">
+                <p class="library-eyebrow" data-i18n="horizonBrand">DSF Horizon</p>
+                <h1 class="library-title" data-i18n="libraryHomeTitle">情報の広がりは、地平線を超えていく。</h1>
+                <p class="library-desc" data-i18n="libraryHomeDesc">公開作品を探して、気になる作品をすぐ開ける Reader 向けホームです。</p>
+            </div>
+            <div class="library-hero-actions">
+                <a href="/studio.html?room=editor" class="btn-studio" aria-label="Create in Studio">
+                    <span class="material-icons" aria-hidden="true">draw</span>
+                    <span data-i18n="studioBtn">Studioを起動</span>
+                </a>
+            </div>
+        </section>
         <h2 class="section-title" data-i18n="sectionTitle">最新・注目作品</h2>
         <p id="feed-status" class="feed-status" aria-live="polite"></p>
         <div id="portal-feedback" class="portal-feedback" aria-live="polite"></div>

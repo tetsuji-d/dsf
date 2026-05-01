@@ -1,5 +1,9 @@
 # Page-Centric Architecture Plan
 
+> Status: partially historical.
+> この文書は `pages[]` 単一モデルへの移行計画を記録していますが、現行 runtime canonical は `blocks` です。
+> 現在の判断には `docs/data-model.md` と `js/pages.js` の `normalizeProjectDataV5()` を優先してください。
+
 最終更新: 2026-03-25
 対象: DSF Studio エディター/ビューワーの `sections/blocks` 混在実装を、`pages` 単一モデルへ整理
 

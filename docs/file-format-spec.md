@@ -1,8 +1,12 @@
 # DSF & DSP File Format Specification
 
 ## 概要
-DSF Studio Proにおける2つの主要なファイルフォーマット（`.dsf` および `.dsp`）の構造とデータモデルの仕様です。
-どちらも **ZIP アーカイブフォーマット** をベース（コンテナ）としており、Excel（`.xlsx`）や ePub のように、将来的な新機能の追加や構造の変更が行われても、アプリケーション側で一貫して解析・拡張が可能な（上位/下位互換性を保ちやすい）構造となっています。
+
+**DSF（Digital Spread Format）** は、スマートフォン向け固定レイアウト出版のためのフォーマット総称です。リフロー型の EPUB とは対照的に、ZIP コンテナ内の **`manifest.json` / `meta.json` / `content.json`** とアセットにより、ページ構成・多言語・表示メタ（アスペクト比・綴じ方向など）を管理します。
+
+本書は DSF Studio における 2 つの主要アーカイブ（**`.dsf`（配信）** および **`.dsp`（編集用プロジェクト）**）の構造とデータモデルを定義します。どちらも **ZIP アーカイブ** をコンテナとし、Excel（`.xlsx`）や EPUB と同様に、将来の拡張に対して上位/下位互換を保ちやすい設計を目指します。
+
+**論理ページ（9:16）の基準**: アプリ内の編集・組版・Press の座標系は **`360×640` 論理ピクセル**を正とする（実装は `js/page-geometry.js`、表示トークンは `css/variables.css` の `--dsf-canonical-page-*`）。配信用ラスタは **少なくとも `1080×1920`（論理の 3 倍）** を最低ラインとする想定で、`meta.json` の `presentation.aspectRatio`（例: `"9:16"`）と整合させる。
 
 ---
 
@@ -10,14 +14,14 @@ DSF Studio Proにおける2つの主要なファイルフォーマット（`.dsf
 根本的な内部構造（ZIP圧縮されたJSONと画像群）は同一ですが、用途と含まれるデータ粒度が異なります。
 
 ### `.dsp` (Digital Smart Project)
-*   **用途**: DSF Studio Pro 上での**編集用プロジェクトファイル**。バックアップや、別の端末・ユーザー間で作業状態をそのまま移行するために使用。
+*   **用途**: DSF Studio 上での**編集用プロジェクトファイル**。バックアップや、別の端末・ユーザー間で作業状態をそのまま移行するために使用。
 *   **特徴**:
     *   エディタのUI設定（サムネイルの列数、ズーム状態など）、編集途中のメタデータ、未翻訳の言語設定などを全て保持する。
     *   ユーザーが画質調整や切り抜きをやり直せるよう、**無劣化のオリジナル高解像度画像** を含む。
     *   編集履歴（Undo/Redoスタック）などを将来的に含める拡張の余地がある。
 
-### `.dsf` (Digital Smart Format)
-*   **用途**: エンドユーザー（読者）へ向けた**配信・配布用ファイル**。リーダーアプリやWebビューアでの閲覧に特化。
+### `.dsf`（DSF 配信パッケージ / Digital Spread Format）
+*   **用途**: エンドユーザー（読者）へ向けた**配信・配布用ファイル**。ブラウザ Viewer や将来のサードパーティリーダーでの閲覧に特化。（歴史的文脈では「Digital Smart Format」表記の資料もある）
 *   **特徴**:
     *   エディタ固有のUI設定や不要なメタデータをパージし、ファイルサイズを最小限まで削ぎ落とす。
     *   画像は閲覧に最適なサイズと品質（WebP等の高圧縮フォーマット）に **事前リサイズ・最適化・切り抜き済み** のもののみを収録する。
@@ -44,6 +48,8 @@ filename.dsf / filename.dsp
       └── thumbs/            // DSP: エディタ表示用サムネイル画像
 ```
 
+**メタデータの分担（現行）**: アーカイブ整合性・ファイル一覧は主に **`manifest.json`**、作品タイトル・言語リスト・表示系のルート設定は **`meta.json`**、ビューア向けのフラットな **ページ列** は **`content.json`**（DSF）が担います。**レーティング**など追加の出版メタは、`meta.json` の拡張キーとして解釈不能なら無視する方針で追加していく想定です。
+
 ---
 
 ## 3. 各ファイルの仕様（JSON スキーマ案）
@@ -60,17 +66,37 @@ filename.dsf / filename.dsp
 {
   "version": "1.0.0",               // フォーマットのバージョン
   "schemaVersion": 1,               // 内部データの構造バージョン番号（後方互換性用）
+  "projectId": "proj_abc123",       // 編集単位のID（存在する場合）
+  "workId": "work_abc123",          // 読者向けに不変の作品ID（存在する場合）
+  "releaseId": "rel_abc123",        // 発行物のID（DSFの場合。DSPでは null/空文字可）
   "title": "作品タイトル",
   "author": "作者名",
+  "labelName": "レーベル名",
+  "rating": "all",
+  "license": "all-rights-reserved",
+  "meta": {
+    "ja": {
+      "title": "作品タイトル",
+      "author": "作者名",
+      "description": "作品の概要",
+      "linerNotes": "ライナーノーツ本文。リンクは {{公式サイト|https://example.com}} のように記述",
+      "copyright": "© 2026 作者名"
+    }
+  },
+  "linerNotes": {
+    "ja": "ライナーノーツ本文。リンクは {{公式サイト|https://example.com}} のように記述"
+  },
   "languages": ["ja", "en", "zh"],  // 収録されている言語コード
   "defaultLang": "ja",
   "created": "2026-02-21T12:00:00Z",
   "modified": "2026-02-21T15:30:00Z",
-  "generator": "DSF Studio Pro v1.2",// 生成したツール
-  "presentation": {                 // 【将来拡張用表示設定】
+  "generator": "DSF Studio v1.2",    // 生成したツール
+  "presentation": {                 // 表示メタ（アプリは `js/page-geometry.js` と同期して書き出す）
     "orientation": "portrait",      // "portrait" (縦), "landscape" (16:9等の横)
-    "aspectRatio": "9:16",          // 基準となるアスペクト比
-    "spread": "auto"                // 見開き設定: "none" (単体), "auto" (画面幅で見開き)
+    "aspectRatio": "9:16",          // 基準アスペクト比（正規表記）
+    "spread": "auto",                // 見開き設定: "none" (単体), "auto" (画面幅で見開き)
+    "canonicalLogicalWidth": 360,   // 論理ページ幅（実装定数と一致）
+    "canonicalLogicalHeight": 640   // 論理ページ高さ（実装定数と一致）
   }
 }
 ```
@@ -81,6 +107,8 @@ filename.dsf / filename.dsp
 ```json
 {
   "projectId": "local_abc123",
+  "workId": "work_abc123",
+  "releaseId": null,
   "languageConfigs": {
     "ja": { "writingMode": "vertical-rl", "fontPreset": "mincho" },
     "en": { "writingMode": "horizontal-tb", "fontPreset": "sans" }
@@ -99,6 +127,9 @@ filename.dsf / filename.dsp
 
 ```json
 {
+  "projectId": "proj_abc123",
+  "workId": "work_abc123",
+  "releaseId": "rel_abc123",
   "pages": [
     {
       "pageId": "page-001",

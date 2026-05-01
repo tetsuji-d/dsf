@@ -18,6 +18,7 @@ function createDefaultImageSection() {
         bubbles: [],
         text: '',
         texts: {},
+        headings: {},
         layout: {},
         imagePosition: { x: 0, y: 0, scale: 1, rotation: 0 },
         imageBasePosition: { x: 0, y: 0, scale: 1, rotation: 0 }
@@ -103,6 +104,13 @@ function normalizeContentByBodyKind(content, bodyKind) {
         bubbles: deepClone(src.bubbles || []),
         imagePosition: deepClone(src.imagePosition || { x: 0, y: 0, scale: 1, rotation: 0 }),
         imageBasePosition: deepClone(src.imageBasePosition || { x: 0, y: 0, scale: 1, rotation: 0 }),
+        imagePositions: deepClone(src.imagePositions || {}),
+        spreadImage: src.spreadImage && typeof src.spreadImage === 'object'
+            ? {
+                groupId: String(src.spreadImage.groupId || ''),
+                role: src.spreadImage.role === 'right' ? 'right' : 'left'
+            }
+            : null,
         theme: {
             templateId: src.theme?.templateId || '',
             paletteId: src.theme?.paletteId || ''
@@ -113,6 +121,11 @@ function normalizeContentByBodyKind(content, bodyKind) {
         // Transitional compatibility fields.
         text: src.text || '',
         texts: deepClone(src.texts || {}),
+        headings: deepClone(src.headings || {}),
+        textAlign: src.textAlign || 'start',
+        paperPreset: src.paperPreset || '',
+        backgroundColor: src.backgroundColor || '',
+        textColor: src.textColor || '',
         layout: deepClone(src.layout || {})
     };
 
@@ -187,9 +200,16 @@ function sectionToNormalPage(section) {
             bubbles: deepClone(src.bubbles || []),
             text: src.text || '',
             texts: deepClone(src.texts || {}),
+            headings: deepClone(src.headings || {}),
+            textAlign: src.textAlign || 'start',
+            paperPreset: src.paperPreset || '',
+            backgroundColor: src.backgroundColor || '',
+            textColor: src.textColor || '',
             layout: deepClone(src.layout || {}),
             imagePosition: deepClone(src.imagePosition || { x: 0, y: 0, scale: 1, rotation: 0 }),
-            imageBasePosition: deepClone(src.imageBasePosition || { x: 0, y: 0, scale: 1, rotation: 0 })
+            imageBasePosition: deepClone(src.imageBasePosition || { x: 0, y: 0, scale: 1, rotation: 0 }),
+            imagePositions: deepClone(src.imagePositions || {}),
+            spreadImage: deepClone(src.spreadImage || null)
         },
         ar: src.ar ? deepClone(src.ar) : undefined
     });
@@ -207,9 +227,16 @@ function pageToSection(page) {
         bubbles: deepClone(c.bubbles || []),
         text: c.text || '',
         texts: deepClone(c.texts || {}),
+        headings: deepClone(c.headings || {}),
+        textAlign: c.textAlign || 'start',
+        paperPreset: c.paperPreset || '',
+        backgroundColor: c.backgroundColor || '',
+        textColor: c.textColor || '',
         layout: deepClone(c.layout || {}),
         imagePosition: deepClone(c.imagePosition || { x: 0, y: 0, scale: 1, rotation: 0 }),
         imageBasePosition: deepClone(c.imageBasePosition || { x: 0, y: 0, scale: 1, rotation: 0 }),
+        imagePositions: deepClone(c.imagePositions || {}),
+        spreadImage: deepClone(c.spreadImage || null),
         ...(page?.ar ? { ar: deepClone(page.ar) } : {})
     };
 }
@@ -378,11 +405,18 @@ function pageToBlock(page, languages = ['ja']) {
             backgrounds: deepClone(page.content?.backgrounds || {}),
             thumbnail: page.content?.thumbnail || '',
             bubbles: deepClone(page.content?.bubbles || []),
-            text: page.content?.text || '',
-            texts: deepClone(page.content?.texts || {}),
-            layout: deepClone(page.content?.layout || {}),
+                text: page.content?.text || '',
+                texts: deepClone(page.content?.texts || {}),
+                headings: deepClone(page.content?.headings || {}),
+                textAlign: page.content?.textAlign || 'start',
+                paperPreset: page.content?.paperPreset || '',
+                backgroundColor: page.content?.backgroundColor || '',
+                textColor: page.content?.textColor || '',
+                layout: deepClone(page.content?.layout || {}),
             imagePosition: deepClone(page.content?.imagePosition || { x: 0, y: 0, scale: 1, rotation: 0 }),
-            imageBasePosition: deepClone(page.content?.imageBasePosition || { x: 0, y: 0, scale: 1, rotation: 0 })
+            imageBasePosition: deepClone(page.content?.imageBasePosition || { x: 0, y: 0, scale: 1, rotation: 0 }),
+            imagePositions: deepClone(page.content?.imagePositions || {}),
+            spreadImage: deepClone(page.content?.spreadImage || null)
         }
     };
 }
@@ -413,6 +447,18 @@ export function blocksToPages(blocks) {
     return ensureCoverBoundaries(pages);
 }
 
+/**
+ * Normalize project payloads into the current runtime contract.
+ *
+ * Canonical authoring source:
+ *   1. `blocks`
+ * Fallback compatibility sources:
+ *   2. `sections`
+ *   3. `pages`
+ *
+ * Returned `sections` / `pages` are compatibility/consumer surfaces derived from
+ * canonical authoring data, not the source of truth for new edits.
+ */
 export function normalizeProjectDataV5(data = {}) {
     const languages = ensureLanguages(data);
     const defaultLang = (typeof data.defaultLang === 'string' && languages.includes(data.defaultLang))
@@ -420,16 +466,56 @@ export function normalizeProjectDataV5(data = {}) {
         : languages[0];
 
     let pages = [];
-    if (Array.isArray(data.pages) && data.pages.length) {
-        pages = ensureCoverBoundaries(data.pages);
-    } else if (Array.isArray(data.blocks) && data.blocks.length) {
+    // Authoring data is canonical in blocks. `pages` may contain stale viewer/export
+    // output, so only use it when blocks/sections are unavailable.
+    if (Array.isArray(data.blocks) && data.blocks.length) {
         pages = blocksToPages(data.blocks);
-    } else {
+    } else if (Array.isArray(data.sections) && data.sections.length) {
         pages = migrateSectionsToPages(data.sections || []);
+    } else if (Array.isArray(data.pages) && data.pages.length) {
+        pages = ensureCoverBoundaries(data.pages);
+    } else {
+        pages = migrateSectionsToPages([]);
     }
     if (!pages.length) pages = migrateSectionsToPages(data.sections || []);
 
     const legacy = pagesToLegacyData(pages, languages);
+
+    // 旧プロジェクトは pages に backgrounds が含まれていない場合がある。
+    // Firestore に保存された sections には backgrounds が入っているので、
+    // legacy.sections[i].backgrounds が空なら data.sections[i].backgrounds で補完する。
+    const savedSections = Array.isArray(data.sections) ? data.sections : [];
+    const mergedSections = legacy.sections.map((s, i) => {
+        const saved = savedSections[i];
+        let merged = s;
+
+        // Merge backgrounds from saved sections if derived section has none
+        const hasBg = s.backgrounds && Object.keys(s.backgrounds).length > 0;
+        const savedHasBg = saved?.backgrounds && Object.keys(saved.backgrounds).length > 0;
+        if (!hasBg && savedHasBg) {
+            merged = { ...merged, backgrounds: deepClone(saved.backgrounds) };
+        }
+
+        // Merge imagePositions from saved sections (not persisted through pages chain in older saves)
+        const hasPos = s.imagePositions && Object.keys(s.imagePositions).length > 0;
+        const savedHasPos = saved?.imagePositions && Object.keys(saved.imagePositions).length > 0;
+        if (!hasPos && savedHasPos) {
+            merged = { ...merged, imagePositions: deepClone(saved.imagePositions) };
+        }
+
+        const hasHeadings = merged.headings && Object.keys(merged.headings).length > 0;
+        const savedHasHeadings = saved?.headings && Object.keys(saved.headings).length > 0;
+        if (!hasHeadings && savedHasHeadings) {
+            merged = { ...merged, headings: deepClone(saved.headings) };
+        }
+
+        if (!merged.spreadImage && saved?.spreadImage) {
+            merged = { ...merged, spreadImage: deepClone(saved.spreadImage) };
+        }
+
+        return merged;
+    });
+
     return {
         ...data,
         version: Math.max(Number(data.version) || 0, PAGE_SCHEMA_VERSION),
@@ -437,7 +523,7 @@ export function normalizeProjectDataV5(data = {}) {
         defaultLang,
         pages,
         blocks: legacy.blocks,
-        sections: legacy.sections
+        sections: mergedSections
     };
 }
 

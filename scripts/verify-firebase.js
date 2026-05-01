@@ -29,7 +29,7 @@ async function testFirestore() {
     await setDoc(testRef, {
       timestamp: new Date().toISOString(),
       status: "verified",
-      message: "Blaze plan verification successful from DSF Studio Pro local environment."
+      message: "Blaze plan verification successful from DSF Studio local environment."
     });
     console.log("✅ Firestore Write Successful!");
     

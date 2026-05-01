@@ -14,6 +14,7 @@ function createDefaultSection() {
         bubbles: [],
         text: '',
         texts: {},
+        headings: {},
         imagePosition: { x: 0, y: 0, scale: 1, rotation: 0 },
         imageBasePosition: { x: 0, y: 0, scale: 1, rotation: 0 }
     };
@@ -73,15 +74,23 @@ export function createPageBlockFromSection(section) {
         content: {
             pageKind: src.type === 'text' ? 'text' : 'image',
             background: src.background || '',
+            backgrounds: deepClone(src.backgrounds || {}),
             thumbnail: src.thumbnail || '',
             bubbles: deepClone(src.bubbles || []),
             text: src.text || '',
             texts: deepClone(src.texts || {}),
+            headings: deepClone(src.headings || {}),
+            textAlign: src.textAlign || 'start',
+            paperPreset: src.paperPreset || '',
+            backgroundColor: src.backgroundColor || '',
+            textColor: src.textColor || '',
             richText: deepClone(src.richText || { blocks: [{ type: 'paragraph', children: [{ text: src.text || '' }] }] }),
             richTextLangs: deepClone(src.richTextLangs || {}),
             layout: deepClone(src.layout || {}),
             imagePosition: deepClone(src.imagePosition || { x: 0, y: 0, scale: 1, rotation: 0 }),
-            imageBasePosition: deepClone(src.imageBasePosition || { x: 0, y: 0, scale: 1, rotation: 0 })
+            imageBasePosition: deepClone(src.imageBasePosition || { x: 0, y: 0, scale: 1, rotation: 0 }),
+            imagePositions: deepClone(src.imagePositions || {}),
+            spreadImage: deepClone(src.spreadImage || null)
         }
     };
 }
@@ -91,16 +100,24 @@ export function createSectionFromPageBlock(block) {
     return {
         type: c.pageKind === 'text' ? 'text' : 'image',
         background: c.background || '',
+        backgrounds: deepClone(c.backgrounds || {}),
         thumbnail: c.thumbnail || '',
         writingMode: 'horizontal-tb',
         bubbles: deepClone(c.bubbles || []),
         text: c.text || '',
         texts: deepClone(c.texts || {}),
+        headings: deepClone(c.headings || {}),
+        textAlign: c.textAlign || 'start',
+        paperPreset: c.paperPreset || '',
+        backgroundColor: c.backgroundColor || '',
+        textColor: c.textColor || '',
         richText: deepClone(c.richText || { blocks: [{ type: 'paragraph', children: [{ text: c.text || '' }] }] }),
         richTextLangs: deepClone(c.richTextLangs || {}),
         layout: deepClone(c.layout || {}),
         imagePosition: deepClone(c.imagePosition || { x: 0, y: 0, scale: 1, rotation: 0 }),
-        imageBasePosition: deepClone(c.imageBasePosition || { x: 0, y: 0, scale: 1, rotation: 0 })
+        imageBasePosition: deepClone(c.imageBasePosition || { x: 0, y: 0, scale: 1, rotation: 0 }),
+        imagePositions: deepClone(c.imagePositions || {}),
+        spreadImage: deepClone(c.spreadImage || null)
     };
 }
 
