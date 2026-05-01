@@ -1865,7 +1865,22 @@ body[data-theme="dark"] .viewer-lang-option .viewer-lang-badge {
     align-items: center;
     padding: 0 10px;
     min-width: 0;
+    position: relative;
     /* Prevent flex box from exploding */
+}
+
+.page-slider-label {
+    position: absolute;
+    top: -2px;
+    left: 0;
+    transform: translateX(-50%);
+    color: #1248a1;
+    font-size: 12px;
+    font-weight: 800;
+    line-height: 1;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+    pointer-events: none;
 }
 
 .footer-nav-group {
@@ -1897,6 +1912,10 @@ body[data-theme="dark"] .viewer-lang-option .viewer-lang-badge {
 
 body[data-theme="dark"] .page-count {
     color: #d6e2f1;
+}
+
+body[data-theme="dark"] .page-slider-label {
+    color: #7fb2ff;
 }
 
 .viewer-nav-btns {

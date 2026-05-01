@@ -54,6 +54,9 @@ let suppressZoneClickUntil = 0;
 let activeGesturePointerId = null;
 let pointerGestureConsumed = false;
 let pageAnimationToken = 0;
+const VIEWER_PRELOAD_PAGE_RADIUS = 3;
+const VIEWER_PRELOAD_BOOK_UNIT_RADIUS = 2;
+const viewerPreloadedImageUrls = new Set();
 const VIEWER_UI_LANG_KEY = 'dsf_viewer_ui_lang';
 const VIEWER_DEV_MODE_KEY = 'dsf_viewer_dev_mode';
 const VIEWER_DEV_SMOOTHING_KEY = 'dsf_viewer_dev_smoothing';
@@ -2397,6 +2400,52 @@ function getPageAssetUrl(page, lang) {
     return rawUrl ? getOptimizedImageUrl(rawUrl) : '';
 }
 
+function getPreloadLanguages() {
+    const langs = [state.activeLang, state.defaultLang].filter(Boolean);
+    return [...new Set(langs)].slice(0, 2);
+}
+
+function collectBookUnitSurfaces(unit) {
+    return [unit?.center, unit?.left, unit?.right].filter((surface) => surface && !surface.virtualBlank);
+}
+
+function preloadViewerImageUrl(url) {
+    if (!url || viewerPreloadedImageUrls.has(url)) return;
+    viewerPreloadedImageUrls.add(url);
+    const img = new Image();
+    img.decoding = 'async';
+    img.loading = 'eager';
+    img.src = url;
+    if (img.decode) img.decode().catch(() => {});
+}
+
+function preloadNearbyViewerImages() {
+    const pages = getPages();
+    if (!pages.length) return;
+    const langs = getPreloadLanguages();
+    const targets = new Set();
+
+    if (spreadMode && hasBookModel()) {
+        const units = getBookUnits();
+        const from = Math.max(0, bookSpreadIndex - VIEWER_PRELOAD_BOOK_UNIT_RADIUS);
+        const to = Math.min(units.length - 1, bookSpreadIndex + VIEWER_PRELOAD_BOOK_UNIT_RADIUS);
+        for (let i = from; i <= to; i++) {
+            langs.forEach((lang) => {
+                collectBookUnitSurfaces(normalizeSpreadUnitForLang(units[i], lang)).forEach((surface) => targets.add(surface));
+            });
+        }
+    } else {
+        const index = getIndex();
+        const from = Math.max(0, index - VIEWER_PRELOAD_PAGE_RADIUS);
+        const to = Math.min(pages.length - 1, index + VIEWER_PRELOAD_PAGE_RADIUS);
+        for (let i = from; i <= to; i++) targets.add(pages[i]);
+    }
+
+    targets.forEach((page) => {
+        langs.forEach((lang) => preloadViewerImageUrl(getPageAssetUrl(page, lang)));
+    });
+}
+
 function scheduleViewerDevMorphPipeline() {
     if (!viewerDevMorph) return;
     viewerDevMorphLastRun = { pending: true, replaced: 0, skipped: 0, lastErr: '' };
@@ -2910,6 +2959,7 @@ function transitionToIndex(nextIndex, kind = 'jump') {
     animatePageTransition(fromPage, toPage, state.activeLang, motionDir);
     refreshChrome();
     if (spreadMode) renderSpreadPage();
+    preloadNearbyViewerImages();
     queueBookmarkSave();
     trackPageView(kind === 'jump' ? 'jump' : 'navigation');
 }
@@ -2987,6 +3037,7 @@ function refresh() {
     if (spreadMode && hasBookModel()) {
         renderCurrentBookUnit();
         refreshChrome();
+        preloadNearbyViewerImages();
         return;
     }
 
@@ -2995,6 +3046,40 @@ function refresh() {
     const lang = state.activeLang;
     renderPageIntoDom(page, lang);
     refreshChrome();
+    preloadNearbyViewerImages();
+}
+
+function formatViewerSurfaceSliderLabel(surface) {
+    if (!surface) return '';
+    const role = String(surface.bookRole || '').trim().toUpperCase();
+    if (/^C[1-4]$/.test(role)) return role;
+    const bodyMatch = role.match(/^P(\d+)$/);
+    if (bodyMatch) return bodyMatch[1];
+    if (Number.isInteger(surface.sourcePageIndex) && surface.sourcePageIndex >= 0) {
+        return String(surface.sourcePageIndex + 1);
+    }
+    return role || '';
+}
+
+function getViewerSliderLabel(isBook, displayIndex) {
+    if (!isBook) return String(displayIndex + 1);
+    const unit = getCurrentBookUnit();
+    if (!unit) return String(displayIndex + 1);
+    if (unit.type === 'single') {
+        return formatViewerSurfaceSliderLabel(unit.center) || String(displayIndex + 1);
+    }
+    const left = formatViewerSurfaceSliderLabel(unit.left);
+    const right = formatViewerSurfaceSliderLabel(unit.right);
+    return [left, right].filter(Boolean).join(' | ') || String(displayIndex + 1);
+}
+
+function updateViewerSliderLabel(slider, labelEl, total, displayIndex, isBook) {
+    if (!slider || !labelEl) return;
+    labelEl.value = getViewerSliderLabel(isBook, displayIndex);
+    labelEl.textContent = labelEl.value;
+    const percent = total > 1 ? displayIndex / (total - 1) : 0.5;
+    const visualPercent = getPageDirection() === 'rtl' ? 1 - percent : percent;
+    labelEl.style.left = `${Math.max(0, Math.min(1, visualPercent)) * 100}%`;
 }
 
 function refreshChrome() {
@@ -3009,6 +3094,7 @@ function refreshChrome() {
 
     // スライダー・ページ番号
     const slider = document.getElementById('page-slider');
+    const sliderLabel = document.getElementById('page-slider-label');
     const countEl = document.getElementById('page-count');
     const leftBtn = document.getElementById('viewer-nav-left');
     const rightBtn = document.getElementById('viewer-nav-right');
@@ -3021,6 +3107,7 @@ function refreshChrome() {
         slider.style.transform = '';
         slider.style.direction = dir === 'rtl' ? 'rtl' : 'ltr';
     }
+    updateViewerSliderLabel(slider, sliderLabel, total, displayIndex, isBook);
     if (leftBtn) {
         leftBtn.textContent = '◀';
         leftBtn.title = dir === 'rtl' ? vt('nextPage') : vt('prevPage');
