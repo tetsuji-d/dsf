@@ -1101,7 +1101,7 @@ function moveSectionWithHistory(fromIndex, targetIndex, position) {
     let to = Math.max(0, Math.min(insertIndex, state.sections.length));
     if (to === from || to === from + 1) return false;
     pushState();
-    moveSection(from, to, refreshForThumbSelection);
+    moveSection(from, to, refresh);
     triggerAutoSave();
     return true;
 }
@@ -1112,7 +1112,7 @@ function moveSectionToInsertIndexWithHistory(fromIndex, insertIndex) {
     if (!Number.isInteger(from) || !Number.isInteger(to)) return false;
     if (to === from || to === from + 1) return false;
     pushState();
-    moveSection(from, to, refreshForThumbSelection);
+    moveSection(from, to, refresh);
     triggerAutoSave();
     return true;
 }
