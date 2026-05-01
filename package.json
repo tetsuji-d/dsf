@@ -15,6 +15,8 @@
     "preview:staging": "npm run build:staging && firebase hosting:channel:deploy staging-review --project staging",
     "preview:firebase:staging": "npm run preview:staging",
     "test:firebase": "node scripts/verify-firebase.js",
+    "deploy:prod:check": "node scripts/deploy-prod-safe.js --check-only",
+    "deploy:prod:safe": "node scripts/deploy-prod-safe.js",
     "deploy:pages": "npm run build && npx wrangler pages deploy dist --project-name dsf-studio",
     "deploy:pages:staging": "npm run build:staging && npx wrangler pages deploy dist --project-name dsf-studio --branch staging",
     "deploy:cf:prod": "npm run deploy:pages",
