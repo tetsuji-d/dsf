@@ -74,7 +74,7 @@ function _getReadablePageOrdinalForIndex(pageIndex, total) {
 function _getAdjacentPageIndexForSpreadRole(pageIndex, total) {
     if (pageIndex < 0 || pageIndex >= total || _isOuterCoverPageIndex(pageIndex, total)) return -1;
     const coverKey = getPageCoverKey(pageIndex, state.book, state.bookMode, total);
-    const mode = state.bookMode || state.book?.mode || 'simple';
+    const mode = normalizeBookSettings(state.book || {}, state.book?.mode || state.bookMode || 'simple', total).mode;
     const readableOrdinal = _getReadablePageOrdinalForIndex(pageIndex, total);
     let candidate;
     if (coverKey === 'c2') {
@@ -96,6 +96,28 @@ function _getPhysicalSpreadRoleForIndex(pageIndex, lang, total) {
     const pageDir = _getPageDirectionForLang(lang);
     const pageOnLeft = pageDir === 'rtl' ? pageIndex >= adjIdx : pageIndex <= adjIdx;
     return pageOnLeft ? 'left' : 'right';
+}
+
+export function getPressSpreadImageDsfMetadata(section, pageIndex, langs = [], pages = _getRenderablePages()) {
+    if (!_isSpreadImageSection(section)) return null;
+    const groupId = section?.spreadImage?.groupId || '';
+    if (!groupId) return null;
+    const total = Array.isArray(pages) ? pages.length : 0;
+    const rolesByLang = {};
+    (Array.isArray(langs) ? langs : []).forEach((lang) => {
+        const code = String(lang || '').trim();
+        if (!code) return;
+        const role = _getPhysicalSpreadRoleForIndex(pageIndex, code, total);
+        if (role) rolesByLang[code] = role;
+    });
+    const defaultLang = state.defaultLang || (Array.isArray(langs) ? langs[0] : '') || 'ja';
+    const physicalRole = rolesByLang[defaultLang] || Object.values(rolesByLang)[0] || '';
+    return {
+        groupId,
+        physicalRole,
+        rolesByLang,
+        authoringRole: section.spreadImage.role === 'right' ? 'right' : 'left'
+    };
 }
 
 function _getSpreadImageRenderOptions(section, pageIndex = -1, lang = state.activeLang || state.defaultLang || 'ja', total = _getRenderablePages().length) {
@@ -798,7 +820,8 @@ window.publishToCloud = async () => {
                 langBytes[lang] = blob.size;
             }
 
-            dsfPages.push({
+            const spreadImage = getPressSpreadImageDsfMetadata(section, pageIndex, langs, pages);
+            const dsfPage = {
                 pageNum,
                 pageType: section.type === 'text' ? 'normal_text' : 'normal_image',
                 workId,
@@ -806,7 +829,9 @@ window.publishToCloud = async () => {
                 urls: langUrls,
                 bytesByLang: langBytes,
                 totalBytes: pageTotalBytes,
-            });
+            };
+            if (spreadImage) dsfPage.spreadImage = spreadImage;
+            dsfPages.push(dsfPage);
         }
 
         throwIfPressRenderCancelled();
@@ -1179,12 +1204,12 @@ export function getPressBookConfigForExport(pageCount = _getRenderablePages().le
     };
 }
 
-export async function renderPressSectionToWebP(section, lang, targetW, targetH) {
+export async function renderPressSectionToWebP(section, lang, targetW, targetH, pageIndexOverride = null, pagesOverride = null) {
     if (section?.type === 'text') {
         return _renderTextSectionToWebP(section, lang, targetW, targetH, _getPressQualityForSection(section, targetW, targetH));
     }
-    const pages = _getRenderablePages();
-    const pageIndex = pages.indexOf(section);
+    const pages = Array.isArray(pagesOverride) ? pagesOverride : _getRenderablePages();
+    const pageIndex = Number.isInteger(pageIndexOverride) ? pageIndexOverride : pages.indexOf(section);
     const bgUrl = section?.backgrounds?.[lang] || section?.backgrounds?.[state.defaultLang] || section?.background;
     if (!bgUrl && !_isSpreadImageSection(section)) return null;
     return _renderSectionImageBlob(section, lang, targetW, targetH, _getPressQualityForSection(section, targetW, targetH), pageIndex, pages);

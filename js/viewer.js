@@ -1738,19 +1738,50 @@ function resolveViewerLanguages(raw, hasDsfPages) {
  * DSF ページ正規化（dsfPages: R2 WebP URLs）
  */
 function normalizeDsfPages(dsfPages) {
-    return dsfPages.map((p, i) => ({
-        id: `dsf_${p.pageNum || i + 1}`,
-        devMeta: {
+    return dsfPages.map((p, i) => {
+        const spreadImage = normalizeDsfSpreadImageMeta(p.spreadImage);
+        const devMeta = {
             pageType: p.pageType || '',
             bytesByLang: { ...(p.bytesByLang || {}) },
             totalBytes: Number(p.totalBytes) || 0
-        },
-        content: {
+        };
+        const content = {
             backgrounds: { ...(p.urls || {}) },
             thumbnail: '',
             bubbles: {}
+        };
+        if (spreadImage) {
+            devMeta.spreadImage = spreadImage;
+            content.spreadImage = spreadImage;
         }
-    }));
+        return {
+            id: `dsf_${p.pageNum || i + 1}`,
+            devMeta,
+            content,
+            ...(spreadImage ? { spreadImage } : {})
+        };
+    });
+}
+
+function normalizeDsfSpreadImageMeta(raw) {
+    if (!raw || typeof raw !== 'object' || !raw.groupId) return null;
+    const rolesByLang = {};
+    if (raw.rolesByLang && typeof raw.rolesByLang === 'object') {
+        Object.entries(raw.rolesByLang).forEach(([lang, role]) => {
+            const code = String(lang || '').trim();
+            const normalizedRole = role === 'left' || role === 'right' ? role : '';
+            if (code && normalizedRole) rolesByLang[code] = normalizedRole;
+        });
+    }
+    const physicalRole = raw.physicalRole === 'left' || raw.physicalRole === 'right'
+        ? raw.physicalRole
+        : '';
+    return {
+        groupId: String(raw.groupId),
+        ...(physicalRole ? { physicalRole } : {}),
+        ...(Object.keys(rolesByLang).length ? { rolesByLang } : {}),
+        ...(raw.authoringRole === 'right' || raw.authoringRole === 'left' ? { authoringRole: raw.authoringRole } : {})
+    };
 }
 
 /**
@@ -1760,6 +1791,7 @@ function normalizeDsfPages(dsfPages) {
 function normalizePagesGen3(rawPages) {
     return rawPages.map((p, i) => {
         const c = p.content || {};
+        const spreadImage = normalizeDsfSpreadImageMeta(c.spreadImage || p.spreadImage);
         // Gen3: backgrounds は言語コードをキーとするオブジェクト
         // 旧フォーマット: background が単一文字列 → '__all' キーで保持
         const backgrounds = typeof c.backgrounds === 'object' && c.backgrounds !== null
@@ -1774,7 +1806,13 @@ function normalizePagesGen3(rawPages) {
             : (Array.isArray(c.bubbles) ? { '__all': c.bubbles } : {});
         return {
             id: p.id || `page_${i}`,
-            content: { backgrounds, thumbnail: c.thumbnail || '', bubbles }
+            content: {
+                backgrounds,
+                thumbnail: c.thumbnail || '',
+                bubbles,
+                ...(spreadImage ? { spreadImage } : {})
+            },
+            ...(spreadImage ? { spreadImage } : {})
         };
     });
 }
@@ -1929,6 +1967,36 @@ function buildSimpleBookUnits(covers, bodyPages, dir) {
     return units;
 }
 
+function getSurfacePhysicalSpreadRole(surface, lang) {
+    const meta = surface?.content?.spreadImage || surface?.spreadImage || surface?.devMeta?.spreadImage;
+    if (!meta || typeof meta !== 'object' || !meta.groupId) return '';
+    const roleForLang = meta.rolesByLang?.[lang];
+    if (roleForLang === 'left' || roleForLang === 'right') return roleForLang;
+    return meta.physicalRole === 'left' || meta.physicalRole === 'right' ? meta.physicalRole : '';
+}
+
+function getSurfaceSpreadGroupId(surface) {
+    const meta = surface?.content?.spreadImage || surface?.spreadImage || surface?.devMeta?.spreadImage;
+    return meta?.groupId ? String(meta.groupId) : '';
+}
+
+function normalizeSpreadUnitForLang(unit, lang) {
+    if (!unit || unit.type !== 'spread') return unit;
+    const leftGroup = getSurfaceSpreadGroupId(unit.left);
+    const rightGroup = getSurfaceSpreadGroupId(unit.right);
+    if (!leftGroup || leftGroup !== rightGroup) return unit;
+
+    const leftRole = getSurfacePhysicalSpreadRole(unit.left, lang);
+    const rightRole = getSurfacePhysicalSpreadRole(unit.right, lang);
+    if (!leftRole || !rightRole || leftRole === rightRole) return unit;
+
+    const surfaces = [unit.left, unit.right];
+    const physicalLeft = surfaces.find((surface) => getSurfacePhysicalSpreadRole(surface, lang) === 'left');
+    const physicalRight = surfaces.find((surface) => getSurfacePhysicalSpreadRole(surface, lang) === 'right');
+    if (!physicalLeft || !physicalRight) return unit;
+    return { ...unit, left: physicalLeft, right: physicalRight };
+}
+
 function buildViewerBookModel(raw, pages) {
     const coversRaw = raw.book?.covers || raw.covers || {};
     const explicitMode = raw.book?.mode || raw.bookMode || coversRaw.mode || '';
@@ -2005,7 +2073,7 @@ function getCurrentBookUnit() {
     const units = getBookUnits();
     if (!units.length) return null;
     bookSpreadIndex = Math.max(0, Math.min(bookSpreadIndex, units.length - 1));
-    return units[bookSpreadIndex];
+    return normalizeSpreadUnitForLang(units[bookSpreadIndex], state.activeLang);
 }
 
 function getBookUnitPrimaryPageIndex(unit) {

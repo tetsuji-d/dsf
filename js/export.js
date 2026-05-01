@@ -9,6 +9,7 @@ import {
     getPressQualityProfile,
     getPressBookConfigForExport,
     getPressBookCompositionIssueMessages,
+    getPressSpreadImageDsfMetadata,
     renderPressSectionToWebP,
     resetPressRenderCancel,
     requestPressRenderCancel,
@@ -228,7 +229,7 @@ export async function buildDSF() {
 
             for (const lang of langs) {
                 throwIfPressRenderCancelled();
-                const blob = await renderPressSectionToWebP(section, lang, targetW, targetH);
+                const blob = await renderPressSectionToWebP(section, lang, targetW, targetH, pageIndex, pages);
                 if (!blob) continue;
                 const filename = `page_${String(pageIndex + 1).padStart(3, '0')}_${lang}.webp`;
                 const assetPath = `assets/images/${filename}`;
@@ -243,26 +244,35 @@ export async function buildDSF() {
             }
 
             const pageType = section.type === 'text' ? 'normal_text' : 'normal_image';
-            exportPages.push({
+            const spreadImage = getPressSpreadImageDsfMetadata(section, pageIndex, langs, pages);
+            const exportPageContent = {
+                backgrounds: { ...exportedBackgrounds },
+                background: exportedBackgrounds[state.defaultLang] || Object.values(exportedBackgrounds)[0] || '',
+                thumbnail: '',
+                bubbles: {}
+            };
+            if (spreadImage) exportPageContent.spreadImage = spreadImage;
+            const exportPage = {
                 id: `dsf_${pageIndex + 1}`,
                 role: 'normal',
                 bodyKind: section.type === 'text' ? 'text' : 'image',
                 pageType,
-                content: {
-                    backgrounds: { ...exportedBackgrounds },
-                    background: exportedBackgrounds[state.defaultLang] || Object.values(exportedBackgrounds)[0] || '',
-                    thumbnail: '',
-                    bubbles: {}
-                }
+                content: exportPageContent
+            };
+            if (spreadImage) exportPage.spreadImage = spreadImage;
+            exportPages.push({
+                ...exportPage
             });
 
-            exportDsfPages.push({
+            const dsfPage = {
                 pageNum: pageIndex + 1,
                 pageType,
                 urls: { ...exportedBackgrounds },
                 bytesByLang: { ...bytesByLang },
                 totalBytes: totalPageBytes,
-            });
+            };
+            if (spreadImage) dsfPage.spreadImage = spreadImage;
+            exportDsfPages.push(dsfPage);
         }
 
         if (!exportDsfPages.length) {

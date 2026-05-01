@@ -53,7 +53,7 @@ import {
     syncBlocksWithSections
 } from './blocks.js';
 import { blocksToPages } from './pages.js';
-import { getPageCoverKey, getPageDisplayLabel } from './page-labels.js';
+import { getPageCoverKey, getPageDisplayLabel, normalizeBookSettings } from './page-labels.js';
 import { getLangProps } from './lang.js';
 
 function createDefaultSection() {
@@ -180,7 +180,7 @@ function getAdjacentPageIndexForSpreadRole(pageIndex) {
     const total = (state.sections || []).length;
     if (pageIndex < 0 || pageIndex >= total || isOuterCoverPageIndex(pageIndex)) return -1;
     const coverKey = getPageCoverKey(pageIndex, state.book, state.bookMode, total);
-    const mode = state.bookMode || state.book?.mode || 'simple';
+    const mode = normalizeBookSettings(state.book || {}, state.book?.mode || state.bookMode || 'simple', total).mode;
     const readableOrdinal = getReadablePageOrdinalForIndex(pageIndex);
     let candidate;
     if (coverKey === 'c2') {
