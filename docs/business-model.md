@@ -1,4 +1,4 @@
-# DSF Studio Pro - Business & Tier Strategy
+# DSF Studio - Business & Tier Strategy
 
 本ドキュメントは、**DSF Studio**（および **DSF / Digital Spread Format** エコシステム）における「将来の収益化とユーザー階層（ティア）設計」の基本方針をまとめたものです。
 

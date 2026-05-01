@@ -196,8 +196,9 @@ function formatDate(publishedAt) {
     return `${yyyy}/${mm}/${dd}`;
 }
 
-function buildViewerUrl(projectId, authorUid) {
-    return `/viewer?project=${encodeURIComponent(projectId)}&author=${encodeURIComponent(authorUid)}`;
+function buildViewerUrl(workId, authorUid) {
+    void authorUid;
+    return `/viewer.html?work=${encodeURIComponent(workId)}`;
 }
 
 // ---- Rendering -----------------------------------------------------------
@@ -261,7 +262,7 @@ function cardMarkup(project) {
     `;
 
     if (project.canOpen) {
-        const href = escapeHtml(buildViewerUrl(project.id, project.authorUid));
+        const href = escapeHtml(buildViewerUrl(project.workId || project.id, project.authorUid));
         return `<a href="${href}" class="project-card" data-role="project-card">${body}</a>`;
     }
     return `<article class="project-card is-disabled" aria-disabled="true">${body}</article>`;
@@ -324,6 +325,8 @@ function normalizeProject(docSnap) {
     const authorUid = typeof data.authorUid === "string" ? data.authorUid.trim() : "";
     return {
         id:            docSnap.id,
+        projectId:     typeof data.projectId === "string" ? data.projectId : "",
+        workId:        typeof data.workId === "string" ? data.workId : docSnap.id,
         titleRaw:      data.title ?? "",        // 文字列 or { ja, en } オブジェクト
         authorNameRaw: data.authorName ?? "",   // 文字列 or { ja, en } オブジェクト
         authorUid,

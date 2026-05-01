@@ -7,6 +7,8 @@ export const state = {
     user: null,
     uid: null,
     projectId: null,
+    workId: null,
+    releaseId: null,
     localProjectId: null,
     projectName: '',
     title: '',               // 作品タイトル（ヘッダー表示用）
@@ -50,6 +52,7 @@ export const state = {
     labelName: '',
     rating: 'all',
     license: 'all-rights-reserved',
+    textPaperPreset: 'white',
     // Per-language metadata: { ja: { title, author, description, linerNotes, copyright }, en: { ... } }
     meta: {},
 

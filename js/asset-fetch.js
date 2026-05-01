@@ -34,21 +34,43 @@ export function guessAssetExtension(url, fallback = 'webp') {
 }
 
 export async function fetchAssetBlob(url, label = '画像') {
-    try {
-        const resolvedUrl = resolveAssetFetchUrl(url);
-        const headers = resolvedUrl.startsWith('/asset-proxy') ? await getAuthHeaders() : {};
-        const response = await fetch(resolvedUrl, { headers });
-        if (!response.ok) {
-            throw new Error(`${label} の取得に失敗しました (${response.status})`);
+    const attempts = resolveAssetFetchUrls(url);
+    let lastError = null;
+    for (const resolvedUrl of attempts) {
+        try {
+            const headers = resolvedUrl.startsWith('/asset-proxy') ? await getAuthHeaders() : {};
+            const response = await fetch(resolvedUrl, { headers });
+            if (!response.ok) {
+                throw new Error(`${label} の取得に失敗しました (${response.status})`);
+            }
+            return await response.blob();
+        } catch (e) {
+            lastError = e;
         }
-        return await response.blob();
-    } catch (e) {
-        console.error(`[DSF] Failed to fetch asset blob: ${url}`, e);
-        throw new Error(
-            `${label} を取得できませんでした。` +
-            `公開画像の再取得経路で失敗しています。`
-        );
     }
+
+    console.error(`[DSF] Failed to fetch asset blob: ${url}`, lastError);
+    throw new Error(
+        `${label} を取得できませんでした。` +
+        `公開画像の再取得経路で失敗しています。`
+    );
+}
+
+function resolveAssetFetchUrls(url) {
+    if (typeof url !== 'string' || !url) return [url];
+    if (
+        url.startsWith('blob:')
+        || url.startsWith('data:')
+        || url.startsWith('/')
+        || url.startsWith('./')
+        || url.startsWith('../')
+    ) {
+        return [url];
+    }
+
+    // Firebase Hosting には /asset-proxy がないため、公開URLはまず直接取得する。
+    // Cloudflare Pages では CORS が閉じた公開メディアだけ proxy にフォールバックする。
+    return [url, buildAssetProxyUrl(url)];
 }
 
 export async function loadImageForCanvas(url, label = '画像') {
@@ -72,18 +94,4 @@ export async function loadImageForCanvas(url, label = '画像') {
         URL.revokeObjectURL(objectUrl);
         throw e;
     }
-}
-
-function resolveAssetFetchUrl(url) {
-    if (typeof url !== 'string' || !url) return url;
-    if (
-        url.startsWith('blob:')
-        || url.startsWith('data:')
-        || url.startsWith('/')
-        || url.startsWith('./')
-        || url.startsWith('../')
-    ) {
-        return url;
-    }
-    return buildAssetProxyUrl(url);
 }

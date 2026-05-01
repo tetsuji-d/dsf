@@ -18,6 +18,7 @@ import { createId } from './utils.js';
 import { loadImageForCanvas, fetchAssetBlob, shouldEmbedAsset } from './asset-fetch.js';
 import { db, storage, auth, authReady } from './firebase-core.js';
 import { encodeCanvasToWebP, isWebPBlob } from './canvas-encoding.js';
+import { normalizeBookSettings } from './page-labels.js';
 
 export { db, storage, auth, authReady } from './firebase-core.js';
 
@@ -244,6 +245,9 @@ function ensureProjectIdentity() {
     if (!state.projectId) {
         state.projectId = createId('proj');
     }
+    if (!state.workId) {
+        state.workId = createId('work');
+    }
     if (!state.projectName) {
         state.projectName = state.title || '新規プロジェクト';
     }
@@ -364,6 +368,7 @@ async function computeProjectBytes(snapshotState) {
         labelName: snapshotState.labelName || '',
         rating: snapshotState.rating || 'all',
         license: snapshotState.license || 'all-rights-reserved',
+        textPaperPreset: snapshotState.textPaperPreset || 'white',
         meta: snapshotState.meta || {},
         pages: snapshotState.pages || [],
         blocks: snapshotState.blocks || [],
@@ -648,17 +653,7 @@ function stripBlobUrls(obj) {
 }
 
 function buildFixedBookConfig(mode, pageCount) {
-    const normalizedMode = mode === 'full' && pageCount >= 4 ? 'full' : 'simple';
-    const last = Math.max(0, pageCount - 1);
-    const covers = {
-        c1: { pageIndex: 0 },
-        c4: { pageIndex: last }
-    };
-    if (normalizedMode === 'full') {
-        covers.c2 = { pageIndex: 1 };
-        covers.c3 = { pageIndex: pageCount - 2 };
-    }
-    return { mode: normalizedMode, covers };
+    return normalizeBookSettings({ mode }, mode, pageCount);
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
@@ -706,11 +701,15 @@ async function performSave() {
             const cleanBlocks   = await resolveBlobUrlsInBlocks(blocksToSave, state.uid);
             const persistedProject = {
                 version: PAGE_SCHEMA_VERSION,
+                projectId: state.projectId,
+                workId: state.workId || '',
+                releaseId: state.releaseId || null,
                 projectName: state.projectName || '',
                 title: state.title || '',
                 labelName: state.labelName || '',
                 rating: state.rating || 'all',
                 license: state.license || 'all-rights-reserved',
+                textPaperPreset: state.textPaperPreset || 'white',
                 meta: state.meta || {},
                 pages: pagesToSave,
                 blocks: cleanBlocks,
@@ -736,13 +735,13 @@ async function performSave() {
             const existingSnap = await getDoc(projectDocRef(state.projectId));
             const existingData = existingSnap.exists() ? existingSnap.data() : {};
             const pressFields = {};
-            for (const key of ['dsfPages', 'dsfStatus', 'dsfTotalBytes', 'dsfResolution', 'dsfQuality', 'dsfPageCount', 'updatedAt']) {
+            for (const key of ['dsfPages', 'dsfStatus', 'dsfTotalBytes', 'dsfResolution', 'dsfQuality', 'dsfPageCount', 'updatedAt', 'dsfPublishedAt', 'dsfRenderStamp', 'dsfLangs', 'releaseId']) {
                 if (existingData[key] !== undefined) pressFields[key] = existingData[key];
             }
 
             await setDoc(projectDocRef(state.projectId), {
-                ...pressFields,
                 ...persistedProject,
+                ...pressFields,
                 listThumbnail,
                 projectBytes,
                 visibility: visibility,
@@ -750,6 +749,23 @@ async function performSave() {
                 ownerEmail: state.user?.email || '',
                 lastUpdated: new Date()
             });
+
+            if (state.workId) {
+                await setDoc(doc(db, "users", state.uid, "works", state.workId), {
+                    workId: state.workId,
+                    projectId: state.projectId,
+                    ownerUid: state.uid,
+                    title: state.title || '',
+                    labelName: state.labelName || '',
+                    rating: state.rating || 'all',
+                    license: state.license || 'all-rights-reserved',
+                    textPaperPreset: state.textPaperPreset || 'white',
+                    meta: state.meta || {},
+                    languages: state.languages || ['ja'],
+                    defaultLang: state.defaultLang || state.languages?.[0] || 'ja',
+                    updatedAt: serverTimestamp()
+                }, { merge: true });
+            }
 
             // 公開インデックス（public_projects）は Press / Works が管理する。
             // 通常の編集保存では DSP 本体だけを更新し、公開状態は変えない。
@@ -918,6 +934,34 @@ export async function generateCroppedThumbnail(bgUrl, pos, refresh) {
     }
 }
 
+function getDefaultImagePosition() {
+    return { x: 0, y: 0, scale: 1, rotation: 0, flipX: false };
+}
+
+function applyUploadedImageToSectionGroup(sections, activeIdx, lang, mainUrl, thumbUrl, isMultiLang) {
+    const active = sections?.[activeIdx];
+    if (!active) return;
+
+    const groupId = active.spreadImage?.groupId || '';
+    const targetIndices = groupId
+        ? sections.map((section, index) => section?.spreadImage?.groupId === groupId ? index : -1).filter((index) => index >= 0)
+        : [activeIdx];
+    const sharedPosition = getDefaultImagePosition();
+
+    targetIndices.forEach((index) => {
+        const section = sections[index];
+        if (!section) return;
+        if (!section.backgrounds) section.backgrounds = {};
+        section.backgrounds[lang] = mainUrl;
+        if (!isMultiLang) section.background = mainUrl;
+        section.thumbnail = thumbUrl;
+        if (!section.imagePositions) section.imagePositions = {};
+        section.imagePositions[lang] = sharedPosition;
+        section.imagePosition = sharedPosition;
+        section.imageBasePosition = getDefaultImagePosition();
+    });
+}
+
 /**
  * 画像をアップロードし、セクションの背景に設定する
  * クライアント側でWebP変換・サムネイル生成を行う
@@ -969,14 +1013,7 @@ export async function uploadToStorage(input, refresh) {
             const lang = state.activeLang || state.defaultLang || 'ja';
             const isMultiLang = (state.languages || ['ja']).length > 1;
             const newSections = [...state.sections];
-            if (!newSections[state.activeIdx].backgrounds) newSections[state.activeIdx].backgrounds = {};
-            newSections[state.activeIdx].backgrounds[lang] = mainUrl;
-            // 多言語時は language-agnostic な background を変更しない（他言語のフォールバックが壊れる）
-            if (!isMultiLang) newSections[state.activeIdx].background = mainUrl;
-            newSections[state.activeIdx].thumbnail = thumbUrl;
-            if (!newSections[state.activeIdx].imagePositions) newSections[state.activeIdx].imagePositions = {};
-            newSections[state.activeIdx].imagePositions[lang] = { x: 0, y: 0, scale: 1, rotation: 0, flipX: false };
-            newSections[state.activeIdx].imageBasePosition = { x: 0, y: 0, scale: 1, rotation: 0, flipX: false };
+            applyUploadedImageToSectionGroup(newSections, state.activeIdx, lang, mainUrl, thumbUrl, isMultiLang);
             dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'sections', value: newSections } });
 
             refresh();
@@ -1004,14 +1041,7 @@ export async function uploadToStorage(input, refresh) {
         const lang = state.activeLang || state.defaultLang || 'ja';
         const isMultiLang = (state.languages || ['ja']).length > 1;
         const newSections = [...state.sections];
-        if (!newSections[state.activeIdx].backgrounds) newSections[state.activeIdx].backgrounds = {};
-        newSections[state.activeIdx].backgrounds[lang] = mainUrl;
-        // 多言語時は language-agnostic な background を変更しない（他言語のフォールバックが壊れる）
-        if (!isMultiLang) newSections[state.activeIdx].background = mainUrl;
-        newSections[state.activeIdx].thumbnail = thumbUrl;
-        if (!newSections[state.activeIdx].imagePositions) newSections[state.activeIdx].imagePositions = {};
-        newSections[state.activeIdx].imagePositions[lang] = { x: 0, y: 0, scale: 1, rotation: 0, flipX: false };
-        newSections[state.activeIdx].imageBasePosition = { x: 0, y: 0, scale: 1, rotation: 0, flipX: false };
+        applyUploadedImageToSectionGroup(newSections, state.activeIdx, lang, mainUrl, thumbUrl, isMultiLang);
         dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'sections', value: newSections } });
 
         refresh();
@@ -1042,11 +1072,14 @@ export async function loadProject(pid, refresh) {
         // 既存データに残存する blob: URL を除去（マイグレーション・クラッシュ防止）
         const data = stripBlobUrls(raw);
         dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'projectId', value: pid } });
+        dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'workId', value: data.workId || pid } });
+        dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'releaseId', value: data.releaseId || null } });
         dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'projectName', value: data.projectName || pid } });
         dispatch({ type: actionTypes.SET_TITLE, payload: data.title || '' });
         dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'labelName', value: data.labelName || '' } });
         dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'rating', value: data.rating || 'all' } });
         dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'license', value: data.license || 'all-rights-reserved' } });
+        dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'textPaperPreset', value: data.textPaperPreset || 'white' } });
         dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'meta', value: data.meta || {} } });
         dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'pages', value: data.pages || [] } });
         dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'blocks', value: data.blocks || [] } });

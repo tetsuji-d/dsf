@@ -11,10 +11,10 @@
  *   - 認証 UI: getStudioAuthMarkup → renderStudioAuthSlot（GIS ボタン + フォールバック）
  */
 import { state, dispatch, actionTypes } from './state.js';
-import { saveProject as persistProject, loadProject, uploadToStorage, uploadCoverToStorage, uploadStructureToStorage, triggerAutoSave, flushSave, generateCroppedThumbnail, listLocalRecentProjects, loadLocalRecentProject, cacheLocalRecentProject, ensureUserBootstrap, auth as firebaseAuth, authReady } from './firebase.js';
+import { saveProject as persistProject, loadProject, uploadToStorage, uploadCoverToStorage, uploadStructureToStorage, triggerAutoSave, flushSave, generateCroppedThumbnail, listLocalRecentProjects, loadLocalRecentProject, cacheLocalRecentProject, ensureUserBootstrap, auth as firebaseAuth, authReady, db } from './firebase.js';
 import { initGIS, renderGISButton, signInWithGoogle, signOutUser, onAuthChanged, handleRedirectResult } from './gis-auth.js';
 import { handleCanvasClick, selectBubble, renderBubbleHTML, getBubbleText, setBubbleText, addBubbleAtCenter, startDrag, startTailDrag, startSpikeDrag } from './bubbles.js';
-import { addSection, addTextSection, changeSection, changeBlock, insertStructureBlock, renderThumbs, deleteActive, deleteSectionAt, insertSectionAt, duplicateSectionAt, moveSection, insertPageNearBlock, duplicateBlockAt, moveBlockAt, getOptimizedImageUrl } from './sections.js';
+import { addSection, addTextSection, changeSection, changeBlock, insertStructureBlock, renderThumbs, deleteActive, deleteSectionAt, insertSectionAt, insertSpreadImageAt, duplicateSectionAt, moveSection, moveSectionRange, insertPageNearBlock, duplicateBlockAt, moveBlockAt, getOptimizedImageUrl } from './sections.js';
 import { pushState, undo, redo, getHistoryInfo, clearHistory } from './history.js';
 import { openProjectModal, closeProjectModal, fetchCloudProjects, getCoverImage, getPageCount, deleteCloudProject } from './projects.js';
 import { openWorksRoom, closeWorksRoom } from './works.js';
@@ -28,7 +28,9 @@ import { applyTheme, bindThemePreferenceListener, getThemeMode, setThemeMode } f
 import { get as idbGet } from 'idb-keyval';
 import { createId } from './utils.js';
 import { CANONICAL_PAGE_WIDTH, CANONICAL_PAGE_HEIGHT } from './page-geometry.js';
+import { canInsertSpreadImageAt, getBookCompositionIssues, getPageDisplayLabel, getReadablePageCount, normalizeBookSettings, getPageCoverKey } from './page-labels.js';
 import { composeText, paginateText, PAGE_BREAK_MARKER, getWritingModeFromConfigs, getFontPresetFromConfigs, getFontPresetOptions, parseRubyTokens, tokensToPlainText, alignRubyToLines } from './layout.js';
+import { collection, getDocs, query, where, limit } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
 
 const EDITOR_FRAME_WIDTH = CANONICAL_PAGE_WIDTH;
 const EDITOR_FRAME_HEIGHT = CANONICAL_PAGE_HEIGHT;
@@ -59,27 +61,28 @@ let imageSnapState = { ...EMPTY_IMAGE_SNAP_STATE };
 
 // 見開きクリックで「隣ページをアクティブ化」した時、元のアクティブページを隣として維持するための一時保持
 let _spreadActivationPinnedAdjIdx = -1;
+let _pageHeadingPushTimer = null;
 
-function getEditorImageFrameMetrics(bgUrl) {
+function getEditorImageFrameMetrics(bgUrl, frameWidth = EDITOR_FRAME_WIDTH, frameHeight = EDITOR_FRAME_HEIGHT, percentBaseWidth = EDITOR_FRAME_WIDTH, percentBaseHeight = EDITOR_FRAME_HEIGHT) {
     const aspect = editorImageAspectCache.get(bgUrl);
     if (!aspect || !Number.isFinite(aspect) || aspect <= 0) {
         return {
-            widthPercent: 100,
-            heightPercent: 100
+            widthPercent: (frameWidth / percentBaseWidth) * 100,
+            heightPercent: (frameHeight / percentBaseHeight) * 100
         };
     }
 
-    const frameAspect = EDITOR_FRAME_WIDTH / EDITOR_FRAME_HEIGHT;
+    const frameAspect = frameWidth / frameHeight;
     if (aspect > frameAspect) {
         return {
-            widthPercent: (EDITOR_FRAME_HEIGHT * aspect / EDITOR_FRAME_WIDTH) * 100,
-            heightPercent: 100
+            widthPercent: (frameHeight * aspect / percentBaseWidth) * 100,
+            heightPercent: (frameHeight / percentBaseHeight) * 100
         };
     }
 
     return {
-        widthPercent: 100,
-        heightPercent: (EDITOR_FRAME_WIDTH / aspect / EDITOR_FRAME_HEIGHT) * 100
+        widthPercent: (frameWidth / percentBaseWidth) * 100,
+        heightPercent: (frameWidth / aspect / percentBaseHeight) * 100
     };
 }
 
@@ -156,15 +159,20 @@ function applyImageSnapping(pos, bgUrl) {
     imageSnapState = nextState;
 }
 
-function getImageAdjustRenderMetrics(bgUrl, pos) {
-    const frameMetrics = getEditorImageFrameMetrics(bgUrl);
+function getImageAdjustRenderMetrics(bgUrl, pos, options = {}) {
+    const frameWidth = Number(options.frameWidth) || EDITOR_FRAME_WIDTH;
+    const frameHeight = Number(options.frameHeight) || EDITOR_FRAME_HEIGHT;
+    const percentBaseWidth = Number(options.percentBaseWidth) || EDITOR_FRAME_WIDTH;
+    const percentBaseHeight = Number(options.percentBaseHeight) || EDITOR_FRAME_HEIGHT;
+    const offsetX = Number(options.offsetX) || 0;
+    const frameMetrics = getEditorImageFrameMetrics(bgUrl, frameWidth, frameHeight, percentBaseWidth, percentBaseHeight);
     const scale = Math.max(0.1, Number(pos?.scale) || 1);
     const rotation = Number(pos?.rotation) || 0;
     const flipX = pos?.flipX ? ' scaleX(-1)' : '';
     return {
         frameMetrics,
         invScale: 1 / scale,
-        targetTransform: `translate(calc(-50% + ${Number(pos?.x) || 0}px), calc(-50% + ${Number(pos?.y) || 0}px)) scale(${scale}) rotate(${rotation}deg)${flipX}`
+        targetTransform: `translate(calc(-50% + ${(Number(pos?.x) || 0) + offsetX}px), calc(-50% + ${Number(pos?.y) || 0}px)) scale(${scale}) rotate(${rotation}deg)${flipX}`
     };
 }
 
@@ -178,7 +186,7 @@ function syncImageAdjustDom() {
     if (!target) return false;
 
     const bgUrl = getOptimizedImageUrl(s?.backgrounds?.[state.activeLang] || s?.backgrounds?.[state.defaultLang] || s?.background || '');
-    const { frameMetrics, invScale, targetTransform } = getImageAdjustRenderMetrics(bgUrl, pos);
+    const { frameMetrics, invScale, targetTransform } = getImageAdjustRenderMetrics(bgUrl, pos, getSpreadImageRenderOptions(s, state.activeIdx));
 
     target.style.width = `${frameMetrics.widthPercent}%`;
     target.style.height = `${frameMetrics.heightPercent}%`;
@@ -228,11 +236,24 @@ function syncImageAdjustDom() {
 
 let imageAdjustRaf = null;
 let isAdjustingRotationSlider = false;
+let imageAdjustThumbTimer = null;
+function scheduleImageAdjustThumbUpdate() {
+    if (imageAdjustThumbTimer) clearTimeout(imageAdjustThumbTimer);
+    imageAdjustThumbTimer = setTimeout(() => {
+        imageAdjustThumbTimer = null;
+        renderThumbs();
+    }, 80);
+}
+
 function scheduleImageAdjustDomUpdate() {
     if (imageAdjustRaf) return;
     imageAdjustRaf = requestAnimationFrame(() => {
         imageAdjustRaf = null;
-        if (!syncImageAdjustDom()) refresh();
+        if (syncImageAdjustDom()) {
+            scheduleImageAdjustThumbUpdate();
+        } else {
+            refresh();
+        }
     });
 }
 
@@ -288,6 +309,9 @@ function ensureProjectIdentity() {
     if (!state.projectId) {
         dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'projectId', value: createId('proj') } });
     }
+    if (!state.workId) {
+        dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'workId', value: createId('work') } });
+    }
 
     if (!state.projectName) {
         const headerText = (document.getElementById('project-title')?.textContent || '').trim();
@@ -299,7 +323,9 @@ function ensureProjectIdentity() {
 }
 
 function formatHomeDate(value) {
-    const date = value instanceof Date ? value : new Date(value || 0);
+    const date = value instanceof Date
+        ? value
+        : (typeof value?.toDate === 'function' ? value.toDate() : new Date(value || 0));
     if (Number.isNaN(date.getTime())) return '';
     const locale = getUILang() === 'en' ? 'en-US' : 'ja-JP';
     return date.toLocaleDateString(locale);
@@ -377,13 +403,157 @@ function renderHomeCard(project, source) {
     `;
 }
 
+function isPublishedHomeWork(project) {
+    return Array.isArray(project?.dsfPages) && project.dsfPages.length > 0;
+}
+
+function getHomeWorkStatus(project) {
+    return String(project?.dsfStatus || project?.visibility || 'draft');
+}
+
+function getHomeWorkStatusLabel(status) {
+    const map = {
+        draft: t('home_status_draft'),
+        public: t('home_status_public'),
+        unlisted: t('home_status_unlisted'),
+        private: t('home_status_private')
+    };
+    return map[status] || status;
+}
+
+function getHomeWorkDate(project) {
+    return formatHomeDate(project?.dsfPublishedAt || project?.updatedAt || project?.lastUpdated);
+}
+
+async function loadHomeReviewSummary(workId) {
+    if (!workId) return { reviewCount: 0, goodCount: 0, badCount: 0, unavailable: false };
+    try {
+        const reviewQuery = query(
+            collection(db, 'reviews', workId, 'items'),
+            where('status', '==', 'published'),
+            limit(50)
+        );
+        const snap = await getDocs(reviewQuery);
+        let reviewCount = 0;
+        let goodCount = 0;
+        let badCount = 0;
+        snap.forEach((entry) => {
+            const data = entry.data() || {};
+            reviewCount += 1;
+            goodCount += Math.max(0, Number(data.goodCount) || 0);
+            badCount += Math.max(0, Number(data.badCount) || 0);
+        });
+        return { reviewCount, goodCount, badCount, unavailable: false };
+    } catch (e) {
+        console.warn('[Home] Failed to load review summary:', workId, e);
+        return { reviewCount: 0, goodCount: 0, badCount: 0, unavailable: true };
+    }
+}
+
+async function loadHomeReviewSummaries(works) {
+    const entries = await Promise.all(
+        works.slice(0, 12).map(async (work) => {
+            const workId = work.workId || work.id;
+            return [workId, await loadHomeReviewSummary(workId)];
+        })
+    );
+    return new Map(entries);
+}
+
+function renderHomeStatCard(icon, label, value, hint = '') {
+    return `
+        <article class="home-stat-card">
+            <span class="material-icons" aria-hidden="true">${escapeStudioHtml(icon)}</span>
+            <div>
+                <strong>${escapeStudioHtml(value)}</strong>
+                <span>${escapeStudioHtml(label)}</span>
+                ${hint ? `<small>${escapeStudioHtml(hint)}</small>` : ''}
+            </div>
+        </article>
+    `;
+}
+
+function renderHomeDashboardStats({ cloudProjects, localProjects, works, reviewTotals }) {
+    const cloudCount = Array.isArray(cloudProjects) ? cloudProjects.length : 0;
+    const publicCount = works.filter((work) => getHomeWorkStatus(work) === 'public').length;
+    const visibleCount = works.filter((work) => ['public', 'unlisted'].includes(getHomeWorkStatus(work))).length;
+    const draftCount = works.filter((work) => !['public', 'unlisted'].includes(getHomeWorkStatus(work))).length;
+    return [
+        renderHomeStatCard('library_books', t('home_stat_works'), String(works.length), t('home_stat_works_hint', { count: visibleCount })),
+        renderHomeStatCard('public', t('home_stat_public'), String(publicCount), t('home_stat_public_hint', { count: draftCount })),
+        renderHomeStatCard('rate_review', t('home_stat_reviews'), String(reviewTotals.reviewCount), t('home_stat_reviews_hint', { count: reviewTotals.goodCount })),
+        renderHomeStatCard('folder', t('home_stat_projects'), String(cloudCount), t('home_stat_projects_hint', { count: localProjects.length }))
+    ].join('');
+}
+
+function renderHomeWorkCard(work, reviewSummary) {
+    const workId = work.workId || work.id;
+    const status = getHomeWorkStatus(work);
+    const title = work.title || work.projectName || work.id || 'Untitled';
+    const thumb = getCoverImage(work.dsfPages, work.pages, work.blocks, work.sections);
+    const pageCount = Array.isArray(work.dsfPages) && work.dsfPages.length
+        ? work.dsfPages.length
+        : getPageCount(work.pages, work.blocks, work.sections);
+    const langs = Array.isArray(work.dsfLangs) && work.dsfLangs.length ? work.dsfLangs : work.languages;
+    const languageBadges = renderLanguageBadges(langs);
+    const date = getHomeWorkDate(work);
+    const reviewText = reviewSummary?.unavailable
+        ? t('home_reviews_unavailable')
+        : t('home_work_reviews', {
+            reviews: reviewSummary?.reviewCount || 0,
+            good: reviewSummary?.goodCount || 0,
+            bad: reviewSummary?.badCount || 0
+        });
+
+    return `
+        <article class="home-work-card" data-work-id="${escapeStudioHtml(workId)}" data-project-id="${escapeStudioHtml(work.id)}">
+            <div class="home-work-thumb">
+                ${thumb
+                    ? `<img src="${escapeStudioHtml(thumb)}" alt="${escapeStudioHtml(title)}" loading="lazy">`
+                    : `<div class="home-work-thumb-fallback"><span class="material-icons">auto_stories</span></div>`}
+            </div>
+            <div class="home-work-main">
+                <div class="home-work-topline">
+                    <span class="home-work-status home-work-status-${escapeStudioHtml(status)}">${escapeStudioHtml(getHomeWorkStatusLabel(status))}</span>
+                    <span class="home-lang-badges">${languageBadges}</span>
+                </div>
+                <h4>${escapeStudioHtml(title)}</h4>
+                <p>${escapeStudioHtml(t('home_work_meta', { pages: pageCount, date: date || '—' }))}</p>
+                <div class="home-work-metrics">
+                    <span><strong>${escapeStudioHtml(String(reviewSummary?.reviewCount || 0))}</strong>${escapeStudioHtml(t('home_metric_reviews'))}</span>
+                    <span><strong>${escapeStudioHtml(String(reviewSummary?.goodCount || 0))}</strong>${escapeStudioHtml(t('home_metric_good'))}</span>
+                    <span><strong>${escapeStudioHtml(String(reviewSummary?.badCount || 0))}</strong>${escapeStudioHtml(t('home_metric_bad'))}</span>
+                </div>
+                <div class="home-work-review-note">${escapeStudioHtml(reviewText)}</div>
+                <div class="home-work-actions">
+                    <button type="button" class="home-work-action" data-home-open-project="${escapeStudioHtml(work.id)}">
+                        <span class="material-icons">edit</span>${escapeStudioHtml(t('home_open_project'))}
+                    </button>
+                    <button type="button" class="home-work-action" data-home-copy-work="${escapeStudioHtml(workId)}">
+                        <span class="material-icons">link</span>${escapeStudioHtml(t('home_copy_viewer'))}
+                    </button>
+                    <button type="button" class="home-work-action" onclick="switchRoom('works')">
+                        <span class="material-icons">tune</span>${escapeStudioHtml(t('home_manage_work'))}
+                    </button>
+                </div>
+            </div>
+        </article>
+    `;
+}
+
 async function renderHomeDashboard() {
     const cloudGrid = document.getElementById('home-cloud-grid');
     const localGrid = document.getElementById('home-local-grid');
     const cloudCount = document.getElementById('home-cloud-count');
     const localCount = document.getElementById('home-local-count');
+    const statsEl = document.getElementById('home-dashboard-stats');
+    const workGrid = document.getElementById('home-work-grid');
+    const workCount = document.getElementById('home-work-count');
     if (!cloudGrid || !localGrid) return;
 
+    if (statsEl) statsEl.innerHTML = renderHomeStatCard('sync', t('home_loading'), '...', '');
+    if (workGrid) workGrid.innerHTML = `<div class="home-empty-state"><span class="material-icons">analytics</span><p>${t('home_loading')}</p></div>`;
+    if (workCount) workCount.textContent = '...';
     cloudGrid.innerHTML = `<div class="home-empty-state"><span class="material-icons">cloud_sync</span><p>${t('home_loading')}</p></div>`;
     localGrid.innerHTML = `<div class="home-empty-state"><span class="material-icons">history</span><p>${t('home_loading')}</p></div>`;
     if (cloudCount) cloudCount.textContent = '...';
@@ -399,6 +569,48 @@ async function renderHomeDashboard() {
             return [];
         })
     ]);
+
+    const works = Array.isArray(cloudProjects)
+        ? cloudProjects.filter(isPublishedHomeWork).sort((a, b) => {
+            const aTime = Number(a?.dsfPublishedAt?.toMillis?.() || a?.updatedAt?.toMillis?.() || 0);
+            const bTime = Number(b?.dsfPublishedAt?.toMillis?.() || b?.updatedAt?.toMillis?.() || 0);
+            return bTime - aTime;
+        })
+        : [];
+    const reviewSummaries = await loadHomeReviewSummaries(works);
+    const reviewTotals = works.reduce((acc, work) => {
+        const summary = reviewSummaries.get(work.workId || work.id) || {};
+        acc.reviewCount += Number(summary.reviewCount) || 0;
+        acc.goodCount += Number(summary.goodCount) || 0;
+        acc.badCount += Number(summary.badCount) || 0;
+        return acc;
+    }, { reviewCount: 0, goodCount: 0, badCount: 0 });
+
+    if (statsEl) {
+        statsEl.innerHTML = renderHomeDashboardStats({
+            cloudProjects: Array.isArray(cloudProjects) ? cloudProjects : [],
+            localProjects,
+            works,
+            reviewTotals
+        });
+    }
+    if (workCount) workCount.textContent = String(works.length);
+    if (workGrid) {
+        if (!state.uid) {
+            workGrid.innerHTML = `<div class="home-empty-state"><span class="material-icons">lock</span><p>${t('home_cloud_login')}</p></div>`;
+        } else if (cloudProjects === null) {
+            workGrid.innerHTML = `<div class="home-empty-state"><span class="material-icons">cloud_off</span><p>${t('home_cloud_error')}</p></div>`;
+        } else if (!works.length) {
+            workGrid.innerHTML = `
+                <div class="home-empty-state">
+                    <span class="material-icons">rocket_launch</span>
+                    <p>${t('home_works_empty')}</p>
+                    <button class="home-action-btn" onclick="switchRoom('press')"><span class="material-icons">publish</span>${t('btn_press_room')}</button>
+                </div>`;
+        } else {
+            workGrid.innerHTML = works.slice(0, 6).map((work) => renderHomeWorkCard(work, reviewSummaries.get(work.workId || work.id))).join('');
+        }
+    }
 
     if (cloudProjects === null) {
         cloudGrid.innerHTML = `<div class="home-empty-state"><span class="material-icons">cloud_off</span><p>${t('home_cloud_error')}</p></div>`;
@@ -427,7 +639,7 @@ async function renderHomeDashboard() {
             const pid = card.dataset.id;
             const project = (cloudProjects || []).find((item) => item.id === pid);
             if (!project) return;
-            onLoadProject(pid, project.projectName, project.sections, project.languages, project.defaultLang, project.languageConfigs, project.title, project.uiPrefs, project.pages, project.blocks, project.version, project.bookMode, project.book);
+            onLoadProject(pid, project.projectName, project.sections, project.languages, project.defaultLang, project.languageConfigs, project.title, project.uiPrefs, project.pages, project.blocks, project.version, project.bookMode, project.book, project.textPaperPreset);
             await cacheLocalRecentProject(JSON.parse(JSON.stringify(state)), window.localImageMap);
             refresh();
             window.switchRoom('editor');
@@ -463,6 +675,32 @@ async function renderHomeDashboard() {
             } catch (e) {
                 console.error('[Home] Local project restore failed:', e);
                 alert(t('home_local_open_error', { message: e.message }));
+            }
+        });
+    });
+
+    workGrid?.querySelectorAll('[data-home-open-project]').forEach((btn) => {
+        btn.addEventListener('click', async () => {
+            const pid = btn.dataset.homeOpenProject;
+            const project = (cloudProjects || []).find((item) => item.id === pid);
+            if (!project) return;
+            onLoadProject(pid, project.projectName, project.sections, project.languages, project.defaultLang, project.languageConfigs, project.title, project.uiPrefs, project.pages, project.blocks, project.version, project.bookMode, project.book, project.textPaperPreset);
+            await cacheLocalRecentProject(JSON.parse(JSON.stringify(state)), window.localImageMap);
+            refresh();
+            window.switchRoom('editor');
+        });
+    });
+
+    workGrid?.querySelectorAll('[data-home-copy-work]').forEach((btn) => {
+        btn.addEventListener('click', async () => {
+            const workId = btn.dataset.homeCopyWork;
+            if (!workId) return;
+            const url = `${window.location.origin}/viewer?work=${encodeURIComponent(workId)}`;
+            try {
+                await navigator.clipboard.writeText(url);
+                alert(t('home_copied_viewer_url', { url }));
+            } catch (_) {
+                prompt(t('home_copy_viewer_prompt'), url);
             }
         });
     });
@@ -515,6 +753,13 @@ function escapeStudioHtml(value) {
         .replace(/>/g, '&gt;')
         .replace(/"/g, '&quot;')
         .replace(/'/g, '&#039;');
+}
+
+function getActiveLanguageWorkTitle() {
+    const lang = state.activeLang || state.defaultLang || 'ja';
+    const localizedTitle = state.meta?.[lang]?.title;
+    if (localizedTitle) return localizedTitle;
+    return lang === (state.defaultLang || 'ja') ? (state.title || '') : '';
 }
 
 function closeAllStudioAuthDropdowns() {
@@ -691,7 +936,7 @@ function getCurrentRoom() {
 
 function getRoomLabel(room) {
     const keyMap = {
-        home: 'nav_projects',
+        home: 'nav_dashboard',
         editor: 'nav_editor',
         press: 'nav_press',
         works: 'nav_works'
@@ -766,6 +1011,28 @@ function syncStudioShell() {
     syncMobileCanvasZoomBar();
     syncMobileMenuSheet();
     renderMobileBottomBar();
+}
+
+function getValidStudioRoom(room) {
+    return ['home', 'editor', 'press', 'works'].includes(room) ? room : 'home';
+}
+
+function normalizeStudioRouteUrl() {
+    const url = new URL(window.location.href);
+    if (url.pathname.endsWith('/studio.html')) {
+        url.pathname = url.pathname.replace(/\/studio\.html$/, '/studio');
+        window.history.replaceState(window.history.state, '', url);
+    }
+}
+
+function syncStudioRoomUrl(room) {
+    const url = new URL(window.location.href);
+    if (url.pathname.endsWith('/studio.html')) {
+        url.pathname = url.pathname.replace(/\/studio\.html$/, '/studio');
+    }
+    if (!url.pathname.endsWith('/studio')) return;
+    url.searchParams.set('room', getValidStudioRoom(room));
+    window.history.replaceState(window.history.state, '', url);
 }
 
 function sanitizeThumbColumns(value) {
@@ -861,7 +1128,7 @@ function refresh(options = {}) {
             document.getElementById('image-only-props').style.display = 'block';
             document.getElementById('bubble-layer').style.display = 'none';
         } else {
-            const { frameMetrics, targetTransform, invScale } = getImageAdjustRenderMetrics(bgUrl, pos);
+            const { frameMetrics, targetTransform, invScale } = getImageAdjustRenderMetrics(bgUrl, pos, getSpreadImageRenderOptions(s, state.activeIdx));
             const targetStyle = [
                 `width:${frameMetrics.widthPercent}%`,
                 `height:${frameMetrics.heightPercent}%`,
@@ -935,6 +1202,7 @@ function refresh(options = {}) {
     }
 
     const isTextSection = s?.type === 'text';
+    const isPageSection = s?.type === 'image' || s?.type === 'text';
 
     // FAB「テキスト追加」ボタンをテキストページでは非表示
     const fabAddBubble = document.getElementById('fab-add-bubble');
@@ -953,19 +1221,28 @@ function refresh(options = {}) {
         }
     }
 
-    // 吹き出しテキストエディター（テキストセクションでは非表示）
+    const pageHeadingProps = document.getElementById('canvas-page-heading-props');
+    if (pageHeadingProps) pageHeadingProps.style.display = isPageSection ? 'flex' : 'none';
+    if (isPageSection) {
+        syncPageHeadingField(s);
+    }
+    renderEditorTocPreview();
+
+    const hasSelectedBubble = !isTextSection && state.activeBubbleIdx !== null && s?.bubbles?.[state.activeBubbleIdx];
+
+    // 吹き出しテキストエディター（バブル選択時のみ表示）
     const genericTextEditor = document.getElementById('generic-text-editor');
-    if (genericTextEditor) genericTextEditor.style.display = isTextSection ? 'none' : 'block';
+    if (genericTextEditor) genericTextEditor.style.display = hasSelectedBubble ? 'block' : 'none';
 
     // テキストエリア: バブル選択時のテキスト表示
     const propTextEl = document.getElementById('prop-text');
     if (propTextEl) {
-        if (!isTextSection && state.activeBubbleIdx !== null && s?.bubbles?.[state.activeBubbleIdx]) {
+        if (hasSelectedBubble) {
             propTextEl.value = getBubbleText(s.bubbles[state.activeBubbleIdx]);
         } else if (!isTextSection) {
             propTextEl.value = '';
         }
-        propTextEl.style.display = isTextSection ? 'none' : 'block';
+        propTextEl.style.display = hasSelectedBubble ? 'block' : 'none';
         propTextEl.readOnly = false;
     }
 
@@ -994,30 +1271,35 @@ function refresh(options = {}) {
     // 作品タイトル同期
     const propTitle = document.getElementById('prop-title');
     if (propTitle && document.activeElement !== propTitle) {
-        propTitle.value = state.title || '';
+        propTitle.value = getActiveLanguageWorkTitle();
     }
-    // キャンバス下部のページ番号ラベルを更新
+    // キャンバス下部の旧ページ番号ラベルはスライダー表示へ移行したため非表示のまま同期のみ残す
     const canvasPageLabel = document.getElementById('canvas-page-label');
     if (canvasPageLabel) {
         const totalPages = (state.sections || []).length;
-        const currentPage = (state.activeIdx ?? 0) + 1;
+        const currentPage = getPageDisplayLabel(state.activeIdx ?? 0, totalPages, state.book, state.bookMode);
+        const readableTotal = getReadablePageCount(totalPages, state.book, state.bookMode) || totalPages;
         const langCode = (state.activeLang || 'ja').toUpperCase();
-        canvasPageLabel.textContent = `${currentPage} / ${totalPages} ${langCode}`;
+        canvasPageLabel.textContent = `${currentPage} / ${readableTotal} ${langCode}`;
     }
 
     // ストリップヘッダーのページカウンターを更新（デスクトップ・モバイル共通）
     const _totalPages   = (state.sections || []).length;
-    const _currentPage  = (state.activeIdx ?? 0) + 1;
-    const _counterText  = `${_currentPage} / ${_totalPages}`;
+    const _currentPage  = getPageDisplayLabel(state.activeIdx ?? 0, _totalPages, state.book, state.bookMode);
+    const _readableTotal = getReadablePageCount(_totalPages, state.book, state.bookMode) || _totalPages;
+    const _counterText  = `${_currentPage} / ${_readableTotal}`;
     const stripCounter = document.getElementById('page-strip-counter');
     if (stripCounter) stripCounter.textContent = _counterText;
     const mobileCounter = document.getElementById('page-strip-counter-mobile');
     if (mobileCounter) mobileCounter.textContent = _counterText;
+    syncPageNavigationSlider();
 
     const prevBtn = document.getElementById('btn-page-prev');
     const nextBtn = document.getElementById('btn-page-next');
-    if (prevBtn) prevBtn.disabled = (state.activeIdx ?? 0) <= 0;
-    if (nextBtn) nextBtn.disabled = (state.activeIdx ?? 0) >= _totalPages - 1;
+    const _pageDir = getEditorLangDirection(state.activeLang || state.defaultLang || 'ja');
+    const _activeIdx = state.activeIdx ?? 0;
+    if (prevBtn) prevBtn.disabled = _pageDir === 'rtl' ? _activeIdx >= _totalPages - 1 : _activeIdx <= 0;
+    if (nextBtn) nextBtn.disabled = _pageDir === 'rtl' ? _activeIdx <= 0 : _activeIdx >= _totalPages - 1;
 
     // モバイル見開きボタンのアクティブ状態
     const mobileSpreadBtn = document.getElementById('btn-spread-view-mobile');
@@ -1189,6 +1471,40 @@ function getThumbElement(index) {
     return document.querySelector(`.thumb-wrap[data-section-index="${index}"]`);
 }
 
+function getSpreadGroupIdByIndex(index) {
+    const idx = Number(index);
+    if (!Number.isInteger(idx)) return '';
+    return state.sections?.[idx]?.spreadImage?.groupId || '';
+}
+
+function getSpreadPairIndices(index) {
+    const idx = Number(index);
+    if (!Number.isInteger(idx)) return [];
+    const groupId = getSpreadGroupIdByIndex(idx);
+    if (!groupId) return [idx];
+    const pair = (state.sections || [])
+        .map((section, pageIdx) => section?.spreadImage?.groupId === groupId ? pageIdx : -1)
+        .filter((pageIdx) => pageIdx >= 0)
+        .sort((a, b) => a - b);
+    return pair.length ? pair : [idx];
+}
+
+function getSpreadPairStart(index) {
+    const pair = getSpreadPairIndices(index);
+    return pair[0] ?? Number(index);
+}
+
+function getSpreadPairEnd(index) {
+    const pair = getSpreadPairIndices(index);
+    return pair[pair.length - 1] ?? Number(index);
+}
+
+function addThumbClassToSpreadPair(index, className) {
+    getSpreadPairIndices(index).forEach((pageIdx) => {
+        getThumbElement(pageIdx)?.classList.add(className);
+    });
+}
+
 function setThumbDeleteDropzoneActive(active) {
     const zone = document.getElementById('thumb-delete-dropzone');
     if (!zone) return;
@@ -1247,7 +1563,8 @@ function getMobileThumbInsertTarget(clientX) {
     const sourceEl = getThumbElement(sourceIndex);
     if (!sourceEl) return null;
     const sourceRect = sourceEl.getBoundingClientRect();
-    const visualThumbs = getThumbVisualThumbs().filter((thumb) => Number(thumb.dataset.sectionIndex) !== sourceIndex);
+    const sourcePair = new Set(getSpreadPairIndices(sourceIndex));
+    const visualThumbs = getThumbVisualThumbs().filter((thumb) => !sourcePair.has(Number(thumb.dataset.sectionIndex)));
     const dir = container.dataset.dir === 'rtl' ? 'rtl' : 'ltr';
     if (!visualThumbs.length) {
         const containerRect = container.getBoundingClientRect();
@@ -1311,7 +1628,7 @@ function showMobileThumbInsertPreview(target) {
     const sourceEl = getThumbElement(thumbTouchState?.sourceIndex ?? thumbDragSourceIdx);
     if (!container || !sourceEl || !target) return;
     clearThumbDropHints();
-    sourceEl.classList.add('drag-source');
+    addThumbClassToSpreadPair(thumbTouchState?.sourceIndex ?? thumbDragSourceIdx, 'drag-source');
 
     const containerRect = container.getBoundingClientRect();
     const leftPx = target.boundary - containerRect.left + container.scrollLeft;
@@ -1347,9 +1664,9 @@ function showMobileThumbInsertPreview(target) {
 
 function markThumbDropHint(index, position) {
     clearThumbDropHints();
-    const sourceEl = getThumbElement(thumbDragSourceIdx);
-    if (sourceEl) sourceEl.classList.add('drag-source');
-    const el = getThumbElement(index);
+    addThumbClassToSpreadPair(thumbDragSourceIdx, 'drag-source');
+    const targetIndex = position === 'before' ? getSpreadPairStart(index) : getSpreadPairEnd(index);
+    const el = getThumbElement(targetIndex);
     if (!el) return;
     el.classList.add(position === 'before' ? 'drop-before' : 'drop-after');
 }
@@ -1366,21 +1683,37 @@ function getDropPositionByPoint(el, clientX, clientY) {
 }
 
 function moveSectionWithHistory(fromIndex, targetIndex, position) {
-    const insertIndex = position === 'before' ? targetIndex : targetIndex + 1;
-    const from = Number(fromIndex);
-    let to = Math.max(0, Math.min(insertIndex, state.sections.length));
-    if (to === from || to === from + 1) return false;
-    pushState();
-    moveSection(from, to, refresh);
-    triggerAutoSave();
-    return true;
+    const insertIndex = position === 'before' ? getSpreadPairStart(targetIndex) : getSpreadPairEnd(targetIndex) + 1;
+    return moveSectionToInsertIndexWithHistory(fromIndex, insertIndex);
 }
 
 function moveSectionToInsertIndexWithHistory(fromIndex, insertIndex) {
     const from = Number(fromIndex);
-    const to = Math.max(0, Math.min(Number(insertIndex), state.sections.length));
-    if (!Number.isInteger(from) || !Number.isInteger(to)) return false;
+    const pair = getSpreadPairIndices(from);
+    if (pair.length > 1) {
+        const fromStart = pair[0];
+        const count = pair.length;
+        let to = Math.max(0, Math.min(Number(insertIndex), state.sections.length));
+        if (!Number.isInteger(fromStart) || !Number.isInteger(to)) return false;
+        if (to > fromStart && to < fromStart + count) return false;
+        if (to === fromStart || to === fromStart + count) return false;
+        const simulated = [...(state.sections || [])];
+        const moved = simulated.splice(fromStart, count);
+        const simulatedTo = to > fromStart ? to - count : to;
+        simulated.splice(simulatedTo, 0, ...moved);
+        if (!validateSpreadImageCompositionForSections(simulated)) return false;
+        pushState();
+        moveSectionRange(fromStart, count, to, refresh);
+        triggerAutoSave();
+        return true;
+    }
+    let to = Math.max(0, Math.min(insertIndex, state.sections.length));
     if (to === from || to === from + 1) return false;
+    const simulated = [...(state.sections || [])];
+    const [moved] = simulated.splice(from, 1);
+    const simulatedTo = to > from ? to - 1 : to;
+    simulated.splice(simulatedTo, 0, moved);
+    if (!validateSpreadImageCompositionForSections(simulated)) return false;
     pushState();
     moveSection(from, to, refresh);
     triggerAutoSave();
@@ -1431,15 +1764,13 @@ function onThumbTouchMove(e) {
         if (dy <= -12 && Math.abs(dy) > Math.abs(dx) + 4) {
             thumbTouchState.active = true;
             thumbTouchState.mode = 'move';
-            const sourceEl = getThumbElement(thumbTouchState.sourceIndex);
-            if (sourceEl) sourceEl.classList.add('drag-source');
+            addThumbClassToSpreadPair(thumbTouchState.sourceIndex, 'drag-source');
         } else if (dy >= 12 && Math.abs(dy) > Math.abs(dx) + 4) {
             thumbTouchState.active = true;
             thumbTouchState.mode = 'delete';
             document.body.classList.add('thumb-delete-mode');
             setThumbDeleteDropzoneActive(false);
-            const sourceEl = getThumbElement(thumbTouchState.sourceIndex);
-            if (sourceEl) sourceEl.classList.add('drag-source');
+            addThumbClassToSpreadPair(thumbTouchState.sourceIndex, 'drag-source');
         } else {
             return;
         }
@@ -1583,10 +1914,85 @@ function calcMobileAdjustScale(pos) {
     return Math.min(Math.max(s, 0.22), 0.9);
 }
 
+function isSpreadImageSection(section) {
+    return section?.type === 'image'
+        && section.spreadImage
+        && typeof section.spreadImage === 'object'
+        && !!section.spreadImage.groupId;
+}
+
+function getSpreadImagePhysicalRole(pageIndex) {
+    const idx = Number(pageIndex);
+    if (!Number.isInteger(idx) || idx < 0) return '';
+    const adjIdx = getSpreadAdjacentPageIndexForRole(idx);
+    if (adjIdx < 0) return '';
+    const lang = state.activeLang || state.defaultLang || 'ja';
+    const pageDir = getEditorLangDirection(lang);
+    const pageOnLeft = pageDir === 'rtl' ? idx >= adjIdx : idx <= adjIdx;
+    return pageOnLeft ? 'left' : 'right';
+}
+
+function getSpreadImageRenderOptions(section, pageIndex = -1) {
+    if (!isSpreadImageSection(section)) return {};
+    const resolvedIndex = Number.isInteger(pageIndex) && pageIndex >= 0
+        ? pageIndex
+        : (state.sections || []).indexOf(section);
+    const physicalRole = getSpreadImagePhysicalRole(resolvedIndex);
+    const role = physicalRole || (section.spreadImage.role === 'left' ? 'left' : 'right');
+    return {
+        frameWidth: CANONICAL_PAGE_WIDTH * 2,
+        frameHeight: CANONICAL_PAGE_HEIGHT,
+        percentBaseWidth: CANONICAL_PAGE_WIDTH,
+        percentBaseHeight: CANONICAL_PAGE_HEIGHT,
+        offsetX: role === 'left' ? CANONICAL_PAGE_WIDTH / 2 : -CANONICAL_PAGE_WIDTH / 2
+    };
+}
+
+function normalizeImagePosition(pos = {}) {
+    const toNum = (v, fallback) => {
+        const n = Number(v);
+        return Number.isFinite(n) ? n : fallback;
+    };
+    return {
+        x: toNum(pos.x, 0),
+        y: toNum(pos.y, 0),
+        scale: Math.max(0.1, toNum(pos.scale, 1)),
+        rotation: toNum(pos.rotation, 0),
+        flipX: !!pos.flipX
+    };
+}
+
+function syncSpreadImageGroupForLang(activeIdx, lang) {
+    const active = state.sections?.[activeIdx];
+    if (!isSpreadImageSection(active)) return null;
+    const groupId = active.spreadImage.groupId;
+    const members = (state.sections || []).filter((section) => section?.spreadImage?.groupId === groupId);
+    if (members.length < 2) return null;
+
+    let shared = active.imagePositions?.[lang]
+        || members.find((section) => section.imagePositions?.[lang])?.imagePositions?.[lang]
+        || active.imagePosition
+        || members.find((section) => section.imagePosition)?.imagePosition
+        || { x: 0, y: 0, scale: 1, rotation: 0, flipX: false };
+    shared = normalizeImagePosition(shared);
+
+    members.forEach((section) => {
+        if (!section.imagePositions) section.imagePositions = {};
+        section.imagePositions[lang] = shared;
+        section.imagePosition = shared;
+        if (!section.imageBasePosition) {
+            section.imageBasePosition = { x: 0, y: 0, scale: 1, rotation: 0, flipX: false };
+        }
+    });
+    return shared;
+}
+
 function getActiveImagePosition() {
     const s = state.sections[state.activeIdx];
     if (!s || s.type !== 'image') return null;
     const lang = state.activeLang || state.defaultLang || 'ja';
+    const spreadShared = syncSpreadImageGroupForLang(state.activeIdx, lang);
+    if (spreadShared) return spreadShared;
     if (!s.imagePositions) s.imagePositions = {};
     if (!s.imagePositions[lang]) {
         // Migrate from legacy shared imagePosition on first access
@@ -2309,7 +2715,8 @@ function renderTextPreview(section) {
         rubyLines = null;
     }
 
-    overlay.style.backgroundColor = section.backgroundColor || '#ffffff';
+    const paperStyle = _getTextPaperStyle(_getTextPaperPresetKey(section));
+    overlay.style.backgroundColor = paperStyle.backgroundColor;
     overlay.style.display = 'block';
 
     const frameEl = document.getElementById('text-preview-frame');
@@ -2321,7 +2728,7 @@ function renderTextPreview(section) {
         frameEl.style.height        = `${h}px`;
         frameEl.style.fontFamily    = composed.font.family;
         frameEl.style.fontSize      = `${composed.font.size}px`;
-        frameEl.style.color         = section.textColor || '#000000';
+        frameEl.style.color         = paperStyle.textColor;
         frameEl.style.writingMode   = '';
         frameEl.style.lineHeight    = '';
         frameEl.style.letterSpacing = composed.font.letterSpacing
@@ -2470,7 +2877,7 @@ function _syncTextSectionPanel(section) {
     _updateTextOverflowBadge(section, lang);
 }
 
-function _getTextPaperPresetKey(section) {
+function _inferTextPaperPresetKey(section) {
     if (section?.paperPreset && TEXT_PAPER_PRESETS[section.paperPreset]) {
         return section.paperPreset;
     }
@@ -2482,12 +2889,58 @@ function _getTextPaperPresetKey(section) {
     return match?.[0] || 'white';
 }
 
+function _getTextPaperPresetKey(section) {
+    if (state.textPaperPreset && TEXT_PAPER_PRESETS[state.textPaperPreset]) {
+        return state.textPaperPreset;
+    }
+    return _inferTextPaperPresetKey(section);
+}
+
 function _syncTextPaperPresetControls(section) {
     const activeKey = _getTextPaperPresetKey(section);
-    document.querySelectorAll('[data-text-paper-preset]').forEach((button) => {
-        const isActive = button.dataset.textPaperPreset === activeKey;
+    document.querySelectorAll('[data-text-paper-preset], [data-project-text-paper-preset]').forEach((button) => {
+        const key = button.dataset.textPaperPreset || button.dataset.projectTextPaperPreset;
+        const isActive = key === activeKey;
         button.classList.toggle('active', isActive);
         button.setAttribute('aria-pressed', isActive ? 'true' : 'false');
+    });
+}
+
+function _getProjectTextPaperPresetKey(source = state) {
+    if (source?.textPaperPreset && TEXT_PAPER_PRESETS[source.textPaperPreset]) return source.textPaperPreset;
+    const textSection = (source?.sections || []).find((section) => section?.type === 'text');
+    return _inferTextPaperPresetKey(textSection);
+}
+
+function _getTextPaperStyle(key) {
+    const presetKey = TEXT_PAPER_PRESETS[key] ? key : 'white';
+    const preset = TEXT_PAPER_PRESETS[presetKey];
+    return {
+        paperPreset: presetKey,
+        backgroundColor: preset.backgroundColor,
+        textColor: preset.textColor
+    };
+}
+
+function _applyTextPaperStyleToSections(sections, key) {
+    const nextStyle = _getTextPaperStyle(key);
+    return (sections || []).map((section) => {
+        if (section?.type !== 'text') return section;
+        return { ...section, ...nextStyle };
+    });
+}
+
+function _applyTextPaperStyleToBlocks(blocks, key) {
+    const nextStyle = _getTextPaperStyle(key);
+    return (blocks || []).map((block) => {
+        if (block?.kind !== 'page' || block.content?.pageKind !== 'text') return block;
+        return {
+            ...block,
+            content: {
+                ...(block.content || {}),
+                ...nextStyle
+            }
+        };
     });
 }
 
@@ -2556,63 +3009,21 @@ function updateTextSectionAlign(value) {
 }
 
 function updateTextSectionPaperPreset(key) {
-    const preset = TEXT_PAPER_PRESETS[key];
-    if (!preset) return;
-
-    const idx = state.activeIdx;
-    const section = state.sections?.[idx];
-    if (!section || section.type !== 'text') return;
+    if (!TEXT_PAPER_PRESETS[key]) return;
 
     pushState();
 
-    const nextStyle = {
-        paperPreset: key,
-        backgroundColor: preset.backgroundColor,
-        textColor: preset.textColor
-    };
+    const newSections = _applyTextPaperStyleToSections(state.sections, key);
+    const newBlocks = _applyTextPaperStyleToBlocks(state.blocks, key);
 
-    const sectionIndices = new Set([idx]);
-    const blockIdx = Number.isInteger(state.activeBlockIdx) && state.activeBlockIdx >= 0
-        ? state.activeBlockIdx
-        : getBlockIndexFromPageIndex(state.blocks, idx);
-    const activeBlock = state.blocks?.[blockIdx];
-    const flowId = activeBlock?.kind === 'page' ? activeBlock.content?._flow?.id : '';
-
-    let touchedBlock = false;
-    const newBlocks = Array.isArray(state.blocks)
-        ? state.blocks.map((block, bi) => {
-            if (block?.kind !== 'page') return block;
-            const sameFlow = flowId && block.content?._flow?.id === flowId;
-            const samePage = bi === blockIdx;
-            if (!sameFlow && !samePage) return block;
-            const pageIdx = getPageIndexFromBlockIndex(state.blocks, bi);
-            if (pageIdx >= 0) sectionIndices.add(pageIdx);
-            touchedBlock = true;
-            return {
-                ...block,
-                content: {
-                    ...block.content,
-                    ...nextStyle
-                }
-            };
-        })
-        : [];
-
-    const newSections = (state.sections || []).map((item, sectionIdx) => {
-        if (!sectionIndices.has(sectionIdx) || item?.type !== 'text') return item;
-        return { ...item, ...nextStyle };
-    });
-
-    const blocks = touchedBlock
-        ? newBlocks
-        : syncBlocksWithSections(state.blocks, newSections, state.languages);
-
+    dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'textPaperPreset', value: key } });
     dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'sections', value: newSections } });
-    dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'blocks', value: blocks } });
-    dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'pages', value: blocksToPages(blocks) } });
+    dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'blocks', value: newBlocks } });
+    dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'pages', value: blocksToPages(newBlocks) } });
 
-    renderTextPreview(newSections[idx]);
-    _syncTextPaperPresetControls(newSections[idx]);
+    const section = newSections[state.activeIdx];
+    if (section?.type === 'text') renderTextPreview(section);
+    _syncTextPaperPresetControls(section);
     refresh();
     triggerAutoSave();
 }
@@ -2850,6 +3261,119 @@ function _applyBlocksAndRefresh(newBlocks) {
 // HTML から onclick で呼べるよう window に公開
 window.autoFlowTextSection = autoFlowTextSection;
 
+function _getActiveSectionHeading(section, lang) {
+    if (!section || !lang) return '';
+    return section.headings?.[lang] || '';
+}
+
+function syncPageHeadingField(section) {
+    const lang = state.activeLang || state.defaultLang || 'ja';
+    const input = document.getElementById('canvas-page-heading-input');
+    if (input && document.activeElement !== input) {
+        input.value = _getActiveSectionHeading(section, lang);
+    }
+}
+
+function _getSectionHeadingForToc(section, lang) {
+    if (!section || (section.type !== 'image' && section.type !== 'text')) return '';
+    const defaultLang = state.defaultLang || 'ja';
+    return (
+        section.headings?.[lang] ||
+        (lang !== defaultLang ? section.headings?.[defaultLang] : '') ||
+        ''
+    ).trim();
+}
+
+function getEditorTocItems() {
+    const lang = state.activeLang || state.defaultLang || 'ja';
+    const pageCount = (state.sections || []).length;
+    return (state.sections || [])
+        .map((section, pageIndex) => {
+            const heading = _getSectionHeadingForToc(section, lang);
+            if (!heading) return null;
+            return {
+                pageIndex,
+                label: getPageDisplayLabel(pageIndex, pageCount, state.book, state.bookMode),
+                heading
+            };
+        })
+        .filter(Boolean);
+}
+
+function renderEditorTocPreview() {
+    const panels = [...document.querySelectorAll('.js-toc-preview-panel')];
+    if (!panels.length) return;
+    const activeSection = state.sections?.[state.activeIdx];
+    const isPageSection = activeSection?.type === 'image' || activeSection?.type === 'text';
+    panels.forEach((panel) => { panel.style.display = isPageSection ? 'block' : 'none'; });
+    if (!isPageSection) return;
+
+    const items = getEditorTocItems();
+    const html = !items.length
+        ? `<div class="toc-preview-empty">${escapeStudioHtml(t('toc_preview_empty'))}</div>`
+        : items.map((item) => {
+            const active = item.pageIndex === state.activeIdx;
+            const activeLabel = active ? `<span class="toc-preview-current">${escapeStudioHtml(t('toc_preview_current'))}</span>` : '';
+            return `
+                <button type="button" class="toc-preview-item${active ? ' active' : ''}" onclick="jumpToTocPage(${item.pageIndex})">
+                    <span class="toc-preview-page">${escapeStudioHtml(item.label)}</span>
+                    <span class="toc-preview-heading">${escapeStudioHtml(item.heading)}</span>
+                    ${activeLabel}
+                </button>
+            `;
+        }).join('');
+
+    panels.forEach((panel) => {
+        const list = panel.querySelector('.js-toc-preview-list');
+        if (list) list.innerHTML = html;
+    });
+}
+
+function updatePageHeading(value, langOverride) {
+    const idx = state.activeIdx;
+    const section = state.sections[idx];
+    if (!section || (section.type !== 'image' && section.type !== 'text')) return;
+    const lang = langOverride || state.activeLang || state.defaultLang || 'ja';
+
+    if (!_pageHeadingPushTimer) {
+        pushState();
+    } else {
+        clearTimeout(_pageHeadingPushTimer);
+    }
+    _pageHeadingPushTimer = setTimeout(() => { _pageHeadingPushTimer = null; }, 600);
+    const nextSections = (state.sections || []).map((sec, secIdx) => {
+        if (secIdx !== idx) return sec;
+        return {
+            ...sec,
+            headings: {
+                ...(sec.headings || {}),
+                [lang]: value || ''
+            }
+        };
+    });
+    dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'sections', value: nextSections } });
+
+    const activeBlockIdx = getBlockIndexFromPageIndex(state.blocks, idx);
+    const nextBlocks = (state.blocks || []).map((block, blockIdx) => {
+        if (blockIdx !== activeBlockIdx || block?.kind !== 'page') return block;
+        return {
+            ...block,
+            content: {
+                ...(block.content || {}),
+                headings: {
+                    ...(block.content?.headings || {}),
+                    [lang]: value || ''
+                }
+            }
+        };
+    });
+    dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'blocks', value: nextBlocks } });
+    dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'pages', value: blocksToPages(nextBlocks) } });
+
+    refresh({ skipThumbs: true });
+    triggerAutoSave();
+}
+
 /**
  * テキストセクションの本文入力ハンドラ（debounce 付き）
  */
@@ -3012,7 +3536,7 @@ function syncLangPanel() {
 }
 
 
-function onLoadProject(pid, projectName, sections, languages, defaultLang, languageConfigs, title, uiPrefs, pages, blocks, version, bookMode, book) {
+function onLoadProject(pid, projectName, sections, languages, defaultLang, languageConfigs, title, uiPrefs, pages, blocks, version, bookMode, book, textPaperPreset) {
     const normalized = normalizeProjectDataV5({
         version,
         projectName,
@@ -3025,8 +3549,13 @@ function onLoadProject(pid, projectName, sections, languages, defaultLang, langu
         title,
         uiPrefs,
         bookMode,
-        book
+        book,
+        textPaperPreset
     });
+    const normalizedTextPaperPreset = _getProjectTextPaperPresetKey(normalized);
+    normalized.sections = _applyTextPaperStyleToSections(normalized.sections, normalizedTextPaperPreset);
+    normalized.blocks = _applyTextPaperStyleToBlocks(normalized.blocks, normalizedTextPaperPreset);
+    normalized.pages = blocksToPages(normalized.blocks);
 
     state.projectId = pid;
     state.localProjectId = null;
@@ -3035,6 +3564,7 @@ function onLoadProject(pid, projectName, sections, languages, defaultLang, langu
     state.pages = normalized.pages || [];
     state.blocks = normalized.blocks;
     state.sections = normalized.sections;
+    state.textPaperPreset = normalizedTextPaperPreset;
     state.languages = normalized.languages;
     state.defaultLang = normalized.defaultLang || normalized.languages[0] || 'ja';
     state.bookMode = normalized.bookMode || normalized.book?.mode || 'simple';
@@ -3128,10 +3658,61 @@ function insertSectionBeforeActiveByType(sectionType = 'image') {
     insertSectionAt(insertAt, refresh, sectionType);
     triggerAutoSave();
 }
+function isActiveCoverPage() {
+    const activeIdx = Number.isInteger(state.activeIdx) ? state.activeIdx : -1;
+    if (activeIdx < 0) return false;
+    return isCoverPage(activeIdx);
+}
+
+function getCompositionIssueMessage(issue) {
+    const messages = {
+        cover_requires_even_pages: '表紙あり構成では総ページ数を偶数にしてください。',
+        cover_requires_two_or_more_pages: '表紙あり構成には最低2ページが必要です。',
+        cover_disallows_three_pages: '表紙あり3ページ構成は使用できません。2ページ、または4ページ以上の偶数にしてください。',
+        spread_image_requires_covers: '表紙なし構成では見開き画像ページを使用できません。',
+        spread_image_requires_full_covers: '見開き画像ページは C1/C2/C3/C4 構成の見開き位置でのみ使用できます。',
+        spread_image_requires_adjacent_pair: '見開き画像ページは隣接する2ページ単位で配置してください。',
+        spread_image_cannot_include_cover: '見開き画像ページに C1/C4 外側表紙ページを含めることはできません。',
+        spread_image_invalid_body_pair: '見開き画像ページは C2|1、2|3、最終ページ|C3 のような紙面上の隣接見開き位置にだけ挿入できます。'
+    };
+    return messages[issue] || issue;
+}
+
+function alertCompositionIssues(issues) {
+    const unique = [...new Set(issues || [])];
+    if (!unique.length) return;
+    alert(unique.map(getCompositionIssueMessage).join('\n'));
+}
+
+function validateSpreadImageCompositionForSections(sections) {
+    const issues = getBookCompositionIssues({
+        pageCount: (sections || []).length,
+        book: state.book || {},
+        bookMode: state.bookMode || state.book?.mode || 'simple',
+        sections
+    }).filter((issue) => issue.startsWith('spread_image_'));
+    if (!issues.length) return true;
+    alertCompositionIssues(issues);
+    return false;
+}
+
+function insertSpreadImageBeforeActive() {
+    const activeIdx = Number.isInteger(state.activeIdx) ? state.activeIdx : -1;
+    const insertAt = activeIdx >= 0 ? activeIdx : (state.sections || []).length;
+    const decision = canInsertSpreadImageAt(insertAt, (state.sections || []).length, state.book || {}, state.bookMode || state.book?.mode || 'simple');
+    if (!decision.ok) {
+        alertCompositionIssues(decision.issues);
+        return;
+    }
+    pushState();
+    insertSpreadImageAt(insertAt, refresh);
+    triggerAutoSave();
+}
 window.addSection = () => { pushState(); addSection(refresh); triggerAutoSave(); };
 window.addTextSection = () => { pushState(); addTextSection(refresh); triggerAutoSave(); };
 window.insertSectionBeforeActive = () => insertSectionBeforeActiveByType('image');
 window.insertTextSectionBeforeActive = () => insertSectionBeforeActiveByType('text');
+window.insertSpreadImageBeforeActive = insertSpreadImageBeforeActive;
 window.addSectionByType = (sectionType = 'image', e) => {
     if (e) {
         e.preventDefault();
@@ -3140,6 +3721,10 @@ window.addSectionByType = (sectionType = 'image', e) => {
     hideContextMenu();
     if (sectionType === 'text') {
         window.addTextSection();
+        return;
+    }
+    if (sectionType === 'spread-image') {
+        insertSpreadImageBeforeActive();
         return;
     }
     window.addSection();
@@ -3159,6 +3744,9 @@ window.showTailPageAddMenu = (e) => {
             <div class="context-menu-item" onclick="addSectionByType('image', event)">
                 <span class="material-icons">add_photo_alternate</span> ${t('btn_add_section')}
             </div>
+            <div class="context-menu-item" onclick="addSectionByType('spread-image', event)">
+                <span class="material-icons">view_week</span> ${t('btn_add_spread_image_section')}
+            </div>
             <div class="context-menu-item" onclick="addSectionByType('text', event)">
                 <span class="material-icons">article</span> ${t('btn_add_text_section')}
             </div>
@@ -3166,6 +3754,10 @@ window.showTailPageAddMenu = (e) => {
     );
 };
 window.updateTextSectionBody = updateTextSectionBody;
+window.updatePageHeading = updatePageHeading;
+window.jumpToTocPage = (pageIndex) => {
+    changeSection(Number(pageIndex), refreshForThumbSelection);
+};
 
 /** テキストエリアのカーソル位置に改ページマーカーを挿入する */
 window.insertPageBreak = function() {
@@ -3183,6 +3775,27 @@ window.insertPageBreak = function() {
     const newCursor = start + marker.length;
     ta.setSelectionRange(newCursor, newCursor);
     ta.focus();
+    updateTextSectionBody(newVal);
+};
+
+/** テキストエリアの選択範囲をルビ記法に変換する */
+window.insertRubyMarkup = function() {
+    const ta = document.getElementById('prop-body-text');
+    if (!ta) return;
+    const start = ta.selectionStart ?? 0;
+    const end = ta.selectionEnd ?? start;
+    const val = ta.value || '';
+    const selected = val.slice(start, end);
+    const baseText = selected || '漢字';
+    const rubyText = 'かんじ';
+    const markup = `{${baseText}|${rubyText}}`;
+    const newVal = val.slice(0, start) + markup + val.slice(end);
+    ta.value = newVal;
+
+    const rubyStart = start + 1 + baseText.length + 1;
+    const rubyEnd = rubyStart + rubyText.length;
+    ta.focus();
+    ta.setSelectionRange(rubyStart, rubyEnd);
     updateTextSectionBody(newVal);
 };
 
@@ -3227,6 +3840,202 @@ window.changeSection = (i) => {
 //  ページナビゲーション（ストリップヘッダーボタン・キーボード）
 // ──────────────────────────────────────
 
+function isOuterCoverPage(pageIndex) {
+    const total = (state.sections || []).length;
+    const coverKey = getPageCoverKey(pageIndex, state.book, state.bookMode, total);
+    return coverKey === 'c1' || coverKey === 'c4';
+}
+
+function isCoverPage(pageIndex) {
+    const total = (state.sections || []).length;
+    return !!getPageCoverKey(pageIndex, state.book, state.bookMode, total);
+}
+
+function getReadablePageOrdinal(pageIndex) {
+    const total = (state.sections || []).length;
+    const idx = Number(pageIndex);
+    if (!Number.isInteger(idx) || idx < 0 || idx >= total) return 0;
+    let ordinal = 0;
+    for (let i = 0; i <= idx; i += 1) {
+        if (!isCoverPage(i)) ordinal += 1;
+    }
+    return ordinal;
+}
+
+function getPageLabelForIndex(pageIndex) {
+    const total = (state.sections || []).length;
+    return getPageDisplayLabel(pageIndex, total, state.book, state.bookMode);
+}
+
+function getActiveCompareLang() {
+    const langs = Array.isArray(state.languages) ? state.languages : [];
+    if (langs.length < 2) return '';
+    const active = state.activeLang || state.defaultLang || langs[0];
+    return langs.find((code) => code !== active) || '';
+}
+
+function getLangShortCode(code) {
+    return String(code || '').toUpperCase();
+}
+
+function getSpreadAdjacentPageIndex(activeIdx) {
+    const sections = state.sections || [];
+    const total = sections.length;
+    if (activeIdx < 0 || activeIdx >= total) return -1;
+    if (isOuterCoverPage(activeIdx)) return -1;
+    const pinned = _spreadActivationPinnedAdjIdx;
+    if (pinned >= 0 && pinned !== activeIdx && !isOuterCoverPage(pinned)) return pinned;
+
+    const coverKey = getPageCoverKey(activeIdx, state.book, state.bookMode, total);
+    const mode = state.bookMode || state.book?.mode || 'simple';
+    const readableOrdinal = getReadablePageOrdinal(activeIdx);
+    let candidate;
+    if (coverKey === 'c2') {
+        candidate = activeIdx + 1;
+    } else if (coverKey === 'c3') {
+        candidate = activeIdx - 1;
+    } else if (mode === 'full') {
+        candidate = readableOrdinal % 2 === 1 ? activeIdx - 1 : activeIdx + 1;
+    } else {
+        candidate = readableOrdinal % 2 === 1 ? activeIdx + 1 : activeIdx - 1;
+    }
+    if (candidate < 0 || candidate >= total) return -1;
+    if (isOuterCoverPage(candidate)) return -1;
+    return candidate;
+}
+
+function getSpreadAdjacentPageIndexForRole(pageIndex) {
+    const sections = state.sections || [];
+    const total = sections.length;
+    if (pageIndex < 0 || pageIndex >= total) return -1;
+    if (isOuterCoverPage(pageIndex)) return -1;
+
+    const coverKey = getPageCoverKey(pageIndex, state.book, state.bookMode, total);
+    const mode = state.bookMode || state.book?.mode || 'simple';
+    const readableOrdinal = getReadablePageOrdinal(pageIndex);
+    let candidate;
+    if (coverKey === 'c2') {
+        candidate = pageIndex + 1;
+    } else if (coverKey === 'c3') {
+        candidate = pageIndex - 1;
+    } else if (mode === 'full') {
+        candidate = readableOrdinal % 2 === 1 ? pageIndex - 1 : pageIndex + 1;
+    } else {
+        candidate = readableOrdinal % 2 === 1 ? pageIndex + 1 : pageIndex - 1;
+    }
+    if (candidate < 0 || candidate >= total) return -1;
+    if (isOuterCoverPage(candidate)) return -1;
+    return candidate;
+}
+
+function getVisualSpreadPageIndices(activeIdx, adjIdx, pageDir) {
+    const activeFirst = pageDir === 'rtl'
+        ? activeIdx >= adjIdx
+        : activeIdx <= adjIdx;
+    return activeFirst ? [activeIdx, adjIdx] : [adjIdx, activeIdx];
+}
+
+function getPageSliderBubbleText() {
+    const activeIdx = state.activeIdx ?? 0;
+    const compareLang = state.uiPrefs?.languageCompareView ? getActiveCompareLang() : '';
+    if (compareLang) {
+        const label = getPageLabelForIndex(activeIdx);
+        return `${getLangShortCode(state.activeLang)} ${label} | ${label} ${getLangShortCode(compareLang)}`;
+    }
+
+    const adjIdx = getSpreadAdjacentPageIndex(activeIdx);
+    if (adjIdx >= 0) {
+        const lang = state.activeLang || state.defaultLang || 'ja';
+        const pageDir = getEditorLangDirection(lang);
+        const [leftIdx, rightIdx] = getVisualSpreadPageIndices(activeIdx, adjIdx, pageDir);
+        return `${getPageLabelForIndex(leftIdx)} | ${getPageLabelForIndex(rightIdx)}`;
+    }
+    return getPageLabelForIndex(activeIdx);
+}
+
+function getPageSliderBubbleParts() {
+    const activeIdx = state.activeIdx ?? 0;
+    const compareLang = state.uiPrefs?.languageCompareView ? getActiveCompareLang() : '';
+    if (compareLang) {
+        const label = getPageLabelForIndex(activeIdx);
+        return {
+            left: `${getLangShortCode(state.activeLang)} ${label}`,
+            right: `${label} ${getLangShortCode(compareLang)}`,
+            activeSide: 'left'
+        };
+    }
+
+    const adjIdx = getSpreadAdjacentPageIndex(activeIdx);
+    if (adjIdx >= 0) {
+        const lang = state.activeLang || state.defaultLang || 'ja';
+        const pageDir = getEditorLangDirection(lang);
+        const [leftIdx, rightIdx] = getVisualSpreadPageIndices(activeIdx, adjIdx, pageDir);
+        return {
+            left: getPageLabelForIndex(leftIdx),
+            right: getPageLabelForIndex(rightIdx),
+            activeSide: leftIdx === activeIdx ? 'left' : 'right'
+        };
+    }
+    return null;
+}
+
+function syncPageNavigationSlider() {
+    const sections = state.sections || [];
+    const total = sections.length;
+    const activeIdx = Math.min(Math.max(state.activeIdx ?? 0, 0), Math.max(0, total - 1));
+    const slider = document.getElementById('page-nav-slider');
+    const bubble = document.getElementById('page-nav-slider-bubble');
+    const totalEl = document.getElementById('page-nav-slider-total');
+    const compareBtn = document.getElementById('btn-language-compare-view');
+    const pageDirection = getEditorLangDirection(state.activeLang || state.defaultLang || 'ja');
+    const isRtl = pageDirection === 'rtl';
+    const ratio = total > 1 ? activeIdx / (total - 1) : 0;
+    const visualRatio = isRtl ? 1 - ratio : ratio;
+    const pct = ratio * 100;
+
+    if (slider) {
+        slider.max = String(Math.max(0, total - 1));
+        slider.value = String(activeIdx);
+        slider.disabled = total <= 1;
+        slider.style.setProperty('--page-slider-progress', `${pct}%`);
+        slider.dir = isRtl ? 'rtl' : 'ltr';
+        slider.dataset.dir = pageDirection;
+    }
+    if (bubble) {
+        const parts = getPageSliderBubbleParts();
+        if (parts) {
+            bubble.classList.add('is-pair');
+            bubble.classList.toggle('active-left', parts.activeSide === 'left');
+            bubble.classList.toggle('active-right', parts.activeSide === 'right');
+            bubble.innerHTML = `<span class="page-nav-bubble-left">${escapeStudioHtml(parts.left)}</span><span class="page-nav-bubble-divider">|</span><span class="page-nav-bubble-right">${escapeStudioHtml(parts.right)}</span>`;
+        } else {
+            bubble.classList.remove('is-pair');
+            bubble.classList.remove('active-left', 'active-right');
+            bubble.textContent = getPageSliderBubbleText();
+        }
+        const width = slider?.clientWidth || bubble.parentElement?.clientWidth || 0;
+        const thumb = 16;
+        const x = width > thumb ? (thumb / 2) + (width - thumb) * visualRatio : 0;
+        bubble.style.left = `${x}px`;
+    }
+    if (totalEl) {
+        totalEl.textContent = String(getReadablePageCount(total, state.book, state.bookMode) || total);
+    }
+    if (compareBtn) {
+        const enabled = !!state.uiPrefs?.languageCompareView && !!getActiveCompareLang();
+        compareBtn.classList.toggle('active', enabled);
+        compareBtn.disabled = !Array.isArray(state.languages) || state.languages.length < 2;
+    }
+}
+
+window.onPageSliderInput = (value) => {
+    const nextIdx = Number(value);
+    const sections = state.sections || [];
+    if (!Number.isInteger(nextIdx) || nextIdx < 0 || nextIdx >= sections.length) return;
+    _spreadActivationPinnedAdjIdx = -1;
+    changeSection(nextIdx, refreshForThumbSelection);
+};
+
 window.pagePrev = () => {
     _spreadActivationPinnedAdjIdx = -1; // 通常ナビ時はピンを解除
     const idx = state.activeIdx ?? 0;
@@ -3239,6 +4048,26 @@ window.pageNext = () => {
     if (idx < (state.sections || []).length - 1) changeSection(idx + 1, refreshForThumbSelection);
 };
 
+window.pageVisualLeft = () => movePageSelectionByVisualDirection('left');
+window.pageVisualRight = () => movePageSelectionByVisualDirection('right');
+
+function movePageSelectionByVisualDirection(direction) {
+    const idx = state.activeIdx ?? 0;
+    const pages = state.sections || [];
+    if (!pages.length) return;
+    const pageDirection = getEditorLangDirection(state.activeLang || state.defaultLang || 'ja');
+    const delta = direction === 'right'
+        ? (pageDirection === 'rtl' ? -1 : 1)
+        : (pageDirection === 'rtl' ? 1 : -1);
+    const pair = getSpreadPairIndices(idx);
+    const nextIdx = pair.length > 1
+        ? (delta > 0 ? pair[pair.length - 1] + 1 : pair[0] - 1)
+        : idx + delta;
+    if (nextIdx < 0 || nextIdx >= pages.length) return;
+    _spreadActivationPinnedAdjIdx = -1;
+    changeSection(nextIdx, refreshForThumbSelection);
+}
+
 // ──────────────────────────────────────
 //  見開き表示 (Spread View)
 // ──────────────────────────────────────
@@ -3247,14 +4076,32 @@ window.toggleSpreadView = () => {
     const current = state.uiPrefs?.spreadView || false;
     const next = !current;
     dispatch({ type: actionTypes.SET_STATE_FIELD, payload: {
-        key: 'uiPrefs', value: { ...(state.uiPrefs || {}), spreadView: next }
+        key: 'uiPrefs', value: { ...(state.uiPrefs || {}), spreadView: next, languageCompareView: next ? false : !!state.uiPrefs?.languageCompareView }
     }});
     // デスクトップ・モバイル両方のボタンを同期
     document.getElementById('btn-spread-view')?.classList.toggle('active', next);
     document.getElementById('btn-spread-view-mobile')?.classList.toggle('active', next);
+    document.getElementById('btn-language-compare-view')?.classList.remove('active');
     // キャンバスサイズ再計算 → 見開きページ表示/非表示を更新
     fitCanvasView();
     refreshSpreadPage();
+    syncPageNavigationSlider();
+};
+
+window.toggleLanguageCompareView = () => {
+    if (!getActiveCompareLang()) return;
+    const current = !!state.uiPrefs?.languageCompareView;
+    const next = !current;
+    dispatch({ type: actionTypes.SET_STATE_FIELD, payload: {
+        key: 'uiPrefs', value: { ...(state.uiPrefs || {}), languageCompareView: next, spreadView: next ? false : !!state.uiPrefs?.spreadView }
+    }});
+    document.getElementById('btn-language-compare-view')?.classList.toggle('active', next);
+    document.getElementById('btn-spread-view')?.classList.remove('active');
+    document.getElementById('btn-spread-view-mobile')?.classList.remove('active');
+    fitCanvasView();
+    refreshSpreadPage();
+    syncPageNavigationSlider();
+    triggerAutoSave();
 };
 
 /**
@@ -3283,7 +4130,8 @@ function _renderTextIntoSpread(section, lang, outerEl, frameEl, contentEl) {
     try { rubyLines = hasRuby ? alignRubyToLines(rubyTokens, composed.lines) : null; }
     catch (_) { rubyLines = null; }
 
-    outerEl.style.backgroundColor = section.backgroundColor || '#ffffff';
+    const paperStyle = _getTextPaperStyle(_getTextPaperPresetKey(section));
+    outerEl.style.backgroundColor = paperStyle.backgroundColor;
 
     const { x, y, w, h } = composed.frame;
     frameEl.style.cssText = [
@@ -3292,7 +4140,7 @@ function _renderTextIntoSpread(section, lang, outerEl, frameEl, contentEl) {
         `width:${w}px`, `height:${h}px`,
         `font-family:${composed.font.family}`,
         `font-size:${composed.font.size}px`,
-        `color:${section.textColor || '#000000'}`,
+        `color:${paperStyle.textColor}`,
         `letter-spacing:${composed.font.letterSpacing ? composed.font.letterSpacing + 'px' : '0'}`,
     ].join(';');
     frameEl.setAttribute('lang', lang.toLowerCase());
@@ -3381,6 +4229,8 @@ function _renderTextIntoSpread(section, lang, outerEl, frameEl, contentEl) {
 
 function refreshSpreadPage() {
     const isSpread = state.uiPrefs?.spreadView || false;
+    const compareLang = state.uiPrefs?.languageCompareView ? getActiveCompareLang() : '';
+    const isLanguageCompare = !!compareLang;
     const spreadEl = document.getElementById('canvas-spread-page');
     const stage    = document.getElementById('canvas-stage');
     if (!spreadEl || !stage) return;
@@ -3389,15 +4239,19 @@ function refreshSpreadPage() {
     const btn = document.getElementById('btn-spread-view');
     if (btn) btn.classList.toggle('active', isSpread);
 
-    // アクティブページの overflow: 見開き時は hidden にしてはみ出しを隠す
+    // 見出し入力はアクティブページ上端の外側に出すため、ページレイヤー自体は clip しない。
     const transformLayer = document.getElementById('canvas-transform-layer');
     if (transformLayer) {
-        transformLayer.style.overflow = isSpread ? 'hidden' : 'visible';
+        transformLayer.style.overflow = 'visible';
+        transformLayer.classList.toggle('active-pair-page', isSpread || isLanguageCompare);
     }
+    stage.classList.remove('spread-image-pair-active');
+    spreadEl.classList.remove('spread-image-pair-active');
 
-    if (!isSpread) {
+    if (!isSpread && !isLanguageCompare) {
         spreadEl.style.display = 'none';
         stage.style.flexDirection = '';
+        if (transformLayer) transformLayer.classList.remove('active-pair-page');
         return;
     }
 
@@ -3409,17 +4263,12 @@ function refreshSpreadPage() {
     const sections  = state.sections || [];
     const activeIdx = state.activeIdx ?? 0;
     const total     = sections.length;
+    const adjIdx = isLanguageCompare ? activeIdx : getSpreadAdjacentPageIndex(activeIdx);
+    const renderLang = isLanguageCompare ? compareLang : lang;
 
-    // 見開きクリックでアクティブ化した直後は元のページを隣として維持する
-    // 通常は次ページを隣に表示。次ページが存在しない場合は隣ページなし
-    let adjIdx;
-    if (_spreadActivationPinnedAdjIdx >= 0 && _spreadActivationPinnedAdjIdx !== activeIdx) {
-        adjIdx = _spreadActivationPinnedAdjIdx;
-    } else {
-        adjIdx = activeIdx + 1 < total ? activeIdx + 1 : -1;
-    }
     if (adjIdx < 0 || adjIdx >= total) {
         spreadEl.style.display = 'none';
+        stage.style.flexDirection = '';
         return;
     }
 
@@ -3428,7 +4277,9 @@ function refreshSpreadPage() {
     // activeIdx と adjIdx の大小で flex-direction を決定する。
     //   RTL: 低インデックス → 右 (transform-layer が右) → activeIdx < adjIdx なら row-reverse, それ以外は row
     //   LTR: 低インデックス → 左 (transform-layer が左) → activeIdx < adjIdx なら row, それ以外は row-reverse
-    if (isRTL) {
+    if (isLanguageCompare) {
+        stage.style.flexDirection = 'row';
+    } else if (isRTL) {
         stage.style.flexDirection = activeIdx < adjIdx ? 'row-reverse' : 'row';
     } else {
         stage.style.flexDirection = activeIdx < adjIdx ? 'row' : 'row-reverse';
@@ -3438,11 +4289,18 @@ function refreshSpreadPage() {
     spreadEl.dataset.adjIdx = adjIdx;
 
     const adjSection = sections[adjIdx];
+    const activeSection = sections[activeIdx];
+    const sharedSpreadGroup = !isLanguageCompare
+        && activeSection?.spreadImage?.groupId
+        && activeSection.spreadImage.groupId === adjSection?.spreadImage?.groupId;
+    stage.classList.toggle('spread-image-pair-active', !!sharedSpreadGroup);
+    spreadEl.classList.toggle('spread-image-pair-active', !!sharedSpreadGroup);
 
     // ページ番号ラベル
     const labelEl = document.getElementById('canvas-spread-label');
     if (labelEl) {
-        labelEl.textContent = `${adjIdx + 1} / ${total} ${lang.toUpperCase()}`;
+        const adjLabel = getPageDisplayLabel(adjIdx, total, state.book, state.bookMode);
+        labelEl.textContent = `${adjLabel} ${renderLang.toUpperCase()}`;
     }
 
     // ── 隣ページのコンテンツを描画 ──────────────────────────────
@@ -3470,8 +4328,8 @@ function refreshSpreadPage() {
             spFrame.appendChild(spContent);
             contentEl.appendChild(spFrame);
         }
-        contentEl.style.backgroundColor = adjSection.backgroundColor || '#ffffff';
-        _renderTextIntoSpread(adjSection, lang, contentEl, spFrame, spContent);
+        contentEl.style.backgroundColor = _getTextPaperStyle(_getTextPaperPresetKey(adjSection)).backgroundColor;
+        _renderTextIntoSpread(adjSection, renderLang, contentEl, spFrame, spContent);
     } else {
         // 画像ページ: メインキャンバスと同じ位置・トリミングで描画
         contentEl.innerHTML = '';
@@ -3483,7 +4341,7 @@ function refreshSpreadPage() {
         contentEl.style.backgroundColor = adjSection.backgroundColor || '#fff';
 
         const bgUrl = getOptimizedImageUrl(
-            adjSection.backgrounds?.[lang] || adjSection.backgrounds?.[state.defaultLang] || adjSection.background || ''
+            adjSection.backgrounds?.[renderLang] || adjSection.backgrounds?.[state.defaultLang] || adjSection.background || ''
         );
 
         if (!bgUrl) {
@@ -3494,7 +4352,7 @@ function refreshSpreadPage() {
                 </div>`;
         } else {
             // 言語別位置 → 共通位置 → レガシー → デフォルトの優先順で取得（main canvas と同じロジック）
-            const pos = adjSection.imagePositions?.[lang]
+            const pos = adjSection.imagePositions?.[renderLang]
                 || adjSection.imagePositions?.[state.defaultLang]
                 || adjSection.imageBasePosition
                 || adjSection.imagePosition
@@ -3502,7 +4360,7 @@ function refreshSpreadPage() {
             const cached = editorImageAspectCache.get(bgUrl);
 
             const _renderSpreadImg = () => {
-                const { frameMetrics, targetTransform } = getImageAdjustRenderMetrics(bgUrl, pos);
+                const { frameMetrics, targetTransform } = getImageAdjustRenderMetrics(bgUrl, pos, getSpreadImageRenderOptions(adjSection, adjIdx));
                 // 画像レイヤー（メインキャンバスと同じ transform）
                 const imgEl = document.createElement('img');
                 imgEl.src = bgUrl;
@@ -3520,7 +4378,7 @@ function refreshSpreadPage() {
                 // 吹き出しレイヤー
                 const bubbles = adjSection.bubbles || [];
                 if (bubbles.length > 0) {
-                    const langProps = getLangProps(lang);
+                    const langProps = getLangProps(renderLang);
                     const bLayer = document.createElement('div');
                     bLayer.style.cssText = 'position:absolute;inset:0;pointer-events:none;overflow:hidden;';
                     bLayer.innerHTML = bubbles.map((b, i) =>
@@ -3586,13 +4444,14 @@ document.addEventListener('keydown', (e) => {
     const tag = document.activeElement?.tagName || '';
     if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
     if (document.activeElement?.getAttribute('contenteditable') === 'true') return;
+    if (e.ctrlKey || e.metaKey || e.altKey || e.shiftKey) return;
+    if (getCurrentRoom() !== 'editor') return;
     // ページストリップが折りたたまれていてもナビは有効にする
     if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
         // 画像調整モード中は矢印キーを使わない
         if (document.getElementById('canvas-transform-layer')?.classList.contains('adjust-image-mode')) return;
         e.preventDefault();
-        if (e.key === 'ArrowLeft') window.pagePrev();
-        else window.pageNext();
+        movePageSelectionByVisualDirection(e.key === 'ArrowRight' ? 'right' : 'left');
     }
 });
 window.changeBlock = (idx) => {
@@ -3604,8 +4463,12 @@ window.insertSectionAtIndex = (idx, e) => {
         e.preventDefault();
         e.stopPropagation();
     }
+    const insertAt = Math.max(0, Math.min(Number(idx) || 0, (state.sections || []).length));
+    const simulated = [...(state.sections || [])];
+    simulated.splice(insertAt, 0, { type: 'image' });
+    if (!validateSpreadImageCompositionForSections(simulated)) return;
     pushState();
-    insertSectionAt(idx, refresh);
+    insertSectionAt(insertAt, refresh);
     triggerAutoSave();
 };
 window.duplicateSectionByIndex = (idx, e) => {
@@ -3646,8 +4509,7 @@ window.moveBlockByIndex = (blockIdx, direction, e) => {
 };
 window.startThumbDrag = (e, idx) => {
     thumbDragSourceIdx = idx;
-    const el = getThumbElement(idx);
-    if (el) el.classList.add('drag-source');
+    addThumbClassToSpreadPair(idx, 'drag-source');
     if (e.dataTransfer) {
         e.dataTransfer.effectAllowed = 'move';
         e.dataTransfer.setData('text/plain', String(idx));
@@ -3715,7 +4577,18 @@ window.changeBubbleShapeFromMenu = (idx, shapeName) => {
     }
 };
 window.updateTitle = (v) => {
-    dispatch({ type: actionTypes.SET_TITLE, payload: v });
+    const lang = state.activeLang || state.defaultLang || 'ja';
+    const defaultLang = state.defaultLang || lang;
+    const nextMeta = {
+        ...(state.meta || {}),
+        [lang]: {
+            ...(state.meta?.[lang] || {}),
+            title: v || ''
+        }
+    };
+    const representativeTitle = nextMeta?.[defaultLang]?.title || v || '';
+    dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'meta', value: nextMeta } });
+    dispatch({ type: actionTypes.SET_TITLE, payload: representativeTitle });
     const headerGuideTitle = document.getElementById('header-guide-title');
     if (headerGuideTitle) headerGuideTitle.textContent = v || 'タイトル未設定';
     triggerAutoSave();
@@ -3803,8 +4676,10 @@ window.fitCanvasView = () => {
     if (container) {
         const cw = container.clientWidth;
         const ch = container.clientHeight;
-        const isSpread = state.uiPrefs?.spreadView || false;
-        const targetW = isSpread ? CANONICAL_PAGE_WIDTH * 2 : CANONICAL_PAGE_WIDTH;
+        const activeIdx = state.activeIdx ?? 0;
+        const isSpreadPair = !!state.uiPrefs?.spreadView && getSpreadAdjacentPageIndex(activeIdx) >= 0;
+        const isLanguageCompare = !!state.uiPrefs?.languageCompareView && !!getActiveCompareLang();
+        const targetW = (isSpreadPair || isLanguageCompare) ? CANONICAL_PAGE_WIDTH * 2 : CANONICAL_PAGE_WIDTH;
         const targetH = CANONICAL_PAGE_HEIGHT;
 
         let s = Math.min(cw / targetW, ch / targetH) * 0.9;
@@ -4033,6 +4908,10 @@ window.shareProject = async () => {
         alert("プロジェクトが保存されていません。");
         return;
     }
+    if (!state.workId) {
+        alert("作品IDがまだありません。保存してからもう一度共有してください。");
+        return;
+    }
     if (!state.uid) {
         alert("ログインしてください。");
         return;
@@ -4046,7 +4925,7 @@ window.shareProject = async () => {
         alert('現在の状態は「非公開」です。\nこのままでは作品を共有できません。上部メニューから「限定公開」か「公開」に変更してください。');
         return;
     }
-    const url = `${window.location.protocol}//${host}/viewer?project=${encodeURIComponent(state.projectId)}&author=${encodeURIComponent(state.uid)}`;
+    const url = `${window.location.protocol}//${host}/viewer?work=${encodeURIComponent(state.workId)}`;
 
     try {
         await navigator.clipboard.writeText(url);
@@ -4168,7 +5047,8 @@ window.loadAndOpenProject = (pid) => {
     });
 };
 window.copyViewerUrl = async (pid) => {
-    const url = `${window.location.origin}/viewer?project=${encodeURIComponent(pid)}&author=${encodeURIComponent(state.uid)}`;
+    const projectWorkId = document.querySelector(`.works-row[data-pid="${CSS.escape(pid)}"]`)?.dataset.workId || pid;
+    const url = `${window.location.origin}/viewer?work=${encodeURIComponent(projectWorkId)}`;
     try {
         await navigator.clipboard.writeText(url);
         alert('URLをコピーしました:\n' + url);
@@ -4188,11 +5068,14 @@ window.loadAndRepress = (pid) => {
 window.newProject = () => {
     if (state.projectId && !confirm('現在のプロジェクトを閉じて新しいプロジェクトを作成しますか？')) return false;
     dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'projectId', value: null } });
+    dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'workId', value: createId('work') } });
+    dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'releaseId', value: null } });
     dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'projectName', value: '' } });
     dispatch({ type: actionTypes.SET_TITLE, payload: '' });
     dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'labelName', value: '' } });
     dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'rating', value: 'all' } });
     dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'license', value: 'all-rights-reserved' } });
+    dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'textPaperPreset', value: 'white' } });
     dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'meta', value: {} } });
     dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'languages', value: ['ja'] } });
     dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'defaultLang', value: 'ja' } });
@@ -4273,7 +5156,7 @@ window.toggleDrawer = (drawerName) => {
     }
     activeDrawer = drawerName;
     document.body.classList.add('drawer-open');
-    document.querySelectorAll('.sidebar-assets, .sidebar-pages').forEach((el) => {
+    document.querySelectorAll('.sidebar-assets, .sidebar-pages, .sidebar-toc').forEach((el) => {
         el.style.display = 'none';
     });
     const target = document.querySelector(`.sidebar-${drawerName}`);
@@ -4309,11 +5192,17 @@ function _cloneProjectSettingsDraft() {
     const languages = [...(state.languages && state.languages.length ? state.languages : ['ja'])];
     const defaultLang = languages.includes(state.defaultLang) ? state.defaultLang : languages[0];
     const activeLang = languages.includes(state.activeLang) ? state.activeLang : defaultLang;
+    const pageCount = (state.sections || []).length;
+    const bookMode = state.bookMode || state.book?.mode || 'simple';
+    const book = normalizeBookSettings(state.book || { mode: bookMode }, bookMode, pageCount);
     return {
         projectName: state.projectName || '',
         labelName: state.labelName || '',
         rating: state.rating || 'all',
         license: state.license || 'all-rights-reserved',
+        textPaperPreset: _getProjectTextPaperPresetKey(state),
+        bookMode: book.mode,
+        book,
         languages,
         defaultLang,
         activeLang,
@@ -4335,6 +5224,9 @@ function _getPsSettingsSource() {
         labelName: state.labelName || '',
         rating: state.rating || 'all',
         license: state.license || 'all-rights-reserved',
+        textPaperPreset: _getProjectTextPaperPresetKey(state),
+        bookMode: state.bookMode || state.book?.mode || 'simple',
+        book: normalizeBookSettings(state.book || {}, state.bookMode || state.book?.mode || 'simple', (state.sections || []).length),
         languageConfigs: state.languageConfigs || {},
         meta: state.meta || {}
     };
@@ -4353,6 +5245,14 @@ function _capturePsInputsToDraft() {
         const el = document.getElementById(`ps-${key}`);
         if (el) draft[key] = el.value;
     });
+
+    const bookModeEl = document.getElementById('ps-book-mode');
+    if (bookModeEl) {
+        const requestedMode = bookModeEl.value === 'none' ? 'none' : 'cover';
+        const normalizedBook = normalizeBookSettings({ mode: requestedMode }, requestedMode, (state.sections || []).length);
+        draft.bookMode = normalizedBook.mode;
+        draft.book = normalizedBook;
+    }
 
     document.querySelectorAll('#ps-meta-table .ps-meta-input').forEach(input => {
         const lang = input.dataset.lang;
@@ -4524,6 +5424,74 @@ function renderProjectSettingsTable() {
     container.innerHTML = html;
 }
 
+function renderProjectBookSettings() {
+    const container = document.getElementById('ps-book-settings');
+    if (!container) return;
+    const draft = _getPsSettingsSource();
+    const pageCount = (state.sections || []).length;
+    if (!pageCount) {
+        container.innerHTML = `<p class="press-book-empty">${escapeStudioHtml(t('press_book_no_pages'))}</p>`;
+        return;
+    }
+
+    const settings = normalizeBookSettings(draft.book || {}, draft.bookMode || 'simple', pageCount);
+    const coverRow = (key, labelKey) => {
+        const pageIndex = settings.covers[key]?.pageIndex;
+        if (pageIndex === undefined) return '';
+        return `<div class="press-book-cover-fixed">
+            <span>${escapeStudioHtml(t(labelKey))}</span>
+            <strong>${escapeStudioHtml(t('press_cover_page', { page: pageIndex + 1 }))}</strong>
+        </div>`;
+    };
+
+    container.innerHTML = `
+        <div class="press-book-mode-row">
+            <span>${escapeStudioHtml(t('press_book_layout'))}</span>
+            <select id="ps-book-mode">
+                <option value="none" ${settings.mode === 'none' ? 'selected' : ''}>${escapeStudioHtml(t('press_book_none'))}</option>
+                <option value="cover" ${settings.mode !== 'none' ? 'selected' : ''}>${escapeStudioHtml(t('press_book_cover_auto'))}</option>
+            </select>
+        </div>
+        <div class="press-book-fixed-hint">${escapeStudioHtml(t('press_book_fixed_hint'))}</div>
+        <div class="press-book-covers-fixed">
+            ${coverRow('c1', 'press_cover_c1')}
+            ${coverRow('c2', 'press_cover_c2')}
+            ${coverRow('c3', 'press_cover_c3')}
+            ${coverRow('c4', 'press_cover_c4')}
+        </div>
+    `;
+
+    const modeEl = container.querySelector('#ps-book-mode');
+    if (modeEl) modeEl.addEventListener('change', () => window.updateProjectBookMode(modeEl.value));
+}
+
+window.updateProjectBookMode = (mode) => {
+    _capturePsInputsToDraft();
+    const draft = _ensurePsDraft();
+    const requestedMode = mode === 'none' ? 'none' : 'cover';
+    const normalizedBook = normalizeBookSettings({ mode: requestedMode }, requestedMode, (state.sections || []).length);
+    draft.bookMode = normalizedBook.mode;
+    draft.book = normalizedBook;
+    renderProjectBookSettings();
+};
+
+function renderProjectTextPaperSettings() {
+    const draft = _getPsSettingsSource();
+    const activeKey = _getProjectTextPaperPresetKey(draft);
+    document.querySelectorAll('[data-project-text-paper-preset]').forEach((button) => {
+        const isActive = button.dataset.projectTextPaperPreset === activeKey;
+        button.classList.toggle('active', isActive);
+        button.setAttribute('aria-pressed', isActive ? 'true' : 'false');
+    });
+}
+
+window.updateProjectTextPaperPreset = (key) => {
+    if (!TEXT_PAPER_PRESETS[key]) return;
+    const draft = _ensurePsDraft();
+    draft.textPaperPreset = key;
+    renderProjectTextPaperSettings();
+};
+
 window.openProjectSettings = () => {
     const modal = document.getElementById('project-settings-modal');
     if (!modal) return;
@@ -4550,6 +5518,8 @@ window.openProjectSettings = () => {
 
     // Per-language meta table
     renderProjectSettingsTable();
+    renderProjectBookSettings();
+    renderProjectTextPaperSettings();
 
     modal.style.display = 'flex';
 };
@@ -4577,14 +5547,34 @@ window.saveProjectSettings = () => {
     dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'labelName', value: draft.labelName || '' } });
     dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'rating', value: draft.rating || 'all' } });
     dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'license', value: draft.license || 'all-rights-reserved' } });
+    const nextTextPaperPreset = _getProjectTextPaperPresetKey(draft);
+    dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'textPaperPreset', value: nextTextPaperPreset } });
+    const nextBook = normalizeBookSettings(draft.book || {}, draft.bookMode || 'simple', (state.sections || []).length);
+    const compositionIssues = getBookCompositionIssues({
+        pageCount: (state.sections || []).length,
+        book: nextBook,
+        bookMode: nextBook.mode,
+        sections: state.sections || []
+    });
+    if (compositionIssues.includes('spread_image_requires_covers')) {
+        alertCompositionIssues(compositionIssues);
+        return;
+    }
+    dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'bookMode', value: nextBook.mode } });
+    dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'book', value: nextBook } });
 
     dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'languages', value: nextLanguages } });
     dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'defaultLang', value: nextDefaultLang } });
     dispatch({ type: actionTypes.SET_ACTIVE_LANGUAGE, payload: nextActiveLang });
     dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'meta', value: draft.meta || {} } });
+    dispatch({ type: actionTypes.SET_TITLE, payload: draft.meta?.[nextDefaultLang]?.title || '' });
     dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'languageConfigs', value: draft.languageConfigs || {} } });
 
-    const nextBlocks = syncBlocksWithSections(state.blocks, state.sections, nextLanguages);
+    const nextSections = _applyTextPaperStyleToSections(state.sections, nextTextPaperPreset);
+    dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'sections', value: nextSections } });
+
+    const syncedBlocks = syncBlocksWithSections(state.blocks, nextSections, nextLanguages);
+    const nextBlocks = _applyTextPaperStyleToBlocks(syncedBlocks, nextTextPaperPreset);
     dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'blocks', value: nextBlocks } });
     dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'pages', value: blocksToPages(nextBlocks) } });
 
@@ -4600,16 +5590,18 @@ window.saveProjectSettings = () => {
 
 // ===== Room Navigation（body.dataset.room の単一入口。各 room の「中身」は下記のみ委譲） =====
 window.switchRoom = (room) => {
-    document.body.dataset.room = room;
+    const targetRoom = getValidStudioRoom(room);
+    document.body.dataset.room = targetRoom;
+    syncStudioRoomUrl(targetRoom);
     syncStudioShell();
-    if (room === 'home') {
+    if (targetRoom === 'home') {
         renderHomeDashboard().catch((e) => console.warn('[Home] render failed:', e));
     }
     // press / works は専用モジュールが DOM・イベントを持つ
-    if (room === 'press') {
+    if (targetRoom === 'press') {
         enterPressRoom();
     }
-    if (room === 'works') {
+    if (targetRoom === 'works') {
         loadWorksRoom(); // openWorksRoom(true) と同義（ルームモード）
     }
 };
@@ -4707,7 +5699,29 @@ function syncMobileMenuSheet() {
     document.querySelectorAll('[data-mobile-room-nav]').forEach((el) => {
         el.classList.toggle('active', el.dataset.mobileRoomNav === room);
     });
+    document.querySelectorAll('[data-studio-room-nav]').forEach((el) => {
+        el.classList.toggle('active', el.dataset.studioRoomNav === room);
+    });
 }
+
+function setStudioLogoMenuOpen(open) {
+    const menu = document.getElementById('studio-logo-menu');
+    const btn = document.getElementById('studio-logo-menu-btn');
+    if (!menu) return;
+    menu.hidden = !open;
+    btn?.setAttribute('aria-expanded', open ? 'true' : 'false');
+    if (open) syncMobileMenuSheet();
+}
+
+window.closeStudioLogoMenu = () => {
+    setStudioLogoMenuOpen(false);
+};
+
+window.toggleStudioLogoMenu = (event) => {
+    event?.stopPropagation();
+    const menu = document.getElementById('studio-logo-menu');
+    setStudioLogoMenuOpen(!!menu?.hidden);
+};
 
 function setMobileStudioNavOpen(open) {
     const menu = document.getElementById('mobile-studio-nav-menu');
@@ -4857,6 +5871,12 @@ function initUIChrome() {
     });
 
     document.addEventListener('click', (event) => {
+        const desktopMenu = document.getElementById('studio-logo-menu');
+        const desktopBtn = document.getElementById('studio-logo-menu-btn');
+        if (desktopMenu && !desktopMenu.hidden && !desktopMenu.contains(event.target) && !desktopBtn?.contains(event.target)) {
+            closeStudioLogoMenu();
+        }
+
         const menu = document.getElementById('mobile-studio-nav-menu');
         const btn = document.getElementById('mobile-studio-logo-btn');
         if (!menu || menu.hidden) return;
@@ -4866,6 +5886,7 @@ function initUIChrome() {
 
     document.addEventListener('keydown', (event) => {
         if (event.key === 'Escape') {
+            closeStudioLogoMenu();
             closeMobileStudioNavMenu();
         }
     });
@@ -4883,6 +5904,11 @@ function initUIChrome() {
 
     setRibbonTab('home');
     syncDesktopToggleButtons();
+    syncStudioShell();
+}
+
+function finishInitialRoomBoot() {
+    document.body.removeAttribute('data-booting');
     syncStudioShell();
 }
 
@@ -4930,6 +5956,7 @@ window.setStudioUILang = (lang) => {
         renderProjectSettingsTable();
         renderLangSettings();
         renderLangAddSelect();
+        renderProjectBookSettings();
     }
     if (getCurrentRoom() === 'press') {
         enterPressRoom();
@@ -4940,7 +5967,10 @@ window.setStudioUILang = (lang) => {
 // --- 初回描画: UI 骨組み → リダイレクト認証結果 → GIS 初期化 → ローカル復元 → ?room= ---
 async function bootstrapApp() {
     initUIChrome();
-    await authReady;
+    normalizeStudioRouteUrl();
+    const urlParams = new URLSearchParams(window.location.search);
+    const targetRoom = getValidStudioRoom(urlParams.get('room'));
+
     ensureUiPrefs();
     applyThumbColumnsFromPrefs();
     applyTheme();
@@ -4948,9 +5978,12 @@ async function bootstrapApp() {
         updateStudioThemeSwitchers();
     });
     applyI18n(); // UI言語を適用
+    window.switchRoom(targetRoom);
+    finishInitialRoomBoot();
+
+    await authReady;
 
     // Prevent local restore if we are explicitly loading a cloud project via URL
-    const urlParams = new URLSearchParams(window.location.search);
     const hasCloudId = urlParams.has('id');
 
     const redirectOutcome = await handleRedirectResult(firebaseAuth);
@@ -5002,10 +6035,8 @@ async function bootstrapApp() {
     refresh();
     renderLangSettings();
     updateAuthUI();
-    await renderHomeDashboard();
-    const requestedRoom = urlParams.get('room');
-    if (requestedRoom && ['home', 'editor', 'press', 'works'].includes(requestedRoom)) {
-        window.switchRoom(requestedRoom);
+    if (getCurrentRoom() === 'home') {
+        renderHomeDashboard().catch((e) => console.warn('[Home] initial render failed:', e));
     }
 }
 

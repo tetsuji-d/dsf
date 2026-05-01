@@ -12,7 +12,7 @@ import { db, auth as firebaseAuth, ensureUserBootstrap } from './firebase.js';
 import { initGIS, renderGISButton, signInWithGoogle, signOutUser, onAuthChanged, handleRedirectResult } from './gis-auth.js';
 import { getOptimizedImageUrl } from './sections.js';
 import { applyTheme, bindThemePreferenceListener, getThemeMode, setThemeMode } from './theme.js';
-import { doc, getDoc } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
+import { doc, getDoc, getDocs, setDoc, deleteDoc, addDoc, collection, query, where, limit, serverTimestamp, runTransaction } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
 import { parseAndLoadDSF } from './export.js';
 import { CANONICAL_PAGE_WIDTH, CANONICAL_PAGE_HEIGHT, CANONICAL_PAGE_ASPECT } from './page-geometry.js';
 
@@ -24,6 +24,10 @@ let lastLoadErrorCode = '';
 let privateLoginPromptActive = false;
 let privateLoginRequested = false;
 let privateLoginDeclined = false;
+let bookmarkRestoreAttempted = false;
+let bookmarkSaveTimer = null;
+let bookmarkUiState = createBookmarkUiState();
+let reviewUiState = createReviewUiState();
 
 // 見開き表示フラグ
 let spreadMode = false;
@@ -59,10 +63,12 @@ const VIEWER_INFO_SWIPE_OPEN_MIN = 42;
 const VIEWER_INFO_SWIPE_OPEN_FULL = 120;
 const VIEWER_INFO_SWIPE_ZONE = 120;
 const VIEWER_INFO_HANDLE_SENSITIVITY = 1.18;
-const VIEWER_DRAWER_WIDTH = 420;
+const VIEWER_DRAWER_WIDTH = 630;
 const VIEWER_DRAWER_GAP = 0;
 /** インク判定（輝度しきい値・低いほど「濃い部分だけがインク」）。高すぎるとアンチエイリアスまで膨張して潰れる。 */
 const VIEWER_DEV_MORPH_LUM_THRESHOLD = 168;
+const METRIC_EVENT_SCHEMA_VERSION = 1;
+const METRIC_SESSION_KEY = 'dsf_viewer_metric_session_id';
 let viewerUiLang = localStorage.getItem(VIEWER_UI_LANG_KEY)
     || (navigator.language?.toLowerCase().startsWith('ja') ? 'ja' : 'en');
 let viewerDevMode = localStorage.getItem(VIEWER_DEV_MODE_KEY) === '1';
@@ -77,7 +83,11 @@ let viewerProjectMeta = {
     qualityProfile: null,
     labelName: '',
     meta: {},
-    rootTitle: ''
+    rootTitle: '',
+    projectId: '',
+    workId: '',
+    releaseId: '',
+    authorUid: ''
 };
 const VIEWER_INFO_STATES = ['closed', 'peek', 'summary', 'full'];
 let viewerInfoPanelState = 'closed';
@@ -91,6 +101,11 @@ let viewerInfoHandleDrag = {
     startedInBody: false,
     bodyScrollTop: 0
 };
+let metricSessionId = getMetricSessionId();
+let metricViewStarted = false;
+let metricReadCompleteSent = false;
+const metricPageViewKeys = new Set();
+let metricDeliveryState = createMetricDeliveryState();
 
 const VIEWER_UI = {
     ja: {
@@ -134,7 +149,36 @@ const VIEWER_UI = {
         infoDescription: '概要',
         infoLinerNotes: 'ライナーノーツ',
         infoReviews: 'レビュー',
-        infoReviewsPending: 'レビュー表示は今後追加します。',
+        reviewSignedOut: 'ログインするとレビューを投稿できます。',
+        reviewNotShared: '共有作品でのみレビューできます。',
+        reviewLoading: 'レビューを読み込んでいます…',
+        reviewEmpty: 'まだレビューはありません。',
+        reviewError: 'レビューの処理に失敗しました: {message}',
+        reviewBodyLabel: 'レビュー本文',
+        reviewBodyPlaceholder: 'この作品の感想を書く',
+        reviewSubmit: 'レビューを投稿',
+        reviewSubmitting: '投稿中…',
+        reviewPosted: 'レビューを投稿しました。',
+        reviewBy: '{name}',
+        reviewAnonymous: '読者',
+        reviewConfirm: '以下の内容で投稿します。誹謗中傷、個人攻撃、極端な表現が含まれていないか確認してください。\n\n{body}',
+        reviewGood: '高評価',
+        reviewBad: '低評価',
+        bookmarkTitle: 'しおり',
+        bookmarkSignedOut: 'ログインすると、この作品の続きから読めます。',
+        bookmarkNotShared: '共有作品でのみしおりを保存できます。',
+        bookmarkLoading: 'しおりを確認しています…',
+        bookmarkSaving: 'しおりを保存しています…',
+        bookmarkSaved: '{page}/{total}ページ目を保存中',
+        bookmarkNone: 'まだしおりはありません。現在位置を保存できます。',
+        bookmarkDeleted: 'しおりを削除しました。',
+        bookmarkError: 'しおりの処理に失敗しました: {message}',
+        bookmarkProgress: '進捗 {progress}%',
+        bookmarkSaveNow: '現在位置を保存',
+        bookmarkResume: '続きから読む',
+        bookmarkRestart: '先頭から読む',
+        bookmarkDelete: 'しおりを削除',
+        bookmarkSignIn: 'ログインして保存',
         devSmoothing: 'ごく弱いコントラスト（試行）',
         devSmoothingNote: 'アンシャープはハロ・痩せが出やすいため廃止。効果は控えめです。基本オフ推奨。',
         devMorph: 'モルフォロジー膨張（試行）',
@@ -185,7 +229,36 @@ const VIEWER_UI = {
         infoDescription: 'Overview',
         infoLinerNotes: 'Liner Notes',
         infoReviews: 'Reviews',
-        infoReviewsPending: 'Reviews will be added later.',
+        reviewSignedOut: 'Sign in to post a review.',
+        reviewNotShared: 'Reviews are available for shared works only.',
+        reviewLoading: 'Loading reviews…',
+        reviewEmpty: 'No reviews yet.',
+        reviewError: 'Review failed: {message}',
+        reviewBodyLabel: 'Review',
+        reviewBodyPlaceholder: 'Write a review',
+        reviewSubmit: 'Post review',
+        reviewSubmitting: 'Posting…',
+        reviewPosted: 'Review posted.',
+        reviewBy: '{name}',
+        reviewAnonymous: 'Reader',
+        reviewConfirm: 'Post this review? Please confirm it does not include harassment, personal attacks, or extreme content.\n\n{body}',
+        reviewGood: 'Like',
+        reviewBad: 'Dislike',
+        bookmarkTitle: 'Bookmark',
+        bookmarkSignedOut: 'Sign in to keep reading this work from where you left off.',
+        bookmarkNotShared: 'Bookmarks are available for shared works only.',
+        bookmarkLoading: 'Checking bookmark…',
+        bookmarkSaving: 'Saving bookmark…',
+        bookmarkSaved: 'Saved page {page}/{total}',
+        bookmarkNone: 'No bookmark yet. You can save the current position.',
+        bookmarkDeleted: 'Bookmark deleted.',
+        bookmarkError: 'Bookmark failed: {message}',
+        bookmarkProgress: 'Progress {progress}%',
+        bookmarkSaveNow: 'Save current position',
+        bookmarkResume: 'Continue reading',
+        bookmarkRestart: 'Start from beginning',
+        bookmarkDelete: 'Delete bookmark',
+        bookmarkSignIn: 'Sign in to save',
         devSmoothing: 'Mild contrast (trial)',
         devSmoothingNote: 'Unsharp removed (halos/thin strokes). Very subtle contrast; usually leave off.',
         devMorph: 'Morphology dilation (trial)',
@@ -228,11 +301,15 @@ async function init() {
     applyViewerDevSmoothingClass();
 
     const params = new URLSearchParams(window.location.search);
+    const workId = params.get('work') || params.get('w');
     const pid = params.get('project') || params.get('id');
     const uid = params.get('author') || params.get('uid');
     const src = params.get('src') || params.get('file') || params.get('url');
     requestedBookMode = String(params.get('bookMode') || params.get('book') || '').toLowerCase();
-    if (pid) {
+    if (workId) {
+        sharedProjectRef = { workId };
+        attemptLoad();
+    } else if (pid) {
         sharedProjectRef = { pid, uid };
         attemptLoad();
     } else if (src) {
@@ -262,8 +339,12 @@ async function initAuth() {
                 privateLoginRequested = false;
                 privateLoginDeclined = false;
                 closePrivateLoginModal();
+            } else {
+                bookmarkRestoreAttempted = false;
+                resetBookmarkUiState();
             }
             renderViewerAuthSlot(user || null);
+            renderViewerInfoPanel();
             if (firstState) {
                 firstState = false;
                 resolve(user || null);
@@ -271,6 +352,10 @@ async function initAuth() {
             }
             if (sharedProjectRef && (!projectLoaded || lastLoadErrorCode === 'permission-denied')) {
                 attemptLoad();
+            }
+            if (projectLoaded && user) {
+                bookmarkRestoreAttempted = false;
+                void restoreBookmarkIfAvailable();
             }
         }, firebaseAuth);
     });
@@ -342,7 +427,9 @@ async function attemptLoad() {
     if (!sharedProjectRef || isProjectLoading) return;
     isProjectLoading = true;
     try {
-        const ok = await loadFromFirestore(sharedProjectRef.pid, sharedProjectRef.uid);
+        const ok = sharedProjectRef.workId
+            ? await loadWorkFromPublicIndex(sharedProjectRef.workId)
+            : await loadFromFirestore(sharedProjectRef.pid, sharedProjectRef.uid);
         if (ok) { projectLoaded = true; lastLoadErrorCode = ''; }
     } finally {
         isProjectLoading = false;
@@ -350,13 +437,39 @@ async function attemptLoad() {
 }
 
 // ── Firestore ─────────────────────────────────────────────────
-async function loadFromFirestore(pid, uid) {
+async function loadWorkFromPublicIndex(workId) {
+    try {
+        const indexSnap = await getDoc(doc(db, 'public_projects', workId));
+        if (!indexSnap.exists()) {
+            alert(vt('projectNotFound', { pid: workId }));
+            return false;
+        }
+        const indexData = indexSnap.data() || {};
+        const pid = indexData.projectId || indexData.pid || workId;
+        const uid = indexData.authorUid || indexData.uid || '';
+        if (!uid) {
+            alert(vt('uidRequired'));
+            return false;
+        }
+        sharedProjectRef = { workId, pid, uid };
+        return loadFromFirestore(pid, uid, { workId, releaseId: indexData.releaseId || '' });
+    } catch (e) {
+        lastLoadErrorCode = e?.code || '';
+        alert(vt('loadError', { message: e.message }));
+        return false;
+    }
+}
+
+async function loadFromFirestore(pid, uid, resolved = {}) {
     if (!uid) { alert(vt('uidRequired')); return false; }
     try {
         const snap = await getDoc(doc(db, 'users', uid, 'projects', pid));
         if (!snap.exists()) { alert(vt('projectNotFound', { pid })); return false; }
         const data = snap.data();
         data.projectId = pid;
+        data.authorUid = data.authorUid || data.uid || uid;
+        if (resolved.workId && !data.workId) data.workId = resolved.workId;
+        if (resolved.releaseId && !data.releaseId) data.releaseId = resolved.releaseId;
         loadProjectData(data, { source: 'shared' });
         return true;
     } catch (e) {
@@ -485,9 +598,16 @@ function loadProjectData(raw, options = {}) {
     const languageConfigs = normalizeLanguageConfigs(raw.languageConfigs, languages);
     viewerBookModel = buildViewerBookModel(raw, pages);
     viewerProjectMeta = buildViewerProjectMeta(raw, source);
+    bookmarkRestoreAttempted = false;
+    resetBookmarkUiState();
+    resetReviewUiState();
+    resetMetricState();
     bookSpreadIndex = 0;
     viewerInfoPanelState = 'closed';
 
+    dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'projectId', value: raw.projectId || '' } });
+    dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'workId', value: raw.workId || raw.projectId || '' } });
+    dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'releaseId', value: raw.releaseId || '' } });
     dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'title', value: raw.title || '' } });
     dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'pages', value: pages } });
     dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'languages', value: languages } });
@@ -507,6 +627,10 @@ function loadProjectData(raw, options = {}) {
     renderViewerInfoPanel();
 
     refresh();
+    trackViewStart();
+    trackPageView('initial');
+    void restoreBookmarkIfAvailable();
+    void loadViewerReviews();
 }
 
 function buildViewerProjectMeta(raw, source) {
@@ -527,8 +651,681 @@ function buildViewerProjectMeta(raw, source) {
         qualityProfile: raw?.dsfQualityProfile || raw?.qualityProfile || null,
         labelName: String(raw?.labelName || '').trim(),
         meta: raw?.meta && typeof raw.meta === 'object' ? raw.meta : {},
-        rootTitle: String(raw?.title || '').trim()
+        rootTitle: String(raw?.title || '').trim(),
+        projectId: String(raw?.projectId || '').trim(),
+        workId: String(raw?.workId || raw?.projectId || '').trim(),
+        releaseId: String(raw?.releaseId || '').trim(),
+        authorUid: String(raw?.authorUid || raw?.uid || '').trim()
     };
+}
+
+function createBookmarkUiState() {
+    return {
+        status: 'idle',
+        bookmark: null,
+        lastError: ''
+    };
+}
+
+function resetBookmarkUiState() {
+    bookmarkUiState = createBookmarkUiState();
+}
+
+function setBookmarkUiState(patch) {
+    bookmarkUiState = { ...bookmarkUiState, ...patch };
+    renderViewerInfoPanel();
+}
+
+function canUseViewerBookmark() {
+    return viewerProjectMeta.source === 'shared' && !!viewerProjectMeta.workId;
+}
+
+function getCurrentBookmarkPayload() {
+    const pages = getPages();
+    const pageIndex = pages.length ? Math.max(0, Math.min(pages.length - 1, getIndex())) : 0;
+    return {
+        workId: viewerProjectMeta.workId,
+        releaseId: viewerProjectMeta.releaseId || state.releaseId || null,
+        language: state.activeLang || state.defaultLang || 'ja',
+        pageIndex,
+        pageCount: pages.length,
+        progress: pages.length ? (pageIndex + 1) / pages.length : 0,
+        completed: pages.length > 0 && pageIndex >= pages.length - 1
+    };
+}
+
+function normalizeBookmarkData(data = {}) {
+    const pages = getPages();
+    const pageCount = pages.length;
+    const pageIndex = pageCount ? Math.max(0, Math.min(pageCount - 1, Number(data.pageIndex) || 0)) : 0;
+    const progress = pageCount ? (pageIndex + 1) / pageCount : 0;
+    return {
+        workId: String(data.workId || viewerProjectMeta.workId || ''),
+        releaseId: data.releaseId || null,
+        language: String(data.language || state.activeLang || state.defaultLang || 'ja'),
+        pageIndex,
+        pageCount,
+        progress,
+        completed: !!data.completed || (pageCount > 0 && pageIndex >= pageCount - 1),
+        updatedAt: data.updatedAt || null
+    };
+}
+
+function formatBookmarkStatusText() {
+    if (!canUseViewerBookmark()) return vt('bookmarkNotShared');
+    if (!state.uid) return vt('bookmarkSignedOut');
+    if (bookmarkUiState.status === 'loading') return vt('bookmarkLoading');
+    if (bookmarkUiState.status === 'saving') return vt('bookmarkSaving');
+    if (bookmarkUiState.status === 'deleted') return vt('bookmarkDeleted');
+    if (bookmarkUiState.status === 'error') {
+        return vt('bookmarkError', { message: bookmarkUiState.lastError || 'unknown' });
+    }
+    const bookmark = bookmarkUiState.bookmark;
+    if (!bookmark) return vt('bookmarkNone');
+    return vt('bookmarkSaved', {
+        page: String((Number(bookmark.pageIndex) || 0) + 1),
+        total: String(bookmark.pageCount || getPages().length || 1)
+    });
+}
+
+function renderViewerBookmarkSection() {
+    const section = document.getElementById('viewer-info-bookmark-section');
+    const container = document.getElementById('viewer-info-bookmark');
+    if (!section || !container) return;
+    section.hidden = !shouldShowViewerInfoBody();
+    if (section.hidden) return;
+
+    const bookmark = bookmarkUiState.bookmark;
+    const progress = Math.round(((bookmark?.progress ?? getCurrentBookmarkPayload().progress) || 0) * 100);
+    const signedIn = !!state.uid;
+    const enabled = canUseViewerBookmark();
+    const canResume = signedIn && enabled && !!bookmark;
+    const canSave = signedIn && enabled;
+    const canDelete = signedIn && enabled && !!bookmark;
+
+    container.innerHTML = `
+        <div class="viewer-info-bookmark-card" data-status="${esc(bookmarkUiState.status)}">
+            <div class="viewer-info-bookmark-main">
+                <span class="material-icons" aria-hidden="true">bookmark</span>
+                <div>
+                    <div class="viewer-info-bookmark-status">${esc(formatBookmarkStatusText())}</div>
+                    <div class="viewer-info-bookmark-progress">${esc(vt('bookmarkProgress', { progress: String(progress) }))}</div>
+                </div>
+            </div>
+            <div class="viewer-info-bookmark-actions">
+                ${!signedIn ? `<button type="button" class="viewer-info-bookmark-primary" data-bookmark-signin>${esc(vt('bookmarkSignIn'))}</button>` : ''}
+                ${canResume ? `<button type="button" class="viewer-info-bookmark-primary" data-bookmark-resume>${esc(vt('bookmarkResume'))}</button>` : ''}
+                ${canSave ? `<button type="button" class="viewer-info-bookmark-secondary" data-bookmark-save>${esc(vt('bookmarkSaveNow'))}</button>` : ''}
+                ${canSave ? `<button type="button" class="viewer-info-bookmark-secondary" data-bookmark-restart>${esc(vt('bookmarkRestart'))}</button>` : ''}
+                ${canDelete ? `<button type="button" class="viewer-info-bookmark-danger" data-bookmark-delete>${esc(vt('bookmarkDelete'))}</button>` : ''}
+            </div>
+        </div>
+    `;
+
+    container.querySelector('[data-bookmark-signin]')?.addEventListener('click', () => {
+        void signInWithGoogle({ authInstance: firebaseAuth })
+            .catch((e) => alert(vt('authError', { message: e?.message || String(e) })));
+    });
+    container.querySelector('[data-bookmark-resume]')?.addEventListener('click', () => {
+        resumeViewerBookmark();
+    });
+    container.querySelector('[data-bookmark-save]')?.addEventListener('click', () => {
+        void saveBookmark().catch((e) => console.warn('[Viewer] bookmark save failed:', e));
+    });
+    container.querySelector('[data-bookmark-restart]')?.addEventListener('click', () => {
+        restartViewerFromBeginning();
+    });
+    container.querySelector('[data-bookmark-delete]')?.addEventListener('click', () => {
+        void deleteViewerBookmark().catch((e) => console.warn('[Viewer] bookmark delete failed:', e));
+    });
+}
+
+async function restoreBookmarkIfAvailable() {
+    if (bookmarkRestoreAttempted) return;
+    if (!state.uid || !viewerProjectMeta.workId || viewerProjectMeta.source !== 'shared') return;
+    bookmarkRestoreAttempted = true;
+    try {
+        setBookmarkUiState({ status: 'loading', lastError: '' });
+        const snap = await getDoc(doc(db, 'users', state.uid, 'bookmarks', viewerProjectMeta.workId));
+        if (!snap.exists()) {
+            setBookmarkUiState({ status: 'none', bookmark: null, lastError: '' });
+            return;
+        }
+        const bookmark = normalizeBookmarkData(snap.data() || {});
+        const pages = getPages();
+        if (!pages.length) {
+            setBookmarkUiState({ status: 'saved', bookmark, lastError: '' });
+            return;
+        }
+        const pageIndex = bookmark.pageIndex;
+        const language = String(bookmark.language || '');
+        if (language && (state.languages || []).includes(language)) {
+            dispatch({ type: actionTypes.SET_ACTIVE_LANG, payload: language });
+        }
+        dispatch({ type: actionTypes.SET_ACTIVE_INDEX, payload: pageIndex });
+        if (spreadMode && hasBookModel()) {
+            bookSpreadIndex = findBookUnitIndexForPage(pageIndex);
+        }
+        resetZoom();
+        refresh();
+        trackPageView('bookmark_restore');
+        setBookmarkUiState({ status: 'saved', bookmark: normalizeBookmarkData(bookmark), lastError: '' });
+    } catch (e) {
+        setBookmarkUiState({ status: 'error', lastError: e?.message || String(e) });
+        console.warn('[Viewer] bookmark restore failed:', e);
+    }
+}
+
+function queueBookmarkSave() {
+    if (!state.uid || !viewerProjectMeta.workId || viewerProjectMeta.source !== 'shared') return;
+    clearTimeout(bookmarkSaveTimer);
+    bookmarkSaveTimer = setTimeout(() => {
+        void saveBookmark().catch((e) => console.warn('[Viewer] bookmark save failed:', e));
+    }, 450);
+}
+
+async function saveBookmark() {
+    const pages = getPages();
+    if (!pages.length || !state.uid || !viewerProjectMeta.workId) return;
+    const payload = getCurrentBookmarkPayload();
+    setBookmarkUiState({ status: 'saving', lastError: '' });
+    try {
+        await setDoc(doc(db, 'users', state.uid, 'bookmarks', viewerProjectMeta.workId), {
+            workId: payload.workId,
+            releaseId: payload.releaseId,
+            language: payload.language,
+            pageIndex: payload.pageIndex,
+            progress: payload.progress,
+            completed: payload.completed,
+            updatedAt: serverTimestamp()
+        }, { merge: true });
+        setBookmarkUiState({ status: 'saved', bookmark: payload, lastError: '' });
+    } catch (e) {
+        setBookmarkUiState({ status: 'error', lastError: e?.message || String(e) });
+        throw e;
+    }
+}
+
+function resumeViewerBookmark() {
+    const bookmark = bookmarkUiState.bookmark;
+    if (!bookmark) return;
+    const pages = getPages();
+    if (!pages.length) return;
+    const pageIndex = Math.max(0, Math.min(pages.length - 1, Number(bookmark.pageIndex) || 0));
+    const language = String(bookmark.language || '');
+    if (language && (state.languages || []).includes(language)) {
+        dispatch({ type: actionTypes.SET_ACTIVE_LANG, payload: language });
+    }
+    dispatch({ type: actionTypes.SET_ACTIVE_INDEX, payload: pageIndex });
+    if (spreadMode && hasBookModel()) {
+        bookSpreadIndex = findBookUnitIndexForPage(pageIndex);
+    }
+    resetZoom();
+    refresh();
+    trackPageView('bookmark_resume');
+}
+
+function restartViewerFromBeginning() {
+    dispatch({ type: actionTypes.SET_ACTIVE_INDEX, payload: 0 });
+    if (spreadMode && hasBookModel()) {
+        bookSpreadIndex = findBookUnitIndexForPage(0);
+    }
+    resetZoom();
+    refresh();
+    trackPageView('bookmark_restart');
+    void saveBookmark().catch((e) => console.warn('[Viewer] bookmark restart save failed:', e));
+}
+
+async function deleteViewerBookmark() {
+    if (!state.uid || !viewerProjectMeta.workId) return;
+    clearTimeout(bookmarkSaveTimer);
+    try {
+        await deleteDoc(doc(db, 'users', state.uid, 'bookmarks', viewerProjectMeta.workId));
+        setBookmarkUiState({ status: 'deleted', bookmark: null, lastError: '' });
+    } catch (e) {
+        setBookmarkUiState({ status: 'error', lastError: e?.message || String(e) });
+        throw e;
+    }
+}
+
+function createReviewUiState() {
+    return {
+        status: 'idle',
+        reviews: [],
+        lastError: '',
+        posted: false,
+        reactionPendingId: ''
+    };
+}
+
+function resetReviewUiState() {
+    reviewUiState = createReviewUiState();
+}
+
+function setReviewUiState(patch) {
+    reviewUiState = { ...reviewUiState, ...patch };
+    renderViewerInfoPanel();
+}
+
+function canUseViewerReviews() {
+    return viewerProjectMeta.source === 'shared' && !!viewerProjectMeta.workId;
+}
+
+function normalizeReviewData(id, data = {}) {
+    return {
+        reviewId: String(data.reviewId || id || ''),
+        workId: String(data.workId || viewerProjectMeta.workId || ''),
+        releaseId: String(data.releaseId || ''),
+        projectId: String(data.projectId || ''),
+        readerUid: String(data.readerUid || ''),
+        readerName: String(data.readerName || vt('reviewAnonymous')).slice(0, 80),
+        rating: Math.max(1, Math.min(5, Number(data.rating) || 0)),
+        goodCount: Math.max(0, Number(data.goodCount) || 0),
+        badCount: Math.max(0, Number(data.badCount) || 0),
+        userReaction: data.userReaction === 'good' || data.userReaction === 'bad' ? data.userReaction : '',
+        body: String(data.body || '').slice(0, 2000),
+        status: String(data.status || 'published'),
+        createdAt: data.createdAt || null,
+        updatedAt: data.updatedAt || null
+    };
+}
+
+async function hydrateViewerReviewReactions(reviews) {
+    if (!state.uid || !viewerProjectMeta.workId || !reviews.length) return reviews;
+    const hydrated = await Promise.all(reviews.map(async (review) => {
+        try {
+            const reactionRef = doc(db, 'reviews', viewerProjectMeta.workId, 'items', review.reviewId, 'reactions', state.uid);
+            const reactionSnap = await getDoc(reactionRef);
+            if (!reactionSnap.exists()) return review;
+            const reaction = reactionSnap.data()?.reaction;
+            return {
+                ...review,
+                userReaction: reaction === 'good' || reaction === 'bad' ? reaction : ''
+            };
+        } catch (_) {
+            return review;
+        }
+    }));
+    return hydrated;
+}
+
+async function loadViewerReviews(options = {}) {
+    if (!canUseViewerReviews()) {
+        setReviewUiState({ status: 'idle', reviews: [], lastError: '' });
+        return;
+    }
+    const previousReviews = Array.isArray(reviewUiState.reviews) ? reviewUiState.reviews : [];
+    setReviewUiState({ status: 'loading', lastError: '' });
+    try {
+        const reviewQuery = query(
+            collection(db, 'reviews', viewerProjectMeta.workId, 'items'),
+            where('status', '==', 'published'),
+            limit(20)
+        );
+        const snap = await getDocs(reviewQuery);
+        let reviews = snap.docs
+            .map((entry) => normalizeReviewData(entry.id, entry.data()))
+            .sort((a, b) => compareFirestoreTimestampDesc(a.createdAt, b.createdAt));
+        reviews = await hydrateViewerReviewReactions(reviews);
+        if (options.keepPosted) {
+            const seen = new Set(reviews.map((review) => review.reviewId));
+            reviews = [
+                ...previousReviews.filter((review) => review.reviewId && !seen.has(review.reviewId)),
+                ...reviews
+            ].sort((a, b) => compareFirestoreTimestampDesc(a.createdAt, b.createdAt));
+        }
+        setReviewUiState({
+            status: 'loaded',
+            reviews,
+            lastError: '',
+            posted: !!options.keepPosted && reviewUiState.posted
+        });
+    } catch (e) {
+        setReviewUiState({ status: 'error', lastError: e?.message || String(e) });
+        console.warn('[Viewer] reviews load failed:', e);
+    }
+}
+
+function compareFirestoreTimestampDesc(a, b) {
+    const aMs = typeof a?.toMillis === 'function' ? a.toMillis() : 0;
+    const bMs = typeof b?.toMillis === 'function' ? b.toMillis() : 0;
+    return bMs - aMs;
+}
+
+function getReviewFormValues(container) {
+    const body = String(container.querySelector('[name="review-body"]')?.value || '').trim();
+    return { body };
+}
+
+function autoResizeReviewTextarea(textarea) {
+    if (!textarea) return;
+    textarea.style.height = 'auto';
+    textarea.style.height = `${Math.min(180, Math.max(42, textarea.scrollHeight))}px`;
+}
+
+function bindReviewTextareaAutosize(container) {
+    const textarea = container.querySelector('[name="review-body"]');
+    if (!textarea) return;
+    autoResizeReviewTextarea(textarea);
+    textarea.addEventListener('input', () => autoResizeReviewTextarea(textarea));
+}
+
+async function submitViewerReview(container) {
+    if (!state.uid || !canUseViewerReviews()) return;
+    const { body } = getReviewFormValues(container);
+    if (!body) return;
+    if (!window.confirm(vt('reviewConfirm', { body: body.slice(0, 1000) }))) return;
+    setReviewUiState({ status: 'submitting', lastError: '', posted: false });
+    try {
+        const reviewRef = doc(collection(db, 'reviews', viewerProjectMeta.workId, 'items'));
+        const payload = {
+            reviewId: reviewRef.id,
+            workId: viewerProjectMeta.workId,
+            releaseId: viewerProjectMeta.releaseId || state.releaseId || '',
+            projectId: viewerProjectMeta.projectId || state.projectId || '',
+            authorUid: viewerProjectMeta.authorUid || '',
+            readerUid: state.uid,
+            readerName: String(state.user?.displayName || vt('reviewAnonymous')).slice(0, 80),
+            goodCount: 0,
+            badCount: 0,
+            body: body.slice(0, 2000),
+            status: 'published',
+            createdAt: serverTimestamp(),
+            updatedAt: serverTimestamp()
+        };
+        await setDoc(reviewRef, payload);
+        const localReview = normalizeReviewData(reviewRef.id, {
+            ...payload,
+            createdAt: { toMillis: () => Date.now() },
+            updatedAt: { toMillis: () => Date.now() }
+        });
+        setReviewUiState({
+            status: 'loaded',
+            reviews: [localReview, ...reviewUiState.reviews.filter((review) => review.reviewId !== reviewRef.id)],
+            lastError: '',
+            posted: true
+        });
+        const bodyInput = container.querySelector('[name="review-body"]');
+        if (bodyInput) {
+            bodyInput.value = '';
+            autoResizeReviewTextarea(bodyInput);
+        }
+        void loadViewerReviews({ keepPosted: true });
+    } catch (e) {
+        setReviewUiState({ status: 'error', lastError: e?.message || String(e), posted: false });
+        throw e;
+    }
+}
+
+async function setViewerReviewReaction(reviewId, reaction) {
+    if (!state.uid || !canUseViewerReviews()) return;
+    if (reaction !== 'good' && reaction !== 'bad') return;
+    const existingReview = (reviewUiState.reviews || []).find((review) => review.reviewId === reviewId);
+    if (!existingReview) return;
+    const previousReaction = existingReview.userReaction || '';
+    const nextReaction = previousReaction === reaction ? '' : reaction;
+    setReviewUiState({ reactionPendingId: reviewId, lastError: '' });
+    try {
+        const reviewRef = doc(db, 'reviews', viewerProjectMeta.workId, 'items', reviewId);
+        const reactionRef = doc(db, 'reviews', viewerProjectMeta.workId, 'items', reviewId, 'reactions', state.uid);
+        const result = await runTransaction(db, async (transaction) => {
+            const reviewSnap = await transaction.get(reviewRef);
+            if (!reviewSnap.exists()) throw new Error('review not found');
+            const reactionSnap = await transaction.get(reactionRef);
+            const currentReaction = reactionSnap.exists() ? reactionSnap.data()?.reaction : '';
+            const resolvedNext = currentReaction === reaction ? '' : reaction;
+            let goodCount = Math.max(0, Number(reviewSnap.data()?.goodCount) || 0);
+            let badCount = Math.max(0, Number(reviewSnap.data()?.badCount) || 0);
+            if (currentReaction === 'good') goodCount = Math.max(0, goodCount - 1);
+            if (currentReaction === 'bad') badCount = Math.max(0, badCount - 1);
+            if (resolvedNext === 'good') goodCount += 1;
+            if (resolvedNext === 'bad') badCount += 1;
+            transaction.update(reviewRef, { goodCount, badCount, updatedAt: serverTimestamp() });
+            if (resolvedNext) {
+                if (reactionSnap.exists()) {
+                    transaction.update(reactionRef, { reaction: resolvedNext, updatedAt: serverTimestamp() });
+                } else {
+                    transaction.set(reactionRef, {
+                        workId: viewerProjectMeta.workId,
+                        reviewId,
+                        uid: state.uid,
+                        reaction: resolvedNext,
+                        createdAt: serverTimestamp(),
+                        updatedAt: serverTimestamp()
+                    });
+                }
+            } else if (reactionSnap.exists()) {
+                transaction.delete(reactionRef);
+            }
+            return { goodCount, badCount, userReaction: resolvedNext };
+        });
+        setReviewUiState({
+            reactionPendingId: '',
+            reviews: (reviewUiState.reviews || []).map((review) => review.reviewId === reviewId
+                ? { ...review, ...result }
+                : review)
+        });
+    } catch (e) {
+        setReviewUiState({
+            reactionPendingId: '',
+            lastError: e?.message || String(e)
+        });
+        console.warn('[Viewer] review reaction failed:', e);
+    }
+}
+
+function renderViewerReviewSection() {
+    const section = document.getElementById('viewer-info-review-section');
+    const container = document.getElementById('viewer-info-reviews');
+    if (!section || !container) return;
+    section.hidden = !shouldShowViewerInfoBody();
+    if (section.hidden) return;
+
+    const enabled = canUseViewerReviews();
+    const signedIn = !!state.uid;
+    const disabledMessage = !enabled
+        ? vt('reviewNotShared')
+        : (!signedIn ? vt('reviewSignedOut') : '');
+    const statusMessage = reviewUiState.status === 'loading'
+        ? vt('reviewLoading')
+        : (reviewUiState.status === 'error'
+            ? vt('reviewError', { message: reviewUiState.lastError || 'unknown' })
+            : (reviewUiState.posted ? vt('reviewPosted') : ''));
+    const reviews = reviewUiState.reviews || [];
+
+    container.innerHTML = `
+        <div class="viewer-review-card">
+            ${disabledMessage ? `<div class="viewer-review-note">${esc(disabledMessage)}</div>` : ''}
+            ${statusMessage ? `<div class="viewer-review-note">${esc(statusMessage)}</div>` : ''}
+            ${signedIn && enabled ? `
+                <form class="viewer-review-form">
+                    <label class="viewer-review-field">
+                        <span>${esc(vt('reviewBodyLabel'))}</span>
+                        <textarea name="review-body" rows="1" maxlength="2000" placeholder="${esc(vt('reviewBodyPlaceholder'))}"></textarea>
+                    </label>
+                    <button type="submit" class="viewer-review-submit" ${reviewUiState.status === 'submitting' ? 'disabled' : ''}>
+                        ${esc(reviewUiState.status === 'submitting' ? vt('reviewSubmitting') : vt('reviewSubmit'))}
+                    </button>
+                </form>
+            ` : ''}
+            <div class="viewer-review-list">
+                ${reviews.length ? reviews.map(renderViewerReviewItem).join('') : `<div class="viewer-review-empty">${esc(vt('reviewEmpty'))}</div>`}
+            </div>
+        </div>
+    `;
+
+    container.querySelector('.viewer-review-form')?.addEventListener('submit', (event) => {
+        event.preventDefault();
+        void submitViewerReview(container).catch((e) => console.warn('[Viewer] review submit failed:', e));
+    });
+    bindReviewTextareaAutosize(container);
+    container.querySelectorAll('.viewer-review-reaction').forEach((button) => {
+        button.addEventListener('click', () => {
+            const reviewId = button.dataset.reviewId || '';
+            const reaction = button.dataset.reaction || '';
+            void setViewerReviewReaction(reviewId, reaction);
+        });
+    });
+}
+
+function renderViewerReviewItem(review) {
+    const pending = reviewUiState.reactionPendingId === review.reviewId;
+    const goodActive = review.userReaction === 'good';
+    const badActive = review.userReaction === 'bad';
+    return `
+        <article class="viewer-review-item">
+            <div class="viewer-review-item-head">
+                <strong>${esc(vt('reviewBy', {
+                    name: review.readerName || vt('reviewAnonymous')
+                }))}</strong>
+            </div>
+            <p>${esc(review.body)}</p>
+            <div class="viewer-review-reactions" aria-label="review reactions">
+                <button type="button" class="viewer-review-reaction ${goodActive ? 'is-active' : ''}" data-review-id="${esc(review.reviewId)}" data-reaction="good" ${pending ? 'disabled' : ''}>
+                    <span class="material-icons" aria-hidden="true">thumb_up</span>
+                    <span>${esc(vt('reviewGood'))}</span>
+                    <strong>${Math.max(0, Number(review.goodCount) || 0)}</strong>
+                </button>
+                <button type="button" class="viewer-review-reaction ${badActive ? 'is-active' : ''}" data-review-id="${esc(review.reviewId)}" data-reaction="bad" ${pending ? 'disabled' : ''} aria-label="${esc(vt('reviewBad'))}">
+                    <span class="material-icons" aria-hidden="true">thumb_down</span>
+                </button>
+            </div>
+        </article>
+    `;
+}
+
+function getMetricSessionId() {
+    try {
+        const existing = sessionStorage.getItem(METRIC_SESSION_KEY);
+        if (existing) return existing;
+        const generated = `vs_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`;
+        sessionStorage.setItem(METRIC_SESSION_KEY, generated);
+        return generated;
+    } catch (_) {
+        return `vs_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`;
+    }
+}
+
+function resetMetricState() {
+    metricViewStarted = false;
+    metricReadCompleteSent = false;
+    metricPageViewKeys.clear();
+    metricDeliveryState = createMetricDeliveryState();
+}
+
+function shouldTrackMetrics() {
+    return viewerProjectMeta.source === 'shared' && !!viewerProjectMeta.workId;
+}
+
+function createMetricDeliveryState() {
+    return {
+        pending: 0,
+        sent: 0,
+        failed: 0,
+        lastEvent: null,
+        lastError: ''
+    };
+}
+
+function updateMetricDeliveryState(patch) {
+    metricDeliveryState = { ...metricDeliveryState, ...patch };
+    if (viewerDevMode) renderViewerDevMetrics();
+}
+
+function buildMetricDebugEvent(payload, status) {
+    return {
+        status,
+        eventType: payload.eventType || '',
+        reason: payload.reason || '',
+        workId: payload.workId || '',
+        releaseId: payload.releaseId || '',
+        pageIndex: Number(payload.pageIndex) || 0,
+        pageCount: Number(payload.pageCount) || 0,
+        progress: Number(payload.progress) || 0,
+        language: payload.language || '',
+        at: new Date().toLocaleTimeString()
+    };
+}
+
+function getMetricSnapshot(eventType, reason = '') {
+    const pages = getPages();
+    const pageCount = Math.max(0, pages.length);
+    const pageIndex = pageCount ? Math.max(0, Math.min(pageCount - 1, getIndex())) : 0;
+    const progress = pageCount ? (pageIndex + 1) / pageCount : 0;
+    const readerUid = firebaseAuth?.currentUser?.uid || '';
+    return {
+        schemaVersion: METRIC_EVENT_SCHEMA_VERSION,
+        eventType,
+        workId: viewerProjectMeta.workId || '',
+        releaseId: viewerProjectMeta.releaseId || state.releaseId || '',
+        projectId: viewerProjectMeta.projectId || state.projectId || '',
+        readerUid,
+        isSignedIn: !!readerUid,
+        sessionId: metricSessionId,
+        language: state.activeLang || state.defaultLang || 'ja',
+        pageIndex,
+        pageCount,
+        progress,
+        reason: String(reason || '').slice(0, 40),
+        source: viewerProjectMeta.source || 'shared',
+        viewerPath: `${window.location.pathname}${window.location.search}`.slice(0, 256),
+        referrer: String(document.referrer || '').slice(0, 500),
+        viewportWidth: Math.max(0, Math.round(window.innerWidth || 0)),
+        viewportHeight: Math.max(0, Math.round(window.innerHeight || 0)),
+        createdAt: serverTimestamp()
+    };
+}
+
+function enqueueMetricEvent(eventType, reason = '') {
+    if (!shouldTrackMetrics()) return;
+    const payload = getMetricSnapshot(eventType, reason);
+    updateMetricDeliveryState({
+        pending: metricDeliveryState.pending + 1,
+        lastEvent: buildMetricDebugEvent(payload, 'pending'),
+        lastError: ''
+    });
+    void addDoc(collection(db, 'metric_events'), payload)
+        .then((ref) => {
+            updateMetricDeliveryState({
+                pending: Math.max(0, metricDeliveryState.pending - 1),
+                sent: metricDeliveryState.sent + 1,
+                lastEvent: { ...buildMetricDebugEvent(payload, 'sent'), eventId: ref.id },
+                lastError: ''
+            });
+        })
+        .catch((e) => {
+            updateMetricDeliveryState({
+                pending: Math.max(0, metricDeliveryState.pending - 1),
+                failed: metricDeliveryState.failed + 1,
+                lastEvent: buildMetricDebugEvent(payload, 'failed'),
+                lastError: `${e?.code || 'error'} ${e?.message || e || ''}`.trim().slice(0, 180)
+            });
+            console.warn('[Viewer] metric event failed:', eventType, e);
+        });
+}
+
+function trackViewStart() {
+    if (metricViewStarted) return;
+    metricViewStarted = true;
+    enqueueMetricEvent('view_start', 'load');
+}
+
+function trackPageView(reason = 'navigation') {
+    if (!shouldTrackMetrics()) return;
+    const pageIndex = getIndex();
+    const key = `${viewerProjectMeta.workId}:${viewerProjectMeta.releaseId || ''}:${state.activeLang}:${pageIndex}`;
+    if (metricPageViewKeys.has(key)) return;
+    metricPageViewKeys.add(key);
+    enqueueMetricEvent('page_view', reason);
+    trackReadCompleteIfNeeded();
+}
+
+function trackReadCompleteIfNeeded() {
+    if (metricReadCompleteSent) return;
+    const total = getTotal();
+    if (total <= 0 || getIndex() < total - 1) return;
+    metricReadCompleteSent = true;
+    enqueueMetricEvent('read_complete', 'last_page');
 }
 
 function getViewerInfoLayoutMode() {
@@ -638,8 +1435,8 @@ function renderViewerInfoPanel() {
     const descEl = document.getElementById('viewer-info-description');
     const notesSection = document.getElementById('viewer-info-notes-section');
     const notesEl = document.getElementById('viewer-info-notes');
+    const bookmarkSection = document.getElementById('viewer-info-bookmark-section');
     const reviewSection = document.getElementById('viewer-info-review-section');
-    const reviewEl = document.getElementById('viewer-info-reviews');
     const expandBtn = document.getElementById('viewer-info-expand-btn');
     const peekBtn = document.getElementById('viewer-info-peek-btn');
     const handleBtn = document.getElementById('viewer-info-handle');
@@ -665,8 +1462,11 @@ function renderViewerInfoPanel() {
     if (notesSection) notesSection.hidden = !shouldShowViewerInfoBody() || !linerNotes;
     if (notesEl) notesEl.innerHTML = linerNotes ? parseViewerRichText(linerNotes) : '';
 
+    if (bookmarkSection) bookmarkSection.hidden = !shouldShowViewerInfoBody();
+    renderViewerBookmarkSection();
+
     if (reviewSection) reviewSection.hidden = !shouldShowViewerInfoBody();
-    if (reviewEl) reviewEl.textContent = vt('infoReviewsPending');
+    renderViewerReviewSection();
     if (expandBtn) expandBtn.hidden = viewerInfoLayoutMode === 'drawer' || viewerInfoPanelState === 'full';
     if (peekBtn) peekBtn.hidden = viewerInfoLayoutMode === 'drawer' || viewerInfoPanelState === 'peek';
     if (handleBtn) handleBtn.hidden = viewerInfoLayoutMode === 'drawer';
@@ -690,6 +1490,8 @@ function applyViewerInfoPanelLabels() {
     authorLabels.forEach((node) => { node.textContent = vt('infoAuthor'); });
     const notesTitle = document.querySelector('#viewer-info-notes-section .viewer-info-section-title');
     if (notesTitle) notesTitle.textContent = vt('infoLinerNotes');
+    const bookmarkTitle = document.querySelector('#viewer-info-bookmark-section .viewer-info-section-title');
+    if (bookmarkTitle) bookmarkTitle.textContent = vt('bookmarkTitle');
     const reviewTitle = document.querySelector('#viewer-info-review-section .viewer-info-section-title');
     if (reviewTitle) reviewTitle.textContent = vt('infoReviews');
 }
@@ -713,8 +1515,8 @@ function getViewerInfoSheetHeights() {
     const peek = isCompact ? 104 : 98;
     const summary = isCompact ? 208 : 220;
     const full = Math.min(
-        Math.round(window.innerHeight * (isCompact ? 0.72 : 0.76)),
-        Math.max(summary + 40, window.innerHeight - (isCompact ? 128 : 136))
+        Math.round(window.innerHeight * 0.9),
+        Math.max(summary + 40, window.innerHeight - 72)
     );
     return { peek, summary, full };
 }
@@ -1229,6 +2031,8 @@ window.switchViewerLang = (code) => {
     dispatch({ type: actionTypes.SET_ACTIVE_LANG, payload: code });
     closeViewerLangMenu();
     refresh();
+    queueBookmarkSave();
+    trackPageView('language_change');
 };
 
 function getPageDirection() {
@@ -1789,6 +2593,19 @@ function renderViewerDevMetrics() {
     if (viewerDevMorph && !viewerDevMorphLastRun.pending && viewerDevMorphLastRun.skipped > 0 && viewerDevMorphLastRun.lastErr) {
         morphStatusErrHtml = viewerDevMorphLastRun.lastErr.slice(0, 160);
     }
+    const metricEnabled = shouldTrackMetrics();
+    const metricLast = metricDeliveryState.lastEvent;
+    const metricStatus = metricLast
+        ? `${metricLast.status} ${metricLast.eventType}${metricLast.reason ? `:${metricLast.reason}` : ''}`
+        : (metricEnabled ? 'waiting' : 'disabled');
+    const metricLastPage = metricLast?.pageCount
+        ? `${metricLast.pageIndex + 1}/${metricLast.pageCount} ${Math.round(metricLast.progress * 100)}%`
+        : '—';
+    const metricLastAt = metricLast?.at || '—';
+    const metricLastId = metricLast?.eventId || '';
+    const metricDisabledReason = !metricEnabled
+        ? (viewerProjectMeta.source !== 'shared' ? 'not shared viewer' : 'missing workId')
+        : '';
 
     panel.hidden = false;
     panel.innerHTML = `
@@ -1808,6 +2625,19 @@ function renderViewerDevMetrics() {
             <div class="viewer-dev-smooth-note">${esc(vt('devMorphNote'))}</div>
             <div class="viewer-dev-morph-status">${esc(morphStatusMain)}</div>
             ${morphStatusErrHtml ? `<div class="viewer-dev-morph-status-err">${esc(morphStatusErrHtml)}</div>` : ''}
+        </div>
+        <div class="viewer-dev-events-row">
+            <div class="viewer-dev-events-title">Metric events</div>
+            <div class="viewer-dev-events-grid">
+                <span>State</span><strong class="viewer-dev-event-status viewer-dev-event-status-${esc(metricLast?.status || (metricEnabled ? 'waiting' : 'disabled'))}">${esc(metricStatus)}</strong>
+                <span>Queue</span><strong>P ${esc(String(metricDeliveryState.pending))} / S ${esc(String(metricDeliveryState.sent))} / F ${esc(String(metricDeliveryState.failed))}</strong>
+                <span>Page</span><strong>${esc(metricLastPage)}</strong>
+                <span>Session</span><strong>${esc(metricSessionId.slice(-10))}</strong>
+                <span>Last</span><strong>${esc(metricLastAt)}</strong>
+                ${metricLastId ? `<span>Event ID</span><strong>${esc(metricLastId.slice(0, 10))}…</strong>` : ''}
+            </div>
+            ${metricDisabledReason ? `<div class="viewer-dev-events-note">${esc(metricDisabledReason)}</div>` : ''}
+            ${metricDeliveryState.lastError ? `<div class="viewer-dev-events-error">${esc(metricDeliveryState.lastError)}</div>` : ''}
         </div>
         <div class="viewer-dev-metrics-grid">
             <span>Lang</span><strong>${esc(String(lang || '').toUpperCase())}</strong>
@@ -2012,6 +2842,8 @@ function transitionToIndex(nextIndex, kind = 'jump') {
     animatePageTransition(fromPage, toPage, state.activeLang, motionDir);
     refreshChrome();
     if (spreadMode) renderSpreadPage();
+    queueBookmarkSave();
+    trackPageView(kind === 'jump' ? 'jump' : 'navigation');
 }
 
 function transitionToBookUnit(nextIndex) {
@@ -2028,6 +2860,8 @@ function transitionToBookUnit(nextIndex) {
     collapseViewerInfoPanelForNavigation();
     resetZoom();
     refresh();
+    queueBookmarkSave();
+    trackPageView('book_navigation');
 }
 
 function goNext() {
@@ -2218,7 +3052,10 @@ function resizeCanvas() {
         if (showSpread) {
             const s = Math.min(w / (CANONICAL_PAGE_WIDTH * 2), h / CANONICAL_PAGE_HEIGHT);
             const oy = (h - CANONICAL_PAGE_HEIGHT * s) / 2;
-            const ox = CANONICAL_PAGE_WIDTH * s; // main ステージの右隣
+            // 左右ページを別DOMで描画するとサブピクセル丸めで中央にヘアラインが出る。
+            // 見開き時だけ隣ページを1px重ね、デジタル表示では中央線を見せない。
+            const seamOverlapPx = 1;
+            const ox = (CANONICAL_PAGE_WIDTH * s) - seamOverlapPx;
             spreadStage.style.transform = `translate(${ox}px,${oy}px) scale(${s})`;
             spreadStage.style.display = 'block';
         } else {

@@ -7,6 +7,7 @@
  */
 import { state, dispatch, actionTypes } from './state.js';
 import { deepClone, createId } from './utils.js';
+import { CANONICAL_PAGE_WIDTH, CANONICAL_PAGE_HEIGHT } from './page-geometry.js';
 
 // ──────────────────────────────────────────────────────────────
 //  画像 URL 最適化（将来の Cloudflare CDN 配信に対応）
@@ -52,6 +53,8 @@ import {
     syncBlocksWithSections
 } from './blocks.js';
 import { blocksToPages } from './pages.js';
+import { getPageCoverKey, getPageDisplayLabel } from './page-labels.js';
+import { getLangProps } from './lang.js';
 
 function createDefaultSection() {
     return {
@@ -62,20 +65,46 @@ function createDefaultSection() {
         bubbles: [],
         text: '',
         texts: {},
+        headings: {},
         imagePosition: { x: 0, y: 0, scale: 1, rotation: 0 },
         imageBasePosition: { x: 0, y: 0, scale: 1, rotation: 0 }
     };
 }
 
+function createSpreadImageSections() {
+    const groupId = createId('spreadimg');
+    const base = {
+        background: '',
+        backgrounds: {},
+        writingMode: 'horizontal-tb',
+        bubbles: [],
+        text: '',
+        texts: {},
+        headings: {},
+        imagePosition: { x: 0, y: 0, scale: 1, rotation: 0, flipX: false },
+        imageBasePosition: { x: 0, y: 0, scale: 1, rotation: 0, flipX: false },
+        imagePositions: {}
+    };
+    return [
+        { ...deepClone(base), type: 'image', spreadImage: { groupId, role: 'left' } },
+        { ...deepClone(base), type: 'image', spreadImage: { groupId, role: 'right' } }
+    ];
+}
+
 function createTextSection() {
+    const presetKey = state.textPaperPreset === 'book' ? 'book' : 'white';
+    const preset = presetKey === 'book'
+        ? { backgroundColor: '#f7f1df', textColor: '#1f1b16' }
+        : { backgroundColor: '#ffffff', textColor: '#000000' };
     return {
         type: 'text',
         texts: {},
+        headings: {},
         layout: {},
         textAlign: 'start',
-        paperPreset: 'white',
-        backgroundColor: '#ffffff',
-        textColor: '#000000',
+        paperPreset: presetKey,
+        backgroundColor: preset.backgroundColor,
+        textColor: preset.textColor,
         bubbles: []
     };
 }
@@ -106,8 +135,8 @@ function getPageImagePosition(section, lang) {
     if (!section) return { x: 0, y: 0, scale: 1, rotation: 0, flipX: false };
     return section.imagePositions?.[lang]
         || section.imagePositions?.[state.defaultLang]
-        || section.imageBasePosition
         || section.imagePosition
+        || section.imageBasePosition
         || { x: 0, y: 0, scale: 1, rotation: 0, flipX: false };
 }
 
@@ -115,19 +144,92 @@ export function getPageImageForLang(section, lang) {
     if (!section) return '';
     return section.backgrounds?.[lang]
         || section.backgrounds?.[state.defaultLang]
-        || section.thumbnail
         || section.background
+        || section.thumbnail
         || '';
 }
 
-export function renderPositionedThumbImageHtml(section, lang, alt = '') {
+function getPageDirectionForLang(lang) {
+    const props = getLangProps(lang);
+    return state.languageConfigs?.[lang]?.pageDirection || props.directions?.[0]?.value || 'ltr';
+}
+
+function isCoverPageIndex(pageIndex) {
+    const total = (state.sections || []).length;
+    return !!getPageCoverKey(pageIndex, state.book, state.bookMode, total);
+}
+
+function isOuterCoverPageIndex(pageIndex) {
+    const total = (state.sections || []).length;
+    const coverKey = getPageCoverKey(pageIndex, state.book, state.bookMode, total);
+    return coverKey === 'c1' || coverKey === 'c4';
+}
+
+function getReadablePageOrdinalForIndex(pageIndex) {
+    const total = (state.sections || []).length;
+    const idx = Number(pageIndex);
+    if (!Number.isInteger(idx) || idx < 0 || idx >= total) return 0;
+    let ordinal = 0;
+    for (let i = 0; i <= idx; i += 1) {
+        if (!isCoverPageIndex(i)) ordinal += 1;
+    }
+    return ordinal;
+}
+
+function getAdjacentPageIndexForSpreadRole(pageIndex) {
+    const total = (state.sections || []).length;
+    if (pageIndex < 0 || pageIndex >= total || isOuterCoverPageIndex(pageIndex)) return -1;
+    const coverKey = getPageCoverKey(pageIndex, state.book, state.bookMode, total);
+    const mode = state.bookMode || state.book?.mode || 'simple';
+    const readableOrdinal = getReadablePageOrdinalForIndex(pageIndex);
+    let candidate;
+    if (coverKey === 'c2') {
+        candidate = pageIndex + 1;
+    } else if (coverKey === 'c3') {
+        candidate = pageIndex - 1;
+    } else if (mode === 'full') {
+        candidate = readableOrdinal % 2 === 1 ? pageIndex - 1 : pageIndex + 1;
+    } else {
+        candidate = readableOrdinal % 2 === 1 ? pageIndex + 1 : pageIndex - 1;
+    }
+    if (candidate < 0 || candidate >= total || isOuterCoverPageIndex(candidate)) return -1;
+    return candidate;
+}
+
+function getPhysicalSpreadRoleForIndex(pageIndex, lang) {
+    const adjIdx = getAdjacentPageIndexForSpreadRole(pageIndex);
+    if (adjIdx < 0) return '';
+    const pageDir = getPageDirectionForLang(lang);
+    const pageOnLeft = pageDir === 'rtl' ? pageIndex >= adjIdx : pageIndex <= adjIdx;
+    return pageOnLeft ? 'left' : 'right';
+}
+
+export function renderPositionedThumbImageHtml(section, lang, alt = '', pageIndex = -1) {
     const src = getOptimizedImageUrl(getPageImageForLang(section, lang));
     if (!src) return '';
     const pos = getPageImagePosition(section, lang);
-    return `<img class="thumb-canvas-image positioned-thumb-image"` +
+    const isSpreadImage = !!section?.spreadImage?.groupId;
+    const physicalRole = isSpreadImage && Number.isInteger(pageIndex) && pageIndex >= 0
+        ? getPhysicalSpreadRoleForIndex(pageIndex, lang)
+        : '';
+    const spreadRole = isSpreadImage
+        ? (physicalRole || (section?.spreadImage?.role === 'left' ? 'left'
+            : (section?.spreadImage?.role === 'right' ? 'right' : '')))
+        : '';
+    const frameWidth = spreadRole ? CANONICAL_PAGE_WIDTH * 2 : CANONICAL_PAGE_WIDTH;
+    const offsetX = spreadRole === 'left'
+        ? CANONICAL_PAGE_WIDTH / 2
+        : (spreadRole === 'right' ? -CANONICAL_PAGE_WIDTH / 2 : 0);
+    return `<canvas class="thumb-canvas-image rendered-thumb-canvas"` +
+        ` width="360" height="640"` +
+        ` role="img"` +
+        ` aria-label="${escapeAttr(alt)}"></canvas>` +
+        `<img class="thumb-render-loader"` +
         ` src="${escapeAttr(src)}"` +
-        ` alt="${escapeAttr(alt)}"` +
-        ` loading="lazy"` +
+        ` alt=""` +
+        ` decoding="async"` +
+        ` data-pos-frame-width="${frameWidth}"` +
+        ` data-pos-offset-x="${offsetX}"` +
         ` data-pos-x="${Number(pos?.x) || 0}"` +
         ` data-pos-y="${Number(pos?.y) || 0}"` +
         ` data-pos-scale="${Math.max(0.1, Number(pos?.scale) || 1)}"` +
@@ -140,25 +242,72 @@ window.syncDsfThumbImagePosition = (img) => {
     if (!img || !img.naturalWidth || !img.naturalHeight) return;
     const frame = img.parentElement;
     if (!frame) return;
+    const canvas = img.classList?.contains('thumb-render-loader')
+        ? img.previousElementSibling
+        : null;
+    if (canvas instanceof HTMLCanvasElement) {
+        const ctx = canvas.getContext('2d');
+        if (!ctx) return;
+        const targetW = CANONICAL_PAGE_WIDTH;
+        const targetH = CANONICAL_PAGE_HEIGHT;
+        if (canvas.width !== targetW) canvas.width = targetW;
+        if (canvas.height !== targetH) canvas.height = targetH;
+
+        const logicalFrameW = Math.max(CANONICAL_PAGE_WIDTH, Number(img.dataset.posFrameWidth) || CANONICAL_PAGE_WIDTH);
+        const logicalFrameH = CANONICAL_PAGE_HEIGHT;
+        const imgAspect = img.naturalWidth / img.naturalHeight;
+        const frameAspect = logicalFrameW / logicalFrameH;
+        let drawW;
+        let drawH;
+        if (imgAspect > frameAspect) {
+            drawH = logicalFrameH;
+            drawW = logicalFrameH * imgAspect;
+        } else {
+            drawW = logicalFrameW;
+            drawH = logicalFrameW / imgAspect;
+        }
+
+        const x = Number(img.dataset.posX) || 0;
+        const y = Number(img.dataset.posY) || 0;
+        const offsetX = Number(img.dataset.posOffsetX) || 0;
+        const scale = Math.max(0.1, Number(img.dataset.posScale) || 1);
+        const rotation = Number(img.dataset.posRotation) || 0;
+
+        ctx.clearRect(0, 0, targetW, targetH);
+        ctx.save();
+        ctx.translate(targetW / 2, targetH / 2);
+        ctx.translate(x + offsetX, y);
+        ctx.rotate((rotation * Math.PI) / 180);
+        ctx.scale(img.dataset.posFlipX === '1' ? -scale : scale, scale);
+        ctx.drawImage(img, -drawW / 2, -drawH / 2, drawW, drawH);
+        ctx.restore();
+        return;
+    }
+
     const rect = frame.getBoundingClientRect();
-    const frameW = rect.width || frame.clientWidth || 72;
-    const frameH = rect.height || frame.clientHeight || 128;
+    const frameW = frame.clientWidth || rect.width || 72;
+    const frameH = frame.clientHeight || rect.height || 128;
     const imgAspect = img.naturalWidth / img.naturalHeight;
-    const frameAspect = frameW / frameH;
+    const logicalFrameW = Math.max(CANONICAL_PAGE_WIDTH, Number(img.dataset.posFrameWidth) || CANONICAL_PAGE_WIDTH);
+    const logicalFrameH = CANONICAL_PAGE_HEIGHT;
+    const fitFrameW = frameW * (logicalFrameW / CANONICAL_PAGE_WIDTH);
+    const fitFrameH = frameH * (logicalFrameH / CANONICAL_PAGE_HEIGHT);
+    const frameAspect = logicalFrameW / logicalFrameH;
     let drawW;
     let drawH;
     if (imgAspect > frameAspect) {
-        drawH = frameH;
-        drawW = frameH * imgAspect;
+        drawH = fitFrameH;
+        drawW = fitFrameH * imgAspect;
     } else {
-        drawW = frameW;
-        drawH = frameW / imgAspect;
+        drawW = fitFrameW;
+        drawH = fitFrameW / imgAspect;
     }
 
-    const ratioX = frameW / 360;
-    const ratioY = frameH / 640;
+    const ratioX = frameW / CANONICAL_PAGE_WIDTH;
+    const ratioY = frameH / CANONICAL_PAGE_HEIGHT;
     const x = Number(img.dataset.posX) || 0;
     const y = Number(img.dataset.posY) || 0;
+    const offsetX = Number(img.dataset.posOffsetX) || 0;
     const scale = Math.max(0.1, Number(img.dataset.posScale) || 1);
     const rotation = Number(img.dataset.posRotation) || 0;
     const flipX = img.dataset.posFlipX === '1' ? ' scaleX(-1)' : '';
@@ -171,7 +320,7 @@ window.syncDsfThumbImagePosition = (img) => {
     img.style.objectFit = 'fill';
     img.style.transformOrigin = 'center center';
     img.style.transform =
-        `translate(calc(-50% + ${x * ratioX}px), calc(-50% + ${y * ratioY}px)) scale(${scale}) rotate(${rotation}deg)${flipX}`;
+        `translate(calc(-50% + ${(x + offsetX) * ratioX}px), calc(-50% + ${y * ratioY}px)) scale(${scale}) rotate(${rotation}deg)${flipX}`;
 };
 
 function getLocalized(meta, key, lang) {
@@ -311,6 +460,18 @@ export function insertSectionAt(insertIndex, refresh, sectionType = 'image') {
     refresh();
 }
 
+export function insertSpreadImageAt(insertIndex, refresh) {
+    const idx = Math.max(0, Math.min(Number(insertIndex) || 0, state.sections.length));
+    const list = [...state.sections];
+    list.splice(idx, 0, ...createSpreadImageSections());
+    dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'sections', value: list } });
+    dispatch({ type: actionTypes.SET_ACTIVE_INDEX, payload: idx });
+    dispatch({ type: actionTypes.SET_ACTIVE_BLOCK_INDEX, payload: null });
+    dispatch({ type: actionTypes.SET_ACTIVE_BUBBLE_INDEX, payload: null });
+    syncModelsFromLegacy();
+    refresh();
+}
+
 /**
  * 指定セクションを複製して直後に挿入する
  * @param {number} sourceIndex - 複製元インデックス
@@ -406,6 +567,35 @@ export function moveSection(fromIndex, insertIndex, refresh) {
 
     dispatch({ type: actionTypes.SET_ACTIVE_BUBBLE_INDEX, payload: null });
     syncModelsFromLegacy();
+    refresh();
+}
+
+export function moveSectionRange(fromIndex, count, insertIndex, refresh) {
+    const from = Number(fromIndex);
+    const size = Math.max(1, Number(count) || 1);
+    let to = Number(insertIndex);
+    if (!Number.isInteger(from) || !Number.isInteger(size) || !Number.isFinite(to)) return;
+    if (from < 0 || from >= state.sections.length) return;
+    if (from + size > state.sections.length) return;
+
+    to = Math.max(0, Math.min(to, state.sections.length));
+    if (to > from && to < from + size) return;
+    if (to === from || to === from + size) return;
+
+    const newSections = [...state.sections];
+    const moved = newSections.splice(from, size);
+    if (to > from) to -= size;
+    newSections.splice(to, 0, ...moved);
+
+    dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'sections', value: newSections } });
+    dispatch({ type: actionTypes.SET_ACTIVE_INDEX, payload: to });
+    dispatch({ type: actionTypes.SET_ACTIVE_BLOCK_INDEX, payload: null });
+    dispatch({ type: actionTypes.SET_ACTIVE_BUBBLE_INDEX, payload: null });
+    syncModelsFromLegacy();
+    const nextBlockIdx = getBlockIndexFromPageIndex(state.blocks, to);
+    if (nextBlockIdx >= 0) {
+        dispatch({ type: actionTypes.SET_ACTIVE_BLOCK_INDEX, payload: nextBlockIdx });
+    }
     refresh();
 }
 
@@ -552,9 +742,25 @@ export function renderThumbs() {
     const pageBlockIndices = getPageBlockIndices(blocks);
     const pageIndexByBlock = new Map(pageBlockIndices.map((bi, pageIdx) => [bi, pageIdx]));
     const context = { chapter: false, section: false, item: false };
+    const activeSpreadGroupId = state.sections?.[state.activeIdx]?.spreadImage?.groupId || '';
+
+    const getSpreadThumbClass = (pageIdx) => {
+        const groupId = state.sections?.[pageIdx]?.spreadImage?.groupId || '';
+        if (!groupId) return '';
+        const pair = (state.sections || [])
+            .map((section, idx) => section?.spreadImage?.groupId === groupId ? idx : -1)
+            .filter((idx) => idx >= 0)
+            .sort((a, b) => a - b);
+        return [
+            'spread-thumb',
+            pair[0] === pageIdx ? 'spread-thumb-start' : '',
+            pair[pair.length - 1] === pageIdx ? 'spread-thumb-end' : '',
+            activeSpreadGroupId && activeSpreadGroupId === groupId ? 'spread-pair-active' : ''
+        ].filter(Boolean).join(' ');
+    };
 
     container.innerHTML = blocks.map((b, blockIdx) => {
-        const selected = blockIdx === state.activeBlockIdx;
+        let selected = blockIdx === state.activeBlockIdx;
         let depth = 0;
         if (b?.kind === 'chapter') {
             depth = 0;
@@ -579,8 +785,13 @@ export function renderThumbs() {
 
         if (b?.kind === 'page') {
             const pageIdx = pageIndexByBlock.get(blockIdx) ?? 0;
+            const pageLabel = getPageDisplayLabel(pageIdx, pageBlockIndices.length, state.book, state.bookMode);
             const s = state.sections[pageIdx] || createDefaultSection();
-            const dataAttrs = `data-block-index="${blockIdx}" data-section-index="${pageIdx}" data-tree-depth="${depth}"`;
+            const spreadGroupId = s?.spreadImage?.groupId || '';
+            const spreadThumbClass = getSpreadThumbClass(pageIdx);
+            if (activeSpreadGroupId && spreadGroupId === activeSpreadGroupId) selected = true;
+            const spreadAttrs = spreadGroupId ? ` data-spread-group="${escapeAttr(spreadGroupId)}"` : '';
+            const dataAttrs = `data-block-index="${blockIdx}" data-section-index="${pageIdx}" data-tree-depth="${depth}"${spreadAttrs}`;
             const dragHandlers = `
                 ondragstart="startThumbDrag(event, ${pageIdx})"
                 ondragover="onThumbDragOver(event, ${pageIdx})"
@@ -592,16 +803,16 @@ export function renderThumbs() {
             `;
 
             if (s.type === 'image') {
-                const thumbImg = renderPositionedThumbImageHtml(s, state.activeLang, String(pageIdx + 1));
+                const thumbImg = renderPositionedThumbImageHtml(s, state.activeLang, pageLabel, pageIdx);
                 return `
-                    <div class="thumb-wrap thumb-card ${selected ? 'active' : ''}" ${dataAttrs}
+                    <div class="thumb-wrap thumb-card ${spreadThumbClass} ${selected ? 'active' : ''}" ${dataAttrs}
                         onclick="changeBlock(${blockIdx})"
                         ${dragHandlers}
                         aria-current="${selected ? 'true' : 'false'}">
                         <div class="thumb-canvas">
                             ${thumbImg}
                         </div>
-                        <span class="thumb-page-num">${pageIdx + 1}</span>
+                        <span class="thumb-page-num">${escapeHtml(pageLabel)}</span>
                         <div class="thumb-card-top"></div>
                         <button class="thumb-insert-btn before" title="ここにページ挿入" ontouchstart="event.stopPropagation()" onclick="insertSectionAtIndex(${pageIdx}, event)"><span class="material-icons">add</span></button>
                         <button class="thumb-insert-btn after" title="この下にページ挿入" ontouchstart="event.stopPropagation()" onclick="insertSectionAtIndex(${pageIdx + 1}, event)"><span class="material-icons">add</span></button>
@@ -610,19 +821,22 @@ export function renderThumbs() {
                 `;
             }
 
-            const textLabel = truncateText(s.texts?.[state.activeLang] || s.text || '', 96) || 'テキストページ';
+            const textLabel = truncateText(s.texts?.[state.activeLang] || s.text || '', 96);
+            const textTitle = textLabel
+                ? `<span class="thumb-card-title">${escapeHtml(textLabel)}</span>`
+                : '';
             return `
-                <div class="thumb-wrap thumb-card ${selected ? 'active' : ''}" ${dataAttrs}
+                <div class="thumb-wrap thumb-card ${spreadThumbClass} ${selected ? 'active' : ''}" ${dataAttrs}
                     onclick="changeBlock(${blockIdx})"
                     ${dragHandlers}
                     aria-current="${selected ? 'true' : 'false'}">
                     <div class="thumb-canvas thumb-canvas-meta">
                         <div class="thumb-card-meta">
-                            <span class="thumb-card-badge">Text</span>
-                            <span class="thumb-card-title">${escapeHtml(textLabel)}</span>
+                            ${textTitle}
                         </div>
+                        <span class="thumb-card-badge thumb-card-badge-text">T</span>
                     </div>
-                    <span class="thumb-page-num">${pageIdx + 1}</span>
+                    <span class="thumb-page-num">${escapeHtml(pageLabel)}</span>
                     <div class="thumb-card-top"></div>
                     <button class="thumb-insert-btn before" title="ここにページ挿入" ontouchstart="event.stopPropagation()" onclick="insertSectionAtIndex(${pageIdx}, event)"><span class="material-icons">add</span></button>
                     <button class="thumb-insert-btn after" title="この下にページ挿入" ontouchstart="event.stopPropagation()" onclick="insertSectionAtIndex(${pageIdx + 1}, event)"><span class="material-icons">add</span></button>
@@ -679,6 +893,12 @@ export function renderThumbs() {
             </button>
         `;
     }
+
+    container.querySelectorAll('.thumb-render-loader').forEach((img) => {
+        if (img.complete && img.naturalWidth) {
+            window.syncDsfThumbImagePosition(img);
+        }
+    });
 
     if (isMobile) {
         const maxScrollLeft = Math.max(0, container.scrollWidth - container.clientWidth);

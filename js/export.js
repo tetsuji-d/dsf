@@ -8,6 +8,7 @@ import {
     getSelectedPressLangs,
     getPressQualityProfile,
     getPressBookConfigForExport,
+    getPressBookCompositionIssueMessages,
     renderPressSectionToWebP,
     resetPressRenderCancel,
     requestPressRenderCancel,
@@ -21,6 +22,7 @@ import {
     resolvePressResolutionKey,
     clampPressPublishResolutionKey
 } from './page-geometry.js';
+import { normalizeBookSettings } from './page-labels.js';
 
 // --- Common Metadata Builder ---
 function pickLocalizedMeta(key) {
@@ -46,7 +48,7 @@ function pickLocalizedMetaMap(key) {
 }
 
 function buildMetadata(formatStr) {
-    const generator = "DSF Studio Pro v1.2";
+    const generator = "DSF Studio v1.2";
     const dateStr = new Date().toISOString();
     const localizedMeta = state.meta || {};
     const linerNotes = pickLocalizedMetaMap('linerNotes');
@@ -54,6 +56,9 @@ function buildMetadata(formatStr) {
         version: "1.0.0",
         schemaVersion: 1,
         format: formatStr, // "dsp" or "dsf"
+        projectId: state.projectId || "",
+        workId: state.workId || "",
+        releaseId: state.releaseId || "",
         title: state.title || pickLocalizedMeta('title') || "Untitled",
         author: pickLocalizedMeta('author') || state.user?.email || "Unknown Author",
         labelName: state.labelName || "",
@@ -134,6 +139,8 @@ export async function buildDSP() {
     const book = buildFixedBookConfig(state.bookMode || state.book?.mode || 'simple', projectPages.length);
     const projectData = {
         projectId: state.projectId,
+        workId: state.workId || '',
+        releaseId: state.releaseId || null,
         projectName: state.projectName || '',
         title: state.title || '',
         labelName: state.labelName || '',
@@ -207,6 +214,10 @@ export async function buildDSF() {
         if (!pages.length) {
             throw new Error('DSF に書き出すページがありません。');
         }
+        const compositionMessages = getPressBookCompositionIssueMessages();
+        if (compositionMessages.length) {
+            throw new Error(compositionMessages.join('\n'));
+        }
 
         for (let pageIndex = 0; pageIndex < pages.length; pageIndex++) {
             throwIfPressRenderCancelled();
@@ -260,6 +271,9 @@ export async function buildDSF() {
 
         const contentData = {
             dsfPages: exportDsfPages,
+            projectId: state.projectId || '',
+            workId: state.workId || '',
+            releaseId: state.releaseId || '',
             pages: exportPages,
             resolution: exportResKey,
             qualityMode: 'auto',
@@ -357,6 +371,8 @@ export async function parseAndLoadDSP(file) {
 
     return {
         projectId: projectData.projectId || "local_import",
+        workId: projectData.workId || meta.workId || null,
+        releaseId: projectData.releaseId || meta.releaseId || null,
         projectName: projectData.projectName || '',
         title: meta.title || "Untitled",
         labelName: projectData.labelName || meta.labelName || '',
@@ -374,17 +390,7 @@ export async function parseAndLoadDSP(file) {
 }
 
 function buildFixedBookConfig(mode, pageCount) {
-    const normalizedMode = mode === 'full' && pageCount >= 4 ? 'full' : 'simple';
-    const last = Math.max(0, pageCount - 1);
-    const covers = {
-        c1: { pageIndex: 0 },
-        c4: { pageIndex: last }
-    };
-    if (normalizedMode === 'full') {
-        covers.c2 = { pageIndex: 1 };
-        covers.c3 = { pageIndex: pageCount - 2 };
-    }
-    return { mode: normalizedMode, covers };
+    return normalizeBookSettings({ mode }, mode, pageCount);
 }
 
 // --- Parse .dsf (Content/Publish Import) ---
@@ -505,6 +511,8 @@ export async function parseAndLoadDSF(file) {
 
     return {
         projectId: contentData.projectId || "local_import",
+        workId: contentData.workId || meta.workId || null,
+        releaseId: contentData.releaseId || meta.releaseId || null,
         title: meta.title || "Untitled",
         labelName: contentData.labelName || meta.labelName || '',
         rating: contentData.rating || meta.rating || 'all',

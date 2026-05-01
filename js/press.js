@@ -24,6 +24,8 @@ import {
 import { verticalGlyphText, composeTextPreviewModel } from './text-press-html.js';
 import { encodeCanvasToWebP } from './canvas-encoding.js';
 import { getLangProps } from './lang.js';
+import { createId } from './utils.js';
+import { getBookCompositionIssues, getPageCoverKey, getPageDisplayLabel, normalizeBookSettings } from './page-labels.js';
 
 let _estimateTimer = null;
 let _estimateRunId = 0;
@@ -37,6 +39,77 @@ const PRESS_IMAGE_WEBP_QUALITY_BY_SCALE = Object.freeze({
     6: 0.94
 });
 const PRESS_TEXT_WEBP_QUALITY = 0.90;
+const _spreadRenderBlobCache = new Map();
+
+function _isSpreadImageSection(section) {
+    return section?.type === 'image'
+        && section.spreadImage
+        && typeof section.spreadImage === 'object'
+        && !!section.spreadImage.groupId;
+}
+
+function _getPageDirectionForLang(lang) {
+    const props = getLangProps(lang);
+    return state.languageConfigs?.[lang]?.pageDirection || props.directions?.[0]?.value || 'ltr';
+}
+
+function _isCoverPageIndex(pageIndex, total) {
+    return !!getPageCoverKey(pageIndex, state.book, state.bookMode, total);
+}
+
+function _isOuterCoverPageIndex(pageIndex, total) {
+    const coverKey = getPageCoverKey(pageIndex, state.book, state.bookMode, total);
+    return coverKey === 'c1' || coverKey === 'c4';
+}
+
+function _getReadablePageOrdinalForIndex(pageIndex, total) {
+    if (!Number.isInteger(pageIndex) || pageIndex < 0 || pageIndex >= total) return 0;
+    let ordinal = 0;
+    for (let i = 0; i <= pageIndex; i += 1) {
+        if (!_isCoverPageIndex(i, total)) ordinal += 1;
+    }
+    return ordinal;
+}
+
+function _getAdjacentPageIndexForSpreadRole(pageIndex, total) {
+    if (pageIndex < 0 || pageIndex >= total || _isOuterCoverPageIndex(pageIndex, total)) return -1;
+    const coverKey = getPageCoverKey(pageIndex, state.book, state.bookMode, total);
+    const mode = state.bookMode || state.book?.mode || 'simple';
+    const readableOrdinal = _getReadablePageOrdinalForIndex(pageIndex, total);
+    let candidate;
+    if (coverKey === 'c2') {
+        candidate = pageIndex + 1;
+    } else if (coverKey === 'c3') {
+        candidate = pageIndex - 1;
+    } else if (mode === 'full') {
+        candidate = readableOrdinal % 2 === 1 ? pageIndex - 1 : pageIndex + 1;
+    } else {
+        candidate = readableOrdinal % 2 === 1 ? pageIndex + 1 : pageIndex - 1;
+    }
+    if (candidate < 0 || candidate >= total || _isOuterCoverPageIndex(candidate, total)) return -1;
+    return candidate;
+}
+
+function _getPhysicalSpreadRoleForIndex(pageIndex, lang, total) {
+    const adjIdx = _getAdjacentPageIndexForSpreadRole(pageIndex, total);
+    if (adjIdx < 0) return '';
+    const pageDir = _getPageDirectionForLang(lang);
+    const pageOnLeft = pageDir === 'rtl' ? pageIndex >= adjIdx : pageIndex <= adjIdx;
+    return pageOnLeft ? 'left' : 'right';
+}
+
+function _getSpreadImageRenderOptions(section, pageIndex = -1, lang = state.activeLang || state.defaultLang || 'ja', total = _getRenderablePages().length) {
+    if (!_isSpreadImageSection(section)) return {};
+    const physicalRole = Number.isInteger(pageIndex) && pageIndex >= 0
+        ? _getPhysicalSpreadRoleForIndex(pageIndex, lang, total)
+        : '';
+    const role = physicalRole || (section.spreadImage.role === 'left' ? 'left' : 'right');
+    return {
+        frameWidth: CANONICAL_PAGE_WIDTH * 2,
+        frameHeight: CANONICAL_PAGE_HEIGHT,
+        offsetX: role === 'left' ? CANONICAL_PAGE_WIDTH / 2 : -CANONICAL_PAGE_WIDTH / 2
+    };
+}
 
 const PRESS_TRIAL_TEXT_BINARY_KEY = 'pressTrialTextBinary';
 
@@ -269,7 +342,7 @@ function _renderPageThumbs() {
     container.classList.toggle('press-page-thumbs--rtl', _getLangDirection(lang) === 'rtl');
 
     container.innerHTML = pages.map((section, i) => {
-        const label = String(i + 1);
+        const label = getPageDisplayLabel(i, pages.length, state.book, state.bookMode);
         const roles = _getCoverRolesForPage(i);
         const badges = roles.length
             ? `<div class="press-thumb-cover-badges">${roles.map(role => `<span>${role.toUpperCase()}</span>`).join('')}</div>`
@@ -325,8 +398,9 @@ function _renderLangTabs() {
 
 function _readBookSettings(pageCount = _getRenderablePages().length) {
     const raw = state.book || {};
-    const mode = raw.mode === 'full' || state.bookMode === 'full' ? 'full' : 'simple';
-    return _normalizeBookSettings({ mode }, pageCount);
+    const sourceMode = raw.mode || state.bookMode || 'cover';
+    const mode = sourceMode === 'none' ? 'none' : 'cover';
+    return _normalizeBookSettings({ ...raw, mode }, pageCount);
 }
 
 function _writeBookSettings(next, shouldAutosave = true) {
@@ -339,20 +413,7 @@ function _writeBookSettings(next, shouldAutosave = true) {
 
 function _normalizeBookSettings(next, pageCount = _getRenderablePages().length) {
     const sourceMode = next?.mode || state.book?.mode || state.bookMode || 'simple';
-    const mode = sourceMode === 'full' && pageCount >= 4 ? 'full' : 'simple';
-    const last = Math.max(0, pageCount - 1);
-    const normalized = {
-        mode,
-        covers: {
-            c1: { pageIndex: 0 },
-            c4: { pageIndex: last }
-        }
-    };
-    if (mode === 'full') {
-        normalized.covers.c2 = { pageIndex: 1 };
-        normalized.covers.c3 = { pageIndex: pageCount - 2 };
-    }
-    return normalized;
+    return normalizeBookSettings(next, sourceMode, pageCount);
 }
 
 function _ensureBookSettings() {
@@ -391,10 +452,8 @@ function _renderBookSettings() {
         <div class="press-book-mode-row">
             <span>${_esc(t('press_book_layout'))}</span>
             <select id="press-book-mode">
-                <option value="simple" ${mode === 'simple' ? 'selected' : ''}>${_esc(t('press_book_simple'))}</option>
-                <option value="full" ${mode === 'full' ? 'selected' : ''} ${pages.length < 4 ? 'disabled' : ''}>
-                    ${_esc(pages.length < 4 ? t('press_book_full_disabled') : t('press_book_full'))}
-                </option>
+                <option value="none" ${mode === 'none' ? 'selected' : ''}>${_esc(t('press_book_none'))}</option>
+                <option value="cover" ${mode !== 'none' ? 'selected' : ''}>${_esc(t('press_book_cover_auto'))}</option>
             </select>
         </div>
         <div class="press-book-fixed-hint">${_esc(t('press_book_fixed_hint'))}</div>
@@ -411,14 +470,8 @@ function _renderBookSettings() {
 }
 
 function _getCoverRolesForPage(pageIndex) {
-    const settings = _readBookSettings();
-    const roles = [];
-    for (const key of ['c1', 'c2', 'c3', 'c4']) {
-        if (settings.covers[key]?.pageIndex === pageIndex && (key === 'c1' || key === 'c4' || settings.mode === 'full')) {
-            roles.push(key);
-        }
-    }
-    return roles;
+    const key = getPageCoverKey(pageIndex, state.book, state.bookMode, _getRenderablePages().length);
+    return key ? [key] : [];
 }
 
 function _queueSizeEstimate() {
@@ -446,19 +499,20 @@ async function _updateSizeEstimate() {
     const langs = _getSelectedPressLangs();
 
     const tasks = [];
-    for (const section of pages) {
+    for (const [pageIndex, section] of pages.entries()) {
         for (const lang of langs) {
             if (section.type === 'text') {
                 tasks.push({ kind: 'text', section, lang });
             } else {
                 const bgUrl = section.backgrounds?.[lang] || section.background;
-                if (!bgUrl) continue;
+                if (!bgUrl && !_isSpreadImageSection(section)) continue;
                 tasks.push({
                     kind: 'image',
                     section,
+                    pageIndex,
+                    pages,
                     lang,
                     bgUrl,
-                    pos: section.imagePositions?.[lang] || section.imagePosition,
                 });
             }
         }
@@ -486,7 +540,7 @@ async function _updateSizeEstimate() {
             const quality = _getPressQualityForTask(task, w, h);
             const blob = task.kind === 'text'
                 ? await _renderTextSectionToWebP(task.section, task.lang, w, h, quality)
-                : await _renderPageToWebP(task.bgUrl, task.pos, w, h, quality);
+                : await _renderSectionImageBlob(task.section, task.lang, w, h, quality, task.pageIndex, task.pages);
             totalSampleBytes += blob.size;
             if (runId !== _estimateRunId) return;
         }
@@ -524,11 +578,44 @@ window.switchPressThumbLang = (code) => {
 };
 
 window.updatePressBookMode = (mode) => {
-    const nextMode = mode === 'full' ? 'full' : 'simple';
+    const nextMode = mode === 'none' ? 'none' : 'cover';
     _writeBookSettings({ mode: nextMode });
     _renderBookSettings();
     _renderPageThumbs();
 };
+
+function _getCompositionIssueMessage(issue) {
+    const messages = {
+        cover_requires_even_pages: '表紙あり構成では総ページ数を偶数にしてください。',
+        cover_requires_two_or_more_pages: '表紙あり構成には最低2ページが必要です。',
+        cover_disallows_three_pages: '表紙あり3ページ構成は使用できません。2ページ、または4ページ以上の偶数にしてください。',
+        spread_image_requires_covers: '表紙なし構成では見開き画像ページを使用できません。',
+        spread_image_requires_full_covers: '見開き画像ページは C1/C2/C3/C4 構成の見開き位置でのみ使用できます。',
+        spread_image_requires_adjacent_pair: '見開き画像ページは隣接する2ページ単位で配置してください。',
+        spread_image_cannot_include_cover: '見開き画像ページに C1/C4 外側表紙ページを含めることはできません。',
+        spread_image_invalid_body_pair: '見開き画像ページは C2|1、2|3、最終ページ|C3 のような紙面上の隣接見開き位置にだけ挿入できます。'
+    };
+    return messages[issue] || issue;
+}
+
+export function getPressBookCompositionIssueMessages() {
+    const pages = _getRenderablePages();
+    const book = _readBookSettings(pages.length);
+    const issues = getBookCompositionIssues({
+        pageCount: pages.length,
+        book,
+        bookMode: book.mode,
+        sections: pages
+    });
+    return [...new Set(issues)].map(_getCompositionIssueMessage);
+}
+
+function _validateBookCompositionForPress() {
+    const messages = getPressBookCompositionIssueMessages();
+    if (!messages.length) return true;
+    alert(messages.join('\n'));
+    return false;
+}
 
 window.updatePressBookCover = (key, value) => {
     void key;
@@ -555,12 +642,16 @@ window.publishToCloud = async () => {
         alert('プロジェクトをクラウドに保存してから発行してください');
         return;
     }
+    if (!state.workId) {
+        dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'workId', value: createId('work') } });
+    }
 
     const pages = _getRenderablePages();
     if (!pages.length) {
         alert('レンダリングするページがありません');
         return;
     }
+    if (!_validateBookCompositionForPress()) return;
 
     // 設定取得
     const rawResKey = resolvePressResolutionKey(document.getElementById('press-resolution')?.value);
@@ -653,6 +744,9 @@ window.publishToCloud = async () => {
         let totalBytes = 0;
         let done = 0;
         const renderStamp = Date.now();
+        const workId = state.workId;
+        const releaseId = createId('rel');
+        dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'releaseId', value: releaseId } });
 
         try {
             await auth.currentUser.getIdToken(true);
@@ -660,7 +754,7 @@ window.publishToCloud = async () => {
             /* トークン更新に失敗しても getIdToken(false) で再試行される */
         }
 
-        for (const section of pages) {
+        for (const [pageIndex, section] of pages.entries()) {
             throwIfPressRenderCancelled();
             pageNum++;
             const langUrls = {};
@@ -679,21 +773,27 @@ window.publishToCloud = async () => {
                     blob = await _renderTextSectionToWebP(section, lang, targetW, targetH, _getPressQualityForSection(section, targetW, targetH));
                 } else {
                     const bgUrl = section.backgrounds?.[lang] || section.background;
-                    if (!bgUrl) continue;
+                    if (!bgUrl && !_isSpreadImageSection(section)) continue;
                     done++;
                     setModalProgress(
                         t('press_rendering_progress', { done, total: totalOps }),
                         done / totalOps
                     );
-                    blob = await _renderPageToWebP(
-                        bgUrl, section.imagePositions?.[lang] || section.imagePosition, targetW, targetH, _getPressQualityForSection(section, targetW, targetH)
+                    blob = await _renderSectionImageBlob(
+                        section,
+                        lang,
+                        targetW,
+                        targetH,
+                        _getPressQualityForSection(section, targetW, targetH),
+                        pageIndex,
+                        pages
                     );
                 }
                 throwIfPressRenderCancelled();
                 totalBytes += blob.size;
                 pageTotalBytes += blob.size;
 
-                const path = `users/${uid}/dsf/${state.projectId}/${renderStamp}/${lang}/page_${String(pageNum).padStart(3, '0')}.webp`;
+                const path = `users/${uid}/dsf/${workId}/${releaseId}/${lang}/page_${String(pageNum).padStart(3, '0')}.webp`;
                 langUrls[lang] = await uploadPressPage(blob, path);
                 langBytes[lang] = blob.size;
             }
@@ -701,6 +801,8 @@ window.publishToCloud = async () => {
             dsfPages.push({
                 pageNum,
                 pageType: section.type === 'text' ? 'normal_text' : 'normal_image',
+                workId,
+                releaseId,
                 urls: langUrls,
                 bytesByLang: langBytes,
                 totalBytes: pageTotalBytes,
@@ -717,6 +819,8 @@ window.publishToCloud = async () => {
             {
                 dsfPages,
                 ...getPressBookConfigForExport(dsfPages.length),
+                workId,
+                releaseId,
                 labelName:      state.labelName || '',
                 rating:         state.rating || 'all',
                 license:        state.license || 'all-rights-reserved',
@@ -738,8 +842,55 @@ window.publishToCloud = async () => {
             { merge: true }
         );
 
+        await setDoc(
+            doc(db, 'users', uid, 'works', workId),
+            {
+                workId,
+                projectId: state.projectId,
+                ownerUid: uid,
+                title: state.title || '',
+                labelName: state.labelName || '',
+                rating: state.rating || 'all',
+                license: state.license || 'all-rights-reserved',
+                meta: state.meta || {},
+                languages: state.languages || ['ja'],
+                defaultLang: state.defaultLang || state.languages?.[0] || 'ja',
+                latestReleaseId: releaseId,
+                latestProjectId: state.projectId,
+                updatedAt: serverTimestamp()
+            },
+            { merge: true }
+        );
+
+        await setDoc(
+            doc(db, 'users', uid, 'works', workId, 'releases', releaseId),
+            {
+                releaseId,
+                workId,
+                projectId: state.projectId,
+                dsfPages,
+                ...getPressBookConfigForExport(dsfPages.length),
+                dsfStatus: 'draft',
+                dsfPublishedAt: serverTimestamp(),
+                dsfRenderStamp: renderStamp,
+                dsfResolution: resStr,
+                dsfQuality: Math.round(qualityProfile.image * 100),
+                dsfQualityMode: 'auto-resolution',
+                dsfQualityProfile: {
+                    image: Math.round(qualityProfile.image * 100),
+                    text: Math.round(PRESS_TEXT_WEBP_QUALITY * 100),
+                },
+                dsfLangs: langs,
+                dsfTotalBytes: totalBytes,
+                createdAt: serverTimestamp()
+            },
+            { merge: true }
+        );
+
         // Press は新しい DSF を draft として作り直す。
         // 公開インデックスは Works が管理するため、再発行時は stale な公開行を外す。
+        await deleteDoc(doc(db, 'public_projects', workId))
+            .catch((e) => console.warn('[Press] Failed to clear public_projects on draft publish:', e?.message || e));
         await deleteDoc(doc(db, 'public_projects', state.projectId))
             .catch((e) => console.warn('[Press] Failed to clear public_projects on draft publish:', e?.message || e));
 
@@ -766,7 +917,7 @@ window.publishToCloud = async () => {
 
 // ─── レンダリング処理 ────────────────────────────────────────────────────────
 
-async function _renderPageToWebP(bgUrl, pos, targetW, targetH, quality) {
+async function _renderPageToWebP(bgUrl, pos, targetW, targetH, quality, options = {}) {
     // Pages Functions 経由で画像を同一オリジン取得し、Canvas CORS taint を回避する
     const { img, revoke } = await loadImageForCanvas(bgUrl, 'Press Room 元画像');
 
@@ -778,9 +929,14 @@ async function _renderPageToWebP(bgUrl, pos, targetW, targetH, quality) {
     ctx.fillStyle = '#ffffff';
     ctx.fillRect(0, 0, targetW, targetH);
 
-    // 基準フレームは正規論理ページ（page-geometry）。ターゲット解像度に合わせてスケール
-    const baseW = CANONICAL_PAGE_WIDTH;
-    const ratio = targetW / baseW;
+    // 基準フレームは正規論理ページ（page-geometry）。見開き画像は2ページ幅の仮想フレームから片側だけ切り出す。
+    const frameBaseW = Number(options.frameWidth) || CANONICAL_PAGE_WIDTH;
+    const frameBaseH = Number(options.frameHeight) || CANONICAL_PAGE_HEIGHT;
+    const pageRatioX = targetW / CANONICAL_PAGE_WIDTH;
+    const pageRatioY = targetH / CANONICAL_PAGE_HEIGHT;
+    const frameTargetW = targetW * (frameBaseW / CANONICAL_PAGE_WIDTH);
+    const frameTargetH = targetH * (frameBaseH / CANONICAL_PAGE_HEIGHT);
+    const offsetX = Number(options.offsetX) || 0;
 
     const safePos = {
         x:        Number.isFinite(Number(pos?.x))        ? Number(pos.x)        : 0,
@@ -792,20 +948,20 @@ async function _renderPageToWebP(bgUrl, pos, targetW, targetH, quality) {
 
     ctx.save();
     ctx.translate(targetW / 2, targetH / 2);
-    ctx.translate(safePos.x * ratio, safePos.y * ratio);
+    ctx.translate((safePos.x + offsetX) * pageRatioX, safePos.y * pageRatioY);
     ctx.rotate((safePos.rotation * Math.PI) / 180);
     ctx.scale(safePos.flipX ? -safePos.scale : safePos.scale, safePos.scale);
 
     // object-fit: cover と同じ挙動
     const imgAspect   = img.width  / img.height;
-    const frameAspect = targetW    / targetH;
+    const frameAspect = frameTargetW / frameTargetH;
     let drawW, drawH;
     if (imgAspect > frameAspect) {
-        drawH = targetH;
-        drawW = targetH * imgAspect;
+        drawH = frameTargetH;
+        drawW = frameTargetH * imgAspect;
     } else {
-        drawW = targetW;
-        drawH = targetW / imgAspect;
+        drawW = frameTargetW;
+        drawH = frameTargetW / imgAspect;
     }
 
     ctx.drawImage(img, -drawW / 2, -drawH / 2, drawW, drawH);
@@ -813,6 +969,164 @@ async function _renderPageToWebP(bgUrl, pos, targetW, targetH, quality) {
     revoke();
 
     return encodeCanvasToWebP(canvas, quality, '画像ページ');
+}
+
+function _normalizeImageTransform(pos = {}) {
+    return {
+        x: Number.isFinite(Number(pos?.x)) ? Number(pos.x) : 0,
+        y: Number.isFinite(Number(pos?.y)) ? Number(pos.y) : 0,
+        scale: Math.max(0.1, Number.isFinite(Number(pos?.scale)) ? Number(pos.scale) : 1),
+        rotation: Number.isFinite(Number(pos?.rotation)) ? Number(pos.rotation) : 0,
+        flipX: !!pos?.flipX,
+    };
+}
+
+function _serializeSpreadCacheTransform(pos) {
+    return [
+        Number(pos?.x || 0).toFixed(4),
+        Number(pos?.y || 0).toFixed(4),
+        Number(pos?.scale || 1).toFixed(4),
+        Number(pos?.rotation || 0).toFixed(4),
+        pos?.flipX ? '1' : '0'
+    ].join(':');
+}
+
+function _getSpreadImageGroupIndices(pages, groupId) {
+    if (!Array.isArray(pages) || !groupId) return [];
+    return pages
+        .map((section, index) => section?.spreadImage?.groupId === groupId ? index : -1)
+        .filter((index) => index >= 0);
+}
+
+function _getSpreadImageSharedBackground(pages, indices, lang) {
+    for (const index of indices) {
+        const section = pages[index];
+        const url = section?.backgrounds?.[lang]
+            || section?.backgrounds?.[state.defaultLang]
+            || section?.background
+            || '';
+        if (url) return url;
+    }
+    return '';
+}
+
+function _getSpreadImageSharedPosition(pages, indices, lang) {
+    for (const index of indices) {
+        const section = pages[index];
+        const pos = section?.imagePositions?.[lang]
+            || section?.imagePositions?.[state.defaultLang]
+            || section?.imagePosition
+            || section?.imageBasePosition;
+        if (pos) return _normalizeImageTransform(pos);
+    }
+    return _normalizeImageTransform();
+}
+
+async function _renderSpreadImagePairBlobs(bgUrl, pos, targetW, targetH, quality) {
+    const { img, revoke } = await loadImageForCanvas(bgUrl, 'Press Room 見開き元画像');
+    const spreadCanvas = document.createElement('canvas');
+    spreadCanvas.width = targetW * 2;
+    spreadCanvas.height = targetH;
+    const spreadCtx = spreadCanvas.getContext('2d');
+    if (!spreadCtx) {
+        revoke();
+        throw new Error('Canvas 2D が利用できません');
+    }
+
+    spreadCtx.fillStyle = '#ffffff';
+    spreadCtx.fillRect(0, 0, spreadCanvas.width, spreadCanvas.height);
+
+    const safePos = _normalizeImageTransform(pos);
+    const frameTargetW = spreadCanvas.width;
+    const frameTargetH = targetH;
+    const scaleX = frameTargetW / (CANONICAL_PAGE_WIDTH * 2);
+    const scaleY = frameTargetH / CANONICAL_PAGE_HEIGHT;
+
+    spreadCtx.save();
+    spreadCtx.translate(frameTargetW / 2, frameTargetH / 2);
+    spreadCtx.translate(safePos.x * scaleX, safePos.y * scaleY);
+    spreadCtx.rotate((safePos.rotation * Math.PI) / 180);
+    spreadCtx.scale(safePos.flipX ? -safePos.scale : safePos.scale, safePos.scale);
+
+    const imgAspect = img.width / img.height;
+    const frameAspect = frameTargetW / frameTargetH;
+    let drawW;
+    let drawH;
+    if (imgAspect > frameAspect) {
+        drawH = frameTargetH;
+        drawW = frameTargetH * imgAspect;
+    } else {
+        drawW = frameTargetW;
+        drawH = frameTargetW / imgAspect;
+    }
+    spreadCtx.drawImage(img, -drawW / 2, -drawH / 2, drawW, drawH);
+    spreadCtx.restore();
+    revoke();
+
+    const leftCanvas = document.createElement('canvas');
+    leftCanvas.width = targetW;
+    leftCanvas.height = targetH;
+    const leftCtx = leftCanvas.getContext('2d');
+    const rightCanvas = document.createElement('canvas');
+    rightCanvas.width = targetW;
+    rightCanvas.height = targetH;
+    const rightCtx = rightCanvas.getContext('2d');
+    if (!leftCtx || !rightCtx) throw new Error('Canvas 2D が利用できません');
+
+    leftCtx.drawImage(spreadCanvas, 0, 0, targetW, targetH, 0, 0, targetW, targetH);
+    rightCtx.drawImage(spreadCanvas, targetW, 0, targetW, targetH, 0, 0, targetW, targetH);
+
+    // 見開き中央の継ぎ目は左右を別々にロッシー圧縮すると色差が出るため、
+    // 見開き画像ページだけは分割後の左右ページをロスレス WebP で固定する。
+    const [leftBlob, rightBlob] = await Promise.all([
+        encodeCanvasToWebP(leftCanvas, 1, '見開き画像ページ(左)', { lossless: true }),
+        encodeCanvasToWebP(rightCanvas, 1, '見開き画像ページ(右)', { lossless: true })
+    ]);
+    return { leftBlob, rightBlob };
+}
+
+async function _renderSectionImageBlob(section, lang, targetW, targetH, quality, pageIndex, pages = _getRenderablePages()) {
+    const bgUrl = section?.backgrounds?.[lang] || section?.backgrounds?.[state.defaultLang] || section?.background || '';
+    const pos = section?.imagePositions?.[lang]
+        || section?.imagePositions?.[state.defaultLang]
+        || section?.imagePosition
+        || section?.imageBasePosition;
+    if (!_isSpreadImageSection(section)) {
+        return _renderPageToWebP(bgUrl, pos, targetW, targetH, quality);
+    }
+
+    const groupId = section?.spreadImage?.groupId || '';
+    const total = pages.length;
+    const indices = _getSpreadImageGroupIndices(pages, groupId);
+    if (indices.length !== 2) {
+        return _renderPageToWebP(
+            bgUrl,
+            pos,
+            targetW,
+            targetH,
+            quality,
+            _getSpreadImageRenderOptions(section, pageIndex, lang, total)
+        );
+    }
+
+    const sharedBgUrl = _getSpreadImageSharedBackground(pages, indices, lang) || bgUrl;
+    const sharedPos = _getSpreadImageSharedPosition(pages, indices, lang);
+    const cacheKey = [
+        groupId,
+        lang,
+        targetW,
+        targetH,
+        Number(quality).toFixed(4),
+        sharedBgUrl,
+        _serializeSpreadCacheTransform(sharedPos)
+    ].join('|');
+    if (!_spreadRenderBlobCache.has(cacheKey)) {
+        _spreadRenderBlobCache.set(cacheKey, _renderSpreadImagePairBlobs(sharedBgUrl, sharedPos, targetW, targetH, quality));
+    }
+    const pair = await _spreadRenderBlobCache.get(cacheKey);
+    const role = _getPhysicalSpreadRoleForIndex(pageIndex, lang, total)
+        || (section?.spreadImage?.role === 'left' ? 'left' : 'right');
+    return role === 'left' ? pair.leftBlob : pair.rightBlob;
 }
 
 // ─── ヘルパー ────────────────────────────────────────────────────────────────
@@ -869,15 +1183,11 @@ export async function renderPressSectionToWebP(section, lang, targetW, targetH) 
     if (section?.type === 'text') {
         return _renderTextSectionToWebP(section, lang, targetW, targetH, _getPressQualityForSection(section, targetW, targetH));
     }
-    const bgUrl = section?.backgrounds?.[lang] || section?.background;
-    if (!bgUrl) return null;
-    return _renderPageToWebP(
-        bgUrl,
-        section.imagePositions?.[lang] || section.imagePosition,
-        targetW,
-        targetH,
-        _getPressQualityForSection(section, targetW, targetH)
-    );
+    const pages = _getRenderablePages();
+    const pageIndex = pages.indexOf(section);
+    const bgUrl = section?.backgrounds?.[lang] || section?.backgrounds?.[state.defaultLang] || section?.background;
+    if (!bgUrl && !_isSpreadImageSection(section)) return null;
+    return _renderSectionImageBlob(section, lang, targetW, targetH, _getPressQualityForSection(section, targetW, targetH), pageIndex, pages);
 }
 
 function _prepareTextComposition(section, lang) {

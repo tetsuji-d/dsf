@@ -14,6 +14,7 @@ function createDefaultSection() {
         bubbles: [],
         text: '',
         texts: {},
+        headings: {},
         imagePosition: { x: 0, y: 0, scale: 1, rotation: 0 },
         imageBasePosition: { x: 0, y: 0, scale: 1, rotation: 0 }
     };
@@ -78,6 +79,7 @@ export function createPageBlockFromSection(section) {
             bubbles: deepClone(src.bubbles || []),
             text: src.text || '',
             texts: deepClone(src.texts || {}),
+            headings: deepClone(src.headings || {}),
             textAlign: src.textAlign || 'start',
             paperPreset: src.paperPreset || '',
             backgroundColor: src.backgroundColor || '',
@@ -87,7 +89,8 @@ export function createPageBlockFromSection(section) {
             layout: deepClone(src.layout || {}),
             imagePosition: deepClone(src.imagePosition || { x: 0, y: 0, scale: 1, rotation: 0 }),
             imageBasePosition: deepClone(src.imageBasePosition || { x: 0, y: 0, scale: 1, rotation: 0 }),
-            imagePositions: deepClone(src.imagePositions || {})
+            imagePositions: deepClone(src.imagePositions || {}),
+            spreadImage: deepClone(src.spreadImage || null)
         }
     };
 }
@@ -103,6 +106,7 @@ export function createSectionFromPageBlock(block) {
         bubbles: deepClone(c.bubbles || []),
         text: c.text || '',
         texts: deepClone(c.texts || {}),
+        headings: deepClone(c.headings || {}),
         textAlign: c.textAlign || 'start',
         paperPreset: c.paperPreset || '',
         backgroundColor: c.backgroundColor || '',
@@ -112,7 +116,8 @@ export function createSectionFromPageBlock(block) {
         layout: deepClone(c.layout || {}),
         imagePosition: deepClone(c.imagePosition || { x: 0, y: 0, scale: 1, rotation: 0 }),
         imageBasePosition: deepClone(c.imageBasePosition || { x: 0, y: 0, scale: 1, rotation: 0 }),
-        imagePositions: deepClone(c.imagePositions || {})
+        imagePositions: deepClone(c.imagePositions || {}),
+        spreadImage: deepClone(c.spreadImage || null)
     };
 }
 

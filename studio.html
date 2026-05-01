@@ -4,7 +4,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0">
-    <title>DSF Studio Pro - Ultimate Edition</title>
+    <title>DSF Studio</title>
     <link rel="stylesheet" href="css/variables.css">
     <link rel="stylesheet" href="css/studio.css">
     <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -15,19 +15,33 @@
     <link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet">
 </head>
 
-<body data-room="editor" data-device="desktop">
+<body data-room="home" data-device="desktop" data-booting="true">
     <div id="app-shell">
 
         <!-- ===== Room Navigation Bar ===== -->
         <nav id="room-nav">
             <div class="room-nav-brand">
-                <a href="/" target="_blank" rel="noopener" class="room-nav-brand-link" data-i18n-title="logo_title" title="DSF Horizon を開く">
+                <button id="studio-logo-menu-btn" class="room-nav-brand-link room-nav-brand-btn" type="button" onclick="toggleStudioLogoMenu(event)" data-i18n-title="mobile_nav_open" title="メニューを開く" aria-haspopup="menu" aria-expanded="false">
                     <span class="room-logo-dsf">DSF</span><span class="room-logo-studio">Studio</span>
-                </a>
+                </button>
+                <div id="studio-logo-menu" class="studio-logo-menu" role="menu" hidden>
+                    <div class="studio-logo-menu-head">
+                        <div class="mobile-menu-logo"><span>DSF</span><small>Studio</small></div>
+                        <p data-i18n="mobile_nav_rooms">ルーム一覧</p>
+                    </div>
+                    <a href="/" target="_blank" rel="noopener" class="studio-logo-menu-link" role="menuitem" data-i18n-title="logo_title" title="DSF Horizon を開く" onclick="closeStudioLogoMenu()">
+                        <span class="material-icons" aria-hidden="true">public</span>
+                        <span data-i18n="nav_horizon">Horizon</span>
+                    </a>
+                    <button class="studio-logo-menu-link" role="menuitem" data-studio-room-nav="home" onclick="closeStudioLogoMenu(); switchRoom('home')"><span class="material-icons" aria-hidden="true">dashboard</span><span data-i18n="nav_dashboard">ダッシュボード</span></button>
+                    <button class="studio-logo-menu-link" role="menuitem" data-studio-room-nav="editor" onclick="closeStudioLogoMenu(); switchRoom('editor')"><span class="material-icons" aria-hidden="true">edit</span><span data-i18n="nav_editor">エディター</span></button>
+                    <button class="studio-logo-menu-link" role="menuitem" data-studio-room-nav="press" onclick="closeStudioLogoMenu(); switchRoom('press')" data-auth-required><span class="material-icons" aria-hidden="true">publish</span><span data-i18n="nav_press">プレス</span></button>
+                    <button class="studio-logo-menu-link" role="menuitem" data-studio-room-nav="works" onclick="closeStudioLogoMenu(); switchRoom('works')" data-auth-required><span class="material-icons" aria-hidden="true">library_books</span><span data-i18n="nav_works">作品</span></button>
+                </div>
             </div>
             <div class="room-nav-tabs">
                 <button class="room-tab" data-room="home" onclick="switchRoom('home')">
-                    <span class="material-icons">folder_open</span> <span data-i18n="nav_projects">プロジェクト</span>
+                    <span class="material-icons">dashboard</span> <span data-i18n="nav_dashboard">ダッシュボード</span>
                 </button>
                 <button class="room-tab" data-room="editor" onclick="switchRoom('editor')">
                     <span class="material-icons">edit</span> <span data-i18n="nav_editor">エディター</span>
@@ -54,18 +68,43 @@
         <!-- Home Room -->
         <div id="home-room" class="room">
             <div class="home-room-header">
-                <h2 data-i18n="home_title">プロジェクト</h2>
+                <h2 data-i18n="home_title">Dashboard</h2>
             </div>
             <div class="home-room-body">
-                <div class="home-quick-actions">
-                    <button class="home-action-btn primary home-action-large" onclick="if (newProject()) switchRoom('editor')">
-                        <span class="material-icons">add</span> <span data-i18n="btn_new_project">新規プロジェクト</span>
-                    </button>
-                </div>
+                <section class="home-dashboard-hero">
+                    <div class="home-dashboard-copy">
+                        <span class="home-dashboard-kicker" data-i18n="home_dashboard_kicker">作品運用</span>
+                        <h3 data-i18n="home_dashboard_title">作品の状態を確認する</h3>
+                        <p data-i18n="home_dashboard_subtitle">公開状態、レビュー、読者反応を確認し、必要な作品やプロジェクトへ移動します。</p>
+                    </div>
+                    <div class="home-dashboard-actions">
+                        <button class="home-action-btn primary" onclick="switchRoom('works')">
+                            <span class="material-icons">library_books</span> <span data-i18n="nav_works">作品</span>
+                        </button>
+                        <button class="home-action-btn" onclick="if (newProject()) switchRoom('editor')">
+                            <span class="material-icons">add</span> <span data-i18n="btn_new_project">新規プロジェクト</span>
+                        </button>
+                    </div>
+                </section>
+                <section id="home-dashboard-stats" class="home-dashboard-stats" aria-live="polite"></section>
+                <section class="home-work-section">
+                    <div class="home-section-head">
+                        <div class="home-section-title-wrap">
+                            <h3 data-i18n="home_section_works">作品アナリティクス</h3>
+                            <span id="home-work-count" class="home-section-count">0</span>
+                        </div>
+                        <div class="home-section-actions">
+                            <button class="home-action-btn" onclick="switchRoom('works')">
+                                <span class="material-icons">open_in_new</span> <span data-i18n="home_open_works">Works Room</span>
+                            </button>
+                        </div>
+                    </div>
+                    <div id="home-work-grid" class="home-work-grid"></div>
+                </section>
                 <section class="home-project-section">
                     <div class="home-section-head">
                         <div class="home-section-title-wrap">
-                            <h3 data-i18n="home_section_cloud">クラウド</h3>
+                            <h3 data-i18n="home_section_cloud">クラウドプロジェクト</h3>
                             <span id="home-cloud-count" class="home-section-count">0</span>
                         </div>
                     </div>
@@ -152,6 +191,9 @@
                         <button class="btn-tool btn-tool-icon" onclick="insertSectionBeforeActive()">
                             <span class="material-icons" aria-hidden="true">add_photo_alternate</span><span data-i18n="btn_add_section">画像ページ</span>
                         </button>
+                        <button class="btn-tool btn-tool-icon" onclick="insertSpreadImageBeforeActive()">
+                            <span class="material-icons" aria-hidden="true">view_week</span><span data-i18n="btn_add_spread_image_section">見開き画像ページ</span>
+                        </button>
                         <button class="btn-tool btn-tool-icon" onclick="addBubbleFab()">
                             <span class="material-icons" aria-hidden="true">text_fields</span><span data-i18n="btn_add_bubble">テキスト追加</span>
                         </button>
@@ -212,12 +254,30 @@
 
         <div id="workspace">
             <div id="icon-bar">
-                <button class="icon-bar-btn" data-panel="assets" onclick="toggleDrawer('assets')" title="アセット">
+                <button class="icon-bar-btn" data-panel="toc" data-drawer="toc" onclick="toggleDrawer('toc')" title="目次">
+                    <span class="material-icons">format_list_bulleted</span>
+                    <span class="icon-bar-label" data-i18n="icon_toc">目次</span>
+                </button>
+                <button class="icon-bar-btn" data-panel="assets" data-drawer="assets" onclick="toggleDrawer('assets')" title="アセット">
                     <span class="material-icons">image</span>
                     <span class="icon-bar-label" data-i18n="icon_assets">アセット</span>
                 </button>
             </div>
             <aside id="sidebar">
+                <!-- Desktop: TOC panel -->
+                <div class="sidebar-toc">
+                    <div class="panel-head">
+                        <h3 data-i18n="toc_preview_title">目次プレビュー</h3>
+                        <button class="btn-sm" type="button" onclick="closeDrawer()" data-i18n="btn_close">閉じる</button>
+                    </div>
+                    <div class="toc-preview-panel js-toc-preview-panel" style="display:none;">
+                        <div class="toc-preview-head">
+                            <span class="material-icons" aria-hidden="true">format_list_bulleted</span>
+                            <span data-i18n="toc_preview_title">目次プレビュー</span>
+                        </div>
+                        <div class="toc-preview-list js-toc-preview-list"></div>
+                    </div>
+                </div>
                 <!-- Desktop: Asset panel -->
                 <div class="sidebar-assets">
                     <div class="panel-head">
@@ -263,10 +323,17 @@
                         </div>
                         <!-- ページナビ -->
                         <div class="sidebar-pages-nav">
-                            <button class="strip-nav-btn" onclick="pagePrev()" title="前のページ"><span class="material-icons">chevron_left</span></button>
+                            <button class="strip-nav-btn" onclick="pageVisualLeft()" data-i18n-title="title_page_left" title="左のページへ"><span class="material-icons">chevron_left</span></button>
                             <span id="page-strip-counter-mobile" class="strip-page-counter">1 / 1</span>
-                            <button class="strip-nav-btn" onclick="pageNext()" title="次のページ"><span class="material-icons">chevron_right</span></button>
+                            <button class="strip-nav-btn" onclick="pageVisualRight()" data-i18n-title="title_page_right" title="右のページへ"><span class="material-icons">chevron_right</span></button>
                         </div>
+                    </div>
+                    <div class="toc-preview-panel js-toc-preview-panel" style="display:none;">
+                        <div class="toc-preview-head">
+                            <span class="material-icons" aria-hidden="true">format_list_bulleted</span>
+                            <span data-i18n="toc_preview_title">目次プレビュー</span>
+                        </div>
+                        <div class="toc-preview-list js-toc-preview-list"></div>
                     </div>
                     <div id="thumb-container"></div>
                     <div id="thumb-delete-dropzone" aria-hidden="true">
@@ -285,6 +352,16 @@
                     ondrop="handleCanvasDrop(event)">
                     <div id="canvas-stage">
                         <div id="canvas-transform-layer">
+                            <div id="canvas-page-heading-props"
+                                onmousedown="event.stopPropagation()"
+                                ontouchstart="event.stopPropagation()"
+                                onclick="event.stopPropagation()"
+                                style="display:none;">
+                                <input id="canvas-page-heading-input" type="text"
+                                    oninput="updatePageHeading(this.value)"
+                                    data-i18n-placeholder="page_heading_placeholder"
+                                    placeholder="目次に表示する見出し">
+                            </div>
                             <div id="content-render"></div>
                             <div id="bubble-layer"></div>
                             <div id="text-preview-overlay" aria-live="polite">
@@ -344,14 +421,21 @@
                 </div>
                 <div id="page-strip">
                     <div id="page-strip-handle">
-                        <button class="strip-nav-btn" onclick="event.stopPropagation(); pagePrev()" id="btn-page-prev" title="前のページ (←)"><span class="material-icons">chevron_left</span></button>
-                        <span id="page-strip-counter" class="strip-page-counter">1 / 1</span>
-                        <button class="strip-nav-btn" onclick="event.stopPropagation(); pageNext()" id="btn-page-next" title="次のページ (→)"><span class="material-icons">chevron_right</span></button>
-                        <div class="strip-toggle-area" onclick="togglePageStrip()" title="ページパネルを開閉">
+                        <button class="strip-nav-btn" onclick="event.stopPropagation(); pageVisualLeft()" id="btn-page-prev" data-i18n-title="title_page_left" title="左のページへ"><span class="material-icons">chevron_left</span></button>
+                        <div id="page-nav-slider-wrap" class="page-nav-slider-wrap" onclick="event.stopPropagation()">
+                            <span id="page-nav-slider-bubble" class="page-nav-slider-bubble">1</span>
+                            <input id="page-nav-slider" class="page-nav-slider" type="range" min="0" max="0" step="1" value="0"
+                                oninput="onPageSliderInput(this.value)"
+                                aria-label="ページ移動">
+                            <span id="page-nav-slider-total" class="page-nav-slider-total">1</span>
+                        </div>
+                        <button class="strip-nav-btn" onclick="event.stopPropagation(); pageVisualRight()" id="btn-page-next" data-i18n-title="title_page_right" title="右のページへ"><span class="material-icons">chevron_right</span></button>
+                        <div class="strip-toggle-area" onclick="togglePageStrip()" data-i18n-title="title_page_strip_toggle" title="ページパネルを開閉">
                             <span class="material-icons" id="page-strip-chevron">expand_more</span>
                             <span id="page-strip-handle-label" data-i18n="page_strip_label">ページ</span>
                         </div>
-                        <button class="strip-nav-btn strip-spread-btn" onclick="event.stopPropagation(); toggleSpreadView()" id="btn-spread-view" title="見開き表示切り替え"><span class="material-icons">auto_stories</span></button>
+                        <button class="strip-nav-btn strip-language-compare-btn" onclick="event.stopPropagation(); toggleLanguageCompareView()" id="btn-language-compare-view" data-i18n-title="title_language_compare" title="言語を並べて表示"><span class="material-icons">translate</span></button>
+                        <button class="strip-nav-btn strip-spread-btn" onclick="event.stopPropagation(); toggleSpreadView()" id="btn-spread-view" data-i18n-title="title_spread_view" title="見開き表示切り替え"><span class="material-icons">auto_stories</span></button>
                     </div>
                     <div id="page-strip-body">
                         <div id="page-strip-thumbs"></div>
@@ -365,8 +449,8 @@
                     <h3 data-i18n="panel_edit">編集</h3>
                     <button class="btn-sm" type="button" onclick="toggleEditPanel()" data-i18n="btn_close">閉じる</button>
                 </div>
-                <div class="control-group">
-                    <div id="page-lock-note" class="panel-lock-note" style="display:none;"></div>
+                    <div class="control-group">
+                        <div id="page-lock-note" class="panel-lock-note" style="display:none;"></div>
 
                     <div id="image-only-props">
                         <label data-i18n="label_bg_image">背景画像変更 / 位置調整</label>
@@ -436,25 +520,11 @@
                                     onclick="updateTextSectionAlign('end')" data-i18n="text_align_end">後端</button>
                             </div>
                         </div>
-                        <div class="text-paper-section">
-                            <label class="field-label">紙</label>
-                            <div class="text-paper-options" role="group" aria-label="本文ページの紙">
-                                <button class="text-paper-btn" type="button" data-text-paper-preset="white"
-                                    onclick="updateTextSectionPaperPreset('white')">
-                                    <span class="text-paper-swatch" style="background:#ffffff;color:#000000;">あ</span>
-                                    <span>白紙</span>
-                                </button>
-                                <button class="text-paper-btn" type="button" data-text-paper-preset="book"
-                                    onclick="updateTextSectionPaperPreset('book')">
-                                    <span class="text-paper-swatch" style="background:#f7f1df;color:#1f1b16;">あ</span>
-                                    <span>書籍用紙</span>
-                                </button>
-                            </div>
-                        </div>
                         <button id="text-overflow-badge" class="text-overflow-badge text-overflow-badge--flow" style="display:none;"
                             onclick="autoFlowTextSection()" type="button">溢れあり</button>
                         <div class="text-input-hints">
                             <span class="ruby-input-hint" data-i18n="hint_ruby_syntax">{漢字|かんじ} でルビ入力</span>
+                            <button class="page-break-btn" onclick="insertRubyMarkup()" data-i18n="btn_insert_ruby" title="ルビを挿入">ルビ挿入</button>
                             <button class="page-break-btn" onclick="insertPageBreak()" data-i18n="btn_insert_page_break" title="改ページを挿入 (===)">改ページ</button>
                         </div>
                     </div>
@@ -487,7 +557,7 @@
                     <span class="material-icons" aria-hidden="true">public</span>
                     <span data-i18n="nav_horizon">Horizon</span>
                 </a>
-                <button class="mobile-studio-nav-link" role="menuitem" data-mobile-room-nav="home" onclick="closeMobileStudioNavMenu(); switchRoom('home')"><span class="material-icons" aria-hidden="true">folder_open</span><span data-i18n="nav_projects">プロジェクト</span></button>
+                <button class="mobile-studio-nav-link" role="menuitem" data-mobile-room-nav="home" onclick="closeMobileStudioNavMenu(); switchRoom('home')"><span class="material-icons" aria-hidden="true">dashboard</span><span data-i18n="nav_dashboard">ダッシュボード</span></button>
                 <button class="mobile-studio-nav-link" role="menuitem" data-mobile-room-nav="editor" onclick="closeMobileStudioNavMenu(); switchRoom('editor')"><span class="material-icons" aria-hidden="true">edit</span><span data-i18n="nav_editor">エディター</span></button>
                 <button class="mobile-studio-nav-link" role="menuitem" data-mobile-room-nav="press" onclick="closeMobileStudioNavMenu(); switchRoom('press')" data-auth-required><span class="material-icons" aria-hidden="true">publish</span><span data-i18n="nav_press">プレス</span></button>
                 <button class="mobile-studio-nav-link" role="menuitem" data-mobile-room-nav="works" onclick="closeMobileStudioNavMenu(); switchRoom('works')" data-auth-required><span class="material-icons" aria-hidden="true">library_books</span><span data-i18n="nav_works">作品</span></button>
@@ -520,7 +590,8 @@
                 <button class="btn-tool btn-tool-icon" onclick="closeMobileSheet(); openProjectSettings();" data-mobile-room-only="editor"><span class="material-icons" aria-hidden="true">settings</span><span data-i18n="mobile_home_project_settings">プロジェクト設定</span></button>
             </div>
             <div id="mobile-sheet-add" class="mobile-sheet-content">
-                <button class="btn-tool btn-tool-icon" onclick="insertSectionBeforeActive()"><span class="material-icons" aria-hidden="true">add_box</span><span data-i18n="btn_add_section">セクション追加</span></button>
+                <button class="btn-tool btn-tool-icon" onclick="insertSectionBeforeActive()"><span class="material-icons" aria-hidden="true">add_box</span><span data-i18n="btn_add_section">画像ページ</span></button>
+                <button class="btn-tool btn-tool-icon" onclick="insertSpreadImageBeforeActive()"><span class="material-icons" aria-hidden="true">view_week</span><span data-i18n="btn_add_spread_image_section">見開き画像ページ</span></button>
                 <button class="btn-tool btn-tool-icon" onclick="addBubbleFab()"><span class="material-icons" aria-hidden="true">text_fields</span><span data-i18n="btn_add_bubble">テキスト追加</span></button>
                 <button class="btn-tool btn-tool-icon" onclick="document.getElementById('file-upload').click()"><span class="material-icons" aria-hidden="true">image</span><span data-i18n="btn_add_image">画像追加</span></button>
             </div>
@@ -583,10 +654,6 @@
                                     </select>
                                     <span id="press-size-estimate" class="press-size-estimate"></span>
                                 </div>
-                            </div>
-                            <div class="press-field press-book-field">
-                                <label data-i18n="press_book_structure">表紙構成</label>
-                                <div id="press-book-settings" class="press-book-settings"></div>
                             </div>
                             <div class="press-preview-note">
                                 <span class="material-icons">info_outline</span>
@@ -702,6 +769,33 @@
                 <section class="ps-section">
                     <h3 data-i18n="ps_section_basic_info">基本情報</h3>
                     <div id="ps-meta-table"></div>
+                </section>
+
+                <!-- 4. 表紙構成 -->
+                <section class="ps-section">
+                    <h3 data-i18n="ps_section_book_structure">表紙構成</h3>
+                    <div id="ps-book-settings" class="press-book-settings ps-book-settings"></div>
+                </section>
+
+                <!-- 5. 本文ページ設定 -->
+                <section class="ps-section">
+                    <h3 data-i18n="ps_section_text_pages">本文ページ設定</h3>
+                    <div class="ps-field">
+                        <label data-i18n="label_text_paper">紙</label>
+                        <div class="text-paper-options" role="group" aria-label="本文ページの紙">
+                            <button class="text-paper-btn" type="button" data-project-text-paper-preset="white"
+                                onclick="updateProjectTextPaperPreset('white')">
+                                <span class="text-paper-swatch" style="background:#ffffff;color:#000000;">あ</span>
+                                <span data-i18n="text_paper_white">白紙</span>
+                            </button>
+                            <button class="text-paper-btn" type="button" data-project-text-paper-preset="book"
+                                onclick="updateProjectTextPaperPreset('book')">
+                                <span class="text-paper-swatch" style="background:#f7f1df;color:#1f1b16;">あ</span>
+                                <span data-i18n="text_paper_book">書籍用紙</span>
+                            </button>
+                        </div>
+                        <p class="ps-hint" data-i18n="text_paper_project_hint">全テキストページに適用されます。</p>
+                    </div>
                 </section>
 
                 <!-- 4. グローバル設定 -->

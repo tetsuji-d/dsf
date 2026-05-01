@@ -14,7 +14,7 @@
 根本的な内部構造（ZIP圧縮されたJSONと画像群）は同一ですが、用途と含まれるデータ粒度が異なります。
 
 ### `.dsp` (Digital Smart Project)
-*   **用途**: DSF Studio Pro 上での**編集用プロジェクトファイル**。バックアップや、別の端末・ユーザー間で作業状態をそのまま移行するために使用。
+*   **用途**: DSF Studio 上での**編集用プロジェクトファイル**。バックアップや、別の端末・ユーザー間で作業状態をそのまま移行するために使用。
 *   **特徴**:
     *   エディタのUI設定（サムネイルの列数、ズーム状態など）、編集途中のメタデータ、未翻訳の言語設定などを全て保持する。
     *   ユーザーが画質調整や切り抜きをやり直せるよう、**無劣化のオリジナル高解像度画像** を含む。
@@ -66,6 +66,9 @@ filename.dsf / filename.dsp
 {
   "version": "1.0.0",               // フォーマットのバージョン
   "schemaVersion": 1,               // 内部データの構造バージョン番号（後方互換性用）
+  "projectId": "proj_abc123",       // 編集単位のID（存在する場合）
+  "workId": "work_abc123",          // 読者向けに不変の作品ID（存在する場合）
+  "releaseId": "rel_abc123",        // 発行物のID（DSFの場合。DSPでは null/空文字可）
   "title": "作品タイトル",
   "author": "作者名",
   "labelName": "レーベル名",
@@ -87,7 +90,7 @@ filename.dsf / filename.dsp
   "defaultLang": "ja",
   "created": "2026-02-21T12:00:00Z",
   "modified": "2026-02-21T15:30:00Z",
-  "generator": "DSF Studio Pro v1.2",// 生成したツール
+  "generator": "DSF Studio v1.2",    // 生成したツール
   "presentation": {                 // 表示メタ（アプリは `js/page-geometry.js` と同期して書き出す）
     "orientation": "portrait",      // "portrait" (縦), "landscape" (16:9等の横)
     "aspectRatio": "9:16",          // 基準アスペクト比（正規表記）
@@ -104,6 +107,8 @@ filename.dsf / filename.dsp
 ```json
 {
   "projectId": "local_abc123",
+  "workId": "work_abc123",
+  "releaseId": null,
   "languageConfigs": {
     "ja": { "writingMode": "vertical-rl", "fontPreset": "mincho" },
     "en": { "writingMode": "horizontal-tb", "fontPreset": "sans" }
@@ -122,6 +127,9 @@ filename.dsf / filename.dsp
 
 ```json
 {
+  "projectId": "proj_abc123",
+  "workId": "work_abc123",
+  "releaseId": "rel_abc123",
   "pages": [
     {
       "pageId": "page-001",

@@ -44,6 +44,8 @@ export async function openWorksRoom(roomMode = false) {
             if (!d.dsfPages?.length) return;
             projects.push({
                 id:             docSnap.id,
+                workId:         d.workId || docSnap.id,
+                releaseId:      d.releaseId || null,
                 title:          d.title || '無題のプロジェクト',
                 dsfStatus:      d.dsfStatus || 'draft',
                 thumbnail:      _getThumbnail(d),
@@ -93,9 +95,13 @@ export async function openWorksRoom(roomMode = false) {
         listEl.querySelectorAll('.works-btn-delete').forEach(btn => {
             btn.addEventListener('click', async () => {
                 const pid = btn.dataset.deletePid;
+                const proj = projects.find(x => x.id === pid);
                 if (!confirm(`「${pid}」を削除しますか？\nこの操作は取り消せません。`)) return;
                 try {
                     await deleteDoc(doc(db, 'users', state.uid, 'projects', pid));
+                    if (proj?.workId) {
+                        await deleteDoc(doc(db, 'public_projects', proj.workId)).catch(() => {});
+                    }
                     await deleteDoc(doc(db, 'public_projects', pid)).catch(() => {});
                     btn.closest('.works-row')?.remove();
                 } catch (err) {
@@ -128,7 +134,7 @@ function _renderRow(p) {
     const langs = p.dsfLangs.length ? p.dsfLangs.map(l => l.toUpperCase()).join(' / ') : '—';
 
     return `
-        <div class="works-row" data-pid="${_esc(p.id)}">
+        <div class="works-row" data-pid="${_esc(p.id)}" data-work-id="${_esc(p.workId || p.id)}">
             <div class="works-thumb">${thumb}</div>
             <div class="works-info">
                 <div class="works-title">${_esc(p.title || p.id)}</div>
@@ -161,28 +167,38 @@ function _renderRow(p) {
 
 async function _updateDsfStatus(pid, newStatus, proj) {
     if (!state.uid || !pid) return;
+    const workId = proj?.workId || pid;
     try {
         await updateDoc(doc(db, 'users', state.uid, 'projects', pid), {
             dsfStatus: newStatus,
             visibility: newStatus === 'draft' ? 'private' : newStatus,
         });
 
-        const publicRef = doc(db, 'public_projects', pid);
-        if (newStatus === 'public' && proj) {
+        const publicRef = doc(db, 'public_projects', workId);
+        if ((newStatus === 'public' || newStatus === 'unlisted') && proj) {
             await setDoc(publicRef, {
                 title:      proj.title || '無題のプロジェクト',
+                projectId:  pid,
+                workId,
+                releaseId:  proj.releaseId || null,
                 authorUid:  state.uid,
                 authorName: state.user?.displayName || state.user?.email || '',
                 thumbnail:  proj.thumbnail || null,
                 updatedAt:  serverTimestamp(),
-                dsfStatus:  'public',
+                dsfStatus:  newStatus,
                 dsfLangs:   proj.dsfLangs || [],
                 pageCount:  proj.pageCount || 0,
             }, { merge: true });
+            if (workId !== pid) {
+                await deleteDoc(doc(db, 'public_projects', pid)).catch(() => {});
+            }
         } else {
             // ステータスを更新してからドキュメント削除を試みる
             await setDoc(publicRef, { dsfStatus: newStatus }, { merge: true }).catch(() => {});
             await deleteDoc(publicRef).catch((e) => console.warn('[Works] public_projects delete:', e.message));
+            if (workId !== pid) {
+                await deleteDoc(doc(db, 'public_projects', pid)).catch(() => {});
+            }
         }
     } catch (err) {
         console.error('[Works] dsfStatus update error:', err);

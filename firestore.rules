@@ -130,6 +130,228 @@ service cloud.firestore {
         && request.resource.data.createdAt == resource.data.createdAt;
     }
 
+    function metricEventHasValidShape() {
+      return request.resource.data.keys().hasOnly([
+          'schemaVersion',
+          'eventType',
+          'workId',
+          'releaseId',
+          'projectId',
+          'readerUid',
+          'isSignedIn',
+          'sessionId',
+          'language',
+          'pageIndex',
+          'pageCount',
+          'progress',
+          'reason',
+          'source',
+          'viewerPath',
+          'referrer',
+          'viewportWidth',
+          'viewportHeight',
+          'createdAt'
+        ])
+        && request.resource.data.keys().hasAll([
+          'schemaVersion',
+          'eventType',
+          'workId',
+          'releaseId',
+          'projectId',
+          'readerUid',
+          'isSignedIn',
+          'sessionId',
+          'language',
+          'pageIndex',
+          'pageCount',
+          'progress',
+          'reason',
+          'source',
+          'viewerPath',
+          'referrer',
+          'viewportWidth',
+          'viewportHeight',
+          'createdAt'
+        ]);
+    }
+
+    function metricEventHasValidValues() {
+      return request.resource.data.schemaVersion == 1
+        && request.resource.data.eventType in ['view_start', 'page_view', 'read_complete']
+        && request.resource.data.workId is string
+        && request.resource.data.workId.size() > 0
+        && request.resource.data.workId.size() <= 128
+        && request.resource.data.releaseId is string
+        && request.resource.data.releaseId.size() <= 128
+        && request.resource.data.projectId is string
+        && request.resource.data.projectId.size() <= 128
+        && request.resource.data.readerUid is string
+        && request.resource.data.readerUid == (isSignedIn() ? request.auth.uid : '')
+        && request.resource.data.isSignedIn == isSignedIn()
+        && request.resource.data.sessionId is string
+        && request.resource.data.sessionId.size() > 0
+        && request.resource.data.sessionId.size() <= 96
+        && request.resource.data.language is string
+        && request.resource.data.language.size() > 0
+        && request.resource.data.language.size() <= 16
+        && request.resource.data.pageIndex is int
+        && request.resource.data.pageCount is int
+        && request.resource.data.pageCount > 0
+        && request.resource.data.pageIndex >= 0
+        && request.resource.data.pageIndex < request.resource.data.pageCount
+        && request.resource.data.progress is number
+        && request.resource.data.progress >= 0
+        && request.resource.data.progress <= 1
+        && request.resource.data.reason is string
+        && request.resource.data.reason.size() <= 64
+        && request.resource.data.source == 'shared'
+        && request.resource.data.viewerPath is string
+        && request.resource.data.viewerPath.size() <= 256
+        && request.resource.data.referrer is string
+        && request.resource.data.referrer.size() <= 512
+        && request.resource.data.viewportWidth is int
+        && request.resource.data.viewportWidth >= 0
+        && request.resource.data.viewportWidth <= 10000
+        && request.resource.data.viewportHeight is int
+        && request.resource.data.viewportHeight >= 0
+        && request.resource.data.viewportHeight <= 10000
+        && request.resource.data.createdAt == request.time;
+    }
+
+    function validMetricEvent() {
+      return metricEventHasValidShape() && metricEventHasValidValues();
+    }
+
+    function reviewHasValidShape() {
+      return request.resource.data.keys().hasOnly([
+          'reviewId',
+          'workId',
+          'releaseId',
+          'projectId',
+          'authorUid',
+          'readerUid',
+          'readerName',
+          'goodCount',
+          'badCount',
+          'body',
+          'status',
+          'createdAt',
+          'updatedAt'
+        ])
+        && request.resource.data.keys().hasAll([
+          'reviewId',
+          'workId',
+          'releaseId',
+          'projectId',
+          'authorUid',
+          'readerUid',
+          'readerName',
+          'goodCount',
+          'badCount',
+          'body',
+          'status',
+          'createdAt',
+          'updatedAt'
+        ]);
+    }
+
+    function reviewHasValidValues(workId, reviewId) {
+      return request.resource.data.reviewId == reviewId
+        && request.resource.data.workId == workId
+        && request.resource.data.releaseId is string
+        && request.resource.data.releaseId.size() <= 128
+        && request.resource.data.projectId is string
+        && request.resource.data.projectId.size() <= 128
+        && request.resource.data.authorUid is string
+        && request.resource.data.authorUid.size() <= 128
+        && request.resource.data.readerUid == request.auth.uid
+        && request.resource.data.readerName is string
+        && request.resource.data.readerName.size() <= 80
+        && request.resource.data.goodCount is int
+        && request.resource.data.goodCount == 0
+        && request.resource.data.badCount is int
+        && request.resource.data.badCount == 0
+        && request.resource.data.body is string
+        && request.resource.data.body.size() > 0
+        && request.resource.data.body.size() <= 2000
+        && request.resource.data.status == 'published'
+        && request.resource.data.createdAt == request.time
+        && request.resource.data.updatedAt == request.time;
+    }
+
+    function validReviewCreate(workId, reviewId) {
+      return isSignedIn()
+        && reviewHasValidShape()
+        && reviewHasValidValues(workId, reviewId);
+    }
+
+    function validReviewStaffUpdate() {
+      return isStaff()
+        && request.resource.data.diff(resource.data).changedKeys().hasOnly(['status', 'updatedAt'])
+        && request.resource.data.status in ['published', 'hidden', 'removed']
+        && request.resource.data.updatedAt == request.time;
+    }
+
+    function priorReviewGoodCount() {
+      return resource.data.keys().hasAny(['goodCount']) ? resource.data.goodCount : 0;
+    }
+
+    function priorReviewBadCount() {
+      return resource.data.keys().hasAny(['badCount']) ? resource.data.badCount : 0;
+    }
+
+    function validReviewReactionAggregateUpdate() {
+      return isSignedIn()
+        && request.resource.data.diff(resource.data).changedKeys().hasOnly(['goodCount', 'badCount', 'updatedAt'])
+        && request.resource.data.goodCount is int
+        && request.resource.data.goodCount >= 0
+        && request.resource.data.goodCount <= priorReviewGoodCount() + 1
+        && request.resource.data.goodCount >= priorReviewGoodCount() - 1
+        && request.resource.data.badCount is int
+        && request.resource.data.badCount >= 0
+        && request.resource.data.badCount <= priorReviewBadCount() + 1
+        && request.resource.data.badCount >= priorReviewBadCount() - 1
+        && request.resource.data.updatedAt == request.time;
+    }
+
+    function validReviewReactionShape(uid) {
+      return request.resource.data.keys().hasOnly([
+          'workId',
+          'reviewId',
+          'uid',
+          'reaction',
+          'createdAt',
+          'updatedAt'
+        ])
+        && request.resource.data.keys().hasAll([
+          'workId',
+          'reviewId',
+          'uid',
+          'reaction',
+          'createdAt',
+          'updatedAt'
+        ])
+        && request.resource.data.uid == uid
+        && request.resource.data.reaction in ['good', 'bad'];
+    }
+
+    function validReviewReactionCreate(workId, reviewId, uid) {
+      return isOwner(uid)
+        && validReviewReactionShape(uid)
+        && request.resource.data.workId == workId
+        && request.resource.data.reviewId == reviewId
+        && request.resource.data.createdAt == request.time
+        && request.resource.data.updatedAt == request.time;
+    }
+
+    function validReviewReactionUpdate() {
+      return isSignedIn()
+        && resource.data.uid == request.auth.uid
+        && request.resource.data.diff(resource.data).changedKeys().hasOnly(['reaction', 'updatedAt'])
+        && request.resource.data.reaction in ['good', 'bad']
+        && request.resource.data.updatedAt == request.time;
+    }
+
     // ユーザー正本
     match /users/{uid} {
       allow read: if isOwner(uid) || isStaff();
@@ -148,6 +370,23 @@ service cloud.firestore {
         allow read, write: if isOwner(uid);
         allow read: if resource.data.dsfStatus in ['public', 'unlisted'];
       }
+
+      // 読者向けの恒久作品IDと発行履歴
+      match /works/{workId} {
+        allow read, write: if isOwner(uid);
+
+        match /releases/{releaseId} {
+          allow read, write: if isOwner(uid);
+        }
+      }
+
+      // 読者ごとのしおり。ドキュメントIDは workId。
+      match /bookmarks/{workId} {
+        allow read: if isOwner(uid);
+        allow create, update: if isOwner(uid)
+                              && request.resource.data.workId == workId;
+        allow delete: if isOwner(uid);
+      }
     }
 
     match /public_projects/{pid} {
@@ -157,6 +396,34 @@ service cloud.firestore {
       allow delete: if (isSignedIn() && resource.data.authorUid == request.auth.uid)
                     || isAdmin()
                     || isOperator();
+    }
+
+    match /metric_events/{eventId} {
+      allow create: if validMetricEvent();
+      allow read: if isStaff();
+      allow update, delete: if false;
+    }
+
+    match /reviews/{workId} {
+      allow read, write: if false;
+
+      match /items/{reviewId} {
+        allow read: if resource.data.status == 'published'
+                    || (isSignedIn() && resource.data.readerUid == request.auth.uid)
+                    || isStaff();
+        allow create: if validReviewCreate(workId, reviewId);
+        allow update: if validReviewStaffUpdate()
+                      || validReviewReactionAggregateUpdate();
+        allow delete: if isStaff()
+                      || (isSignedIn() && resource.data.readerUid == request.auth.uid);
+
+        match /reactions/{uid} {
+          allow read: if isOwner(uid) || isStaff();
+          allow create: if validReviewReactionCreate(workId, reviewId, uid);
+          allow update: if validReviewReactionUpdate();
+          allow delete: if isOwner(uid) || isStaff();
+        }
+      }
     }
   }
 }
