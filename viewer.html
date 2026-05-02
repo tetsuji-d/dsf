@@ -41,6 +41,14 @@
                 <div id="zone-next" style="flex: 0 0 30%; height:100%; cursor:pointer;" onclick="viewerNavRight()"
                     title="次のページ"></div>
             </div>
+            <div class="viewer-side-nav">
+                <button id="viewer-nav-left" class="nav-btn viewer-side-nav-btn viewer-side-nav-left" onclick="viewerNavLeft()">
+                    <span class="material-icons" aria-hidden="true">chevron_left</span>
+                </button>
+                <button id="viewer-nav-right" class="nav-btn viewer-side-nav-btn viewer-side-nav-right" onclick="viewerNavRight()">
+                    <span class="material-icons" aria-hidden="true">chevron_right</span>
+                </button>
+            </div>
         </div>
         <aside id="viewer-info-panel" class="viewer-info-panel" data-state="closed" data-layout="sheet" hidden>
             <div class="viewer-info-panel-shell">
@@ -155,15 +163,30 @@
                 </a>
 
                 <div class="slider-wrapper">
+                    <div id="page-slider-preview" class="page-slider-preview" hidden>
+                        <div class="page-slider-preview-frame">
+                            <div class="page-slider-preview-surface page-slider-preview-left">
+                                <img alt="" class="page-slider-preview-image">
+                                <div class="page-slider-preview-empty"></div>
+                            </div>
+                            <div class="page-slider-preview-surface page-slider-preview-right">
+                                <img alt="" class="page-slider-preview-image">
+                                <div class="page-slider-preview-empty"></div>
+                            </div>
+                            <div class="page-slider-preview-surface page-slider-preview-single">
+                                <img alt="" class="page-slider-preview-image">
+                                <div class="page-slider-preview-empty"></div>
+                            </div>
+                        </div>
+                        <div class="page-slider-preview-label"></div>
+                    </div>
+                    <div class="page-slider-rail" aria-hidden="true">
+                        <div id="page-slider-hover-track" class="page-slider-hover-track"></div>
+                        <div id="page-slider-progress-track" class="page-slider-progress-track"></div>
+                    </div>
                     <output id="page-slider-label" class="page-slider-label" for="page-slider">1</output>
                     <input type="range" id="page-slider" min="1" max="1" value="1" oninput="jumpToPage(this.value)">
-                </div>
-                <div class="footer-nav-group">
-                    <span id="page-count" class="page-count">1 / 1</span>
-                    <div class="viewer-nav-btns">
-                        <button id="viewer-nav-left" class="nav-btn" onclick="viewerNavLeft()"><span class="material-icons" aria-hidden="true">chevron_left</span></button>
-                        <button id="viewer-nav-right" class="nav-btn" onclick="viewerNavRight()"><span class="material-icons" aria-hidden="true">chevron_right</span></button>
-                    </div>
+                    <div id="page-slider-total" class="page-slider-total">1</div>
                 </div>
             </div>
         </div>

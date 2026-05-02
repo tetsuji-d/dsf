@@ -34,6 +34,7 @@ let spreadMode = false;
 let requestedBookMode = '';
 let viewerBookModel = null;
 let bookSpreadIndex = 0;
+let viewerSpreadManualOverride = false;
 
 // ── Zoom / Pan State ──────────────────────────────────────────
 let viewScale = 1;
@@ -54,6 +55,16 @@ let suppressZoneClickUntil = 0;
 let activeGesturePointerId = null;
 let pointerGestureConsumed = false;
 let pageAnimationToken = 0;
+let singleSpreadSwipe = {
+    active: false,
+    dragging: false,
+    pointerId: null,
+    startX: 0,
+    startY: 0,
+    basePercent: 0,
+    currentPercent: 0,
+    pair: null
+};
 const VIEWER_PRELOAD_PAGE_RADIUS = 3;
 const VIEWER_PRELOAD_BOOK_UNIT_RADIUS = 2;
 const viewerPreloadedImageUrls = new Set();
@@ -68,6 +79,7 @@ const VIEWER_INFO_SWIPE_ZONE = 120;
 const VIEWER_INFO_HANDLE_SENSITIVITY = 1.18;
 const VIEWER_DRAWER_WIDTH = 630;
 const VIEWER_DRAWER_GAP = 0;
+const VIEWER_AUTO_SPREAD_MIN_WIDTH = 860;
 /** インク判定（輝度しきい値・低いほど「濃い部分だけがインク」）。高すぎるとアンチエイリアスまで膨張して潰れる。 */
 const VIEWER_DEV_MORPH_LUM_THRESHOLD = 168;
 const METRIC_EVENT_SCHEMA_VERSION = 1;
@@ -95,6 +107,7 @@ let viewerProjectMeta = {
 const VIEWER_INFO_STATES = ['closed', 'peek', 'summary', 'full'];
 let viewerInfoPanelState = 'closed';
 let viewerInfoLayoutMode = 'sheet';
+let viewerUiAutoHideTimer = null;
 let viewerInfoHandleDrag = {
     active: false,
     pointerId: null,
@@ -293,7 +306,7 @@ async function init() {
 
     document.addEventListener('keydown', onKeydown);
     document.addEventListener('wheel', onWheel, { passive: false });
-    window.addEventListener('resize', resizeCanvas);
+    window.addEventListener('resize', handleViewerResize);
     setupStandaloneFileDrop();
 
     await initAuth().catch((e) => console.warn('[Viewer] initAuth failed:', e));
@@ -301,6 +314,8 @@ async function init() {
     updateViewerInfoPanelLayout();
     renderViewerInfoPanel();
     bindViewerInfoHandle();
+    bindViewerSliderPreview();
+    bindViewerHoverChrome();
     applyViewerDevSmoothingClass();
 
     const params = new URLSearchParams(window.location.search);
@@ -618,6 +633,7 @@ function loadProjectData(raw, options = {}) {
     dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'languageConfigs', value: languageConfigs } });
     dispatch({ type: actionTypes.SET_ACTIVE_LANG, payload: defaultLang });
     dispatch({ type: actionTypes.SET_ACTIVE_INDEX, payload: 0 });
+    syncViewerAutoSpreadMode();
 
     const titleEl = document.getElementById('ui-title');
     if (titleEl) titleEl.textContent = raw.title || '';
@@ -1971,15 +1987,19 @@ function buildSimpleBookUnits(covers, bodyPages, dir) {
 }
 
 function getSurfacePhysicalSpreadRole(surface, lang) {
-    const meta = surface?.content?.spreadImage || surface?.spreadImage || surface?.devMeta?.spreadImage;
+    const meta = getSurfaceSpreadImageMeta(surface);
     if (!meta || typeof meta !== 'object' || !meta.groupId) return '';
     const roleForLang = meta.rolesByLang?.[lang];
     if (roleForLang === 'left' || roleForLang === 'right') return roleForLang;
     return meta.physicalRole === 'left' || meta.physicalRole === 'right' ? meta.physicalRole : '';
 }
 
+function getSurfaceSpreadImageMeta(surface) {
+    return surface?.content?.spreadImage || surface?.spreadImage || surface?.devMeta?.spreadImage || null;
+}
+
 function getSurfaceSpreadGroupId(surface) {
-    const meta = surface?.content?.spreadImage || surface?.spreadImage || surface?.devMeta?.spreadImage;
+    const meta = getSurfaceSpreadImageMeta(surface);
     return meta?.groupId ? String(meta.groupId) : '';
 }
 
@@ -2636,9 +2656,12 @@ function renderPageContentHTML(page, lang) {
     if (!url) {
         return `<div style="width:100%;height:100%;display:flex;align-items:center;justify-content:center;color:#666;font-size:14px;">${vt('imageMissing')}</div>`;
     }
+    const spreadRole = getSurfacePhysicalSpreadRole(page, lang);
+    const spreadClass = spreadRole ? ` viewer-page-image-spread viewer-page-image-spread-${spreadRole}` : '';
+    const spreadAttr = spreadRole ? ` data-spread-role="${esc(spreadRole)}"` : '';
     // Never set crossOrigin on the displayed img: without media CORS the image fails to decode (broken image).
     // Morph uses fetch() + createImageBitmap so pixels are readable when R2 CORS allows the viewer origin.
-    return `<img class="viewer-page-image" src="${esc(url)}" loading="eager">`;
+    return `<img class="viewer-page-image${spreadClass}"${spreadAttr} src="${esc(url)}" loading="eager">`;
 }
 
 function renderPageBubblesHTML(page, lang) {
@@ -2663,10 +2686,124 @@ function renderSurfaceBubblesHTML(surface, lang) {
 function renderPageIntoDom(page, lang) {
     const contentEl = document.getElementById('viewer-content');
     const bubblesEl = document.getElementById('viewer-bubbles');
-    if (contentEl) contentEl.innerHTML = renderSurfaceContentHTML(page, lang);
-    if (bubblesEl) bubblesEl.innerHTML = renderSurfaceBubblesHTML(page, lang);
+    if (contentEl) {
+        delete contentEl.dataset.singleSpread;
+        contentEl.style.setProperty('--viewer-single-spread-offset', '0%');
+        contentEl.innerHTML = renderSurfaceContentHTML(page, lang);
+    }
+    if (bubblesEl) {
+        delete bubblesEl.dataset.singleSpread;
+        bubblesEl.style.setProperty('--viewer-single-spread-offset', '0%');
+        bubblesEl.innerHTML = renderSurfaceBubblesHTML(page, lang);
+    }
+    resetSingleSpreadSwipe();
     scheduleViewerDevMorphPipeline();
     renderViewerDevMetrics();
+}
+
+function getDisplaySurfaceCandidates(displayIndex) {
+    const pages = getPages();
+    const rawPage = pages[displayIndex] || null;
+    const mappedSurface = getViewerSurfaceForDisplayIndex(displayIndex) || null;
+    return [mappedSurface, rawPage].filter((surface, pos, list) => (
+        surface && list.indexOf(surface) === pos
+    ));
+}
+
+function findSpreadSurfaceForDisplayIndex(displayIndex, lang, expectedGroupId = '', excludedRole = '') {
+    const candidates = getDisplaySurfaceCandidates(displayIndex);
+    for (const surface of candidates) {
+        const groupId = getSurfaceSpreadGroupId(surface);
+        const role = getSurfacePhysicalSpreadRole(surface, lang);
+        if (!groupId || (role !== 'left' && role !== 'right')) continue;
+        if (expectedGroupId && groupId !== expectedGroupId) continue;
+        if (excludedRole && role === excludedRole) continue;
+        return { surface, groupId, role };
+    }
+    return null;
+}
+
+function getSingleModeSpreadPair(displayIndex, lang) {
+    if (spreadMode) return null;
+    const pages = getPages();
+    if (pages.length <= 1 || displayIndex < 0 || displayIndex >= pages.length) return null;
+
+    const currentInfo = findSpreadSurfaceForDisplayIndex(displayIndex, lang);
+    const current = currentInfo?.surface;
+    const groupId = currentInfo?.groupId || '';
+    const currentRole = currentInfo?.role || '';
+    if (!groupId || (currentRole !== 'left' && currentRole !== 'right')) return null;
+
+    const candidateIndexes = [
+        displayIndex - 1,
+        displayIndex + 1,
+        ...pages.map((_, index) => index)
+    ].filter((index, pos, list) => (
+        index >= 0
+        && index < pages.length
+        && index !== displayIndex
+        && list.indexOf(index) === pos
+    ));
+
+    let partnerInfo = null;
+    const partnerIndex = candidateIndexes.find((index) => {
+        partnerInfo = findSpreadSurfaceForDisplayIndex(index, lang, groupId, currentRole);
+        return Boolean(partnerInfo);
+    });
+    if (!Number.isInteger(partnerIndex)) return null;
+
+    const partner = partnerInfo?.surface || getViewerSurfaceForDisplayIndex(partnerIndex) || pages[partnerIndex];
+    const currentIsLeft = currentRole === 'left';
+    return {
+        groupId,
+        currentIndex: displayIndex,
+        currentRole,
+        partnerIndex,
+        leftIndex: currentIsLeft ? displayIndex : partnerIndex,
+        rightIndex: currentIsLeft ? partnerIndex : displayIndex,
+        left: currentIsLeft ? current : partner,
+        right: currentIsLeft ? partner : current
+    };
+}
+
+function renderSingleModeSpreadPairIntoDom(pair, lang) {
+    const contentEl = document.getElementById('viewer-content');
+    const bubblesEl = document.getElementById('viewer-bubbles');
+    const offset = pair.currentRole === 'right' ? -50 : 0;
+    const contentHtml = `
+        <div class="viewer-single-spread-strip" style="--viewer-single-spread-offset:${offset}%">
+            <div class="viewer-single-spread-page viewer-single-spread-page-left">${renderSurfaceContentHTML(pair.left, lang)}</div>
+            <div class="viewer-single-spread-page viewer-single-spread-page-right">${renderSurfaceContentHTML(pair.right, lang)}</div>
+        </div>
+    `;
+    const bubblesHtml = `
+        <div class="viewer-single-spread-strip viewer-single-spread-bubbles" style="--viewer-single-spread-offset:${offset}%">
+            <div class="viewer-single-spread-page viewer-single-spread-page-left">${renderSurfaceBubblesHTML(pair.left, lang)}</div>
+            <div class="viewer-single-spread-page viewer-single-spread-page-right">${renderSurfaceBubblesHTML(pair.right, lang)}</div>
+        </div>
+    `;
+
+    if (contentEl) {
+        contentEl.dataset.singleSpread = 'true';
+        contentEl.innerHTML = contentHtml;
+    }
+    if (bubblesEl) {
+        bubblesEl.dataset.singleSpread = 'true';
+        bubblesEl.innerHTML = bubblesHtml;
+    }
+    resetSingleSpreadSwipe();
+    scheduleViewerDevMorphPipeline();
+    renderViewerDevMetrics();
+}
+
+function renderDisplayIndexIntoDom(displayIndex, lang) {
+    const pair = getSingleModeSpreadPair(displayIndex, lang);
+    if (pair) {
+        renderSingleModeSpreadPairIntoDom(pair, lang);
+        return;
+    }
+    const page = getViewerSurfaceForDisplayIndex(displayIndex) || getPages()[displayIndex];
+    renderPageIntoDom(page, lang);
 }
 
 function renderViewerDevMetrics() {
@@ -2889,7 +3026,7 @@ function animatePageTransition(fromPage, toPage, lang, motionDir) {
     const contentEl = document.getElementById('viewer-content');
     const bubblesEl = document.getElementById('viewer-bubbles');
     if (!stage || !contentEl || !bubblesEl || !fromPage || !toPage) {
-        renderPageIntoDom(toPage, lang);
+        renderDisplayIndexIntoDom(getIndex(), lang);
         return;
     }
 
@@ -2934,7 +3071,7 @@ function animatePageTransition(fromPage, toPage, lang, motionDir) {
         outgoing.remove();
         incoming.remove();
         if (token !== pageAnimationToken) return;
-        renderPageIntoDom(toPage, lang);
+        renderDisplayIndexIntoDom(getIndex(), lang);
         contentEl.style.visibility = '';
         bubblesEl.style.visibility = '';
     }, duration + 30);
@@ -3044,26 +3181,93 @@ function refresh() {
     const index = getIndex();
     const page = pages[index];
     const lang = state.activeLang;
-    renderPageIntoDom(page, lang);
+    const spreadStage = document.getElementById('viewer-spread-stage');
+    const spreadContent = document.getElementById('viewer-spread-content');
+    if (spreadContent) spreadContent.innerHTML = '';
+    if (spreadStage) spreadStage.style.display = 'none';
+    renderDisplayIndexIntoDom(index, lang);
     refreshChrome();
     preloadNearbyViewerImages();
 }
 
+function isViewerCoverRole(role) {
+    return /^C[1-4]$/i.test(String(role || '').trim());
+}
+
+function getViewerSurfaceRoleForSourceIndex(sourcePageIndex) {
+    if (!Number.isInteger(sourcePageIndex) || sourcePageIndex < 0 || !viewerBookModel) return '';
+    const coverSurfaces = viewerBookModel.covers
+        ? [viewerBookModel.covers.c1, viewerBookModel.covers.c2, viewerBookModel.covers.c3, viewerBookModel.covers.c4]
+        : [];
+    const bodySurfaces = Array.isArray(viewerBookModel.bodyPages) ? viewerBookModel.bodyPages : [];
+    const matched = [...coverSurfaces, ...bodySurfaces]
+        .find((surface) => surface?.sourcePageIndex === sourcePageIndex);
+    return String(matched?.bookRole || matched?.role || '').trim().toUpperCase();
+}
+
+function getViewerSurfaceForDisplayIndex(displayIndex) {
+    const pages = getPages();
+    const page = pages[displayIndex];
+    if (!page || !viewerBookModel) return page || null;
+
+    const coverSurfaces = viewerBookModel.covers
+        ? [viewerBookModel.covers.c1, viewerBookModel.covers.c2, viewerBookModel.covers.c3, viewerBookModel.covers.c4]
+        : [];
+    const bodySurfaces = Array.isArray(viewerBookModel.bodyPages) ? viewerBookModel.bodyPages : [];
+    const mappedBySource = [...coverSurfaces, ...bodySurfaces]
+        .find((surface) => surface?.sourcePageIndex === displayIndex);
+    if (mappedBySource) return mappedBySource;
+
+    const orderedSurfaces = [
+        viewerBookModel.covers?.c1,
+        viewerBookModel.covers?.c2,
+        ...bodySurfaces,
+        viewerBookModel.covers?.c3,
+        viewerBookModel.covers?.c4
+    ].filter(Boolean);
+    if (orderedSurfaces.length === pages.length) {
+        return orderedSurfaces[displayIndex] || page;
+    }
+
+    return page;
+}
+
+function getViewerBodyOrdinalForSourceIndex(sourcePageIndex) {
+    if (!Number.isInteger(sourcePageIndex) || sourcePageIndex < 0) return '';
+    if (Array.isArray(viewerBookModel?.bodyPages)) {
+        const bookBodyIndex = viewerBookModel.bodyPages.findIndex((surface) => surface?.sourcePageIndex === sourcePageIndex);
+        if (bookBodyIndex >= 0) return String(bookBodyIndex + 1);
+    }
+    let ordinal = 0;
+    const pages = getPages();
+    for (let i = 0; i < pages.length; i++) {
+        const role = pages[i]?.bookRole || pages[i]?.role || '';
+        if (!isViewerCoverRole(role)) ordinal++;
+        if (i === sourcePageIndex) return String(ordinal);
+    }
+    return '';
+}
+
 function formatViewerSurfaceSliderLabel(surface) {
     if (!surface) return '';
-    const role = String(surface.bookRole || '').trim().toUpperCase();
+    const role = String(
+        surface.bookRole ||
+        surface.role ||
+        getViewerSurfaceRoleForSourceIndex(surface.sourcePageIndex) ||
+        ''
+    ).trim().toUpperCase();
     if (/^C[1-4]$/.test(role)) return role;
+    if (Number.isInteger(surface.sourcePageIndex) && surface.sourcePageIndex >= 0) {
+        return getViewerBodyOrdinalForSourceIndex(surface.sourcePageIndex);
+    }
     const bodyMatch = role.match(/^P(\d+)$/);
     if (bodyMatch) return bodyMatch[1];
-    if (Number.isInteger(surface.sourcePageIndex) && surface.sourcePageIndex >= 0) {
-        return String(surface.sourcePageIndex + 1);
-    }
     return role || '';
 }
 
 function getViewerSliderLabel(isBook, displayIndex) {
-    if (!isBook) return String(displayIndex + 1);
-    const unit = getCurrentBookUnit();
+    if (!isBook) return formatViewerSurfaceSliderLabel(getViewerSurfaceForDisplayIndex(displayIndex)) || String(displayIndex + 1);
+    const unit = normalizeSpreadUnitForLang(getBookUnits()[displayIndex], state.activeLang);
     if (!unit) return String(displayIndex + 1);
     if (unit.type === 'single') {
         return formatViewerSurfaceSliderLabel(unit.center) || String(displayIndex + 1);
@@ -3080,6 +3284,52 @@ function updateViewerSliderLabel(slider, labelEl, total, displayIndex, isBook) {
     const percent = total > 1 ? displayIndex / (total - 1) : 0.5;
     const visualPercent = getPageDirection() === 'rtl' ? 1 - percent : percent;
     labelEl.style.left = `${Math.max(0, Math.min(1, visualPercent)) * 100}%`;
+    updateViewerSliderProgress(visualPercent);
+}
+
+function setViewerSliderTrackToPhysicalPosition(track, physicalRatio) {
+    if (!track) return;
+    const ratio = Math.max(0, Math.min(1, physicalRatio));
+    const dir = getPageDirection();
+    if (dir === 'rtl') {
+        track.style.left = 'auto';
+        track.style.right = '0';
+        track.style.width = `${(1 - ratio) * 100}%`;
+    } else {
+        track.style.left = '0';
+        track.style.right = 'auto';
+        track.style.width = `${ratio * 100}%`;
+    }
+}
+
+function updateViewerSliderProgress(visualPercent) {
+    setViewerSliderTrackToPhysicalPosition(
+        document.getElementById('page-slider-progress-track'),
+        visualPercent
+    );
+}
+
+function updateViewerSliderHoverProgress(visualPercent) {
+    setViewerSliderTrackToPhysicalPosition(
+        document.getElementById('page-slider-hover-track'),
+        visualPercent
+    );
+}
+
+function clearViewerSliderHoverProgress() {
+    const hoverTrack = document.getElementById('page-slider-hover-track');
+    if (hoverTrack) {
+        hoverTrack.style.left = '0';
+        hoverTrack.style.right = 'auto';
+        hoverTrack.style.width = '0';
+    }
+}
+
+function getViewerBodyPageTotal(isBook) {
+    if (Array.isArray(viewerBookModel?.bodyPages)) {
+        return viewerBookModel.bodyPages.length;
+    }
+    return getPages().filter((page) => !isViewerCoverRole(page?.bookRole || page?.role || '')).length;
 }
 
 function refreshChrome() {
@@ -3095,7 +3345,7 @@ function refreshChrome() {
     // スライダー・ページ番号
     const slider = document.getElementById('page-slider');
     const sliderLabel = document.getElementById('page-slider-label');
-    const countEl = document.getElementById('page-count');
+    const sliderTotal = document.getElementById('page-slider-total');
     const leftBtn = document.getElementById('viewer-nav-left');
     const rightBtn = document.getElementById('viewer-nav-right');
     const footer = document.getElementById('viewer-footer');
@@ -3107,7 +3357,10 @@ function refreshChrome() {
         slider.style.transform = '';
         slider.style.direction = dir === 'rtl' ? 'rtl' : 'ltr';
     }
+    const sliderDisplayLabel = getViewerSliderLabel(isBook, displayIndex);
     updateViewerSliderLabel(slider, sliderLabel, total, displayIndex, isBook);
+    const bodyTotal = getViewerBodyPageTotal(isBook);
+    if (sliderTotal) sliderTotal.textContent = String(bodyTotal);
     if (leftBtn) {
         leftBtn.textContent = '◀';
         leftBtn.title = dir === 'rtl' ? vt('nextPage') : vt('prevPage');
@@ -3119,7 +3372,6 @@ function refreshChrome() {
     if (footer) footer.classList.toggle('dir-rtl', dir === 'rtl');
     if (zonePrev) zonePrev.title = dir === 'rtl' ? vt('nextPage') : vt('prevPage');
     if (zoneNext) zoneNext.title = dir === 'rtl' ? vt('prevPage') : vt('nextPage');
-    if (countEl) countEl.textContent = `${displayIndex + 1} / ${total}`;
     renderViewerLanguagePicker();
     renderViewerAuthSlot(state.user || null);
     renderViewerInfoPanel();
@@ -3136,7 +3388,176 @@ window.toggleUi = (force) => {
 function updateUiVisibility() {
     const ui = document.getElementById('viewer-ui');
     ui?.classList.toggle('visible', isUiVisible);
+    document.body.classList.toggle('viewer-ui-visible', isUiVisible);
     syncViewerInfoChromeState();
+}
+
+function usesPointerHoverChrome() {
+    return window.matchMedia?.('(hover: hover) and (pointer: fine)')?.matches === true;
+}
+
+function clearViewerUiAutoHide() {
+    if (viewerUiAutoHideTimer) {
+        clearTimeout(viewerUiAutoHideTimer);
+        viewerUiAutoHideTimer = null;
+    }
+}
+
+function scheduleViewerUiAutoHide() {
+    if (!usesPointerHoverChrome()) return;
+    clearViewerUiAutoHide();
+    viewerUiAutoHideTimer = setTimeout(() => {
+        window.toggleUi(false);
+    }, 5000);
+}
+
+function revealViewerUiForPointer() {
+    if (!usesPointerHoverChrome()) return;
+    if (!isUiVisible) {
+        window.toggleUi(true);
+    } else {
+        updateUiVisibility();
+    }
+    scheduleViewerUiAutoHide();
+}
+
+function bindViewerHoverChrome() {
+    document.addEventListener('pointermove', (event) => {
+        if (!usesPointerHoverChrome()) return;
+        const canvas = document.getElementById('viewer-canvas');
+        const ui = document.getElementById('viewer-ui');
+        const target = event.target;
+        const overViewer = !!(canvas?.contains(target) || ui?.contains(target) || target.closest?.('.viewer-side-nav'));
+        if (overViewer) {
+            revealViewerUiForPointer();
+        } else if (isUiVisible) {
+            scheduleViewerUiAutoHide();
+        }
+    });
+    document.addEventListener('pointerleave', () => {
+        if (!usesPointerHoverChrome()) return;
+        scheduleViewerUiAutoHide();
+    });
+    scheduleViewerUiAutoHide();
+}
+
+function getViewerDisplayTotal() {
+    return spreadMode && hasBookModel() ? getBookUnits().length : getPages().length;
+}
+
+function getViewerDisplayIndex() {
+    return spreadMode && hasBookModel() ? bookSpreadIndex : getIndex();
+}
+
+function getViewerPreviewSurfaces(isBook, displayIndex) {
+    if (isBook) {
+        const unit = getBookUnits()[displayIndex];
+        const normalized = normalizeSpreadUnitForLang(unit, state.activeLang);
+        if (normalized?.type === 'spread') {
+            return {
+                spread: true,
+                left: normalized.left,
+                right: normalized.right
+            };
+        }
+        return { spread: false, single: normalized?.center };
+    }
+    return { spread: false, single: getViewerSurfaceForDisplayIndex(displayIndex) };
+}
+
+function getViewerSurfacePreviewUrl(surface) {
+    return surface && !surface.virtualBlank ? getPageAssetUrl(surface, state.activeLang) : '';
+}
+
+function getViewerPreviewData(displayIndex) {
+    const isBook = spreadMode && hasBookModel();
+    const total = getViewerDisplayTotal();
+    const clamped = Math.max(0, Math.min(total - 1, displayIndex));
+    const surfaces = getViewerPreviewSurfaces(isBook, clamped);
+    return {
+        label: isBook ? getViewerSliderLabel(true, clamped) : getViewerSliderLabel(false, clamped),
+        spread: !!surfaces.spread,
+        singleUrl: getViewerSurfacePreviewUrl(surfaces.single),
+        singleRole: getSurfacePhysicalSpreadRole(surfaces.single, state.activeLang),
+        leftUrl: getViewerSurfacePreviewUrl(surfaces.left),
+        leftRole: getSurfacePhysicalSpreadRole(surfaces.left, state.activeLang),
+        rightUrl: getViewerSurfacePreviewUrl(surfaces.right),
+        rightRole: getSurfacePhysicalSpreadRole(surfaces.right, state.activeLang)
+    };
+}
+
+function getSliderPointerIndex(slider, event) {
+    const total = getViewerDisplayTotal();
+    if (!slider || total <= 1) return 0;
+    if (!Number.isFinite(event?.clientX)) {
+        return Math.max(0, Math.min(total - 1, parseInt(slider.value, 10) - 1 || 0));
+    }
+    const rect = slider.getBoundingClientRect();
+    const physicalRatio = Math.max(0, Math.min(1, (event.clientX - rect.left) / Math.max(1, rect.width)));
+    const logicalRatio = getPageDirection() === 'rtl' ? 1 - physicalRatio : physicalRatio;
+    return Math.max(0, Math.min(total - 1, Math.round(logicalRatio * (total - 1))));
+}
+
+function getSliderPreviewPhysicalRatio(slider, event) {
+    const total = getViewerDisplayTotal();
+    if (!slider || total <= 1) return 0.5;
+    if (Number.isFinite(event?.clientX)) {
+        const rect = slider.getBoundingClientRect();
+        return Math.max(0, Math.min(1, (event.clientX - rect.left) / Math.max(1, rect.width)));
+    }
+    const logicalRatio = (Math.max(1, Math.min(total, parseInt(slider.value, 10) || 1)) - 1) / Math.max(1, total - 1);
+    return getPageDirection() === 'rtl' ? 1 - logicalRatio : logicalRatio;
+}
+
+function updateSliderPreview(event) {
+    const slider = document.getElementById('page-slider');
+    const preview = document.getElementById('page-slider-preview');
+    if (!slider || !preview) return;
+    const total = getViewerDisplayTotal();
+    if (total <= 0) return;
+    const physicalRatio = getSliderPreviewPhysicalRatio(slider, event);
+    const displayIndex = getSliderPointerIndex(slider, event);
+    const data = getViewerPreviewData(displayIndex);
+    const single = preview.querySelector('.page-slider-preview-single');
+    const left = preview.querySelector('.page-slider-preview-left');
+    const right = preview.querySelector('.page-slider-preview-right');
+    const label = preview.querySelector('.page-slider-preview-label');
+    setSliderPreviewSurface(single, data.singleUrl, data.singleRole);
+    setSliderPreviewSurface(left, data.leftUrl, data.leftRole);
+    setSliderPreviewSurface(right, data.rightUrl, data.rightRole);
+    if (label) label.textContent = data.label;
+    preview.dataset.spread = data.spread ? 'true' : 'false';
+    preview.style.left = `${physicalRatio * 100}%`;
+    updateViewerSliderHoverProgress(physicalRatio);
+    preview.hidden = false;
+}
+
+function setSliderPreviewSurface(surfaceEl, url, spreadRole = '') {
+    if (!surfaceEl) return;
+    const image = surfaceEl.querySelector('.page-slider-preview-image');
+    if (image && url && image.getAttribute('src') !== url) image.setAttribute('src', url);
+    if (image && !url) image.removeAttribute('src');
+    surfaceEl.dataset.empty = url ? 'false' : 'true';
+    if (spreadRole === 'left' || spreadRole === 'right') {
+        surfaceEl.dataset.spreadRole = spreadRole;
+    } else {
+        delete surfaceEl.dataset.spreadRole;
+    }
+}
+
+function hideSliderPreview() {
+    const preview = document.getElementById('page-slider-preview');
+    if (preview) preview.hidden = true;
+    clearViewerSliderHoverProgress();
+}
+
+function bindViewerSliderPreview() {
+    const slider = document.getElementById('page-slider');
+    if (!slider) return;
+    slider.addEventListener('pointermove', updateSliderPreview);
+    slider.addEventListener('pointerenter', updateSliderPreview);
+    slider.addEventListener('pointerleave', hideSliderPreview);
+    slider.addEventListener('input', (event) => updateSliderPreview(event));
 }
 
 document.addEventListener('click', (e) => {
@@ -3144,6 +3565,7 @@ document.addEventListener('click', (e) => {
         if (Date.now() <= suppressZoneClickUntil) return;
         if (e.target.closest?.('#viewer-ui')) return;
         if (e.target.closest?.('#viewer-info-panel')) return;
+        if (e.target.closest?.('.viewer-side-nav')) return;
         if (e.target.closest?.('#zone-prev, #zone-menu, #zone-next')) return;
         window.toggleUi(true);
         return;
@@ -3157,12 +3579,44 @@ document.addEventListener('click', (e) => {
     const header = document.getElementById('viewer-header');
     const footer = document.getElementById('viewer-footer');
     const infoPanel = document.getElementById('viewer-info-panel');
-    if (!(header?.contains(e.target) || footer?.contains(e.target) || infoPanel?.contains(e.target))) {
+    if (!(header?.contains(e.target) || footer?.contains(e.target) || infoPanel?.contains(e.target) || e.target.closest?.('.viewer-side-nav'))) {
         window.toggleUi(false);
     }
 });
 
 // ── Canvas Resize ─────────────────────────────────────────────
+function canUseViewerAutoSpread() {
+    return hasBookModel()
+        && window.innerWidth >= VIEWER_AUTO_SPREAD_MIN_WIDTH
+        && window.innerWidth > window.innerHeight;
+}
+
+function syncViewerAutoSpreadMode() {
+    if (viewerSpreadManualOverride || !hasBookModel()) return false;
+    const shouldSpread = canUseViewerAutoSpread();
+    if (spreadMode === shouldSpread) return false;
+    spreadMode = shouldSpread;
+    const btn = document.getElementById('viewer-spread-btn');
+    if (btn) btn.classList.toggle('active', spreadMode);
+    if (spreadMode) {
+        bookSpreadIndex = findBookUnitIndexForPage(getIndex());
+    } else {
+        const pageIndex = getBookUnitPrimaryPageIndex(getCurrentBookUnit());
+        if (pageIndex >= 0) {
+            dispatch({ type: actionTypes.SET_ACTIVE_INDEX, payload: pageIndex });
+        }
+    }
+    return true;
+}
+
+function handleViewerResize() {
+    if (syncViewerAutoSpreadMode()) {
+        refresh();
+    } else {
+        resizeCanvas();
+    }
+}
+
 /**
  * 外枠 `#viewer-canvas` をウィンドウ内に収めた 9:16 の箱にし、内側 `#content-stage` を
  * 論理ページ（CANONICAL_PAGE_*）へ等倍スケールでセンタリングする。
@@ -3192,33 +3646,63 @@ function resizeCanvas() {
     canvas.style.width = w + 'px';
     canvas.style.height = h + 'px';
 
+    const rawScale = showSpread
+        ? Math.min(w / (CANONICAL_PAGE_WIDTH * 2), h / CANONICAL_PAGE_HEIGHT)
+        : Math.min(w / CANONICAL_PAGE_WIDTH, h / CANONICAL_PAGE_HEIGHT);
+    const displayPageWidth = Math.max(1, Math.floor(CANONICAL_PAGE_WIDTH * rawScale));
+    const displayScale = displayPageWidth / CANONICAL_PAGE_WIDTH;
+    const displayPageHeight = CANONICAL_PAGE_HEIGHT * displayScale;
+    const spreadLeftX = showSpread ? Math.floor((w - displayPageWidth * 2) / 2) : 0;
+    const singleLeftX = Math.floor((w - displayPageWidth) / 2);
+    const pageY = Math.floor((h - displayPageHeight) / 2);
+
     const stage = document.getElementById('content-stage');
     if (stage) {
-        const pagesWide = showSpread ? 2 : 1;
-        const s = Math.min(w / (CANONICAL_PAGE_WIDTH * pagesWide), h / CANONICAL_PAGE_HEIGHT);
-        const ox = showSpread ? 0 : (w - CANONICAL_PAGE_WIDTH * s) / 2;
-        const oy = (h - CANONICAL_PAGE_HEIGHT * s) / 2;
-        stage.style.transform = `translate(${ox}px,${oy}px) scale(${s})`;
+        const ox = showSpread ? spreadLeftX : singleLeftX;
+        stage.style.transform = `translate(${ox}px,${pageY}px) scale(${displayScale})`;
     }
 
     // 見開きページ（隣）のステージ配置
     const spreadStage = document.getElementById('viewer-spread-stage');
     if (spreadStage) {
         if (showSpread) {
-            const s = Math.min(w / (CANONICAL_PAGE_WIDTH * 2), h / CANONICAL_PAGE_HEIGHT);
-            const oy = (h - CANONICAL_PAGE_HEIGHT * s) / 2;
-            // 左右ページを別DOMで描画するとサブピクセル丸めで中央にヘアラインが出る。
-            // 見開き時だけ隣ページを1px重ね、デジタル表示では中央線を見せない。
-            const seamOverlapPx = 1;
-            const ox = (CANONICAL_PAGE_WIDTH * s) - seamOverlapPx;
-            spreadStage.style.transform = `translate(${ox}px,${oy}px) scale(${s})`;
+            const ox = spreadLeftX + displayPageWidth;
+            spreadStage.style.transform = `translate(${ox}px,${pageY}px) scale(${displayScale})`;
             spreadStage.style.display = 'block';
         } else {
             spreadStage.style.display = 'none';
         }
     }
 
+    updateViewerSliderPlacement(canvas, w);
+    updateViewerSideNavPlacement(canvas, w);
     applyTransform();
+}
+
+function updateViewerSliderPlacement(canvas, canvasWidth) {
+    if (!canvas) return;
+    const rect = canvas.getBoundingClientRect();
+    const sliderWidth = Math.max(220, Math.min(720, window.innerWidth * 0.46));
+    document.documentElement.style.setProperty('--viewer-slider-center-x', `${Math.round(rect.left + rect.width / 2)}px`);
+    document.documentElement.style.setProperty('--viewer-slider-width', `${Math.round(sliderWidth)}px`);
+}
+
+function updateViewerSideNavPlacement(canvas, canvasWidth) {
+    if (!canvas) return;
+    const rect = canvas.getBoundingClientRect();
+    const buttonWidth = 44;
+    const edgeGap = 14;
+    const marginGap = 18;
+    const leftMargin = rect.left;
+    const rightMargin = window.innerWidth - rect.right;
+    const leftX = leftMargin >= buttonWidth + marginGap * 2
+        ? Math.max(edgeGap, rect.left - marginGap - buttonWidth)
+        : rect.left + edgeGap;
+    const rightX = rightMargin >= buttonWidth + marginGap * 2
+        ? Math.min(window.innerWidth - edgeGap - buttonWidth, rect.right + marginGap)
+        : rect.left + canvasWidth - edgeGap - buttonWidth;
+    document.documentElement.style.setProperty('--viewer-nav-left-x', `${Math.round(leftX)}px`);
+    document.documentElement.style.setProperty('--viewer-nav-right-x', `${Math.round(rightX)}px`);
 }
 
 // ── Spread View ────────────────────────────────────────────────
@@ -3276,6 +3760,7 @@ function renderSpreadPage() {
 }
 
 window.toggleViewerSpread = () => {
+    viewerSpreadManualOverride = true;
     spreadMode = !spreadMode;
     const btn = document.getElementById('viewer-spread-btn');
     if (btn) btn.classList.toggle('active', spreadMode);
@@ -3330,6 +3815,109 @@ function applyTransform() {
     if (stage) stage.style.transform = `translate(${viewX}px,${viewY}px) scale(${viewScale})`;
 }
 
+function resetSingleSpreadSwipe() {
+    singleSpreadSwipe = {
+        active: false,
+        dragging: false,
+        pointerId: null,
+        startX: 0,
+        startY: 0,
+        basePercent: 0,
+        currentPercent: 0,
+        pair: null
+    };
+    document.querySelectorAll('.viewer-single-spread-strip.is-snapping')
+        .forEach((node) => node.classList.remove('is-snapping'));
+}
+
+function setSingleSpreadStripOffset(percent, animate = false) {
+    const clamped = Math.max(-50, Math.min(0, percent));
+    document.querySelectorAll('.viewer-single-spread-strip').forEach((node) => {
+        node.classList.toggle('is-snapping', Boolean(animate));
+        node.style.setProperty('--viewer-single-spread-offset', `${clamped}%`);
+    });
+}
+
+function beginSingleSpreadSwipe(e) {
+    if (spreadMode || viewScale > 1.05 || isViewerBottomSwipeStart(e.clientX, e.clientY)) {
+        resetSingleSpreadSwipe();
+        return;
+    }
+    const pair = getSingleModeSpreadPair(getIndex(), state.activeLang);
+    if (!pair) {
+        resetSingleSpreadSwipe();
+        return;
+    }
+    singleSpreadSwipe = {
+        active: true,
+        dragging: false,
+        pointerId: e.pointerId,
+        startX: e.clientX,
+        startY: e.clientY,
+        basePercent: pair.currentRole === 'right' ? -50 : 0,
+        currentPercent: pair.currentRole === 'right' ? -50 : 0,
+        pair
+    };
+}
+
+function updateSingleSpreadSwipe(e) {
+    if (!singleSpreadSwipe.active || singleSpreadSwipe.pointerId !== e.pointerId || isPinching || isPanning) {
+        return false;
+    }
+    const dx = e.clientX - singleSpreadSwipe.startX;
+    const dy = e.clientY - singleSpreadSwipe.startY;
+    if (!singleSpreadSwipe.dragging) {
+        if (Math.abs(dx) < 10 || Math.abs(dx) <= Math.abs(dy)) return false;
+        singleSpreadSwipe.dragging = true;
+        pointerGestureConsumed = true;
+        suppressZoneClickUntil = Date.now() + 900;
+    }
+
+    const stage = document.getElementById('content-stage');
+    const width = stage?.getBoundingClientRect?.().width || 1;
+    const deltaPercent = (dx / width) * 50;
+    singleSpreadSwipe.currentPercent = Math.max(-50, Math.min(0, singleSpreadSwipe.basePercent + deltaPercent));
+    setSingleSpreadStripOffset(singleSpreadSwipe.currentPercent, false);
+    e.preventDefault();
+    e.stopPropagation();
+    return true;
+}
+
+function finishSingleSpreadSwipe(e) {
+    if (!singleSpreadSwipe.active || singleSpreadSwipe.pointerId !== e.pointerId) return false;
+    const dx = e.clientX - singleSpreadSwipe.startX;
+    const dy = e.clientY - singleSpreadSwipe.startY;
+    if (!singleSpreadSwipe.dragging) {
+        if (Math.abs(dx) <= Math.abs(dy) || Math.abs(dx) < 40) {
+            resetSingleSpreadSwipe();
+            return false;
+        }
+        singleSpreadSwipe.dragging = true;
+        const stage = document.getElementById('content-stage');
+        const width = stage?.getBoundingClientRect?.().width || 1;
+        singleSpreadSwipe.currentPercent = Math.max(-50, Math.min(0, singleSpreadSwipe.basePercent + (dx / width) * 50));
+    }
+
+    const pair = singleSpreadSwipe.pair;
+    const snapPercent = singleSpreadSwipe.currentPercent <= -25 ? -50 : 0;
+    const targetIndex = snapPercent === -50 ? pair.rightIndex : pair.leftIndex;
+
+    setSingleSpreadStripOffset(snapPercent, true);
+    pointerGestureConsumed = true;
+    suppressZoneClickUntil = Date.now() + 900;
+    e.preventDefault();
+    e.stopPropagation();
+
+    if (Number.isInteger(targetIndex) && targetIndex !== getIndex()) {
+        dispatch({ type: actionTypes.SET_ACTIVE_INDEX, payload: targetIndex });
+        refreshChrome();
+        queueBookmarkSave();
+        trackPageView('spread_pan');
+    }
+    window.setTimeout(() => resetSingleSpreadSwipe(), 170);
+    return true;
+}
+
 function getPinchDist(a, b) {
     return Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY);
 }
@@ -3353,6 +3941,9 @@ function onPointerDown(e) {
         lastPanY = e.clientY;
         if (viewScale > 1.05) {
             isPanning = true;
+            resetSingleSpreadSwipe();
+        } else {
+            beginSingleSpreadSwipe(e);
         }
     }
 }
@@ -3368,6 +3959,8 @@ function onPointerMove(e) {
             viewScale = Math.min(5, Math.max(1, pinchStartScale * (dist / pinchStartDist)));
             applyTransform();
         }
+    } else if (updateSingleSpreadSwipe(e)) {
+        return;
     } else if (isPanning) {
         e.preventDefault();
         viewX += e.clientX - lastPanX;
@@ -3397,6 +3990,11 @@ function onPointerUp(e) {
         if (isPanning) {
             isPanning = false;
             applyTransform();
+            activeGesturePointerId = null;
+            return;
+        }
+
+        if (finishSingleSpreadSwipe(e)) {
             activeGesturePointerId = null;
             return;
         }
@@ -3466,6 +4064,7 @@ function onPointerCancel(e) {
         isPanning = false;
         activeGesturePointerId = null;
         pointerGestureConsumed = false;
+        resetSingleSpreadSwipe();
     }
 }
 
