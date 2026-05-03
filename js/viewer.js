@@ -65,6 +65,8 @@ let singleSpreadSwipe = {
     currentPercent: 0,
     pair: null
 };
+// スワイプ間でパン位置を保持する（-50〜0 の %）
+let singleSpreadCurrentOffset = 0;
 const VIEWER_PRELOAD_PAGE_RADIUS = 3;
 const VIEWER_PRELOAD_BOOK_UNIT_RADIUS = 2;
 const viewerPreloadedImageUrls = new Set();
@@ -1991,7 +1993,10 @@ function getSurfacePhysicalSpreadRole(surface, lang) {
     if (!meta || typeof meta !== 'object' || !meta.groupId) return '';
     const roleForLang = meta.rolesByLang?.[lang];
     if (roleForLang === 'left' || roleForLang === 'right') return roleForLang;
-    return meta.physicalRole === 'left' || meta.physicalRole === 'right' ? meta.physicalRole : '';
+    if (meta.physicalRole === 'left' || meta.physicalRole === 'right') return meta.physicalRole;
+    // authoringRole fallback: works for LTR/simple DSFs where physical = authoring
+    if (meta.authoringRole === 'left' || meta.authoringRole === 'right') return meta.authoringRole;
+    return '';
 }
 
 function getSurfaceSpreadImageMeta(surface) {
@@ -2728,13 +2733,7 @@ function getSingleModeSpreadPair(displayIndex, lang) {
     const pages = getPages();
     if (pages.length <= 1 || displayIndex < 0 || displayIndex >= pages.length) return null;
 
-    const currentInfo = findSpreadSurfaceForDisplayIndex(displayIndex, lang);
-    const current = currentInfo?.surface;
-    const groupId = currentInfo?.groupId || '';
-    const currentRole = currentInfo?.role || '';
-    if (!groupId || (currentRole !== 'left' && currentRole !== 'right')) return null;
-
-    const candidateIndexes = [
+    const searchOrder = [
         displayIndex - 1,
         displayIndex + 1,
         ...pages.map((_, index) => index)
@@ -2745,15 +2744,55 @@ function getSingleModeSpreadPair(displayIndex, lang) {
         && list.indexOf(index) === pos
     ));
 
-    let partnerInfo = null;
-    const partnerIndex = candidateIndexes.find((index) => {
-        partnerInfo = findSpreadSurfaceForDisplayIndex(index, lang, groupId, currentRole);
-        return Boolean(partnerInfo);
-    });
-    if (!Number.isInteger(partnerIndex)) return null;
+    // Primary path: role-based detection (physicalRole / rolesByLang / authoringRole)
+    const currentInfo = findSpreadSurfaceForDisplayIndex(displayIndex, lang);
+    if (currentInfo?.role === 'left' || currentInfo?.role === 'right') {
+        const current = currentInfo.surface;
+        const groupId = currentInfo.groupId;
+        const currentRole = currentInfo.role;
 
-    const partner = partnerInfo?.surface || getViewerSurfaceForDisplayIndex(partnerIndex) || pages[partnerIndex];
-    const currentIsLeft = currentRole === 'left';
+        let partnerInfo = null;
+        const partnerIndex = searchOrder.find((index) => {
+            partnerInfo = findSpreadSurfaceForDisplayIndex(index, lang, groupId, currentRole);
+            return Boolean(partnerInfo);
+        });
+        if (Number.isInteger(partnerIndex)) {
+            const partner = partnerInfo?.surface || getViewerSurfaceForDisplayIndex(partnerIndex) || pages[partnerIndex];
+            const currentIsLeft = currentRole === 'left';
+            return {
+                groupId,
+                currentIndex: displayIndex,
+                currentRole,
+                partnerIndex,
+                leftIndex: currentIsLeft ? displayIndex : partnerIndex,
+                rightIndex: currentIsLeft ? partnerIndex : displayIndex,
+                left: currentIsLeft ? current : partner,
+                right: currentIsLeft ? partner : current
+            };
+        }
+    }
+
+    // Fallback path: groupId-only — infer left/right from page index + direction.
+    // Handles DSFs exported without physicalRole/rolesByLang.
+    const currentSurface = getViewerSurfaceForDisplayIndex(displayIndex) || pages[displayIndex];
+    const groupId = getSurfaceSpreadGroupId(currentSurface);
+    if (!groupId) return null;
+
+    let partnerIndex = -1;
+    let partnerSurface = null;
+    for (const i of searchOrder) {
+        const s = getViewerSurfaceForDisplayIndex(i) || pages[i];
+        if (getSurfaceSpreadGroupId(s) === groupId) {
+            partnerIndex = i;
+            partnerSurface = s;
+            break;
+        }
+    }
+    if (partnerIndex < 0 || !partnerSurface) return null;
+
+    const dir = getPageDirection();
+    const currentIsLeft = dir === 'rtl' ? displayIndex > partnerIndex : displayIndex < partnerIndex;
+    const currentRole = currentIsLeft ? 'left' : 'right';
     return {
         groupId,
         currentIndex: displayIndex,
@@ -2761,15 +2800,17 @@ function getSingleModeSpreadPair(displayIndex, lang) {
         partnerIndex,
         leftIndex: currentIsLeft ? displayIndex : partnerIndex,
         rightIndex: currentIsLeft ? partnerIndex : displayIndex,
-        left: currentIsLeft ? current : partner,
-        right: currentIsLeft ? partner : current
+        left: currentIsLeft ? currentSurface : partnerSurface,
+        right: currentIsLeft ? partnerSurface : currentSurface
     };
 }
 
 function renderSingleModeSpreadPairIntoDom(pair, lang) {
     const contentEl = document.getElementById('viewer-content');
     const bubblesEl = document.getElementById('viewer-bubbles');
+    // ページ遷移時は該当ページ（左=0% / 右=-50%）を初期位置とする
     const offset = pair.currentRole === 'right' ? -50 : 0;
+    singleSpreadCurrentOffset = offset;
     const contentHtml = `
         <div class="viewer-single-spread-strip" style="--viewer-single-spread-offset:${offset}%">
             <div class="viewer-single-spread-page viewer-single-spread-page-left">${renderSurfaceContentHTML(pair.left, lang)}</div>
@@ -3021,7 +3062,90 @@ function clearTransitionLayers() {
     if (bubblesEl) bubblesEl.style.visibility = '';
 }
 
-function animatePageTransition(fromPage, toPage, lang, motionDir) {
+/**
+ * 同じ book spread unit に属するか判定し、遷移アニメーション種別を返す。
+ * 同一 unit（見開きの左右）→ 'slide'、別 unit（ページめくり境界）→ 'turn'。
+ */
+function getTransitionAnimType(fromIndex, toIndex) {
+    if (!hasBookModel()) return 'turn';
+    const units = getBookUnits();
+    if (!units.length) return 'turn';
+    const findUnit = (idx) => units.findIndex((u) => {
+        if (u.type === 'single') return u.center?.sourcePageIndex === idx;
+        if (u.type === 'spread') {
+            return u.left?.sourcePageIndex === idx || u.right?.sourcePageIndex === idx;
+        }
+        return false;
+    });
+    const fromUnit = findUnit(fromIndex);
+    const toUnit   = findUnit(toIndex);
+    return (fromUnit >= 0 && fromUnit === toUnit) ? 'slide' : 'turn';
+}
+
+/**
+ * ページめくりアニメーション: 現在ページは静止したまま、次ページが上から滑り込む。
+ * 紙の本のページをめくる感覚を再現。
+ */
+function animatePageTurn(toPage, lang, motionDir) {
+    const stage = document.getElementById('content-stage');
+    const contentEl = document.getElementById('viewer-content');
+    const bubblesEl = document.getElementById('viewer-bubbles');
+    if (!stage || !contentEl || !bubblesEl || !toPage) {
+        renderDisplayIndexIntoDom(getIndex(), lang);
+        return;
+    }
+
+    clearTransitionLayers();
+
+    // 次ページレイヤー（現在ページの上にスライドイン）
+    const incoming = createTransitionLayer(
+        renderPageContentHTML(toPage, lang),
+        renderPageBubblesHTML(toPage, lang)
+    );
+    incoming.classList.add('viewer-transition-turn');
+
+    // ページの折れ目シャドウ（先端エッジ側に配置）
+    const shadow = document.createElement('div');
+    shadow.className = 'viewer-transition-fold-shadow ' +
+        (motionDir > 0 ? 'fold-shadow-left' : 'fold-shadow-right');
+    incoming.appendChild(shadow);
+
+    const incomingMedia   = incoming.querySelector('.viewer-transition-media');
+    const incomingBubbles = incoming.querySelector('.viewer-transition-bubbles');
+    const startX = motionDir > 0 ? '100%' : '-100%';
+
+    [incomingMedia, incomingBubbles].forEach((node) => {
+        if (node) node.style.transform = `translateX(${startX})`;
+    });
+
+    // 現在ページ（contentEl）は表示したまま。バブルは重複回避で非表示。
+    bubblesEl.style.visibility = 'hidden';
+    stage.appendChild(incoming);
+
+    const duration = 280;
+    const token = ++pageAnimationToken;
+
+    requestAnimationFrame(() => {
+        [incomingMedia, incomingBubbles].forEach((node) => {
+            node?.animate(
+                [{ transform: startX }, { transform: 'translateX(0%)' }],
+                { duration, easing: 'cubic-bezier(0.25, 0.46, 0.45, 0.94)', fill: 'forwards' }
+            );
+        });
+    });
+
+    window.setTimeout(() => {
+        incoming.remove();
+        if (token !== pageAnimationToken) return;
+        renderDisplayIndexIntoDom(getIndex(), lang);
+        bubblesEl.style.visibility = '';
+    }, duration + 30);
+}
+
+/**
+ * スライドアニメーション: 現在ページと次ページが一緒に移動する（見開き内の遷移）。
+ */
+function animatePageSlide(fromPage, toPage, lang, motionDir) {
     const stage = document.getElementById('content-stage');
     const contentEl = document.getElementById('viewer-content');
     const bubblesEl = document.getElementById('viewer-bubbles');
@@ -3034,13 +3158,13 @@ function animatePageTransition(fromPage, toPage, lang, motionDir) {
 
     const outgoing = createTransitionLayer(contentEl.innerHTML, bubblesEl.innerHTML);
     const incoming = createTransitionLayer(renderPageContentHTML(toPage, lang), renderPageBubblesHTML(toPage, lang));
-    const outgoingMedia = outgoing.querySelector('.viewer-transition-media');
+    const outgoingMedia   = outgoing.querySelector('.viewer-transition-media');
     const outgoingBubbles = outgoing.querySelector('.viewer-transition-bubbles');
-    const incomingMedia = incoming.querySelector('.viewer-transition-media');
+    const incomingMedia   = incoming.querySelector('.viewer-transition-media');
     const incomingBubbles = incoming.querySelector('.viewer-transition-bubbles');
     const startX = motionDir > 0 ? '100%' : '-100%';
-    const endX = motionDir > 0 ? '-100%' : '100%';
-    const duration = 260;
+    const endX   = motionDir > 0 ? '-100%' : '100%';
+    const duration = 240;
     const token = ++pageAnimationToken;
 
     [incomingMedia, incomingBubbles].forEach((node) => {
@@ -3055,13 +3179,13 @@ function animatePageTransition(fromPage, toPage, lang, motionDir) {
     requestAnimationFrame(() => {
         [outgoingMedia, outgoingBubbles].forEach((node) => {
             node?.animate(
-                [{ transform: 'translateX(0%)', opacity: 1 }, { transform: `translateX(${endX})`, opacity: 1 }],
+                [{ transform: 'translateX(0%)' }, { transform: `translateX(${endX})` }],
                 { duration, easing: 'ease-in-out', fill: 'forwards' }
             );
         });
         [incomingMedia, incomingBubbles].forEach((node) => {
             node?.animate(
-                [{ transform: `translateX(${startX})`, opacity: 1 }, { transform: 'translateX(0%)', opacity: 1 }],
+                [{ transform: `translateX(${startX})` }, { transform: 'translateX(0%)' }],
                 { duration, easing: 'ease-in-out', fill: 'forwards' }
             );
         });
@@ -3090,10 +3214,18 @@ function transitionToIndex(nextIndex, kind = 'jump') {
 
     const fromPage = pages[currentIndex];
     const toPage = pages[nextIndex];
+    const animType = kind === 'jump' ? 'slide' : getTransitionAnimType(currentIndex, nextIndex);
+
     dispatch({ type: actionTypes.SET_ACTIVE_INDEX, payload: nextIndex });
     collapseViewerInfoPanelForNavigation();
     resetZoom();
-    animatePageTransition(fromPage, toPage, state.activeLang, motionDir);
+
+    if (animType === 'turn') {
+        animatePageTurn(toPage, state.activeLang, motionDir);
+    } else {
+        animatePageSlide(fromPage, toPage, state.activeLang, motionDir);
+    }
+
     refreshChrome();
     if (spreadMode) renderSpreadPage();
     preloadNearbyViewerImages();
@@ -3830,11 +3962,11 @@ function resetSingleSpreadSwipe() {
         .forEach((node) => node.classList.remove('is-snapping'));
 }
 
-function setSingleSpreadStripOffset(percent, animate = false) {
-    const clamped = Math.max(-50, Math.min(0, percent));
+function setSingleSpreadStripOffset(percent, animate = false, clamp = true) {
+    const value = clamp ? Math.max(-50, Math.min(0, percent)) : percent;
     document.querySelectorAll('.viewer-single-spread-strip').forEach((node) => {
         node.classList.toggle('is-snapping', Boolean(animate));
-        node.style.setProperty('--viewer-single-spread-offset', `${clamped}%`);
+        node.style.setProperty('--viewer-single-spread-offset', `${value}%`);
     });
 }
 
@@ -3854,8 +3986,8 @@ function beginSingleSpreadSwipe(e) {
         pointerId: e.pointerId,
         startX: e.clientX,
         startY: e.clientY,
-        basePercent: pair.currentRole === 'right' ? -50 : 0,
-        currentPercent: pair.currentRole === 'right' ? -50 : 0,
+        basePercent: singleSpreadCurrentOffset,
+        currentPercent: singleSpreadCurrentOffset,
         pair
     };
 }
@@ -3875,13 +4007,25 @@ function updateSingleSpreadSwipe(e) {
 
     const stage = document.getElementById('content-stage');
     const width = stage?.getBoundingClientRect?.().width || 1;
-    const deltaPercent = (dx / width) * 50;
-    singleSpreadSwipe.currentPercent = Math.max(-50, Math.min(0, singleSpreadSwipe.basePercent + deltaPercent));
-    setSingleSpreadStripOffset(singleSpreadSwipe.currentPercent, false);
+    const attempted = singleSpreadSwipe.basePercent + (dx / width) * 50;
+    // エッジを超えた分はラバーバンド（20%の抵抗感）で表示
+    let displayPercent;
+    if (attempted > 0) {
+        displayPercent = attempted * 0.2;
+    } else if (attempted < -50) {
+        displayPercent = -50 + (attempted + 50) * 0.2;
+    } else {
+        displayPercent = attempted;
+    }
+    singleSpreadSwipe.currentPercent = Math.max(-50, Math.min(0, attempted));
+    setSingleSpreadStripOffset(displayPercent, false, false);
     e.preventDefault();
     e.stopPropagation();
     return true;
 }
+
+// エッジナビゲーションに必要なオーバー量（ストリップ幅%）
+const SPREAD_EDGE_NAV_THRESHOLD = 5;
 
 function finishSingleSpreadSwipe(e) {
     if (!singleSpreadSwipe.active || singleSpreadSwipe.pointerId !== e.pointerId) return false;
@@ -3893,28 +4037,70 @@ function finishSingleSpreadSwipe(e) {
             return false;
         }
         singleSpreadSwipe.dragging = true;
-        const stage = document.getElementById('content-stage');
-        const width = stage?.getBoundingClientRect?.().width || 1;
-        singleSpreadSwipe.currentPercent = Math.max(-50, Math.min(0, singleSpreadSwipe.basePercent + (dx / width) * 50));
     }
 
-    const pair = singleSpreadSwipe.pair;
-    const snapPercent = singleSpreadSwipe.currentPercent <= -25 ? -50 : 0;
-    const targetIndex = snapPercent === -50 ? pair.rightIndex : pair.leftIndex;
+    const stage = document.getElementById('content-stage');
+    const width = stage?.getBoundingClientRect?.().width || 1;
+    const attempted = singleSpreadSwipe.basePercent + (dx / width) * 50;
+    const finalOffset = Math.max(-50, Math.min(0, attempted));
 
-    setSingleSpreadStripOffset(snapPercent, true);
+    const pair = singleSpreadSwipe.pair;
+    const minPairIndex = Math.min(pair.leftIndex, pair.rightIndex);
+    const maxPairIndex = Math.max(pair.leftIndex, pair.rightIndex);
+    const dir = getPageDirection();
+    // ストリップの左端より手前にあるページ: LTR=低インデックス, RTL=高インデックス
+    const pageLeftOfStrip  = dir === 'rtl' ? maxPairIndex + 1 : minPairIndex - 1;
+    // ストリップの右端より後ろにあるページ: LTR=高インデックス, RTL=低インデックス
+    const pageRightOfStrip = dir === 'rtl' ? minPairIndex - 1 : maxPairIndex + 1;
+    const total = getPages().length;
+
+    // 左端でさらに右へ → ストリップ左側の隣ページへ遷移
+    if (singleSpreadSwipe.basePercent >= 0 && attempted > SPREAD_EDGE_NAV_THRESHOLD) {
+        setSingleSpreadStripOffset(0, false);
+        pointerGestureConsumed = true;
+        suppressZoneClickUntil = Date.now() + 900;
+        e.preventDefault();
+        e.stopPropagation();
+        resetSingleSpreadSwipe();
+        if (pageLeftOfStrip >= 0 && pageLeftOfStrip < total) {
+            transitionToIndex(pageLeftOfStrip, dir === 'rtl' ? 'next' : 'prev');
+        }
+        return true;
+    }
+
+    // 右端でさらに左へ → ストリップ右側の隣ページへ遷移
+    if (singleSpreadSwipe.basePercent <= -50 && attempted < -(50 + SPREAD_EDGE_NAV_THRESHOLD)) {
+        setSingleSpreadStripOffset(-50, false);
+        pointerGestureConsumed = true;
+        suppressZoneClickUntil = Date.now() + 900;
+        e.preventDefault();
+        e.stopPropagation();
+        resetSingleSpreadSwipe();
+        if (pageRightOfStrip >= 0 && pageRightOfStrip < total) {
+            transitionToIndex(pageRightOfStrip, dir === 'rtl' ? 'prev' : 'next');
+        }
+        return true;
+    }
+
+    // スナップなし：指を離した位置でそのまま止まる
+    singleSpreadCurrentOffset = finalOffset;
+    setSingleSpreadStripOffset(finalOffset, false);
+
     pointerGestureConsumed = true;
     suppressZoneClickUntil = Date.now() + 900;
     e.preventDefault();
     e.stopPropagation();
 
-    if (Number.isInteger(targetIndex) && targetIndex !== getIndex()) {
-        dispatch({ type: actionTypes.SET_ACTIVE_INDEX, payload: targetIndex });
+    // 表示量が多い側をアクティブページとしてスライダー等に反映
+    const dominantIndex = finalOffset <= -25 ? pair.rightIndex : pair.leftIndex;
+    if (Number.isInteger(dominantIndex) && dominantIndex !== getIndex()) {
+        dispatch({ type: actionTypes.SET_ACTIVE_INDEX, payload: dominantIndex });
         refreshChrome();
         queueBookmarkSave();
         trackPageView('spread_pan');
     }
-    window.setTimeout(() => resetSingleSpreadSwipe(), 170);
+
+    resetSingleSpreadSwipe();
     return true;
 }
 
