@@ -197,9 +197,34 @@ body.viewer-ui-visible .viewer-side-nav-btn {
     z-index: 8;
 }
 
+/* ページめくりレイヤーは現在ページの上に重なる */
+.viewer-transition-layer.viewer-transition-turn {
+    z-index: 9;
+}
+
 .viewer-transition-media,
 .viewer-transition-bubbles {
     will-change: transform, opacity;
+}
+
+/* ページめくり時の折り目シャドウ */
+.viewer-transition-fold-shadow {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    width: 28px;
+    z-index: 2;
+    pointer-events: none;
+}
+/* 右端から入るページ（LTR-next / RTL-prev）: 左エッジにシャドウ */
+.viewer-transition-fold-shadow.fold-shadow-left {
+    left: 0;
+    background: linear-gradient(to right, rgba(0, 0, 0, 0.22) 0%, transparent 100%);
+}
+/* 左端から入るページ（RTL-next / LTR-prev）: 右エッジにシャドウ */
+.viewer-transition-fold-shadow.fold-shadow-right {
+    right: 0;
+    background: linear-gradient(to left, rgba(0, 0, 0, 0.22) 0%, transparent 100%);
 }
 
 .viewer-page-image {
