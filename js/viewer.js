@@ -15,7 +15,7 @@ import { applyTheme, bindThemePreferenceListener, getThemeMode, setThemeMode } f
 import { doc, getDoc, getDocs, setDoc, deleteDoc, addDoc, collection, query, where, limit, serverTimestamp, runTransaction } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
 import { parseAndLoadDSF } from './export.js';
 import { CANONICAL_PAGE_WIDTH, CANONICAL_PAGE_HEIGHT, CANONICAL_PAGE_ASPECT } from './page-geometry.js';
-import { formatPublicationDate, isPublicationActive } from './publication.js';
+import { formatPublicationDate, getPublicationInactiveReason, isPublicationActive } from './publication.js';
 
 // ── Module State ──────────────────────────────────────────────
 let sharedProjectRef = null;
@@ -153,6 +153,7 @@ const VIEWER_UI = {
         privateProject: 'この作品は非公開です。',
         unpublishedProject: 'このURLには発行済みの DSF データがありません。',
         publicationExpired: 'この作品の公開期間は終了しました。',
+        publicationScheduled: 'この作品は公開開始前です。',
         developerModeOn: 'Developer mode: ON',
         developerModeOff: 'Developer mode: OFF',
         loadError: '読み込みエラー: {message}',
@@ -236,6 +237,7 @@ const VIEWER_UI = {
         privateProject: 'This work is private.',
         unpublishedProject: 'This URL does not have published DSF data yet.',
         publicationExpired: 'This work is no longer available.',
+        publicationScheduled: 'This work is not available yet.',
         developerModeOn: 'Developer mode: ON',
         developerModeOff: 'Developer mode: OFF',
         loadError: 'Load error: {message}',
@@ -475,7 +477,7 @@ async function loadWorkFromPublicIndex(workId) {
         }
         const indexData = indexSnap.data() || {};
         if (!isPublicationActive(indexData.publication || {}, indexData.dsfStatus || 'public')) {
-            alert(vt('publicationExpired'));
+            alert(_publicationUnavailableMessage(indexData.publication || {}, indexData.dsfStatus || 'public'));
             return false;
         }
         const pid = indexData.projectId || indexData.pid || workId;
@@ -513,7 +515,7 @@ async function loadFromFirestore(pid, uid, resolved = {}) {
         const status = data.dsfStatus || resolved.dsfStatus || 'public';
         const publication = data.publication || resolved.publication || {};
         if (state.uid !== uid && !isPublicationActive(publication, status)) {
-            alert(vt('publicationExpired'));
+            alert(_publicationUnavailableMessage(publication, status));
             return false;
         }
         loadProjectData(data, { source: 'shared' });
@@ -706,6 +708,11 @@ function buildViewerProjectMeta(raw, source) {
         publication: raw?.publication && typeof raw.publication === 'object' ? raw.publication : null,
         dsfStatus: String(raw?.dsfStatus || '').trim()
     };
+}
+
+function _publicationUnavailableMessage(publication = {}, status = 'public') {
+    const reason = getPublicationInactiveReason(publication, status);
+    return vt(reason === 'public_scheduled' ? 'publicationScheduled' : 'publicationExpired');
 }
 
 function createBookmarkUiState() {

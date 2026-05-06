@@ -7,11 +7,11 @@ import {
 } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
 import { state, dispatch, actionTypes } from './state.js';
 import { extractSectionsFromBlocks } from './blocks.js';
-import { assertAccountCanPublish, db, uploadPressPage, triggerAutoSave, auth } from './firebase.js';
+import { assertAccountCanPublish, db, uploadPressPage, triggerAutoSave, auth, ensureUserBootstrap } from './firebase.js';
 import { loadImageForCanvas } from './asset-fetch.js';
 import { renderPositionedThumbImageHtml } from './sections.js';
 import { t, getUILang } from './i18n-studio.js';
-import { createDefaultPublication, formatPublicationDate } from './publication.js';
+import { createDefaultPublication, formatPublicationDate, getListingMaxDays } from './publication.js';
 import {
     CANONICAL_PAGE_WIDTH,
     CANONICAL_PAGE_HEIGHT,
@@ -415,11 +415,21 @@ function _formatPressPublicationDate(value) {
 function _renderPublicationSummary() {
     const container = document.getElementById('press-publication-summary');
     if (!container) return;
+    _renderPublicationSummaryContent(container, null);
+    if (auth.currentUser) {
+        ensureUserBootstrap(auth.currentUser)
+            .then(account => _renderPublicationSummaryContent(container, account))
+            .catch(() => {});
+    }
+}
+
+function _renderPublicationSummaryContent(container, account = null) {
     const publication = state.publication && typeof state.publication === 'object'
         ? state.publication
-        : createDefaultPublication({}, new Date());
-    const listedUntil = _formatPressPublicationDate(publication.listedUntil) || t('publication_no_limit');
-    const publicUntil = _formatPressPublicationDate(publication.publicUntil) || t('publication_no_limit');
+        : (account ? createDefaultPublication(account, new Date()) : null);
+    const listedUntil = publication
+        ? (_formatPressPublicationDate(publication.listedUntil) || t('publication_no_limit'))
+        : _formatPressListingWindow(account);
     container.innerHTML = `
         <div class="press-publication-summary-title">
             <span class="material-icons" aria-hidden="true">event_available</span>
@@ -427,9 +437,16 @@ function _renderPublicationSummary() {
         </div>
         <div class="press-publication-summary-grid">
             <span><strong>${_esc(t('publication_listed_until'))}</strong>${_esc(listedUntil)}</span>
-            <span><strong>${_esc(t('publication_public_until'))}</strong>${_esc(publicUntil)}</span>
         </div>
     `;
+}
+
+function _formatPressListingWindow(account = null) {
+    if (!account) return `${t('publication_immediate')} - ${t('publication_free_14_days')}`;
+    const maxDays = getListingMaxDays(account);
+    return maxDays === null
+        ? `${t('publication_immediate')} - ${t('publication_no_limit')}`
+        : `${t('publication_immediate')} - ${t('publication_free_14_days')}`;
 }
 
 function _renderLangTabs() {

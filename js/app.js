@@ -433,11 +433,13 @@ function formatStudioPublicationDate(value) {
 function renderHomePublicationMeta(publication) {
     if (!publication || typeof publication !== 'object') return '';
     const listedUntil = formatStudioPublicationDate(publication.listedUntil) || t('publication_no_limit');
+    const publicFrom = formatStudioPublicationDate(publication.publicFrom) || t('publication_immediate');
     const publicUntil = formatStudioPublicationDate(publication.publicUntil) || t('publication_no_limit');
+    const publicPeriod = `${publicFrom} - ${publicUntil}`;
     return `
         <div class="home-work-publication">
             <span>${escapeStudioHtml(t('publication_listed_until'))}: ${escapeStudioHtml(listedUntil)}</span>
-            <span>${escapeStudioHtml(t('publication_public_until'))}: ${escapeStudioHtml(publicUntil)}</span>
+            <span>${escapeStudioHtml(t('publication_public_period'))}: ${escapeStudioHtml(publicPeriod)}</span>
         </div>
     `;
 }

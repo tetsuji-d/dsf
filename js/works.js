@@ -7,7 +7,15 @@ import {
 } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
 import { state } from './state.js';
 import { assertAccountCanEdit, assertAccountCanPublish, db } from './firebase.js';
-import { formatPublicationDate, isPublicationActive, reconcilePublicationForPlan, updatePublicationForStatus } from './publication.js';
+import {
+    formatPublicationDate,
+    getPublicationExpireReason,
+    isPublicationActive,
+    planAllowsPublicScheduling,
+    reconcilePublicationForPlan,
+    toDate,
+    updatePublicationForStatus
+} from './publication.js';
 import { t, getUILang } from './i18n-studio.js';
 
 const DSF_STATUS_LABELS = {
@@ -77,7 +85,7 @@ export async function openWorksRoom(roomMode = false) {
             return;
         }
 
-        listEl.innerHTML = projects.map(p => _renderRow(p)).join('');
+        listEl.innerHTML = projects.map(p => _renderRow(p, account)).join('');
 
         // DSF ステータス変更イベント
         listEl.querySelectorAll('.works-dsf-select').forEach(sel => {
@@ -86,14 +94,40 @@ export async function openWorksRoom(roomMode = false) {
                 const newStatus = sel.value;
                 const row       = sel.closest('.works-row');
                 const badge     = row?.querySelector('.works-dsf-badge');
-                sel.dataset.prev = newStatus;
+                const prevStatus = sel.dataset.prev || 'draft';
                 if (badge) {
                     const info = DSF_STATUS_LABELS[newStatus] || DSF_STATUS_LABELS.draft;
                     badge.innerHTML = `${_statusIcon(info.icon)}<span>${info.label}</span>`;
                     badge.className   = `works-dsf-badge ${info.cls}`;
                 }
                 const proj = projects.find(x => x.id === pid);
-                await _updateDsfStatus(pid, newStatus, proj);
+                const updated = await _updateDsfStatus(pid, newStatus, proj, row);
+                if (updated && proj) {
+                    proj.dsfStatus = newStatus;
+                    proj.publication = updated;
+                    sel.dataset.prev = newStatus;
+                    _refreshRowPublication(row, proj, account);
+                } else {
+                    sel.value = prevStatus;
+                    if (badge) {
+                        const info = DSF_STATUS_LABELS[prevStatus] || DSF_STATUS_LABELS.draft;
+                        badge.innerHTML = `${_statusIcon(info.icon)}<span>${info.label}</span>`;
+                        badge.className = `works-dsf-badge ${info.cls}`;
+                    }
+                }
+            });
+        });
+
+        listEl.querySelectorAll('.works-publication-save').forEach(btn => {
+            btn.addEventListener('click', async () => {
+                const pid = btn.dataset.pid;
+                const row = btn.closest('.works-row');
+                const proj = projects.find(x => x.id === pid);
+                const updated = await _updatePublicationWindow(pid, proj, row);
+                if (updated && proj) {
+                    proj.publication = updated;
+                    _refreshRowPublication(row, proj, account);
+                }
             });
         });
 
@@ -129,7 +163,7 @@ export function closeWorksRoom() {
 
 // ---- Private helpers -------------------------------------------------------
 
-function _renderRow(p) {
+function _renderRow(p, account = {}) {
     const dsf  = DSF_STATUS_LABELS[p.dsfStatus] || DSF_STATUS_LABELS.draft;
     const date = p.dsfPublishedAt.getFullYear() > 1970
         ? p.dsfPublishedAt.toLocaleDateString('ja-JP')
@@ -138,7 +172,8 @@ function _renderRow(p) {
         ? `<img src="${_esc(p.thumbnail)}" alt="" loading="lazy">`
         : `<div class="works-thumb-placeholder"><span class="material-icons">image</span></div>`;
     const langs = p.dsfLangs.length ? p.dsfLangs.map(l => l.toUpperCase()).join(' / ') : '—';
-    const publicationMeta = _renderPublicationMeta(p.publication);
+    const publicationMeta = _renderPublicationMeta(p.publication, p.dsfStatus);
+    const publicationEditor = _renderPublicationEditor(p, account);
 
     return `
         <div class="works-row" data-pid="${_esc(p.id)}" data-work-id="${_esc(p.workId || p.id)}">
@@ -146,7 +181,8 @@ function _renderRow(p) {
             <div class="works-info">
                 <div class="works-title">${_esc(p.title || p.id)}</div>
                 <div class="works-meta">${p.pageCount}ページ · ${langs} · ${p.dsfResolution} · 品質${p.dsfQuality}%${p.dsfTotalBytes ? ` · ${(p.dsfTotalBytes / (1024 * 1024)).toFixed(1)} MB` : ''}</div>
-                ${publicationMeta}
+                <div data-publication-meta>${publicationMeta}</div>
+                ${publicationEditor}
                 <div class="works-meta">${date} 発行</div>
             </div>
             <div class="works-controls">
@@ -177,14 +213,43 @@ function _formatWorksPublicationDate(value) {
     return formatPublicationDate(value, getUILang() === 'en' ? 'en-US' : 'ja-JP');
 }
 
-function _renderPublicationMeta(publication) {
+function _renderPublicationMeta(publication, status = 'draft') {
     if (!publication || typeof publication !== 'object') return '';
     const listedUntil = _formatWorksPublicationDate(publication.listedUntil) || t('publication_no_limit');
-    const publicUntil = _formatWorksPublicationDate(publication.publicUntil) || t('publication_no_limit');
+    const publicPeriod = _formatPublicationPeriod(publication.publicFrom, publication.publicUntil);
+    const notice = _renderPublicationNotice(publication, status);
     return `
         <div class="works-publication-meta">
             <span>${_esc(t('publication_listed_until'))}: ${_esc(listedUntil)}</span>
-            <span>${_esc(t('publication_public_until'))}: ${_esc(publicUntil)}</span>
+            <span>${_esc(t('publication_public_period'))}: ${_esc(publicPeriod)}</span>
+        </div>
+        ${notice}
+    `;
+}
+
+function _renderPublicationEditor(p, account = {}) {
+    const canSchedule = planAllowsPublicScheduling(account);
+    const isVisibleStatus = p.dsfStatus === 'public' || p.dsfStatus === 'unlisted';
+    const publication = p.publication || {};
+    const publicFrom = _toDateTimeLocalValue(publication.publicFrom);
+    const publicUntil = _toDateTimeLocalValue(publication.publicUntil);
+    const disabled = canSchedule ? '' : 'disabled';
+    const saveDisabled = canSchedule && isVisibleStatus ? '' : 'disabled';
+    const hint = canSchedule
+        ? t('works_publication_schedule_hint')
+        : t('works_publication_schedule_locked');
+    return `
+        <div class="works-publication-editor">
+            <label>
+                <span>${_esc(t('publication_public_from'))}</span>
+                <input type="datetime-local" class="works-publication-input" data-public-from value="${_esc(publicFrom)}" ${disabled}>
+            </label>
+            <label>
+                <span>${_esc(t('publication_public_until'))}</span>
+                <input type="datetime-local" class="works-publication-input" data-public-until value="${_esc(publicUntil)}" ${disabled}>
+            </label>
+            <button class="works-publication-save" data-pid="${_esc(p.id)}" ${saveDisabled}>${_esc(t('works_publication_save'))}</button>
+            <p>${_esc(hint)}</p>
         </div>
     `;
 }
@@ -192,27 +257,54 @@ function _renderPublicationMeta(publication) {
 async function _reconcileProjectPublication(pid, data, account) {
     const status = data.dsfStatus || 'draft';
     const publication = reconcilePublicationForPlan(data.publication || {}, status, account, new Date());
-    const shouldDowngrade = (status === 'public' || status === 'unlisted') && !isPublicationActive(publication, status);
+    const expireReason = getPublicationExpireReason(publication, status, new Date());
+    const isVisibleStatus = status === 'public' || status === 'unlisted';
+    const shouldDowngrade = isVisibleStatus && !!expireReason;
     const nextStatus = shouldDowngrade ? 'draft' : status;
     const nextVisibility = shouldDowngrade ? 'private' : (data.visibility || status);
     const publicationChanged = JSON.stringify(_serializePublication(data.publication || null)) !== JSON.stringify(_serializePublication(publication));
-    if (shouldDowngrade || publicationChanged) {
-        await updateDoc(doc(db, 'users', state.uid, 'projects', pid), {
-            dsfStatus: nextStatus,
-            visibility: nextVisibility,
-            publication
-        });
-        const workId = data.workId || pid;
-        if (shouldDowngrade) {
-            await deleteDoc(doc(db, 'public_projects', workId)).catch(() => {});
-            if (workId !== pid) await deleteDoc(doc(db, 'public_projects', pid)).catch(() => {});
-        } else if (nextStatus === 'public' || nextStatus === 'unlisted') {
-            await setDoc(doc(db, 'public_projects', workId), { publication }, { merge: true }).catch((e) => {
-                console.warn('[Works] public publication reconcile skipped:', e?.message || e);
+    let appliedStatus = status;
+    let appliedPublication = publication;
+    let syncError = null;
+
+    // Draft/private legacy works are normalized in-memory only. Persisting every
+    // old project on room load can trip stricter rules and should not block read.
+    if (shouldDowngrade || (publicationChanged && isVisibleStatus)) {
+        try {
+            await updateDoc(doc(db, 'users', state.uid, 'projects', pid), {
+                dsfStatus: nextStatus,
+                visibility: nextVisibility,
+                publication
             });
+            const workId = data.workId || pid;
+            if (shouldDowngrade) {
+                await deleteDoc(doc(db, 'public_projects', workId)).catch(() => {});
+                if (workId !== pid) await deleteDoc(doc(db, 'public_projects', pid)).catch(() => {});
+            } else if (nextStatus === 'public' || nextStatus === 'unlisted') {
+                await setDoc(doc(db, 'public_projects', workId), {
+                    title:      data.title || '無題のプロジェクト',
+                    projectId:  pid,
+                    workId,
+                    releaseId:  data.releaseId || null,
+                    authorUid:  state.uid,
+                    authorName: state.user?.displayName || state.user?.email || '',
+                    thumbnail:  _getThumbnail(data),
+                    updatedAt:  serverTimestamp(),
+                    dsfStatus:  nextStatus,
+                    publication,
+                    dsfLangs:   data.dsfLangs || [],
+                    pageCount:  data.dsfPages?.length || 0,
+                }, { merge: true }).catch((e) => {
+                    console.warn('[Works] public publication reconcile skipped:', e?.message || e);
+                });
+            }
+            appliedStatus = nextStatus;
+        } catch (err) {
+            syncError = err;
+            console.warn('[Works] publication reconcile skipped:', err?.message || err);
         }
     }
-    return { dsfStatus: nextStatus, publication };
+    return { dsfStatus: appliedStatus, publication: appliedPublication, syncError };
 }
 
 function _serializePublication(publication) {
@@ -236,7 +328,79 @@ function _serializePublication(publication) {
     };
 }
 
-async function _updateDsfStatus(pid, newStatus, proj) {
+function _formatPublicationPeriod(fromValue, untilValue) {
+    const from = _formatWorksPublicationDate(fromValue) || t('publication_immediate');
+    const until = _formatWorksPublicationDate(untilValue) || t('publication_no_limit');
+    return `${from} - ${until}`;
+}
+
+function _renderPublicationNotice(publication, status = 'draft') {
+    const reason = publication?.expireReason || getPublicationExpireReason(publication, status, new Date());
+    if (!reason) return '';
+    const key = reason === 'listing'
+        ? 'works_publication_expired_listing'
+        : 'works_publication_expired_public';
+    return `<div class="works-publication-notice">${_esc(t(key))}</div>`;
+}
+
+function _toDateTimeLocalValue(value) {
+    const date = toDate(value);
+    if (!date) return '';
+    const pad = (n) => String(n).padStart(2, '0');
+    return [
+        date.getFullYear(),
+        pad(date.getMonth() + 1),
+        pad(date.getDate())
+    ].join('-') + `T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+}
+
+function _dateFromDateTimeLocal(value) {
+    if (!value) return null;
+    const date = new Date(value);
+    return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function _publicationFromRow(row, previous = {}, status = 'draft', account = {}) {
+    const canSchedule = planAllowsPublicScheduling(account);
+    const inputFrom = _dateFromDateTimeLocal(row?.querySelector('[data-public-from]')?.value);
+    const inputUntil = _dateFromDateTimeLocal(row?.querySelector('[data-public-until]')?.value);
+    const publicFrom = canSchedule
+        ? (inputFrom || toDate(previous.publicFrom) || new Date())
+        : new Date();
+    const publicUntil = canSchedule ? inputUntil : null;
+    if (canSchedule && publicFrom && publicUntil && publicUntil.getTime() < publicFrom.getTime()) {
+        throw new Error(t('works_publication_invalid_range'));
+    }
+    return updatePublicationForStatus({
+        ...previous,
+        publicFrom,
+        publicUntil
+    }, status, account, new Date());
+}
+
+function _refreshRowPublication(row, proj, account = {}) {
+    if (!row || !proj) return;
+    const meta = row.querySelector('[data-publication-meta]');
+    if (meta) meta.innerHTML = _renderPublicationMeta(proj.publication, proj.dsfStatus);
+    const info = {
+        ...proj,
+        publication: proj.publication || {},
+    };
+    const editor = row.querySelector('.works-publication-editor');
+    if (editor) editor.outerHTML = _renderPublicationEditor(info, account);
+    const saveBtn = row.querySelector('.works-publication-save');
+    if (saveBtn) {
+        saveBtn.addEventListener('click', async () => {
+            const updated = await _updatePublicationWindow(proj.id, proj, row);
+            if (updated) {
+                proj.publication = updated;
+                _refreshRowPublication(row, proj, account);
+            }
+        });
+    }
+}
+
+async function _updateDsfStatus(pid, newStatus, proj, row) {
     if (!state.uid || !pid) return;
     const workId = proj?.workId || pid;
     try {
@@ -246,9 +410,12 @@ async function _updateDsfStatus(pid, newStatus, proj) {
         } else {
             account = await assertAccountCanEdit();
         }
-        const publication = updatePublicationForStatus(proj?.publication || {}, newStatus, account, new Date());
+        const publication = _publicationFromRow(row, proj?.publication || {}, newStatus, account);
         if ((newStatus === 'public' || newStatus === 'unlisted') && !isPublicationActive(publication, newStatus)) {
-            throw new Error('掲載期限または公開期限が終了しているため公開できません。Press Room で再レンダリングしてください。');
+            const reason = getPublicationExpireReason(publication, newStatus, new Date());
+            if (reason) {
+                throw new Error(t('works_publication_cannot_publish_expired'));
+            }
         }
         await updateDoc(doc(db, 'users', state.uid, 'projects', pid), {
             dsfStatus: newStatus,
@@ -283,9 +450,48 @@ async function _updateDsfStatus(pid, newStatus, proj) {
                 await deleteDoc(doc(db, 'public_projects', pid)).catch(() => {});
             }
         }
+        return publication;
     } catch (err) {
         console.error('[Works] dsfStatus update error:', err);
         alert('ステータスの更新に失敗しました: ' + err.message);
+        return null;
+    }
+}
+
+async function _updatePublicationWindow(pid, proj, row) {
+    if (!state.uid || !pid || !proj) return null;
+    const status = proj.dsfStatus || 'draft';
+    if (!(status === 'public' || status === 'unlisted')) {
+        alert(t('works_publication_visible_only'));
+        return null;
+    }
+    const workId = proj.workId || pid;
+    try {
+        const account = await assertAccountCanPublish();
+        const publication = _publicationFromRow(row, proj.publication || {}, status, account);
+        const expiredReason = getPublicationExpireReason(publication, status, new Date());
+        if (expiredReason) throw new Error(t('works_publication_cannot_publish_expired'));
+        await updateDoc(doc(db, 'users', state.uid, 'projects', pid), { publication });
+        await setDoc(doc(db, 'public_projects', workId), {
+            title:      proj.title || '無題のプロジェクト',
+            projectId:  pid,
+            workId,
+            releaseId:  proj.releaseId || null,
+            authorUid:  state.uid,
+            authorName: state.user?.displayName || state.user?.email || '',
+            thumbnail:  proj.thumbnail || null,
+            publication,
+            dsfStatus:  status,
+            dsfLangs:   proj.dsfLangs || [],
+            pageCount:  proj.pageCount || 0,
+            updatedAt: serverTimestamp()
+        }, { merge: true });
+        alert(t('works_publication_saved'));
+        return publication;
+    } catch (err) {
+        console.error('[Works] publication update error:', err);
+        alert('公開期間の更新に失敗しました: ' + err.message);
+        return null;
     }
 }
 

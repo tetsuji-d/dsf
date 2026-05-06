@@ -137,7 +137,6 @@ export function updatePublicationForStatus(previous = {}, status = 'draft', acco
 export function getPublicationExpireReason(publication = {}, status = 'public', now = new Date()) {
     const listedFrom = toDate(publication.listedFrom);
     const listedUntil = toDate(publication.listedUntil);
-    const publicFrom = toDate(publication.publicFrom);
     const publicUntil = toDate(publication.publicUntil);
     const t = toDate(now) || new Date();
 
@@ -145,14 +144,24 @@ export function getPublicationExpireReason(publication = {}, status = 'public', 
     if (listedUntil && listedUntil.getTime() < t.getTime()) return 'listing';
 
     if (status === 'public' || status === 'unlisted') {
-        if (publicFrom && publicFrom.getTime() > t.getTime()) return 'public';
         if (publicUntil && publicUntil.getTime() < t.getTime()) return 'public';
     }
     return null;
 }
 
+export function getPublicationInactiveReason(publication = {}, status = 'public', now = new Date()) {
+    const expiredReason = getPublicationExpireReason(publication, status, now);
+    if (expiredReason) return expiredReason;
+    const publicFrom = toDate(publication.publicFrom);
+    const t = toDate(now) || new Date();
+    if ((status === 'public' || status === 'unlisted') && publicFrom && publicFrom.getTime() > t.getTime()) {
+        return 'public_scheduled';
+    }
+    return null;
+}
+
 export function isPublicationActive(publication = {}, status = 'public', now = new Date()) {
-    return !getPublicationExpireReason(publication, status, now);
+    return !getPublicationInactiveReason(publication, status, now);
 }
 
 export function formatPublicationDate(value, locale = 'ja-JP') {

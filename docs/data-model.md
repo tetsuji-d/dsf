@@ -344,11 +344,11 @@ Press Room で Horizon 発行するたびに作成する発行スナップショ
 
 当面の Viewer はプロジェクトドキュメント上の最新 `dsfPages` を読む。`releases` は公開履歴、ロールバック、監査、版指定URLのための土台として保持する。
 
-#### `publication` — 掲載 / 公開期限
+#### `publication` — 掲載可能期間 / 公開期限
 
 `dsfStatus` は公開状態、`publication` は時間境界を表す。状態と期限は分離する。
 
-- `listedFrom` / `listedUntil`: DSF 出力を始めてから掲出終了までの掲載期限。free plan は最大 14 日。
+- `listedFrom` / `listedUntil`: DSF 出力を始めてから掲出終了までの掲載可能期間。free plan は最大 14 日。
 - `listedUntil`: FREE は `listedFrom + 14日`、PLUS / PRO / BUSINESS は有効な課金中に限り `9999-12-31 23:59` 相当のシステム値を入れる。
 - `publicFrom` / `publicUntil`: Works で `public` / `unlisted` にした公開開始から公開終了までの期限。`publicUntil` は PRO / BUSINESS でのみ任意設定可能で、必ず `listedUntil` 以下。
 - `planSnapshot`: `publication` 再評価時の `tier` / `status` / `cancelAtPeriodEnd` / `evaluatedAt`。最終判定は現在の `users/{uid}.plan` を使い、snapshot は監査・表示補助に使う。
@@ -642,7 +642,7 @@ public_projects/{workId}:
   - read: 誰でも可（未認証含む。Portal / Viewer 側は dsfStatus と publication で表示・閲覧可否を判定）
   - create/update: 認証済みユーザーが authorUid == auth.uid で、publication が有効な場合のみ
   - FREE の listedUntil は listedFrom から最大 14 日
-  - `entitlements.canUseUnlimitedListing=true` または有効な PLUS/PRO/BUSINESS projection のみ掲載期限なし扱い
+  - `entitlements.canUseUnlimitedListing=true` または有効な PLUS/PRO/BUSINESS projection のみ掲載可能期間なし扱い
   - publicUntil は listedUntil 以下、かつ `entitlements.canSchedulePublicExpiry=true` または有効な PRO/BUSINESS projection のみ設定可
   - delete: authorUid == auth.uid の場合のみ
 
@@ -700,6 +700,6 @@ state.pages    ← viewer/export surface（v5 Page Object の配列）
 | 2026-04-27 | `metric_events/{eventId}` 指標イベントモデルを追加。Viewer の `view_start` / `page_view` / `read_complete` を append-only で保存 |
 | 2026-04-28 | `reviews/{workId}/items/{reviewId}` レビュー投稿モデルを追加。Viewer の投稿・公開レビュー表示と moderation 用 `status` を定義 |
 | 2026-04-28 | レビュー評価を星から good/bad リアクションへ変更。Viewer では good 数のみ表示し、bad 数は投稿者/運営確認用に保持 |
-| 2026-05-05 | `publication` 掲載 / 公開期限メタデータを追加。free plan の掲載期限は最大 14 日 |
+| 2026-05-05 | `publication` 掲載可能期間 / 公開期限メタデータを追加。free plan の掲載可能期間は最大 14 日 |
 | 2026-05-05 | プラン別期限仕様を FREE/PLUS/PRO/BUSINESS に更新し、`planChangeRequests` とマイページ土台を追加 |
 | 2026-05-06 | 課金スキーマを正規化。`plan.effectiveTier`、`billing`、`entitlements.canUseUnlimitedListing` / `canSchedulePublicExpiry`、`billing_events` を追加 |

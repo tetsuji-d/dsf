@@ -2,7 +2,7 @@
 
 **作成日**: 2026-05-06  
 **ステータス**: 設計案。実装前に Architect 確認対象。  
-**対象**: DSF Horizon / Studio の FREE / PLUS / PRO / BUSINESS と掲載期限・公開期限制御。
+**対象**: DSF Horizon / Studio の FREE / PLUS / PRO / BUSINESS と掲載可能期間・公開期限制御。
 
 ---
 
@@ -15,7 +15,7 @@
 | 決済契約・請求状態 | Stripe | 支払い成功、失敗、解約、差額充当、期間終了は Stripe 側が最も正確 |
 | アプリ内の実効プラン | `users/{uid}.plan` と `users/{uid}.entitlements` | Firestore rules / UI / 公開制御が高速に参照できる projection |
 | 課金イベント処理 | サーバーサイド webhook / admin job | クライアントから `plan` を直接変更させない |
-| 掲載・公開期限の実効状態 | `publication` metadata + backend reconciler | UI 表示だけでなく、期限到達時に自動で下書きへ戻す必要がある |
+| 掲載可能期間・公開期限の実効状態 | `publication` metadata + backend reconciler | UI 表示だけでなく、期限到達時に自動で下書きへ戻す必要がある |
 
 ユーザー操作は「プランを直接変更」ではなく、Checkout / Customer Portal / plan change request を開始するだけにする。実際の `plan` 更新は webhook または運営操作だけが行う。
 
@@ -26,8 +26,8 @@
 1. クライアントは `users/{uid}.plan` を直接変更できない。
 2. Firestore の `plan` は決済プロバイダの同期済みキャッシュであり、課金の真実のソースではない。
 3. 機能可否は `plan.tier` だけで判定せず、常に `status` / `currentPeriodEnd` / `entitlements` を含めて判定する。
-4. 掲載期限と公開期限は作品 metadata に保持するが、期限切れ処理は backend reconciler が確定させる。
-5. FREE へ戻った場合、掲載期限は「発行から14日」で再評価し、期限超過の `public` / `unlisted` は自動で `draft` に戻す。
+4. 掲載可能期間と公開期限は作品 metadata に保持するが、期限切れ処理は backend reconciler が確定させる。
+5. FREE へ戻った場合、掲載可能期間は「発行から14日」で再評価し、期限超過の `public` / `unlisted` は自動で `draft` に戻す。
 6. 有料期間中の解約予約は、期間末までは有料 entitlement を維持する。
 7. 支払い失敗は即時 FREE 相当に落とす。カード期限切れ等でも公開制御の実効状態は即時反映する。
 8. アップグレードは支払い成功時のみ即時反映する。決済できなかった場合、既存プランを維持する。
@@ -37,7 +37,7 @@
 
 ## プラン定義
 
-| プラン | 掲載期限 | 公開期限予約 | 想定用途 |
+| プラン | 掲載可能期間 | 公開期限予約 | 想定用途 |
 |--------|----------|--------------|----------|
 | FREE | 発行から最大14日 | 不可 | 試用、軽量公開 |
 | PLUS | 無期限 | 不可 | 個人の常設公開 |
@@ -247,7 +247,7 @@ invoice payment failed
 
 ---
 
-## 掲載期限・公開期限への影響
+## 掲載可能期間・公開期限への影響
 
 | 実効プラン | listedUntil | publicUntil |
 |------------|-------------|-------------|
@@ -314,7 +314,7 @@ invoice payment failed
 
 - `users/{uid}.plan.tier/status/provider/currentPeriodEnd/cancelAtPeriodEnd` の土台。
 - FREE / PLUS / PRO / BUSINESS の tier 正規化。
-- FREE は掲載期限最大14日、PLUS/PRO/BUSINESS は無期限相当。
+- FREE は掲載可能期間最大14日、PLUS/PRO/BUSINESS は無期限相当。
 - PRO/BUSINESS のみ `publicUntil` 設定可能という publication logic。
 - `publication.planSnapshot` の保存。
 - `public_projects` rules で plan と publication の最低限検証。

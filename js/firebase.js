@@ -252,7 +252,15 @@ export async function ensureUserBootstrap(user = auth.currentUser) {
             lastLoginAt: serverTimestamp()
         };
 
-        await setDoc(ref, merged, { merge: true });
+        try {
+            await setDoc(ref, merged, { merge: true });
+        } catch (err) {
+            // Legacy user documents can be readable but not self-migratable once
+            // protected plan/role fields are locked by rules. Do not block rooms
+            // that only need the normalized account view.
+            if (err?.code !== 'permission-denied') throw err;
+            console.warn('[Auth] user bootstrap merge skipped:', err?.message || err);
+        }
         return {
             ...data,
             ...merged,
