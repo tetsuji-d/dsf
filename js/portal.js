@@ -8,6 +8,7 @@ import { db, auth } from './firebase-core.js';
 import { ensureUserBootstrap } from './firebase.js';
 import { initGIS, renderGISButton, signInWithGoogle, handleRedirectResult, signOutUser } from './gis-auth.js';
 import { applyTheme, bindThemePreferenceListener, getThemeMode, setThemeMode as persistThemeMode } from './theme.js';
+import { isPublicationActive, normalizePlanTier } from './publication.js';
 
 const DEFAULT_THUMB_URL = "https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?q=80&w=400&auto=format&fit=crop";
 const FETCH_LIMIT = 20;
@@ -38,6 +39,7 @@ const STRINGS = {
         navWorks:        "ワークス",
         signinBtn:       "サインイン",
         signoutBtn:      "サインアウト",
+        myPage:          "マイページ",
         authError:       "認証エラー",
         uiLabel:         "UI",
         themeLabel:      "表示モード",
@@ -84,6 +86,7 @@ const STRINGS = {
         navWorks:        "Works",
         signinBtn:       "Sign in",
         signoutBtn:      "Sign out",
+        myPage:          "My Page",
         authError:       "Authentication error",
         uiLabel:         "UI",
         themeLabel:      "Theme",
@@ -167,6 +170,7 @@ const portalState = {
     hasError: false,
     query: "",
     projects: [],
+    account: null,
 };
 
 let searchDebounceTimer = null;
@@ -199,6 +203,17 @@ function formatDate(publishedAt) {
 function buildViewerUrl(workId, authorUid) {
     void authorUid;
     return `/viewer.html?work=${encodeURIComponent(workId)}`;
+}
+
+function getPlanDisplayName(account) {
+    const tier = normalizePlanTier(account?.plan?.tier || 'free');
+    const labels = {
+        free: 'FREE',
+        plus: 'PLUS',
+        pro: 'PRO',
+        business: 'BUSINESS',
+    };
+    return labels[tier] || tier.toUpperCase();
 }
 
 // ---- Rendering -----------------------------------------------------------
@@ -333,6 +348,8 @@ function normalizeProject(docSnap) {
         canOpen:       !!authorUid,
         thumbnail:     typeof data.thumbnail === "string" ? data.thumbnail : DEFAULT_THUMB_URL,
         publishedDate: formatDate(data.updatedAt),
+        publication:    data.publication || null,
+        dsfStatus:      data.dsfStatus || 'public',
     };
 }
 
@@ -350,7 +367,11 @@ async function loadPublicProjects() {
         const q = query(collection(db, "public_projects"), orderBy("updatedAt", "desc"), limit(FETCH_LIMIT));
         const snap = await getDocs(q);
         portalState.projects = snap.docs
-            .filter(d => (d.data().dsfStatus || 'public') === 'public')
+            .filter(d => {
+                const data = d.data() || {};
+                const status = data.dsfStatus || 'public';
+                return status === 'public' && isPublicationActive(data.publication || {}, status);
+            })
             .map(normalizeProject);
         portalState.isLoading = false;
         renderProjects();
@@ -393,6 +414,7 @@ function renderAuthArea(user) {
         const photoUrl   = escapeHtml(user.photoURL || "");
         const displayName = escapeHtml(user.displayName || user.email || "User");
         const initials   = (user.displayName || "U").charAt(0).toUpperCase();
+        const planName   = escapeHtml(getPlanDisplayName(portalState.account));
         authArea.innerHTML = `
             <div class="auth-user">
                 <button type="button" class="auth-avatar-btn" id="btn-avatar"
@@ -402,7 +424,10 @@ function renderAuthArea(user) {
                         : `<span class="auth-initials">${escapeHtml(initials)}</span>`}
                 </button>
                 <div class="auth-dropdown auth-panel" id="auth-dropdown">
-                    <div class="auth-dropdown-name">${displayName}</div>
+                    <div class="auth-dropdown-name">
+                        <span class="auth-dropdown-display-name">${displayName}</span>
+                        <span class="auth-dropdown-plan">${planName}</span>
+                    </div>
                     <div class="auth-panel-section">
                         <div class="auth-panel-label">${escapeHtml(t("themeLabel"))}</div>
                         <div class="theme-mode-switcher js-theme-switcher" role="group" aria-label="${escapeHtml(t("themeLabel"))}">
@@ -412,6 +437,7 @@ function renderAuthArea(user) {
                         </div>
                     </div>
                     <div class="auth-panel-links">
+                        <a href="/mypage.html" class="auth-panel-link"><span class="material-icons">manage_accounts</span><span>${escapeHtml(t("myPage"))}</span></a>
                         <button type="button" class="auth-panel-link"><span class="material-icons">visibility_off</span><span>${escapeHtml(t("restrictedMode"))}</span></button>
                         <button type="button" class="auth-panel-link"><span class="material-icons">public</span><span>${escapeHtml(t("location"))}</span></button>
                         <button type="button" class="auth-panel-link"><span class="material-icons">settings</span><span>${escapeHtml(t("settings"))}</span></button>
@@ -625,7 +651,14 @@ document.addEventListener("DOMContentLoaded", () => {
         await initGIS({ authInstance: auth });
         onAuthStateChanged(auth, (user) => {
             if (user) {
-                void ensureUserBootstrap(user).catch((e) => console.warn('[Portal] user bootstrap failed:', e));
+                void ensureUserBootstrap(user).then((account) => {
+                    portalState.account = account;
+                    if (auth.currentUser?.uid === user.uid) {
+                        renderAuthArea(user);
+                    }
+                }).catch((e) => console.warn('[Portal] user bootstrap failed:', e));
+            } else {
+                portalState.account = null;
             }
             renderAuthArea(user);
         });

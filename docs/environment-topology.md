@@ -1,60 +1,49 @@
 # DSF Environment Topology
 
-DSF は現在、**フロントエンド配信**と**バックエンド基盤**が分かれた構成になっている。
+DSF は **Cloudflare Pages + Firebase + Cloudflare R2** で運用する。
 
 ## 結論
 
-- **Cloudflare Pages 単体では動かない**
-- **Firebase 単体でも現在の本番想定フロント構成は完結しない**
-- 実態は **Cloudflare Pages + Firebase + Cloudflare R2** の組み合わせ
-
-つまり:
-
-- **表のURL** は Cloudflare Pages
-- **認証 / DB / ユーザー状態** は Firebase
-- **画像アップロード / 配信** は R2（staging / production ビルド時）
+- **フロントエンド配信は Cloudflare Pages に一本化する**
+- **Firebase Hosting は通常運用から外す**
+- **Firebase は Auth / Firestore / Storage rules のバックエンドとして使う**
+- **画像アップロード / 配信は staging / production とも Cloudflare R2 を使う**
 
 ---
 
 ## 役割分担
 
-| 役割 | 現在の担当 | 備考 |
-|------|------------|------|
-| 静的フロント配信 | Cloudflare Pages | `index.html`, `studio.html`, `viewer.html`, JS/CSS |
+| 役割 | 担当 | 備考 |
+|------|------|------|
+| 静的フロント配信 | Cloudflare Pages | `index.html`, `studio.html`, `viewer.html`, `mypage.html`, JS/CSS |
 | 認証 | Firebase Auth | Google GIS と連携 |
-| データ保存 | Firestore | projects / public_projects など |
+| データ保存 | Firestore | users / projects / public_projects / reviews など |
+| Security Rules | Firebase | `firestore.rules`, `storage.rules` |
 | 画像保存（staging / prod） | Cloudflare R2 | Pages Function `/upload` 経由 |
 | 画像保存（ローカル開発） | Firebase Storage | `npm run dev` 時のみ |
-| 検証用ホスティング | Firebase Hosting | 併設。Cloudflare とは別系統の確認先 |
+| Firebase Hosting | 通常運用外 | emergency fallback / 明示検証時のみ |
 
 ---
 
-## 現在の環境一覧
+## 環境一覧
 
-### 1. Cloudflare Pages（Primary）
+### Cloudflare Pages
 
 | 環境 | URL | 用途 |
 |------|-----|------|
-| production | `https://dsf.ink` 想定 | 本番配信 |
-| staging preview | `https://staging.dsf-studio.pages.dev/` | **Primary staging**。日常のステージング確認用 |
+| production | `https://dsf.ink` 想定 | 本番フロント配信 |
+| staging | `https://staging.dsf-studio.pages.dev/` | 日常のステージング確認先 |
 
-Cloudflare Pages は **UI の配信面**。  
-ただしアプリ内部では Firebase Auth / Firestore を利用するため、Pages だけで閉じたシステムではない。
+Cloudflare Pages は UI の唯一の正面。アプリ内部では Firebase Auth / Firestore を利用するため、Pages だけで閉じたシステムではない。
 
-### 2. Firebase
+### Firebase
 
 | 環境 | Project ID | 用途 |
 |------|------------|------|
-| production | `vmnn-26345` | 本番 Auth / Firestore / Storage 設定の基準 |
-| staging | `vmnn-26345-stg` | ステージング Auth / Firestore |
+| production | `vmnn-26345` | 本番 Auth / Firestore / rules |
+| staging | `vmnn-26345-stg` | ステージング Auth / Firestore / rules |
 
-### 3. Firebase Hosting（Secondary）
-
-| 環境 | URL | 用途 |
-|------|-----|------|
-| staging hosting | `https://vmnn-26345-stg.web.app` | **Secondary staging**。追加の検証用 URL |
-
-Firebase Hosting は、現時点では **Cloudflare Pages staging の代替ではなく、secondary / 補助的な確認面** として扱う。
+Firebase Hosting の URL は通常確認先にしない。必要なときだけ `deploy:firebase:hosting:*` を明示して使う。
 
 ---
 
@@ -63,51 +52,63 @@ Firebase Hosting は、現時点では **Cloudflare Pages staging の代替で�
 ### `npm run dev`
 
 - `.env.development` を使う
-- Firebase project: **staging** (`vmnn-26345-stg`)
-- Storage backend: **firebase**
-- 用途: ローカルVite開発。R2 ではなく Firebase Storage を使う
+- Firebase project: staging (`vmnn-26345-stg`)
+- Storage backend: Firebase Storage
+- 用途: ローカル Vite 開発
 
 ### `npm run build:staging`
 
 - `.env.staging` を使う
-- Firebase project: **staging** (`vmnn-26345-stg`)
-- Storage backend: **r2**
-- 用途: Cloudflare Pages staging / preview 相当の成果物
+- Firebase project: staging (`vmnn-26345-stg`)
+- Storage backend: Cloudflare R2
+- 用途: Cloudflare Pages staging 用成果物
 
 ### `npm run build`
 
 - `.env.production` を使う
-- Firebase project: **production** (`vmnn-26345`)
-- Storage backend: **r2**
-- 用途: 本番向け成果物
+- Firebase project: production (`vmnn-26345`)
+- Storage backend: Cloudflare R2
+- 用途: Cloudflare Pages production 用成果物
 
 ---
 
-## デプロイコマンドの意味
+## デプロイコマンド
 
-### Cloudflare Pages
+### フロント配信（Cloudflare Pages）
 
 | コマンド | 反映先 |
 |---------|--------|
-| `npm run deploy:pages:staging` | `https://staging.dsf-studio.pages.dev/` |
+| `npm run deploy:staging` | Cloudflare Pages staging |
+| `npm run deploy:pages:staging` | Cloudflare Pages staging |
+| `npm run deploy:prod` | Cloudflare Pages production |
 | `npm run deploy:pages` | Cloudflare Pages production |
-| `npm run deploy:prod:check` | 本番デプロイ前チェック。実デプロイは行わない |
-| `npm run deploy:prod:safe` | **本番推奨手順**。構文確認、本番ビルド、Firestore rules、Cloudflare Pages production を順に反映 |
 
-### Firebase
+### Firebase backend rules
 
 | コマンド | 反映先 |
 |---------|--------|
-| `npm run deploy:staging` | Firebase Hosting staging (`vmnn-26345-stg.web.app`) + rules |
-| `npm run deploy:prod` | Firebase 側 production 反映 |
+| `npm run deploy:firebase:rules:staging` | staging Firestore rules |
+| `npm run deploy:firebase:rules:prod` | production Firestore rules |
+| `npm run deploy:firebase:storage-rules:staging` | staging Storage rules（Firebase Storage を明示的に使う場合のみ） |
+| `npm run deploy:firebase:storage-rules:prod` | production Storage rules（Firebase Storage を明示的に使う場合のみ） |
 
-重要なのは、
+### Firebase Hosting（通常運用外）
 
-- **`git push` はURLを更新しない**
-- **`deploy:*` だけが実際の確認用URLを更新する**
-- **Cloudflare Pages のデプロイだけでは Firebase / Firestore rules は更新されない**
+| コマンド | 用途 |
+|---------|------|
+| `npm run deploy:firebase:hosting:staging` | emergency fallback / 明示検証 |
+| `npm run deploy:firebase:hosting:prod` | emergency fallback / 明示検証 |
 
-という点。
+---
+
+## 運用ルール
+
+1. 日常の staging 確認 URL は `https://staging.dsf-studio.pages.dev/` のみ。
+2. 「staging へ出して」と言われたら `npm run deploy:staging` を使う。
+3. Firestore rules を変えた場合だけ、別途 `npm run deploy:firebase:rules:staging` を使う。
+4. Firebase Storage rules は通常運用外。明示的に Firebase Storage を使う場合のみ `deploy:firebase:storage-rules:*` を使う。
+5. Firebase Hosting には通常デプロイしない。
+6. 不具合確認では Cloudflare Pages URL を基準にする。
 
 ---
 
@@ -125,53 +126,7 @@ Firebase Hosting は、現時点では **Cloudflare Pages staging の代替で�
 6. `npx firebase deploy --project prod --only firestore:rules`
 7. `npx wrangler pages deploy dist --project-name dsf-studio`
 
-本番反映前の基本手順:
-
-1. staging で動作確認する
-2. 修正を commit する
-3. `git push origin main`
-4. `npm run deploy:prod:check`
-5. `npm run deploy:prod:safe`
-
-`deploy:prod:safe` は安全のため、未pushの `main` や未コミット差分がある状態では停止する。
-
----
-
-## 運用ルール（現時点の推奨）
-
-### 基本ルール
-
-1. **日常確認のステージングは Cloudflare Pages を正とする**
-   - 使うURL: `https://staging.dsf-studio.pages.dev/`
-
-2. **Firebase Hosting staging は補助確認用**
-   - 認証導線
-   - Firestore / Rules 反映確認
-   - Cloudflare 側と挙動差がないかの切り分け
-
-3. **不具合確認時は必ず URL を添える**
-   - 例: `staging.dsf-studio.pages.dev` なのか
-   - 例: `vmnn-26345-stg.web.app` なのか
-
-4. **ローカル `npm run dev` は staging Firebase を見る**
-   - 本番データを直接触らない
-
-### 実務上の解釈
-
-- 「Cloudflare staging で確認」は、**UI配信面の確認**
-- 「Firebase staging で確認」は、**ホスティング差分やルール反映の確認**
-
----
-
-## この構成で問題があるか
-
-**構成自体は問題ない。**  
-問題になるのは、どのURLを「正式なステージング」と見なすかが曖昧な場合だけ。
-
-現在は次の整理で運用するのが妥当:
-
-- **Primary staging**: Cloudflare Pages
-- **Secondary staging**: Firebase Hosting
+今後は storage rules も変更対象なら safe deploy に含める。
 
 ---
 
@@ -183,6 +138,8 @@ Firebase Hosting は、現時点では **Cloudflare Pages staging の代替で�
 - `wrangler.toml`
 - `.firebaserc`
 - `firebase.json`
+- `firestore.rules`
+- `storage.rules`
 - `js/firebase.js`
 - `js/firebase-core.js`
 - `functions/upload.js`

@@ -32,6 +32,8 @@ AI エージェント、人間の開発者ともに、まずこの文書を読�
   Cloudflare Pages / Firebase / R2 の役割分担
 - **[docs/user-account-audit.md](docs/user-account-audit.md)**  
   ユーザーアカウント、Google-only 認証、今後のブートストラップ方針
+- **[docs/billing-plan-architecture.md](docs/billing-plan-architecture.md)**  
+  プラン・課金状態、Stripe 前提の projection、掲載/公開期限への影響
 - **[docs/admin-role-model.md](docs/admin-role-model.md)**  
   admin / operator / moderator の権限モデルと運営管理画面の前提
 
@@ -121,8 +123,8 @@ npm run build     # dist/ へ本番ビルド (R2 使用)
 npm run preview   # 本番ビルドをローカルでプレビュー
 npm run build:staging       # staging ビルド (Cloudflare preview / R2 想定)
 npm run dev:pages           # Cloudflare Pages Functions 付きローカル確認
-npm run deploy:pages:staging # Cloudflare Pages preview へ staging デプロイ
-npm run deploy:staging      # Firebase Hosting staging + rules へ反映
+npm run deploy:staging      # Cloudflare Pages staging へデプロイ
+npm run deploy:firebase:rules:staging # Firebase backend rules のみ staging へ反映
 
 # デプロイ（Cloudflare Pages）
 npx wrangler pages deploy dist --project-name dsf-studio --branch main  # 本番
@@ -143,8 +145,8 @@ npx wrangler pages deploy dist --project-name dsf-studio --branch staging # stag
 
 補足:
 - `staging.dsf-studio.pages.dev` は **Cloudflare Pages staging**
-- `vmnn-26345-stg.web.app` は **Firebase Hosting staging**
-- 日常の確認先は前者を基本とし、後者は補助確認用
+- 日常の確認先は Cloudflare Pages staging に一本化
+- Firebase Hosting は通常運用から外し、必要な場合のみ `deploy:firebase:hosting:*` を明示的に使う
 
 ### ストレージ切り替え
 `VITE_STORAGE_BACKEND` 環境変数で制御:

@@ -1,4 +1,4 @@
-import { collection, getDocs, limit, orderBy, query } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
+import { collection, doc, getDocs, limit, orderBy, query, updateDoc } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
 import { onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js";
 import { auth, db } from './firebase-core.js';
 import { ensureUserBootstrap } from './firebase.js';
@@ -31,12 +31,24 @@ const ADMIN_UI = {
         detail_uid: 'UID',
         detail_handle: 'ハンドル',
         detail_plan: 'プラン',
+        detail_billing: '課金同期',
         detail_last_login: '最終ログイン',
         detail_status: '状態',
         detail_storage: '保存領域',
         detail_entitlements: '利用権限',
         status_disabled: '無効化',
         status_hold: 'モデレーション保留',
+        action_disable: 'アカウントを停止',
+        action_enable: '停止を解除',
+        action_hold: '保留にする',
+        action_release_hold: '保留を解除',
+        action_not_allowed: 'このロールでは変更できません',
+        confirm_disable: 'このユーザーのログイン後操作を停止します。続行しますか？',
+        confirm_enable: 'このユーザーの停止を解除します。続行しますか？',
+        confirm_hold: 'このユーザーの公開・投稿を保留します。続行しますか？',
+        confirm_release_hold: 'このユーザーのモデレーション保留を解除します。続行しますか？',
+        update_success: 'ユーザー状態を更新しました。',
+        update_failed: 'ユーザー状態の更新に失敗しました: {message}',
         role_staff: '運営',
         fallback_no_display_name: '（displayName 未設定）',
         fallback_no_email: 'メール未設定',
@@ -70,12 +82,24 @@ const ADMIN_UI = {
         detail_uid: 'UID',
         detail_handle: 'Handle',
         detail_plan: 'Plan',
+        detail_billing: 'Billing Sync',
         detail_last_login: 'Last Login',
         detail_status: 'Status',
         detail_storage: 'Storage Namespace',
         detail_entitlements: 'Entitlements',
         status_disabled: 'disabled',
         status_hold: 'moderationHold',
+        action_disable: 'Disable account',
+        action_enable: 'Enable account',
+        action_hold: 'Place hold',
+        action_release_hold: 'Release hold',
+        action_not_allowed: 'This role cannot change this setting',
+        confirm_disable: 'Disable this user after sign-in. Continue?',
+        confirm_enable: 'Enable this user. Continue?',
+        confirm_hold: 'Place this user on publishing and posting hold. Continue?',
+        confirm_release_hold: 'Release this user from moderation hold. Continue?',
+        update_success: 'User status updated.',
+        update_failed: 'Failed to update user status: {message}',
         role_staff: 'STAFF',
         fallback_no_display_name: '(no displayName)',
         fallback_no_email: 'no-email',
@@ -127,6 +151,14 @@ function getViewerRole(tokenResult) {
     if (token.operator === true) return 'OPERATOR';
     if (token.moderator === true) return 'MODERATOR';
     return null;
+}
+
+function canManageDisabled() {
+    return state.viewerRole === 'ADMIN' || state.viewerRole === 'OPERATOR';
+}
+
+function canManageModerationHold() {
+    return state.viewerRole === 'ADMIN' || state.viewerRole === 'OPERATOR' || state.viewerRole === 'MODERATOR';
 }
 
 function setFeedback(type, message) {
@@ -243,7 +275,7 @@ function buildUserPills(user) {
     if (user.roles?.moderator) pills.push('<span class="admin-pill is-staff">MODERATOR</span>');
     if (user.status?.disabled) pills.push('<span class="admin-pill is-disabled">DISABLED</span>');
     if (user.status?.moderationHold) pills.push('<span class="admin-pill is-hold">HOLD</span>');
-    pills.push(`<span class="admin-pill is-plan">${escapeHtml((user.plan?.tier || 'free').toUpperCase())}</span>`);
+    pills.push(`<span class="admin-pill is-plan">${escapeHtml((user.plan?.effectiveTier || user.plan?.tier || 'free').toUpperCase())}</span>`);
     return pills.join('');
 }
 
@@ -326,7 +358,11 @@ function renderUserDetail() {
             </div>
             <div class="admin-detail-card">
                 <h3>${escapeHtml(t('detail_plan'))}</h3>
-                <p>${escapeHtml(user.plan?.tier || 'free')} / ${escapeHtml(user.plan?.status || 'active')}</p>
+                <p>${escapeHtml(user.plan?.tier || 'free')} / ${escapeHtml(user.plan?.effectiveTier || user.plan?.tier || 'free')} / ${escapeHtml(user.plan?.status || 'active')}</p>
+            </div>
+            <div class="admin-detail-card">
+                <h3>${escapeHtml(t('detail_billing'))}</h3>
+                <p>${escapeHtml(user.billing?.provider || 'none')} / ${escapeHtml(user.billing?.stripeSubscriptionStatus || '—')}</p>
             </div>
             <div class="admin-detail-card">
                 <h3>${escapeHtml(t('detail_last_login'))}</h3>
@@ -336,8 +372,28 @@ function renderUserDetail() {
         <div class="admin-detail-section">
             <h3>${escapeHtml(t('detail_status'))}</h3>
             <div class="admin-detail-stack">
-                <div class="admin-detail-card"><p>${escapeHtml(t('status_disabled'))}: ${user.status?.disabled ? t('bool_true') : t('bool_false')}</p></div>
-                <div class="admin-detail-card"><p>${escapeHtml(t('status_hold'))}: ${user.status?.moderationHold ? t('bool_true') : t('bool_false')}</p></div>
+                <div class="admin-detail-card admin-status-card">
+                    <p>${escapeHtml(t('status_disabled'))}: ${user.status?.disabled ? t('bool_true') : t('bool_false')}</p>
+                    <button type="button"
+                        class="admin-status-action ${user.status?.disabled ? 'is-safe' : 'is-danger'}"
+                        data-status-field="disabled"
+                        data-status-next="${user.status?.disabled ? 'false' : 'true'}"
+                        ${canManageDisabled() ? '' : 'disabled'}
+                        title="${escapeHtml(canManageDisabled() ? '' : t('action_not_allowed'))}">
+                        ${escapeHtml(user.status?.disabled ? t('action_enable') : t('action_disable'))}
+                    </button>
+                </div>
+                <div class="admin-detail-card admin-status-card">
+                    <p>${escapeHtml(t('status_hold'))}: ${user.status?.moderationHold ? t('bool_true') : t('bool_false')}</p>
+                    <button type="button"
+                        class="admin-status-action ${user.status?.moderationHold ? 'is-safe' : 'is-warning'}"
+                        data-status-field="moderationHold"
+                        data-status-next="${user.status?.moderationHold ? 'false' : 'true'}"
+                        ${canManageModerationHold() ? '' : 'disabled'}
+                        title="${escapeHtml(canManageModerationHold() ? '' : t('action_not_allowed'))}">
+                        ${escapeHtml(user.status?.moderationHold ? t('action_release_hold') : t('action_hold'))}
+                    </button>
+                </div>
             </div>
         </div>
         <div class="admin-detail-section">
@@ -356,6 +412,16 @@ function renderUserDetail() {
             </div>
         </div>
     `;
+
+    detailEl.querySelectorAll('[data-status-field]').forEach((button) => {
+        button.addEventListener('click', () => {
+            const field = button.dataset.statusField;
+            const nextValue = button.dataset.statusNext === 'true';
+            updateUserStatus(user.uid, field, nextValue).catch((e) => {
+                setFeedback('error', t('update_failed', { message: e?.message || String(e) }));
+            });
+        });
+    });
 }
 
 function applyAdminStaticI18n() {
@@ -421,6 +487,32 @@ async function loadUsers() {
     state.filteredUsers = [...state.users];
     state.selectedUid = state.filteredUsers[0]?.uid || null;
     applySearch();
+}
+
+async function updateUserStatus(uid, field, value) {
+    if (!uid || (field !== 'disabled' && field !== 'moderationHold')) return;
+    if (field === 'disabled' && !canManageDisabled()) return;
+    if (field === 'moderationHold' && !canManageModerationHold()) return;
+
+    const confirmKey = field === 'disabled'
+        ? (value ? 'confirm_disable' : 'confirm_enable')
+        : (value ? 'confirm_hold' : 'confirm_release_hold');
+    if (!window.confirm(t(confirmKey))) return;
+
+    const user = state.users.find((entry) => entry.uid === uid);
+    if (!user) return;
+    const nextStatus = {
+        disabled: !!user.status?.disabled,
+        moderationHold: !!user.status?.moderationHold,
+        [field]: value
+    };
+
+    await updateDoc(doc(db, 'users', uid), { status: nextStatus });
+    state.users = state.users.map((entry) => entry.uid === uid
+        ? { ...entry, status: nextStatus }
+        : entry);
+    applySearch();
+    setFeedback('info', t('update_success'));
 }
 
 async function handleAuthorizedUser(user) {

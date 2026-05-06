@@ -7,6 +7,7 @@ export default defineConfig(({ mode }) => ({
             input: {
                 index: resolve(__dirname, 'index.html'),
                 admin: resolve(__dirname, 'admin/index.html'),
+                mypage: resolve(__dirname, 'mypage.html'),
                 studio: resolve(__dirname, 'studio.html'),
                 viewer: resolve(__dirname, 'viewer.html'),
             },

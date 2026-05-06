@@ -30,6 +30,7 @@ import { createId } from './utils.js';
 import { CANONICAL_PAGE_WIDTH, CANONICAL_PAGE_HEIGHT } from './page-geometry.js';
 import { canInsertSpreadImageAt, getBookCompositionIssues, getPageDisplayLabel, getReadablePageCount, normalizeBookSettings, getPageCoverKey } from './page-labels.js';
 import { composeText, paginateText, PAGE_BREAK_MARKER, getWritingModeFromConfigs, getFontPresetFromConfigs, getFontPresetOptions, parseRubyTokens, tokensToPlainText, alignRubyToLines } from './layout.js';
+import { formatPublicationDate } from './publication.js';
 import { collection, getDocs, query, where, limit } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
 
 const EDITOR_FRAME_WIDTH = CANONICAL_PAGE_WIDTH;
@@ -425,6 +426,22 @@ function getHomeWorkDate(project) {
     return formatHomeDate(project?.dsfPublishedAt || project?.updatedAt || project?.lastUpdated);
 }
 
+function formatStudioPublicationDate(value) {
+    return formatPublicationDate(value, getUILang() === 'en' ? 'en-US' : 'ja-JP');
+}
+
+function renderHomePublicationMeta(publication) {
+    if (!publication || typeof publication !== 'object') return '';
+    const listedUntil = formatStudioPublicationDate(publication.listedUntil) || t('publication_no_limit');
+    const publicUntil = formatStudioPublicationDate(publication.publicUntil) || t('publication_no_limit');
+    return `
+        <div class="home-work-publication">
+            <span>${escapeStudioHtml(t('publication_listed_until'))}: ${escapeStudioHtml(listedUntil)}</span>
+            <span>${escapeStudioHtml(t('publication_public_until'))}: ${escapeStudioHtml(publicUntil)}</span>
+        </div>
+    `;
+}
+
 async function loadHomeReviewSummary(workId) {
     if (!workId) return { reviewCount: 0, goodCount: 0, badCount: 0, unavailable: false };
     try {
@@ -497,6 +514,7 @@ function renderHomeWorkCard(work, reviewSummary) {
     const langs = Array.isArray(work.dsfLangs) && work.dsfLangs.length ? work.dsfLangs : work.languages;
     const languageBadges = renderLanguageBadges(langs);
     const date = getHomeWorkDate(work);
+    const publicationMeta = renderHomePublicationMeta(work.publication);
     const reviewText = reviewSummary?.unavailable
         ? t('home_reviews_unavailable')
         : t('home_work_reviews', {
@@ -519,6 +537,7 @@ function renderHomeWorkCard(work, reviewSummary) {
                 </div>
                 <h4>${escapeStudioHtml(title)}</h4>
                 <p>${escapeStudioHtml(t('home_work_meta', { pages: pageCount, date: date || '—' }))}</p>
+                ${publicationMeta}
                 <div class="home-work-metrics">
                     <span><strong>${escapeStudioHtml(String(reviewSummary?.reviewCount || 0))}</strong>${escapeStudioHtml(t('home_metric_reviews'))}</span>
                     <span><strong>${escapeStudioHtml(String(reviewSummary?.goodCount || 0))}</strong>${escapeStudioHtml(t('home_metric_good'))}</span>

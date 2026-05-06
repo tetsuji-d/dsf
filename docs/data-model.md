@@ -20,6 +20,8 @@
 | 作品正本 | `users/{uid}/works/{workId}` | 読者に対して継続する作品IDと最新発行情報 |
 | 発行履歴 | `users/{uid}/works/{workId}/releases/{releaseId}` | 発行ごとの DSF メタデータ |
 | 読者しおり | `users/{uid}/bookmarks/{workId}` | 読者ごとの閲覧位置 |
+| プラン変更リクエスト | `users/{uid}/planChangeRequests/{requestId}` | ユーザーのプラン変更・解約リクエスト |
+| 課金イベント | `billing_events/{eventId}` | Stripe webhook / manual billing operation の冪等処理と監査 |
 | 公開作品インデックス | `public_projects/{workId}` | ポータル表示と `workId` URL 解決用インデックス |
 | 指標イベント | `metric_events/{eventId}` | Viewer から送信される append-only の閲覧イベント |
 | レビュー | `reviews/{workId}/items/{reviewId}` | 作品ごとの読者レビュー |
@@ -87,20 +89,34 @@ Storage/R2 側に空フォルダを作るのではなく、namespace をここ�
     "moderator": "Boolean"
   },
   "plan": {
-    "tier": "String ('free' | 'starter' | 'pro' | 'enterprise')",
-    "status": "String ('active' | 'trialing' | 'grace' | 'past_due' | 'canceled')",
+    "tier": "String ('free' | 'plus' | 'pro' | 'business')",
+    "effectiveTier": "String ('free' | 'plus' | 'pro' | 'business')",
+    "status": "String ('active' | 'trialing' | 'past_due' | 'canceled' | 'unpaid' | 'incomplete' | 'incomplete_expired')",
     "provider": "String ('none' | 'stripe' | 'manual')",
     "trialEndsAt": "Timestamp | null",
+    "currentPeriodStart": "Timestamp | null",
     "currentPeriodEnd": "Timestamp | null",
     "cancelAtPeriodEnd": "Boolean",
+    "canceledAt": "Timestamp | null",
     "updatedAt": "Timestamp | null"
+  },
+  "billing": {
+    "provider": "String ('none' | 'stripe' | 'manual')",
+    "stripeCustomerId": "String | null",
+    "stripeSubscriptionId": "String | null",
+    "stripePriceId": "String | null",
+    "stripeSubscriptionStatus": "String | null",
+    "lastWebhookEventId": "String | null",
+    "lastSyncedAt": "Timestamp | null"
   },
   "entitlements": {
     "canCreateProject": "Boolean",
     "canUsePremiumPaper": "Boolean",
     "canPublishPrivately": "Boolean",
     "canUseAdvancedAnalytics": "Boolean",
-    "canManageLabel": "Boolean"
+    "canManageLabel": "Boolean",
+    "canUseUnlimitedListing": "Boolean",
+    "canSchedulePublicExpiry": "Boolean"
   },
   "status": {
     "disabled": "Boolean",
@@ -125,7 +141,8 @@ Storage/R2 側に空フォルダを作るのではなく、namespace をここ�
 - Firebase Auth の初回 Google ログイン直後に `users/{uid}` を自動作成する
 - 既存ユーザーは不足フィールドだけ補完し、`lastLoginAt` を更新する
 - `roles.admin` / `roles.operator` / `roles.moderator` は後から運営側が付与する。初期値は `false`
-- `plan` は権限とは分離する。初期値は `tier='free'`, `status='active'`, `provider='none'`
+- `plan` は権限とは分離する。初期値は `tier='free'`, `effectiveTier='free'`, `status='active'`, `provider='none'`
+- `billing` は Stripe / manual billing の projection。初期値は `provider='none'`
 - `entitlements` は実効機能フラグ。初期値は無料ユーザー相当を入れる
 - `storage.authoringRoot` / `storage.publishRoot` は namespace 宣言であり、実フォルダ作成は行わない
 - `adminRoleSync.*` は custom claims を Firestore ミラーへ同期した時刻の監査補助情報
@@ -134,9 +151,10 @@ Storage/R2 側に空フォルダを作るのではなく、namespace をここ�
 
 - `roles.*` は「そのユーザーが何者か」
 - `plan.*` は「何を契約しているか」
+- `billing.*` は「決済プロバイダとどう同期しているか」
 - `entitlements.*` は「今この時点で何が使えるか」
 
-例えば、`creator` であっても `plan.tier='free'` なら premium paper は使えない。
+例えば、`creator` であっても `plan.effectiveTier='free'` なら premium paper は使えない。
 逆に、将来的に運営側付与やキャンペーンで `entitlements.canUsePremiumPaper=true` を直接与えることはありうる。
 
 ---
@@ -306,6 +324,14 @@ Press Room で Horizon 発行するたびに作成する発行スナップショ
   "bookMode": "String",
   "book": { "mode": "String", "covers": {} },
   "dsfStatus": "'draft' | 'unlisted' | 'public' | 'private'",
+  "publication": {
+    "listedFrom": "Timestamp (掲載開始。Press 出力開始時)",
+    "listedUntil": "Timestamp (掲載終了。free は listedFrom から最大 14 日)",
+    "publicFrom": "Timestamp | null (公開開始。Works で public/unlisted にした時)",
+    "publicUntil": "Timestamp | null (公開終了。課金プランで任意設定可能)",
+    "expiredAt": "Timestamp | null",
+    "expireReason": "'listing' | 'public' | null"
+  },
   "dsfPublishedAt": "Timestamp",
   "dsfRenderStamp": "Number",
   "dsfResolution": "String",
@@ -317,6 +343,19 @@ Press Room で Horizon 発行するたびに作成する発行スナップショ
 ```
 
 当面の Viewer はプロジェクトドキュメント上の最新 `dsfPages` を読む。`releases` は公開履歴、ロールバック、監査、版指定URLのための土台として保持する。
+
+#### `publication` — 掲載 / 公開期限
+
+`dsfStatus` は公開状態、`publication` は時間境界を表す。状態と期限は分離する。
+
+- `listedFrom` / `listedUntil`: DSF 出力を始めてから掲出終了までの掲載期限。free plan は最大 14 日。
+- `listedUntil`: FREE は `listedFrom + 14日`、PLUS / PRO / BUSINESS は有効な課金中に限り `9999-12-31 23:59` 相当のシステム値を入れる。
+- `publicFrom` / `publicUntil`: Works で `public` / `unlisted` にした公開開始から公開終了までの期限。`publicUntil` は PRO / BUSINESS でのみ任意設定可能で、必ず `listedUntil` 以下。
+- `planSnapshot`: `publication` 再評価時の `tier` / `status` / `cancelAtPeriodEnd` / `evaluatedAt`。最終判定は現在の `users/{uid}.plan` を使い、snapshot は監査・表示補助に使う。
+- プランダウングレード・解約時は現在プランで `publication` を再評価する。FREE に戻った場合、発行から14日を超えた `public` / `unlisted` 作品は下書き扱いへ戻す。
+- Portal は `dsfStatus='public'` かつ `publication` が有効な作品だけを一覧表示する。
+- Viewer は `public` / `unlisted` URL 直アクセス時も `publication` を確認し、期限外なら表示しない。
+- metadata ベースの制御であり、R2 の画像 URL を直接知っている場合の物理遮断は別途 proxy / signed URL / 削除ジョブで扱う。
 
 ### `users/{uid}/bookmarks/{workId}` — 読者しおり
 
@@ -331,6 +370,42 @@ Press Room で Horizon 発行するたびに作成する発行スナップショ
   "progress": "Number (0.0〜1.0)",
   "updatedAt": "Timestamp",
   "completed": "Boolean"
+}
+```
+
+### `users/{uid}/planChangeRequests/{requestId}` — プラン変更リクエスト
+
+決済連携前のユーザー向けマイページから作成する。ユーザー本人は create/read のみ可能で、実際の `users/{uid}.plan` 変更は運営または決済連携が行う。
+
+```json
+{
+  "uid": "String",
+  "action": "'change' | 'cancel'",
+  "requestedTier": "'free' | 'plus' | 'pro' | 'business'",
+  "currentTier": "String",
+  "currentStatus": "String",
+  "status": "'requested' | 'processing' | 'completed' | 'rejected'",
+  "note": "String | null",
+  "createdAt": "Timestamp",
+  "updatedAt": "Timestamp"
+}
+```
+
+### `billing_events/{eventId}` — 課金イベント
+
+Stripe webhook / manual billing operation の冪等処理と監査用。クライアントからは書き込まない。Firebase Admin SDK など backend privileged context で作成する。
+
+```json
+{
+  "provider": "String ('stripe' | 'manual')",
+  "eventId": "String",
+  "eventType": "String",
+  "uid": "String | null",
+  "stripeCustomerId": "String | null",
+  "stripeSubscriptionId": "String | null",
+  "processedAt": "Timestamp",
+  "status": "String ('processed' | 'ignored' | 'failed')",
+  "error": "String | null"
 }
 ```
 
@@ -441,6 +516,14 @@ Viewer の閲覧行動を append-only の raw event として保存する。日�
   "thumbnail": "String (カバー画像URL)",
   "updatedAt": "Timestamp",
   "dsfStatus": "'public' | 'unlisted'",
+  "publication": {
+    "listedFrom": "Timestamp",
+    "listedUntil": "Timestamp",
+    "publicFrom": "Timestamp",
+    "publicUntil": "Timestamp | null",
+    "expiredAt": "Timestamp | null",
+    "expireReason": "'listing' | 'public' | null"
+  },
   "dsfLangs": ["ja"],
   "pageCount": "Number"
 }
@@ -495,6 +578,7 @@ Viewer の閲覧行動を append-only の raw event として保存する。日�
 | 指標イベント送信 | `js/viewer.js` | `trackViewStart` / `trackPageView` / `trackReadCompleteIfNeeded` | `metric_events/{eventId}` に閲覧イベントを addDoc |
 | レビュー読み込み | `js/viewer.js` | `loadViewerReviews` | `reviews/{workId}/items` から `status='published'` のレビューを取得 |
 | レビュー投稿 | `js/viewer.js` | `submitViewerReview` | ログイン済み読者が `reviews/{workId}/items/{reviewId}` にレビューを作成 |
+| 課金 projection 参照 | `js/publication.js` / `js/mypage.js` / `js/admin.js` | `getEffectivePlanTier` / `planAllows*` / account render | `plan.effectiveTier` と `entitlements` を優先してプラン機能を判定 |
 
 ---
 
@@ -546,9 +630,20 @@ users/{uid}/bookmarks/{workId}:
   - read/write: 認証済みオーナー (auth.uid == uid)
   - write: request.resource.data.workId == workId
 
+users/{uid}/planChangeRequests/{requestId}:
+  - read/create: 認証済みオーナー (auth.uid == uid)
+  - update/delete: 運営スタッフのみ
+
+billing_events/{eventId}:
+  - read: admin / operator / moderator のみ
+  - create/update/delete: クライアントからは不可（backend privileged context のみ）
+
 public_projects/{workId}:
-  - read: 誰でも可（未認証含む。Portal 側は dsfStatus='public' のみ表示）
-  - create/update: 認証済みユーザーが authorUid == auth.uid の場合のみ
+  - read: 誰でも可（未認証含む。Portal / Viewer 側は dsfStatus と publication で表示・閲覧可否を判定）
+  - create/update: 認証済みユーザーが authorUid == auth.uid で、publication が有効な場合のみ
+  - FREE の listedUntil は listedFrom から最大 14 日
+  - `entitlements.canUseUnlimitedListing=true` または有効な PLUS/PRO/BUSINESS projection のみ掲載期限なし扱い
+  - publicUntil は listedUntil 以下、かつ `entitlements.canSchedulePublicExpiry=true` または有効な PRO/BUSINESS projection のみ設定可
   - delete: authorUid == auth.uid の場合のみ
 
 metric_events/{eventId}:
@@ -605,3 +700,6 @@ state.pages    ← viewer/export surface（v5 Page Object の配列）
 | 2026-04-27 | `metric_events/{eventId}` 指標イベントモデルを追加。Viewer の `view_start` / `page_view` / `read_complete` を append-only で保存 |
 | 2026-04-28 | `reviews/{workId}/items/{reviewId}` レビュー投稿モデルを追加。Viewer の投稿・公開レビュー表示と moderation 用 `status` を定義 |
 | 2026-04-28 | レビュー評価を星から good/bad リアクションへ変更。Viewer では good 数のみ表示し、bad 数は投稿者/運営確認用に保持 |
+| 2026-05-05 | `publication` 掲載 / 公開期限メタデータを追加。free plan の掲載期限は最大 14 日 |
+| 2026-05-05 | プラン別期限仕様を FREE/PLUS/PRO/BUSINESS に更新し、`planChangeRequests` とマイページ土台を追加 |
+| 2026-05-06 | 課金スキーマを正規化。`plan.effectiveTier`、`billing`、`entitlements.canUseUnlimitedListing` / `canSchedulePublicExpiry`、`billing_events` を追加 |

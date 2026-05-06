@@ -30,6 +30,133 @@ service cloud.firestore {
       return isAdmin() || isOperator() || isModerator();
     }
 
+    function userRecordExists(uid) {
+      return exists(/databases/$(database)/documents/users/$(uid));
+    }
+
+    function userRecord(uid) {
+      return get(/databases/$(database)/documents/users/$(uid)).data;
+    }
+
+    function userIsDisabled(uid) {
+      return userRecordExists(uid) && userRecord(uid).status.disabled == true;
+    }
+
+    function userIsOnModerationHold(uid) {
+      return userRecordExists(uid) && userRecord(uid).status.moderationHold == true;
+    }
+
+    function accountCanEdit(uid) {
+      return isOwner(uid) && !userIsDisabled(uid);
+    }
+
+    function accountCanPublish(uid) {
+      return accountCanEdit(uid) && !userIsOnModerationHold(uid);
+    }
+
+    function accountCanPost(uid) {
+      return accountCanEdit(uid) && !userIsOnModerationHold(uid);
+    }
+
+    function planIsActive(uid) {
+      return userRecordExists(uid)
+        && userRecord(uid).plan.status in ['active', 'trialing']
+        && (userRecord(uid).plan.currentPeriodEnd == null
+          || userRecord(uid).plan.currentPeriodEnd >= request.time);
+    }
+
+    function hasPaidListingPlan(uid) {
+      return planIsActive(uid)
+        && (userRecord(uid).entitlements.canUseUnlimitedListing == true
+          || userRecord(uid).plan.effectiveTier in ['plus', 'pro', 'business']
+          || userRecord(uid).plan.tier in ['plus', 'pro', 'business', 'standard', 'enterprise']);
+    }
+
+    function hasPublicationSchedulingPlan(uid) {
+      return planIsActive(uid)
+        && (userRecord(uid).entitlements.canSchedulePublicExpiry == true
+          || userRecord(uid).plan.effectiveTier in ['pro', 'business']
+          || userRecord(uid).plan.tier in ['pro', 'business', 'enterprise']);
+    }
+
+    function validPublicationPlanSnapshot() {
+      return request.resource.data.publication.planSnapshot is map
+        && request.resource.data.publication.planSnapshot.keys().hasOnly([
+          'tier',
+          'status',
+          'cancelAtPeriodEnd',
+          'evaluatedAt'
+        ])
+        && request.resource.data.publication.planSnapshot.tier in ['free', 'plus', 'pro', 'business']
+        && request.resource.data.publication.planSnapshot.status is string
+        && request.resource.data.publication.planSnapshot.cancelAtPeriodEnd is bool
+        && request.resource.data.publication.planSnapshot.evaluatedAt is timestamp;
+    }
+
+    function publicProjectPublicationIsValid(uid) {
+      return request.resource.data.keys().hasAny(['publication'])
+        && request.resource.data.publication is map
+        && request.resource.data.publication.keys().hasOnly([
+          'listedFrom',
+          'listedUntil',
+          'publicFrom',
+          'publicUntil',
+          'expiredAt',
+          'expireReason',
+          'planSnapshot'
+        ])
+        && request.resource.data.publication.keys().hasAll([
+          'listedFrom',
+          'listedUntil',
+          'publicFrom',
+          'publicUntil',
+          'expiredAt',
+          'expireReason',
+          'planSnapshot'
+        ])
+        && request.resource.data.publication.listedFrom is timestamp
+        && request.resource.data.publication.listedUntil is timestamp
+        && request.resource.data.publication.publicFrom is timestamp
+        && (request.resource.data.publication.publicUntil == null
+            || request.resource.data.publication.publicUntil is timestamp)
+        && request.resource.data.publication.expiredAt == null
+        && request.resource.data.publication.expireReason == null
+        && request.resource.data.publication.listedUntil > request.time
+        && (request.resource.data.publication.publicUntil == null
+            || request.resource.data.publication.publicUntil > request.time)
+        && (request.resource.data.publication.publicUntil == null
+            || request.resource.data.publication.publicUntil <= request.resource.data.publication.listedUntil)
+        && (hasPublicationSchedulingPlan(uid)
+            || request.resource.data.publication.publicUntil == null)
+        && validPublicationPlanSnapshot()
+        && (hasPaidListingPlan(uid)
+            || request.resource.data.publication.listedUntil
+              <= request.resource.data.publication.listedFrom + duration.value(14, 'd'));
+    }
+
+    function validPlanChangeRequest(uid) {
+      return request.resource.data.keys().hasOnly([
+          'uid',
+          'action',
+          'requestedTier',
+          'currentTier',
+          'currentStatus',
+          'status',
+          'note',
+          'createdAt',
+          'updatedAt'
+        ])
+        && request.resource.data.uid == uid
+        && request.resource.data.action in ['change', 'cancel']
+        && request.resource.data.requestedTier in ['free', 'plus', 'pro', 'business']
+        && request.resource.data.currentTier is string
+        && request.resource.data.currentStatus is string
+        && request.resource.data.status == 'requested'
+        && (request.resource.data.note == null || request.resource.data.note is string)
+        && request.resource.data.createdAt is timestamp
+        && request.resource.data.updatedAt is timestamp;
+    }
+
     function defaultAuthoringRoot(uid) {
       return 'users/' + uid + '/dsp/';
     }
@@ -48,17 +175,29 @@ service cloud.firestore {
         && request.resource.data.roles.operator == false
         && request.resource.data.roles.moderator == false
         && request.resource.data.plan.tier == 'free'
+        && request.resource.data.plan.effectiveTier == 'free'
         && request.resource.data.plan.status == 'active'
         && request.resource.data.plan.provider == 'none'
         && request.resource.data.plan.trialEndsAt == null
+        && request.resource.data.plan.currentPeriodStart == null
         && request.resource.data.plan.currentPeriodEnd == null
         && request.resource.data.plan.cancelAtPeriodEnd == false
+        && request.resource.data.plan.canceledAt == null
         && request.resource.data.plan.updatedAt == null
+        && request.resource.data.billing.provider == 'none'
+        && request.resource.data.billing.stripeCustomerId == null
+        && request.resource.data.billing.stripeSubscriptionId == null
+        && request.resource.data.billing.stripePriceId == null
+        && request.resource.data.billing.stripeSubscriptionStatus == null
+        && request.resource.data.billing.lastWebhookEventId == null
+        && request.resource.data.billing.lastSyncedAt == null
         && request.resource.data.entitlements.canCreateProject == true
         && request.resource.data.entitlements.canUsePremiumPaper == false
         && request.resource.data.entitlements.canPublishPrivately == false
         && request.resource.data.entitlements.canUseAdvancedAnalytics == false
         && request.resource.data.entitlements.canManageLabel == false
+        && request.resource.data.entitlements.canUseUnlimitedListing == false
+        && request.resource.data.entitlements.canSchedulePublicExpiry == false
         && request.resource.data.status.disabled == false
         && request.resource.data.status.moderationHold == false
         && request.resource.data.storage.authoringRoot == defaultAuthoringRoot(uid)
@@ -75,6 +214,7 @@ service cloud.firestore {
         'lastLoginAt',
         'roles',
         'plan',
+        'billing',
         'entitlements',
         'status',
         'storage'
@@ -91,17 +231,29 @@ service cloud.firestore {
         && request.resource.data.roles.operator == (resource.data.roles == null || resource.data.roles.operator == null ? false : resource.data.roles.operator)
         && request.resource.data.roles.moderator == (resource.data.roles == null || resource.data.roles.moderator == null ? false : resource.data.roles.moderator)
         && request.resource.data.plan.tier == (resource.data.plan == null || resource.data.plan.tier == null ? 'free' : resource.data.plan.tier)
+        && request.resource.data.plan.effectiveTier == (resource.data.plan == null || resource.data.plan.effectiveTier == null ? 'free' : resource.data.plan.effectiveTier)
         && request.resource.data.plan.status == (resource.data.plan == null || resource.data.plan.status == null ? 'active' : resource.data.plan.status)
         && request.resource.data.plan.provider == (resource.data.plan == null || resource.data.plan.provider == null ? 'none' : resource.data.plan.provider)
         && request.resource.data.plan.trialEndsAt == (resource.data.plan == null || resource.data.plan.trialEndsAt == null ? null : resource.data.plan.trialEndsAt)
+        && request.resource.data.plan.currentPeriodStart == (resource.data.plan == null || resource.data.plan.currentPeriodStart == null ? null : resource.data.plan.currentPeriodStart)
         && request.resource.data.plan.currentPeriodEnd == (resource.data.plan == null || resource.data.plan.currentPeriodEnd == null ? null : resource.data.plan.currentPeriodEnd)
         && request.resource.data.plan.cancelAtPeriodEnd == (resource.data.plan == null || resource.data.plan.cancelAtPeriodEnd == null ? false : resource.data.plan.cancelAtPeriodEnd)
+        && request.resource.data.plan.canceledAt == (resource.data.plan == null || resource.data.plan.canceledAt == null ? null : resource.data.plan.canceledAt)
         && request.resource.data.plan.updatedAt == (resource.data.plan == null || resource.data.plan.updatedAt == null ? null : resource.data.plan.updatedAt)
+        && request.resource.data.billing.provider == (resource.data.billing == null || resource.data.billing.provider == null ? 'none' : resource.data.billing.provider)
+        && request.resource.data.billing.stripeCustomerId == (resource.data.billing == null || resource.data.billing.stripeCustomerId == null ? null : resource.data.billing.stripeCustomerId)
+        && request.resource.data.billing.stripeSubscriptionId == (resource.data.billing == null || resource.data.billing.stripeSubscriptionId == null ? null : resource.data.billing.stripeSubscriptionId)
+        && request.resource.data.billing.stripePriceId == (resource.data.billing == null || resource.data.billing.stripePriceId == null ? null : resource.data.billing.stripePriceId)
+        && request.resource.data.billing.stripeSubscriptionStatus == (resource.data.billing == null || resource.data.billing.stripeSubscriptionStatus == null ? null : resource.data.billing.stripeSubscriptionStatus)
+        && request.resource.data.billing.lastWebhookEventId == (resource.data.billing == null || resource.data.billing.lastWebhookEventId == null ? null : resource.data.billing.lastWebhookEventId)
+        && request.resource.data.billing.lastSyncedAt == (resource.data.billing == null || resource.data.billing.lastSyncedAt == null ? null : resource.data.billing.lastSyncedAt)
         && request.resource.data.entitlements.canCreateProject == (resource.data.entitlements == null || resource.data.entitlements.canCreateProject == null ? true : resource.data.entitlements.canCreateProject)
         && request.resource.data.entitlements.canUsePremiumPaper == (resource.data.entitlements == null || resource.data.entitlements.canUsePremiumPaper == null ? false : resource.data.entitlements.canUsePremiumPaper)
         && request.resource.data.entitlements.canPublishPrivately == (resource.data.entitlements == null || resource.data.entitlements.canPublishPrivately == null ? false : resource.data.entitlements.canPublishPrivately)
         && request.resource.data.entitlements.canUseAdvancedAnalytics == (resource.data.entitlements == null || resource.data.entitlements.canUseAdvancedAnalytics == null ? false : resource.data.entitlements.canUseAdvancedAnalytics)
         && request.resource.data.entitlements.canManageLabel == (resource.data.entitlements == null || resource.data.entitlements.canManageLabel == null ? false : resource.data.entitlements.canManageLabel)
+        && request.resource.data.entitlements.canUseUnlimitedListing == (resource.data.entitlements == null || resource.data.entitlements.canUseUnlimitedListing == null ? false : resource.data.entitlements.canUseUnlimitedListing)
+        && request.resource.data.entitlements.canSchedulePublicExpiry == (resource.data.entitlements == null || resource.data.entitlements.canSchedulePublicExpiry == null ? false : resource.data.entitlements.canSchedulePublicExpiry)
         && request.resource.data.status.disabled == (resource.data.status == null || resource.data.status.disabled == null ? false : resource.data.status.disabled)
         && request.resource.data.status.moderationHold == (resource.data.status == null || resource.data.status.moderationHold == null ? false : resource.data.status.moderationHold)
         && request.resource.data.storage.authoringRoot == (resource.data.storage == null || resource.data.storage.authoringRoot == null ? defaultAuthoringRoot(uid) : resource.data.storage.authoringRoot)
@@ -281,6 +433,7 @@ service cloud.firestore {
 
     function validReviewCreate(workId, reviewId) {
       return isSignedIn()
+        && accountCanPost(request.auth.uid)
         && reviewHasValidShape()
         && reviewHasValidValues(workId, reviewId);
     }
@@ -302,6 +455,7 @@ service cloud.firestore {
 
     function validReviewReactionAggregateUpdate() {
       return isSignedIn()
+        && accountCanPost(request.auth.uid)
         && request.resource.data.diff(resource.data).changedKeys().hasOnly(['goodCount', 'badCount', 'updatedAt'])
         && request.resource.data.goodCount is int
         && request.resource.data.goodCount >= 0
@@ -336,7 +490,7 @@ service cloud.firestore {
     }
 
     function validReviewReactionCreate(workId, reviewId, uid) {
-      return isOwner(uid)
+      return accountCanPost(uid)
         && validReviewReactionShape(uid)
         && request.resource.data.workId == workId
         && request.resource.data.reviewId == reviewId
@@ -346,6 +500,7 @@ service cloud.firestore {
 
     function validReviewReactionUpdate() {
       return isSignedIn()
+        && accountCanPost(request.auth.uid)
         && resource.data.uid == request.auth.uid
         && request.resource.data.diff(resource.data).changedKeys().hasOnly(['reaction', 'updatedAt'])
         && request.resource.data.reaction in ['good', 'bad']
@@ -367,33 +522,45 @@ service cloud.firestore {
 
       // ユーザーごとのプロジェクト
       match /projects/{pid} {
-        allow read, write: if isOwner(uid);
+        allow read: if isOwner(uid);
+        allow create, update, delete: if accountCanEdit(uid);
         allow read: if resource.data.dsfStatus in ['public', 'unlisted'];
       }
 
       // 読者向けの恒久作品IDと発行履歴
       match /works/{workId} {
-        allow read, write: if isOwner(uid);
+        allow read: if isOwner(uid);
+        allow create, update, delete: if accountCanEdit(uid);
 
         match /releases/{releaseId} {
-          allow read, write: if isOwner(uid);
+          allow read: if isOwner(uid);
+          allow create, update, delete: if accountCanEdit(uid);
         }
       }
 
       // 読者ごとのしおり。ドキュメントIDは workId。
       match /bookmarks/{workId} {
         allow read: if isOwner(uid);
-        allow create, update: if isOwner(uid)
+        allow create, update: if accountCanEdit(uid)
                               && request.resource.data.workId == workId;
-        allow delete: if isOwner(uid);
+        allow delete: if accountCanEdit(uid);
+      }
+
+      match /planChangeRequests/{requestId} {
+        allow read: if isOwner(uid) || isStaff();
+        allow create: if accountCanEdit(uid) && validPlanChangeRequest(uid);
+        allow update, delete: if isStaff();
       }
     }
 
     match /public_projects/{pid} {
       allow read: if true;
-      allow create, update: if isSignedIn()
-                            && request.resource.data.authorUid == request.auth.uid;
-      allow delete: if (isSignedIn() && resource.data.authorUid == request.auth.uid)
+      allow create, update: if accountCanPublish(request.auth.uid)
+                            && request.resource.data.authorUid == request.auth.uid
+                            && publicProjectPublicationIsValid(request.auth.uid);
+      allow delete: if (isSignedIn()
+                        && resource.data.authorUid == request.auth.uid
+                        && !userIsDisabled(request.auth.uid))
                     || isAdmin()
                     || isOperator();
     }
@@ -402,6 +569,11 @@ service cloud.firestore {
       allow create: if validMetricEvent();
       allow read: if isStaff();
       allow update, delete: if false;
+    }
+
+    match /billing_events/{eventId} {
+      allow read: if isStaff();
+      allow create, update, delete: if false;
     }
 
     match /reviews/{workId} {

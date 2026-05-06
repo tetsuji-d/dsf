@@ -6,7 +6,9 @@ import {
     collection, getDocs, doc, updateDoc, setDoc, deleteDoc, serverTimestamp
 } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
 import { state } from './state.js';
-import { db } from './firebase.js';
+import { assertAccountCanEdit, assertAccountCanPublish, db } from './firebase.js';
+import { formatPublicationDate, isPublicationActive, reconcilePublicationForPlan, updatePublicationForStatus } from './publication.js';
+import { t, getUILang } from './i18n-studio.js';
 
 const DSF_STATUS_LABELS = {
     draft:    { label: '下書き',   icon: 'edit_note', cls: 'dsf-draft'    },
@@ -36,18 +38,20 @@ export async function openWorksRoom(roomMode = false) {
     }
 
     try {
+        const account = await assertAccountCanEdit();
         const snap = await getDocs(collection(db, 'users', state.uid, 'projects'));
         const projects = [];
-        snap.forEach(docSnap => {
+        for (const docSnap of snap.docs) {
             const d = docSnap.data() || {};
             // DSF 発行済みのもの（dsfPages あり）のみ Works Room に表示
-            if (!d.dsfPages?.length) return;
+            if (!d.dsfPages?.length) continue;
+            const reconciled = await _reconcileProjectPublication(docSnap.id, d, account);
             projects.push({
                 id:             docSnap.id,
                 workId:         d.workId || docSnap.id,
                 releaseId:      d.releaseId || null,
                 title:          d.title || '無題のプロジェクト',
-                dsfStatus:      d.dsfStatus || 'draft',
+                dsfStatus:      reconciled.dsfStatus || 'draft',
                 thumbnail:      _getThumbnail(d),
                 pageCount:      d.dsfPages?.length || 0,
                 dsfPublishedAt: d.dsfPublishedAt?.toDate?.() || new Date(0),
@@ -55,8 +59,9 @@ export async function openWorksRoom(roomMode = false) {
                 dsfQuality:     d.dsfQuality || '—',
                 dsfLangs:       d.dsfLangs || [],
                 dsfTotalBytes:  d.dsfTotalBytes || 0,
+                publication:     reconciled.publication || null,
             });
-        });
+        }
         projects.sort((a, b) => b.dsfPublishedAt - a.dsfPublishedAt);
 
         if (!projects.length) {
@@ -133,6 +138,7 @@ function _renderRow(p) {
         ? `<img src="${_esc(p.thumbnail)}" alt="" loading="lazy">`
         : `<div class="works-thumb-placeholder"><span class="material-icons">image</span></div>`;
     const langs = p.dsfLangs.length ? p.dsfLangs.map(l => l.toUpperCase()).join(' / ') : '—';
+    const publicationMeta = _renderPublicationMeta(p.publication);
 
     return `
         <div class="works-row" data-pid="${_esc(p.id)}" data-work-id="${_esc(p.workId || p.id)}">
@@ -140,6 +146,7 @@ function _renderRow(p) {
             <div class="works-info">
                 <div class="works-title">${_esc(p.title || p.id)}</div>
                 <div class="works-meta">${p.pageCount}ページ · ${langs} · ${p.dsfResolution} · 品質${p.dsfQuality}%${p.dsfTotalBytes ? ` · ${(p.dsfTotalBytes / (1024 * 1024)).toFixed(1)} MB` : ''}</div>
+                ${publicationMeta}
                 <div class="works-meta">${date} 発行</div>
             </div>
             <div class="works-controls">
@@ -166,13 +173,87 @@ function _renderRow(p) {
         </div>`;
 }
 
+function _formatWorksPublicationDate(value) {
+    return formatPublicationDate(value, getUILang() === 'en' ? 'en-US' : 'ja-JP');
+}
+
+function _renderPublicationMeta(publication) {
+    if (!publication || typeof publication !== 'object') return '';
+    const listedUntil = _formatWorksPublicationDate(publication.listedUntil) || t('publication_no_limit');
+    const publicUntil = _formatWorksPublicationDate(publication.publicUntil) || t('publication_no_limit');
+    return `
+        <div class="works-publication-meta">
+            <span>${_esc(t('publication_listed_until'))}: ${_esc(listedUntil)}</span>
+            <span>${_esc(t('publication_public_until'))}: ${_esc(publicUntil)}</span>
+        </div>
+    `;
+}
+
+async function _reconcileProjectPublication(pid, data, account) {
+    const status = data.dsfStatus || 'draft';
+    const publication = reconcilePublicationForPlan(data.publication || {}, status, account, new Date());
+    const shouldDowngrade = (status === 'public' || status === 'unlisted') && !isPublicationActive(publication, status);
+    const nextStatus = shouldDowngrade ? 'draft' : status;
+    const nextVisibility = shouldDowngrade ? 'private' : (data.visibility || status);
+    const publicationChanged = JSON.stringify(_serializePublication(data.publication || null)) !== JSON.stringify(_serializePublication(publication));
+    if (shouldDowngrade || publicationChanged) {
+        await updateDoc(doc(db, 'users', state.uid, 'projects', pid), {
+            dsfStatus: nextStatus,
+            visibility: nextVisibility,
+            publication
+        });
+        const workId = data.workId || pid;
+        if (shouldDowngrade) {
+            await deleteDoc(doc(db, 'public_projects', workId)).catch(() => {});
+            if (workId !== pid) await deleteDoc(doc(db, 'public_projects', pid)).catch(() => {});
+        } else if (nextStatus === 'public' || nextStatus === 'unlisted') {
+            await setDoc(doc(db, 'public_projects', workId), { publication }, { merge: true }).catch((e) => {
+                console.warn('[Works] public publication reconcile skipped:', e?.message || e);
+            });
+        }
+    }
+    return { dsfStatus: nextStatus, publication };
+}
+
+function _serializePublication(publication) {
+    if (!publication || typeof publication !== 'object') return null;
+    const dateValue = (value) => {
+        const date = value?.toDate?.() || (value instanceof Date ? value : null);
+        return date ? date.toISOString() : value || null;
+    };
+    return {
+        listedFrom: dateValue(publication.listedFrom),
+        listedUntil: dateValue(publication.listedUntil),
+        publicFrom: dateValue(publication.publicFrom),
+        publicUntil: dateValue(publication.publicUntil),
+        expiredAt: dateValue(publication.expiredAt),
+        expireReason: publication.expireReason || null,
+        planSnapshot: publication.planSnapshot ? {
+            tier: publication.planSnapshot.tier || null,
+            status: publication.planSnapshot.status || null,
+            cancelAtPeriodEnd: publication.planSnapshot.cancelAtPeriodEnd === true
+        } : null
+    };
+}
+
 async function _updateDsfStatus(pid, newStatus, proj) {
     if (!state.uid || !pid) return;
     const workId = proj?.workId || pid;
     try {
+        let account = null;
+        if (newStatus === 'public' || newStatus === 'unlisted') {
+            account = await assertAccountCanPublish();
+        } else {
+            account = await assertAccountCanEdit();
+        }
+        const publication = updatePublicationForStatus(proj?.publication || {}, newStatus, account, new Date());
+        if ((newStatus === 'public' || newStatus === 'unlisted') && !isPublicationActive(publication, newStatus)) {
+            throw new Error('掲載期限または公開期限が終了しているため公開できません。Press Room で再レンダリングしてください。');
+        }
         await updateDoc(doc(db, 'users', state.uid, 'projects', pid), {
             dsfStatus: newStatus,
             visibility: newStatus === 'draft' ? 'private' : newStatus,
+            publication,
         });
 
         const publicRef = doc(db, 'public_projects', workId);
@@ -187,6 +268,7 @@ async function _updateDsfStatus(pid, newStatus, proj) {
                 thumbnail:  proj.thumbnail || null,
                 updatedAt:  serverTimestamp(),
                 dsfStatus:  newStatus,
+                publication,
                 dsfLangs:   proj.dsfLangs || [],
                 pageCount:  proj.pageCount || 0,
             }, { merge: true });

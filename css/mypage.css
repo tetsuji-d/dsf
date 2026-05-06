@@ -1,0 +1,161 @@
+.mypage-shell {
+    width: min(1120px, calc(100vw - 32px));
+    margin: 0 auto;
+    padding: 44px 0 72px;
+}
+
+.mypage-header-link {
+    color: inherit;
+    text-decoration: none;
+}
+
+.mypage-hero {
+    border: 1px solid var(--portal-border);
+    border-radius: 28px;
+    padding: clamp(24px, 5vw, 44px);
+    background:
+        radial-gradient(circle at 12% 20%, rgba(56, 189, 248, 0.2), transparent 34%),
+        linear-gradient(135deg, rgba(15, 23, 42, 0.94), rgba(30, 41, 59, 0.84));
+    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.16);
+}
+
+body[data-theme="light"] .mypage-hero {
+    background:
+        radial-gradient(circle at 12% 20%, rgba(37, 99, 235, 0.14), transparent 34%),
+        linear-gradient(135deg, rgba(255, 255, 255, 0.95), rgba(241, 245, 249, 0.9));
+}
+
+.mypage-hero h1 {
+    margin: 0;
+    font-size: clamp(32px, 8vw, 72px);
+    line-height: 0.95;
+    letter-spacing: -0.07em;
+}
+
+.mypage-hero p:last-child {
+    max-width: 680px;
+    margin: 14px 0 0;
+    color: var(--portal-sub);
+    font-size: 15px;
+    line-height: 1.8;
+}
+
+.mypage-content {
+    display: grid;
+    gap: 20px;
+    margin-top: 24px;
+}
+
+.mypage-card {
+    border: 1px solid var(--portal-border);
+    border-radius: 24px;
+    padding: 22px;
+    background: rgba(28, 32, 40, 0.88);
+}
+
+body[data-theme="light"] .mypage-card {
+    background: rgba(255, 255, 255, 0.92);
+}
+
+.mypage-card h2 {
+    margin: 0 0 14px;
+    font-size: 20px;
+}
+
+.mypage-account-grid,
+.mypage-plan-grid,
+.mypage-request-grid {
+    display: grid;
+    gap: 12px;
+}
+
+.mypage-account-grid {
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+}
+
+.mypage-plan-grid {
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+}
+
+.mypage-info-tile,
+.mypage-plan-card,
+.mypage-request-row {
+    border: 1px solid var(--portal-border);
+    border-radius: 18px;
+    padding: 16px;
+    background: rgba(255, 255, 255, 0.04);
+}
+
+body[data-theme="light"] .mypage-info-tile,
+body[data-theme="light"] .mypage-plan-card,
+body[data-theme="light"] .mypage-request-row {
+    background: rgba(15, 23, 42, 0.03);
+}
+
+.mypage-info-tile span,
+.mypage-plan-card span,
+.mypage-request-row span {
+    display: block;
+    color: var(--portal-sub);
+    font-size: 12px;
+    font-weight: 800;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+}
+
+.mypage-info-tile strong,
+.mypage-plan-card strong {
+    display: block;
+    margin-top: 6px;
+    font-size: 18px;
+}
+
+.mypage-plan-card {
+    display: grid;
+    gap: 12px;
+}
+
+.mypage-plan-card.is-current {
+    border-color: rgba(34, 197, 94, 0.45);
+    box-shadow: inset 0 0 0 1px rgba(34, 197, 94, 0.24);
+}
+
+.mypage-plan-card ul {
+    margin: 0;
+    padding-left: 18px;
+    color: var(--portal-sub);
+    font-size: 13px;
+    line-height: 1.7;
+}
+
+.mypage-action-btn {
+    min-height: 40px;
+    border: 1px solid rgba(59, 130, 246, 0.36);
+    border-radius: 999px;
+    background: rgba(37, 99, 235, 0.18);
+    color: #dbeafe;
+    font: inherit;
+    font-weight: 800;
+    cursor: pointer;
+}
+
+body[data-theme="light"] .mypage-action-btn {
+    color: #1d4ed8;
+}
+
+.mypage-action-btn:disabled {
+    cursor: not-allowed;
+    opacity: 0.55;
+}
+
+.mypage-auth-card {
+    display: grid;
+    gap: 14px;
+    justify-items: start;
+}
+
+.mypage-note {
+    color: var(--portal-sub);
+    font-size: 13px;
+    line-height: 1.8;
+}

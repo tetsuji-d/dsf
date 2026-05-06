@@ -23,6 +23,23 @@ Studio (Editor)          Press Room                     Portal
 | `private`    | 非公開。作者が一度公開したものを取り下げ | ✗ | ✗ |
 | `rejected`   | リジェクト。運営による強制非公開。作者は再公開不可 | ✗ | ✗ |
 
+## 掲載期限 / 公開期限
+
+`dsfStatus` は公開状態、`publication` は時間境界を表す。
+
+| 項目 | 起点 | 終了 | 初期方針 |
+|------|------|------|----------|
+| 掲載期限 | Press Room で DSF 出力を始めた時 | 掲出終了 | FREE は最大 14 日。PLUS / PRO / BUSINESS は有効な課金中のみ無期限 |
+| 公開期限 | Works Room で `public` / `unlisted` にした時 | 公開終了日時 | PRO / BUSINESS のみ予約設定可能。必ず掲載期限内 |
+
+- Press Room は draft 作成時に `publication.listedFrom` / `listedUntil` を保存する。
+- Works Room は `public` / `unlisted` への変更時に `publication.publicFrom` を保存する。
+- FREE / PLUS は公開期限予約不可。FREE の公開可能期間は掲載期限で制御する。
+- プランダウングレード・解約時は `publication` を現在プランで再評価する。期限外の公開/限定公開作品は下書き扱いに戻す。
+- Portal は `public` かつ期限内の作品だけを一覧表示する。
+- Viewer は `public` / `unlisted` URL の直アクセスでも期限外なら表示しない。
+- この段階は metadata ベースの制御であり、R2 の直接 URL 物理遮断は別課題とする。
+
 ## エディターとの関係
 
 - `.dsp` はプレスルームを経由せずポータルに公開できない

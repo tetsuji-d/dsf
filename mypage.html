@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="ja">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, viewport-fit=cover">
+    <title>My Page | DSF Horizon</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800;900&family=Noto+Sans+JP:wght@400;500;700;900&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet">
+    <link rel="stylesheet" href="css/variables.css">
+    <link rel="stylesheet" href="css/portal.css">
+    <link rel="stylesheet" href="css/mypage.css">
+    <script src="https://accounts.google.com/gsi/client" async defer></script>
+</head>
+
+<body>
+    <header id="portal-header">
+        <div class="portal-header-left">
+            <a href="/" class="logo-area" title="DSF Horizon">
+                <span class="logo-text">DSF</span>
+                <span class="logo-subtext">Horizon</span>
+            </a>
+            <div class="lang-switcher js-lang-switcher" role="group" aria-label="言語切り替え / Language">
+                <button type="button" class="lang-btn active" data-lang="ja">JA</button>
+                <button type="button" class="lang-btn" data-lang="en">EN</button>
+            </div>
+        </div>
+        <div class="header-actions">
+            <a href="/studio.html?room=home" class="header-pill-btn mypage-header-link">
+                <span class="material-icons" aria-hidden="true">draw</span>
+                <span data-i18n="studioLink">Studio</span>
+            </a>
+            <div id="mypage-auth"></div>
+        </div>
+    </header>
+
+    <main class="mypage-shell">
+        <section class="mypage-hero">
+            <p class="library-eyebrow">DSF Horizon</p>
+            <h1 data-i18n="heroTitle">マイページ</h1>
+            <p data-i18n="heroDesc">アカウント状態、現在のプラン、プラン変更リクエストを管理します。</p>
+        </section>
+
+        <div id="mypage-feedback" class="portal-feedback" aria-live="polite"></div>
+        <section id="mypage-content" class="mypage-content" aria-live="polite"></section>
+    </main>
+
+    <script type="module" src="js/mypage.js"></script>
+    <noscript>このページを利用するにはJavaScriptを有効にしてください。</noscript>
+</body>
+
+</html>
