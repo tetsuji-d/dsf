@@ -118,7 +118,7 @@ export async function initGIS(arg) {
     await authReady;
     const isLocalhost = location.hostname === 'localhost' || location.hostname === '127.0.0.1';
     /** FedCM 無効時に GSI が NetworkError になる事例があるため非 FedCM 経路に固定 */
-    const wantOneTap = options.autoPrompt !== false && !isMobileGisEnvironment();
+    const wantOneTap = options.autoPrompt === true && !authInstance.currentUser && !isMobileGisEnvironment();
     await _loadGisScript();
     if (!_gisReady || !window.google?.accounts?.id) {
         console.warn('[GIS] library not available');

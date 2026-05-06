@@ -1852,14 +1852,41 @@ body[data-room="works"] #works-room {
 }
 
 .auth-dropdown-name {
+    display: grid;
+    gap: 3px;
     padding: 8px 10px 12px;
     font-size: 13px;
     font-weight: 700;
     color: var(--studio-subtext);
     border-bottom: 1px solid var(--studio-border);
     overflow: hidden;
+}
+
+.auth-dropdown-display-name {
+    display: block;
+    color: var(--studio-text);
     text-overflow: ellipsis;
+    overflow: hidden;
     white-space: nowrap;
+}
+
+.auth-dropdown-plan {
+    display: inline-flex;
+    width: fit-content;
+    min-height: 20px;
+    align-items: center;
+    padding: 2px 8px;
+    border-radius: 999px;
+    background: rgba(59, 130, 246, 0.12);
+    color: #2563eb;
+    font-size: 11px;
+    font-weight: 800;
+    letter-spacing: 0.04em;
+}
+
+body[data-theme="dark"] .auth-dropdown-plan {
+    background: rgba(96, 165, 250, 0.16);
+    color: #93c5fd;
 }
 
 .auth-panel-section {
@@ -1923,6 +1950,7 @@ body[data-room="works"] #works-room {
     color: var(--studio-text);
     cursor: pointer;
     font: inherit;
+    text-decoration: none;
     text-align: left;
 }
 

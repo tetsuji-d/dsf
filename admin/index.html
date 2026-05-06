@@ -24,11 +24,11 @@
                     <span class="material-icons" aria-hidden="true">group</span>
                     <span>Users</span>
                 </button>
-                <button type="button" class="admin-nav-link" data-section="works" disabled>
+                <button type="button" class="admin-nav-link" data-section="works">
                     <span class="material-icons" aria-hidden="true">auto_stories</span>
                     <span>Works</span>
                 </button>
-                <button type="button" class="admin-nav-link" data-section="reviews" disabled>
+                <button type="button" class="admin-nav-link" data-section="reviews">
                     <span class="material-icons" aria-hidden="true">rate_review</span>
                     <span>Reviews</span>
                 </button>
@@ -88,6 +88,60 @@
                             <div class="admin-empty-state">
                                 <span class="material-icons" aria-hidden="true">person_search</span>
                                 <p>ユーザーを選択してください。</p>
+                            </div>
+                        </div>
+                    </aside>
+                </div>
+            </section>
+
+            <section id="admin-works-view" class="admin-content" hidden>
+                <div class="admin-toolbar">
+                    <label class="admin-search">
+                        <span class="material-icons" aria-hidden="true">search</span>
+                        <input id="admin-work-search" type="search" placeholder="title / author / workId で検索">
+                    </label>
+                    <div class="admin-toolbar-meta">
+                        <span id="admin-work-count" class="admin-user-count">0 works</span>
+                    </div>
+                </div>
+
+                <div class="admin-users-layout">
+                    <section class="admin-panel admin-list-panel">
+                        <div id="admin-work-list" class="admin-user-list" role="list"></div>
+                    </section>
+
+                    <aside class="admin-panel admin-detail-panel">
+                        <div id="admin-work-detail" class="admin-user-detail">
+                            <div class="admin-empty-state">
+                                <span class="material-icons" aria-hidden="true">auto_stories</span>
+                                <p>作品を選択してください。</p>
+                            </div>
+                        </div>
+                    </aside>
+                </div>
+            </section>
+
+            <section id="admin-reviews-view" class="admin-content" hidden>
+                <div class="admin-toolbar">
+                    <label class="admin-search">
+                        <span class="material-icons" aria-hidden="true">search</span>
+                        <input id="admin-review-search" type="search" placeholder="body / reader / workId で検索">
+                    </label>
+                    <div class="admin-toolbar-meta">
+                        <span id="admin-review-count" class="admin-user-count">0 reviews</span>
+                    </div>
+                </div>
+
+                <div class="admin-users-layout">
+                    <section class="admin-panel admin-list-panel">
+                        <div id="admin-review-list" class="admin-user-list" role="list"></div>
+                    </section>
+
+                    <aside class="admin-panel admin-detail-panel">
+                        <div id="admin-review-detail" class="admin-user-detail">
+                            <div class="admin-empty-state">
+                                <span class="material-icons" aria-hidden="true">rate_review</span>
+                                <p>レビューを選択してください。</p>
                             </div>
                         </div>
                     </aside>

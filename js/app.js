@@ -30,7 +30,7 @@ import { createId } from './utils.js';
 import { CANONICAL_PAGE_WIDTH, CANONICAL_PAGE_HEIGHT } from './page-geometry.js';
 import { canInsertSpreadImageAt, getBookCompositionIssues, getPageDisplayLabel, getReadablePageCount, normalizeBookSettings, getPageCoverKey } from './page-labels.js';
 import { composeText, paginateText, PAGE_BREAK_MARKER, getWritingModeFromConfigs, getFontPresetFromConfigs, getFontPresetOptions, parseRubyTokens, tokensToPlainText, alignRubyToLines } from './layout.js';
-import { formatPublicationDate } from './publication.js';
+import { formatPublicationDate, normalizePlanTier } from './publication.js';
 import { collection, getDocs, query, where, limit } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
 
 const EDITOR_FRAME_WIDTH = CANONICAL_PAGE_WIDTH;
@@ -765,6 +765,7 @@ function applyStudioAuthUser(user) {
 }
 
 let studioAuthGlobalBound = false;
+let studioAccount = null;
 
 function escapeStudioHtml(value) {
     if (value == null) return '';
@@ -774,6 +775,17 @@ function escapeStudioHtml(value) {
         .replace(/>/g, '&gt;')
         .replace(/"/g, '&quot;')
         .replace(/'/g, '&#039;');
+}
+
+function getStudioPlanDisplayName(account) {
+    const tier = normalizePlanTier(account?.plan?.effectiveTier || account?.plan?.tier || 'free');
+    const labels = {
+        free: 'FREE',
+        plus: 'PLUS',
+        pro: 'PRO',
+        business: 'BUSINESS',
+    };
+    return labels[tier] || tier.toUpperCase();
 }
 
 function getActiveLanguageWorkTitle() {
@@ -815,9 +827,10 @@ function getStudioThemeButtonsMarkup() {
     `;
 }
 
-function getStudioAccountLinksMarkup() {
+function getStudioAccountLinksMarkup(user) {
     return `
         <div class="auth-panel-links">
+            ${user ? `<a href="/mypage.html" class="auth-panel-link"><span class="material-icons">manage_accounts</span><span>${escapeStudioHtml(t('myPage'))}</span></a>` : ''}
             <button type="button" class="auth-panel-link"><span class="material-icons">visibility_off</span><span>${escapeStudioHtml(t('restrictedMode'))}</span></button>
             <button type="button" class="auth-panel-link"><span class="material-icons">public</span><span>${escapeStudioHtml(t('location'))}</span></button>
             <button type="button" class="auth-panel-link"><span class="material-icons">settings</span><span>${escapeStudioHtml(t('settings'))}</span></button>
@@ -829,6 +842,7 @@ function getStudioAccountLinksMarkup() {
 
 function getStudioAuthMarkup(user, { mobile = false, slotName = 'nav' } = {}) {
     const displayName = escapeStudioHtml(user?.displayName || user?.email || t('guest_label'));
+    const planName = user ? escapeStudioHtml(getStudioPlanDisplayName(studioAccount)) : '';
     const photoUrl = escapeStudioHtml(user?.photoURL || '');
     const initials = escapeStudioHtml((user?.displayName || user?.email || 'U').trim().charAt(0).toUpperCase() || 'U');
     const avatarLabel = user ? displayName : escapeStudioHtml(t('btn_signin'));
@@ -852,10 +866,13 @@ function getStudioAuthMarkup(user, { mobile = false, slotName = 'nav' } = {}) {
                 ${avatarInner}
             </button>
             <div class="auth-dropdown auth-panel studio-auth-dropdown" data-auth-dropdown>
-                <div class="auth-dropdown-name">${displayName}</div>
+                <div class="auth-dropdown-name">
+                    <span class="auth-dropdown-display-name">${displayName}</span>
+                    ${user ? `<span class="auth-dropdown-plan">${planName}</span>` : ''}
+                </div>
                 ${getStudioThemeButtonsMarkup()}
                 ${signedOutSection}
-                ${getStudioAccountLinksMarkup()}
+                ${getStudioAccountLinksMarkup(user)}
                 ${user ? `<button type="button" class="btn-signout" data-auth-signout>${escapeStudioHtml(t('btn_signout'))}</button>` : ''}
             </div>
         </div>
@@ -867,6 +884,24 @@ function updateStudioThemeSwitchers() {
     document.querySelectorAll('.studio-auth-slot .js-theme-switcher .theme-mode-btn').forEach((btn) => {
         btn.classList.toggle('active', btn.dataset.themeMode === currentThemeMode);
     });
+}
+
+async function hydrateStudioAccount(user) {
+    if (!user?.uid) {
+        studioAccount = null;
+        updateAuthUI();
+        return null;
+    }
+    try {
+        const account = await ensureUserBootstrap(user);
+        if (firebaseAuth.currentUser?.uid !== user.uid) return null;
+        studioAccount = account || null;
+        updateAuthUI();
+        return account;
+    } catch (e) {
+        console.warn('[Auth] user bootstrap failed:', e);
+        return null;
+    }
 }
 
 function mountStudioGisButton(container, { mobile = false } = {}) {
@@ -5959,9 +5994,11 @@ onAuthChanged((user) => {
     applyStudioAuthUser(user);
     renderHomeDashboard().catch((e) => console.warn('[Home] render failed after auth:', e));
     if (user) {
-        void ensureUserBootstrap(user).catch((e) => console.warn('[Auth] user bootstrap failed:', e));
+        void hydrateStudioAccount(user);
         const pid = new URLSearchParams(window.location.search).get('id');
         if (pid) loadProject(pid, refresh);
+    } else {
+        studioAccount = null;
     }
 }, firebaseAuth);
 
@@ -6013,12 +6050,12 @@ async function bootstrapApp() {
     }
     if (redirectOutcome?.result?.user) {
         applyStudioAuthUser(redirectOutcome.result.user);
-        await ensureUserBootstrap(redirectOutcome.result.user).catch((e) => console.warn('[Auth] redirect bootstrap failed:', e));
+        await hydrateStudioAccount(redirectOutcome.result.user);
     } else if (firebaseAuth.currentUser) {
         applyStudioAuthUser(firebaseAuth.currentUser);
-        await ensureUserBootstrap(firebaseAuth.currentUser).catch((e) => console.warn('[Auth] current-user bootstrap failed:', e));
+        await hydrateStudioAccount(firebaseAuth.currentUser);
     }
-    await initGIS({ authInstance: firebaseAuth });
+    await initGIS({ authInstance: firebaseAuth, autoPrompt: false });
 
     if (!hasCloudId) {
         try {
