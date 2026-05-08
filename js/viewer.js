@@ -487,6 +487,28 @@ async function loadWorkFromPublicIndex(workId) {
             return false;
         }
         sharedProjectRef = { workId, pid, uid };
+        if (Array.isArray(indexData.dsfPages) && indexData.dsfPages.length > 0) {
+            loadProjectData({
+                ...indexData,
+                projectId: pid,
+                workId,
+                authorUid: uid,
+                releaseId: indexData.releaseId || '',
+                publication: indexData.publication || null,
+                dsfStatus: indexData.dsfStatus || 'public'
+            }, { source: 'shared' });
+            return true;
+        }
+        if (indexData.releaseId) {
+            const releaseLoaded = await loadPublicReleaseSnapshot(uid, workId, indexData.releaseId, {
+                projectId: pid,
+                publication: indexData.publication || null,
+                dsfStatus: indexData.dsfStatus || 'public',
+                title: indexData.title || '',
+                authorName: indexData.authorName || ''
+            });
+            if (releaseLoaded) return true;
+        }
         return loadFromFirestore(pid, uid, {
             workId,
             releaseId: indexData.releaseId || '',
@@ -496,6 +518,30 @@ async function loadWorkFromPublicIndex(workId) {
     } catch (e) {
         lastLoadErrorCode = e?.code || '';
         alert(vt('loadError', { message: e.message }));
+        return false;
+    }
+}
+
+async function loadPublicReleaseSnapshot(uid, workId, releaseId, indexData = {}) {
+    try {
+        const releaseSnap = await getDoc(doc(db, 'users', uid, 'works', workId, 'releases', releaseId));
+        if (!releaseSnap.exists()) return false;
+        const releaseData = releaseSnap.data() || {};
+        if (!Array.isArray(releaseData.dsfPages) || releaseData.dsfPages.length === 0) return false;
+        loadProjectData({
+            ...releaseData,
+            title: releaseData.title || indexData.title || '',
+            projectId: releaseData.projectId || indexData.projectId || '',
+            workId,
+            releaseId,
+            authorUid: uid,
+            authorName: indexData.authorName || '',
+            publication: indexData.publication || releaseData.publication || null,
+            dsfStatus: indexData.dsfStatus || releaseData.dsfStatus || 'public'
+        }, { source: 'shared' });
+        return true;
+    } catch (e) {
+        console.warn('[Viewer] public release snapshot load failed:', e);
         return false;
     }
 }

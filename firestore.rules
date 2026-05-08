@@ -134,6 +134,29 @@ service cloud.firestore {
               <= request.resource.data.publication.listedFrom + duration.value(14, 'd'));
     }
 
+    function publicProjectExists(workId) {
+      return exists(/databases/$(database)/documents/public_projects/$(workId));
+    }
+
+    function publicProjectRecord(workId) {
+      return get(/databases/$(database)/documents/public_projects/$(workId)).data;
+    }
+
+    function publicReleaseCanRead(uid, workId, releaseId) {
+      return publicProjectExists(workId)
+        && publicProjectRecord(workId).authorUid == uid
+        && publicProjectRecord(workId).workId == workId
+        && publicProjectRecord(workId).releaseId == releaseId
+        && publicProjectRecord(workId).dsfStatus in ['public', 'unlisted']
+        && publicProjectRecord(workId).publication is map
+        && publicProjectRecord(workId).publication.listedUntil > request.time
+        && publicProjectRecord(workId).publication.publicFrom <= request.time
+        && (publicProjectRecord(workId).publication.publicUntil == null
+            || publicProjectRecord(workId).publication.publicUntil > request.time)
+        && publicProjectRecord(workId).publication.expiredAt == null
+        && publicProjectRecord(workId).publication.expireReason == null;
+    }
+
     function validPlanChangeRequest(uid) {
       return request.resource.data.keys().hasOnly([
           'uid',
@@ -529,11 +552,11 @@ service cloud.firestore {
 
       // 読者向けの恒久作品IDと発行履歴
       match /works/{workId} {
-        allow read: if isOwner(uid);
+        allow read: if isOwner(uid) || isStaff();
         allow create, update, delete: if accountCanEdit(uid);
 
         match /releases/{releaseId} {
-          allow read: if isOwner(uid);
+          allow read: if isOwner(uid) || isStaff() || publicReleaseCanRead(uid, workId, releaseId);
           allow create, update, delete: if accountCanEdit(uid);
         }
       }
@@ -555,9 +578,11 @@ service cloud.firestore {
 
     match /public_projects/{pid} {
       allow read: if true;
-      allow create, update: if accountCanPublish(request.auth.uid)
-                            && request.resource.data.authorUid == request.auth.uid
-                            && publicProjectPublicationIsValid(request.auth.uid);
+      allow create, update: if (accountCanPublish(request.auth.uid)
+                              && request.resource.data.authorUid == request.auth.uid
+                              && publicProjectPublicationIsValid(request.auth.uid))
+                            || isAdmin()
+                            || isOperator();
       allow delete: if (isSignedIn()
                         && resource.data.authorUid == request.auth.uid
                         && !userIsDisabled(request.auth.uid))

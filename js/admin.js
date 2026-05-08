@@ -1,4 +1,4 @@
-import { collection, doc, getDocs, limit, orderBy, query, serverTimestamp, updateDoc } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
+import { collection, doc, getDoc, getDocs, limit, orderBy, query, serverTimestamp, setDoc, updateDoc } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
 import { onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js";
 import { auth, db } from './firebase-core.js';
 import { ensureUserBootstrap } from './firebase.js';
@@ -45,6 +45,7 @@ const ADMIN_UI = {
         action_open_work: '作品を開く',
         action_open_reviews: 'レビューを開く',
         action_open_viewer: 'Viewerで開く',
+        action_sync_snapshot: '公開スナップショット再同期',
         detail_author: '作者',
         detail_reader: '読者',
         detail_work: '作品',
@@ -54,6 +55,17 @@ const ADMIN_UI = {
         detail_created_at: '作成日時',
         detail_updated_at: '更新日時',
         detail_reactions: 'リアクション',
+        detail_delivery: '配信データ',
+        delivery_public_snapshot: '公開スナップショット',
+        delivery_release_snapshot: 'Release fallback',
+        delivery_available: 'あり',
+        delivery_missing: 'なし',
+        sync_snapshot_confirm: 'release snapshot から public_projects に dsfPages を補完します。続行しますか？',
+        sync_snapshot_success: '公開スナップショットを再同期しました。',
+        sync_snapshot_failed: '公開スナップショットの再同期に失敗しました: {message}',
+        sync_snapshot_not_allowed: 'このロールでは再同期できません',
+        sync_snapshot_missing_release: 'releaseId または作者UIDがないため再同期できません。',
+        sync_snapshot_empty_release: 'release snapshot に dsfPages がありません。',
         review_status_title: 'レビュー状態',
         review_status_published: '公開',
         review_status_hidden: '非表示',
@@ -140,6 +152,7 @@ const ADMIN_UI = {
         action_open_work: 'Open work',
         action_open_reviews: 'Open reviews',
         action_open_viewer: 'Open in Viewer',
+        action_sync_snapshot: 'Resync public snapshot',
         detail_author: 'Author',
         detail_reader: 'Reader',
         detail_work: 'Work',
@@ -149,6 +162,17 @@ const ADMIN_UI = {
         detail_created_at: 'Created at',
         detail_updated_at: 'Updated at',
         detail_reactions: 'Reactions',
+        detail_delivery: 'Delivery Data',
+        delivery_public_snapshot: 'Public snapshot',
+        delivery_release_snapshot: 'Release fallback',
+        delivery_available: 'available',
+        delivery_missing: 'missing',
+        sync_snapshot_confirm: 'Copy dsfPages from the release snapshot into public_projects. Continue?',
+        sync_snapshot_success: 'Public snapshot resynced.',
+        sync_snapshot_failed: 'Failed to resync public snapshot: {message}',
+        sync_snapshot_not_allowed: 'This role cannot resync snapshots',
+        sync_snapshot_missing_release: 'Cannot resync because releaseId or author UID is missing.',
+        sync_snapshot_empty_release: 'The release snapshot has no dsfPages.',
         review_status_title: 'Review Status',
         review_status_published: 'Published',
         review_status_hidden: 'Hidden',
@@ -273,6 +297,10 @@ function canManageModerationHold() {
 }
 
 function canManagePlan() {
+    return state.viewerRole === 'ADMIN' || state.viewerRole === 'OPERATOR';
+}
+
+function canSyncPublicSnapshot() {
     return state.viewerRole === 'ADMIN' || state.viewerRole === 'OPERATOR';
 }
 
@@ -727,6 +755,8 @@ function renderWorkDetail() {
         return;
     }
     const viewerUrl = `/viewer.html?work=${encodeURIComponent(work.workId || '')}`;
+    const publicSnapshotPages = Array.isArray(work.dsfPages) ? work.dsfPages.length : 0;
+    const canSyncSnapshot = canSyncPublicSnapshot() && !!work.authorUid && !!work.workId && !!work.releaseId;
 
     detailEl.innerHTML = `
         <div class="admin-detail-header">
@@ -786,9 +816,29 @@ function renderWorkDetail() {
             </div>
         </div>
         <div class="admin-detail-section">
+            <h3>${escapeHtml(t('detail_delivery'))}</h3>
+            <div class="admin-detail-grid">
+                <div class="admin-detail-card">
+                    <h3>${escapeHtml(t('delivery_public_snapshot'))}</h3>
+                    <p>${escapeHtml(publicSnapshotPages > 0 ? `${t('delivery_available')} / ${publicSnapshotPages} pages` : t('delivery_missing'))}</p>
+                </div>
+                <div class="admin-detail-card">
+                    <h3>${escapeHtml(t('delivery_release_snapshot'))}</h3>
+                    <p>${escapeHtml(work.releaseId ? t('delivery_available') : t('delivery_missing'))}</p>
+                </div>
+            </div>
+        </div>
+        <div class="admin-detail-section">
             <h3>${escapeHtml(t('detail_actions'))}</h3>
             <div class="admin-action-row">
                 <a class="admin-status-action admin-action-link" href="${escapeHtml(viewerUrl)}" target="_blank" rel="noopener">${escapeHtml(t('action_open_viewer'))}</a>
+                <button type="button"
+                    class="admin-status-action ${publicSnapshotPages > 0 ? 'is-safe' : 'is-warning'}"
+                    data-sync-work-snapshot="${escapeHtml(work.workId || '')}"
+                    ${canSyncSnapshot ? '' : 'disabled'}
+                    title="${escapeHtml(canSyncPublicSnapshot() ? '' : t('sync_snapshot_not_allowed'))}">
+                    ${escapeHtml(t('action_sync_snapshot'))}
+                </button>
                 <button type="button" class="admin-status-action" data-open-work-reviews="${escapeHtml(work.workId)}">${escapeHtml(t('action_open_reviews'))}</button>
                 <button type="button" class="admin-status-action" data-open-work-user="${escapeHtml(work.authorUid || '')}">${escapeHtml(t('action_open_user'))}</button>
             </div>
@@ -799,6 +849,11 @@ function renderWorkDetail() {
         openReviewsForWork(work.workId).catch((e) => setFeedback('error', t('load_reviews_failed', { message: e?.message || String(e) })));
     });
     detailEl.querySelector('[data-open-work-user]')?.addEventListener('click', () => openUser(work.authorUid));
+    detailEl.querySelector('[data-sync-work-snapshot]')?.addEventListener('click', () => {
+        syncPublicWorkSnapshot(work.workId).catch((e) => {
+            setFeedback('error', t('sync_snapshot_failed', { message: e?.message || String(e) }));
+        });
+    });
 }
 
 function renderReviewsList() {
@@ -1203,6 +1258,71 @@ async function updateReviewStatus(workId, reviewId, status) {
     renderReviewsList();
     renderReviewDetail();
     setFeedback('info', t('review_status_success'));
+}
+
+function buildPublicSnapshotPayload(work, releaseData) {
+    const dsfPages = Array.isArray(releaseData.dsfPages) ? releaseData.dsfPages : [];
+    return {
+        title: work.title || releaseData.title || 'Untitled',
+        projectId: work.projectId || releaseData.projectId || '',
+        workId: work.workId || releaseData.workId || '',
+        releaseId: work.releaseId || releaseData.releaseId || '',
+        authorUid: work.authorUid || releaseData.authorUid || '',
+        authorName: work.authorName || '',
+        thumbnail: work.thumbnail || null,
+        updatedAt: serverTimestamp(),
+        dsfStatus: work.dsfStatus || 'public',
+        publication: work.publication || releaseData.publication || null,
+        dsfPages,
+        dsfLangs: Array.isArray(releaseData.dsfLangs) ? releaseData.dsfLangs : (Array.isArray(work.dsfLangs) ? work.dsfLangs : []),
+        pageCount: dsfPages.length,
+        dsfPageCount: releaseData.dsfPageCount || dsfPages.length,
+        dsfPublishedAt: releaseData.dsfPublishedAt || null,
+        dsfRenderStamp: releaseData.dsfRenderStamp || null,
+        dsfResolution: releaseData.dsfResolution || work.dsfResolution || '',
+        dsfQuality: releaseData.dsfQuality || work.dsfQuality || null,
+        dsfQualityMode: releaseData.dsfQualityMode || '',
+        dsfQualityProfile: releaseData.dsfQualityProfile || null,
+        dsfTotalBytes: releaseData.dsfTotalBytes || work.dsfTotalBytes || 0,
+        book: releaseData.book || null,
+        bookMode: releaseData.bookMode || releaseData.book?.mode || 'simple',
+        languageConfigs: releaseData.languageConfigs || {},
+        languages: Array.isArray(releaseData.languages) ? releaseData.languages : (Array.isArray(releaseData.dsfLangs) ? releaseData.dsfLangs : ['ja']),
+        defaultLang: releaseData.defaultLang || releaseData.languages?.[0] || releaseData.dsfLangs?.[0] || 'ja',
+        labelName: releaseData.labelName || '',
+        rating: releaseData.rating || 'all',
+        license: releaseData.license || 'all-rights-reserved',
+        meta: releaseData.meta || {}
+    };
+}
+
+async function syncPublicWorkSnapshot(workId) {
+    if (!workId || !canSyncPublicSnapshot()) return;
+    const work = state.works.find((entry) => entry.workId === workId);
+    if (!work) return;
+    if (!work.authorUid || !work.releaseId) throw new Error(t('sync_snapshot_missing_release'));
+    if (!window.confirm(t('sync_snapshot_confirm'))) return;
+
+    const releaseRef = doc(db, 'users', work.authorUid, 'works', work.workId, 'releases', work.releaseId);
+    const releaseSnap = await getDoc(releaseRef);
+    if (!releaseSnap.exists()) throw new Error(t('sync_snapshot_missing_release'));
+    const releaseData = releaseSnap.data() || {};
+    if (!Array.isArray(releaseData.dsfPages) || releaseData.dsfPages.length === 0) {
+        throw new Error(t('sync_snapshot_empty_release'));
+    }
+
+    const payload = buildPublicSnapshotPayload(work, releaseData);
+    await setDoc(doc(db, 'public_projects', work.workId), payload, { merge: true });
+    const localPayload = {
+        ...payload,
+        id: work.id || work.workId,
+        updatedAt: new Date()
+    };
+    state.works = state.works.map((entry) => entry.workId === work.workId
+        ? { ...entry, ...localPayload }
+        : entry);
+    applyWorkSearch();
+    setFeedback('info', t('sync_snapshot_success'));
 }
 
 function openUser(uid) {
