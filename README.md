@@ -14,6 +14,7 @@
 - **[docs/security-hardening.md](docs/security-hardening.md)** — API key / auth / Functions の hardening メモ
 - **[docs/environment-topology.md](docs/environment-topology.md)** — Cloudflare Pages / Firebase / R2 の役割分担と環境運用
 - **[docs/user-account-audit.md](docs/user-account-audit.md)** — Google-only 認証、ユーザーアカウント棚卸し、今後のブートストラップ方針
+- **[docs/billing-plan-architecture.md](docs/billing-plan-architecture.md)** — プラン・課金状態、決済連携、掲載/公開期限への影響
 - **[docs/admin-role-model.md](docs/admin-role-model.md)** — admin / operator / moderator の権限モデルと運営管理画面の前提
 - **[docs/admin-console-spec.md](docs/admin-console-spec.md)** — 運営管理画面の最小仕様
 - **[docs/viewer-info-panel-spec.md](docs/viewer-info-panel-spec.md)** — Viewer のハーフモーダル / 右ドロワー仕様
@@ -69,14 +70,12 @@ npm run dev
 npm run build:staging
 
 # Cloudflare Pages staging へ反映（通常の確認先）
-npm run deploy:pages:staging
-# alias
-npm run deploy:cf:staging
-
-# Firebase Hosting staging へ反映（補助確認用）
 npm run deploy:staging
 # alias
-npm run deploy:firebase:staging
+npm run deploy:pages:staging
+
+# Firebase backend rules を staging へ反映（画面配信はしない）
+npm run deploy:firebase:rules:staging
 
 # custom claims の付与/剥奪（service account 必須）
 npm run claims:set -- --email ops@example.com --operator true --reason "staging operator"
@@ -85,10 +84,10 @@ npm run claims:set -- --email ops@example.com --operator true --reason "staging 
 ## ステージング運用ルール
 
 - **Primary staging**: `https://staging.dsf-studio.pages.dev/`
-- **Secondary staging**: `https://vmnn-26345-stg.web.app`
-- 日常の確認、共有、UI 検証は **Cloudflare Pages staging を正面** にする
-- Firebase Hosting staging は **補助確認用**。Hosting 差分や Rules 反映切り分けに使う
-- バグ報告や確認依頼では、**どのURLで見たか**を必ず添える
+- 日常の確認、共有、UI 検証は **Cloudflare Pages staging に一本化**する
+- Firebase は Auth / Firestore rules のバックエンドとして使い、Hosting は通常運用から外す
+- Firebase Storage rules は通常運用外。明示的に Firebase Storage を使う場合だけ `deploy:firebase:storage-rules:*` を使う
+- Firebase Hosting が必要な場合は `deploy:firebase:hosting:*` を明示的に使う
 
 `git push` はコードを GitHub に送るだけで、確認用URLは更新しません。  
 確認先を更新するには `deploy:*` 系コマンドが必要です。

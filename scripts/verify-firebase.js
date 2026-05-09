@@ -1,12 +1,9 @@
 
-// This script verifies that we can connect to Firebase and write data.
-// Since we are in a Node environment, we need to polyfill some browser APIs or use the modular SDK carefully.
-// However, the Firebase JS SDK v9+ works in Node environments too if we use it correctly.
+// This script verifies Firebase connectivity against the current security model.
+// Anonymous public reads should work; anonymous protected writes should be denied.
 
 import { initializeApp } from "firebase/app";
-import { getFirestore, doc, setDoc, getDoc, collection, addDoc } from "firebase/firestore";
-// Storage upload in Node environment is tricky without 'File' object, so we'll skip storage test for now or use a buffer if really needed.
-// But verifying Firestore write is the main critical path for "saving work".
+import { getFirestore, doc, setDoc, collection, getDocs, limit, query } from "firebase/firestore";
 
 const firebaseConfig = {
   apiKey: "AIzaSyBj3U-wFkNsWlW1d4OHayerECMIRyhQ40o",
@@ -23,25 +20,25 @@ const app = initializeApp(firebaseConfig);
 const db = getFirestore(app);
 
 async function testFirestore() {
-  console.log("Testing Firestore Write...");
+  console.log("Testing Firestore Public Read...");
   try {
+    const publicSnap = await getDocs(query(collection(db, "public_projects"), limit(1)));
+    console.log(`✅ Firestore Public Read Successful (${publicSnap.size} docs)`);
+
+    console.log("Testing Firestore Protected Write Denial...");
     const testRef = doc(db, "test_verification", "connection_test");
     await setDoc(testRef, {
       timestamp: new Date().toISOString(),
       status: "verified",
-      message: "Blaze plan verification successful from DSF Studio local environment."
+      message: "This anonymous write must be denied by Firestore rules."
     });
-    console.log("✅ Firestore Write Successful!");
-    
-    console.log("Testing Firestore Read...");
-    const snap = await getDoc(testRef);
-    if (snap.exists()) {
-      console.log("✅ Firestore Read Successful:", snap.data());
-    } else {
-      console.error("❌ Firestore Read Failed: Document not found.");
-    }
-
+    console.error("❌ Firestore Rules Error: anonymous protected write unexpectedly succeeded.");
+    process.exit(1);
   } catch (error) {
+    if (error?.code === "permission-denied") {
+      console.log("✅ Firestore Protected Write Correctly Denied.");
+      return;
+    }
     console.error("❌ Firestore Error:", error);
     process.exit(1);
   }

@@ -814,6 +814,27 @@ body[data-room="works"] #works-room {
     line-height: 1.55;
 }
 
+.home-work-publication,
+.works-publication-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+}
+
+.home-work-publication span,
+.works-publication-meta span {
+    display: inline-flex;
+    align-items: center;
+    min-height: 24px;
+    padding: 4px 8px;
+    border-radius: 999px;
+    background: #f8fafc;
+    color: #475569;
+    font-size: 11px;
+    font-weight: 800;
+    font-variant-numeric: tabular-nums;
+}
+
 .home-work-metrics {
     display: grid;
     grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -1353,9 +1374,61 @@ body[data-room="works"] #works-room {
     font-size: 12px;
 }
 
+.press-publication-summary {
+    display: grid;
+    gap: 10px;
+    padding: 12px;
+    border: 1px solid #d8e1ee;
+    border-radius: 12px;
+    background: #f8fafc;
+}
+
+.press-publication-summary-title {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    color: #64748b;
+    font-size: 12px;
+    font-weight: 700;
+}
+
+.press-publication-summary-title .material-icons {
+    color: #2563eb;
+    font-size: 18px;
+}
+
+.press-publication-summary-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+}
+
+.press-publication-summary-grid span {
+    display: grid;
+    gap: 4px;
+    min-width: 0;
+    padding: 10px;
+    border-radius: 10px;
+    background: #fff;
+    color: #172033;
+    font-size: 13px;
+    font-weight: 800;
+    font-variant-numeric: tabular-nums;
+}
+
+.press-publication-summary-grid strong {
+    color: #64748b;
+    font-size: 11px;
+    font-weight: 800;
+}
+
 @media (max-width: 980px) {
     .press-book-covers-fixed {
         grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .press-publication-summary-grid {
+        grid-template-columns: 1fr;
     }
 }
 
@@ -1779,14 +1852,41 @@ body[data-room="works"] #works-room {
 }
 
 .auth-dropdown-name {
+    display: grid;
+    gap: 3px;
     padding: 8px 10px 12px;
     font-size: 13px;
     font-weight: 700;
     color: var(--studio-subtext);
     border-bottom: 1px solid var(--studio-border);
     overflow: hidden;
+}
+
+.auth-dropdown-display-name {
+    display: block;
+    color: var(--studio-text);
     text-overflow: ellipsis;
+    overflow: hidden;
     white-space: nowrap;
+}
+
+.auth-dropdown-plan {
+    display: inline-flex;
+    width: fit-content;
+    min-height: 20px;
+    align-items: center;
+    padding: 2px 8px;
+    border-radius: 999px;
+    background: rgba(59, 130, 246, 0.12);
+    color: #2563eb;
+    font-size: 11px;
+    font-weight: 800;
+    letter-spacing: 0.04em;
+}
+
+body[data-theme="dark"] .auth-dropdown-plan {
+    background: rgba(96, 165, 250, 0.16);
+    color: #93c5fd;
 }
 
 .auth-panel-section {
@@ -1850,6 +1950,7 @@ body[data-room="works"] #works-room {
     color: var(--studio-text);
     cursor: pointer;
     font: inherit;
+    text-decoration: none;
     text-align: left;
 }
 
@@ -1898,6 +1999,72 @@ body[data-room="works"] #works-room {
     border: 1px solid #ffe5b0;
     background: #fff7df;
     color: #8a5d00;
+    font-size: 11px;
+}
+
+.works-publication-notice {
+    margin-top: 6px;
+    padding: 7px 10px;
+    border: 1px solid #fed7aa;
+    border-radius: 10px;
+    background: #fff7ed;
+    color: #9a3412;
+    font-size: 12px;
+    font-weight: 700;
+}
+
+.works-publication-editor {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: end;
+    gap: 8px;
+    margin-top: 8px;
+}
+
+.works-publication-editor label {
+    display: grid;
+    gap: 4px;
+    color: #64748b;
+    font-size: 11px;
+    font-weight: 800;
+}
+
+.works-publication-input {
+    min-width: 170px;
+    padding: 7px 9px;
+    border: 1px solid #cbd5e1;
+    border-radius: 8px;
+    background: #fff;
+    color: #0f172a;
+    font-size: 12px;
+}
+
+.works-publication-input:disabled {
+    background: #f8fafc;
+    color: #94a3b8;
+}
+
+.works-publication-save {
+    min-height: 32px;
+    padding: 7px 12px;
+    border: 1px solid #bfdbfe;
+    border-radius: 999px;
+    background: #eff6ff;
+    color: #1d4ed8;
+    font-size: 12px;
+    font-weight: 800;
+    cursor: pointer;
+}
+
+.works-publication-save:disabled {
+    cursor: not-allowed;
+    opacity: 0.55;
+}
+
+.works-publication-editor p {
+    flex-basis: 100%;
+    margin: 0;
+    color: #64748b;
     font-size: 11px;
 }
 

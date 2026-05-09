@@ -131,19 +131,33 @@ function buildUserBootstrapDefaults(user) {
         },
         plan: {
             tier: 'free',
+            effectiveTier: 'free',
             status: 'active',
             provider: 'none',
             trialEndsAt: null,
+            currentPeriodStart: null,
             currentPeriodEnd: null,
             cancelAtPeriodEnd: false,
+            canceledAt: null,
             updatedAt: null
+        },
+        billing: {
+            provider: 'none',
+            stripeCustomerId: null,
+            stripeSubscriptionId: null,
+            stripePriceId: null,
+            stripeSubscriptionStatus: null,
+            lastWebhookEventId: null,
+            lastSyncedAt: null
         },
         entitlements: {
             canCreateProject: true,
             canUsePremiumPaper: false,
             canPublishPrivately: false,
             canUseAdvancedAnalytics: false,
-            canManageLabel: false
+            canManageLabel: false,
+            canUseUnlimitedListing: false,
+            canSchedulePublicExpiry: false
         },
         status: {
             disabled: false,
@@ -198,19 +212,33 @@ export async function ensureUserBootstrap(user = auth.currentUser) {
             },
             plan: {
                 tier: typeof data.plan?.tier === 'string' ? data.plan.tier : defaults.plan.tier,
+                effectiveTier: typeof data.plan?.effectiveTier === 'string' ? data.plan.effectiveTier : defaults.plan.effectiveTier,
                 status: typeof data.plan?.status === 'string' ? data.plan.status : defaults.plan.status,
                 provider: typeof data.plan?.provider === 'string' ? data.plan.provider : defaults.plan.provider,
                 trialEndsAt: data.plan?.trialEndsAt ?? defaults.plan.trialEndsAt,
+                currentPeriodStart: data.plan?.currentPeriodStart ?? defaults.plan.currentPeriodStart,
                 currentPeriodEnd: data.plan?.currentPeriodEnd ?? defaults.plan.currentPeriodEnd,
                 cancelAtPeriodEnd: typeof data.plan?.cancelAtPeriodEnd === 'boolean' ? data.plan.cancelAtPeriodEnd : defaults.plan.cancelAtPeriodEnd,
+                canceledAt: data.plan?.canceledAt ?? defaults.plan.canceledAt,
                 updatedAt: data.plan?.updatedAt ?? defaults.plan.updatedAt
+            },
+            billing: {
+                provider: typeof data.billing?.provider === 'string' ? data.billing.provider : defaults.billing.provider,
+                stripeCustomerId: data.billing?.stripeCustomerId ?? defaults.billing.stripeCustomerId,
+                stripeSubscriptionId: data.billing?.stripeSubscriptionId ?? defaults.billing.stripeSubscriptionId,
+                stripePriceId: data.billing?.stripePriceId ?? defaults.billing.stripePriceId,
+                stripeSubscriptionStatus: data.billing?.stripeSubscriptionStatus ?? defaults.billing.stripeSubscriptionStatus,
+                lastWebhookEventId: data.billing?.lastWebhookEventId ?? defaults.billing.lastWebhookEventId,
+                lastSyncedAt: data.billing?.lastSyncedAt ?? defaults.billing.lastSyncedAt
             },
             entitlements: {
                 canCreateProject: typeof data.entitlements?.canCreateProject === 'boolean' ? data.entitlements.canCreateProject : defaults.entitlements.canCreateProject,
                 canUsePremiumPaper: typeof data.entitlements?.canUsePremiumPaper === 'boolean' ? data.entitlements.canUsePremiumPaper : defaults.entitlements.canUsePremiumPaper,
                 canPublishPrivately: typeof data.entitlements?.canPublishPrivately === 'boolean' ? data.entitlements.canPublishPrivately : defaults.entitlements.canPublishPrivately,
                 canUseAdvancedAnalytics: typeof data.entitlements?.canUseAdvancedAnalytics === 'boolean' ? data.entitlements.canUseAdvancedAnalytics : defaults.entitlements.canUseAdvancedAnalytics,
-                canManageLabel: typeof data.entitlements?.canManageLabel === 'boolean' ? data.entitlements.canManageLabel : defaults.entitlements.canManageLabel
+                canManageLabel: typeof data.entitlements?.canManageLabel === 'boolean' ? data.entitlements.canManageLabel : defaults.entitlements.canManageLabel,
+                canUseUnlimitedListing: typeof data.entitlements?.canUseUnlimitedListing === 'boolean' ? data.entitlements.canUseUnlimitedListing : defaults.entitlements.canUseUnlimitedListing,
+                canSchedulePublicExpiry: typeof data.entitlements?.canSchedulePublicExpiry === 'boolean' ? data.entitlements.canSchedulePublicExpiry : defaults.entitlements.canSchedulePublicExpiry
             },
             status: {
                 disabled: typeof data.status?.disabled === 'boolean' ? data.status.disabled : defaults.status.disabled,
@@ -224,7 +252,15 @@ export async function ensureUserBootstrap(user = auth.currentUser) {
             lastLoginAt: serverTimestamp()
         };
 
-        await setDoc(ref, merged, { merge: true });
+        try {
+            await setDoc(ref, merged, { merge: true });
+        } catch (err) {
+            // Legacy user documents can be readable but not self-migratable once
+            // protected plan/role fields are locked by rules. Do not block rooms
+            // that only need the normalized account view.
+            if (err?.code !== 'permission-denied') throw err;
+            console.warn('[Auth] user bootstrap merge skipped:', err?.message || err);
+        }
         return {
             ...data,
             ...merged,
@@ -239,6 +275,32 @@ export async function ensureUserBootstrap(user = auth.currentUser) {
     } finally {
         userBootstrapPromiseCache.delete(user.uid);
     }
+}
+
+function accountStatusOf(account) {
+    return {
+        disabled: account?.status?.disabled === true,
+        moderationHold: account?.status?.moderationHold === true
+    };
+}
+
+export async function assertAccountCanEdit(user = auth.currentUser) {
+    if (!user?.uid) throw new Error('ログインしてください');
+    const account = await ensureUserBootstrap(user);
+    const status = accountStatusOf(account);
+    if (status.disabled) {
+        throw new Error('このアカウントは運営により停止されています。');
+    }
+    return account;
+}
+
+export async function assertAccountCanPublish(user = auth.currentUser) {
+    const account = await assertAccountCanEdit(user);
+    const status = accountStatusOf(account);
+    if (status.moderationHold) {
+        throw new Error('このアカウントはモデレーション保留中のため、公開・投稿できません。');
+    }
+    return account;
 }
 
 function ensureProjectIdentity() {
@@ -694,6 +756,7 @@ async function performSave() {
     // 2. クラウドバックアップ (ログイン時のみ)
     if (state.projectId && state.uid) {
         try {
+            await assertAccountCanEdit();
             const visibility = state.visibility || 'private';
 
             // blob: URL が残っている場合は Storage にアップロードして実 URL に変換

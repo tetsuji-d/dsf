@@ -7,10 +7,11 @@ import {
 } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
 import { state, dispatch, actionTypes } from './state.js';
 import { extractSectionsFromBlocks } from './blocks.js';
-import { db, uploadPressPage, triggerAutoSave, auth } from './firebase.js';
+import { assertAccountCanPublish, db, uploadPressPage, triggerAutoSave, auth, ensureUserBootstrap } from './firebase.js';
 import { loadImageForCanvas } from './asset-fetch.js';
 import { renderPositionedThumbImageHtml } from './sections.js';
-import { t } from './i18n-studio.js';
+import { t, getUILang } from './i18n-studio.js';
+import { createDefaultPublication, formatPublicationDate, getListingMaxDays } from './publication.js';
 import {
     CANONICAL_PAGE_WIDTH,
     CANONICAL_PAGE_HEIGHT,
@@ -281,6 +282,7 @@ export function enterPressRoom() {
     _renderPageThumbs();
     _renderLangTabs();
     _renderBookSettings();
+    _renderPublicationSummary();
     _updatePublishBtn();
     _bindPressTrialTextBinaryOnce();
     _bindPressPublishCancelOnce();
@@ -404,6 +406,47 @@ function _makeTextThumbSnippet(raw) {
         .replace(/\s+/g, ' ')
         .trim();
     return Array.from(plain).slice(0, 42).join('');
+}
+
+function _formatPressPublicationDate(value) {
+    return formatPublicationDate(value, getUILang() === 'en' ? 'en-US' : 'ja-JP');
+}
+
+function _renderPublicationSummary() {
+    const container = document.getElementById('press-publication-summary');
+    if (!container) return;
+    _renderPublicationSummaryContent(container, null);
+    if (auth.currentUser) {
+        ensureUserBootstrap(auth.currentUser)
+            .then(account => _renderPublicationSummaryContent(container, account))
+            .catch(() => {});
+    }
+}
+
+function _renderPublicationSummaryContent(container, account = null) {
+    const publication = state.publication && typeof state.publication === 'object'
+        ? state.publication
+        : (account ? createDefaultPublication(account, new Date()) : null);
+    const listedUntil = publication
+        ? (_formatPressPublicationDate(publication.listedUntil) || t('publication_no_limit'))
+        : _formatPressListingWindow(account);
+    container.innerHTML = `
+        <div class="press-publication-summary-title">
+            <span class="material-icons" aria-hidden="true">event_available</span>
+            <span>${_esc(t('publication_press_hint'))}</span>
+        </div>
+        <div class="press-publication-summary-grid">
+            <span><strong>${_esc(t('publication_listed_until'))}</strong>${_esc(listedUntil)}</span>
+        </div>
+    `;
+}
+
+function _formatPressListingWindow(account = null) {
+    if (!account) return `${t('publication_immediate')} - ${t('publication_free_14_days')}`;
+    const maxDays = getListingMaxDays(account);
+    return maxDays === null
+        ? `${t('publication_immediate')} - ${t('publication_no_limit')}`
+        : `${t('publication_immediate')} - ${t('publication_free_14_days')}`;
 }
 
 function _renderLangTabs() {
@@ -660,6 +703,13 @@ window.publishToCloud = async () => {
         console.warn('[Press] state.uid does not match auth; syncing from Firebase');
         state.uid = uid;
     }
+    let account = null;
+    try {
+        account = await assertAccountCanPublish(auth.currentUser);
+    } catch (e) {
+        alert(e?.message || String(e));
+        return;
+    }
     if (!state.projectId) {
         alert('プロジェクトをクラウドに保存してから発行してください');
         return;
@@ -674,6 +724,8 @@ window.publishToCloud = async () => {
         return;
     }
     if (!_validateBookCompositionForPress()) return;
+
+    const publication = createDefaultPublication(account, new Date());
 
     // 設定取得
     const rawResKey = resolvePressResolutionKey(document.getElementById('press-resolution')?.value);
@@ -852,6 +904,7 @@ window.publishToCloud = async () => {
                 meta:           state.meta || {},
                 dsfStatus:      'draft',
                 dsfPublishedAt: serverTimestamp(),
+                publication,
                 dsfRenderStamp: renderStamp,
                 dsfResolution:  resStr,
                 dsfQuality:     Math.round(qualityProfile.image * 100),
@@ -882,6 +935,7 @@ window.publishToCloud = async () => {
                 defaultLang: state.defaultLang || state.languages?.[0] || 'ja',
                 latestReleaseId: releaseId,
                 latestProjectId: state.projectId,
+                publication,
                 updatedAt: serverTimestamp()
             },
             { merge: true }
@@ -897,6 +951,7 @@ window.publishToCloud = async () => {
                 ...getPressBookConfigForExport(dsfPages.length),
                 dsfStatus: 'draft',
                 dsfPublishedAt: serverTimestamp(),
+                publication,
                 dsfRenderStamp: renderStamp,
                 dsfResolution: resStr,
                 dsfQuality: Math.round(qualityProfile.image * 100),
@@ -918,6 +973,8 @@ window.publishToCloud = async () => {
             .catch((e) => console.warn('[Press] Failed to clear public_projects on draft publish:', e?.message || e));
         await deleteDoc(doc(db, 'public_projects', state.projectId))
             .catch((e) => console.warn('[Press] Failed to clear public_projects on draft publish:', e?.message || e));
+
+        dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'publication', value: publication } });
 
         console.log(`[Press] Published ${dsfPages.length} pages → draft`);
         closePressPublishModal();

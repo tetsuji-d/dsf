@@ -15,6 +15,7 @@ import { applyTheme, bindThemePreferenceListener, getThemeMode, setThemeMode } f
 import { doc, getDoc, getDocs, setDoc, deleteDoc, addDoc, collection, query, where, limit, serverTimestamp, runTransaction } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
 import { parseAndLoadDSF } from './export.js';
 import { CANONICAL_PAGE_WIDTH, CANONICAL_PAGE_HEIGHT, CANONICAL_PAGE_ASPECT } from './page-geometry.js';
+import { formatPublicationDate, getPublicationInactiveReason, isPublicationActive } from './publication.js';
 
 // ── Module State ──────────────────────────────────────────────
 let sharedProjectRef = null;
@@ -104,7 +105,9 @@ let viewerProjectMeta = {
     projectId: '',
     workId: '',
     releaseId: '',
-    authorUid: ''
+    authorUid: '',
+    publication: null,
+    dsfStatus: ''
 };
 const VIEWER_INFO_STATES = ['closed', 'peek', 'summary', 'full'];
 let viewerInfoPanelState = 'closed';
@@ -149,6 +152,8 @@ const VIEWER_UI = {
         privateCancel: 'キャンセル',
         privateProject: 'この作品は非公開です。',
         unpublishedProject: 'このURLには発行済みの DSF データがありません。',
+        publicationExpired: 'この作品の公開期間は終了しました。',
+        publicationScheduled: 'この作品は公開開始前です。',
         developerModeOn: 'Developer mode: ON',
         developerModeOff: 'Developer mode: OFF',
         loadError: '読み込みエラー: {message}',
@@ -164,6 +169,8 @@ const VIEWER_UI = {
         infoLabel: 'レーベル',
         infoSeries: 'シリーズ',
         infoAuthor: '著者',
+        infoPublicUntil: '公開期限',
+        infoPublicNoLimit: '無期限',
         infoDescription: '概要',
         infoLinerNotes: 'ライナーノーツ',
         infoReviews: 'レビュー',
@@ -229,6 +236,8 @@ const VIEWER_UI = {
         privateCancel: 'Cancel',
         privateProject: 'This work is private.',
         unpublishedProject: 'This URL does not have published DSF data yet.',
+        publicationExpired: 'This work is no longer available.',
+        publicationScheduled: 'This work is not available yet.',
         developerModeOn: 'Developer mode: ON',
         developerModeOff: 'Developer mode: OFF',
         loadError: 'Load error: {message}',
@@ -244,6 +253,8 @@ const VIEWER_UI = {
         infoLabel: 'Label',
         infoSeries: 'Series',
         infoAuthor: 'Author',
+        infoPublicUntil: 'Public until',
+        infoPublicNoLimit: 'No limit',
         infoDescription: 'Overview',
         infoLinerNotes: 'Liner Notes',
         infoReviews: 'Reviews',
@@ -465,6 +476,10 @@ async function loadWorkFromPublicIndex(workId) {
             return false;
         }
         const indexData = indexSnap.data() || {};
+        if (!isPublicationActive(indexData.publication || {}, indexData.dsfStatus || 'public')) {
+            alert(_publicationUnavailableMessage(indexData.publication || {}, indexData.dsfStatus || 'public'));
+            return false;
+        }
         const pid = indexData.projectId || indexData.pid || workId;
         const uid = indexData.authorUid || indexData.uid || '';
         if (!uid) {
@@ -472,10 +487,61 @@ async function loadWorkFromPublicIndex(workId) {
             return false;
         }
         sharedProjectRef = { workId, pid, uid };
-        return loadFromFirestore(pid, uid, { workId, releaseId: indexData.releaseId || '' });
+        if (Array.isArray(indexData.dsfPages) && indexData.dsfPages.length > 0) {
+            loadProjectData({
+                ...indexData,
+                projectId: pid,
+                workId,
+                authorUid: uid,
+                releaseId: indexData.releaseId || '',
+                publication: indexData.publication || null,
+                dsfStatus: indexData.dsfStatus || 'public'
+            }, { source: 'shared' });
+            return true;
+        }
+        if (indexData.releaseId) {
+            const releaseLoaded = await loadPublicReleaseSnapshot(uid, workId, indexData.releaseId, {
+                projectId: pid,
+                publication: indexData.publication || null,
+                dsfStatus: indexData.dsfStatus || 'public',
+                title: indexData.title || '',
+                authorName: indexData.authorName || ''
+            });
+            if (releaseLoaded) return true;
+        }
+        return loadFromFirestore(pid, uid, {
+            workId,
+            releaseId: indexData.releaseId || '',
+            publication: indexData.publication || null,
+            dsfStatus: indexData.dsfStatus || 'public'
+        });
     } catch (e) {
         lastLoadErrorCode = e?.code || '';
         alert(vt('loadError', { message: e.message }));
+        return false;
+    }
+}
+
+async function loadPublicReleaseSnapshot(uid, workId, releaseId, indexData = {}) {
+    try {
+        const releaseSnap = await getDoc(doc(db, 'users', uid, 'works', workId, 'releases', releaseId));
+        if (!releaseSnap.exists()) return false;
+        const releaseData = releaseSnap.data() || {};
+        if (!Array.isArray(releaseData.dsfPages) || releaseData.dsfPages.length === 0) return false;
+        loadProjectData({
+            ...releaseData,
+            title: releaseData.title || indexData.title || '',
+            projectId: releaseData.projectId || indexData.projectId || '',
+            workId,
+            releaseId,
+            authorUid: uid,
+            authorName: indexData.authorName || '',
+            publication: indexData.publication || releaseData.publication || null,
+            dsfStatus: indexData.dsfStatus || releaseData.dsfStatus || 'public'
+        }, { source: 'shared' });
+        return true;
+    } catch (e) {
+        console.warn('[Viewer] public release snapshot load failed:', e);
         return false;
     }
 }
@@ -490,6 +556,14 @@ async function loadFromFirestore(pid, uid, resolved = {}) {
         data.authorUid = data.authorUid || data.uid || uid;
         if (resolved.workId && !data.workId) data.workId = resolved.workId;
         if (resolved.releaseId && !data.releaseId) data.releaseId = resolved.releaseId;
+        if (resolved.publication && !data.publication) data.publication = resolved.publication;
+        if (resolved.dsfStatus && !data.dsfStatus) data.dsfStatus = resolved.dsfStatus;
+        const status = data.dsfStatus || resolved.dsfStatus || 'public';
+        const publication = data.publication || resolved.publication || {};
+        if (state.uid !== uid && !isPublicationActive(publication, status)) {
+            alert(_publicationUnavailableMessage(publication, status));
+            return false;
+        }
         loadProjectData(data, { source: 'shared' });
         return true;
     } catch (e) {
@@ -676,8 +750,15 @@ function buildViewerProjectMeta(raw, source) {
         projectId: String(raw?.projectId || '').trim(),
         workId: String(raw?.workId || raw?.projectId || '').trim(),
         releaseId: String(raw?.releaseId || '').trim(),
-        authorUid: String(raw?.authorUid || raw?.uid || '').trim()
+        authorUid: String(raw?.authorUid || raw?.uid || '').trim(),
+        publication: raw?.publication && typeof raw.publication === 'object' ? raw.publication : null,
+        dsfStatus: String(raw?.dsfStatus || '').trim()
     };
+}
+
+function _publicationUnavailableMessage(publication = {}, status = 'public') {
+    const reason = getPublicationInactiveReason(publication, status);
+    return vt(reason === 'public_scheduled' ? 'publicationScheduled' : 'publicationExpired');
 }
 
 function createBookmarkUiState() {
@@ -1453,6 +1534,8 @@ function renderViewerInfoPanel() {
     const labelEl = document.getElementById('viewer-info-label');
     const authorRow = document.getElementById('viewer-info-author-row');
     const authorEl = document.getElementById('viewer-info-author');
+    const publicUntilRow = document.getElementById('viewer-info-public-until-row');
+    const publicUntilEl = document.getElementById('viewer-info-public-until');
     const descEl = document.getElementById('viewer-info-description');
     const notesSection = document.getElementById('viewer-info-notes-section');
     const notesEl = document.getElementById('viewer-info-notes');
@@ -1474,6 +1557,14 @@ function renderViewerInfoPanel() {
     if (labelEl) labelEl.textContent = label;
     if (authorRow) authorRow.hidden = !meta.author;
     if (authorEl) authorEl.textContent = meta.author;
+    if (publicUntilRow) publicUntilRow.hidden = viewerProjectMeta.source !== 'shared' || !viewerProjectMeta.publication;
+    if (publicUntilEl) {
+        const publicUntil = formatPublicationDate(
+            viewerProjectMeta.publication?.publicUntil,
+            viewerUiLang === 'en' ? 'en-US' : 'ja-JP'
+        );
+        publicUntilEl.textContent = publicUntil || vt('infoPublicNoLimit');
+    }
 
     if (descEl) {
         descEl.hidden = !description;
@@ -1509,6 +1600,8 @@ function applyViewerInfoPanelLabels() {
     labelLabels.forEach((node) => { node.textContent = vt('infoLabel'); });
     const authorLabels = document.querySelectorAll('#viewer-info-author-row .viewer-info-meta-label');
     authorLabels.forEach((node) => { node.textContent = vt('infoAuthor'); });
+    const publicUntilLabels = document.querySelectorAll('#viewer-info-public-until-row .viewer-info-meta-label');
+    publicUntilLabels.forEach((node) => { node.textContent = vt('infoPublicUntil'); });
     const notesTitle = document.querySelector('#viewer-info-notes-section .viewer-info-section-title');
     if (notesTitle) notesTitle.textContent = vt('infoLinerNotes');
     const bookmarkTitle = document.querySelector('#viewer-info-bookmark-section .viewer-info-section-title');

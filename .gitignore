@@ -10,3 +10,10 @@ dist
 .local-test-accounts.json
 firebase-debug.log
 .claude/worktrees/
+
+# Local secrets and Firebase/Google service account keys must never be committed.
+secrets/
+*.service-account.json
+*service-account*.json
+*firebase-adminsdk*.json
+*google-credentials*.json

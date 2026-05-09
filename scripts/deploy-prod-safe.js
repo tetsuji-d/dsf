@@ -14,10 +14,11 @@ const CHECK_FILES = [
 ];
 
 const skipGitCheck = process.argv.includes('--skip-git-check');
+const skipFirebase = process.argv.includes('--skip-firebase');
 const checkOnly = process.argv.includes('--check-only');
 
 function bin(name) {
-  return process.platform === 'win32' ? `${name}.cmd` : name;
+  return process.platform === 'win32' && ['npm', 'npx'].includes(name) ? `${name}.cmd` : name;
 }
 
 function run(command, args, options = {}) {
@@ -81,8 +82,12 @@ function main() {
     console.log('\nProduction deploy check complete. No deployment was performed.');
     return;
   }
-  run(bin('npx'), ['firebase', 'deploy', '--project', 'prod', '--only', 'firestore:rules']);
-  run(bin('npx'), ['wrangler', 'pages', 'deploy', 'dist', '--project-name', 'dsf-studio']);
+  if (!skipFirebase) {
+    run(bin('npx'), ['firebase', 'deploy', '--project', 'prod', '--only', 'firestore:rules']);
+  } else {
+    console.log('\nFirebase deploy skipped by --skip-firebase.');
+  }
+  run(bin('npx'), ['wrangler', 'pages', 'deploy', 'dist', '--project-name', 'dsf-studio', '--branch', 'main']);
   console.log('\nProduction deploy complete.');
 }
 
