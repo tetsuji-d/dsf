@@ -286,6 +286,7 @@ function resetProfileDrafts() {
 function drawProfilePreview(kind) {
     const draft = profileImageDraft[kind];
     const canvas = document.querySelector(`[data-profile-canvas="${kind}"]`);
+    const rendered = document.querySelector(`[data-profile-rendered="${kind}"]`);
     if (!draft || !canvas) return;
     canvas.width = draft.width;
     canvas.height = draft.height;
@@ -297,18 +298,23 @@ function drawProfilePreview(kind) {
 
     if (!draft.image) {
         if (fallbackImg) fallbackImg.hidden = !fallbackUrl;
+        if (rendered) rendered.hidden = true;
         canvas.hidden = true;
         return;
     }
 
     if (fallbackImg) fallbackImg.hidden = true;
-    canvas.hidden = false;
+    canvas.hidden = true;
     const scale = Math.max(canvas.width / draft.image.naturalWidth, canvas.height / draft.image.naturalHeight) * draft.zoom;
     const drawWidth = draft.image.naturalWidth * scale;
     const drawHeight = draft.image.naturalHeight * scale;
     const dx = (canvas.width - drawWidth) / 2;
     const dy = (canvas.height - drawHeight) / 2;
     ctx.drawImage(draft.image, dx, dy, drawWidth, drawHeight);
+    if (rendered) {
+        rendered.src = canvas.toDataURL('image/webp', 0.84);
+        rendered.hidden = false;
+    }
 }
 
 function canvasToWebP(canvas, quality = 0.82) {
@@ -462,10 +468,12 @@ function renderPublicProfileSection() {
             <div class="mypage-profile-preview">
                 <div class="mypage-profile-background">
                     ${profile.backgroundUrl ? `<img src="${escapeHtml(profile.backgroundUrl)}" alt="" data-profile-fallback="background">` : `<div class="mypage-profile-placeholder" data-profile-fallback="background"></div>`}
+                    <img class="mypage-profile-rendered" alt="" data-profile-rendered="background" hidden>
                     <canvas data-profile-canvas="background" hidden></canvas>
                 </div>
                 <div class="mypage-profile-avatar">
                     ${profile.avatarUrl ? `<img src="${escapeHtml(profile.avatarUrl)}" alt="" data-profile-fallback="avatar">` : `<div class="mypage-profile-avatar-placeholder" data-profile-fallback="avatar">${escapeHtml((profile.displayName || '?').slice(0, 1))}</div>`}
+                    <img class="mypage-profile-rendered" alt="" data-profile-rendered="avatar" hidden>
                     <canvas data-profile-canvas="avatar" hidden></canvas>
                 </div>
             </div>
@@ -485,10 +493,8 @@ function renderPublicProfileSection() {
                 </label>
                 <div class="mypage-image-field">
                     <span>${escapeHtml(t('avatarImage'))}</span>
-                    <label class="mypage-file-btn">
-                        ${escapeHtml(t('chooseImage'))}
-                        <input type="file" accept="image/*" data-profile-file="avatar">
-                    </label>
+                    <button type="button" class="mypage-file-btn" data-profile-pick="avatar">${escapeHtml(t('chooseImage'))}</button>
+                    <input class="mypage-file-input" type="file" accept="image/*" data-profile-file="avatar">
                     <label class="mypage-range">
                         <span>${escapeHtml(t('avatarZoom'))}</span>
                         <input type="range" min="1" max="2.5" step="0.05" value="1" data-profile-zoom="avatar">
@@ -496,10 +502,8 @@ function renderPublicProfileSection() {
                 </div>
                 <div class="mypage-image-field">
                     <span>${escapeHtml(t('backgroundImage'))}</span>
-                    <label class="mypage-file-btn">
-                        ${escapeHtml(t('chooseImage'))}
-                        <input type="file" accept="image/*" data-profile-file="background">
-                    </label>
+                    <button type="button" class="mypage-file-btn" data-profile-pick="background">${escapeHtml(t('chooseImage'))}</button>
+                    <input class="mypage-file-input" type="file" accept="image/*" data-profile-file="background">
                     <label class="mypage-range">
                         <span>${escapeHtml(t('backgroundZoom'))}</span>
                         <input type="range" min="1" max="2.5" step="0.05" value="1" data-profile-zoom="background">
@@ -581,6 +585,14 @@ function renderAccount() {
 }
 
 function bindPublicProfileEvents(root) {
+    root.querySelectorAll('[data-profile-pick]').forEach((button) => {
+        button.addEventListener('click', () => {
+            const input = root.querySelector(`[data-profile-file="${button.dataset.profilePick}"]`);
+            if (!input) return;
+            input.value = '';
+            input.click();
+        });
+    });
     root.querySelectorAll('[data-profile-file]').forEach((input) => {
         input.addEventListener('change', async () => {
             const kind = input.dataset.profileFile;

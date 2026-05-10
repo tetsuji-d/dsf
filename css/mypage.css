@@ -192,7 +192,8 @@ body[data-theme="light"] .mypage-action-btn {
 }
 
 .mypage-profile-background img,
-.mypage-profile-background canvas {
+.mypage-profile-background canvas,
+.mypage-profile-rendered {
     width: 100%;
     height: 100%;
     display: block;
@@ -223,7 +224,8 @@ body[data-theme="light"] .mypage-profile-avatar {
 }
 
 .mypage-profile-avatar img,
-.mypage-profile-avatar canvas {
+.mypage-profile-avatar canvas,
+.mypage-profile-avatar .mypage-profile-rendered {
     width: 100%;
     height: 100%;
     display: block;
@@ -301,14 +303,22 @@ body[data-theme="light"] .mypage-field textarea {
     width: fit-content;
     border: 1px solid var(--portal-border);
     border-radius: 999px;
+    background: transparent;
     padding: 0 16px;
     color: var(--portal-text);
+    font: inherit;
     font-weight: 800;
     cursor: pointer;
 }
 
-.mypage-file-btn input {
-    display: none;
+.mypage-file-input {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    clip-path: inset(50%);
+    white-space: nowrap;
 }
 
 .mypage-range input {
