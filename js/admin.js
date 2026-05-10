@@ -94,6 +94,15 @@ const ADMIN_UI = {
         manual_plan_failed: 'プラン更新に失敗しました: {message}',
         status_disabled: '無効化',
         status_hold: 'モデレーション保留',
+        entitlement_canCreateProject: 'プロジェクト作成',
+        entitlement_canUsePremiumPaper: 'プレミアム用紙',
+        entitlement_canPublishPrivately: '限定公開',
+        entitlement_canUseAdvancedAnalytics: '高度な分析',
+        entitlement_canManageLabel: 'レーベル管理',
+        entitlement_canUseUnlimitedListing: '掲載可能期間 無期限',
+        entitlement_canSchedulePublicExpiry: '公開期限予約',
+        entitlement_enabled: '利用可',
+        entitlement_disabled: '不可',
         action_disable: 'アカウントを停止',
         action_enable: '停止を解除',
         action_hold: '保留にする',
@@ -201,6 +210,15 @@ const ADMIN_UI = {
         manual_plan_failed: 'Failed to update plan: {message}',
         status_disabled: 'disabled',
         status_hold: 'moderationHold',
+        entitlement_canCreateProject: 'Create projects',
+        entitlement_canUsePremiumPaper: 'Premium paper',
+        entitlement_canPublishPrivately: 'Private publishing',
+        entitlement_canUseAdvancedAnalytics: 'Advanced analytics',
+        entitlement_canManageLabel: 'Label management',
+        entitlement_canUseUnlimitedListing: 'Unlimited listing',
+        entitlement_canSchedulePublicExpiry: 'Schedule public expiry',
+        entitlement_enabled: 'enabled',
+        entitlement_disabled: 'disabled',
         action_disable: 'Disable account',
         action_enable: 'Enable account',
         action_hold: 'Place hold',
@@ -272,6 +290,14 @@ function dateMillis(value) {
 function compactText(value, max = 140) {
     const text = String(value || '').replace(/\s+/g, ' ').trim();
     return text.length > max ? `${text.slice(0, max - 1)}…` : text;
+}
+
+function entitlementLabel(key) {
+    return t(`entitlement_${key}`);
+}
+
+function entitlementValue(value) {
+    return value ? t('entitlement_enabled') : t('entitlement_disabled');
 }
 
 function userLabel(uid) {
@@ -633,8 +659,8 @@ function renderUserDetail() {
             <div class="admin-detail-grid">
                 ${Object.entries(user.entitlements || {}).map(([key, value]) => `
                     <div class="admin-detail-card">
-                        <h3>${escapeHtml(key)}</h3>
-                        <p>${value ? t('bool_true') : t('bool_false')}</p>
+                        <h3>${escapeHtml(entitlementLabel(key))}</h3>
+                        <p>${escapeHtml(entitlementValue(value))}</p>
                     </div>
                 `).join('')}
             </div>
