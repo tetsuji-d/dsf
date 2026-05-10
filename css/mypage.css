@@ -181,8 +181,13 @@ body[data-theme="light"] .mypage-action-btn {
     min-height: 190px;
 }
 
+.mypage-profile-preview [hidden] {
+    display: none !important;
+}
+
 .mypage-profile-background {
     position: relative;
+    z-index: 1;
     display: block;
     width: 100%;
     height: clamp(150px, 23vw, 230px);
@@ -212,6 +217,7 @@ body[data-theme="light"] .mypage-action-btn {
 
 .mypage-profile-avatar {
     position: absolute;
+    z-index: 2;
     left: 24px;
     bottom: -24px;
     width: 112px;

@@ -195,6 +195,15 @@ service cloud.firestore {
             && !(handle in ['admin', 'administrator', 'support', 'help', 'dsf', 'horizon', 'studio', 'viewer', 'works', 'press']));
     }
 
+    function storedPublicHandle(handle) {
+      return handle is string && handle.size() > 0 ? handle : null;
+    }
+
+    function existingPublicProfileIsMap() {
+      return resource.data.keys().hasAny(['publicProfile'])
+        && resource.data.publicProfile is map;
+    }
+
     function validPublicProfile(profile) {
       return profile is map
         && profile.keys().hasOnly([
@@ -212,21 +221,44 @@ service cloud.firestore {
         && profile.bio is string
         && profile.bio.size() <= 280
         && profile.avatarUrl is string
-        && profile.avatarUrl.size() <= 500
+        && profile.avatarUrl.size() <= 2000
         && profile.backgroundUrl is string
-        && profile.backgroundUrl.size() <= 500
+        && profile.backgroundUrl.size() <= 2000
         && (profile.updatedAt == null || profile.updatedAt is timestamp);
     }
 
     function publicProfileHandleCanBeSaved(uid) {
-      let existingHandle = resource.data.publicProfile == null
-        ? (resource.data.handle == null ? null : resource.data.handle)
-        : resource.data.publicProfile.handle;
+      let existingTopLevelHandle = resource.data.keys().hasAny(['handle'])
+        ? storedPublicHandle(resource.data.handle)
+        : null;
+      let existingHandle = existingPublicProfileIsMap()
+        && resource.data.publicProfile.keys().hasAny(['handle'])
+        ? storedPublicHandle(resource.data.publicProfile.handle)
+        : existingTopLevelHandle;
       return request.resource.data.publicProfile.handle == existingHandle
         || (existingHandle == null
             && request.resource.data.publicProfile.handle != null
             && existsAfter(/databases/$(database)/documents/handles/$(request.resource.data.publicProfile.handle))
             && getAfter(/databases/$(database)/documents/handles/$(request.resource.data.publicProfile.handle)).data.uid == uid);
+    }
+
+    function ownerPublicProfileWithoutHandleUpdateIsValid() {
+      return request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'handle',
+          'publicProfile'
+        ])
+        && validPublicProfile(request.resource.data.publicProfile)
+        && request.resource.data.publicProfile.handle == null
+        && (!request.resource.data.keys().hasAny(['handle'])
+            || request.resource.data.handle == null
+            || request.resource.data.handle == '')
+        && (!resource.data.keys().hasAny(['handle'])
+            || resource.data.handle == null
+            || resource.data.handle == '')
+        && (!existingPublicProfileIsMap()
+            || !resource.data.publicProfile.keys().hasAny(['handle'])
+            || resource.data.publicProfile.handle == null
+            || resource.data.publicProfile.handle == '');
     }
 
     function ownerUserCreateIsValid(uid) {
@@ -329,6 +361,17 @@ service cloud.firestore {
         && request.resource.data.storage.authoringRoot == (resource.data.storage == null || resource.data.storage.authoringRoot == null ? defaultAuthoringRoot(uid) : resource.data.storage.authoringRoot)
         && request.resource.data.storage.publishRoot == (resource.data.storage == null || resource.data.storage.publishRoot == null ? defaultPublishRoot(uid) : resource.data.storage.publishRoot)
         && request.resource.data.storage.initialized == (resource.data.storage == null || resource.data.storage.initialized == null ? true : resource.data.storage.initialized);
+    }
+
+    function ownerPublicProfileUpdateIsValid(uid) {
+      return ownerPublicProfileWithoutHandleUpdateIsValid()
+        || (request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+            'handle',
+            'publicProfile'
+          ])
+          && validPublicProfile(request.resource.data.publicProfile)
+          && request.resource.data.handle == request.resource.data.publicProfile.handle
+          && publicProfileHandleCanBeSaved(uid));
     }
 
     function operatorUserUpdateTouchesOnlyAllowedTopLevelKeys() {
@@ -583,6 +626,8 @@ service cloud.firestore {
       allow read: if isOwner(uid) || isStaff();
       allow create: if isOwner(uid) && ownerUserCreateIsValid(uid);
       allow update: if (isOwner(uid)
+                        && ownerPublicProfileUpdateIsValid(uid))
+                    || (isOwner(uid)
                         && ownerUserUpdateTouchesOnlyAllowedTopLevelKeys()
                         && ownerProtectedUserFieldsRemainSafe(uid))
                     || (isAdmin())

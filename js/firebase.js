@@ -126,7 +126,7 @@ function buildUserBootstrapDefaults(user) {
             displayName: user?.displayName || '',
             handle: null,
             bio: '',
-            avatarUrl: user?.photoURL || '',
+            avatarUrl: '',
             backgroundUrl: '',
             updatedAt: null
         },
@@ -220,8 +220,10 @@ export async function ensureUserBootstrap(user = auth.currentUser) {
                     : (typeof data.handle === 'string' ? data.handle : defaults.publicProfile.handle),
                 bio: typeof data.publicProfile?.bio === 'string' ? data.publicProfile.bio : defaults.publicProfile.bio,
                 avatarUrl: typeof data.publicProfile?.avatarUrl === 'string'
+                    && data.publicProfile.avatarUrl !== user.photoURL
+                    && data.publicProfile.avatarUrl !== data.photoURL
                     ? data.publicProfile.avatarUrl
-                    : (data.photoURL || defaults.publicProfile.avatarUrl),
+                    : defaults.publicProfile.avatarUrl,
                 backgroundUrl: typeof data.publicProfile?.backgroundUrl === 'string' ? data.publicProfile.backgroundUrl : defaults.publicProfile.backgroundUrl,
                 updatedAt: data.publicProfile?.updatedAt ?? defaults.publicProfile.updatedAt
             },

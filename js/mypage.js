@@ -282,12 +282,23 @@ function normalizeHandle(value) {
     return String(value || '').trim().replace(/^@+/, '').toLowerCase();
 }
 
+function isGoogleAccountAvatarUrl(url) {
+    const value = String(url || '');
+    return !!value && (value === currentUser?.photoURL || value === currentAccount?.photoURL);
+}
+
+function getPublicProfileAvatarUrl() {
+    const url = currentAccount?.publicProfile?.avatarUrl;
+    if (typeof url !== 'string' || isGoogleAccountAvatarUrl(url)) return '';
+    return url;
+}
+
 function getPublicProfile() {
     return {
         displayName: currentAccount?.publicProfile?.displayName || currentUser?.displayName || '',
         handle: currentAccount?.publicProfile?.handle || currentAccount?.handle || null,
         bio: currentAccount?.publicProfile?.bio || '',
-        avatarUrl: currentAccount?.publicProfile?.avatarUrl || currentUser?.photoURL || '',
+        avatarUrl: getPublicProfileAvatarUrl(),
         backgroundUrl: currentAccount?.publicProfile?.backgroundUrl || ''
     };
 }
@@ -402,6 +413,7 @@ async function selectProfileImage(kind, file) {
     const modalRange = document.querySelector('[data-profile-modal-zoom]');
     if (modalRange) modalRange.value = '1';
     drawProfileModalPreview(kind);
+    drawProfilePreview(kind);
 }
 
 function readFileAsDataUrl(file) {
@@ -582,7 +594,7 @@ function renderProfileImageModal() {
             <div class="mypage-image-modal-panel" role="dialog" aria-modal="true" aria-labelledby="profile-image-modal-title">
                 <div class="mypage-image-modal-head">
                     <h3 id="profile-image-modal-title" data-profile-modal-title>${escapeHtml(t('imageEditTitleAvatar'))}</h3>
-                    <button type="button" class="mypage-modal-close" data-profile-modal-close aria-label="${escapeHtml(t('cancel'))}">×</button>
+                    <button type="button" class="mypage-modal-close" data-profile-modal-dismiss aria-label="${escapeHtml(t('cancel'))}">×</button>
                 </div>
                 <div class="mypage-image-modal-preview" data-profile-modal-preview>
                     <span data-profile-modal-empty>${escapeHtml(t('chooseImage'))}</span>
@@ -599,7 +611,7 @@ function renderProfileImageModal() {
                     </label>
                 </div>
                 <div class="mypage-image-modal-actions">
-                    <button type="button" class="mypage-file-btn" data-profile-modal-close>${escapeHtml(t('cancel'))}</button>
+                    <button type="button" class="mypage-file-btn" data-profile-modal-cancel>${escapeHtml(t('cancel'))}</button>
                     <button type="button" class="mypage-action-btn" data-profile-modal-apply>${escapeHtml(t('applyImageCrop'))}</button>
                 </div>
             </div>
@@ -717,6 +729,7 @@ function updateProfileModalDrag(event) {
     draft.offsetX = profileImageDrag.startOffsetX + (event.clientX - profileImageDrag.startX) * scaleX;
     draft.offsetY = profileImageDrag.startOffsetY + (event.clientY - profileImageDrag.startY) * scaleY;
     drawProfileModalPreview(activeProfileImageKind);
+    drawProfilePreview(activeProfileImageKind);
 }
 
 function endProfileModalDrag(event) {
@@ -730,11 +743,14 @@ function bindPublicProfileEvents(root) {
     root.querySelectorAll('[data-profile-edit]').forEach((button) => {
         button.addEventListener('click', () => openProfileImageModal(button.dataset.profileEdit));
     });
-    root.querySelectorAll('[data-profile-modal-close]').forEach((button) => {
+    root.querySelectorAll('[data-profile-modal-cancel]').forEach((button) => {
         button.addEventListener('click', () => closeProfileImageModal({ restore: true }));
     });
+    root.querySelectorAll('[data-profile-modal-dismiss]').forEach((button) => {
+        button.addEventListener('click', () => closeProfileImageModal({ restore: false }));
+    });
     root.querySelector('[data-profile-modal]')?.addEventListener('click', (event) => {
-        if (event.target === event.currentTarget) closeProfileImageModal({ restore: true });
+        if (event.target === event.currentTarget) closeProfileImageModal({ restore: false });
     });
     root.querySelector('[data-profile-modal-pick]')?.addEventListener('click', () => {
         const input = root.querySelector('[data-profile-modal-file]');
@@ -754,6 +770,7 @@ function bindPublicProfileEvents(root) {
         if (!draft) return;
         draft.zoom = Number(event.currentTarget.value) || 1;
         drawProfileModalPreview(activeProfileImageKind);
+        drawProfilePreview(activeProfileImageKind);
     });
     const modalPreview = root.querySelector('[data-profile-modal-preview]');
     modalPreview?.addEventListener('pointerdown', (event) => {
@@ -839,7 +856,7 @@ async function savePublicProfile() {
             bio,
             avatarUrl: avatarUrl || currentProfile.avatarUrl || '',
             backgroundUrl: backgroundUrl || currentProfile.backgroundUrl || '',
-            updatedAt: new Date()
+            updatedAt: null
         };
         const userRef = doc(db, 'users', currentUser.uid);
         const handleRef = finalHandle ? doc(db, 'handles', finalHandle) : null;
@@ -865,8 +882,7 @@ async function savePublicProfile() {
             }
             tx.update(userRef, {
                 handle: finalHandle,
-                publicProfile: nextProfile,
-                lastLoginAt: serverTimestamp()
+                publicProfile: nextProfile
             });
         });
         await syncPublicProfileSnapshots(nextProfile).catch((e) => {
