@@ -188,10 +188,53 @@ service cloud.firestore {
       return 'users/' + uid + '/dsf/';
     }
 
+    function validPublicHandle(handle) {
+      return handle == null
+        || (handle is string
+            && handle.matches('^[a-z0-9_]{4,20}$')
+            && !(handle in ['admin', 'administrator', 'support', 'help', 'dsf', 'horizon', 'studio', 'viewer', 'works', 'press']));
+    }
+
+    function validPublicProfile(profile) {
+      return profile is map
+        && profile.keys().hasOnly([
+          'displayName',
+          'handle',
+          'bio',
+          'avatarUrl',
+          'backgroundUrl',
+          'updatedAt'
+        ])
+        && profile.displayName is string
+        && profile.displayName.size() > 0
+        && profile.displayName.size() <= 80
+        && validPublicHandle(profile.handle)
+        && profile.bio is string
+        && profile.bio.size() <= 280
+        && profile.avatarUrl is string
+        && profile.avatarUrl.size() <= 500
+        && profile.backgroundUrl is string
+        && profile.backgroundUrl.size() <= 500
+        && (profile.updatedAt == null || profile.updatedAt is timestamp);
+    }
+
+    function publicProfileHandleCanBeSaved(uid) {
+      let existingHandle = resource.data.publicProfile == null
+        ? (resource.data.handle == null ? null : resource.data.handle)
+        : resource.data.publicProfile.handle;
+      return request.resource.data.publicProfile.handle == existingHandle
+        || (existingHandle == null
+            && request.resource.data.publicProfile.handle != null
+            && existsAfter(/databases/$(database)/documents/handles/$(request.resource.data.publicProfile.handle))
+            && getAfter(/databases/$(database)/documents/handles/$(request.resource.data.publicProfile.handle)).data.uid == uid);
+    }
+
     function ownerUserCreateIsValid(uid) {
       return request.resource.data.uid == uid
         && request.resource.data.authProvider == 'google'
         && request.resource.data.handle == null
+        && validPublicProfile(request.resource.data.publicProfile)
+        && request.resource.data.publicProfile.handle == null
         && request.resource.data.roles.reader == true
         && request.resource.data.roles.creator == true
         && request.resource.data.roles.admin == false
@@ -234,6 +277,7 @@ service cloud.firestore {
         'photoURL',
         'email',
         'handle',
+        'publicProfile',
         'lastLoginAt',
         'roles',
         'plan',
@@ -248,6 +292,9 @@ service cloud.firestore {
       return request.resource.data.uid == resource.data.uid
         && request.resource.data.authProvider == resource.data.authProvider
         && request.resource.data.createdAt == resource.data.createdAt
+        && validPublicProfile(request.resource.data.publicProfile)
+        && request.resource.data.handle == request.resource.data.publicProfile.handle
+        && publicProfileHandleCanBeSaved(uid)
         && request.resource.data.roles.reader == (resource.data.roles == null || resource.data.roles.reader == null ? true : resource.data.roles.reader)
         && request.resource.data.roles.creator == (resource.data.roles == null || resource.data.roles.creator == null ? true : resource.data.roles.creator)
         && request.resource.data.roles.admin == (resource.data.roles == null || resource.data.roles.admin == null ? false : resource.data.roles.admin)
@@ -300,6 +347,7 @@ service cloud.firestore {
         && request.resource.data.photoURL == resource.data.photoURL
         && request.resource.data.email == resource.data.email
         && request.resource.data.handle == resource.data.handle
+        && request.resource.data.publicProfile == resource.data.publicProfile
         && request.resource.data.roles == resource.data.roles
         && request.resource.data.storage == resource.data.storage
         && request.resource.data.createdAt == resource.data.createdAt;
@@ -574,6 +622,17 @@ service cloud.firestore {
         allow create: if accountCanEdit(uid) && validPlanChangeRequest(uid);
         allow update, delete: if isStaff();
       }
+    }
+
+    match /handles/{handle} {
+      allow read: if true;
+      allow create: if isSignedIn()
+        && validPublicHandle(handle)
+        && request.resource.data.keys().hasOnly(['handle', 'uid', 'createdAt'])
+        && request.resource.data.handle == handle
+        && request.resource.data.uid == request.auth.uid
+        && request.resource.data.createdAt == request.time;
+      allow update, delete: if isAdmin();
     }
 
     match /public_projects/{pid} {

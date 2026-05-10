@@ -62,6 +62,17 @@ body[data-theme="light"] .mypage-card {
     font-size: 20px;
 }
 
+.mypage-section-heading {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 16px;
+}
+
+.mypage-section-heading h2 {
+    margin-bottom: 6px;
+}
+
 .mypage-account-grid,
 .mypage-plan-grid,
 .mypage-request-grid {
@@ -158,4 +169,163 @@ body[data-theme="light"] .mypage-action-btn {
     color: var(--portal-sub);
     font-size: 13px;
     line-height: 1.8;
+}
+
+.mypage-profile-card {
+    overflow: hidden;
+}
+
+.mypage-profile-preview {
+    position: relative;
+    margin: 18px 0;
+    min-height: 190px;
+}
+
+.mypage-profile-background {
+    height: clamp(150px, 23vw, 230px);
+    overflow: hidden;
+    border: 1px solid var(--portal-border);
+    border-radius: 22px;
+    background:
+        radial-gradient(circle at 22% 18%, rgba(96, 165, 250, 0.28), transparent 36%),
+        linear-gradient(135deg, rgba(15, 23, 42, 0.92), rgba(30, 41, 59, 0.72));
+}
+
+.mypage-profile-background img,
+.mypage-profile-background canvas {
+    width: 100%;
+    height: 100%;
+    display: block;
+    object-fit: cover;
+}
+
+.mypage-profile-placeholder {
+    width: 100%;
+    height: 100%;
+}
+
+.mypage-profile-avatar {
+    position: absolute;
+    left: 24px;
+    bottom: -24px;
+    width: 112px;
+    height: 112px;
+    overflow: hidden;
+    border: 4px solid rgba(15, 23, 42, 0.88);
+    border-radius: 999px;
+    background: rgba(15, 23, 42, 0.88);
+    box-shadow: 0 18px 36px rgba(0, 0, 0, 0.22);
+}
+
+body[data-theme="light"] .mypage-profile-avatar {
+    border-color: rgba(255, 255, 255, 0.94);
+    background: rgba(255, 255, 255, 0.94);
+}
+
+.mypage-profile-avatar img,
+.mypage-profile-avatar canvas {
+    width: 100%;
+    height: 100%;
+    display: block;
+    object-fit: cover;
+}
+
+.mypage-profile-avatar-placeholder {
+    display: grid;
+    width: 100%;
+    height: 100%;
+    place-items: center;
+    background: linear-gradient(135deg, #2563eb, #0f766e);
+    color: #fff;
+    font-size: 42px;
+    font-weight: 900;
+}
+
+.mypage-profile-form {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 14px;
+    padding-top: 22px;
+}
+
+.mypage-field,
+.mypage-image-field,
+.mypage-range {
+    display: grid;
+    gap: 8px;
+}
+
+.mypage-field-wide {
+    grid-column: 1 / -1;
+}
+
+.mypage-field span,
+.mypage-image-field > span,
+.mypage-range span {
+    color: var(--portal-sub);
+    font-size: 12px;
+    font-weight: 800;
+}
+
+.mypage-field input,
+.mypage-field textarea {
+    width: 100%;
+    border: 1px solid var(--portal-border);
+    border-radius: 14px;
+    background: rgba(255, 255, 255, 0.05);
+    color: var(--portal-text);
+    font: inherit;
+    padding: 12px 14px;
+}
+
+body[data-theme="light"] .mypage-field input,
+body[data-theme="light"] .mypage-field textarea {
+    background: rgba(15, 23, 42, 0.03);
+}
+
+.mypage-field textarea {
+    resize: vertical;
+}
+
+.mypage-field small {
+    color: var(--portal-sub);
+    font-size: 12px;
+    line-height: 1.5;
+}
+
+.mypage-file-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 40px;
+    width: fit-content;
+    border: 1px solid var(--portal-border);
+    border-radius: 999px;
+    padding: 0 16px;
+    color: var(--portal-text);
+    font-weight: 800;
+    cursor: pointer;
+}
+
+.mypage-file-btn input {
+    display: none;
+}
+
+.mypage-range input {
+    width: min(260px, 100%);
+    accent-color: #2563eb;
+}
+
+@media (max-width: 720px) {
+    .mypage-section-heading,
+    .mypage-profile-form {
+        grid-template-columns: 1fr;
+        display: grid;
+    }
+
+    .mypage-profile-avatar {
+        left: 18px;
+        width: 92px;
+        height: 92px;
+    }
 }

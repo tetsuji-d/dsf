@@ -80,7 +80,15 @@ Storage/R2 側に空フォルダを作るのではなく、namespace をここ�
   "displayName": "String",
   "photoURL": "String",
   "email": "String",
-  "handle": "String | null (将来の公開プロフィール用。初期値 null)",
+  "handle": "String | null (公開ハンドルの互換/検索用ミラー。正本は publicProfile.handle)",
+  "publicProfile": {
+    "displayName": "String (公開名。Google アカウント名とは独立)",
+    "handle": "String | null (4-20 chars: a-z, 0-9, _. 初回設定後は通常ユーザーでは変更不可)",
+    "bio": "String (280 chars max)",
+    "avatarUrl": "String (任意。R2 上の WebP URL)",
+    "backgroundUrl": "String (任意。R2 上の WebP URL)",
+    "updatedAt": "Timestamp | null"
+  },
   "roles": {
     "reader": "Boolean",
     "creator": "Boolean",
@@ -146,6 +154,8 @@ Storage/R2 側に空フォルダを作るのではなく、namespace をここ�
 - `entitlements` は実効機能フラグ。初期値は無料ユーザー相当を入れる
 - `storage.authoringRoot` / `storage.publishRoot` は namespace 宣言であり、実フォルダ作成は行わない
 - `adminRoleSync.*` は custom claims を Firestore ミラーへ同期した時刻の監査補助情報
+- `publicProfile.*` は公開表示用の正本。メールアドレスは公開プロフィールに含めない
+- `publicProfile.handle` は初回設定後に固定し、変更が必要な場合は運営対応に限定する
 
 #### `plan` と `entitlements` の責務分離
 
@@ -156,6 +166,24 @@ Storage/R2 側に空フォルダを作るのではなく、namespace をここ�
 
 例えば、`creator` であっても `plan.effectiveTier='free'` なら premium paper は使えない。
 逆に、将来的に運営側付与やキャンペーンで `entitlements.canUsePremiumPaper=true` を直接与えることはありうる。
+
+---
+
+### `handles/{handle}` — 公開ハンドル予約
+
+公開ハンドルの一意性を担保する予約コレクション。ドキュメントIDは `@` を除いた lowercase handle。
+
+```json
+{
+  "handle": "String",
+  "uid": "String (Firebase Auth UID)",
+  "createdAt": "Timestamp"
+}
+```
+
+- 通常ユーザーは自分の初回 handle 設定時のみ作成できる
+- `users/{uid}.publicProfile.handle` と `users/{uid}.handle` は同じ値にする
+- 変更・削除は運営権限に限定する
 
 ---
 
@@ -513,6 +541,15 @@ Viewer の閲覧行動を append-only の raw event として保存する。日�
   "title": "String",
   "authorUid": "String (Firebase Auth UID)",
   "authorName": "String",
+  "authorHandle": "String | null",
+  "authorAvatarUrl": "String",
+  "authorProfile": {
+    "displayName": "String",
+    "handle": "String | null",
+    "avatarUrl": "String",
+    "backgroundUrl": "String",
+    "bio": "String"
+  },
   "thumbnail": "String (カバー画像URL)",
   "updatedAt": "Timestamp",
   "dsfStatus": "'public' | 'unlisted'",
@@ -568,6 +605,7 @@ Viewer の閲覧行動を append-only の raw event として保存する。日�
 | 一覧取得 | `js/projects.js` | `openProjectModal` | `users/{uid}/projects` を getDocs |
 | 読み込み | `js/firebase.js` / `js/viewer.js` | `loadWork` / `loadFromFirestore` | 指定 pid を getDoc。Viewer の共有 URL は `dsfPages` がある発行済みデータだけを扱う |
 | 保存 | `js/firebase.js` | `performSave` | `setDoc(..., { merge: true })` で編集内容を保存し、公開インデックスは更新しない |
+| 公開プロフィール保存 | `js/mypage.js` | `savePublicProfile` | `users/{uid}.publicProfile` を更新。初回 handle 設定時は `handles/{handle}` を transaction で予約 |
 | Work URL 解決 | `js/viewer.js` | `loadWorkFromPublicIndex` | `public_projects/{workId}` から `authorUid` / `projectId` を解決 |
 | 削除 | `js/projects.js` | — | deleteDoc |
 | draft 作成 | `js/press.js` | publish handler | `releaseId` を採番し、`projects` と `works/{workId}/releases/{releaseId}` に DSF メタデータを保存。既存 `public_projects/{workId}` は削除 |
@@ -590,6 +628,10 @@ Viewer の閲覧行動を append-only の raw event として保存する。日�
 users/{uid}/dsf/
 ├── {timestamp}_{filename}.webp        ← オリジナル画像（WebP変換済み）
 └── thumbs/{timestamp}_{filename}.webp ← サムネイル画像
+
+users/{uid}/profile/
+├── avatar_{timestamp}.webp            ← 公開プロフィール画像
+└── background_{timestamp}.webp        ← 公開プロフィール背景画像
 ```
 
 > 旧パス `/dsf/` は廃止。現在は `users/{uid}/dsf/` に格納。
@@ -633,6 +675,11 @@ users/{uid}/bookmarks/{workId}:
 users/{uid}/planChangeRequests/{requestId}:
   - read/create: 認証済みオーナー (auth.uid == uid)
   - update/delete: 運営スタッフのみ
+
+handles/{handle}:
+  - read: 誰でも可
+  - create: 認証済みユーザーが自分の初回 handle 予約としてのみ可
+  - update/delete: admin のみ
 
 billing_events/{eventId}:
   - read: admin / operator / moderator のみ
@@ -703,3 +750,4 @@ state.pages    ← viewer/export surface（v5 Page Object の配列）
 | 2026-05-05 | `publication` 掲載可能期間 / 公開期限メタデータを追加。free plan の掲載可能期間は最大 14 日 |
 | 2026-05-05 | プラン別期限仕様を FREE/PLUS/PRO/BUSINESS に更新し、`planChangeRequests` とマイページ土台を追加 |
 | 2026-05-06 | 課金スキーマを正規化。`plan.effectiveTier`、`billing`、`entitlements.canUseUnlimitedListing` / `canSchedulePublicExpiry`、`billing_events` を追加 |
+| 2026-05-10 | 公開プロフィール `users/{uid}.publicProfile` と handle 予約 `handles/{handle}` を追加 |

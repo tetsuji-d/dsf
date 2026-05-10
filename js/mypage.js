@@ -1,4 +1,4 @@
-import { addDoc, collection, getDocs, limit, orderBy, query, serverTimestamp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
+import { addDoc, collection, doc, getDocs, limit, orderBy, query, runTransaction, serverTimestamp, setDoc, where } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
 import { onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js";
 import { auth, db } from './firebase-core.js';
 import { ensureUserBootstrap } from './firebase.js';
@@ -26,6 +26,29 @@ const STRINGS = {
         currentPlan: '現在のプラン',
         planChange: 'プラン変更',
         requestHistory: 'リクエスト履歴',
+        publicProfile: '公開プロフィール',
+        publicProfileDesc: 'Horizonやレビューで表示されるDSF用の公開名です。Googleアカウント名やメールアドレスとは分けて管理します。',
+        publicName: '公開名',
+        publicNamePlaceholder: '例: 山田哲史',
+        publicHandle: 'ハンドル',
+        publicHandlePlaceholder: '@name_123',
+        publicHandleHelp: '4〜20文字の半角英小文字・数字・_。初回設定後は変更できません。',
+        publicHandleLocked: '設定済みのハンドルは変更できません。',
+        publicBio: '紹介文',
+        publicBioPlaceholder: '作品や活動について短く紹介してください。',
+        avatarImage: 'プロフィール画像',
+        backgroundImage: '背景画像',
+        chooseImage: '画像を選択',
+        avatarZoom: 'アイコン切り抜き',
+        backgroundZoom: '背景切り抜き',
+        savePublicProfile: '公開プロフィールを保存',
+        publicProfileSaved: '公開プロフィールを保存しました',
+        publicProfileSaveFailed: '公開プロフィールの保存に失敗しました',
+        publicProfileNameRequired: '公開名を入力してください。',
+        publicProfileHandleInvalid: 'ハンドルは4〜20文字の半角英小文字・数字・_で入力してください。',
+        publicProfileHandleTaken: 'このハンドルはすでに使用されています。',
+        publicProfileHandleLockedError: '設定済みのハンドルは変更できません。',
+        publicProfileImageInvalid: '画像ファイルを選択してください。',
         labelName: '名前',
         labelEmail: 'メール',
         labelStatus: '状態',
@@ -84,6 +107,29 @@ const STRINGS = {
         currentPlan: 'Current Plan',
         planChange: 'Plan Change',
         requestHistory: 'Request History',
+        publicProfile: 'Public Profile',
+        publicProfileDesc: 'This DSF public identity appears on Horizon and reviews. It is separate from your Google name and email address.',
+        publicName: 'Public name',
+        publicNamePlaceholder: 'Example: Tetsushi Yamada',
+        publicHandle: 'Handle',
+        publicHandlePlaceholder: '@name_123',
+        publicHandleHelp: '4-20 lowercase letters, numbers, or underscores. It cannot be changed after first setup.',
+        publicHandleLocked: 'Your handle is locked after setup.',
+        publicBio: 'Bio',
+        publicBioPlaceholder: 'Briefly introduce your work or activity.',
+        avatarImage: 'Profile image',
+        backgroundImage: 'Background image',
+        chooseImage: 'Choose image',
+        avatarZoom: 'Avatar crop',
+        backgroundZoom: 'Background crop',
+        savePublicProfile: 'Save public profile',
+        publicProfileSaved: 'Public profile saved',
+        publicProfileSaveFailed: 'Could not save public profile',
+        publicProfileNameRequired: 'Enter a public name.',
+        publicProfileHandleInvalid: 'Use 4-20 lowercase letters, numbers, or underscores for the handle.',
+        publicProfileHandleTaken: 'This handle is already taken.',
+        publicProfileHandleLockedError: 'Your handle cannot be changed after setup.',
+        publicProfileImageInvalid: 'Choose an image file.',
         labelName: 'Name',
         labelEmail: 'Email',
         labelStatus: 'Status',
@@ -138,6 +184,24 @@ let currentLang = (() => {
 let currentUser = null;
 let currentAccount = null;
 let currentRequests = [];
+const HANDLE_RE = /^[a-z0-9_]{4,20}$/;
+const RESERVED_HANDLES = new Set(['admin', 'administrator', 'support', 'help', 'dsf', 'horizon', 'studio', 'viewer', 'works', 'press']);
+const profileImageDraft = {
+    avatar: createImageDraft('avatar', 320, 320),
+    background: createImageDraft('background', 1440, 480)
+};
+
+function createImageDraft(kind, width, height) {
+    return {
+        kind,
+        width,
+        height,
+        file: null,
+        image: null,
+        objectUrl: '',
+        zoom: 1
+    };
+}
 
 function t(key, ...args) {
     const value = STRINGS[currentLang]?.[key] ?? STRINGS.ja[key] ?? key;
@@ -193,6 +257,112 @@ function escapeHtml(str) {
         .replace(/>/g, '&gt;')
         .replace(/"/g, '&quot;')
         .replace(/'/g, '&#039;');
+}
+
+function normalizeHandle(value) {
+    return String(value || '').trim().replace(/^@+/, '').toLowerCase();
+}
+
+function getPublicProfile() {
+    return {
+        displayName: currentAccount?.publicProfile?.displayName || currentUser?.displayName || '',
+        handle: currentAccount?.publicProfile?.handle || currentAccount?.handle || null,
+        bio: currentAccount?.publicProfile?.bio || '',
+        avatarUrl: currentAccount?.publicProfile?.avatarUrl || currentUser?.photoURL || '',
+        backgroundUrl: currentAccount?.publicProfile?.backgroundUrl || ''
+    };
+}
+
+function resetProfileDrafts() {
+    Object.values(profileImageDraft).forEach((draft) => {
+        if (draft.objectUrl) URL.revokeObjectURL(draft.objectUrl);
+        draft.file = null;
+        draft.image = null;
+        draft.objectUrl = '';
+        draft.zoom = 1;
+    });
+}
+
+function drawProfilePreview(kind) {
+    const draft = profileImageDraft[kind];
+    const canvas = document.querySelector(`[data-profile-canvas="${kind}"]`);
+    if (!draft || !canvas) return;
+    canvas.width = draft.width;
+    canvas.height = draft.height;
+    const ctx = canvas.getContext('2d');
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    const profile = getPublicProfile();
+    const fallbackUrl = kind === 'avatar' ? profile.avatarUrl : profile.backgroundUrl;
+    const fallbackImg = document.querySelector(`[data-profile-fallback="${kind}"]`);
+
+    if (!draft.image) {
+        if (fallbackImg) fallbackImg.hidden = !fallbackUrl;
+        canvas.hidden = true;
+        return;
+    }
+
+    if (fallbackImg) fallbackImg.hidden = true;
+    canvas.hidden = false;
+    const scale = Math.max(canvas.width / draft.image.naturalWidth, canvas.height / draft.image.naturalHeight) * draft.zoom;
+    const drawWidth = draft.image.naturalWidth * scale;
+    const drawHeight = draft.image.naturalHeight * scale;
+    const dx = (canvas.width - drawWidth) / 2;
+    const dy = (canvas.height - drawHeight) / 2;
+    ctx.drawImage(draft.image, dx, dy, drawWidth, drawHeight);
+}
+
+function canvasToWebP(canvas, quality = 0.82) {
+    return new Promise((resolve, reject) => {
+        canvas.toBlob((blob) => {
+            if (!blob) reject(new Error('WebP encode failed'));
+            else resolve(blob);
+        }, 'image/webp', quality);
+    });
+}
+
+async function selectProfileImage(kind, file) {
+    const draft = profileImageDraft[kind];
+    if (!draft || !file?.type?.startsWith('image/')) throw new Error(t('publicProfileImageInvalid'));
+    if (draft.objectUrl) URL.revokeObjectURL(draft.objectUrl);
+    draft.file = file;
+    draft.objectUrl = URL.createObjectURL(file);
+    draft.zoom = 1;
+    draft.image = await new Promise((resolve, reject) => {
+        const image = new Image();
+        image.onload = () => resolve(image);
+        image.onerror = () => reject(new Error(t('publicProfileImageInvalid')));
+        image.src = draft.objectUrl;
+    });
+    const range = document.querySelector(`[data-profile-zoom="${kind}"]`);
+    if (range) range.value = '1';
+    drawProfilePreview(kind);
+}
+
+async function uploadProfileImage(kind) {
+    const draft = profileImageDraft[kind];
+    if (!draft?.image || !currentUser) return null;
+    const canvas = document.createElement('canvas');
+    canvas.width = draft.width;
+    canvas.height = draft.height;
+    const ctx = canvas.getContext('2d');
+    const scale = Math.max(canvas.width / draft.image.naturalWidth, canvas.height / draft.image.naturalHeight) * draft.zoom;
+    const drawWidth = draft.image.naturalWidth * scale;
+    const drawHeight = draft.image.naturalHeight * scale;
+    ctx.drawImage(draft.image, (canvas.width - drawWidth) / 2, (canvas.height - drawHeight) / 2, drawWidth, drawHeight);
+    const blob = await canvasToWebP(canvas, kind === 'avatar' ? 0.84 : 0.8);
+    const path = `users/${currentUser.uid}/profile/${kind}_${Date.now()}.webp`;
+    const body = new FormData();
+    body.append('file', blob, `${kind}.webp`);
+    body.append('path', path);
+    const token = await currentUser.getIdToken(false);
+    const res = await fetch('/upload', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+        body
+    });
+    const json = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(json.error || `Upload failed: ${res.status}`);
+    return json.url || null;
 }
 
 function formatDate(value) {
@@ -276,6 +446,70 @@ function renderSignedOut() {
     });
 }
 
+function renderPublicProfileSection() {
+    const profile = getPublicProfile();
+    const handle = normalizeHandle(profile.handle);
+    const handleLocked = !!handle;
+    return `
+        <section class="mypage-card mypage-profile-card">
+            <div class="mypage-section-heading">
+                <div>
+                    <h2>${escapeHtml(t('publicProfile'))}</h2>
+                    <p class="mypage-note">${escapeHtml(t('publicProfileDesc'))}</p>
+                </div>
+                <button type="button" class="mypage-action-btn" data-public-profile-save>${escapeHtml(t('savePublicProfile'))}</button>
+            </div>
+            <div class="mypage-profile-preview">
+                <div class="mypage-profile-background">
+                    ${profile.backgroundUrl ? `<img src="${escapeHtml(profile.backgroundUrl)}" alt="" data-profile-fallback="background">` : `<div class="mypage-profile-placeholder" data-profile-fallback="background"></div>`}
+                    <canvas data-profile-canvas="background" hidden></canvas>
+                </div>
+                <div class="mypage-profile-avatar">
+                    ${profile.avatarUrl ? `<img src="${escapeHtml(profile.avatarUrl)}" alt="" data-profile-fallback="avatar">` : `<div class="mypage-profile-avatar-placeholder" data-profile-fallback="avatar">${escapeHtml((profile.displayName || '?').slice(0, 1))}</div>`}
+                    <canvas data-profile-canvas="avatar" hidden></canvas>
+                </div>
+            </div>
+            <div class="mypage-profile-form">
+                <label class="mypage-field">
+                    <span>${escapeHtml(t('publicName'))}</span>
+                    <input type="text" data-public-profile-name maxlength="80" value="${escapeHtml(profile.displayName)}" placeholder="${escapeHtml(t('publicNamePlaceholder'))}">
+                </label>
+                <label class="mypage-field">
+                    <span>${escapeHtml(t('publicHandle'))}</span>
+                    <input type="text" data-public-profile-handle maxlength="21" value="${handle ? `@${escapeHtml(handle)}` : ''}" placeholder="${escapeHtml(t('publicHandlePlaceholder'))}" ${handleLocked ? 'disabled' : ''}>
+                    <small>${escapeHtml(handleLocked ? t('publicHandleLocked') : t('publicHandleHelp'))}</small>
+                </label>
+                <label class="mypage-field mypage-field-wide">
+                    <span>${escapeHtml(t('publicBio'))}</span>
+                    <textarea data-public-profile-bio maxlength="280" rows="3" placeholder="${escapeHtml(t('publicBioPlaceholder'))}">${escapeHtml(profile.bio)}</textarea>
+                </label>
+                <div class="mypage-image-field">
+                    <span>${escapeHtml(t('avatarImage'))}</span>
+                    <label class="mypage-file-btn">
+                        ${escapeHtml(t('chooseImage'))}
+                        <input type="file" accept="image/*" data-profile-file="avatar">
+                    </label>
+                    <label class="mypage-range">
+                        <span>${escapeHtml(t('avatarZoom'))}</span>
+                        <input type="range" min="1" max="2.5" step="0.05" value="1" data-profile-zoom="avatar">
+                    </label>
+                </div>
+                <div class="mypage-image-field">
+                    <span>${escapeHtml(t('backgroundImage'))}</span>
+                    <label class="mypage-file-btn">
+                        ${escapeHtml(t('chooseImage'))}
+                        <input type="file" accept="image/*" data-profile-file="background">
+                    </label>
+                    <label class="mypage-range">
+                        <span>${escapeHtml(t('backgroundZoom'))}</span>
+                        <input type="range" min="1" max="2.5" step="0.05" value="1" data-profile-zoom="background">
+                    </label>
+                </div>
+            </div>
+        </section>
+    `;
+}
+
 function renderAccount() {
     const el = document.getElementById('mypage-content');
     if (!el || !currentUser || !currentAccount) return;
@@ -299,6 +533,7 @@ function renderAccount() {
     }).join('');
 
     el.innerHTML = `
+        ${renderPublicProfileSection()}
         <section class="mypage-card">
             <h2>${escapeHtml(t('account'))}</h2>
             <div class="mypage-account-grid">
@@ -338,10 +573,139 @@ function renderAccount() {
         </section>
     `;
 
+    bindPublicProfileEvents(el);
     el.querySelectorAll('[data-plan-request]').forEach((button) => {
         button.addEventListener('click', () => requestPlanChange(button.dataset.planRequest, 'change'));
     });
     el.querySelector('[data-plan-cancel]')?.addEventListener('click', () => requestPlanChange('free', 'cancel'));
+}
+
+function bindPublicProfileEvents(root) {
+    root.querySelectorAll('[data-profile-file]').forEach((input) => {
+        input.addEventListener('change', async () => {
+            const kind = input.dataset.profileFile;
+            try {
+                await selectProfileImage(kind, input.files?.[0]);
+            } catch (e) {
+                setFeedback('error', t('publicProfileSaveFailed'), e?.message || String(e));
+            }
+        });
+    });
+    root.querySelectorAll('[data-profile-zoom]').forEach((input) => {
+        input.addEventListener('input', () => {
+            const draft = profileImageDraft[input.dataset.profileZoom];
+            if (!draft) return;
+            draft.zoom = Number(input.value) || 1;
+            drawProfilePreview(draft.kind);
+        });
+    });
+    root.querySelector('[data-public-profile-save]')?.addEventListener('click', () => {
+        savePublicProfile().catch((e) => {
+            console.error('[MyPage] public profile save failed:', e);
+            setFeedback('error', t('publicProfileSaveFailed'), e?.message || String(e));
+        });
+    });
+}
+
+async function savePublicProfile() {
+    if (!currentUser?.uid || !currentAccount) return;
+    const name = String(document.querySelector('[data-public-profile-name]')?.value || '').trim();
+    const submittedHandle = normalizeHandle(document.querySelector('[data-public-profile-handle]')?.value || '');
+    const existingHandle = normalizeHandle(currentAccount.publicProfile?.handle || currentAccount.handle || '');
+    const bio = String(document.querySelector('[data-public-profile-bio]')?.value || '').trim().slice(0, 280);
+    if (!name) throw new Error(t('publicProfileNameRequired'));
+    if (submittedHandle && (!HANDLE_RE.test(submittedHandle) || RESERVED_HANDLES.has(submittedHandle))) {
+        throw new Error(t('publicProfileHandleInvalid'));
+    }
+    if (existingHandle && submittedHandle && submittedHandle !== existingHandle) {
+        throw new Error(t('publicProfileHandleLockedError'));
+    }
+
+    const saveBtn = document.querySelector('[data-public-profile-save]');
+    if (saveBtn) saveBtn.disabled = true;
+    try {
+        const currentProfile = getPublicProfile();
+        const [avatarUrl, backgroundUrl] = await Promise.all([
+            uploadProfileImage('avatar'),
+            uploadProfileImage('background')
+        ]);
+        const finalHandle = existingHandle || submittedHandle || null;
+        const nextProfile = {
+            displayName: name.slice(0, 80),
+            handle: finalHandle,
+            bio,
+            avatarUrl: avatarUrl || currentProfile.avatarUrl || '',
+            backgroundUrl: backgroundUrl || currentProfile.backgroundUrl || '',
+            updatedAt: serverTimestamp()
+        };
+        const userRef = doc(db, 'users', currentUser.uid);
+        const handleRef = finalHandle ? doc(db, 'handles', finalHandle) : null;
+
+        await runTransaction(db, async (tx) => {
+            const userSnap = await tx.get(userRef);
+            if (!userSnap.exists()) throw new Error(t('accountLoadFailed'));
+            const live = userSnap.data() || {};
+            const liveHandle = normalizeHandle(live.publicProfile?.handle || live.handle || '');
+            if (liveHandle && finalHandle !== liveHandle) throw new Error(t('publicProfileHandleLockedError'));
+            if (!liveHandle && finalHandle && handleRef) {
+                const handleSnap = await tx.get(handleRef);
+                if (handleSnap.exists() && handleSnap.data()?.uid !== currentUser.uid) {
+                    throw new Error(t('publicProfileHandleTaken'));
+                }
+                if (!handleSnap.exists()) {
+                    tx.set(handleRef, {
+                        handle: finalHandle,
+                        uid: currentUser.uid,
+                        createdAt: serverTimestamp()
+                    });
+                }
+            }
+            tx.update(userRef, {
+                handle: finalHandle,
+                publicProfile: nextProfile,
+                lastLoginAt: serverTimestamp()
+            });
+        });
+        await syncPublicProfileSnapshots(nextProfile).catch((e) => {
+            console.warn('[MyPage] public profile snapshot sync skipped:', e?.message || e);
+        });
+
+        currentAccount = {
+            ...currentAccount,
+            handle: finalHandle,
+            publicProfile: {
+                ...nextProfile,
+                updatedAt: null
+            }
+        };
+        resetProfileDrafts();
+        clearFeedback();
+        setFeedback('info', t('publicProfileSaved'));
+        renderAccount();
+    } finally {
+        if (saveBtn) saveBtn.disabled = false;
+    }
+}
+
+async function syncPublicProfileSnapshots(profile) {
+    if (!currentUser?.uid) return;
+    const snap = await getDocs(query(collection(db, 'public_projects'), where('authorUid', '==', currentUser.uid), limit(50)));
+    const updates = snap.docs.map((entry) => setDoc(entry.ref, {
+        authorName: profile.displayName || '',
+        authorHandle: profile.handle || null,
+        authorAvatarUrl: profile.avatarUrl || '',
+        authorProfile: {
+            displayName: profile.displayName || '',
+            handle: profile.handle || null,
+            avatarUrl: profile.avatarUrl || '',
+            backgroundUrl: profile.backgroundUrl || '',
+            bio: profile.bio || ''
+        },
+        updatedAt: serverTimestamp()
+    }, { merge: true }).catch((e) => {
+        console.warn('[MyPage] public project profile sync skipped:', entry.id, e?.message || e);
+    }));
+    await Promise.all(updates);
 }
 
 async function loadPlanRequests(uid) {

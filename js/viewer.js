@@ -1119,6 +1119,8 @@ async function submitViewerReview(container) {
     if (!window.confirm(vt('reviewConfirm', { body: body.slice(0, 1000) }))) return;
     setReviewUiState({ status: 'submitting', lastError: '', posted: false });
     try {
+        const account = await ensureUserBootstrap(state.user).catch(() => null);
+        const publicName = account?.publicProfile?.displayName || state.user?.displayName || vt('reviewAnonymous');
         const reviewRef = doc(collection(db, 'reviews', viewerProjectMeta.workId, 'items'));
         const payload = {
             reviewId: reviewRef.id,
@@ -1127,7 +1129,7 @@ async function submitViewerReview(container) {
             projectId: viewerProjectMeta.projectId || state.projectId || '',
             authorUid: viewerProjectMeta.authorUid || '',
             readerUid: state.uid,
-            readerName: String(state.user?.displayName || vt('reviewAnonymous')).slice(0, 80),
+            readerName: String(publicName).slice(0, 80),
             goodCount: 0,
             badCount: 0,
             body: body.slice(0, 2000),

@@ -122,6 +122,14 @@ function buildUserBootstrapDefaults(user) {
         photoURL: user?.photoURL || '',
         email: user?.email || '',
         handle: null,
+        publicProfile: {
+            displayName: user?.displayName || '',
+            handle: null,
+            bio: '',
+            avatarUrl: user?.photoURL || '',
+            backgroundUrl: '',
+            updatedAt: null
+        },
         roles: {
             reader: true,
             creator: true,
@@ -203,6 +211,20 @@ export async function ensureUserBootstrap(user = auth.currentUser) {
             photoURL: user.photoURL || data.photoURL || defaults.photoURL,
             email: user.email || data.email || defaults.email,
             handle: typeof data.handle === 'string' ? data.handle : defaults.handle,
+            publicProfile: {
+                displayName: typeof data.publicProfile?.displayName === 'string'
+                    ? data.publicProfile.displayName
+                    : (data.displayName || defaults.publicProfile.displayName),
+                handle: typeof data.publicProfile?.handle === 'string'
+                    ? data.publicProfile.handle
+                    : (typeof data.handle === 'string' ? data.handle : defaults.publicProfile.handle),
+                bio: typeof data.publicProfile?.bio === 'string' ? data.publicProfile.bio : defaults.publicProfile.bio,
+                avatarUrl: typeof data.publicProfile?.avatarUrl === 'string'
+                    ? data.publicProfile.avatarUrl
+                    : (data.photoURL || defaults.publicProfile.avatarUrl),
+                backgroundUrl: typeof data.publicProfile?.backgroundUrl === 'string' ? data.publicProfile.backgroundUrl : defaults.publicProfile.backgroundUrl,
+                updatedAt: data.publicProfile?.updatedAt ?? defaults.publicProfile.updatedAt
+            },
             roles: {
                 reader: typeof data.roles?.reader === 'boolean' ? data.roles.reader : defaults.roles.reader,
                 creator: typeof data.roles?.creator === 'boolean' ? data.roles.creator : defaults.roles.creator,

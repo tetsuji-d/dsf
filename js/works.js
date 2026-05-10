@@ -282,7 +282,7 @@ async function _reconcileProjectPublication(pid, data, account) {
                 await deleteDoc(doc(db, 'public_projects', workId)).catch(() => {});
                 if (workId !== pid) await deleteDoc(doc(db, 'public_projects', pid)).catch(() => {});
             } else if (nextStatus === 'public' || nextStatus === 'unlisted') {
-                await setDoc(doc(db, 'public_projects', workId), _buildPublicProjectPayload(pid, workId, data, nextStatus, publication), { merge: true }).catch((e) => {
+                await setDoc(doc(db, 'public_projects', workId), _buildPublicProjectPayload(pid, workId, data, nextStatus, publication, account), { merge: true }).catch((e) => {
                     console.warn('[Works] public publication reconcile skipped:', e?.message || e);
                 });
             }
@@ -413,7 +413,7 @@ async function _updateDsfStatus(pid, newStatus, proj, row) {
 
         const publicRef = doc(db, 'public_projects', workId);
         if ((newStatus === 'public' || newStatus === 'unlisted') && proj) {
-            await setDoc(publicRef, _buildPublicProjectPayload(pid, workId, proj, newStatus, publication), { merge: true });
+            await setDoc(publicRef, _buildPublicProjectPayload(pid, workId, proj, newStatus, publication, account), { merge: true });
             if (workId !== pid) {
                 await deleteDoc(doc(db, 'public_projects', pid)).catch(() => {});
             }
@@ -447,7 +447,7 @@ async function _updatePublicationWindow(pid, proj, row) {
         const expiredReason = getPublicationExpireReason(publication, status, new Date());
         if (expiredReason) throw new Error(t('works_publication_cannot_publish_expired'));
         await updateDoc(doc(db, 'users', state.uid, 'projects', pid), { publication });
-        await setDoc(doc(db, 'public_projects', workId), _buildPublicProjectPayload(pid, workId, proj, status, publication), { merge: true });
+        await setDoc(doc(db, 'public_projects', workId), _buildPublicProjectPayload(pid, workId, proj, status, publication, account), { merge: true });
         alert(t('works_publication_saved'));
         return publication;
     } catch (err) {
@@ -457,15 +457,27 @@ async function _updatePublicationWindow(pid, proj, row) {
     }
 }
 
-function _buildPublicProjectPayload(pid, workId, data, status, publication) {
+function _buildPublicProjectPayload(pid, workId, data, status, publication, account = {}) {
     const dsfPages = Array.isArray(data.dsfPages) ? data.dsfPages : [];
+    const authorProfile = account?.publicProfile || {};
+    const authorName = authorProfile.displayName || state.user?.displayName || state.user?.email || '';
+    const authorHandle = authorProfile.handle || account?.handle || null;
     return {
         title: data.title || '無題のプロジェクト',
         projectId: pid,
         workId,
         releaseId: data.releaseId || null,
         authorUid: state.uid,
-        authorName: state.user?.displayName || state.user?.email || '',
+        authorName,
+        authorHandle,
+        authorAvatarUrl: authorProfile.avatarUrl || '',
+        authorProfile: {
+            displayName: authorName,
+            handle: authorHandle,
+            avatarUrl: authorProfile.avatarUrl || '',
+            backgroundUrl: authorProfile.backgroundUrl || '',
+            bio: authorProfile.bio || ''
+        },
         thumbnail: data.thumbnail || _getThumbnail(data) || null,
         updatedAt: serverTimestamp(),
         dsfStatus: status,
