@@ -426,6 +426,13 @@ body[data-theme="light"] .mypage-image-modal-panel {
     background: rgba(255, 255, 255, 0.05);
     color: var(--portal-sub);
     font-weight: 800;
+    cursor: grab;
+    touch-action: none;
+    user-select: none;
+}
+
+.mypage-image-modal-preview.is-dragging {
+    cursor: grabbing;
 }
 
 .mypage-image-modal-preview.is-avatar {
@@ -440,6 +447,13 @@ body[data-theme="light"] .mypage-image-modal-panel {
     height: 100%;
     display: block;
     object-fit: cover;
+}
+
+.mypage-image-modal-help {
+    margin: -6px 0 14px;
+    color: var(--portal-sub);
+    font-size: 12px;
+    line-height: 1.6;
 }
 
 .mypage-image-modal-controls {

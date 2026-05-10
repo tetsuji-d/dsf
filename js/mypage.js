@@ -45,6 +45,7 @@ const STRINGS = {
         chooseImage: '画像を選択',
         avatarZoom: 'アイコン切り抜き',
         backgroundZoom: '背景切り抜き',
+        imageDragHelp: '画像をドラッグして切り抜き位置を調整できます。',
         applyImageCrop: 'この画像を使う',
         cancel: 'キャンセル',
         savePublicProfile: '公開プロフィールを保存',
@@ -132,6 +133,7 @@ const STRINGS = {
         chooseImage: 'Choose image',
         avatarZoom: 'Avatar crop',
         backgroundZoom: 'Background crop',
+        imageDragHelp: 'Drag the image to adjust the crop position.',
         applyImageCrop: 'Use this image',
         cancel: 'Cancel',
         savePublicProfile: 'Save public profile',
@@ -198,6 +200,7 @@ let currentAccount = null;
 let currentRequests = [];
 let activeProfileImageKind = 'avatar';
 let profileImageModalSnapshot = null;
+let profileImageDrag = null;
 const HANDLE_RE = /^[a-z0-9_]{4,20}$/;
 const RESERVED_HANDLES = new Set(['admin', 'administrator', 'support', 'help', 'dsf', 'horizon', 'studio', 'viewer', 'works', 'press']);
 const profileImageDraft = {
@@ -213,7 +216,9 @@ function createImageDraft(kind, width, height) {
         file: null,
         image: null,
         objectUrl: '',
-        zoom: 1
+        zoom: 1,
+        offsetX: 0,
+        offsetY: 0
     };
 }
 
@@ -294,7 +299,20 @@ function resetProfileDrafts() {
         draft.image = null;
         draft.objectUrl = '';
         draft.zoom = 1;
+        draft.offsetX = 0;
+        draft.offsetY = 0;
     });
+}
+
+function clampNumber(value, min, max) {
+    return Math.min(max, Math.max(min, value));
+}
+
+function clampDraftOffset(draft, drawWidth, drawHeight) {
+    const maxX = Math.max(0, (drawWidth - draft.width) / 2);
+    const maxY = Math.max(0, (drawHeight - draft.height) / 2);
+    draft.offsetX = clampNumber(Number(draft.offsetX) || 0, -maxX, maxX);
+    draft.offsetY = clampNumber(Number(draft.offsetY) || 0, -maxY, maxY);
 }
 
 function drawImageToCanvas(draft, canvas) {
@@ -308,7 +326,14 @@ function drawImageToCanvas(draft, canvas) {
     const scale = Math.max(canvas.width / sourceWidth, canvas.height / sourceHeight) * draft.zoom;
     const drawWidth = sourceWidth * scale;
     const drawHeight = sourceHeight * scale;
-    ctx.drawImage(draft.image, (canvas.width - drawWidth) / 2, (canvas.height - drawHeight) / 2, drawWidth, drawHeight);
+    clampDraftOffset(draft, drawWidth, drawHeight);
+    ctx.drawImage(
+        draft.image,
+        (canvas.width - drawWidth) / 2 + draft.offsetX,
+        (canvas.height - drawHeight) / 2 + draft.offsetY,
+        drawWidth,
+        drawHeight
+    );
     return true;
 }
 
@@ -369,6 +394,8 @@ async function selectProfileImage(kind, file) {
     draft.file = file;
     draft.objectUrl = await readFileAsDataUrl(file);
     draft.zoom = 1;
+    draft.offsetX = 0;
+    draft.offsetY = 0;
     draft.image = await loadImageElement(draft.objectUrl);
     const range = document.querySelector(`[data-profile-zoom="${kind}"]`);
     if (range) range.value = '1';
@@ -562,6 +589,7 @@ function renderProfileImageModal() {
                     <img alt="" data-profile-modal-rendered hidden>
                     <canvas data-profile-modal-canvas hidden></canvas>
                 </div>
+                <p class="mypage-image-modal-help">${escapeHtml(t('imageDragHelp'))}</p>
                 <div class="mypage-image-modal-controls">
                     <button type="button" class="mypage-file-btn" data-profile-modal-pick>${escapeHtml(t('chooseImage'))}</button>
                     <input class="mypage-file-input" type="file" accept="image/*" data-profile-modal-file>
@@ -678,6 +706,26 @@ function closeProfileImageModal({ restore = false } = {}) {
     if (modal) modal.hidden = true;
 }
 
+function updateProfileModalDrag(event) {
+    if (!profileImageDrag) return;
+    const draft = profileImageDraft[activeProfileImageKind];
+    const preview = document.querySelector('[data-profile-modal-preview]');
+    if (!draft || !preview) return;
+    const rect = preview.getBoundingClientRect();
+    const scaleX = draft.width / Math.max(1, rect.width);
+    const scaleY = draft.height / Math.max(1, rect.height);
+    draft.offsetX = profileImageDrag.startOffsetX + (event.clientX - profileImageDrag.startX) * scaleX;
+    draft.offsetY = profileImageDrag.startOffsetY + (event.clientY - profileImageDrag.startY) * scaleY;
+    drawProfileModalPreview(activeProfileImageKind);
+}
+
+function endProfileModalDrag(event) {
+    if (!profileImageDrag) return;
+    event.currentTarget.releasePointerCapture?.(event.pointerId);
+    profileImageDrag = null;
+    event.currentTarget.classList.remove('is-dragging');
+}
+
 function bindPublicProfileEvents(root) {
     root.querySelectorAll('[data-profile-edit]').forEach((button) => {
         button.addEventListener('click', () => openProfileImageModal(button.dataset.profileEdit));
@@ -707,6 +755,23 @@ function bindPublicProfileEvents(root) {
         draft.zoom = Number(event.currentTarget.value) || 1;
         drawProfileModalPreview(activeProfileImageKind);
     });
+    const modalPreview = root.querySelector('[data-profile-modal-preview]');
+    modalPreview?.addEventListener('pointerdown', (event) => {
+        const draft = profileImageDraft[activeProfileImageKind];
+        if (!draft?.image) return;
+        event.preventDefault();
+        modalPreview.setPointerCapture?.(event.pointerId);
+        modalPreview.classList.add('is-dragging');
+        profileImageDrag = {
+            startX: event.clientX,
+            startY: event.clientY,
+            startOffsetX: draft.offsetX || 0,
+            startOffsetY: draft.offsetY || 0
+        };
+    });
+    modalPreview?.addEventListener('pointermove', updateProfileModalDrag);
+    modalPreview?.addEventListener('pointerup', endProfileModalDrag);
+    modalPreview?.addEventListener('pointercancel', endProfileModalDrag);
     root.querySelector('[data-profile-modal-apply]')?.addEventListener('click', () => {
         drawProfilePreview(activeProfileImageKind);
         closeProfileImageModal({ restore: false });
@@ -774,7 +839,7 @@ async function savePublicProfile() {
             bio,
             avatarUrl: avatarUrl || currentProfile.avatarUrl || '',
             backgroundUrl: backgroundUrl || currentProfile.backgroundUrl || '',
-            updatedAt: serverTimestamp()
+            updatedAt: new Date()
         };
         const userRef = doc(db, 'users', currentUser.uid);
         const handleRef = finalHandle ? doc(db, 'handles', finalHandle) : null;
