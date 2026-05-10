@@ -38,9 +38,15 @@ const STRINGS = {
         publicBioPlaceholder: '作品や活動について短く紹介してください。',
         avatarImage: 'プロフィール画像',
         backgroundImage: '背景画像',
+        editAvatarImage: 'プロフィール画像を変更',
+        editBackgroundImage: '背景画像を変更',
+        imageEditTitleAvatar: 'プロフィール画像を調整',
+        imageEditTitleBackground: '背景画像を調整',
         chooseImage: '画像を選択',
         avatarZoom: 'アイコン切り抜き',
         backgroundZoom: '背景切り抜き',
+        applyImageCrop: 'この画像を使う',
+        cancel: 'キャンセル',
         savePublicProfile: '公開プロフィールを保存',
         publicProfileSaved: '公開プロフィールを保存しました',
         publicProfileSaveFailed: '公開プロフィールの保存に失敗しました',
@@ -119,9 +125,15 @@ const STRINGS = {
         publicBioPlaceholder: 'Briefly introduce your work or activity.',
         avatarImage: 'Profile image',
         backgroundImage: 'Background image',
+        editAvatarImage: 'Change profile image',
+        editBackgroundImage: 'Change background image',
+        imageEditTitleAvatar: 'Adjust profile image',
+        imageEditTitleBackground: 'Adjust background image',
         chooseImage: 'Choose image',
         avatarZoom: 'Avatar crop',
         backgroundZoom: 'Background crop',
+        applyImageCrop: 'Use this image',
+        cancel: 'Cancel',
         savePublicProfile: 'Save public profile',
         publicProfileSaved: 'Public profile saved',
         publicProfileSaveFailed: 'Could not save public profile',
@@ -184,6 +196,8 @@ let currentLang = (() => {
 let currentUser = null;
 let currentAccount = null;
 let currentRequests = [];
+let activeProfileImageKind = 'avatar';
+let profileImageModalSnapshot = null;
 const HANDLE_RE = /^[a-z0-9_]{4,20}$/;
 const RESERVED_HANDLES = new Set(['admin', 'administrator', 'support', 'help', 'dsf', 'horizon', 'studio', 'viewer', 'works', 'press']);
 const profileImageDraft = {
@@ -283,15 +297,32 @@ function resetProfileDrafts() {
     });
 }
 
+function drawImageToCanvas(draft, canvas) {
+    canvas.width = draft.width;
+    canvas.height = draft.height;
+    const ctx = canvas.getContext('2d');
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    if (!draft.image) return false;
+    const sourceWidth = draft.image.naturalWidth || draft.image.width;
+    const sourceHeight = draft.image.naturalHeight || draft.image.height;
+    const scale = Math.max(canvas.width / sourceWidth, canvas.height / sourceHeight) * draft.zoom;
+    const drawWidth = sourceWidth * scale;
+    const drawHeight = sourceHeight * scale;
+    ctx.drawImage(draft.image, (canvas.width - drawWidth) / 2, (canvas.height - drawHeight) / 2, drawWidth, drawHeight);
+    return true;
+}
+
+function setRenderedImageFromCanvas(rendered, canvas, quality = 0.84) {
+    if (!rendered) return;
+    rendered.src = canvas.toDataURL('image/webp', quality);
+    rendered.hidden = false;
+}
+
 function drawProfilePreview(kind) {
     const draft = profileImageDraft[kind];
     const canvas = document.querySelector(`[data-profile-canvas="${kind}"]`);
     const rendered = document.querySelector(`[data-profile-rendered="${kind}"]`);
     if (!draft || !canvas) return;
-    canvas.width = draft.width;
-    canvas.height = draft.height;
-    const ctx = canvas.getContext('2d');
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
     const profile = getPublicProfile();
     const fallbackUrl = kind === 'avatar' ? profile.avatarUrl : profile.backgroundUrl;
     const fallbackImg = document.querySelector(`[data-profile-fallback="${kind}"]`);
@@ -305,16 +336,22 @@ function drawProfilePreview(kind) {
 
     if (fallbackImg) fallbackImg.hidden = true;
     canvas.hidden = true;
-    const scale = Math.max(canvas.width / draft.image.naturalWidth, canvas.height / draft.image.naturalHeight) * draft.zoom;
-    const drawWidth = draft.image.naturalWidth * scale;
-    const drawHeight = draft.image.naturalHeight * scale;
-    const dx = (canvas.width - drawWidth) / 2;
-    const dy = (canvas.height - drawHeight) / 2;
-    ctx.drawImage(draft.image, dx, dy, drawWidth, drawHeight);
-    if (rendered) {
-        rendered.src = canvas.toDataURL('image/webp', 0.84);
-        rendered.hidden = false;
+    if (drawImageToCanvas(draft, canvas)) setRenderedImageFromCanvas(rendered, canvas);
+}
+
+function drawProfileModalPreview(kind) {
+    const draft = profileImageDraft[kind];
+    const canvas = document.querySelector('[data-profile-modal-canvas]');
+    const rendered = document.querySelector('[data-profile-modal-rendered]');
+    const empty = document.querySelector('[data-profile-modal-empty]');
+    if (!draft || !canvas || !rendered) return;
+    if (!draft.image) {
+        rendered.hidden = true;
+        if (empty) empty.hidden = false;
+        return;
     }
+    if (empty) empty.hidden = true;
+    if (drawImageToCanvas(draft, canvas)) setRenderedImageFromCanvas(rendered, canvas);
 }
 
 function canvasToWebP(canvas, quality = 0.82) {
@@ -329,32 +366,45 @@ function canvasToWebP(canvas, quality = 0.82) {
 async function selectProfileImage(kind, file) {
     const draft = profileImageDraft[kind];
     if (!draft || !file?.type?.startsWith('image/')) throw new Error(t('publicProfileImageInvalid'));
-    if (draft.objectUrl) URL.revokeObjectURL(draft.objectUrl);
     draft.file = file;
-    draft.objectUrl = URL.createObjectURL(file);
+    draft.objectUrl = await readFileAsDataUrl(file);
     draft.zoom = 1;
-    draft.image = await new Promise((resolve, reject) => {
-        const image = new Image();
-        image.onload = () => resolve(image);
-        image.onerror = () => reject(new Error(t('publicProfileImageInvalid')));
-        image.src = draft.objectUrl;
-    });
+    draft.image = await loadImageElement(draft.objectUrl);
     const range = document.querySelector(`[data-profile-zoom="${kind}"]`);
     if (range) range.value = '1';
-    drawProfilePreview(kind);
+    const modalRange = document.querySelector('[data-profile-modal-zoom]');
+    if (modalRange) modalRange.value = '1';
+    drawProfileModalPreview(kind);
+}
+
+function readFileAsDataUrl(file) {
+    return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(String(reader.result || ''));
+        reader.onerror = () => reject(new Error(t('publicProfileImageInvalid')));
+        reader.readAsDataURL(file);
+    });
+}
+
+async function loadImageElement(src) {
+    const image = new Image();
+    image.decoding = 'async';
+    image.src = src;
+    if (typeof image.decode === 'function') {
+        await image.decode().catch(() => null);
+        if (image.naturalWidth) return image;
+    }
+    return new Promise((resolve, reject) => {
+        image.onload = () => resolve(image);
+        image.onerror = () => reject(new Error(t('publicProfileImageInvalid')));
+    });
 }
 
 async function uploadProfileImage(kind) {
     const draft = profileImageDraft[kind];
     if (!draft?.image || !currentUser) return null;
     const canvas = document.createElement('canvas');
-    canvas.width = draft.width;
-    canvas.height = draft.height;
-    const ctx = canvas.getContext('2d');
-    const scale = Math.max(canvas.width / draft.image.naturalWidth, canvas.height / draft.image.naturalHeight) * draft.zoom;
-    const drawWidth = draft.image.naturalWidth * scale;
-    const drawHeight = draft.image.naturalHeight * scale;
-    ctx.drawImage(draft.image, (canvas.width - drawWidth) / 2, (canvas.height - drawHeight) / 2, drawWidth, drawHeight);
+    drawImageToCanvas(draft, canvas);
     const blob = await canvasToWebP(canvas, kind === 'avatar' ? 0.84 : 0.8);
     const path = `users/${currentUser.uid}/profile/${kind}_${Date.now()}.webp`;
     const body = new FormData();
@@ -466,16 +516,18 @@ function renderPublicProfileSection() {
                 <button type="button" class="mypage-action-btn" data-public-profile-save>${escapeHtml(t('savePublicProfile'))}</button>
             </div>
             <div class="mypage-profile-preview">
-                <div class="mypage-profile-background">
+                <button type="button" class="mypage-profile-background" data-profile-edit="background" aria-label="${escapeHtml(t('editBackgroundImage'))}">
                     ${profile.backgroundUrl ? `<img src="${escapeHtml(profile.backgroundUrl)}" alt="" data-profile-fallback="background">` : `<div class="mypage-profile-placeholder" data-profile-fallback="background"></div>`}
                     <img class="mypage-profile-rendered" alt="" data-profile-rendered="background" hidden>
                     <canvas data-profile-canvas="background" hidden></canvas>
-                </div>
-                <div class="mypage-profile-avatar">
+                    <span class="mypage-profile-edit-chip">${escapeHtml(t('editBackgroundImage'))}</span>
+                </button>
+                <button type="button" class="mypage-profile-avatar" data-profile-edit="avatar" aria-label="${escapeHtml(t('editAvatarImage'))}">
                     ${profile.avatarUrl ? `<img src="${escapeHtml(profile.avatarUrl)}" alt="" data-profile-fallback="avatar">` : `<div class="mypage-profile-avatar-placeholder" data-profile-fallback="avatar">${escapeHtml((profile.displayName || '?').slice(0, 1))}</div>`}
                     <img class="mypage-profile-rendered" alt="" data-profile-rendered="avatar" hidden>
                     <canvas data-profile-canvas="avatar" hidden></canvas>
-                </div>
+                    <span class="mypage-profile-avatar-chip">${escapeHtml(t('editAvatarImage'))}</span>
+                </button>
             </div>
             <div class="mypage-profile-form">
                 <label class="mypage-field">
@@ -491,26 +543,39 @@ function renderPublicProfileSection() {
                     <span>${escapeHtml(t('publicBio'))}</span>
                     <textarea data-public-profile-bio maxlength="280" rows="3" placeholder="${escapeHtml(t('publicBioPlaceholder'))}">${escapeHtml(profile.bio)}</textarea>
                 </label>
-                <div class="mypage-image-field">
-                    <span>${escapeHtml(t('avatarImage'))}</span>
-                    <button type="button" class="mypage-file-btn" data-profile-pick="avatar">${escapeHtml(t('chooseImage'))}</button>
-                    <input class="mypage-file-input" type="file" accept="image/*" data-profile-file="avatar">
+            </div>
+            ${renderProfileImageModal()}
+        </section>
+    `;
+}
+
+function renderProfileImageModal() {
+    return `
+        <div class="mypage-image-modal" data-profile-modal hidden>
+            <div class="mypage-image-modal-panel" role="dialog" aria-modal="true" aria-labelledby="profile-image-modal-title">
+                <div class="mypage-image-modal-head">
+                    <h3 id="profile-image-modal-title" data-profile-modal-title>${escapeHtml(t('imageEditTitleAvatar'))}</h3>
+                    <button type="button" class="mypage-modal-close" data-profile-modal-close aria-label="${escapeHtml(t('cancel'))}">×</button>
+                </div>
+                <div class="mypage-image-modal-preview" data-profile-modal-preview>
+                    <span data-profile-modal-empty>${escapeHtml(t('chooseImage'))}</span>
+                    <img alt="" data-profile-modal-rendered hidden>
+                    <canvas data-profile-modal-canvas hidden></canvas>
+                </div>
+                <div class="mypage-image-modal-controls">
+                    <button type="button" class="mypage-file-btn" data-profile-modal-pick>${escapeHtml(t('chooseImage'))}</button>
+                    <input class="mypage-file-input" type="file" accept="image/*" data-profile-modal-file>
                     <label class="mypage-range">
-                        <span>${escapeHtml(t('avatarZoom'))}</span>
-                        <input type="range" min="1" max="2.5" step="0.05" value="1" data-profile-zoom="avatar">
+                        <span data-profile-modal-zoom-label>${escapeHtml(t('avatarZoom'))}</span>
+                        <input type="range" min="1" max="2.5" step="0.05" value="1" data-profile-modal-zoom>
                     </label>
                 </div>
-                <div class="mypage-image-field">
-                    <span>${escapeHtml(t('backgroundImage'))}</span>
-                    <button type="button" class="mypage-file-btn" data-profile-pick="background">${escapeHtml(t('chooseImage'))}</button>
-                    <input class="mypage-file-input" type="file" accept="image/*" data-profile-file="background">
-                    <label class="mypage-range">
-                        <span>${escapeHtml(t('backgroundZoom'))}</span>
-                        <input type="range" min="1" max="2.5" step="0.05" value="1" data-profile-zoom="background">
-                    </label>
+                <div class="mypage-image-modal-actions">
+                    <button type="button" class="mypage-file-btn" data-profile-modal-close>${escapeHtml(t('cancel'))}</button>
+                    <button type="button" class="mypage-action-btn" data-profile-modal-apply>${escapeHtml(t('applyImageCrop'))}</button>
                 </div>
             </div>
-        </section>
+        </div>
     `;
 }
 
@@ -584,7 +649,68 @@ function renderAccount() {
     el.querySelector('[data-plan-cancel]')?.addEventListener('click', () => requestPlanChange('free', 'cancel'));
 }
 
+function openProfileImageModal(kind) {
+    const draft = profileImageDraft[kind];
+    const modal = document.querySelector('[data-profile-modal]');
+    if (!draft || !modal) return;
+    activeProfileImageKind = kind;
+    profileImageModalSnapshot = { ...draft };
+    modal.hidden = false;
+    modal.dataset.kind = kind;
+    const title = modal.querySelector('[data-profile-modal-title]');
+    const zoomLabel = modal.querySelector('[data-profile-modal-zoom-label]');
+    const range = modal.querySelector('[data-profile-modal-zoom]');
+    const preview = modal.querySelector('[data-profile-modal-preview]');
+    if (title) title.textContent = kind === 'avatar' ? t('imageEditTitleAvatar') : t('imageEditTitleBackground');
+    if (zoomLabel) zoomLabel.textContent = kind === 'avatar' ? t('avatarZoom') : t('backgroundZoom');
+    if (range) range.value = String(draft.zoom || 1);
+    if (preview) preview.classList.toggle('is-avatar', kind === 'avatar');
+    drawProfileModalPreview(kind);
+}
+
+function closeProfileImageModal({ restore = false } = {}) {
+    const modal = document.querySelector('[data-profile-modal]');
+    if (restore && profileImageModalSnapshot) {
+        profileImageDraft[activeProfileImageKind] = { ...profileImageModalSnapshot };
+        drawProfilePreview(activeProfileImageKind);
+    }
+    profileImageModalSnapshot = null;
+    if (modal) modal.hidden = true;
+}
+
 function bindPublicProfileEvents(root) {
+    root.querySelectorAll('[data-profile-edit]').forEach((button) => {
+        button.addEventListener('click', () => openProfileImageModal(button.dataset.profileEdit));
+    });
+    root.querySelectorAll('[data-profile-modal-close]').forEach((button) => {
+        button.addEventListener('click', () => closeProfileImageModal({ restore: true }));
+    });
+    root.querySelector('[data-profile-modal]')?.addEventListener('click', (event) => {
+        if (event.target === event.currentTarget) closeProfileImageModal({ restore: true });
+    });
+    root.querySelector('[data-profile-modal-pick]')?.addEventListener('click', () => {
+        const input = root.querySelector('[data-profile-modal-file]');
+        if (!input) return;
+        input.value = '';
+        input.click();
+    });
+    root.querySelector('[data-profile-modal-file]')?.addEventListener('change', async (event) => {
+        try {
+            await selectProfileImage(activeProfileImageKind, event.currentTarget.files?.[0]);
+        } catch (e) {
+            setFeedback('error', t('publicProfileSaveFailed'), e?.message || String(e));
+        }
+    });
+    root.querySelector('[data-profile-modal-zoom]')?.addEventListener('input', (event) => {
+        const draft = profileImageDraft[activeProfileImageKind];
+        if (!draft) return;
+        draft.zoom = Number(event.currentTarget.value) || 1;
+        drawProfileModalPreview(activeProfileImageKind);
+    });
+    root.querySelector('[data-profile-modal-apply]')?.addEventListener('click', () => {
+        drawProfilePreview(activeProfileImageKind);
+        closeProfileImageModal({ restore: false });
+    });
     root.querySelectorAll('[data-profile-pick]').forEach((button) => {
         button.addEventListener('click', () => {
             const input = root.querySelector(`[data-profile-file="${button.dataset.profilePick}"]`);
