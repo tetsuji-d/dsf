@@ -116,3 +116,21 @@ measurerは同じ入力に同じ結果を返し、短いprefixが収まればそ
 - Press／Viewer／翻訳provider／graphic layers
 
 保存統合を行うCommitでは、`docs/data-model.md`と`docs/file-format-spec.md`を更新し、schema migrationと後方互換を別途合意する。
+
+## DOM preview boundary（Commit 3）
+
+`flow-preview.html`は、FlowDocumentと生成ページの関係を実ブラウザで確認するための独立画面である。
+
+- Studioの`state`、認証、自動保存、Undo/Redoを読み書きしない。
+- Fixed Layoutの旧`autoFlowTextSection()`を呼ばない。
+- 入力から生成したFlowDocumentはメモリ内だけに保持し、DSP/DSFへ保存しない。
+- 計測用DOMと可視ページは`renderFlowFragments()`を共有する。
+- 入力後120msのdebounceで全文を再ページ化し、生成ページだけを再描画する。
+- Webフォントが入力後に追加読込された場合は`FontFaceSet.loadingdone`で再ページ化する。
+- 今回のDOM実測は`horizontal-tb`だけを明示対応とし、縦書きは別の検証単位にする。
+- 改ページUIの`[[PAGE_BREAK]]`表記は一時的な入力記法であり、pagination前にsemanticな`pageBreak` Blockへ変換する。本文中の`===`は通常文字のまま扱う。
+- 連続本文欄の各入力行を1つの`paragraph`へ変換し、先頭・末尾・連続空行も空Paragraphとして保持する。
+- 今回は正確性を確認するための全文再計算であり、100ページ級のpagination cache／affected-section reflowは未実装。
+- `flow-preview.html`はdevelopment／stagingだけのVite entryとし、production buildには含めない。
+
+この画面の受け入れ確認後に、同じFlow core／DOM measurerをStudioのFlow専用編集面へ接続する。保存スキーマやViewer／Pressへの接続はさらに後の合意単位とする。

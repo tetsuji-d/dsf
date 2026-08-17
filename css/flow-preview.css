@@ -1,0 +1,418 @@
+:root {
+    color-scheme: light;
+    --flow-ink: #172033;
+    --flow-muted: #65708a;
+    --flow-line: #d9dfeb;
+    --flow-panel: rgba(255, 255, 255, 0.94);
+    --flow-accent: #315efb;
+    --flow-accent-soft: #e9efff;
+    --flow-bg: #edf1f7;
+}
+* {
+    box-sizing: border-box;
+}
+
+html,
+body {
+    min-height: 100%;
+    margin: 0;
+}
+
+body {
+    background:
+        radial-gradient(circle at 12% 10%, rgba(49, 94, 251, 0.12), transparent 28rem),
+        linear-gradient(145deg, #f5f7fb, var(--flow-bg));
+    color: var(--flow-ink);
+    font-family: "Noto Sans JP", "Yu Gothic UI", sans-serif;
+}
+
+button,
+input,
+textarea {
+    font: inherit;
+}
+
+.flow-preview-app {
+    min-height: 100vh;
+    padding: 24px clamp(16px, 3vw, 42px) 38px;
+}
+
+.flow-preview-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 24px;
+    max-width: 1540px;
+    margin: 0 auto 20px;
+}
+
+.flow-preview-kicker,
+.flow-preview-step {
+    margin: 0 0 5px;
+    color: var(--flow-accent);
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.14em;
+}
+
+.flow-preview-header h1 {
+    margin: 0;
+    font-size: clamp(24px, 3vw, 36px);
+    line-height: 1.15;
+    letter-spacing: -0.025em;
+}
+
+.flow-preview-header p:last-child {
+    margin: 8px 0 0;
+    color: var(--flow-muted);
+    font-size: 13px;
+}
+
+.flow-preview-back {
+    flex: 0 0 auto;
+    margin-top: 6px;
+    padding: 9px 14px;
+    border: 1px solid var(--flow-line);
+    border-radius: 9px;
+    background: rgba(255, 255, 255, 0.75);
+    color: var(--flow-ink);
+    font-size: 13px;
+    font-weight: 600;
+    text-decoration: none;
+}
+
+.flow-preview-back:hover {
+    border-color: var(--flow-accent);
+    color: var(--flow-accent);
+}
+
+.flow-preview-workspace {
+    display: grid;
+    grid-template-columns: minmax(340px, 480px) minmax(0, 1fr);
+    gap: 18px;
+    max-width: 1540px;
+    min-height: calc(100vh - 145px);
+    margin: 0 auto;
+}
+
+.flow-preview-editor-card,
+.flow-preview-pages-card {
+    min-width: 0;
+    border: 1px solid rgba(206, 214, 229, 0.88);
+    border-radius: 16px;
+    background: var(--flow-panel);
+    box-shadow: 0 18px 55px rgba(37, 48, 78, 0.09);
+}
+
+.flow-preview-editor-card {
+    display: flex;
+    flex-direction: column;
+    min-height: 680px;
+    padding: 20px;
+}
+
+.flow-preview-pages-card {
+    padding: 20px;
+    overflow: auto;
+}
+
+.flow-preview-card-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 16px;
+    margin-bottom: 18px;
+}
+
+.flow-preview-card-header h2 {
+    margin: 0;
+    font-size: 18px;
+    line-height: 1.3;
+}
+
+.flow-preview-unsaved {
+    padding: 5px 8px;
+    border: 1px solid #f2cf9f;
+    border-radius: 999px;
+    background: #fff7e9;
+    color: #9a5d13;
+    font-size: 10px;
+    font-weight: 700;
+    white-space: nowrap;
+}
+
+.flow-preview-field {
+    display: flex;
+    flex-direction: column;
+    gap: 7px;
+    margin-bottom: 16px;
+}
+
+.flow-preview-field > span {
+    color: #3d4760;
+    font-size: 12px;
+    font-weight: 700;
+}
+
+.flow-preview-field small {
+    margin-left: 4px;
+    color: #9199aa;
+    font-size: 10px;
+    font-weight: 500;
+}
+
+.flow-preview-field input,
+.flow-preview-field textarea {
+    width: 100%;
+    border: 1px solid var(--flow-line);
+    border-radius: 10px;
+    outline: none;
+    background: #fff;
+    color: var(--flow-ink);
+    transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+.flow-preview-field input:focus,
+.flow-preview-field textarea:focus {
+    border-color: var(--flow-accent);
+    box-shadow: 0 0 0 3px rgba(49, 94, 251, 0.12);
+}
+
+.flow-preview-field input {
+    padding: 10px 12px;
+    font-weight: 700;
+}
+
+.flow-preview-field--body {
+    flex: 1 1 auto;
+    min-height: 0;
+}
+
+.flow-preview-field textarea {
+    flex: 1 1 auto;
+    min-height: 390px;
+    padding: 14px;
+    resize: vertical;
+    font-size: 15px;
+    line-height: 1.8;
+    white-space: pre-wrap;
+}
+
+.flow-preview-editor-actions {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-top: 2px;
+}
+
+.flow-preview-editor-actions button {
+    flex: 0 0 auto;
+    padding: 8px 11px;
+    border: 1px solid var(--flow-accent);
+    border-radius: 8px;
+    background: var(--flow-accent-soft);
+    color: #2449c8;
+    cursor: pointer;
+    font-size: 12px;
+    font-weight: 700;
+}
+
+.flow-preview-editor-actions button:hover {
+    background: #dbe5ff;
+}
+
+.flow-preview-editor-actions > span {
+    color: var(--flow-muted);
+    font-size: 10px;
+    line-height: 1.5;
+}
+
+.flow-preview-editor-actions code {
+    color: #3b4764;
+    font-size: 10px;
+}
+
+.flow-preview-source-stats {
+    display: grid;
+    gap: 6px;
+    margin: 18px 0 0;
+    padding-top: 14px;
+    border-top: 1px solid var(--flow-line);
+}
+
+.flow-preview-source-stats div {
+    display: flex;
+    justify-content: space-between;
+    gap: 16px;
+}
+
+.flow-preview-source-stats dt,
+.flow-preview-source-stats dd {
+    margin: 0;
+    font-size: 11px;
+}
+
+.flow-preview-source-stats dt {
+    color: var(--flow-muted);
+}
+
+.flow-preview-source-stats dd {
+    color: #3d4760;
+    font-weight: 600;
+    text-align: right;
+}
+
+.flow-preview-pages-header {
+    align-items: center;
+    margin-bottom: 8px;
+}
+
+.flow-preview-page-status {
+    display: flex;
+    align-items: baseline;
+    gap: 9px;
+    text-align: right;
+}
+
+.flow-preview-page-status strong {
+    color: var(--flow-accent);
+    font-size: 24px;
+    line-height: 1;
+}
+
+.flow-preview-page-status span {
+    color: var(--flow-muted);
+    font-size: 10px;
+}
+
+.flow-preview-explainer {
+    max-width: 760px;
+    margin: 0 0 18px;
+    color: var(--flow-muted);
+    font-size: 11px;
+    line-height: 1.7;
+}
+
+.flow-preview-error {
+    margin-bottom: 16px;
+    padding: 10px 12px;
+    border: 1px solid #f1b6b6;
+    border-radius: 9px;
+    background: #fff0f0;
+    color: #9c2828;
+    font-size: 12px;
+}
+
+.flow-preview-pages {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+    align-items: start;
+    gap: 22px 18px;
+}
+
+.flow-preview-sheet {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    min-width: 0;
+    margin: 0;
+}
+
+.flow-preview-sheet-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    width: 180px;
+    min-height: 25px;
+    margin-bottom: 7px;
+    color: var(--flow-muted);
+    font-size: 10px;
+    font-weight: 600;
+}
+
+.flow-preview-manual-break {
+    padding: 3px 6px;
+    border-radius: 999px;
+    background: var(--flow-accent-soft);
+    color: #3154c4;
+    font-size: 9px;
+}
+
+.flow-preview-page-viewport {
+    position: relative;
+    width: 180px;
+    height: 320px;
+    overflow: hidden;
+    border: 1px solid #cbd2df;
+    background: #f7f1df;
+    box-shadow: 0 9px 24px rgba(30, 39, 63, 0.15);
+}
+
+.flow-preview-page {
+    position: absolute !important;
+    inset: 0 auto auto 0;
+    transform: scale(0.5);
+    transform-origin: 0 0;
+}
+
+.flow-preview-sheet figcaption {
+    width: 180px;
+    margin-top: 7px;
+    overflow: hidden;
+    color: #8a93a5;
+    font-size: 9px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.flow-preview-app[data-reflow-state="working"] .flow-preview-page-status strong {
+    opacity: 0.55;
+}
+
+.flow-preview-app[data-reflow-state="error"] .flow-preview-page-status strong {
+    color: #c53030;
+}
+
+@media (max-width: 920px) {
+    .flow-preview-app {
+        padding: 16px;
+    }
+
+    .flow-preview-header {
+        align-items: center;
+    }
+
+    .flow-preview-header p:last-child {
+        max-width: 36rem;
+    }
+
+    .flow-preview-workspace {
+        grid-template-columns: 1fr;
+    }
+
+    .flow-preview-editor-card {
+        min-height: 620px;
+    }
+}
+
+@media (max-width: 540px) {
+    .flow-preview-header {
+        align-items: flex-start;
+        flex-direction: column;
+    }
+
+    .flow-preview-editor-card,
+    .flow-preview-pages-card {
+        padding: 15px;
+        border-radius: 12px;
+    }
+
+    .flow-preview-editor-actions {
+        align-items: flex-start;
+        flex-direction: column;
+    }
+
+    .flow-preview-pages {
+        grid-template-columns: 1fr;
+    }
+}

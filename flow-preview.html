@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="ja">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Flow Layout Preview | DSF Studio</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link
+        href="https://fonts.googleapis.com/css2?family=Noto+Sans:wght@400;700&family=Noto+Sans+JP:wght@400;700&display=swap"
+        rel="stylesheet">
+    <link rel="stylesheet" href="css/variables.css">
+    <link rel="stylesheet" href="css/flow-preview.css">
+</head>
+
+<body>
+    <div id="flow-preview-app" class="flow-preview-app" data-reflow-state="working">
+        <header class="flow-preview-header">
+            <div>
+                <p class="flow-preview-kicker">DSF Studio / Experimental</p>
+                <h1>Flow Layout Preview</h1>
+                <p>連続原稿から9:16ページをリアルタイム生成する、保存未接続の確認画面です。</p>
+            </div>
+            <a class="flow-preview-back" href="studio.html">Studioへ戻る</a>
+        </header>
+
+        <main class="flow-preview-workspace">
+            <section class="flow-preview-editor-card" aria-labelledby="flow-editor-title">
+                <div class="flow-preview-card-header">
+                    <div>
+                        <p class="flow-preview-step">SOURCE</p>
+                        <h2 id="flow-editor-title">連続本文エディター</h2>
+                    </div>
+                    <span class="flow-preview-unsaved">保存されません</span>
+                </div>
+
+                <label class="flow-preview-field">
+                    <span>見出し <small>heading</small></span>
+                    <input id="flow-preview-heading" data-testid="flow-heading" type="text" value="第1章"
+                        autocomplete="off">
+                </label>
+
+                <label class="flow-preview-field flow-preview-field--body">
+                    <span>本文 <small>paragraph</small></span>
+                    <textarea id="flow-preview-body" data-testid="flow-editor" spellcheck="true">冬の金沢は静かだった。
+神谷はホテルの窓から、雪の降る街を眺めていた。
+「行くか」
+彼はコートを手に取った。</textarea>
+                </label>
+
+                <div class="flow-preview-editor-actions">
+                    <button id="flow-preview-insert-break" data-testid="flow-insert-page-break" type="button">
+                        <span aria-hidden="true">↵</span> 改ページを挿入
+                    </button>
+                    <span>Enterは新しい段落、空行は空の段落です。改ページはカーソル位置へ <code>[[PAGE_BREAK]]</code> を挿入します。</span>
+                </div>
+
+                <dl class="flow-preview-source-stats">
+                    <div><dt>文字数</dt><dd id="flow-preview-char-count">0</dd></div>
+                    <div><dt>組版</dt><dd>横書き / 16px / 行高1.8</dd></div>
+                    <div><dt>版面</dt><dd>360×640 / 余白20</dd></div>
+                </dl>
+            </section>
+
+            <section class="flow-preview-pages-card" aria-labelledby="flow-pages-title">
+                <div class="flow-preview-card-header flow-preview-pages-header">
+                    <div>
+                        <p class="flow-preview-step">GENERATED PAGES</p>
+                        <h2 id="flow-pages-title">ページプレビュー</h2>
+                    </div>
+                    <div class="flow-preview-page-status">
+                        <strong id="flow-preview-page-count" data-testid="flow-page-count" data-page-count="0">—</strong>
+                        <span id="flow-preview-status" aria-live="polite">フォントを準備しています</span>
+                    </div>
+                </div>
+                <p class="flow-preview-explainer">
+                    右のページはファイル出力ではなく、原稿から都度計算した一時表示です。本文を増減すると自動的に詰め直します。
+                    現段階は正確性確認のため全文を再計算し、100ページ級の増分最適化はまだ行いません。
+                </p>
+                <div id="flow-preview-error" class="flow-preview-error" role="alert" hidden></div>
+                <div id="flow-preview-pages" class="flow-preview-pages" data-testid="flow-pages"></div>
+            </section>
+        </main>
+    </div>
+
+    <script type="module" src="js/flow-preview.js"></script>
+</body>
+
+</html>
