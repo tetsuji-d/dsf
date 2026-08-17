@@ -10,6 +10,9 @@ import { normalizeFlowPageBox } from './flow-pagination.js';
 import { getFlowTypographyProfile } from './flow-typography.js';
 
 export const FLOW_DOM_SUPPORTED_WRITING_MODE = 'horizontal-tb';
+export const FLOW_DOM_RENDERER_VERSION = 2;
+
+const DEFAULT_MEASUREMENT_CACHE_SIZE = 2048;
 
 const DEFAULT_FONT_FAMILIES = Object.freeze({
     cjk: "'Noto Sans JP','Noto Sans CJK JP','Hiragino Sans','Yu Gothic UI',sans-serif",
@@ -166,6 +169,49 @@ function createFragmentElement(ownerDocument, fragment, typography) {
     return element;
 }
 
+function normalizeCacheSize(value) {
+    const size = value === undefined ? DEFAULT_MEASUREMENT_CACHE_SIZE : Number(value);
+    if (!Number.isInteger(size) || size < 0) {
+        throw new FlowDomMeasurementError('INVALID_CACHE_SIZE', 'Measurement cache size must be a non-negative integer.', {
+            value,
+        });
+    }
+    return size;
+}
+
+function createMeasurementCacheKey(context, pageBox, writingMode, languageKey, typography, epoch) {
+    return JSON.stringify([
+        FLOW_DOM_RENDERER_VERSION,
+        epoch,
+        pageBox.width,
+        pageBox.height,
+        pageBox.padding.top,
+        pageBox.padding.right,
+        pageBox.padding.bottom,
+        pageBox.padding.left,
+        writingMode,
+        languageKey,
+        typography.fontFamily,
+        typography.fontSize,
+        typography.fontWeight,
+        typography.lineHeight,
+        typography.letterSpacing,
+        typography.textAlign,
+        typography.paragraphSpacing,
+        typography.headingSpacing,
+        typography.textColor,
+        typography.paperColor,
+        typography.lineBreak,
+        (Array.isArray(context.fragments) ? context.fragments : []).map((fragment) => [
+            fragment.blockType,
+            fragment.headingLevel ?? null,
+            fragment.text,
+            fragment.isBlockStart === true,
+            fragment.isBlockEnd === true,
+        ]),
+    ]);
+}
+
 /** Render fragments into an existing content box. */
 export function renderFlowFragments(contentElement, options = {}) {
     if (!contentElement?.ownerDocument) {
@@ -216,6 +262,12 @@ export function createFlowDomPageMeasurer(options = {}) {
     }
     const languageKey = String(options.languageKey || 'ja');
     const typography = resolveFlowDomTypography(languageKey, options.typography);
+    const maxCacheEntries = normalizeCacheSize(options.maxCacheEntries);
+    const measurementCache = new Map();
+    let layoutEpoch = 0;
+    let totalCalls = 0;
+    let cacheHits = 0;
+    let cacheMisses = 0;
     const host = ownerDocument.createElement('div');
     const pageElement = ownerDocument.createElement('div');
     const contentElement = ownerDocument.createElement('div');
@@ -235,8 +287,26 @@ export function createFlowDomPageMeasurer(options = {}) {
     ownerDocument.body.appendChild(host);
 
     const measurePage = (context = {}) => {
+        totalCalls += 1;
         const pageBox = normalizeFlowPageBox(context.pageBox);
         const writingMode = assertFlowDomWritingMode(context.writingMode);
+        const resolvedLanguageKey = String(context.languageKey || languageKey);
+        const cacheKey = createMeasurementCacheKey(
+            context,
+            pageBox,
+            writingMode,
+            resolvedLanguageKey,
+            typography,
+            layoutEpoch,
+        );
+        if (maxCacheEntries > 0 && measurementCache.has(cacheKey)) {
+            const cached = measurementCache.get(cacheKey);
+            measurementCache.delete(cacheKey);
+            measurementCache.set(cacheKey, cached);
+            cacheHits += 1;
+            return cached;
+        }
+        cacheMisses += 1;
         setPageStyles(pageElement, pageBox, typography);
         Object.assign(host.style, {
             width: `${pageBox.width}px`,
@@ -245,7 +315,7 @@ export function createFlowDomPageMeasurer(options = {}) {
         renderFlowFragments(contentElement, {
             fragments: context.fragments,
             pageBox,
-            languageKey: context.languageKey || languageKey,
+            languageKey: resolvedLanguageKey,
             writingMode,
             typography,
         });
@@ -253,20 +323,55 @@ export function createFlowDomPageMeasurer(options = {}) {
         const scrollHeight = contentElement.scrollHeight;
         const clientWidth = contentElement.clientWidth;
         const clientHeight = contentElement.clientHeight;
-        return {
+        const result = Object.freeze({
             fits: scrollWidth <= clientWidth && scrollHeight <= clientHeight,
             scrollWidth,
             scrollHeight,
             clientWidth,
             clientHeight,
-        };
+        });
+        if (maxCacheEntries > 0) {
+            measurementCache.set(cacheKey, result);
+            while (measurementCache.size > maxCacheEntries) {
+                measurementCache.delete(measurementCache.keys().next().value);
+            }
+        }
+        return result;
     };
 
     return Object.freeze({
         measurePage,
         typography,
         element: host,
+        invalidate() {
+            layoutEpoch += 1;
+            measurementCache.clear();
+            return layoutEpoch;
+        },
+        getLayoutKey() {
+            return JSON.stringify([
+                FLOW_DOM_RENDERER_VERSION,
+                layoutEpoch,
+                languageKey,
+                typography,
+            ]);
+        },
+        getMetrics() {
+            return Object.freeze({
+                totalCalls,
+                cacheHits,
+                cacheMisses,
+                cacheSize: measurementCache.size,
+                layoutEpoch,
+            });
+        },
+        resetMetrics() {
+            totalCalls = 0;
+            cacheHits = 0;
+            cacheMisses = 0;
+        },
         dispose() {
+            measurementCache.clear();
             host.remove();
         },
     });

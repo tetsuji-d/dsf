@@ -125,12 +125,32 @@ measurerは同じ入力に同じ結果を返し、短いprefixが収まればそ
 - Fixed Layoutの旧`autoFlowTextSection()`を呼ばない。
 - 入力から生成したFlowDocumentはメモリ内だけに保持し、DSP/DSFへ保存しない。
 - 計測用DOMと可視ページは`renderFlowFragments()`を共有する。
-- 入力後120msのdebounceで全文を再ページ化し、生成ページだけを再描画する。
+- Commit 3時点では入力後120msのdebounceで全文を再ページ化し、生成ページだけを再描画する。
 - Webフォントが入力後に追加読込された場合は`FontFaceSet.loadingdone`で再ページ化する。
 - 今回のDOM実測は`horizontal-tb`だけを明示対応とし、縦書きは別の検証単位にする。
 - 改ページUIの`[[PAGE_BREAK]]`表記は一時的な入力記法であり、pagination前にsemanticな`pageBreak` Blockへ変換する。本文中の`===`は通常文字のまま扱う。
 - 連続本文欄の各入力行を1つの`paragraph`へ変換し、先頭・末尾・連続空行も空Paragraphとして保持する。
-- 今回は正確性を確認するための全文再計算であり、100ページ級のpagination cache／affected-section reflowは未実装。
+- Commit 3は正確性確認の全文再計算とし、Commit 4候補でruntime増分処理を追加する。
 - `flow-preview.html`はdevelopment／stagingだけのVite entryとし、production buildには含めない。
 
 この画面の受け入れ確認後に、同じFlow core／DOM measurerをStudioのFlow専用編集面へ接続する。保存スキーマやViewer／Pressへの接続はさらに後の合意単位とする。
+
+## Incremental reflow boundary（Commit 4 candidate）
+
+増分リフローは保存されないruntime sessionとして実装し、FlowDocumentを正本とする境界を変えない。
+
+- textareaの行番号をBlock IDとして再利用せず、行内編集では同じID、分割では左側、結合では先頭のIDを維持する。
+- 各生成ページの開始／終了位置はruntime checkpointとして保持し、DSP／DSFへ保存しない。
+- 前回文書との共通prefixより前のページは計測せず再利用する。
+- 再計算後のsource cursor、残りのsemantic source、manual pageBreak、layout variantが一致した場合だけ、旧suffixへ合流する。
+- page index依存レイアウトではindexが変わるsuffixを再利用しない。現在のpreviewは全ページ同一版面を明示して再利用する。
+- DOM計測cacheはセッション限定LRUとし、本文、Block型、Heading level、Block開始／終了、pageBox、writing mode、言語、Typography、renderer version、font epochをkeyに含める。
+- font loading完了／失敗時はDOM cacheとpagination checkpointを全破棄して全文再計算する。
+- 入力中は旧previewを`stale`として明示し、最後に要求されたrevisionだけを反映する。日本語IMEのcomposition中は再計算を保留する。
+- 見出し／本文の入力イベントごとにsemantic Block IDを調停し、paginationだけを120ms debounceする。
+- paginationはページ単位でブラウザーへ制御を返す。新しい入力、font更新、明示invalidateは進行中の旧operationを中止し、完成前の部分snapshotを公開しない。
+- 中止／supersede／計測失敗／`maxPages`超過では、最後に成功したpagination snapshotを維持する。DOMへ反映するのは最新revisionの完成結果だけとする。
+- preview DOMは変更されたpage rangeだけを作り直し、共通prefix／suffixのpage nodeを維持する。
+- 長大Paragraphの探索は残り全文を毎回候補にせず、有界probeから最大適合prefixを探索する。
+
+この単位もStudio state、Undo/Redo、保存、翻訳provider、Press、Viewerへは未接続である。Studio統合前に、Flow sourceと生成固定ページの所有関係および保存schemaを別途合意する。

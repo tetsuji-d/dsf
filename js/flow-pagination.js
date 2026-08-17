@@ -16,6 +16,7 @@ import {
 } from './flow-document.js';
 
 export const DEFAULT_FLOW_PAGE_PADDING = 20;
+export const DEFAULT_FLOW_INITIAL_PROBE_GRAPHEMES = 256;
 
 export class FlowPaginationError extends Error {
     constructor(code, message, context = {}) {
@@ -158,11 +159,46 @@ function findLargestFittingEnd({
     text,
     segments,
     startGrapheme,
+    probeHint,
+    probeHintIsLearned,
+    knownFittingEnd,
+    knownFailureEnd,
     measure,
 }) {
-    let low = startGrapheme + 1;
-    let high = segments.length;
-    let best = startGrapheme;
+    let best = Number.isInteger(knownFittingEnd) ? knownFittingEnd : startGrapheme;
+    const remaining = segments.length - startGrapheme;
+    if (remaining <= 0) return best;
+
+    const initialSpan = Math.max(1, Math.min(
+        remaining,
+        Number.isInteger(probeHint) && probeHint > 0
+            ? probeHint
+            : DEFAULT_FLOW_INITIAL_PROBE_GRAPHEMES,
+    ));
+    let span = initialSpan;
+    let firstFailure = Number.isInteger(knownFailureEnd) ? knownFailureEnd : null;
+    let probingLearnedBoundary = probeHintIsLearned;
+
+    while (firstFailure === null) {
+        const end = Math.min(segments.length, startGrapheme + span);
+        const fragment = createFragment(section, block, languageKey, text, segments, startGrapheme, end);
+        if (!measure(fragment)) {
+            firstFailure = end;
+            break;
+        }
+        best = end;
+        if (end === segments.length) return best;
+        const growth = probingLearnedBoundary
+            ? 1
+            : probeHintIsLearned
+                ? Math.max(16, Math.ceil(span / 8))
+                : Math.max(1, span);
+        probingLearnedBoundary = false;
+        span = Math.min(remaining, span + growth);
+    }
+
+    let low = best + 1;
+    let high = firstFailure - 1;
     while (low <= high) {
         const middle = Math.floor((low + high) / 2);
         const fragment = createFragment(section, block, languageKey, text, segments, startGrapheme, middle);
@@ -176,13 +212,128 @@ function findLargestFittingEnd({
     return best;
 }
 
+function createFlowSourceEntries(document, languageKey) {
+    const entries = [];
+    const entryIndexByBlockId = new Map();
+    for (const section of document.sections) {
+        for (const block of section.blocks) {
+            const text = isFlowTextBlock(block) ? getFlowBlockText(block, languageKey) : '';
+            const segments = isFlowTextBlock(block) ? segmentGraphemes(text, languageKey) : [];
+            entryIndexByBlockId.set(block.id, entries.length);
+            entries.push(Object.freeze({ section, block, text, segments }));
+        }
+    }
+    return Object.freeze({
+        entries: Object.freeze(entries),
+        entryIndexByBlockId,
+    });
+}
+
+function createSourceCursor(source, entryIndex, graphemeOffset = 0) {
+    if (entryIndex >= source.entries.length) {
+        return Object.freeze({
+            sectionId: null,
+            blockId: null,
+            blockType: null,
+            blockIndex: source.entries.length,
+            graphemeOffset: 0,
+            atEnd: true,
+        });
+    }
+    const entry = source.entries[entryIndex];
+    return Object.freeze({
+        sectionId: entry.section.id,
+        blockId: entry.block.id,
+        blockType: entry.block.type,
+        blockIndex: entryIndex,
+        graphemeOffset,
+        atEnd: false,
+    });
+}
+
+function cloneManualBreak(value) {
+    if (!value) return null;
+    return Object.freeze({ sectionId: value.sectionId, blockId: value.blockId });
+}
+
+function createCheckpoint(source, entryIndex, graphemeOffset, manualBreakBefore) {
+    return Object.freeze({
+        cursor: createSourceCursor(source, entryIndex, graphemeOffset),
+        manualBreakBefore: cloneManualBreak(manualBreakBefore),
+    });
+}
+
+function resolveStartCheckpoint(source, checkpoint) {
+    if (!checkpoint) return { entryIndex: 0, graphemeOffset: 0, manualBreakBefore: null };
+    const cursor = checkpoint.cursor;
+    if (!cursor || typeof cursor !== 'object') {
+        throw new FlowPaginationError('INVALID_CHECKPOINT', 'Flow pagination checkpoint requires a cursor.');
+    }
+    if (cursor.atEnd || cursor.blockId == null) {
+        return {
+            entryIndex: source.entries.length,
+            graphemeOffset: 0,
+            manualBreakBefore: cloneManualBreak(checkpoint.manualBreakBefore),
+        };
+    }
+    const entryIndex = source.entryIndexByBlockId.get(cursor.blockId);
+    if (!Number.isInteger(entryIndex)) {
+        throw new FlowPaginationError('CHECKPOINT_BLOCK_MISSING', 'Checkpoint block is not present in the Flow document.', {
+            blockId: cursor.blockId,
+        });
+    }
+    const entry = source.entries[entryIndex];
+    if (cursor.sectionId && cursor.sectionId !== entry.section.id) {
+        throw new FlowPaginationError('CHECKPOINT_SECTION_MISMATCH', 'Checkpoint section does not match its block.', {
+            blockId: cursor.blockId,
+            sectionId: cursor.sectionId,
+            actualSectionId: entry.section.id,
+        });
+    }
+    const graphemeOffset = Number(cursor.graphemeOffset || 0);
+    const maximum = entry.segments.length;
+    if (!Number.isInteger(graphemeOffset) || graphemeOffset < 0 || graphemeOffset > maximum) {
+        throw new FlowPaginationError('INVALID_CHECKPOINT_OFFSET', 'Checkpoint grapheme offset is outside its block.', {
+            blockId: cursor.blockId,
+            graphemeOffset,
+            maximum,
+        });
+    }
+    if (entry.block.type === 'pageBreak' && graphemeOffset !== 0) {
+        throw new FlowPaginationError('INVALID_CHECKPOINT_OFFSET', 'PageBreak checkpoint offsets must be zero.', {
+            blockId: cursor.blockId,
+            graphemeOffset,
+        });
+    }
+    if (entry.block.type !== 'pageBreak' && maximum > 0 && graphemeOffset === maximum) {
+        return {
+            entryIndex: entryIndex + 1,
+            graphemeOffset: 0,
+            manualBreakBefore: cloneManualBreak(checkpoint.manualBreakBefore),
+        };
+    }
+    return {
+        entryIndex,
+        graphemeOffset,
+        manualBreakBefore: cloneManualBreak(checkpoint.manualBreakBefore),
+    };
+}
+
+function resolvePageIndexOffset(value) {
+    const offset = Number(value ?? 0);
+    if (!Number.isInteger(offset) || offset < 0) {
+        throw new FlowPaginationError('INVALID_PAGE_INDEX_OFFSET', 'pageIndexOffset must be a non-negative integer.', {
+            value,
+        });
+    }
+    return offset;
+}
+
 /**
- * @param {object} document valid FlowDocument
- * @param {object} options
- * @param {object} options.pageBox explicit logical page geometry
- * @param {(context: object) => {fits:boolean}} options.measurePage synchronous, deterministic, prefix-monotonic measurer
+ * Create a resumable, page-at-a-time paginator. Checkpoints are runtime-only
+ * derivations and must not be persisted as Flow source data.
  */
-export function paginateFlowDocument(document, options = {}) {
+export function createFlowPaginationIterator(document, options = {}) {
     assertValidFlowDocument(document);
     if (typeof options.measurePage !== 'function') {
         throw new FlowPaginationError('MEASURER_REQUIRED', 'measurePage is required.');
@@ -193,40 +344,79 @@ export function paginateFlowDocument(document, options = {}) {
     if (!languageKey) throw new FlowPaginationError('LANGUAGE_REQUIRED', 'A saved language key is required.');
     const writingMode = String(options.writingMode || DEFAULT_FLOW_WRITING_MODE);
     const maxPages = resolveMaxPages(options.maxPages);
-    const pages = [];
-    let currentFragments = [];
-    let currentManualBreakBefore = null;
-
-    const pushCurrentPage = () => {
-        if (pages.length >= maxPages) {
-            throw new FlowPaginationError('MAX_PAGES_EXCEEDED', `Flow pagination exceeded maxPages (${maxPages}).`, {
-                maxPages,
-                nextPageIndex: pages.length,
-            });
-        }
-        pages.push(Object.freeze({
-            index: pages.length,
-            manualBreakBefore: currentManualBreakBefore,
-            fragments: Object.freeze([...currentFragments]),
-        }));
-        currentFragments = [];
-        currentManualBreakBefore = null;
-    };
+    const pageIndexOffset = resolvePageIndexOffset(options.pageIndexOffset);
+    const source = createFlowSourceEntries(document, languageKey);
+    const start = resolveStartCheckpoint(source, options.startCheckpoint);
+    let entryIndex = start.entryIndex;
+    let graphemeOffset = start.graphemeOffset;
+    let pendingManualBreakBefore = start.manualBreakBefore;
+    let nextPageIndex = pageIndexOffset;
+    let finished = !!options.startCheckpoint
+        && entryIndex >= source.entries.length
+        && !pendingManualBreakBefore;
+    let learnedProbeHint = null;
 
     const candidateFits = (candidateFragments) => measureCandidate(options.measurePage, {
         pageBox,
-        pageIndex: pages.length,
+        pageIndex: nextPageIndex,
         languageKey,
         writingMode,
         fragments: candidateFragments,
     });
 
-    for (const section of document.sections) {
-        for (const block of section.blocks) {
+    const emitPage = (pageStartCheckpoint, manualBreakBefore, fragments, nextCheckpoint, reachesEnd) => {
+        if (nextPageIndex >= maxPages) {
+            throw new FlowPaginationError('MAX_PAGES_EXCEEDED', `Flow pagination exceeded maxPages (${maxPages}).`, {
+                maxPages,
+                nextPageIndex,
+            });
+        }
+        const page = Object.freeze({
+            index: nextPageIndex,
+            manualBreakBefore: cloneManualBreak(manualBreakBefore),
+            fragments: Object.freeze([...fragments]),
+        });
+        nextPageIndex += 1;
+        if (reachesEnd) finished = true;
+        return Object.freeze({
+            page,
+            startCheckpoint: pageStartCheckpoint,
+            nextCheckpoint,
+        });
+    };
+
+    const next = () => {
+        if (finished) return Object.freeze({ done: true, value: undefined });
+        const pageStartCheckpoint = createCheckpoint(
+            source,
+            entryIndex,
+            graphemeOffset,
+            pendingManualBreakBefore,
+        );
+        const pageManualBreakBefore = pendingManualBreakBefore;
+        pendingManualBreakBefore = null;
+        const currentFragments = [];
+
+        while (entryIndex < source.entries.length) {
+            const entry = source.entries[entryIndex];
+            const { section, block, text, segments } = entry;
+
             if (block.type === 'pageBreak') {
-                pushCurrentPage();
-                currentManualBreakBefore = Object.freeze({ sectionId: section.id, blockId: block.id });
-                continue;
+                const manualBreak = Object.freeze({ sectionId: section.id, blockId: block.id });
+                entryIndex += 1;
+                graphemeOffset = 0;
+                pendingManualBreakBefore = manualBreak;
+                const nextCheckpoint = createCheckpoint(source, entryIndex, graphemeOffset, manualBreak);
+                return Object.freeze({
+                    done: false,
+                    value: emitPage(
+                        pageStartCheckpoint,
+                        pageManualBreakBefore,
+                        currentFragments,
+                        nextCheckpoint,
+                        false,
+                    ),
+                });
             }
             if (!isFlowTextBlock(block)) {
                 throw new FlowPaginationError('UNSUPPORTED_BLOCK', `Unsupported Flow block type: ${block.type}`, {
@@ -236,92 +426,208 @@ export function paginateFlowDocument(document, options = {}) {
                 });
             }
 
-            const text = getFlowBlockText(block, languageKey);
-            const segments = segmentGraphemes(text, languageKey);
             if (segments.length === 0) {
                 const emptyFragment = createFragment(section, block, languageKey, text, segments, 0, 0);
                 if (!candidateFits([...currentFragments, emptyFragment])) {
-                    if (currentFragments.length > 0) pushCurrentPage();
-                    if (!candidateFits([emptyFragment])) {
-                        throw new FlowPaginationError('FRAGMENT_DOES_NOT_FIT', 'An empty Flow block does not fit on an empty page.', {
-                            sectionId: section.id,
-                            blockId: block.id,
-                            sourceRange: emptyFragment.sourceRange,
+                    if (currentFragments.length > 0) {
+                        const nextCheckpoint = createCheckpoint(source, entryIndex, 0, null);
+                        return Object.freeze({
+                            done: false,
+                            value: emitPage(
+                                pageStartCheckpoint,
+                                pageManualBreakBefore,
+                                currentFragments,
+                                nextCheckpoint,
+                                false,
+                            ),
                         });
                     }
+                    throw new FlowPaginationError('FRAGMENT_DOES_NOT_FIT', 'An empty Flow block does not fit on an empty page.', {
+                        sectionId: section.id,
+                        blockId: block.id,
+                        sourceRange: emptyFragment.sourceRange,
+                    });
                 }
                 currentFragments.push(emptyFragment);
+                entryIndex += 1;
+                graphemeOffset = 0;
                 continue;
             }
 
-            let startGrapheme = 0;
-            while (startGrapheme < segments.length) {
+            const fragmentCountBefore = currentFragments.length;
+            let knownFittingEnd = null;
+            let knownFailureEnd = null;
+            const remainingGraphemes = segments.length - graphemeOffset;
+            if (
+                currentFragments.length > 0
+                && remainingGraphemes <= DEFAULT_FLOW_INITIAL_PROBE_GRAPHEMES * 2
+            ) {
                 const fullFragment = createFragment(
                     section,
                     block,
                     languageKey,
                     text,
                     segments,
-                    startGrapheme,
+                    graphemeOffset,
                     segments.length,
                 );
                 if (candidateFits([...currentFragments, fullFragment])) {
                     currentFragments.push(fullFragment);
-                    startGrapheme = segments.length;
+                    entryIndex += 1;
+                    graphemeOffset = 0;
                     continue;
                 }
-
-                const endGrapheme = findLargestFittingEnd({
-                    section,
-                    block,
-                    languageKey,
-                    text,
-                    segments,
-                    startGrapheme,
-                    measure: (fragment) => candidateFits([...currentFragments, fragment]),
-                });
-                if (endGrapheme <= startGrapheme) {
-                    if (currentFragments.length > 0) {
-                        pushCurrentPage();
-                        continue;
-                    }
-                    const failed = createFragment(
-                        section,
-                        block,
-                        languageKey,
-                        text,
-                        segments,
-                        startGrapheme,
-                        startGrapheme + 1,
-                    );
-                    throw new FlowPaginationError('FRAGMENT_DOES_NOT_FIT', 'One grapheme does not fit on an empty Flow page.', {
-                        sectionId: section.id,
-                        blockId: block.id,
-                        sourceRange: failed.sourceRange,
+                if (remainingGraphemes === 1) {
+                    const nextCheckpoint = createCheckpoint(source, entryIndex, graphemeOffset, null);
+                    return Object.freeze({
+                        done: false,
+                        value: emitPage(
+                            pageStartCheckpoint,
+                            pageManualBreakBefore,
+                            currentFragments,
+                            nextCheckpoint,
+                            false,
+                        ),
                     });
                 }
-
-                currentFragments.push(createFragment(
+                const oneGraphemeFragment = createFragment(
                     section,
                     block,
                     languageKey,
                     text,
                     segments,
-                    startGrapheme,
-                    endGrapheme,
-                ));
-                startGrapheme = endGrapheme;
-                pushCurrentPage();
+                    graphemeOffset,
+                    graphemeOffset + 1,
+                );
+                if (!candidateFits([...currentFragments, oneGraphemeFragment])) {
+                    const nextCheckpoint = createCheckpoint(source, entryIndex, graphemeOffset, null);
+                    return Object.freeze({
+                        done: false,
+                        value: emitPage(
+                            pageStartCheckpoint,
+                            pageManualBreakBefore,
+                            currentFragments,
+                            nextCheckpoint,
+                            false,
+                        ),
+                    });
+                }
+                knownFittingEnd = graphemeOffset + 1;
+                knownFailureEnd = segments.length;
             }
-        }
-    }
+            const endGrapheme = findLargestFittingEnd({
+                section,
+                block,
+                languageKey,
+                text,
+                segments,
+                startGrapheme: graphemeOffset,
+                probeHint: learnedProbeHint ?? options.initialProbeGraphemes,
+                probeHintIsLearned: learnedProbeHint !== null,
+                knownFittingEnd,
+                knownFailureEnd,
+                measure: (fragment) => candidateFits([...currentFragments, fragment]),
+            });
+            if (endGrapheme <= graphemeOffset) {
+                if (currentFragments.length > 0) {
+                    const nextCheckpoint = createCheckpoint(source, entryIndex, graphemeOffset, null);
+                    return Object.freeze({
+                        done: false,
+                        value: emitPage(
+                            pageStartCheckpoint,
+                            pageManualBreakBefore,
+                            currentFragments,
+                            nextCheckpoint,
+                            false,
+                        ),
+                    });
+                }
+                const failed = createFragment(
+                    section,
+                    block,
+                    languageKey,
+                    text,
+                    segments,
+                    graphemeOffset,
+                    graphemeOffset + 1,
+                );
+                throw new FlowPaginationError('FRAGMENT_DOES_NOT_FIT', 'One grapheme does not fit on an empty Flow page.', {
+                    sectionId: section.id,
+                    blockId: block.id,
+                    sourceRange: failed.sourceRange,
+                });
+            }
 
-    pushCurrentPage();
+            currentFragments.push(createFragment(
+                section,
+                block,
+                languageKey,
+                text,
+                segments,
+                graphemeOffset,
+                endGrapheme,
+            ));
+            const fittedCount = endGrapheme - graphemeOffset;
+            if (fragmentCountBefore === 0 && endGrapheme < segments.length) learnedProbeHint = fittedCount;
+            graphemeOffset = endGrapheme;
+            if (graphemeOffset < segments.length) {
+                const nextCheckpoint = createCheckpoint(source, entryIndex, graphemeOffset, null);
+                return Object.freeze({
+                    done: false,
+                    value: emitPage(
+                        pageStartCheckpoint,
+                        pageManualBreakBefore,
+                        currentFragments,
+                        nextCheckpoint,
+                        false,
+                    ),
+                });
+            }
+            entryIndex += 1;
+            graphemeOffset = 0;
+        }
+
+        const nextCheckpoint = createCheckpoint(source, entryIndex, graphemeOffset, null);
+        return Object.freeze({
+            done: false,
+            value: emitPage(
+                pageStartCheckpoint,
+                pageManualBreakBefore,
+                currentFragments,
+                nextCheckpoint,
+                true,
+            ),
+        });
+    };
+
     return Object.freeze({
         documentId: document.id,
         languageKey,
         writingMode,
         pageBox,
+        next,
+    });
+}
+
+/**
+ * @param {object} document valid FlowDocument
+ * @param {object} options
+ * @param {object} options.pageBox explicit logical page geometry
+ * @param {(context: object) => {fits:boolean}} options.measurePage synchronous, deterministic, prefix-monotonic measurer
+ */
+export function paginateFlowDocument(document, options = {}) {
+    const iterator = createFlowPaginationIterator(document, options);
+    const pages = [];
+    while (true) {
+        const next = iterator.next();
+        if (next.done) break;
+        pages.push(next.value.page);
+    }
+    return Object.freeze({
+        documentId: document.id,
+        languageKey: iterator.languageKey,
+        writingMode: iterator.writingMode,
+        pageBox: iterator.pageBox,
         pages: Object.freeze(pages),
     });
 }

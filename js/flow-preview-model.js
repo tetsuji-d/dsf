@@ -22,6 +22,37 @@ function createParagraph(id, languageKey, text) {
     };
 }
 
+function tokenizeFlowPreviewBody(body, marker) {
+    return normalizeNewlines(body).split('\n').map((line) => (
+        line === marker
+            ? { type: 'pageBreak' }
+            : { type: 'paragraph', text: line }
+    ));
+}
+
+function getPreviewBlockText(block, languageKey) {
+    return block?.type === 'paragraph' && typeof block.texts?.[languageKey] === 'string'
+        ? block.texts[languageKey]
+        : '';
+}
+
+function tokenMatchesBlock(token, block, languageKey) {
+    return token.type === block?.type
+        && (token.type !== 'paragraph' || token.text === getPreviewBlockText(block, languageKey));
+}
+
+function freezePreviewBlock(block) {
+    if (block.type === 'paragraph') Object.freeze(block.texts);
+    return Object.freeze(block);
+}
+
+function freezePreviewSourceState(state) {
+    return Object.freeze({
+        ...state,
+        blocks: Object.freeze([...state.blocks]),
+    });
+}
+
 /**
  * Convert the preview textarea into semantic paragraph/pageBreak blocks.
  * Each entered line is one paragraph, including empty lines. The marker is a
@@ -30,13 +61,13 @@ function createParagraph(id, languageKey, text) {
 export function parseFlowPreviewBody(body, options = {}) {
     const languageKey = String(options.languageKey || 'ja');
     const marker = String(options.pageBreakMarker || FLOW_PREVIEW_PAGE_BREAK_MARKER);
-    const lines = normalizeNewlines(body).split('\n');
+    const tokens = tokenizeFlowPreviewBody(body, marker);
     const blocks = [];
     let paragraphIndex = 0;
     let pageBreakIndex = 0;
 
-    for (const line of lines) {
-        if (line === marker) {
+    for (const token of tokens) {
+        if (token.type === 'pageBreak') {
             pageBreakIndex += 1;
             blocks.push({
                 id: `flow_preview_page_break_${pageBreakIndex}`,
@@ -48,10 +79,128 @@ export function parseFlowPreviewBody(body, options = {}) {
         blocks.push(createParagraph(
             `flow_preview_paragraph_${paragraphIndex}`,
             languageKey,
-            line,
+            token.text,
         ));
     }
     return blocks;
+}
+
+/** Create an in-memory textarea source whose block IDs survive later edits. */
+export function createFlowPreviewSourceState(body, options = {}) {
+    const languageKey = String(options.languageKey || 'ja');
+    const marker = String(options.pageBreakMarker || FLOW_PREVIEW_PAGE_BREAK_MARKER);
+    const normalizedBody = normalizeNewlines(body);
+    const tokens = tokenizeFlowPreviewBody(normalizedBody, marker);
+    let nextParagraphOrdinal = 1;
+    let nextPageBreakOrdinal = 1;
+    const blocks = tokens.map((token) => {
+        if (token.type === 'pageBreak') {
+            const id = `flow_preview_page_break_${nextPageBreakOrdinal}`;
+            nextPageBreakOrdinal += 1;
+            return freezePreviewBlock({ id, type: 'pageBreak' });
+        }
+        const id = `flow_preview_paragraph_${nextParagraphOrdinal}`;
+        nextParagraphOrdinal += 1;
+        return freezePreviewBlock(createParagraph(id, languageKey, token.text));
+    });
+    return freezePreviewSourceState({
+        languageKey,
+        pageBreakMarker: marker,
+        body: normalizedBody,
+        blocks,
+        nextParagraphOrdinal,
+        nextPageBreakOrdinal,
+    });
+}
+
+/**
+ * Reconcile textarea lines while retaining semantic identity.
+ *
+ * Exact prefix/suffix blocks keep their objects. In the changed middle, blocks
+ * of the same type keep their IDs by position: editing keeps an ID, splitting
+ * keeps the left ID, and merging keeps the first ID. Only genuinely new or
+ * type-changed blocks receive a new ID.
+ */
+export function reconcileFlowPreviewSourceState(previousState, body, options = {}) {
+    if (!previousState || !Array.isArray(previousState.blocks)) {
+        return createFlowPreviewSourceState(body, options);
+    }
+    const languageKey = String(options.languageKey || previousState.languageKey || 'ja');
+    const marker = String(options.pageBreakMarker || previousState.pageBreakMarker || FLOW_PREVIEW_PAGE_BREAK_MARKER);
+    const normalizedBody = normalizeNewlines(body);
+    if (
+        previousState.languageKey === languageKey
+        && previousState.pageBreakMarker === marker
+        && previousState.body === normalizedBody
+    ) {
+        return previousState;
+    }
+
+    if (previousState.languageKey !== languageKey || previousState.pageBreakMarker !== marker) {
+        return createFlowPreviewSourceState(normalizedBody, { languageKey, pageBreakMarker: marker });
+    }
+
+    const tokens = tokenizeFlowPreviewBody(normalizedBody, marker);
+    const oldBlocks = previousState.blocks;
+    let prefixLength = 0;
+    while (
+        prefixLength < oldBlocks.length
+        && prefixLength < tokens.length
+        && tokenMatchesBlock(tokens[prefixLength], oldBlocks[prefixLength], languageKey)
+    ) {
+        prefixLength += 1;
+    }
+
+    let suffixLength = 0;
+    while (
+        suffixLength < oldBlocks.length - prefixLength
+        && suffixLength < tokens.length - prefixLength
+        && tokenMatchesBlock(
+            tokens[tokens.length - 1 - suffixLength],
+            oldBlocks[oldBlocks.length - 1 - suffixLength],
+            languageKey,
+        )
+    ) {
+        suffixLength += 1;
+    }
+
+    let nextParagraphOrdinal = Number(previousState.nextParagraphOrdinal) || 1;
+    let nextPageBreakOrdinal = Number(previousState.nextPageBreakOrdinal) || 1;
+    const allocateBlock = (token) => {
+        if (token.type === 'pageBreak') {
+            const id = `flow_preview_page_break_${nextPageBreakOrdinal}`;
+            nextPageBreakOrdinal += 1;
+            return freezePreviewBlock({ id, type: 'pageBreak' });
+        }
+        const id = `flow_preview_paragraph_${nextParagraphOrdinal}`;
+        nextParagraphOrdinal += 1;
+        return freezePreviewBlock(createParagraph(id, languageKey, token.text));
+    };
+    const updateBlock = (oldBlock, token) => {
+        if (!oldBlock || oldBlock.type !== token.type) return allocateBlock(token);
+        if (token.type === 'pageBreak') return oldBlock;
+        if (getPreviewBlockText(oldBlock, languageKey) === token.text) return oldBlock;
+        return freezePreviewBlock(createParagraph(oldBlock.id, languageKey, token.text));
+    };
+
+    const blocks = oldBlocks.slice(0, prefixLength);
+    const oldMiddleEnd = oldBlocks.length - suffixLength;
+    const newMiddleEnd = tokens.length - suffixLength;
+    const oldMiddle = oldBlocks.slice(prefixLength, oldMiddleEnd);
+    const newMiddle = tokens.slice(prefixLength, newMiddleEnd);
+    for (let index = 0; index < newMiddle.length; index += 1) {
+        blocks.push(updateBlock(oldMiddle[index], newMiddle[index]));
+    }
+    if (suffixLength > 0) blocks.push(...oldBlocks.slice(oldMiddleEnd));
+
+    return freezePreviewSourceState({
+        languageKey,
+        pageBreakMarker: marker,
+        body: normalizedBody,
+        blocks,
+        nextParagraphOrdinal,
+        nextPageBreakOrdinal,
+    });
 }
 
 export function countFlowPreviewSourceGraphemes(heading, body, languageKey = 'ja') {
@@ -63,6 +212,7 @@ export function countFlowPreviewSourceGraphemes(heading, body, languageKey = 'ja
 export function createFlowPreviewDocument(options = {}) {
     const languageKey = String(options.languageKey || 'ja');
     const heading = String(options.heading ?? '');
+    const sourceState = options.sourceState;
     const blocks = [];
     if (heading) {
         blocks.push({
@@ -72,10 +222,14 @@ export function createFlowPreviewDocument(options = {}) {
             texts: { [languageKey]: heading },
         });
     }
-    blocks.push(...parseFlowPreviewBody(options.body, {
-        languageKey,
-        pageBreakMarker: options.pageBreakMarker,
-    }));
+    if (sourceState && Array.isArray(sourceState.blocks) && sourceState.languageKey === languageKey) {
+        blocks.push(...sourceState.blocks);
+    } else {
+        blocks.push(...parseFlowPreviewBody(options.body, {
+            languageKey,
+            pageBreakMarker: options.pageBreakMarker,
+        }));
+    }
 
     return {
         schemaVersion: FLOW_DOCUMENT_SCHEMA_VERSION,
@@ -108,5 +262,8 @@ export function insertFlowPreviewPageBreak(value, selectionStart, selectionEnd, 
         value: nextValue,
         selectionStart: cursor,
         selectionEnd: cursor + (end - start),
+        selectionDirection: ['forward', 'backward'].includes(options.selectionDirection)
+            ? options.selectionDirection
+            : 'none',
     };
 }

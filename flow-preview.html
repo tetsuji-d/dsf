@@ -75,8 +75,9 @@
                     </div>
                 </div>
                 <p class="flow-preview-explainer">
-                    右のページはファイル出力ではなく、原稿から都度計算した一時表示です。本文を増減すると自動的に詰め直します。
-                    現段階は正確性確認のため全文を再計算し、100ページ級の増分最適化はまだ行いません。
+                    右のページはファイル出力ではなく、原稿から計算した一時表示です。本文を増減すると自動的に詰め直し、
+                    変更前のページと再一致した位置から後続ページを再利用します。初回生成と先頭から全体へ波及する編集では必要なページを再計算し、
+                    途中で新しい入力があれば古い計算を中止します。
                 </p>
                 <div id="flow-preview-error" class="flow-preview-error" role="alert" hidden></div>
                 <div id="flow-preview-pages" class="flow-preview-pages" data-testid="flow-pages"></div>

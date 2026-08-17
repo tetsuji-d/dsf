@@ -69,6 +69,10 @@ const insertedBeforeSelection = insertFlowPreviewPageBreak('重要本文を残�
 assert.equal(insertedBeforeSelection.value, `${FLOW_PREVIEW_PAGE_BREAK_MARKER}\n重要本文を残す`);
 assert.equal(insertedBeforeSelection.value.includes('重要本文'), true);
 assert.equal(insertedBeforeSelection.selectionEnd - insertedBeforeSelection.selectionStart, 4);
+const backwardSelection = insertFlowPreviewPageBreak('重要本文を残す', 0, 4, {
+    selectionDirection: 'backward',
+});
+assert.equal(backwardSelection.selectionDirection, 'backward');
 assert.equal(countFlowPreviewSourceGraphemes('章', '本文'), 3);
 
 const document = createFlowPreviewDocument({
