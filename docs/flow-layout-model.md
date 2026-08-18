@@ -1,17 +1,81 @@
-# Flow Layout Core Model（Commit 2）
+# Flow Layout Model
 
 ## Status
 
-Internal foundation only. Studio UI、`state`、Firestore、DSP/DSF export、Press、Viewerには未接続。
-この文書は保存スキーマの変更ではなく、接続前の純粋モデル契約を定義する。
+Commit 2〜5でFlowDocument、pagination、DOM preview、増分リフロー、縦書きpreviewを実装した。
+Commit 6AではFixedとFlowを同じ作品順へ配置する純粋なProject v6 authoring modelを追加した。
+
+Studio UI、`state`、Firestore、DSP/DSF export、Press、Viewerにはまだ未接続である。
+この文書は保存スキーマを有効化するものではなく、接続前の純粋モデル契約を定義する。
 
 ## 境界
 
-- Fixed Layoutの正本は従来どおり`state.blocks`。
-- Flow Layoutは独立した`FlowDocument`を正本とする。
+- 現行Fixed Layoutの正本は従来どおり`state.blocks`。
+- Project v6では、順序付き`blocks[]`を作品のauthoring spineとし、既存Fixed Blockと`kind:'flow'`のFlow Groupを混在できる。
+- Flow本文の正本はFlow Group内の独立した`FlowDocument`とする。
 - Flow内の`sections[].blocks[]`は`type`を使い、既存Blockの`kind`と混在させない。
 - ページは編集データではなく、FlowDocumentから毎回導出する一時結果。
 - 配信時は導出ページをStudio／Press側でWebP化し、Viewerは既存の画像ページを読む方針を維持する。
+
+## Project v6 authoring spine（Commit 6A）
+
+Project v6の`blocks[]`は、FixedページとFlow原稿の作品内順序を保持する。プロジェクト全体を
+`layoutType:'fixed'|'flow'`で排他的に分類しない。
+
+```json
+{
+  "version": 6,
+  "blocks": [
+    {
+      "id": "fixed_page_before",
+      "kind": "page",
+      "content": {}
+    },
+    {
+      "id": "flow_group_story",
+      "kind": "flow",
+      "flow": {
+        "document": {
+          "schemaVersion": 1,
+          "layoutType": "flow",
+          "id": "flow_document_story",
+          "sourceLanguage": "ja",
+          "sections": []
+        },
+        "layout": {
+          "schemaVersion": 1,
+          "pagePreset": "dsf-canonical",
+          "padding": { "top": 20, "right": 20, "bottom": 20, "left": 20 },
+          "typographyByLanguage": {
+            "ja": { "writingMode": "vertical-rl" }
+          }
+        }
+      }
+    },
+    {
+      "id": "fixed_page_after",
+      "kind": "page",
+      "content": {}
+    }
+  ]
+}
+```
+
+バージョンは用途ごとに分離する。
+
+- Project authoring schema: v6
+- Fixed generated/output Page schema: v5（変更なし）
+- FlowDocument schema: v1
+- FlowLayout schema: v1
+- 配信DSF schema: v1（変更なし）
+
+Project v6 normalizerは既存Fixed Blockをopaqueなauthoring dataとしてdeep cloneし、Flow Groupだけを
+識別する。既存`blocks[]`がないlegacy Fixed v5入力だけは`normalizeProjectDataV5()`でcanonical blocksへ
+移行するが、Flowを含むmixed spine全体をV5 adapterへ渡さない。`ensurePageBlocks()`や`blocksToPages()`へ
+Flowを接続せず、Flow-only作品へ既定Fixedページを追加せず、Fixed／Flowの相対順序を変更しない。
+
+Project v6のFlow Groupに`status`は置かない。authoring spineに存在すること自体を原稿へ接続中とみなし、
+将来の「固定レイアウトとして複製」は元Flowプロジェクトを残した別プロジェクトとして扱う。
 
 ## Semantic source
 
@@ -116,6 +180,27 @@ measurerは同じ入力に同じ結果を返し、短いprefixが収まればそ
 - Press／Viewer／翻訳provider／graphic layers
 
 保存統合を行うCommitでは、`docs/data-model.md`と`docs/file-format-spec.md`を更新し、schema migrationと後方互換を別途合意する。
+
+## Project v6 normalization invariants（Commit 6A）
+
+- 入力objectを変更せず、出力との参照を共有しない。
+- Fixed／Flowの順序、ID、言語キー、空白、未知fieldを保持する。
+- 既存Fixed Blockの内部形状へ新しいstrict validationを課さない。ただしspineの外側`id`と`kind`は全Blockで必須とする。
+- 未知のtop-level Block kindと未知のFlow semantic Blockは保持するが、validationで停止する。
+- 不正または欠落したFlowDocumentを空原稿やFixedページへ置換しない。
+- Project v6で`blocks[]`が空なのにlegacy `sections[]`／`pages[]`だけに内容が残る状態は停止する。
+- `pages`、`generatedPages`、`fragments`、pagination cacheをFlow Groupへ保存しない。
+- normalization中にpaginationを実行しない。
+- Project v7以降、FlowDocument v2以降、FlowLayout v2以降をv6／v1へ丸めない。
+
+Commit 6Aの対象外:
+
+- `state.js`、Undo／Redo、Studio UI
+- ローカル保存、Firestore、DSP import/export
+- runtime page projection、通しページ番号、サムネイル
+- Press、DSF、Viewer、多言語Flow発行
+- Flow生成ページ上のgraphic layers
+- 「固定レイアウトとして複製」
 
 ## DOM preview boundary（Commit 3）
 

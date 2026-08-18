@@ -27,6 +27,9 @@
     *   画像は閲覧に最適なサイズと品質（WebP等の高圧縮フォーマット）に **事前リサイズ・最適化・切り抜き済み** のもののみを収録する。
     *   ビューアが即座にパースして描画開始できるように、不要なリレーション階層（Sections と Blocks の関係など）をフラット化して軽量化する。
 
+Flow LayoutはStudio／DSP側のauthoring方式であり、配信DSFをリフロー形式へ変更しない。将来Flow原稿を
+発行する場合も、Pressで固定WebPページへ描画し、Viewerは従来どおり画像ページを読む。
+
 ---
 
 ## 2. ZIPコンテナ構造とポータビリティ
@@ -104,6 +107,10 @@ filename.dsf / filename.dsp
 ### `project.json` (DSP ファイル専用)
 現在の `state.js` が保持しているデータをシリアライズした完全なダンプ。
 
+> **Project v6 Flow注記（Commit 6A）**: Fixed Blockと`kind:'flow'`を混在させる純粋authoring modelは
+> 定義済みだが、この時点ではDSP serialization／importへ未接続である。下記は引き続き現行v5の保存仕様であり、
+> `project.json.version = 6`、Flow Group、DSP `meta.json.schemaVersion`の更新はCommit 6Bで扱う。
+
 ```json
 {
   "projectId": "local_abc123",
@@ -159,6 +166,6 @@ filename.dsf / filename.dsp
 ## 4. 将来拡張（上位・下位互換性）の考え方
 Excel（`.xlsx`）が Ooxml ベースで新機能（新しいグラフ、新しい関数のセルなど）を追加し続けても、極端に古いExcelで開くと「未定義の要素」として単に無視（またはフォールバック）されるように、以下のアプローチをとります。
 
-1.  **JSONキーの無視原則**: ビューア / エディタは、自分が知らない JSON キーを見つけた場合、エラーで停止するのではなく、単にスキップ・無視する設計とする。
+1.  **未知データの扱い**: 表示に影響しない未知metadataは無視できる。一方、authoring内容や順序に影響する未知Blockはround-tripのため保持し、対応できないEditorは編集保存を停止する。未知のFlow semantic Blockも保持したうえでvalidation／paginationを停止し、本文を黙って欠落させない。
 2.  **`fallback` プロパティの推奨**: 新しい機能（例：動画背景 `type: "video"`）を追加した場合、ビューアが非対応なら代替表示ができるよう、`fallback_image` のようなプロパティを標準化する。
 3.  **`schemaVersion` によるマイグレーション**: スキーマが根本的に変わる場合（例：旧来は配列だったものがオブジェクトのMapになる等）は、`schemaVersion` をインクリメントし、アプリ側で旧データを新データ構造にオンザフライで変換するマイグレーション関数を通してから読み込む (`syncModelsFromLegacy` 関数などの拡張)。

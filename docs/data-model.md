@@ -236,6 +236,59 @@ Storage/R2 側に空フォルダを作るのではなく、namespace をここ�
 }
 ```
 
+#### Project v6 authoring contract（Commit 6A、永続化未接続）
+
+Project v6では`blocks[]`を順序付きauthoring spineとし、既存Fixed BlockとFlow Groupを同じ作品内で
+混在できる。プロジェクトルートを`layoutType:'fixed'|'flow'`で排他的に分けない。
+
+```json
+{
+  "version": 6,
+  "blocks": [
+    { "id": "fixed_page_a", "kind": "page", "content": {} },
+    {
+      "id": "flow_group_story",
+      "kind": "flow",
+      "flow": {
+        "document": {
+          "schemaVersion": 1,
+          "layoutType": "flow",
+          "id": "flow_document_story",
+          "sourceLanguage": "ja",
+          "sections": []
+        },
+        "layout": {
+          "schemaVersion": 1,
+          "pagePreset": "dsf-canonical",
+          "padding": { "top": 20, "right": 20, "bottom": 20, "left": 20 },
+          "typographyByLanguage": {
+            "ja": { "writingMode": "vertical-rl" }
+          }
+        }
+      }
+    },
+    { "id": "fixed_page_b", "kind": "page", "content": {} }
+  ]
+}
+```
+
+所有関係:
+
+- Fixed Blockは従来の固定編集データを所有する。
+- Flow Groupの`flow.document`がsemantic sourceを所有する。
+- `flow.layout`はDSF標準ページpreset、padding、言語別Typographyを所有する。
+- Flow生成ページ、fragment、pagination cacheはruntime派生値であり、Project v6へ保存しない。
+- Flow生成ページはPage v5ではなく、永続IDを持たない。
+- Flow本文を廃止予定のFixed `content.text`／`content.richText`へ複製しない。
+- Flow Groupに`status`は置かず、spine内に存在すること自体を原稿へ接続中とみなす。
+
+バージョン境界はProject v6、Page v5、FlowDocument v1、FlowLayout v1とする。Commit 6Aは純粋モデルのみで、
+Firestore、DSP、`state.blocks`の実行時経路にはまだ接続されていない。現行保存は引き続き上記の
+`users/{uid}/projects/{pid}` v5契約で動作する。
+
+Project v6 normalizerはFixed Blockをopaqueに保持する。未知のauthoring Blockや未知のFlow semantic Blockは
+round-tripのため保持するが、対応できない内容を黙って欠落させないようvalidationで編集・paginationを停止する。
+
 #### Page Object v5（`state.pages` の各要素）— **派生 / 出力スキーマ**
 
 ```json
@@ -734,12 +787,23 @@ state.pages    ← viewer/export surface（v5 Page Object の配列）
 - `state.sections` / `state.pages` は互換面として再生成可能であることを優先する
 - 現行 editor 実装では `sections` から編集が入る経路が残るが、保存前には必ず `blocks` へ再同期する
 
+Project v6純粋モデル（Commit 6A、未接続）:
+
+```
+ProjectV6.blocks[]
+    ├─ Fixed Block ─────────────→ 既存Page v5 projection
+    └─ kind:'flow' Flow Group ─→ FlowDocument ─→ runtime generated pages
+```
+
+Flow生成ページは`state.blocks`、`state.sections`、`state.pages`のいずれにも書き戻さない。
+
 ---
 
 ## 変更履歴
 
 | 日付 | 変更内容 |
 |------|---------|
+| 2026-08-18 | Project v6の純粋authoring contractを追加。Fixed BlockとFlow Groupの混在、FlowDocument／FlowLayoutの所有境界、生成ページ非永続化を定義（保存経路は未接続） |
 | 2026-02-25 | 全面改訂: `works` → `users/{uid}/projects/{pid}` に修正、v5 Page スキーマ追加、AR フィールド追加、Security Rules を実態に更新 |
 | 2026-03-25 | DSF Gen 3 方針確定: WebP 画像のみ。`ar`・`richText`・`layout`・`text` 系フィールドを廃止予定に明記 |
 | 2026-04-25 | `users/{uid}` をユーザー正本として追加。Google 初回ログイン時のブートストラップ仕様と self read/write ルールを明文化 |
