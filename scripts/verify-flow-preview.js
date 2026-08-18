@@ -105,13 +105,61 @@ assert.equal(typography.fontSize, 16);
 assert.equal(typography.lineHeight, 1.8);
 assert.equal(typography.paragraphSpacing, 12);
 assert.equal(assertFlowDomWritingMode(), 'horizontal-tb');
+assert.equal(assertFlowDomWritingMode('vertical-rl', 'ja'), 'vertical-rl');
+assert.equal(assertFlowDomWritingMode('vertical-rl', 'zh-Hant'), 'vertical-rl');
 assert.throws(
-    () => assertFlowDomWritingMode('vertical-rl'),
+    () => assertFlowDomWritingMode('vertical-rl', 'en'),
     (error) => error instanceof FlowDomMeasurementError && error.code === 'UNSUPPORTED_WRITING_MODE',
 );
+assert.throws(
+    () => assertFlowDomWritingMode('vertical-rl', 'zh-Hans'),
+    (error) => error instanceof FlowDomMeasurementError && error.code === 'UNSUPPORTED_WRITING_MODE',
+);
+assert.throws(
+    () => assertFlowDomWritingMode('vertical-rl', 'ko'),
+    (error) => error instanceof FlowDomMeasurementError && error.code === 'UNSUPPORTED_WRITING_MODE',
+);
+assert.throws(
+    () => assertFlowDomWritingMode('sideways-rl', 'ja'),
+    (error) => error instanceof FlowDomMeasurementError && error.code === 'UNSUPPORTED_WRITING_MODE',
+);
+const verticalTypography = resolveFlowDomTypography('ja', {}, 'vertical-rl');
+assert.equal(verticalTypography.writingMode, 'vertical-rl');
+assert.equal(verticalTypography.fontSize, typography.fontSize);
+assert.equal(verticalTypography.lineBreak, 'strict');
 assert.throws(
     () => resolveFlowDomTypography('ja', { fontSize: 0 }),
     (error) => error instanceof FlowDomMeasurementError && error.code === 'INVALID_TYPOGRAPHY',
 );
+
+const verticalDocument = createFlowPreviewDocument({
+    heading: '縦書き',
+    body: `一二三四五六七八九十\n\n結合文字e\u0301と絵文字👨‍👩‍👧‍👦`,
+});
+let verticalMeasureCalls = 0;
+const verticalPages = paginateFlowDocument(verticalDocument, {
+    pageBox,
+    writingMode: 'vertical-rl',
+    measurePage: ({ fragments, writingMode }) => {
+        verticalMeasureCalls += 1;
+        assert.equal(writingMode, 'vertical-rl');
+        return {
+            fits: fragments.reduce((total, fragment) => (
+                total + Math.max(1, countGraphemes(fragment.text, fragment.languageKey))
+            ), 0) <= 8,
+        };
+    },
+});
+assert.ok(verticalPages.pages.length > 1);
+assert.ok(verticalMeasureCalls > 0);
+const verticalFragments = verticalPages.pages.flatMap((page) => page.fragments);
+for (const block of verticalDocument.sections[0].blocks) {
+    if (block.type !== 'heading' && block.type !== 'paragraph') continue;
+    const reconstructed = verticalFragments
+        .filter((fragment) => fragment.blockId === block.id)
+        .map((fragment) => fragment.text)
+        .join('');
+    assert.equal(reconstructed, block.texts.ja);
+}
 
 console.log('Flow DOM preview contract verification passed.');

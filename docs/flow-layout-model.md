@@ -154,3 +154,18 @@ measurerは同じ入力に同じ結果を返し、短いprefixが収まればそ
 - 長大Paragraphの探索は残り全文を毎回候補にせず、有界probeから最大適合prefixを探索する。
 
 この単位もStudio state、Undo/Redo、保存、翻訳provider、Press、Viewerへは未接続である。Studio統合前に、Flow sourceと生成固定ページの所有関係および保存schemaを別途合意する。
+
+## Vertical writing preview boundary（Commit 5 candidate）
+
+Flow DOM previewは、日本語原稿について`horizontal-tb`と`vertical-rl`を切り替え、同じsemantic sourceを再ページ化できる。
+
+- 原稿入力欄は横向きの連続textareaのままとし、生成ページの組版方向だけを切り替える。
+- 縦書きは`writing-mode: vertical-rl`、`text-orientation: mixed`を用い、文字は上から下、列は右から左へ進む。
+- 計測DOMと可視ページは同じwriting mode、Typography、fragment rendererを使う。
+- 空Paragraphは物理的な高さではなく論理block sizeを持ち、縦書きでは空の一列として扱う。
+- 組版方向の切替時は進行中のreflowを中止し、DOM計測cacheとpagination checkpointを破棄して全文再計算する。
+- 現在の縦書き対象は、日本語とFlow typography profileが許可する繁体字中国語である。英語、簡体字中国語、韓国語の縦書きは未対応として停止する。
+- 縦中横、ルビ、圏点、割注、行頭・行末禁則の完全実装はこの単位に含めない。
+- FlowDocument、生成fragment、source range、manual pageBreakの意味は横書きと共通である。
+
+この単位も独立preview内のruntime検証に限る。Studio state、DSP／DSF保存、Fixed Layout、翻訳provider、Press、Viewerの表示方向には接続しない。

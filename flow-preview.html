@@ -15,7 +15,8 @@
 </head>
 
 <body>
-    <div id="flow-preview-app" class="flow-preview-app" data-reflow-state="working">
+    <div id="flow-preview-app" class="flow-preview-app" data-reflow-state="working"
+        data-writing-mode="horizontal-tb">
         <header class="flow-preview-header">
             <div>
                 <p class="flow-preview-kicker">DSF Studio / Experimental</p>
@@ -41,6 +42,22 @@
                         autocomplete="off">
                 </label>
 
+                <fieldset class="flow-preview-writing-mode">
+                    <legend>組版方向</legend>
+                    <div class="flow-preview-writing-mode-options">
+                        <label>
+                            <input data-testid="flow-writing-horizontal" type="radio"
+                                name="flow-preview-writing-mode" value="horizontal-tb" checked>
+                            <span>横書き</span>
+                        </label>
+                        <label>
+                            <input data-testid="flow-writing-vertical" type="radio"
+                                name="flow-preview-writing-mode" value="vertical-rl">
+                            <span>縦書き</span>
+                        </label>
+                    </div>
+                </fieldset>
+
                 <label class="flow-preview-field flow-preview-field--body">
                     <span>本文 <small>paragraph</small></span>
                     <textarea id="flow-preview-body" data-testid="flow-editor" spellcheck="true">冬の金沢は静かだった。
@@ -58,7 +75,7 @@
 
                 <dl class="flow-preview-source-stats">
                     <div><dt>文字数</dt><dd id="flow-preview-char-count">0</dd></div>
-                    <div><dt>組版</dt><dd>横書き / 16px / 行高1.8</dd></div>
+                    <div><dt>組版</dt><dd id="flow-preview-typography-summary">横書き / 16px / 行高1.8</dd></div>
                     <div><dt>版面</dt><dd>360×640 / 余白20</dd></div>
                 </dl>
             </section>
@@ -76,7 +93,7 @@
                 </div>
                 <p class="flow-preview-explainer">
                     右のページはファイル出力ではなく、原稿から計算した一時表示です。本文を増減すると自動的に詰め直し、
-                    変更前のページと再一致した位置から後続ページを再利用します。初回生成と先頭から全体へ波及する編集では必要なページを再計算し、
+                    横書きと縦書きを切り替えられます。変更前のページと再一致した位置から後続ページを再利用し、初回生成と先頭から全体へ波及する編集では必要なページを再計算して、
                     途中で新しい入力があれば古い計算を中止します。
                 </p>
                 <div id="flow-preview-error" class="flow-preview-error" role="alert" hidden></div>

@@ -183,6 +183,67 @@ textarea {
     font-weight: 700;
 }
 
+.flow-preview-writing-mode {
+    margin: 0 0 16px;
+    padding: 0;
+    border: 0;
+}
+
+.flow-preview-writing-mode legend {
+    margin-bottom: 7px;
+    color: #3d4760;
+    font-size: 12px;
+    font-weight: 700;
+}
+
+.flow-preview-writing-mode-options {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 6px;
+    padding: 4px;
+    border: 1px solid var(--flow-line);
+    border-radius: 10px;
+    background: #f6f8fc;
+}
+
+.flow-preview-writing-mode-options label {
+    position: relative;
+    cursor: pointer;
+}
+
+.flow-preview-writing-mode-options input {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    clip-path: inset(50%);
+    white-space: nowrap;
+}
+
+.flow-preview-writing-mode-options span {
+    display: block;
+    padding: 8px 10px;
+    border-radius: 7px;
+    color: var(--flow-muted);
+    font-size: 12px;
+    font-weight: 700;
+    text-align: center;
+    transition: background-color 0.15s, box-shadow 0.15s, color 0.15s;
+}
+
+.flow-preview-writing-mode-options input:checked + span {
+    background: #fff;
+    box-shadow: 0 1px 4px rgba(37, 48, 78, 0.14);
+    color: var(--flow-accent);
+}
+
+.flow-preview-writing-mode-options input:focus-visible + span {
+    outline: 3px solid rgba(49, 94, 251, 0.2);
+    outline-offset: 1px;
+}
+
 .flow-preview-field--body {
     flex: 1 1 auto;
     min-height: 0;

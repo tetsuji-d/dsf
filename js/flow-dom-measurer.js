@@ -1,18 +1,23 @@
 /**
  * Browser DOM measurement and rendering adapter for Flow Layout.
  *
- * Commit 3 deliberately supports horizontal-tb only. The same fragment
- * renderer is used for measurement and visible preview pages so pagination
- * boundaries cannot drift because of duplicate markup.
+ * The same fragment renderer is used for measurement and visible preview
+ * pages in horizontal-tb and vertical-rl so pagination boundaries cannot
+ * drift because of duplicate markup.
  */
 
 import { normalizeFlowPageBox } from './flow-pagination.js';
-import { getFlowTypographyProfile } from './flow-typography.js';
+import {
+    getFlowTypographyProfile,
+    isFlowWritingModeSupported,
+} from './flow-typography.js';
 
 export const FLOW_DOM_SUPPORTED_WRITING_MODE = 'horizontal-tb';
-export const FLOW_DOM_RENDERER_VERSION = 2;
+export const FLOW_DOM_SUPPORTED_WRITING_MODES = Object.freeze(['horizontal-tb', 'vertical-rl']);
+export const FLOW_DOM_RENDERER_VERSION = 3;
 
 const DEFAULT_MEASUREMENT_CACHE_SIZE = 2048;
+const FLOW_DOM_BOUNDS_EPSILON_PX = 0.5;
 
 const DEFAULT_FONT_FAMILIES = Object.freeze({
     cjk: "'Noto Sans JP','Noto Sans CJK JP','Hiragino Sans','Yu Gothic UI',sans-serif",
@@ -49,20 +54,28 @@ function requireFiniteNumber(value, fallback, path, options = {}) {
     return number;
 }
 
-export function assertFlowDomWritingMode(writingMode) {
+export function assertFlowDomWritingMode(writingMode, languageKey = 'ja') {
     const mode = String(writingMode || FLOW_DOM_SUPPORTED_WRITING_MODE);
-    if (mode !== FLOW_DOM_SUPPORTED_WRITING_MODE) {
+    if (
+        !FLOW_DOM_SUPPORTED_WRITING_MODES.includes(mode)
+        || !isFlowWritingModeSupported(languageKey, mode)
+    ) {
         throw new FlowDomMeasurementError(
             'UNSUPPORTED_WRITING_MODE',
-            `DOM Flow preview currently supports only ${FLOW_DOM_SUPPORTED_WRITING_MODE}.`,
-            { writingMode: mode },
+            `DOM Flow preview does not support ${mode} for ${languageKey}.`,
+            { writingMode: mode, languageKey },
         );
     }
     return mode;
 }
 
-export function resolveFlowDomTypography(languageKey = 'ja', overrides = {}) {
-    const profile = getFlowTypographyProfile(languageKey, FLOW_DOM_SUPPORTED_WRITING_MODE);
+export function resolveFlowDomTypography(
+    languageKey = 'ja',
+    overrides = {},
+    writingMode = FLOW_DOM_SUPPORTED_WRITING_MODE,
+) {
+    const mode = assertFlowDomWritingMode(writingMode, languageKey);
+    const profile = getFlowTypographyProfile(languageKey, mode);
     const cjk = ['jpan', 'hans', 'hant', 'kore'].includes(profile.script);
     const textAlign = String(overrides.textAlign || 'start');
     if (!['start', 'center', 'end', 'justify'].includes(textAlign)) {
@@ -72,6 +85,7 @@ export function resolveFlowDomTypography(languageKey = 'ja', overrides = {}) {
         });
     }
     return Object.freeze({
+        writingMode: mode,
         fontFamily: String(overrides.fontFamily || (cjk ? DEFAULT_FONT_FAMILIES.cjk : DEFAULT_FONT_FAMILIES.latin)),
         fontSize: requireFiniteNumber(overrides.fontSize, 16, 'fontSize', { positive: true }),
         fontWeight: String(overrides.fontWeight ?? '400'),
@@ -109,6 +123,9 @@ function setContentStyles(contentElement, pageBox, typography, languageKey, writ
         overflow: 'hidden',
         display: 'flow-root',
         writingMode,
+        textOrientation: writingMode === 'vertical-rl' ? 'mixed' : '',
+        direction: writingMode === 'vertical-rl' ? 'ltr' : '',
+        fontFeatureSettings: writingMode === 'vertical-rl' ? '"vert" 1, "vkna" 1' : 'normal',
         fontFamily: typography.fontFamily,
         fontSize: `${typography.fontSize}px`,
         fontWeight: typography.fontWeight,
@@ -120,13 +137,13 @@ function setContentStyles(contentElement, pageBox, typography, languageKey, writ
         overflowWrap: 'anywhere',
         wordBreak: 'normal',
         lineBreak: typography.lineBreak,
-        hyphens: 'auto',
+        hyphens: writingMode === 'vertical-rl' ? 'none' : 'auto',
         textRendering: 'optimizeLegibility',
     });
     contentElement.lang = String(languageKey || 'ja');
 }
 
-function createFragmentElement(ownerDocument, fragment, typography) {
+function createFragmentElement(ownerDocument, fragment, typography, writingMode) {
     const element = ownerDocument.createElement(fragment.blockType === 'heading' ? 'h2' : 'p');
     element.className = `flow-dom-block flow-dom-block--${fragment.blockType}`;
     element.dataset.flowBlockId = fragment.blockId;
@@ -139,18 +156,20 @@ function createFragmentElement(ownerDocument, fragment, typography) {
     const headingLevel = Math.max(1, Math.min(6, Number(fragment.headingLevel) || 1));
     const fontScale = isHeading ? HEADING_SCALES[headingLevel] : 1;
     const spacing = isHeading ? typography.headingSpacing : typography.paragraphSpacing;
+    const fontSize = typography.fontSize * fontScale;
+    const lineHeight = isHeading ? Math.max(1.35, typography.lineHeight - 0.15) : typography.lineHeight;
     Object.assign(element.style, {
         display: 'block',
         margin: '0',
         border: '0',
         padding: '0',
         paddingBlockEnd: fragment.isBlockEnd ? `${spacing}px` : '0px',
-        minHeight: `${typography.fontSize * typography.lineHeight}px`,
+        minBlockSize: `${fontSize * lineHeight}px`,
         font: 'inherit',
         fontFamily: 'inherit',
-        fontSize: `${typography.fontSize * fontScale}px`,
+        fontSize: `${fontSize}px`,
         fontWeight: isHeading ? '700' : typography.fontWeight,
-        lineHeight: isHeading ? String(Math.max(1.35, typography.lineHeight - 0.15)) : String(typography.lineHeight),
+        lineHeight: String(lineHeight),
         letterSpacing: 'inherit',
         textAlign: 'inherit',
         color: 'inherit',
@@ -158,7 +177,7 @@ function createFragmentElement(ownerDocument, fragment, typography) {
         overflowWrap: 'anywhere',
         wordBreak: 'normal',
         lineBreak: typography.lineBreak,
-        hyphens: 'auto',
+        hyphens: writingMode === 'vertical-rl' ? 'none' : 'auto',
     });
     if (fragment.text) {
         element.textContent = fragment.text;
@@ -217,17 +236,22 @@ export function renderFlowFragments(contentElement, options = {}) {
     if (!contentElement?.ownerDocument) {
         throw new FlowDomMeasurementError('DOM_REQUIRED', 'A DOM content element is required.');
     }
-    const writingMode = assertFlowDomWritingMode(options.writingMode);
     const pageBox = normalizeFlowPageBox(options.pageBox);
     const languageKey = String(options.languageKey || 'ja');
-    const typography = resolveFlowDomTypography(languageKey, options.typography);
+    const writingMode = assertFlowDomWritingMode(options.writingMode, languageKey);
+    const typography = resolveFlowDomTypography(languageKey, options.typography, writingMode);
     const fragments = Array.isArray(options.fragments) ? options.fragments : [];
 
     contentElement.replaceChildren();
     contentElement.className = 'flow-dom-content';
     setContentStyles(contentElement, pageBox, typography, languageKey, writingMode);
     for (const fragment of fragments) {
-        contentElement.appendChild(createFragmentElement(contentElement.ownerDocument, fragment, typography));
+        contentElement.appendChild(createFragmentElement(
+            contentElement.ownerDocument,
+            fragment,
+            typography,
+            writingMode,
+        ));
     }
     return { pageBox, typography };
 }
@@ -239,7 +263,8 @@ export function renderFlowGeneratedPage(pageElement, options = {}) {
     }
     const pageBox = normalizeFlowPageBox(options.pageBox);
     const languageKey = String(options.languageKey || 'ja');
-    const typography = resolveFlowDomTypography(languageKey, options.typography);
+    const writingMode = assertFlowDomWritingMode(options.writingMode, languageKey);
+    const typography = resolveFlowDomTypography(languageKey, options.typography, writingMode);
     setPageStyles(pageElement, pageBox, typography);
     pageElement.replaceChildren();
     const contentElement = pageElement.ownerDocument.createElement('div');
@@ -248,7 +273,7 @@ export function renderFlowGeneratedPage(pageElement, options = {}) {
         fragments: options.page?.fragments,
         pageBox,
         languageKey,
-        writingMode: options.writingMode,
+        writingMode,
         typography,
     });
     return contentElement;
@@ -261,7 +286,8 @@ export function createFlowDomPageMeasurer(options = {}) {
         throw new FlowDomMeasurementError('DOM_REQUIRED', 'A document with body is required.');
     }
     const languageKey = String(options.languageKey || 'ja');
-    const typography = resolveFlowDomTypography(languageKey, options.typography);
+    const writingMode = assertFlowDomWritingMode(options.writingMode, languageKey);
+    const typography = resolveFlowDomTypography(languageKey, options.typography, writingMode);
     const maxCacheEntries = normalizeCacheSize(options.maxCacheEntries);
     const measurementCache = new Map();
     let layoutEpoch = 0;
@@ -289,12 +315,32 @@ export function createFlowDomPageMeasurer(options = {}) {
     const measurePage = (context = {}) => {
         totalCalls += 1;
         const pageBox = normalizeFlowPageBox(context.pageBox);
-        const writingMode = assertFlowDomWritingMode(context.writingMode);
         const resolvedLanguageKey = String(context.languageKey || languageKey);
+        const resolvedWritingMode = assertFlowDomWritingMode(context.writingMode, resolvedLanguageKey);
+        if (resolvedLanguageKey !== languageKey) {
+            throw new FlowDomMeasurementError(
+                'MEASURER_LANGUAGE_MISMATCH',
+                'Flow DOM measurer language is fixed for one runtime.',
+                {
+                    expectedLanguageKey: languageKey,
+                    actualLanguageKey: resolvedLanguageKey,
+                },
+            );
+        }
+        if (resolvedWritingMode !== writingMode) {
+            throw new FlowDomMeasurementError(
+                'WRITING_MODE_MISMATCH',
+                'Flow DOM measurer writing mode is fixed for one runtime.',
+                {
+                    expectedWritingMode: writingMode,
+                    actualWritingMode: resolvedWritingMode,
+                },
+            );
+        }
         const cacheKey = createMeasurementCacheKey(
             context,
             pageBox,
-            writingMode,
+            resolvedWritingMode,
             resolvedLanguageKey,
             typography,
             layoutEpoch,
@@ -316,19 +362,30 @@ export function createFlowDomPageMeasurer(options = {}) {
             fragments: context.fragments,
             pageBox,
             languageKey: resolvedLanguageKey,
-            writingMode,
+            writingMode: resolvedWritingMode,
             typography,
         });
         const scrollWidth = contentElement.scrollWidth;
         const scrollHeight = contentElement.scrollHeight;
         const clientWidth = contentElement.clientWidth;
         const clientHeight = contentElement.clientHeight;
+        const contentRect = contentElement.getBoundingClientRect();
+        const boundsOverflow = Array.from(contentElement.children).some((child) => {
+            const childRect = child.getBoundingClientRect();
+            return childRect.left < contentRect.left - FLOW_DOM_BOUNDS_EPSILON_PX
+                || childRect.right > contentRect.right + FLOW_DOM_BOUNDS_EPSILON_PX
+                || childRect.top < contentRect.top - FLOW_DOM_BOUNDS_EPSILON_PX
+                || childRect.bottom > contentRect.bottom + FLOW_DOM_BOUNDS_EPSILON_PX;
+        });
         const result = Object.freeze({
-            fits: scrollWidth <= clientWidth && scrollHeight <= clientHeight,
+            fits: scrollWidth <= clientWidth
+                && scrollHeight <= clientHeight
+                && !boundsOverflow,
             scrollWidth,
             scrollHeight,
             clientWidth,
             clientHeight,
+            boundsOverflow,
         });
         if (maxCacheEntries > 0) {
             measurementCache.set(cacheKey, result);
@@ -342,6 +399,7 @@ export function createFlowDomPageMeasurer(options = {}) {
     return Object.freeze({
         measurePage,
         typography,
+        writingMode,
         element: host,
         invalidate() {
             layoutEpoch += 1;
@@ -353,6 +411,7 @@ export function createFlowDomPageMeasurer(options = {}) {
                 FLOW_DOM_RENDERER_VERSION,
                 layoutEpoch,
                 languageKey,
+                writingMode,
                 typography,
             ]);
         },
@@ -378,10 +437,15 @@ export function createFlowDomPageMeasurer(options = {}) {
 }
 
 /** Wait for the browser's selected font metrics before the first pagination. */
-export async function waitForFlowFonts(ownerDocument, typography) {
+export async function waitForFlowFonts(
+    ownerDocument,
+    typography,
+    writingMode = FLOW_DOM_SUPPORTED_WRITING_MODE,
+    languageKey = 'ja',
+) {
     const fonts = ownerDocument?.fonts;
     if (!fonts) return;
-    const resolved = resolveFlowDomTypography('ja', typography);
+    const resolved = resolveFlowDomTypography(languageKey, typography, writingMode);
     try {
         await fonts.ready;
         await Promise.all([

@@ -15,8 +15,9 @@ import {
 
 const pageBox = createCanonicalFlowPageBox();
 
-function createCapacityMeasurer(capacity, metrics = null) {
-    return ({ fragments }) => {
+function createCapacityMeasurer(capacity, metrics = null, expectedWritingMode = null) {
+    return ({ fragments, writingMode }) => {
+        if (expectedWritingMode) assert.equal(writingMode, expectedWritingMode);
         const used = fragments.reduce((total, fragment) => (
             total + Math.max(1, countGraphemes(fragment.text, fragment.languageKey))
         ), 0);
@@ -50,12 +51,12 @@ function pageBreak(id) {
     return { id, type: 'pageBreak' };
 }
 
-function assertMatchesCold(session, document, measurePage) {
+function assertMatchesCold(session, document, measurePage, writingMode = 'horizontal-tb') {
     const incremental = session.paginate(document);
     const cold = paginateFlowDocument(document, {
         pageBox,
         languageKey: 'ja',
-        writingMode: 'horizontal-tb',
+        writingMode,
         measurePage,
     });
     assert.deepEqual(incremental.pagination, cold);
@@ -146,6 +147,31 @@ assertMatchesCold(session, consecutiveBreaks, measurePage);
 const prepended = structuredClone(consecutiveBreaks);
 prepended.sections[0].blocks.unshift(paragraph('p-new', '先頭追加'));
 assertMatchesCold(session, prepended, measurePage);
+
+// Vertical writing uses the same source/checkpoint invariants and remains cold-equivalent.
+const verticalMeasure = createCapacityMeasurer(10, null, 'vertical-rl');
+const verticalSession = createIncrementalFlowPaginator({
+    pageBox,
+    languageKey: 'ja',
+    writingMode: 'vertical-rl',
+    measurePage: verticalMeasure,
+    measurementKey: 'vertical-capacity-10',
+    getPageVariantKey: () => 'uniform',
+});
+assert.equal(
+    assertMatchesCold(verticalSession, baseDocument, verticalMeasure, 'vertical-rl').changeSet.mode,
+    'full',
+);
+const verticalEdited = structuredClone(baseDocument);
+verticalEdited.sections[0].blocks.unshift(paragraph('vertical-prefix', '縦書き追加'));
+verticalEdited.sections[0].blocks[2].texts.ja += '編集';
+assert.equal(
+    assertMatchesCold(verticalSession, verticalEdited, verticalMeasure, 'vertical-rl').changeSet.mode,
+    'incremental',
+);
+const verticalBreakEdited = structuredClone(verticalEdited);
+verticalBreakEdited.sections[0].blocks.splice(4, 0, pageBreak('vertical-break'));
+assertMatchesCold(verticalSession, verticalBreakEdited, verticalMeasure, 'vertical-rl');
 
 // A large paragraph edited at the end reuses its unaffected prefix pages.
 const largeMeasure = createCapacityMeasurer(100);
@@ -267,37 +293,45 @@ variantMode = 'changed';
 assert.equal(variantSession.paginate(baseDocument).changeSet.mode, 'full');
 
 // Bounded probing avoids repeatedly measuring the entire remaining suffix.
-const probeMetrics = { calls: 0, candidateGraphemes: 0 };
 const probeDocument = createDocument([paragraph('p-probe', '長'.repeat(44_000))]);
-const probePages = paginateFlowDocument(probeDocument, {
-    pageBox,
-    languageKey: 'ja',
-    writingMode: 'horizontal-tb',
-    measurePage: createCapacityMeasurer(400, probeMetrics),
-});
-assert.equal(probePages.pages.length, 110);
-assert.ok(
-    probeMetrics.candidateGraphemes <= 100_000,
-    `candidate graphemes were ${probeMetrics.candidateGraphemes}`,
-);
-assert.ok(probeMetrics.calls <= 250, `measure calls were ${probeMetrics.calls}`);
-
-const distinctMetrics = { calls: 0, candidateGraphemes: 0 };
 const distinctBlocks = Array.from({ length: 400 }, (_, index) => paragraph(
     `distinct-${index}`,
     `${String(index).padStart(10, '0')}${'日'.repeat(90)}`,
 ));
-const distinctPages = paginateFlowDocument(createDocument(distinctBlocks), {
-    pageBox,
-    languageKey: 'ja',
-    writingMode: 'horizontal-tb',
-    measurePage: createCapacityMeasurer(400, distinctMetrics),
-});
-assert.equal(distinctPages.pages.length, 100);
-assert.ok(distinctMetrics.calls <= 650, `distinct measure calls were ${distinctMetrics.calls}`);
-assert.ok(
-    distinctMetrics.candidateGraphemes <= 210_000,
-    `distinct candidate graphemes were ${distinctMetrics.candidateGraphemes}`,
+const performanceByWritingMode = {};
+for (const writingMode of ['horizontal-tb', 'vertical-rl']) {
+    const probeMetrics = { calls: 0, candidateGraphemes: 0 };
+    const probePages = paginateFlowDocument(probeDocument, {
+        pageBox,
+        languageKey: 'ja',
+        writingMode,
+        measurePage: createCapacityMeasurer(400, probeMetrics, writingMode),
+    });
+    assert.equal(probePages.pages.length, 110);
+    assert.ok(
+        probeMetrics.candidateGraphemes <= 100_000,
+        `${writingMode} candidate graphemes were ${probeMetrics.candidateGraphemes}`,
+    );
+    assert.ok(probeMetrics.calls <= 250, `${writingMode} measure calls were ${probeMetrics.calls}`);
+
+    const distinctMetrics = { calls: 0, candidateGraphemes: 0 };
+    const distinctPages = paginateFlowDocument(createDocument(distinctBlocks), {
+        pageBox,
+        languageKey: 'ja',
+        writingMode,
+        measurePage: createCapacityMeasurer(400, distinctMetrics, writingMode),
+    });
+    assert.equal(distinctPages.pages.length, 100);
+    assert.ok(distinctMetrics.calls <= 650, `${writingMode} distinct calls were ${distinctMetrics.calls}`);
+    assert.ok(
+        distinctMetrics.candidateGraphemes <= 210_000,
+        `${writingMode} distinct candidates were ${distinctMetrics.candidateGraphemes}`,
+    );
+    performanceByWritingMode[writingMode] = { probeMetrics, distinctMetrics };
+}
+assert.deepEqual(
+    performanceByWritingMode['vertical-rl'],
+    performanceByWritingMode['horizontal-tb'],
 );
 
 // Differential fuzz: every incremental edit must match a fresh cold layout.

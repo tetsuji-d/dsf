@@ -15,17 +15,20 @@ import {
 } from './flow-preview-model.js';
 
 const LANGUAGE_KEY = 'ja';
-const WRITING_MODE = 'horizontal-tb';
+const DEFAULT_WRITING_MODE = 'horizontal-tb';
 const REFLOW_DELAY_MS = 120;
 const pageBox = createCanonicalFlowPageBox();
-const typography = resolveFlowDomTypography(LANGUAGE_KEY);
+let writingMode = DEFAULT_WRITING_MODE;
+let typography = resolveFlowDomTypography(LANGUAGE_KEY, {}, writingMode);
 
 const elements = {
     app: document.getElementById('flow-preview-app'),
     heading: document.getElementById('flow-preview-heading'),
     body: document.getElementById('flow-preview-body'),
+    writingModes: Array.from(document.querySelectorAll('[name="flow-preview-writing-mode"]')),
     insertBreak: document.getElementById('flow-preview-insert-break'),
     charCount: document.getElementById('flow-preview-char-count'),
+    typographySummary: document.getElementById('flow-preview-typography-summary'),
     pageCount: document.getElementById('flow-preview-page-count'),
     status: document.getElementById('flow-preview-status'),
     error: document.getElementById('flow-preview-error'),
@@ -70,6 +73,32 @@ function syncBodySourceState() {
     return sourceState;
 }
 
+function updateTypographySummary() {
+    const label = writingMode === 'vertical-rl' ? '縦書き' : '横書き';
+    elements.typographySummary.textContent = `${label} / ${typography.fontSize}px / 行高${typography.lineHeight}`;
+    elements.app.dataset.writingMode = writingMode;
+}
+
+function createFlowRuntime() {
+    measurer?.dispose();
+    typography = resolveFlowDomTypography(LANGUAGE_KEY, {}, writingMode);
+    measurer = createFlowDomPageMeasurer({
+        ownerDocument: document,
+        languageKey: LANGUAGE_KEY,
+        writingMode,
+        typography,
+    });
+    incrementalPaginator = createIncrementalFlowPaginator({
+        pageBox,
+        languageKey: LANGUAGE_KEY,
+        writingMode,
+        measurePage: measurer.measurePage,
+        measurementKey: () => measurer.getLayoutKey(),
+        getPageVariantKey: () => 'uniform',
+    });
+    updateTypographySummary();
+}
+
 function handleFontsLoaded() {
     measurer?.invalidate();
     incrementalPaginator?.invalidate();
@@ -81,6 +110,7 @@ function setReflowState(state, message) {
     elements.app.dataset.sourceRevision = String(sourceRevision);
     elements.app.dataset.requestedRevision = String(requestedRevision);
     elements.app.dataset.renderedRevision = String(renderedRevision);
+    elements.app.dataset.writingMode = writingMode;
     const stale = state === 'working';
     elements.app.dataset.stale = String(stale);
     elements.pages.setAttribute('aria-busy', String(stale));
@@ -103,6 +133,7 @@ function getFlowPreviewState() {
         renderedRevision,
         stale: elements.app.dataset.stale === 'true',
         composing: hasActiveComposition(),
+        writingMode,
         pageCount: latestPagination?.pages.length || 0,
     });
 }
@@ -121,6 +152,7 @@ function createPageFigure(page, pagination) {
     figure.className = 'flow-preview-sheet';
     figure.dataset.testid = 'flow-page';
     figure.dataset.pageIndex = String(page.index);
+    figure.dataset.writingMode = pagination.writingMode;
     figure.dataset.renderNodeId = String(nextPageNodeId);
     nextPageNodeId += 1;
     figure.dataset.manualBreakBefore = page.manualBreakBefore ? 'true' : 'false';
@@ -342,6 +374,20 @@ function handleCompositionEnd(event) {
     if (!hasActiveComposition()) scheduleReflow({ immediate: true });
 }
 
+function handleWritingModeChange(event) {
+    if (!event.currentTarget.checked) return;
+    const nextWritingMode = String(event.currentTarget.value || DEFAULT_WRITING_MODE);
+    if (nextWritingMode === writingMode) return;
+    const runtimeReady = !!measurer;
+    activeReflowController?.abort();
+    incrementalPaginator?.invalidate();
+    writingMode = nextWritingMode;
+    typography = resolveFlowDomTypography(LANGUAGE_KEY, {}, writingMode);
+    if (runtimeReady) createFlowRuntime();
+    else updateTypographySummary();
+    scheduleReflow({ immediate: true });
+}
+
 async function initializeFlowPreview() {
     elements.heading.addEventListener('input', handleSourceInput);
     elements.body.addEventListener('input', handleSourceInput);
@@ -349,23 +395,13 @@ async function initializeFlowPreview() {
     elements.heading.addEventListener('compositionend', handleCompositionEnd);
     elements.body.addEventListener('compositionstart', handleCompositionStart);
     elements.body.addEventListener('compositionend', handleCompositionEnd);
+    elements.writingModes.forEach((input) => input.addEventListener('change', handleWritingModeChange));
     elements.insertBreak.addEventListener('click', insertPageBreakAtSelection);
     syncBodySourceState();
     updateSourceStats();
-    await waitForFlowFonts(document, typography);
-    measurer = createFlowDomPageMeasurer({
-        ownerDocument: document,
-        languageKey: LANGUAGE_KEY,
-        typography,
-    });
-    incrementalPaginator = createIncrementalFlowPaginator({
-        pageBox,
-        languageKey: LANGUAGE_KEY,
-        writingMode: WRITING_MODE,
-        measurePage: measurer.measurePage,
-        measurementKey: () => measurer.getLayoutKey(),
-        getPageVariantKey: () => 'uniform',
-    });
+    updateTypographySummary();
+    await waitForFlowFonts(document, typography, writingMode, LANGUAGE_KEY);
+    createFlowRuntime();
     document.fonts?.addEventListener?.('loadingdone', handleFontsLoaded);
     document.fonts?.addEventListener?.('loadingerror', handleFontsLoaded);
     scheduleReflow({ immediate: true });
