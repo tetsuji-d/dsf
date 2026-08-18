@@ -22,8 +22,9 @@ import { enterPressRoom } from './press.js';
 import { getLangProps, getAllLangs } from './lang.js';
 import { t, applyI18n, setUILang, getUILang } from './i18n-studio.js';
 import { getBlockIndexFromPageIndex, getPageIndexFromBlockIndex, migrateSectionsToBlocks, syncBlocksWithSections, extractSectionsFromBlocks } from './blocks.js';
-import { blocksToPages, normalizeProjectDataV5 } from './pages.js';
+import { blocksToPages } from './pages.js';
 import { buildDSP, buildDSF, parseAndLoadDSP } from './export.js';
+import { hydrateProjectFromPersistence } from './project-persistence.js';
 import { applyTheme, bindThemePreferenceListener, getThemeMode, setThemeMode } from './theme.js';
 import { get as idbGet } from 'idb-keyval';
 import { createId } from './utils.js';
@@ -290,7 +291,10 @@ function getActiveBlock() {
 
 
 function syncBlocksFromState() {
-    dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'blocks', value: syncBlocksWithSections(state.blocks, state.sections, state.languages) } });
+    dispatch({ type: actionTypes.SET_STATE_FIELD, payload: {
+        key: 'blocks',
+        value: syncBlocksWithSections(state.blocks, state.sections, state.languages, { strictSpine: state.version === 6 }),
+    } });
     dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'pages', value: blocksToPages(state.blocks) } });
     const activeBlock = getActiveBlock();
     const pageIdx = getPageIndexFromBlockIndex(state.blocks, state.activeBlockIdx);
@@ -659,11 +663,9 @@ async function renderHomeDashboard() {
         card.addEventListener('click', async () => {
             const pid = card.dataset.id;
             if (!pid) return;
-            await loadProject(pid, () => {
-                cacheLocalRecentProject(JSON.parse(JSON.stringify(state)), window.localImageMap).catch(() => {});
-                refresh();
-                window.switchRoom('editor');
-            });
+            if (!await onLoadProject(pid)) return;
+            cacheLocalRecentProject(JSON.parse(JSON.stringify(state)), window.localImageMap).catch(() => {});
+            window.switchRoom('editor');
         });
     });
 
@@ -689,7 +691,8 @@ async function renderHomeDashboard() {
         card.addEventListener('click', async () => {
             const snapshotId = card.dataset.id;
             try {
-                const loadedState = await loadLocalRecentProject(snapshotId);
+                const loadedState = hydrateProjectFromPersistence(await loadLocalRecentProject(snapshotId));
+                clearHistory();
                 dispatch({ type: actionTypes.LOAD_PROJECT, payload: loadedState });
                 refresh();
                 window.switchRoom('editor');
@@ -705,7 +708,7 @@ async function renderHomeDashboard() {
             const pid = btn.dataset.homeOpenProject;
             const project = (cloudProjects || []).find((item) => item.id === pid);
             if (!project) return;
-            onLoadProject(pid, project.projectName, project.sections, project.languages, project.defaultLang, project.languageConfigs, project.title, project.uiPrefs, project.pages, project.blocks, project.version, project.bookMode, project.book, project.textPaperPreset);
+            if (!await onLoadProject(pid)) return;
             await cacheLocalRecentProject(JSON.parse(JSON.stringify(state)), window.localImageMap);
             refresh();
             window.switchRoom('editor');
@@ -1159,6 +1162,8 @@ function refresh(options = {}) {
     const render = document.getElementById('content-render');
     const lang = state.activeLang;
     const langProps = getLangProps(lang);
+    const isFlowReadOnly = activeBlock?.kind === 'flow'
+        || (!s && state.version === 6 && (state.blocks || []).some((block) => block?.kind === 'flow'));
 
     // Normalize stale bubble selection
     if (state.activeBubbleIdx !== null && (!s?.bubbles || !s.bubbles[state.activeBubbleIdx])) {
@@ -1166,7 +1171,24 @@ function refresh(options = {}) {
     }
 
     // メインキャンバスの描画 — image pages only
-    if (s && s.type === 'image') {
+    if (isFlowReadOnly) {
+        render.innerHTML = `
+            <div id="flow-readonly-placeholder">
+                <span class="material-icons">article</span>
+                <strong>Flowテキスト</strong>
+                <span>編集UIは次の実装単位で接続します。この原稿は現在読取専用です。</span>
+            </div>`;
+        _hideTextPreviewOverlay();
+        const imageProps = document.getElementById('image-only-props');
+        if (imageProps) imageProps.style.display = 'none';
+        const bubbleLayer = document.getElementById('bubble-layer');
+        if (bubbleLayer) {
+            bubbleLayer.innerHTML = '';
+            bubbleLayer.style.display = 'none';
+        }
+        const bubbleShapeProps = document.getElementById('bubble-shape-props');
+        if (bubbleShapeProps) bubbleShapeProps.style.display = 'none';
+    } else if (s && s.type === 'image') {
         const pos = getActiveImagePosition();
         if (!s.imageBasePosition) {
             s.imageBasePosition = { x: 0, y: 0, scale: 1, rotation: 0, flipX: false };
@@ -1248,25 +1270,25 @@ function refresh(options = {}) {
     // パネルUIの同期
     const propType = document.getElementById('prop-type');
     if (propType) {
-        propType.disabled = false;
-        propType.value = s?.type || 'image';
+        propType.disabled = isFlowReadOnly;
+        if (!isFlowReadOnly) propType.value = s?.type || 'image';
     }
     const deleteBtn = document.getElementById('btn-delete-active');
     if (deleteBtn) {
-        deleteBtn.disabled = false;
-        deleteBtn.title = '';
+        deleteBtn.disabled = isFlowReadOnly;
+        deleteBtn.title = isFlowReadOnly ? 'Flow編集UI接続後に操作できます' : '';
     }
 
-    const isTextSection = s?.type === 'text';
-    const isPageSection = s?.type === 'image' || s?.type === 'text';
+    const isTextSection = !isFlowReadOnly && s?.type === 'text';
+    const isPageSection = !isFlowReadOnly && (s?.type === 'image' || s?.type === 'text');
 
     // FAB「テキスト追加」ボタンをテキストページでは非表示
     const fabAddBubble = document.getElementById('fab-add-bubble');
-    if (fabAddBubble) fabAddBubble.style.display = isTextSection ? 'none' : '';
+    if (fabAddBubble) fabAddBubble.style.display = (isTextSection || isFlowReadOnly) ? 'none' : '';
 
     // テキストページではキャンバスのクリックカーソルをデフォルトに戻す
     const canvasView = document.getElementById('canvas-view');
-    if (canvasView) canvasView.style.cursor = isTextSection ? 'default' : '';
+    if (canvasView) canvasView.style.cursor = (isTextSection || isFlowReadOnly) ? 'default' : '';
 
     // テキストセクション専用パネル
     const textSectionProps = document.getElementById('text-section-props');
@@ -3052,7 +3074,7 @@ function updateTextSectionAlign(value) {
 
     const blocks = touchedBlock
         ? newBlocks
-        : syncBlocksWithSections(state.blocks, newSections, state.languages);
+        : syncBlocksWithSections(state.blocks, newSections, state.languages, { strictSpine: state.version === 6 });
 
     dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'sections', value: newSections } });
     dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'blocks', value: blocks } });
@@ -3449,7 +3471,10 @@ function updateTextSectionBody(v) {
     dispatch({ type: actionTypes.UPDATE_SECTION_TEXT, payload: { idx, lang, text: v } });
 
     // blocks/pages を同期
-    dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'blocks', value: syncBlocksWithSections(state.blocks, state.sections, state.languages) } });
+    dispatch({ type: actionTypes.SET_STATE_FIELD, payload: {
+        key: 'blocks',
+        value: syncBlocksWithSections(state.blocks, state.sections, state.languages, { strictSpine: state.version === 6 }),
+    } });
     dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'pages', value: blocksToPages(state.blocks) } });
 
     // プレビューと溢れバッジをリアルタイム更新（debounce）
@@ -3592,75 +3617,21 @@ function syncLangPanel() {
 }
 
 
-function onLoadProject(pid, projectName, sections, languages, defaultLang, languageConfigs, title, uiPrefs, pages, blocks, version, bookMode, book, textPaperPreset) {
-    const normalized = normalizeProjectDataV5({
-        version,
-        projectName,
-        pages,
-        blocks,
-        sections,
-        languages,
-        defaultLang,
-        languageConfigs,
-        title,
-        uiPrefs,
-        bookMode,
-        book,
-        textPaperPreset
-    });
-    const normalizedTextPaperPreset = _getProjectTextPaperPresetKey(normalized);
-    normalized.sections = _applyTextPaperStyleToSections(normalized.sections, normalizedTextPaperPreset);
-    normalized.blocks = _applyTextPaperStyleToBlocks(normalized.blocks, normalizedTextPaperPreset);
-    normalized.pages = blocksToPages(normalized.blocks);
-
-    state.projectId = pid;
-    state.localProjectId = null;
-    state.projectName = normalized.projectName || pid || '';
-    state.title = normalized.title || '';
-    state.pages = normalized.pages || [];
-    state.blocks = normalized.blocks;
-    state.sections = normalized.sections;
-    state.textPaperPreset = normalizedTextPaperPreset;
-    state.languages = normalized.languages;
-    state.defaultLang = normalized.defaultLang || normalized.languages[0] || 'ja';
-    state.bookMode = normalized.bookMode || normalized.book?.mode || 'simple';
-    state.book = normalized.book || {
-        mode: state.bookMode,
-        covers: {
-            c1: { pageIndex: 0 },
-            c4: { pageIndex: Math.max(0, (normalized.sections || []).length - 1) }
-        }
-    };
-
-    // languageConfigs Migration
-    state.languageConfigs = normalized.languageConfigs || {};
-    state.languages.forEach(lang => {
-        if (!state.languageConfigs[lang]) state.languageConfigs[lang] = {};
-        const cfg = state.languageConfigs[lang];
-        // Gen3: pageDirection が未設定なら旧 writingMode から変換、またはデフォルト値を設定
-        if (!cfg.pageDirection) {
-            if (cfg.writingMode === 'vertical-rl') {
-                cfg.pageDirection = 'rtl';
-            } else if (cfg.writingMode === 'horizontal-tb') {
-                cfg.pageDirection = 'ltr';
-            } else {
-                cfg.pageDirection = lang === 'ja' ? 'rtl' : 'ltr';
-            }
-        }
-    });
-
-    state.uiPrefs = normalized.uiPrefs || state.uiPrefs || {};
-    ensureUiPrefs();
-    applyThumbColumnsFromPrefs();
-
-    state.activeLang = state.defaultLang || state.languages[0];
-    state.activeIdx = 0;
-    state.activePageIdx = 0;
-    state.activeBlockIdx = Math.max(0, getBlockIndexFromPageIndex(state.blocks, 0));
-    state.activeBubbleIdx = null;
-    clearHistory();
-    refresh();
-    renderLangSettings();
+async function onLoadProject(pid) {
+    try {
+        await loadProject(pid, () => {
+            clearHistory();
+            ensureUiPrefs();
+            applyThumbColumnsFromPrefs();
+            refresh();
+            renderLangSettings();
+        });
+        return true;
+    } catch (error) {
+        console.error('[Studio] Project load failed:', error);
+        alert(`プロジェクトを安全に読み込めませんでした。\n${error?.message || String(error)}`);
+        return false;
+    }
 }
 
 // --- キーボードショートカット ---
@@ -3708,6 +3679,15 @@ function showContextMenuAt(x, y, html) {
     contextMenu.style.top = `${Math.max(8, menuY)}px`;
 }
 function insertSectionBeforeActiveByType(sectionType = 'image') {
+    if (state.version === 6) {
+        const blockIdx = Number.isInteger(state.activeBlockIdx)
+            ? state.activeBlockIdx
+            : Math.max(0, (state.blocks || []).length - 1);
+        pushState();
+        insertPageNearBlock(blockIdx, 'before', refresh, sectionType);
+        triggerAutoSave();
+        return;
+    }
     const activeIdx = Number.isInteger(state.activeIdx) ? state.activeIdx : -1;
     const insertAt = activeIdx >= 0 ? activeIdx : (state.sections || []).length;
     pushState();
@@ -3753,6 +3733,10 @@ function validateSpreadImageCompositionForSections(sections) {
 }
 
 function insertSpreadImageBeforeActive() {
+    if (state.version === 6) {
+        alert('Project v6での見開きページ追加は、混在スパイン対応後に利用できます。');
+        return;
+    }
     const activeIdx = Number.isInteger(state.activeIdx) ? state.activeIdx : -1;
     const insertAt = activeIdx >= 0 ? activeIdx : (state.sections || []).length;
     const decision = canInsertSpreadImageAt(insertAt, (state.sections || []).length, state.book || {}, state.bookMode || state.book?.mode || 'simple');
@@ -3764,8 +3748,26 @@ function insertSpreadImageBeforeActive() {
     insertSpreadImageAt(insertAt, refresh);
     triggerAutoSave();
 }
-window.addSection = () => { pushState(); addSection(refresh); triggerAutoSave(); };
-window.addTextSection = () => { pushState(); addTextSection(refresh); triggerAutoSave(); };
+function addProjectPageAtTail(sectionType) {
+    if (state.version !== 6) return false;
+    const blocks = state.blocks || [];
+    pushState();
+    insertPageNearBlock(blocks.length ? blocks.length - 1 : -1, 'after', refresh, sectionType);
+    triggerAutoSave();
+    return true;
+}
+window.addSection = () => {
+    if (addProjectPageAtTail('image')) return;
+    pushState();
+    addSection(refresh);
+    triggerAutoSave();
+};
+window.addTextSection = () => {
+    if (addProjectPageAtTail('text')) return;
+    pushState();
+    addTextSection(refresh);
+    triggerAutoSave();
+};
 window.insertSectionBeforeActive = () => insertSectionBeforeActiveByType('image');
 window.insertTextSectionBeforeActive = () => insertSectionBeforeActiveByType('text');
 window.insertSpreadImageBeforeActive = insertSpreadImageBeforeActive;
@@ -4519,6 +4521,10 @@ window.insertSectionAtIndex = (idx, e) => {
         e.preventDefault();
         e.stopPropagation();
     }
+    if (state.version === 6) {
+        alert('Project v6ではページ上の＋ボタンを使って挿入位置を指定してください。');
+        return;
+    }
     const insertAt = Math.max(0, Math.min(Number(idx) || 0, (state.sections || []).length));
     const simulated = [...(state.sections || [])];
     simulated.splice(insertAt, 0, { type: 'image' });
@@ -4532,6 +4538,7 @@ window.duplicateSectionByIndex = (idx, e) => {
         e.preventDefault();
         e.stopPropagation();
     }
+    if (state.version === 6) return;
     pushState();
     duplicateSectionAt(idx, refresh);
     triggerAutoSave();
@@ -4550,6 +4557,7 @@ window.duplicateBlockByIndex = (blockIdx, e) => {
         e.preventDefault();
         e.stopPropagation();
     }
+    if (state.blocks?.[blockIdx]?.kind === 'flow') return;
     pushState();
     duplicateBlockAt(blockIdx, refresh);
     triggerAutoSave();
@@ -4617,7 +4625,12 @@ window.startThumbTouchDrag = (e, idx) => {
     };
     bindTouchDragListeners();
 };
-window.deleteActive = () => { pushState(); deleteActive(refresh); triggerAutoSave(); };
+window.deleteActive = () => {
+    if (state.blocks?.[state.activeBlockIdx]?.kind === 'flow') return;
+    pushState();
+    deleteActive(refresh);
+    triggerAutoSave();
+};
 window.update = update;
 window.updateActiveText = updateActiveText;
 window.updateBubbleShape = updateBubbleShape;
@@ -4904,8 +4917,9 @@ window.importDSP = async (event) => {
     document.body.style.cursor = 'wait';
 
     try {
-        const loadedState = await parseAndLoadDSP(file);
+        const loadedState = hydrateProjectFromPersistence(await parseAndLoadDSP(file));
 
+        clearHistory();
         dispatch({
             type: actionTypes.LOAD_PROJECT,
             payload: loadedState
@@ -5082,12 +5096,13 @@ window.removeLang = (code) => {
 };
 
 // プロジェクトモーダル
-window.openProjectModal = () => openProjectModal((...args) => {
-    onLoadProject(...args);
-    cacheLocalRecentProject(JSON.parse(JSON.stringify(state)), window.localImageMap).catch((e) => {
+window.openProjectModal = () => openProjectModal(async (pid) => {
+    if (!await onLoadProject(pid)) return false;
+    await cacheLocalRecentProject(JSON.parse(JSON.stringify(state)), window.localImageMap).catch((e) => {
         console.warn('[Home] Failed to cache cloud project locally:', e);
     });
     window.switchRoom('editor');
+    return true;
 });
 window.closeProjectModal = closeProjectModal;
 
@@ -5095,12 +5110,10 @@ window.closeProjectModal = closeProjectModal;
 window.openWorksRoom = openWorksRoom;
 window.closeWorksRoom = closeWorksRoom;
 window.loadWorksRoom  = () => openWorksRoom(true); // true = ルームモード
-window.loadAndOpenProject = (pid) => {
+window.loadAndOpenProject = async (pid) => {
     closeWorksRoom();
-    loadProject(pid, () => {
-        refresh();
-        window.switchRoom('editor');
-    });
+    if (!await onLoadProject(pid)) return;
+    window.switchRoom('editor');
 };
 window.copyViewerUrl = async (pid) => {
     const projectWorkId = document.querySelector(`.works-row[data-pid="${CSS.escape(pid)}"]`)?.dataset.workId || pid;
@@ -5112,18 +5125,17 @@ window.copyViewerUrl = async (pid) => {
         prompt('ビューワーURL:', url);
     }
 };
-window.loadAndRepress = (pid) => {
+window.loadAndRepress = async (pid) => {
     closeWorksRoom();
-    loadProject(pid, () => {
-        refresh();
-        window.switchRoom('press');
-    });
+    if (!await onLoadProject(pid)) return;
+    window.switchRoom('press');
 };
 
 // 新規プロジェクト
 window.newProject = () => {
     if (state.projectId && !confirm('現在のプロジェクトを閉じて新しいプロジェクトを作成しますか？')) return false;
     dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'projectId', value: null } });
+    dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'version', value: 5 } });
     dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'workId', value: createId('work') } });
     dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'releaseId', value: null } });
     dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'projectName', value: '' } });
@@ -5629,7 +5641,12 @@ window.saveProjectSettings = () => {
     const nextSections = _applyTextPaperStyleToSections(state.sections, nextTextPaperPreset);
     dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'sections', value: nextSections } });
 
-    const syncedBlocks = syncBlocksWithSections(state.blocks, nextSections, nextLanguages);
+    const syncedBlocks = syncBlocksWithSections(
+        state.blocks,
+        nextSections,
+        nextLanguages,
+        { strictSpine: state.version === 6 },
+    );
     const nextBlocks = _applyTextPaperStyleToBlocks(syncedBlocks, nextTextPaperPreset);
     dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'blocks', value: nextBlocks } });
     dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'pages', value: blocksToPages(nextBlocks) } });
@@ -5996,7 +6013,7 @@ onAuthChanged((user) => {
     if (user) {
         void hydrateStudioAccount(user);
         const pid = new URLSearchParams(window.location.search).get('id');
-        if (pid) loadProject(pid, refresh);
+        if (pid) void onLoadProject(pid);
     } else {
         studioAccount = null;
     }
@@ -6079,9 +6096,10 @@ async function bootstrapApp() {
                 }
 
                 window.localImageMap = restoredMap;
-                const restoredState = JSON.parse(stateStr);
+                const restoredState = hydrateProjectFromPersistence(JSON.parse(stateStr));
 
                 // Only dispatch state keys that exist in our actual store
+                clearHistory();
                 dispatch({ type: actionTypes.LOAD_PROJECT, payload: restoredState });
                 console.log("[DSF] Auto-save restored successfully.");
             }

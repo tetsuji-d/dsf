@@ -3,7 +3,7 @@
  * 発行済み作品の DSF ステータス管理
  */
 import {
-    collection, getDocs, doc, updateDoc, setDoc, deleteDoc, serverTimestamp
+    collection, getDocs, doc, updateDoc, setDoc, deleteDoc, serverTimestamp, writeBatch
 } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
 import { state } from './state.js';
 import { assertAccountCanEdit, assertAccountCanPublish, db } from './firebase.js';
@@ -139,7 +139,10 @@ export async function openWorksRoom(roomMode = false) {
                 const proj = projects.find(x => x.id === pid);
                 if (!confirm(`「${pid}」を削除しますか？\nこの操作は取り消せません。`)) return;
                 try {
-                    await deleteDoc(doc(db, 'users', state.uid, 'projects', pid));
+                    const batch = writeBatch(db);
+                    batch.delete(doc(db, 'users', state.uid, 'projects', pid, 'authoring', 'current'));
+                    batch.delete(doc(db, 'users', state.uid, 'projects', pid));
+                    await batch.commit();
                     if (proj?.workId) {
                         await deleteDoc(doc(db, 'public_projects', proj.workId)).catch(() => {});
                     }

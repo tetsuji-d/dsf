@@ -5,13 +5,13 @@
  *   VITE_STORAGE_BACKEND=firebase  → Firebase Storage (local Vite development)
  *   VITE_STORAGE_BACKEND=r2        → Cloudflare R2 via Pages Function at /upload (Pages production/preview)
  */
-import { doc, setDoc, getDoc, deleteDoc, serverTimestamp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
+import { doc, setDoc, getDoc, deleteDoc, serverTimestamp, writeBatch } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
 import {
     onAuthStateChanged
 } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js";
 import { state, dispatch, actionTypes } from './state.js';
-import { getBlockIndexFromPageIndex, syncBlocksWithSections } from './blocks.js';
-import { PAGE_SCHEMA_VERSION, blocksToPages, normalizeProjectDataV5 } from './pages.js';
+import { getBlockIndexFromPageIndex } from './blocks.js';
+import { PAGE_SCHEMA_VERSION } from './pages.js';
 import { composeCanonicalLayoutsForSections } from './layout.js';
 import { set as idbSet, get as idbGet } from 'idb-keyval';
 import { createId } from './utils.js';
@@ -19,6 +19,14 @@ import { loadImageForCanvas, fetchAssetBlob, shouldEmbedAsset } from './asset-fe
 import { db, storage, auth, authReady } from './firebase-core.js';
 import { encodeCanvasToWebP, isWebPBlob } from './canvas-encoding.js';
 import { normalizeBookSettings } from './page-labels.js';
+import {
+    assertFirestoreAuthoringSize,
+    createPublicProjectProjection,
+    hydrateProjectFromPersistence,
+    isProjectVersionTransitionAllowed,
+    prepareProjectForSave,
+    prepareFirestoreProjectIngress,
+} from './project-persistence.js';
 
 export { db, storage, auth, authReady } from './firebase-core.js';
 
@@ -106,6 +114,11 @@ function requireUid() {
 function projectDocRef(projectId) {
     const uid = requireUid();
     return doc(db, "users", uid, "projects", projectId);
+}
+
+function projectAuthoringDocRef(projectId) {
+    const uid = requireUid();
+    return doc(db, 'users', uid, 'projects', projectId, 'authoring', 'current');
 }
 
 function userDocRef(uid) {
@@ -551,7 +564,7 @@ async function buildLocalRecentMeta(snapshotState) {
 }
 
 export async function cacheLocalRecentProject(snapshotState, imageMap = window.localImageMap || {}) {
-    const projectState = JSON.parse(JSON.stringify(snapshotState || state));
+    const projectState = prepareProjectForSave(JSON.parse(JSON.stringify(snapshotState || state)));
     ensureLocalProjectIdentity(projectState);
     const snapshotId = getLocalRecentSnapshotId(projectState);
     await idbSet(`${LOCAL_RECENT_PREFIX}${snapshotId}`, {
@@ -591,7 +604,7 @@ export async function loadLocalRecentProject(snapshotId) {
     }
 
     window.localImageMap = restoredMap;
-    return JSON.parse(stateStr);
+    return hydrateProjectFromPersistence(JSON.parse(stateStr));
 }
 
 export function onAuthChanged(callback) {
@@ -622,7 +635,11 @@ export function triggerAutoSave() {
     updateSaveIndicator('idle', '未保存');
 
     autoSaveTimer = setTimeout(async () => {
-        await performSave();
+        try {
+            await performSave();
+        } catch (error) {
+            console.error('[DSF] Auto-save validation failed:', error);
+        }
     }, 2000);
 }
 
@@ -720,19 +737,20 @@ async function resolveBlobUrlsInBlocks(blocks, uid) {
 }
 
 /**
- * オブジェクト内のすべての blob: URL を '' に置換する（マイグレーション用）。
- * loadProject 時に呼び出して既存の破損データによるクラッシュを防ぐ。
+ * asset-bearing fieldsだけに残ったblob: URLを除去する（マイグレーション用）。
+ * Flow本文など任意の文字列は絶対に書き換えない。
  */
-function stripBlobUrls(obj) {
+function stripBlobAssetUrls(obj, parentKey = '') {
     if (!obj || typeof obj !== 'object') return obj;
-    if (Array.isArray(obj)) return obj.map(stripBlobUrls);
+    if (Array.isArray(obj)) return obj.map((entry) => stripBlobAssetUrls(entry, parentKey));
     const out = {};
     for (const [k, v] of Object.entries(obj)) {
-        if (typeof v === 'string' && v.startsWith('blob:')) {
+        const isAssetString = k === 'background' || k === 'thumbnail' || parentKey === 'backgrounds';
+        if (isAssetString && typeof v === 'string' && v.startsWith('blob:')) {
             console.warn(`[DSF] 破損した blob: URL を除去 (field: "${k}")`);
             out[k] = '';
         } else {
-            out[k] = stripBlobUrls(v);
+            out[k] = stripBlobAssetUrls(v, k);
         }
     }
     return out;
@@ -740,6 +758,64 @@ function stripBlobUrls(obj) {
 
 function buildFixedBookConfig(mode, pageCount) {
     return normalizeBookSettings({ mode }, mode, pageCount);
+}
+
+const AUTHORING_STATE_EXCLUDED_KEYS = new Set([
+    'user',
+    'uid',
+    'localProjectId',
+    'activeLang',
+    'activeIdx',
+    'activePageIdx',
+    'activeBlockIdx',
+    'activeBubbleIdx',
+    'thumbColumns',
+    'dsfPages',
+    'dsfStatus',
+    'dsfPublishedAt',
+    'dsfRenderStamp',
+    'dsfLangs',
+    'listThumbnail',
+    'projectBytes',
+    'pageCount',
+    'ownerUid',
+    'ownerEmail',
+    'lastUpdated',
+    'authoringRef',
+    'authoringSchemaVersion',
+    'visibility',
+    'publication',
+]);
+
+function buildAuthoringProjectInput(overrides = {}) {
+    const authoringExtensions = {};
+    for (const [key, value] of Object.entries(state)) {
+        if (!AUTHORING_STATE_EXCLUDED_KEYS.has(key)) authoringExtensions[key] = value;
+    }
+    return {
+        ...authoringExtensions,
+        version: state.version || PAGE_SCHEMA_VERSION,
+        projectId: state.projectId,
+        workId: state.workId || '',
+        releaseId: state.releaseId || null,
+        projectName: state.projectName || '',
+        title: state.title || '',
+        labelName: state.labelName || '',
+        rating: state.rating || 'all',
+        license: state.license || 'all-rights-reserved',
+        textPaperPreset: state.textPaperPreset || 'white',
+        meta: state.meta || {},
+        sections: state.sections || [],
+        blocks: state.blocks || [],
+        pages: state.pages || [],
+        languages: state.languages || ['ja'],
+        defaultLang: state.defaultLang || state.languages?.[0] || 'ja',
+        languageConfigs: state.languageConfigs || {},
+        bookMode: state.bookMode || state.book?.mode || 'simple',
+        book: state.book || null,
+        uiPrefs: state.uiPrefs || null,
+        ...overrides,
+    };
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
@@ -753,10 +829,20 @@ async function performSave() {
     try {
     // レイアウト確定: テキストセクションの layout[lang] を計算して state.sections に書き込む（意図的な mutation）
     composeCanonicalLayoutsForSections(state.sections, state.languages, state.languageConfigs);
-    // blocks / pages は保存専用のローカル変数に計算し、グローバル state を dispatch なしに書き換えない
-    const blocksToSave = syncBlocksWithSections(state.blocks, state.sections, state.languages);
-    const pagesToSave = blocksToPages(blocksToSave);
-    const bookToSave = buildFixedBookConfig(state.bookMode || state.book?.mode || 'simple', pagesToSave.length);
+    // Flow sourceを含むauthoring spineを検証し、Fixed互換面だけを再投影する。
+    // 生成Flowページはこのsnapshotへ入らない。
+    const initialProject = prepareProjectForSave(buildAuthoringProjectInput());
+    const bookToSave = buildFixedBookConfig(
+        state.bookMode || state.book?.mode || 'simple',
+        initialProject.pages.length,
+    );
+    const authoringProject = prepareProjectForSave({
+        ...initialProject,
+        bookMode: bookToSave.mode,
+        book: bookToSave,
+    });
+    const blocksToSave = authoringProject.blocks;
+    const pagesToSave = authoringProject.pages;
     state.bookMode = bookToSave.mode;
     state.book = bookToSave;
 
@@ -764,7 +850,14 @@ async function performSave() {
 
     // 1. ローカルバックアップ (常に実行)
     try {
-        const localSnapshot = JSON.parse(JSON.stringify({ ...state, blocks: blocksToSave, pages: pagesToSave, bookMode: bookToSave.mode, book: bookToSave }));
+        const localSnapshot = JSON.parse(JSON.stringify({
+            ...state,
+            ...authoringProject,
+            blocks: blocksToSave,
+            pages: pagesToSave,
+            bookMode: bookToSave.mode,
+            book: bookToSave,
+        }));
         ensureLocalProjectIdentity(localSnapshot);
         state.localProjectId = localSnapshot.localProjectId;
         await idbSet('dsf_autosave', {
@@ -783,31 +876,33 @@ async function performSave() {
             await assertAccountCanEdit();
             const visibility = state.visibility || 'private';
 
+            // Read the current root before uploading blobs. A future/newer
+            // schema must never be overwritten by this client.
+            const rootRef = projectDocRef(state.projectId);
+            const existingSnap = await getDoc(rootRef);
+            const existingData = existingSnap.exists() ? existingSnap.data() : {};
+            if (!isProjectVersionTransitionAllowed(existingData.version, authoringProject.version)) {
+                throw new Error(`保存済みProject v${String(existingData.version)}をv${authoringProject.version}で上書きできません。`);
+            }
+
+            // Obvious text-heavy over-limit projects stop before any asset
+            // upload. The resolved payload is checked again immediately before
+            // the Firestore batch because URL replacement can change its size.
+            if (authoringProject.version === 6) {
+                assertFirestoreAuthoringSize({
+                    ...authoringProject,
+                    projectId: state.projectId,
+                });
+            }
+
             // blob: URL が残っている場合は Storage にアップロードして実 URL に変換
-            const cleanSections = await resolveBlobUrlsInSections(state.sections, state.uid);
+            const cleanSections = await resolveBlobUrlsInSections(authoringProject.sections, state.uid);
             const cleanBlocks   = await resolveBlobUrlsInBlocks(blocksToSave, state.uid);
-            const persistedProject = {
-                version: PAGE_SCHEMA_VERSION,
-                projectId: state.projectId,
-                workId: state.workId || '',
-                releaseId: state.releaseId || null,
-                projectName: state.projectName || '',
-                title: state.title || '',
-                labelName: state.labelName || '',
-                rating: state.rating || 'all',
-                license: state.license || 'all-rights-reserved',
-                textPaperPreset: state.textPaperPreset || 'white',
-                meta: state.meta || {},
-                pages: pagesToSave,
+            const persistedProject = prepareProjectForSave({
+                ...authoringProject,
                 blocks: cleanBlocks,
                 sections: cleanSections,
-                languages: state.languages,
-                defaultLang: state.defaultLang || state.languages?.[0] || 'ja',
-                languageConfigs: state.languageConfigs,
-                bookMode: bookToSave.mode,
-                book: bookToSave,
-                uiPrefs: state.uiPrefs || null
-            };
+            });
 
             let listThumbnail = '';
             try {
@@ -818,22 +913,16 @@ async function performSave() {
             }
             const projectBytes = await computeProjectBytes(persistedProject);
 
-            // Press Room フィールドを引き継ぐために既存ドキュメントを取得
-            const existingSnap = await getDoc(projectDocRef(state.projectId));
-            const existingData = existingSnap.exists() ? existingSnap.data() : {};
-            const pressFields = {};
-            for (const key of ['dsfPages', 'dsfStatus', 'dsfTotalBytes', 'dsfResolution', 'dsfQuality', 'dsfPageCount', 'updatedAt', 'dsfPublishedAt', 'dsfRenderStamp', 'dsfLangs', 'releaseId']) {
-                if (existingData[key] !== undefined) pressFields[key] = existingData[key];
-            }
-
             const pageCount = (persistedProject.pages || []).filter(
                 p => p?.pageType === 'normal_image' || p?.pageType === 'normal_text'
             ).length || (persistedProject.blocks || []).filter(b => b?.kind === 'page').length
               || (persistedProject.sections || []).length;
 
-            await setDoc(projectDocRef(state.projectId), {
-                ...persistedProject,
-                ...pressFields,
+            const rootProjection = {
+                ...createPublicProjectProjection(persistedProject),
+                releaseId: existingData.releaseId !== undefined
+                    ? existingData.releaseId
+                    : persistedProject.releaseId,
                 listThumbnail,
                 projectBytes,
                 pageCount,
@@ -841,7 +930,24 @@ async function performSave() {
                 ownerUid: state.uid,
                 ownerEmail: state.user?.email || '',
                 lastUpdated: new Date()
-            });
+            };
+
+            if (persistedProject.version === 6) {
+                const authoringDocument = {
+                    ...persistedProject,
+                    projectId: state.projectId,
+                    lastUpdated: new Date(),
+                };
+                assertFirestoreAuthoringSize(authoringDocument);
+                const batch = writeBatch(db);
+                batch.set(projectAuthoringDocRef(state.projectId), authoringDocument);
+                batch.set(rootRef, rootProjection, { merge: true });
+                await batch.commit();
+            } else {
+                // Fixed v5 keeps the existing root contract. merge preserves all
+                // Press fields instead of manually copying a fragile allowlist.
+                await setDoc(rootRef, rootProjection, { merge: true });
+            }
 
             if (state.workId) {
                 await setDoc(doc(db, "users", state.uid, "works", state.workId), {
@@ -869,6 +975,10 @@ async function performSave() {
             updateSaveIndicator('error', '保存失敗 (Cloud)');
         }
     }
+    } catch (error) {
+        console.error('[DSF] Project save failed before persistence:', error);
+        updateSaveIndicator('error', '保存失敗');
+        throw error;
     } finally {
         isSaving = false;
     }
@@ -1161,31 +1271,65 @@ export async function loadProject(pid, refresh) {
     if (!state.uid) return;
     const snap = await getDoc(projectDocRef(pid));
     if (snap.exists()) {
-        const raw = normalizeProjectDataV5(snap.data() || {});
-        // 既存データに残存する blob: URL を除去（マイグレーション・クラッシュ防止）
-        const data = stripBlobUrls(raw);
-        dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'projectId', value: pid } });
-        dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'workId', value: data.workId || pid } });
-        dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'releaseId', value: data.releaseId || null } });
-        dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'projectName', value: data.projectName || pid } });
-        dispatch({ type: actionTypes.SET_TITLE, payload: data.title || '' });
-        dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'labelName', value: data.labelName || '' } });
-        dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'rating', value: data.rating || 'all' } });
-        dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'license', value: data.license || 'all-rights-reserved' } });
-        dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'textPaperPreset', value: data.textPaperPreset || 'white' } });
-        dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'meta', value: data.meta || {} } });
-        dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'pages', value: data.pages || [] } });
-        dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'blocks', value: data.blocks || [] } });
-        dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'sections', value: data.sections } });
-        dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'dsfPages', value: Array.isArray(data.dsfPages) ? data.dsfPages : [] } });
-        dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'bookMode', value: data.bookMode || data.book?.mode || 'simple' } });
-        dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'book', value: data.book || { mode: data.bookMode || 'simple', covers: { c1: { pageIndex: 0 }, c4: { pageIndex: Math.max(0, (data.sections || []).length - 1) } } } } });
-        dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'languages', value: data.languages && data.languages.length > 0 ? data.languages : ['ja'] } });
-        dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'defaultLang', value: data.defaultLang || (data.languages && data.languages.length > 0 ? data.languages[0] : 'ja') } });
-        dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'languageConfigs', value: data.languageConfigs || { ja: { pageDirection: 'rtl' } } } });
-        dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'uiPrefs', value: data.uiPrefs || state.uiPrefs || {} } });
-        dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'visibility', value: data.visibility || 'private' } });
-        dispatch({ type: actionTypes.SET_ACTIVE_LANGUAGE, payload: data.defaultLang || (data.languages && data.languages.length > 0 ? data.languages[0] : 'ja') });
+        const rootData = snap.data() || {};
+        let persistedData = rootData;
+        if (
+            rootData.version === 6
+            || rootData.authoringRef === 'authoring/current'
+            || rootData.authoringSchemaVersion === 6
+        ) {
+            const authoringSnap = await getDoc(projectAuthoringDocRef(pid));
+            if (!authoringSnap.exists()) {
+                throw new Error('Project v6 authoring/current が見つからないため、安全に読み込めません。');
+            }
+            // Project v6 authoring is hydrated only from the owner-only child.
+            // Public root fields are attached to runtime state explicitly below
+            // and can never become unknown authoring extensions.
+            persistedData = authoringSnap.data();
+        }
+
+        // Validate before state mutation. Blob cleanup is restricted to asset
+        // fields, then validated again so Flow text such as "blob: ..." survives.
+        const normalized = hydrateProjectFromPersistence(prepareFirestoreProjectIngress(persistedData));
+        const data = hydrateProjectFromPersistence(stripBlobAssetUrls(normalized));
+        const languages = data.languages && data.languages.length > 0 ? data.languages : ['ja'];
+        const defaultLang = data.defaultLang || languages[0] || 'ja';
+        dispatch({
+            type: actionTypes.LOAD_PROJECT,
+            payload: {
+                ...data,
+                projectId: pid,
+                workId: data.workId || pid,
+                releaseId: rootData.releaseId ?? data.releaseId ?? null,
+                projectName: data.projectName || pid,
+                title: data.title || '',
+                labelName: data.labelName || '',
+                rating: data.rating || 'all',
+                license: data.license || 'all-rights-reserved',
+                textPaperPreset: data.textPaperPreset || 'white',
+                meta: data.meta || {},
+                dsfPages: Array.isArray(rootData.dsfPages)
+                    ? rootData.dsfPages
+                    : (Array.isArray(data.dsfPages) ? data.dsfPages : []),
+                dsfStatus: rootData.dsfStatus || data.dsfStatus || null,
+                dsfPublishedAt: rootData.dsfPublishedAt || null,
+                dsfRenderStamp: rootData.dsfRenderStamp || data.dsfRenderStamp || null,
+                dsfLangs: rootData.dsfLangs || data.dsfLangs || [],
+                visibility: rootData.visibility || data.visibility || 'private',
+                publication: null,
+                bookMode: data.bookMode || data.book?.mode || 'simple',
+                book: data.book || {
+                    mode: data.bookMode || 'simple',
+                    covers: { c1: { pageIndex: 0 }, c4: { pageIndex: Math.max(0, (data.sections || []).length - 1) } },
+                },
+                languages,
+                defaultLang,
+                languageConfigs: data.languageConfigs || { ja: { pageDirection: 'rtl' } },
+                uiPrefs: data.uiPrefs || state.uiPrefs || {},
+                activeLang: defaultLang,
+            },
+        });
+        dispatch({ type: actionTypes.SET_ACTIVE_LANGUAGE, payload: defaultLang });
         dispatch({ type: actionTypes.SET_ACTIVE_INDEX, payload: 0 });
         dispatch({ type: actionTypes.SET_ACTIVE_BLOCK_INDEX, payload: Math.max(0, getBlockIndexFromPageIndex(data.blocks || [], 0)) });
         dispatch({ type: actionTypes.SET_ACTIVE_BUBBLE_INDEX, payload: null });

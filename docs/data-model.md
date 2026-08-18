@@ -191,6 +191,7 @@ Storage/R2 側に空フォルダを作るのではなく、namespace をここ�
 
 ```json
 {
+  "version": "5 | 6 (Project authoring schema)",
   "projectId": "String (Firestore document ID と同じ。編集単位)",
   "workId": "String (不変の作品ID。公開URLの正本)",
   "releaseId": "String | null (最新発行ID)",
@@ -225,6 +226,10 @@ Storage/R2 側に空フォルダを作るのではなく、namespace をここ�
 }
 ```
 
+Project v6のrootにはさらに`authoringRef: "authoring/current"`と
+`authoringSchemaVersion: 6`を保存する。公開可能なrootの`blocks[]`はFixed互換投影だけであり、
+完全なmixed spineの正本ではない。
+
 #### Block Object（`state.blocks` の各要素）
 
 ```json
@@ -236,7 +241,7 @@ Storage/R2 側に空フォルダを作るのではなく、namespace をここ�
 }
 ```
 
-#### Project v6 authoring contract（Commit 6A、永続化未接続）
+#### Project v6 authoring contract（Commit 6A/6B）
 
 Project v6では`blocks[]`を順序付きauthoring spineとし、既存Fixed BlockとFlow Groupを同じ作品内で
 混在できる。プロジェクトルートを`layoutType:'fixed'|'flow'`で排他的に分けない。
@@ -282,12 +287,27 @@ Project v6では`blocks[]`を順序付きauthoring spineとし、既存Fixed Blo
 - Flow本文を廃止予定のFixed `content.text`／`content.richText`へ複製しない。
 - Flow Groupに`status`は置かず、spine内に存在すること自体を原稿へ接続中とみなす。
 
-バージョン境界はProject v6、Page v5、FlowDocument v1、FlowLayout v1とする。Commit 6Aは純粋モデルのみで、
-Firestore、DSP、`state.blocks`の実行時経路にはまだ接続されていない。現行保存は引き続き上記の
-`users/{uid}/projects/{pid}` v5契約で動作する。
+バージョン境界はProject v6、Page v5、FlowDocument v1、FlowLayout v1とする。Commit 6Bで
+`state.blocks`、IndexedDB、DSP、Firestoreへ接続した。Fixed-only作品はv5を維持し、Flow Groupを含む作品は
+明示的なv6として保存する。
 
 Project v6 normalizerはFixed Blockをopaqueに保持する。未知のauthoring Blockや未知のFlow semantic Blockは
 round-tripのため保持するが、対応できない内容を黙って欠落させないようvalidationで編集・paginationを停止する。
+
+#### `users/{uid}/projects/{pid}/authoring/current` — Project v6 owner source
+
+公開済みproject rootは第三者が読めるため、Flow本文、翻訳原稿、FlowLayoutを含む完全なProject v6 envelopeは
+owner専用の`authoring/current`子documentへ保存する。rootと子documentは同一Firestore batchで更新する。
+
+- child: 完全なProject v6 `blocks[]`、Fixed互換`sections[]`／`pages[]`、言語・編集metadata
+- root: 明示的な公開field allowlistによる一覧／Press／Viewer用metadata、Fixed互換投影、`authoringRef`
+- 未知のProject v6 authoring拡張: owner専用childでは保持し、公開rootには投影しない
+- child欠落時: rootのFixed投影へfallbackせず読込停止
+- Flow生成ページ／fragment／pagination cache: childにもrootにも保存禁止
+- child soft limit: UTF-8 JSON 850 KiB
+- root削除: childと同一batchで削除
+
+詳細な失敗時契約とversion guardは`docs/cloud-save-contract.md`を参照。
 
 #### Page Object v5（`state.pages` の各要素）— **派生 / 出力スキーマ**
 
@@ -656,11 +676,11 @@ Viewer の閲覧行動を append-only の raw event として保存する。日�
 |------|-----------|---------|------|
 | ユーザー初期化 | `js/firebase.js` | `ensureUserBootstrap` | Google ログイン時に `users/{uid}` を作成/補完し `lastLoginAt` を更新 |
 | 一覧取得 | `js/projects.js` | `openProjectModal` | `users/{uid}/projects` を getDocs |
-| 読み込み | `js/firebase.js` / `js/viewer.js` | `loadWork` / `loadFromFirestore` | 指定 pid を getDoc。Viewer の共有 URL は `dsfPages` がある発行済みデータだけを扱う |
-| 保存 | `js/firebase.js` | `performSave` | `setDoc(..., { merge: true })` で編集内容を保存し、公開インデックスは更新しない |
+| 読み込み | `js/firebase.js` / `js/viewer.js` | `loadProject` / `loadFromFirestore` | Studioはv6 rootの`authoring/current`をowner正本として読む。Viewerは発行済み投影だけを扱う |
+| 保存 | `js/firebase.js` | `performSave` | Fixed v5はrootへmerge保存。v6はowner child完全置換＋公開可能root投影を同一batchで保存 |
 | 公開プロフィール保存 | `js/mypage.js` | `savePublicProfile` | `users/{uid}.publicProfile` を更新。初回 handle 設定時は `handles/{handle}` を transaction で予約 |
 | Work URL 解決 | `js/viewer.js` | `loadWorkFromPublicIndex` | `public_projects/{workId}` から `authorUid` / `projectId` を解決 |
-| 削除 | `js/projects.js` | — | deleteDoc |
+| 削除 | `js/projects.js` / `js/works.js` | — | `authoring/current`とproject rootを同一batchで削除 |
 | draft 作成 | `js/press.js` | publish handler | `releaseId` を採番し、`projects` と `works/{workId}/releases/{releaseId}` に DSF メタデータを保存。既存 `public_projects/{workId}` は削除 |
 | 公開登録 | `js/works.js` | `_updateDsfStatus` | `public` / `unlisted` 切り替え時に `public_projects/{workId}` へ setDoc |
 | 公開解除 | `js/works.js` | `_updateDsfStatus` | `draft` / `private` 切り替え時に `public_projects/{workId}` を削除 |
@@ -714,6 +734,13 @@ users/{uid}:
 users/{uid}/projects/{pid}:
   - read/write: 認証済みオーナー (auth.uid == uid)
   - read: dsfStatus が 'public' または 'unlisted' の場合は誰でも可
+  - update: 保存済みProject versionより小さいversionへのdowngradeを拒否
+  - delete: authoring/currentが削除後にも残る操作を拒否
+
+users/{uid}/projects/{pid}/authoring/current:
+  - read/write: 認証済みオーナーのみ
+  - public read: 常に拒否
+  - create/update: Project v6のみ
 
 users/{uid}/works/{workId}:
   - read/write: 認証済みオーナー (auth.uid == uid)
@@ -787,7 +814,7 @@ state.pages    ← viewer/export surface（v5 Page Object の配列）
 - `state.sections` / `state.pages` は互換面として再生成可能であることを優先する
 - 現行 editor 実装では `sections` から編集が入る経路が残るが、保存前には必ず `blocks` へ再同期する
 
-Project v6純粋モデル（Commit 6A、未接続）:
+Project v6 authoring／runtime関係（Commit 6A/6B）:
 
 ```
 ProjectV6.blocks[]
@@ -796,6 +823,8 @@ ProjectV6.blocks[]
 ```
 
 Flow生成ページは`state.blocks`、`state.sections`、`state.pages`のいずれにも書き戻さない。
+Firestoreでは完全な`ProjectV6.blocks[]`をowner専用`authoring/current`へ保存し、公開可能rootには
+Fixed互換投影だけを置く。
 
 ---
 
@@ -803,6 +832,7 @@ Flow生成ページは`state.blocks`、`state.sections`、`state.pages`のいず
 
 | 日付 | 変更内容 |
 |------|---------|
+| 2026-08-19 | Commit 6B: Project v6をstate／Undo／IndexedDB／DSP／owner専用Firestore authoring childへ接続。公開root分離、850 KiB soft limit、version downgrade guardを追加 |
 | 2026-08-18 | Project v6の純粋authoring contractを追加。Fixed BlockとFlow Groupの混在、FlowDocument／FlowLayoutの所有境界、生成ページ非永続化を定義（保存経路は未接続） |
 | 2026-02-25 | 全面改訂: `works` → `users/{uid}/projects/{pid}` に修正、v5 Page スキーマ追加、AR フィールド追加、Security Rules を実態に更新 |
 | 2026-03-25 | DSF Gen 3 方針確定: WebP 画像のみ。`ar`・`richText`・`layout`・`text` 系フィールドを廃止予定に明記 |

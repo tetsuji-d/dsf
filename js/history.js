@@ -8,17 +8,39 @@ const MAX_HISTORY = 50;
 let undoStack = [];
 let redoStack = [];
 
+function clone(value, fallback) {
+    return JSON.parse(JSON.stringify(value ?? fallback));
+}
+
+export function createHistorySnapshot(source = state) {
+    return {
+        version: source.version,
+        blocks: clone(source.blocks, []),
+        sections: clone(source.sections, []),
+        pages: clone(source.pages, []),
+        activeIdx: source.activeIdx,
+        activePageIdx: source.activePageIdx,
+        activeBlockIdx: source.activeBlockIdx,
+        activeBubbleIdx: source.activeBubbleIdx
+    };
+}
+
+function restoreHistorySnapshot(snapshot) {
+    if (Number.isInteger(snapshot.version)) state.version = snapshot.version;
+    state.blocks = snapshot.blocks || state.blocks || [];
+    state.sections = snapshot.sections || [];
+    state.pages = snapshot.pages || [];
+    state.activeIdx = snapshot.activeIdx;
+    state.activePageIdx = Number.isInteger(snapshot.activePageIdx) ? snapshot.activePageIdx : snapshot.activeIdx;
+    state.activeBlockIdx = Number.isInteger(snapshot.activeBlockIdx) ? snapshot.activeBlockIdx : state.activeBlockIdx;
+    state.activeBubbleIdx = snapshot.activeBubbleIdx;
+}
+
 /**
  * 現在の状態をundoスタックに保存する（変更前に呼ぶ）
  */
 export function pushState() {
-    const snapshot = {
-        blocks: JSON.parse(JSON.stringify(state.blocks || [])),
-        sections: JSON.parse(JSON.stringify(state.sections)),
-        activeIdx: state.activeIdx,
-        activeBlockIdx: state.activeBlockIdx,
-        activeBubbleIdx: state.activeBubbleIdx
-    };
+    const snapshot = createHistorySnapshot(state);
     undoStack.push(snapshot);
     if (undoStack.length > MAX_HISTORY) {
         undoStack.shift();
@@ -36,21 +58,11 @@ export function undo(refresh) {
     if (undoStack.length === 0) return false;
 
     // 現在の状態をredoスタックに保存
-    redoStack.push({
-        blocks: JSON.parse(JSON.stringify(state.blocks || [])),
-        sections: JSON.parse(JSON.stringify(state.sections)),
-        activeIdx: state.activeIdx,
-        activeBlockIdx: state.activeBlockIdx,
-        activeBubbleIdx: state.activeBubbleIdx
-    });
+    redoStack.push(createHistorySnapshot(state));
 
     // undoスタックから復元
     const snapshot = undoStack.pop();
-    state.blocks = snapshot.blocks || state.blocks || [];
-    state.sections = snapshot.sections;
-    state.activeIdx = snapshot.activeIdx;
-    state.activeBlockIdx = Number.isInteger(snapshot.activeBlockIdx) ? snapshot.activeBlockIdx : state.activeBlockIdx;
-    state.activeBubbleIdx = snapshot.activeBubbleIdx;
+    restoreHistorySnapshot(snapshot);
 
     refresh();
     return true;
@@ -65,21 +77,11 @@ export function redo(refresh) {
     if (redoStack.length === 0) return false;
 
     // 現在の状態をundoスタックに保存
-    undoStack.push({
-        blocks: JSON.parse(JSON.stringify(state.blocks || [])),
-        sections: JSON.parse(JSON.stringify(state.sections)),
-        activeIdx: state.activeIdx,
-        activeBlockIdx: state.activeBlockIdx,
-        activeBubbleIdx: state.activeBubbleIdx
-    });
+    undoStack.push(createHistorySnapshot(state));
 
     // redoスタックから復元
     const snapshot = redoStack.pop();
-    state.blocks = snapshot.blocks || state.blocks || [];
-    state.sections = snapshot.sections;
-    state.activeIdx = snapshot.activeIdx;
-    state.activeBlockIdx = Number.isInteger(snapshot.activeBlockIdx) ? snapshot.activeBlockIdx : state.activeBlockIdx;
-    state.activeBubbleIdx = snapshot.activeBubbleIdx;
+    restoreHistorySnapshot(snapshot);
 
     refresh();
     return true;

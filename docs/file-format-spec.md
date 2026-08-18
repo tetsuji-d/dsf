@@ -68,7 +68,8 @@ filename.dsf / filename.dsp
 ```json
 {
   "version": "1.0.0",               // フォーマットのバージョン
-  "schemaVersion": 1,               // 内部データの構造バージョン番号（後方互換性用）
+  "schemaVersion": 1,               // DSF／Fixed DSPは1、Project v6 DSPは2
+  "projectVersion": 5,              // DSPのみ。Project authoring version
   "projectId": "proj_abc123",       // 編集単位のID（存在する場合）
   "workId": "work_abc123",          // 読者向けに不変の作品ID（存在する場合）
   "releaseId": "rel_abc123",        // 発行物のID（DSFの場合。DSPでは null/空文字可）
@@ -107,12 +108,13 @@ filename.dsf / filename.dsp
 ### `project.json` (DSP ファイル専用)
 現在の `state.js` が保持しているデータをシリアライズした完全なダンプ。
 
-> **Project v6 Flow注記（Commit 6A）**: Fixed Blockと`kind:'flow'`を混在させる純粋authoring modelは
-> 定義済みだが、この時点ではDSP serialization／importへ未接続である。下記は引き続き現行v5の保存仕様であり、
-> `project.json.version = 6`、Flow Group、DSP `meta.json.schemaVersion`の更新はCommit 6Bで扱う。
+Fixed-onlyのlegacy DSPは`meta.json.schemaVersion: 1`／Project v5を維持する。Flow Groupを含むDSPは
+`meta.json.schemaVersion: 2`、`projectVersion: 6`、`project.json.version: 6`を必須とする。
+schema v1/v2は読込可能だが、未知のfuture schemaは本文欠落を避けるため停止する。
 
 ```json
 {
+  "version": 6,
   "projectId": "local_abc123",
   "workId": "work_abc123",
   "releaseId": null,
@@ -121,11 +123,20 @@ filename.dsf / filename.dsp
     "en": { "writingMode": "horizontal-tb", "fontPreset": "sans" }
   },
   "uiPrefs": { "desktop": { "thumbColumns": 4 } },
+  "languages": ["ja", "en"],
+  "defaultLang": "ja",
   "sections": [ /* state.sections の配列（オリジナル画像への相対パスを含む） */ ],
-  "blocks": [ /* state.blocks の配列 */ ],
+  "blocks": [ /* Fixed Blockとkind:'flow' Flow Groupの順序付きauthoring spine */ ],
   "pages": [ /* state.pages の配列 */ ]
 }
 ```
+
+Project v6の`blocks[].flow.document`がsemantic source、`flow.layout`がFlowLayout正本である。
+生成ページ、fragment、pagination checkpoint/cacheは`project.json`へ収録しない。`sections`と`pages`は
+Fixed Blockだけの互換投影であり、Flow-only DSPでは空配列となる。本文の完全な復元には必ず`blocks[]`を使う。
+
+DSP importはProject v6全体をvalidationしてからasset Object URLを作成し、stateへdispatchする。
+不正なFlow、Project v5へのFlow混入、future Project／FlowDocument／FlowLayoutはFixedへfallbackしない。
 
 ### `content.json` (DSF ファイル専用)
 ブラウザやネイティブリーダーが、最小の計算コストでページを描画するための最適化（フラット化）データ。

@@ -24,6 +24,7 @@
     "verify:flow-foundation": "node scripts/verify-flow-foundation.js",
     "verify:flow-model": "node scripts/verify-flow-model.js",
     "verify:flow-project-model": "node scripts/verify-flow-project-model.js",
+    "verify:project-persistence": "node scripts/verify-project-persistence.js",
     "verify:flow-preview": "node scripts/verify-flow-preview.js",
     "verify:flow-incremental": "node scripts/verify-flow-incremental.js",
     "deploy:prod:check": "node scripts/deploy-prod-safe.js --check-only",

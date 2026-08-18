@@ -6,6 +6,7 @@ import {
     doc, setDoc, deleteDoc, serverTimestamp
 } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
 import { state, dispatch, actionTypes } from './state.js';
+import { hasFlowGroups } from './flow-project-model.js';
 import { extractSectionsFromBlocks } from './blocks.js';
 import { assertAccountCanPublish, db, uploadPressPage, triggerAutoSave, auth, ensureUserBootstrap } from './firebase.js';
 import { loadImageForCanvas } from './asset-fetch.js';
@@ -623,8 +624,11 @@ async function _updateSizeEstimate() {
 function _updatePublishBtn() {
     const btn = document.getElementById('press-publish-cloud-btn');
     if (!btn) return;
-    btn.disabled = !state.uid;
-    btn.title = state.uid ? '' : 'ログインが必要です';
+    const hasFlow = hasFlowGroups(state);
+    btn.disabled = !state.uid || hasFlow;
+    btn.title = hasFlow
+        ? 'Flowページ生成がPressへ接続されるまで発行できません'
+        : (state.uid ? '' : 'ログインが必要です');
 }
 
 /** Press Room の言語タブをトグル（複数選択可） */
@@ -694,6 +698,10 @@ window.updatePressBookCover = (key, value) => {
 
 /** Press Room の「Horizonに発行」ボタンから呼ばれる */
 window.publishToCloud = async () => {
+    if (hasFlowGroups(state)) {
+        alert('Flowページ生成がPressへ接続されるまで、このプロジェクトは発行できません。');
+        return;
+    }
     const uid = auth.currentUser?.uid;
     if (!uid) {
         alert('ログインしてください');

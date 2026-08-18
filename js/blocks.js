@@ -170,19 +170,50 @@ export function migrateSectionsToBlocks(sections, _languages = ['ja']) {
     return src.map(createPageBlockFromSection);
 }
 
-export function syncBlocksWithSections(existingBlocks, sections, _languages = ['ja']) {
-    const blocks = ensureBoundaryBlocks(existingBlocks);
-    const srcSections = Array.isArray(sections) && sections.length ? sections : [createDefaultSection()];
+export function syncBlocksWithSections(existingBlocks, sections, _languages = ['ja'], options = {}) {
+    const sourceBlocks = Array.isArray(existingBlocks) ? deepClone(existingBlocks) : [];
+    const hasFlowGroup = sourceBlocks.some((block) => block?.kind === 'flow');
+    const strictSpine = options.strictSpine === true || hasFlowGroup;
+    const blocks = strictSpine ? sourceBlocks : ensureBoundaryBlocks(sourceBlocks);
+    const srcSections = strictSpine
+        ? (Array.isArray(sections) ? deepClone(sections) : [])
+        : (Array.isArray(sections) && sections.length ? deepClone(sections) : [createDefaultSection()]);
+    const fixedPageCount = blocks.filter((block) => block?.kind === 'page').length;
+
+    // A mixed spine cannot infer whether an added/removed legacy Section belongs
+    // before or after a Flow group. Stop instead of silently moving authoring data.
+    if (strictSpine && fixedPageCount !== srcSections.length) {
+        const error = new Error('Fixed page count and Section compatibility count differ in a mixed Project v6 spine.');
+        error.name = 'MixedAuthoringSyncError';
+        error.code = 'MIXED_SPINE_FIXED_PAGE_COUNT_MISMATCH';
+        error.fixedPageCount = fixedPageCount;
+        error.sectionCount = srcSections.length;
+        throw error;
+    }
     let sectionIdx = 0;
 
     const synced = [];
     for (const block of blocks) {
-        if (!block) continue;
+        if (!block) {
+            if (strictSpine) synced.push(block);
+            continue;
+        }
         if (block.kind === 'page') {
             if (sectionIdx < srcSections.length) {
                 const nextPage = createPageBlockFromSection(srcSections[sectionIdx]);
-                nextPage.id = block.id || nextPage.id;
-                synced.push(nextPage);
+                if (strictSpine) nextPage.id = block.id;
+                else nextPage.id = block.id || nextPage.id;
+                // Fixed blocks are opaque in Project v6. Preserve extension fields
+                // (for example graphic layers) while updating known Section fields.
+                const mergedPage = {
+                    ...deepClone(block),
+                    ...nextPage,
+                    content: {
+                        ...deepClone(block.content || {}),
+                        ...nextPage.content,
+                    },
+                };
+                synced.push(mergedPage);
                 sectionIdx += 1;
             }
             continue;
@@ -195,7 +226,7 @@ export function syncBlocksWithSections(existingBlocks, sections, _languages = ['
         synced.push(...tail);
     }
 
-    return ensurePageBlocks(synced);
+    return strictSpine ? synced : ensurePageBlocks(synced);
 }
 
 export function normalizeProjectData(data = {}) {

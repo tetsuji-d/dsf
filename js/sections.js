@@ -46,6 +46,7 @@ export function getOptimizedImageUrl(originalUrl) {
 import {
     createStructureBlock,
     createPageBlockFromSection,
+    createSectionFromPageBlock,
     extractSectionsFromBlocks,
     getBlockIndexFromPageIndex,
     getPageBlockIndices,
@@ -364,6 +365,14 @@ function getBlockSummary(block) {
             subtitle: block?.meta?.systemGenerated ? '自動生成' : ''
         };
     }
+    if (kind === 'flow') {
+        const title = block?.flow?.document?.sections?.[0]?.title?.[lang] || '';
+        return {
+            badge: 'Flow',
+            title: truncateText(title) || 'Flowテキスト',
+            subtitle: '編集UI未接続（読取専用）',
+        };
+    }
     return { badge: kind, title: '' };
 }
 
@@ -373,6 +382,7 @@ function isCoverKind(kind) {
 
 function isLockedBlock(block) {
     if (!block) return false;
+    if (block.kind === 'flow') return true;
     if (isCoverKind(block.kind)) return true;
     return block.kind === 'toc' && block.meta?.systemGenerated === true;
 }
@@ -408,7 +418,10 @@ function canInsertNearBlock(block, position) {
 }
 
 function syncModelsFromLegacy() {
-    dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'blocks', value: syncBlocksWithSections(state.blocks, state.sections, state.languages) } });
+    dispatch({ type: actionTypes.SET_STATE_FIELD, payload: {
+        key: 'blocks',
+        value: syncBlocksWithSections(state.blocks, state.sections, state.languages, { strictSpine: state.version === 6 }),
+    } });
     dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'pages', value: blocksToPages(state.blocks) } });
     if (!Number.isInteger(state.activePageIdx)) {
         dispatch({ type: actionTypes.SET_ACTIVE_INDEX, payload: Number.isInteger(state.activeIdx) ? state.activeIdx : 0 });
@@ -640,18 +653,21 @@ export function insertStructureBlock(kind, refresh) {
     refresh();
 }
 
-export function insertPageNearBlock(blockIndex, position, refresh) {
+export function insertPageNearBlock(blockIndex, position, refresh, sectionType = 'image') {
     const idx = Number(blockIndex);
     const list = [...(state.blocks || [])];
-    if (!Number.isInteger(idx) || idx < 0 || idx >= list.length) return;
+    const emptyV6Spine = state.version === 6 && list.length === 0;
+    if (!emptyV6Spine && (!Number.isInteger(idx) || idx < 0 || idx >= list.length)) return;
     const pos = position === 'before' ? 'before' : 'after';
-    const target = list[idx];
-    if (!canInsertNearBlock(target, pos)) return;
+    const target = emptyV6Spine ? null : list[idx];
+    if (!emptyV6Spine && !canInsertNearBlock(target, pos)) return;
 
-    let insertAt = pos === 'before' ? idx : idx + 1;
-    insertAt = Math.max(1, Math.min(insertAt, Math.max(1, list.length - 1)));
+    let insertAt = emptyV6Spine ? 0 : (pos === 'before' ? idx : idx + 1);
+    insertAt = state.version === 6
+        ? Math.max(0, Math.min(insertAt, list.length))
+        : Math.max(1, Math.min(insertAt, Math.max(1, list.length - 1)));
 
-    const pageBlock = createPageBlockFromSection(createDefaultSection());
+    const pageBlock = createPageBlockFromSection(createSectionByType(sectionType));
     list.splice(insertAt, 0, pageBlock);
     dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'blocks', value: list } });
     dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'sections', value: extractSectionsFromBlocks(list) } });
@@ -670,7 +686,7 @@ export function duplicateBlockAt(blockIndex, refresh) {
     const list = [...(state.blocks || [])];
     if (!Number.isInteger(idx) || idx < 0 || idx >= list.length) return;
     const target = list[idx];
-    if (!target || target.kind === 'cover_front' || target.kind === 'cover_back') return;
+    if (!target || target.kind === 'cover_front' || target.kind === 'cover_back' || target.kind === 'flow') return;
 
     if (target.kind === 'page') {
         const pageIdx = getPageIndexFromBlockIndex(state.blocks, idx);
@@ -739,6 +755,7 @@ export function renderThumbs() {
     container.dataset.dir = pageDir;
 
     const blocks = state.blocks || [];
+    const strictAuthoring = state.version === 6;
     const pageBlockIndices = getPageBlockIndices(blocks);
     const pageIndexByBlock = new Map(pageBlockIndices.map((bi, pageIdx) => [bi, pageIdx]));
     const context = { chapter: false, section: false, item: false };
@@ -792,7 +809,7 @@ export function renderThumbs() {
             if (activeSpreadGroupId && spreadGroupId === activeSpreadGroupId) selected = true;
             const spreadAttrs = spreadGroupId ? ` data-spread-group="${escapeAttr(spreadGroupId)}"` : '';
             const dataAttrs = `data-block-index="${blockIdx}" data-section-index="${pageIdx}" data-tree-depth="${depth}"${spreadAttrs}`;
-            const dragHandlers = `
+            const dragHandlers = strictAuthoring ? 'draggable="false"' : `
                 ondragstart="startThumbDrag(event, ${pageIdx})"
                 ondragover="onThumbDragOver(event, ${pageIdx})"
                 ondragleave="onThumbDragLeave(event, ${pageIdx})"
@@ -801,6 +818,15 @@ export function renderThumbs() {
                 ontouchstart="startThumbTouchDrag(event, ${pageIdx})"
                 draggable="true"
             `;
+            const insertBeforeAction = strictAuthoring
+                ? `insertPageNearBlock(${blockIdx}, 'before', event)`
+                : `insertSectionAtIndex(${pageIdx}, event)`;
+            const insertAfterAction = strictAuthoring
+                ? `insertPageNearBlock(${blockIdx}, 'after', event)`
+                : `insertSectionAtIndex(${pageIdx + 1}, event)`;
+            const duplicateButton = strictAuthoring
+                ? ''
+                : `<button class="thumb-duplicate-btn" title="ページを複製" ontouchstart="event.stopPropagation()" onclick="duplicateSectionByIndex(${pageIdx}, event)"><span class="material-icons">content_copy</span></button>`;
 
             if (s.type === 'image') {
                 const thumbImg = renderPositionedThumbImageHtml(s, state.activeLang, pageLabel, pageIdx);
@@ -814,9 +840,9 @@ export function renderThumbs() {
                         </div>
                         <span class="thumb-page-num">${escapeHtml(pageLabel)}</span>
                         <div class="thumb-card-top"></div>
-                        <button class="thumb-insert-btn before" title="ここにページ挿入" ontouchstart="event.stopPropagation()" onclick="insertSectionAtIndex(${pageIdx}, event)"><span class="material-icons">add</span></button>
-                        <button class="thumb-insert-btn after" title="この下にページ挿入" ontouchstart="event.stopPropagation()" onclick="insertSectionAtIndex(${pageIdx + 1}, event)"><span class="material-icons">add</span></button>
-                        <button class="thumb-duplicate-btn" title="ページを複製" ontouchstart="event.stopPropagation()" onclick="duplicateSectionByIndex(${pageIdx}, event)"><span class="material-icons">content_copy</span></button>
+                        <button class="thumb-insert-btn before" title="ここにページ挿入" ontouchstart="event.stopPropagation()" onclick="${insertBeforeAction}"><span class="material-icons">add</span></button>
+                        <button class="thumb-insert-btn after" title="この下にページ挿入" ontouchstart="event.stopPropagation()" onclick="${insertAfterAction}"><span class="material-icons">add</span></button>
+                        ${duplicateButton}
                     </div>
                 `;
             }
@@ -838,9 +864,9 @@ export function renderThumbs() {
                     </div>
                     <span class="thumb-page-num">${escapeHtml(pageLabel)}</span>
                     <div class="thumb-card-top"></div>
-                    <button class="thumb-insert-btn before" title="ここにページ挿入" ontouchstart="event.stopPropagation()" onclick="insertSectionAtIndex(${pageIdx}, event)"><span class="material-icons">add</span></button>
-                    <button class="thumb-insert-btn after" title="この下にページ挿入" ontouchstart="event.stopPropagation()" onclick="insertSectionAtIndex(${pageIdx + 1}, event)"><span class="material-icons">add</span></button>
-                    <button class="thumb-duplicate-btn" title="ページを複製" ontouchstart="event.stopPropagation()" onclick="duplicateSectionByIndex(${pageIdx}, event)"><span class="material-icons">content_copy</span></button>
+                    <button class="thumb-insert-btn before" title="ここにページ挿入" ontouchstart="event.stopPropagation()" onclick="${insertBeforeAction}"><span class="material-icons">add</span></button>
+                    <button class="thumb-insert-btn after" title="この下にページ挿入" ontouchstart="event.stopPropagation()" onclick="${insertAfterAction}"><span class="material-icons">add</span></button>
+                    ${duplicateButton}
                 </div>
             `;
         }
@@ -851,12 +877,13 @@ export function renderThumbs() {
         const canMove = canManualMoveBlock(b);
         const canMoveUp = canMove && findMovableTargetIndex(blocks, blockIdx, 'up') >= 0;
         const canMoveDown = canMove && findMovableTargetIndex(blocks, blockIdx, 'down') >= 0;
+        const isFlow = b?.kind === 'flow';
         const coverLock = isLockedBlock(b)
-            ? `<span class="thumb-card-lock" title="位置固定">LOCK</span>`
+            ? `<span class="thumb-card-lock" title="${isFlow ? 'Flow編集UI未接続（読取専用）' : '位置固定'}">${isFlow ? 'READ ONLY' : 'LOCK'}</span>`
             : '';
         return `
             <div class="thumb-wrap thumb-card ${selected ? 'active' : ''}" data-block-index="${blockIdx}" data-tree-depth="${depth}"
-                onclick="changeBlock(${blockIdx})"
+                ${isFlow ? 'aria-disabled="true"' : `onclick="changeBlock(${blockIdx})"`}
                 aria-current="${selected ? 'true' : 'false'}"
                 draggable="false">
                 <div class="thumb-canvas thumb-canvas-meta thumb-canvas-structure kind-${escapeHtml(b?.kind || 'unknown')}">
@@ -920,6 +947,28 @@ export function deleteActive(refresh) {
         newSections[state.activeIdx].bubbles.splice(state.activeBubbleIdx, 1);
         dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'sections', value: newSections } });
         dispatch({ type: actionTypes.SET_ACTIVE_BUBBLE_INDEX, payload: null });
+        refresh();
+        return;
+    }
+
+    if (activeBlock?.kind === 'flow') {
+        refresh();
+        return;
+    }
+
+    if (state.version === 6 && activeBlock?.kind === 'page') {
+        const newBlocks = [...state.blocks];
+        newBlocks.splice(state.activeBlockIdx, 1);
+        const newSections = newBlocks
+            .filter((block) => block?.kind === 'page')
+            .map(createSectionFromPageBlock);
+        dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'blocks', value: newBlocks } });
+        dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'sections', value: newSections } });
+        const nextBlockIdx = Math.max(0, Math.min(state.activeBlockIdx, newBlocks.length - 1));
+        dispatch({ type: actionTypes.SET_ACTIVE_BLOCK_INDEX, payload: nextBlockIdx });
+        const nextPageIdx = getPageIndexFromBlockIndex(newBlocks, nextBlockIdx);
+        dispatch({ type: actionTypes.SET_ACTIVE_INDEX, payload: Math.max(0, nextPageIdx) });
+        syncModelsFromLegacy();
         refresh();
         return;
     }

@@ -24,6 +24,14 @@ import {
     clampPressPublishResolutionKey
 } from './page-geometry.js';
 import { normalizeBookSettings } from './page-labels.js';
+import { hasFlowGroups } from './flow-project-model.js';
+import {
+    DSP_FLOW_META_SCHEMA_VERSION,
+    applyDspMetadataFallbacks,
+    assertSupportedDspEnvelope,
+    hydrateProjectFromPersistence,
+    prepareProjectForSave,
+} from './project-persistence.js';
 
 // --- Common Metadata Builder ---
 function pickLocalizedMeta(key) {
@@ -48,14 +56,17 @@ function pickLocalizedMetaMap(key) {
     return out;
 }
 
-function buildMetadata(formatStr) {
+function buildMetadata(formatStr, options = {}) {
     const generator = "DSF Studio v1.2";
     const dateStr = new Date().toISOString();
     const localizedMeta = state.meta || {};
     const linerNotes = pickLocalizedMetaMap('linerNotes');
     return {
         version: "1.0.0",
-        schemaVersion: 1,
+        schemaVersion: formatStr === 'dsp' && options.projectVersion === 6
+            ? DSP_FLOW_META_SCHEMA_VERSION
+            : 1,
+        projectVersion: formatStr === 'dsp' ? (options.projectVersion || 5) : undefined,
         format: formatStr, // "dsp" or "dsf"
         projectId: state.projectId || "",
         workId: state.workId || "",
@@ -89,14 +100,31 @@ export async function buildDSP() {
     // 1. Mimetype
     zip.file("mimetype", "application/vnd.dsf.project+zip");
 
-    // 2. Metadata
-    const meta = buildMetadata("dsp");
-    zip.file("meta.json", JSON.stringify(meta, null, 2));
-
-    // 3. Project Data Dump
-    // Clone sections and blocks to modify image paths without mutating global state
-    const exportSections = JSON.parse(JSON.stringify(state.sections || []));
-    const exportBlocks = JSON.parse(JSON.stringify(state.blocks || []));
+    // 2. Project Data Dump. The authoring snapshot is validated before any
+    // archive work; Flow-generated pages are never part of this value.
+    const initialProject = prepareProjectForSave({
+        version: state.version || 5,
+        projectId: state.projectId,
+        workId: state.workId || '',
+        releaseId: state.releaseId || null,
+        projectName: state.projectName || '',
+        title: state.title || '',
+        labelName: state.labelName || '',
+        rating: state.rating || 'all',
+        license: state.license || 'all-rights-reserved',
+        textPaperPreset: state.textPaperPreset || 'white',
+        meta: state.meta || {},
+        languages: state.languages || ['ja'],
+        defaultLang: state.defaultLang || state.languages?.[0] || 'ja',
+        languageConfigs: state.languageConfigs || {},
+        uiPrefs: state.uiPrefs || null,
+        bookMode: state.bookMode || state.book?.mode || 'simple',
+        book: state.book || null,
+        sections: state.sections || [],
+        blocks: state.blocks || [],
+        pages: state.pages || [],
+    });
+    const exportSections = JSON.parse(JSON.stringify(initialProject.sections || []));
 
     // Download images and modify paths
     const assetsFolder = zip.folder("assets");
@@ -123,39 +151,26 @@ export async function buildDSP() {
         imgIndex++;
     }
 
-    // Replace image paths in block backgrounds too if applicable
-    let blockImgIndex = 0;
-    for (const block of exportBlocks) {
-        if (block.type === 'image' && shouldEmbedAsset(block.background)) {
-            const blob = await fetchAssetBlob(block.background, `画像ブロック ${blockImgIndex + 1} の背景画像`);
-            const ext = guessAssetExtension(block.background);
-            const filename = `block_bg_${blockImgIndex}.${ext}`;
-            originalsFolder.file(filename, blob);
-            block.background = `assets/originals/${filename}`;
-            blockImgIndex++;
-        }
-    }
-
-    const projectPages = blocksToPages(exportBlocks);
-    const book = buildFixedBookConfig(state.bookMode || state.book?.mode || 'simple', projectPages.length);
-    const projectData = {
-        projectId: state.projectId,
-        workId: state.workId || '',
-        releaseId: state.releaseId || null,
-        projectName: state.projectName || '',
-        title: state.title || '',
-        labelName: state.labelName || '',
-        rating: state.rating || 'all',
-        license: state.license || 'all-rights-reserved',
-        meta: state.meta || {},
-        languageConfigs: state.languageConfigs,
-        uiPrefs: state.uiPrefs,
+    // Reconcile the rewritten Fixed asset paths back into the opaque mixed
+    // spine while preserving Flow groups and Fixed extension fields.
+    const withArchiveAssets = prepareProjectForSave({
+        ...initialProject,
+        sections: exportSections,
+    });
+    const book = buildFixedBookConfig(
+        withArchiveAssets.bookMode || withArchiveAssets.book?.mode || 'simple',
+        withArchiveAssets.pages.length,
+    );
+    const projectData = prepareProjectForSave({
+        ...withArchiveAssets,
         bookMode: book.mode,
         book,
-        sections: exportSections,
-        blocks: exportBlocks,
-        pages: projectPages // Generate derived pages locally
-    };
+    });
+
+    // 3. Metadata. DSP schema v2 identifies Project v6 authoring archives;
+    // published DSF metadata remains schema v1.
+    const meta = buildMetadata('dsp', { projectVersion: projectData.version });
+    zip.file('meta.json', JSON.stringify(meta, null, 2));
 
     zip.file("project.json", JSON.stringify(projectData, null, 2));
 
@@ -182,6 +197,11 @@ export async function buildDSP() {
 
 // --- Build .dsf (Content/Publish Archive) ---
 export async function buildDSF() {
+    if (hasFlowGroups(state)) {
+        const error = new Error('Flowページ生成がPressへ接続されるまで、このプロジェクトはDSF発行できません。');
+        error.code = 'FLOW_PUBLICATION_NOT_CONNECTED';
+        throw error;
+    }
     resetPressRenderCancel();
     const onEscKey = (e) => {
         if (e.key === 'Escape') {
@@ -344,6 +364,11 @@ export async function parseAndLoadDSP(file) {
     if (!projectFile) throw new Error("Invalid .dsp file: project.json missing");
     const projectStr = await projectFile.async("text");
     const projectData = JSON.parse(projectStr);
+    // DSP v1 stored language metadata only in meta.json. Apply those values
+    // before normalization so the v5 default ['ja'] does not mask translations.
+    const projectWithMetaFallbacks = applyDspMetadataFallbacks(projectData, meta);
+    const normalizedProject = hydrateProjectFromPersistence(projectWithMetaFallbacks);
+    assertSupportedDspEnvelope(meta, normalizedProject.version);
 
     // Reconstruct Object URLs for assets
     const assetMap = new Map();
@@ -364,38 +389,43 @@ export async function parseAndLoadDSP(file) {
         }
     }
 
-    // Replace paths in state objects
-    if (projectData.sections) {
-        for (const section of projectData.sections) {
-            if (section.background && assetMap.has(section.background)) section.background = assetMap.get(section.background);
-            if (section.thumbnail && assetMap.has(section.thumbnail)) section.thumbnail = assetMap.get(section.thumbnail);
-        }
-    }
-    if (projectData.blocks) {
-        for (const block of projectData.blocks) {
-            if (block.type === 'image' && block.background && assetMap.has(block.background)) {
-                block.background = assetMap.get(block.background);
+    const replaceAssetReferences = (value) => {
+        if (Array.isArray(value)) return value.map(replaceAssetReferences);
+        if (!value || typeof value !== 'object') return value;
+        const out = {};
+        for (const [key, entry] of Object.entries(value)) {
+            if ((key === 'background' || key === 'thumbnail') && typeof entry === 'string') {
+                out[key] = assetMap.get(entry) || entry;
+            } else if (key === 'backgrounds' && entry && typeof entry === 'object' && !Array.isArray(entry)) {
+                out[key] = Object.fromEntries(Object.entries(entry).map(([lang, url]) => [
+                    lang,
+                    typeof url === 'string' ? (assetMap.get(url) || url) : url,
+                ]));
+            } else {
+                out[key] = replaceAssetReferences(entry);
             }
         }
-    }
+        return out;
+    };
 
+    const restoredProject = hydrateProjectFromPersistence(replaceAssetReferences(normalizedProject));
     return {
-        projectId: projectData.projectId || "local_import",
-        workId: projectData.workId || meta.workId || null,
-        releaseId: projectData.releaseId || meta.releaseId || null,
-        projectName: projectData.projectName || '',
-        title: meta.title || "Untitled",
-        labelName: projectData.labelName || meta.labelName || '',
-        rating: projectData.rating || meta.rating || 'all',
-        license: projectData.license || meta.license || 'all-rights-reserved',
-        meta: projectData.meta || meta.meta || {},
-        languages: meta.languages || ["ja"],
-        languageConfigs: projectData.languageConfigs || { ja: { writingMode: 'vertical-rl', fontPreset: 'gothic' } },
-        uiPrefs: projectData.uiPrefs || null,
-        bookMode: projectData.bookMode || projectData.book?.mode || 'simple',
-        book: projectData.book || null,
-        sections: projectData.sections || [],
-        blocks: projectData.blocks || []
+        ...restoredProject,
+        projectId: restoredProject.projectId || 'local_import',
+        workId: restoredProject.workId || meta.workId || null,
+        releaseId: restoredProject.releaseId || meta.releaseId || null,
+        projectName: restoredProject.projectName || '',
+        title: restoredProject.title || meta.title || 'Untitled',
+        labelName: restoredProject.labelName || meta.labelName || '',
+        rating: restoredProject.rating || meta.rating || 'all',
+        license: restoredProject.license || meta.license || 'all-rights-reserved',
+        meta: restoredProject.meta || meta.meta || {},
+        languages: restoredProject.languages || meta.languages || ['ja'],
+        defaultLang: restoredProject.defaultLang || meta.defaultLang || meta.languages?.[0] || 'ja',
+        languageConfigs: restoredProject.languageConfigs || { ja: { writingMode: 'vertical-rl', fontPreset: 'gothic' } },
+        uiPrefs: restoredProject.uiPrefs || null,
+        bookMode: restoredProject.bookMode || restoredProject.book?.mode || 'simple',
+        book: restoredProject.book || null,
     };
 }
 

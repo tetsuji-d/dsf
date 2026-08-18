@@ -4,9 +4,10 @@
 
 Commit 2〜5でFlowDocument、pagination、DOM preview、増分リフロー、縦書きpreviewを実装した。
 Commit 6AではFixedとFlowを同じ作品順へ配置する純粋なProject v6 authoring modelを追加した。
+Commit 6BではProject v6をStudio state、Undo/Redo、IndexedDB、DSP、owner専用Firestore authoring文書へ接続した。
 
-Studio UI、`state`、Firestore、DSP/DSF export、Press、Viewerにはまだ未接続である。
-この文書は保存スキーマを有効化するものではなく、接続前の純粋モデル契約を定義する。
+Flow編集UI、Press、DSF発行、Viewerにはまだ未接続である。保存済みFlow原稿から生成したページを
+`state.pages`へ書き戻すことも、この段階では行わない。
 
 ## 境界
 
@@ -201,6 +202,25 @@ Commit 6Aの対象外:
 - Press、DSF、Viewer、多言語Flow発行
 - Flow生成ページ上のgraphic layers
 - 「固定レイアウトとして複製」
+
+## Project v6 persistence boundary（Commit 6B）
+
+- `state.blocks`はFixed／Flow混在authoring spineの正本として保存・復元する。
+- Fixed-onlyの既存作品はProject v5のまま維持し、Flow Groupを含む作品だけが明示的にProject v6を使う。
+- FlowDocumentとFlowLayoutは既存のUndo／Redo snapshotに含め、別の履歴システムを作らない。
+- `refresh()`はmixed spine内のFlow GroupとFixed拡張fieldを保持する。Fixedページ数と互換Section数が
+  一致しない場合は、Flowを跨ぐ挿入位置を推測せず停止する。
+- IndexedDB、local recent、DSP、Firestoreの全読込入口はstate mutation前に同じProject validatorを通す。
+- DSP Project v6は`meta.json.schemaVersion: 2`と`project.json.version: 6`を使う。legacy DSP v1は継続読込する。
+- 公開可能なFirestore project rootへFlow semantic sourceを保存しない。完全なProject v6はowner専用の
+  `projects/{pid}/authoring/current`へ保存し、rootと同一batchで更新する。
+- 公開rootは明示的な公開field allowlistから構築し、未知のauthoring拡張はowner専用childだけで保持する。
+- `authoring/current`は850 KiBのsoft limitを持つ。超過時もlocal/DSP原稿は維持し、cloud writeだけを停止する。
+- Firestore RulesはProject versionのdowngradeと、authoring childを残したroot単独削除を拒否する。
+- Studioの既存EditorではFlow Groupを読取専用カードとplaceholderで表示する。Flow専用編集面の接続までは
+  複製・削除を無効化し、Flow Groupを含む作品のPress／DSF発行は欠落を防ぐため停止する。
+
+詳細は`docs/cloud-save-contract.md`を正本とする。
 
 ## DOM preview boundary（Commit 3）
 

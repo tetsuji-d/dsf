@@ -4,6 +4,9 @@
  * `sections` と `pages` は互換レンダリング/出力のための派生面として保持する。
  */
 export const state = {
+    // Project authoring envelope. Existing Fixed projects remain v5 until they
+    // intentionally adopt a Project v6 Flow spine.
+    version: 5,
     user: null,
     uid: null,
     projectId: null,
@@ -107,7 +110,16 @@ export function dispatch(action) {
         case actionTypes.LOAD_PROJECT: {
             // バックアップ/DSP 復元に含まれる uid・user は古いセッションの残骸で
             // Firebase Auth の現在ユーザーとズレると R2 の path と ID トークンが不一致になる。
-            const projectPayload = { ...(payload || {}) };
+            const projectPayload = {
+                dsfPages: [],
+                releaseId: null,
+                localProjectId: null,
+                activeIdx: 0,
+                activePageIdx: 0,
+                activeBlockIdx: 0,
+                activeBubbleIdx: null,
+                ...(payload || {})
+            };
             delete projectPayload.uid;
             delete projectPayload.user;
             Object.assign(state, projectPayload);

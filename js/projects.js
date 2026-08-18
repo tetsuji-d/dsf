@@ -1,7 +1,7 @@
 /**
  * projects.js — プロジェクト一覧モーダル管理
  */
-import { collection, getDocs, deleteDoc, doc, getDoc } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
+import { collection, getDocs, deleteDoc, doc, getDoc, writeBatch } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
 import { state } from './state.js';
 import { db } from './firebase.js';
 
@@ -49,11 +49,12 @@ export async function deleteCloudProject(projectId) {
     const workId = snap.exists() && typeof snap.data()?.workId === 'string'
         ? snap.data().workId
         : '';
-    await deleteDoc(doc(db, "users", state.uid, "projects", projectId));
-    if (workId) {
-        await deleteDoc(doc(db, "public_projects", workId)).catch(() => {});
-    }
-    await deleteDoc(doc(db, "public_projects", projectId)).catch(() => {});
+    const batch = writeBatch(db);
+    batch.delete(doc(db, 'users', state.uid, 'projects', projectId, 'authoring', 'current'));
+    batch.delete(projectRef);
+    await batch.commit();
+    if (workId) await deleteDoc(doc(db, 'public_projects', workId)).catch(() => {});
+    await deleteDoc(doc(db, 'public_projects', projectId)).catch(() => {});
 }
 
 /**
@@ -103,14 +104,20 @@ export async function openProjectModal(onLoadProject) {
 
         // カードクリックでプロジェクトを読み込む
         grid.querySelectorAll('.project-card').forEach(card => {
-            card.addEventListener('click', (e) => {
+            card.addEventListener('click', async (e) => {
                 // 削除ボタンのクリックは除外
                 if (e.target.classList.contains('project-card-delete')) return;
                 const pid = card.dataset.id;
                 const project = projects.find(p => p.id === pid);
                 if (project) {
-                    onLoadProject(pid, project.projectName, project.sections, project.languages, project.defaultLang, project.languageConfigs, project.title, project.uiPrefs, project.pages, project.blocks, project.version, project.bookMode, project.book, project.textPaperPreset);
-                    closeProjectModal();
+                    try {
+                        const loaded = await onLoadProject(pid);
+                        if (loaded === false) return;
+                        closeProjectModal();
+                    } catch (error) {
+                        console.error('[DSF] Project load failed:', error);
+                        alert(`読み込みに失敗しました: ${error.message}`);
+                    }
                 }
             });
         });
@@ -122,7 +129,7 @@ export async function openProjectModal(onLoadProject) {
                 const pid = btn.dataset.deleteId;
                 if (!confirm(`「${pid}」を削除しますか？`)) return;
                 try {
-                    await deleteDoc(doc(db, "users", state.uid, "projects", pid));
+                    await deleteCloudProject(pid);
                     btn.closest('.project-card').remove();
                 } catch (err) {
                     alert("削除に失敗しました: " + err.message);
