@@ -767,9 +767,8 @@ export function renderThumbs() {
     const runtimeProjection = strictAuthoring
         ? getCachedFlowRuntimePageProjection(
             state,
-            blocks[state.activeBlockIdx]?.kind === 'flow' && isFlowSourceSelected(blocks[state.activeBlockIdx].id)
-                ? blocks[state.activeBlockIdx].flow?.document?.sourceLanguage || state.defaultLang || 'ja'
-                : state.activeLang || state.defaultLang || 'ja',
+            state.activeLang || state.defaultLang
+                || blocks[state.activeBlockIdx]?.flow?.document?.sourceLanguage || 'ja',
             state.sections || [],
             document,
             'editor',

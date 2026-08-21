@@ -35,6 +35,12 @@ import { formatPublicationDate, normalizePlanTier } from './publication.js';
 import { PROJECT_SCHEMA_VERSION, createFlowGroupBlock, hasFlowGroups } from './flow-project-model.js';
 import { applyFlowAuthoringOperation } from './flow-authoring.js';
 import {
+    ensureFlowLanguageTypography,
+    getFlowLanguageProgress,
+    getFlowSourceLanguageGroupIds,
+    resolveFlowAuthoringLanguage,
+} from './flow-multilingual-authoring.js';
+import {
     renderFlowAuthoringView,
     updateFlowAuthoringViewStatus,
 } from './flow-authoring-view.js';
@@ -230,6 +236,14 @@ function getFlowGroupById(groupId) {
     return (state.blocks || []).find((block) => block?.kind === 'flow' && block.id === groupId) || null;
 }
 
+function getFlowAuthoringLanguage(group) {
+    return resolveFlowAuthoringLanguage(
+        group,
+        state.activeLang || state.defaultLang || '',
+        state.languages || [],
+    );
+}
+
 function getFlowAuthoringGroupProjection(projection, groupId) {
     return projection?.flowGroups?.find((entry) => entry.groupId === groupId) || null;
 }
@@ -239,14 +253,22 @@ function updateActiveFlowAuthoringStatus(projection, options = {}) {
     const activeBlock = getActiveBlock();
     if (!root || activeBlock?.kind !== 'flow' || !isFlowSourceSelected(activeBlock.id)) return;
     const groupProjection = getFlowAuthoringGroupProjection(projection, activeBlock.id);
+    const languageKey = getFlowAuthoringLanguage(activeBlock);
+    const languageProgress = getFlowLanguageProgress(activeBlock, languageKey);
     const panelPageCount = document.getElementById('flow-authoring-page-count');
-    if (panelPageCount) panelPageCount.textContent = groupProjection?.pageCount ? `${groupProjection.pageCount}ページ` : '更新中';
+    if (panelPageCount) {
+        panelPageCount.textContent = groupProjection?.isSourceFallback
+            ? '原文プレビュー'
+            : groupProjection?.pageCount ? `${groupProjection.pageCount}ページ` : '更新中';
+    }
     updateFlowAuthoringViewStatus(root, {
         state: options.state || (projection ? 'idle' : 'working'),
         pageCount: groupProjection?.pageCount || Number(root.dataset.pageCount) || 0,
         sourceRevision: _flowAuthoringSourceRevision,
         renderedRevision: projection ? _flowAuthoringRenderedRevision : _flowAuthoringRenderedRevision,
         changeSet: groupProjection?.changeSet,
+        isSourceFallback: groupProjection?.isSourceFallback === true,
+        languageProgress,
         message: options.message,
     });
     if (projection) {
@@ -258,12 +280,13 @@ function updateActiveFlowAuthoringStatus(projection, options = {}) {
 function renderFlowAuthoringSurface(activeBlock, projection = getEditorPageProjection()) {
     const root = getFlowAuthoringSurface();
     if (!root || activeBlock?.kind !== 'flow') return;
-    const sourceLanguage = activeBlock.flow?.document?.sourceLanguage || state.defaultLang || 'ja';
+    const languageKey = getFlowAuthoringLanguage(activeBlock);
+    const languageProgress = getFlowLanguageProgress(activeBlock, languageKey);
     const groupProjection = getFlowAuthoringGroupProjection(projection, activeBlock.id);
     const scrollTop = root.scrollTop;
     renderFlowAuthoringView(root, {
         group: activeBlock,
-        languageKey: sourceLanguage,
+        languageKey,
         pageCount: groupProjection?.pageCount || 0,
         onInput: handleFlowAuthoringInput,
         onChange: handleFlowAuthoringChange,
@@ -280,6 +303,8 @@ function renderFlowAuthoringSurface(activeBlock, projection = getEditorPageProje
         sourceRevision: _flowAuthoringSourceRevision,
         renderedRevision: _flowAuthoringRenderedRevision,
         changeSet: groupProjection?.changeSet,
+        isSourceFallback: groupProjection?.isSourceFallback === true,
+        languageProgress,
     });
 }
 
@@ -296,12 +321,12 @@ function getFlowAuthoringTarget(target) {
     };
 }
 
-function findFlowSourceValue(target, field) {
+function findFlowAuthoringValue(target, field, languageKey) {
     const group = getFlowGroupById(target.groupId);
     const section = group?.flow?.document?.sections?.find((entry) => entry?.id === target.sectionId);
-    if (field === 'section-title') return section?.title?.[group?.flow?.document?.sourceLanguage] || '';
+    if (field === 'section-title') return section?.title?.[languageKey] || '';
     const block = section?.blocks?.find((entry) => entry?.id === target.blockId);
-    if (field === 'block-text') return block?.texts?.[group?.flow?.document?.sourceLanguage] || '';
+    if (field === 'block-text') return block?.texts?.[languageKey] || '';
     if (field === 'heading-level') return block?.level;
     return undefined;
 }
@@ -324,10 +349,28 @@ function scheduleFlowAuthoringReflow(groupId, options = {}) {
 
 function applyFlowAuthoringEdit(operation, options = {}) {
     const historyKey = String(options.historyKey || '');
+    let authoringBlocks = state.blocks || [];
+    const group = getFlowGroupById(operation.groupId);
+    const languageKey = String(operation.languageKey || '');
+    if (
+        group
+        && languageKey
+        && languageKey !== group.flow?.document?.sourceLanguage
+        && (operation.type === 'setText' || operation.type === 'setSectionTitle')
+    ) {
+        const existingWritingMode = group.flow?.layout?.typographyByLanguage?.[languageKey]?.writingMode;
+        authoringBlocks = ensureFlowLanguageTypography(authoringBlocks, {
+            groupId: operation.groupId,
+            languageKey,
+            writingMode: existingWritingMode
+                || getWritingModeFromConfigs(languageKey, state.languageConfigs),
+        }).blocks;
+    }
     if (options.recordHistory !== false) {
         pushState(historyKey ? { groupKey: historyKey, mergeWindowMs: 900 } : {});
+        updateHistoryButtons();
     }
-    const nextBlocks = applyFlowAuthoringOperation(state.blocks || [], operation);
+    const nextBlocks = applyFlowAuthoringOperation(authoringBlocks, operation);
     dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'blocks', value: nextBlocks } });
     _flowAuthoringSourceRevision += 1;
     if (options.rerender === true) {
@@ -406,10 +449,11 @@ function handleFlowAuthoringInput(event) {
     if (field !== 'block-text' && field !== 'section-title') return;
     const target = getFlowAuthoringTarget(event.target);
     const group = getFlowGroupById(target.groupId);
-    const languageKey = group?.flow?.document?.sourceLanguage || '';
+    const languageKey = String(target.root?.dataset?.languageKey || getFlowAuthoringLanguage(group));
     if (!group || !languageKey) return;
     const value = event.target.value;
-    if (findFlowSourceValue(target, field) === value) return;
+    if (findFlowAuthoringValue(target, field, languageKey) === value) return;
+    event.target.classList?.remove('is-translation-missing');
     if (field === 'section-title') {
         const outlineButton = [...(target.root?.querySelectorAll?.('.flow-authoring-outline [data-flow-section-id]') || [])]
             .find((entry) => entry.dataset.flowSectionId === target.sectionId);
@@ -431,8 +475,10 @@ function handleFlowAuthoringInput(event) {
 function handleFlowAuthoringChange(event) {
     if (event.target?.dataset?.flowField !== 'heading-level') return;
     const target = getFlowAuthoringTarget(event.target);
+    const group = getFlowGroupById(target.groupId);
+    if (!group || getFlowAuthoringLanguage(group) !== group.flow?.document?.sourceLanguage) return;
     const level = Number(event.target.value);
-    if (findFlowSourceValue(target, 'heading-level') === level) return;
+    if (findFlowAuthoringValue(target, 'heading-level', group.flow.document.sourceLanguage) === level) return;
     endHistoryGroup();
     applyFlowAuthoringEdit({
         type: 'setHeadingLevel',
@@ -454,6 +500,8 @@ function handleFlowAuthoringAction(event) {
         section?.scrollIntoView?.({ block: 'start', behavior: 'smooth' });
         return;
     }
+    const group = getFlowGroupById(target.groupId);
+    if (!group || getFlowAuthoringLanguage(group) !== group.flow?.document?.sourceLanguage) return;
     if (!target.groupId || !target.sectionId) return;
     event.preventDefault();
     endHistoryGroup();
@@ -546,14 +594,10 @@ function getFlowProjectionErrorMessage(error) {
 }
 
 function getEditorFlowProjectionLanguage(projectionTarget) {
-    const activeBlock = getActiveBlock();
     const sourceLanguage = projectionTarget?.flow?.document?.sourceLanguage || state.defaultLang || 'ja';
-    if (
-        activeBlock?.kind === 'flow'
-        && activeBlock.id === projectionTarget?.id
-        && isFlowSourceSelected(activeBlock.id)
-    ) return sourceLanguage;
-    return state.activeLang || state.defaultLang || sourceLanguage;
+    return projectionTarget?.kind === 'flow'
+        ? getFlowAuthoringLanguage(projectionTarget)
+        : state.activeLang || state.defaultLang || sourceLanguage;
 }
 
 function requestEditorFlowProjection(activeBlock) {
@@ -1873,7 +1917,7 @@ function refresh(options = {}) {
     if (flowAuthoringProps) flowAuthoringProps.hidden = !isFlowAuthoring;
     const flowAuthoringLanguage = document.getElementById('flow-authoring-language');
     if (flowAuthoringLanguage && isFlowAuthoring) {
-        flowAuthoringLanguage.textContent = (activeBlock.flow?.document?.sourceLanguage || 'ja').toUpperCase();
+        flowAuthoringLanguage.textContent = getFlowAuthoringLanguage(activeBlock).toUpperCase();
     }
 
     // Normalize stale bubble selection
@@ -1887,7 +1931,10 @@ function refresh(options = {}) {
         const pageLockNote = document.getElementById('page-lock-note');
         if (pageLockNote) {
             const sourceLanguage = activeBlock.flow?.document?.sourceLanguage || 'ja';
-            pageLockNote.textContent = `Flow原稿を編集中（原稿言語 ${sourceLanguage.toUpperCase()}）`;
+            const authoringLanguage = getFlowAuthoringLanguage(activeBlock);
+            pageLockNote.textContent = authoringLanguage === sourceLanguage
+                ? `Flow原稿を編集中（原稿言語 ${sourceLanguage.toUpperCase()}）`
+                : `Flow翻訳を編集中（${authoringLanguage.toUpperCase()} / 構造は ${sourceLanguage.toUpperCase()} と共通）`;
             pageLockNote.style.display = 'block';
         }
         requestEditorFlowProjection(activeBlock);
@@ -6030,6 +6077,11 @@ window.removeLang = (code) => {
     _capturePsInputsToDraft();
     const draft = _ensurePsDraft();
     if (draft.languages.length <= 1) return;
+    const sourceFlowGroups = getFlowSourceLanguageGroupIds(state.blocks || [], code);
+    if (sourceFlowGroups.length) {
+        alert(`「${getLangProps(code).label}」は${sourceFlowGroups.length}件のFlow原稿の原稿言語です。先に原稿言語を移行する必要があります。`);
+        return;
+    }
     if (!confirm(t('confirm_remove_lang', { lang: getLangProps(code).label }))) return;
     draft.languages = draft.languages.filter(c => c !== code);
     if (draft.defaultLang === code) draft.defaultLang = draft.languages[0] || 'ja';
@@ -6548,6 +6600,14 @@ window.closeProjectSettings = (e) => {
 window.saveProjectSettings = () => {
     const draft = _capturePsInputsToDraft();
     const nextLanguages = draft.languages && draft.languages.length ? [...draft.languages] : ['ja'];
+    const missingFlowSourceLanguages = [...new Set((state.blocks || [])
+        .filter((block) => block?.kind === 'flow')
+        .map((block) => String(block.flow?.document?.sourceLanguage || ''))
+        .filter((languageKey) => languageKey && !nextLanguages.includes(languageKey)))];
+    if (missingFlowSourceLanguages.length) {
+        alert(`Flow原稿の原稿言語 ${missingFlowSourceLanguages.map((code) => code.toUpperCase()).join(', ')} は作品言語から削除できません。`);
+        return;
+    }
     const nextDefaultLang = nextLanguages.includes(draft.defaultLang) ? draft.defaultLang : nextLanguages[0];
     const nextActiveLang = nextLanguages.includes(draft.activeLang) ? draft.activeLang : nextDefaultLang;
 

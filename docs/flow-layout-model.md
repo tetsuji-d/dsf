@@ -7,8 +7,9 @@ Commit 6AではFixedとFlowを同じ作品順へ配置する純粋なProject v6 
 Commit 6BではProject v6をStudio state、Undo/Redo、IndexedDB、DSP、owner専用Firestore authoring文書へ接続した。
 Commit 7Aでは保存済みFlow原稿をruntimeで再ページ化し、EditorとPressの確認用ページ列へ接続した。
 Commit 8AではFlow原稿カードを連続semantic editorへ接続し、増分reflow、既存Undo/Redo、autosaveを利用できるようにした。
+Commit 8B-1では既存作品言語タブをFlow編集言語へ接続し、原稿構造を共有した言語別本文編集と独立reflowを追加した。
 
-言語別Flow翻訳、WebP化、DSF／Horizon発行、Viewerにはまだ未接続である。生成ページを
+自動翻訳provider、翻訳stale管理、WebP化、DSF／Horizon発行、Viewerにはまだ未接続である。生成ページを
 `state.blocks`、`state.sections`、`state.pages`へ書き戻すことも行わない。
 
 ## 境界
@@ -255,7 +256,26 @@ Commit 6Aの対象外:
 - 今回編集できるのはFlowDocumentの`sourceLanguage`だけ。Section追加・削除、段落途中のBlock分割、翻訳、
   Flow Group外側の移動・削除、Flow pageのWebP発行は次の実装単位とする。
 
-次の実装単位は言語別Flow翻訳、その後にFlow pageのWebP化／DSF発行を扱う。
+## Studio Flow multilingual authoring（Commit 8B-1）
+
+- 既存の`state.activeLang`をFlow原稿カードの編集言語として使う。保存済みの完全一致言語キーだけを選択し、
+  大文字小文字やBCP 47 aliasを暗黙変換しない。
+- 原稿言語では従来どおりHeading／Paragraph／PageBreakとHeading levelを編集できる。翻訳言語では
+  Section title、Heading text、Paragraph textだけを編集でき、追加・削除・移動・Heading level・PageBreakは
+  原稿言語と共有する読取専用構造として表示する。
+- 言語タブを選んだだけでは`texts[targetLanguage]`を作らない。部分翻訳は対象言語と原文を同一ページへ混在させず、
+  既存runtime契約によりFlow Group全体を原文previewへ明示fallbackする。
+- 翻訳言語で最初の本文またはSection titleを編集した時だけ、原稿言語のFlow typographyを基に
+  `typographyByLanguage[targetLanguage]`を作成する。既存の対象言語profileは保持する。
+- 全Heading／Paragraphに対象言語の文字列キーが揃うと、その言語を独立してDOM実測・増分reflowする。
+  原稿と言語別生成ページのページ数は一致を要求しない。PageBreakの位置だけは共有する。
+- 翻訳編集も同じ`state.blocks`、Undo／Redo、IndexedDB、DSP、owner専用Firestore authoring childを使う。
+  Fixed Blockとその未知field／layerはopaqueに保持し、生成ページは引き続き保存しない。
+- FlowDocumentの`sourceLanguage`として使われている作品言語はProject Settingsから削除できない。
+
+8B-1は手動言語別編集の境界である。Gen4の旧翻訳orchestratorは共通ページスロットを前提として翻訳先の
+ページ数変更を禁止するため移植しない。次の8B-2ではChrome／LM Studio providerの接続と、原文更新後の
+stale判定をFlow semantic Block向けに別設計する。その後にFlow pageのWebP化／DSF発行を扱う。
 
 ## DOM preview boundary（Commit 3）
 

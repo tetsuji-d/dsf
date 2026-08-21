@@ -8077,6 +8077,10 @@ textarea.ps-meta-input {
     background: #e9edf3;
 }
 
+#flow-authoring-surface[data-authoring-mode="translation"] {
+    background: #e8eef8;
+}
+
 #canvas-stage[hidden],
 #canvas-view.flow-authoring-active #image-zoom-controls-floating,
 #canvas-view.flow-authoring-active .fab-btn {
@@ -8273,6 +8277,20 @@ textarea.ps-meta-input {
     font-size: 10px;
 }
 
+.flow-authoring-level-readonly,
+.flow-authoring-translation-lock {
+    padding: 2px 7px;
+    border: 1px solid #cbd5e1;
+    border-radius: 999px;
+    color: #64748b;
+    background: #f8fafc;
+    font-size: 10px;
+}
+
+.flow-authoring-translation-lock {
+    margin-left: auto;
+}
+
 .flow-authoring-input {
     display: block;
     width: 100%;
@@ -8291,6 +8309,12 @@ textarea.ps-meta-input {
 
 .flow-authoring-input:focus {
     border-bottom-color: #a5b4fc;
+}
+
+.flow-authoring-input.is-translation-missing,
+.flow-authoring-section-heading input.is-translation-missing {
+    border-bottom-color: #f59e0b;
+    background: linear-gradient(180deg, transparent 70%, rgba(245, 158, 11, 0.08));
 }
 
 .flow-authoring-heading-input {
@@ -8343,6 +8367,18 @@ textarea.ps-meta-input {
     font-size: 11px;
 }
 
+.flow-authoring-translation-structure-note {
+    margin-top: 26px;
+    padding-top: 16px;
+    border-top: 1px dashed #dbe2ea;
+    color: #64748b;
+    font-size: 11px;
+}
+
+#flow-authoring-surface[data-authoring-mode="translation"] .flow-authoring-page-break {
+    grid-template-columns: 1fr;
+}
+
 .flow-authoring-props {
     display: grid;
     gap: 8px;
@@ -8392,6 +8428,10 @@ body[data-theme="dark"] #canvas-view.flow-authoring-active {
     background: #171a21;
 }
 
+body[data-theme="dark"] #flow-authoring-surface[data-authoring-mode="translation"] {
+    background: #191e29;
+}
+
 body[data-theme="dark"] .flow-authoring-paper {
     border-color: #3a4150;
     background: #232833;
@@ -8427,6 +8467,18 @@ body[data-theme="dark"] .flow-authoring-level select {
     border-color: #4b5563;
     color: #dbeafe;
     background: #2d3442;
+}
+
+body[data-theme="dark"] .flow-authoring-level-readonly,
+body[data-theme="dark"] .flow-authoring-translation-lock {
+    border-color: #4b5563;
+    color: #cbd5e1;
+    background: #2d3442;
+}
+
+body[data-theme="dark"] .flow-authoring-translation-structure-note {
+    border-top-color: #4b5563;
+    color: #94a3b8;
 }
 
 @media (max-width: 767px) {

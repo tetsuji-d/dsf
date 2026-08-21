@@ -75,6 +75,18 @@ assert.deepEqual(getFlowGroupProjectionPages(projection, 'flow_a').map((page) =>
 assert.equal(projection.fixedPageCount, 2);
 assert.equal(projection.flowPageCount, 2);
 assert.equal(projection.totalPageCount, 4);
+assert.deepEqual(projection.flowGroups[0], {
+    groupId: 'flow_a',
+    documentId: 'doc_flow_a',
+    blockIndex: 2,
+    firstPageIndex: 1,
+    pageCount: 2,
+    requestedLanguageKey: 'ja',
+    languageKey: 'ja',
+    isSourceFallback: false,
+    changeSet: null,
+    metrics: null,
+});
 assert.equal(projection.pages[1].page, flowPages[0], 'generated page should remain a runtime reference');
 assert.equal(Object.prototype.hasOwnProperty.call(blocks[2].flow, 'pages'), false, 'projection must not write pages into Flow source');
 assert.notEqual(projection.pages[1].runtimeKey, projection.pages[2].runtimeKey);
@@ -131,6 +143,9 @@ assert.equal(fallbackProjection.languageKey, 'en');
 assert.equal(fallbackProjection.pages[0].languageKey, 'ja');
 assert.equal(fallbackProjection.pages[0].requestedLanguageKey, 'en');
 assert.equal(fallbackProjection.pages[0].isSourceFallback, true);
+assert.equal(fallbackProjection.flowGroups[0].requestedLanguageKey, 'en');
+assert.equal(fallbackProjection.flowGroups[0].languageKey, 'ja');
+assert.equal(fallbackProjection.flowGroups[0].isSourceFallback, true);
 
 const runtimeGroup = (texts, profiles) => ({
     id: 'flow_runtime',

@@ -194,6 +194,9 @@ export function buildFlowPageProjection(options = {}) {
             blockIndex,
             firstPageIndex,
             pageCount: generatedPages.length,
+            requestedLanguageKey: result.requestedLanguageKey,
+            languageKey: result.languageKey,
+            isSourceFallback: result.isSourceFallback === true,
             changeSet: result.changeSet || null,
             metrics: result.metrics || null,
         }));

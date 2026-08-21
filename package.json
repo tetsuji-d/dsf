@@ -29,6 +29,7 @@
     "verify:flow-incremental": "node scripts/verify-flow-incremental.js",
     "verify:flow-page-projection": "node scripts/verify-flow-page-projection.js",
     "verify:flow-authoring": "node scripts/verify-flow-authoring.js",
+    "verify:flow-multilingual-authoring": "node scripts/verify-flow-multilingual-authoring.js",
     "deploy:prod:check": "node scripts/deploy-prod-safe.js --check-only",
     "deploy:prod:safe": "node scripts/deploy-prod-safe.js",
     "deploy:pages": "node scripts/deploy-prod-safe.js --skip-firebase",
