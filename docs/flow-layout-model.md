@@ -5,9 +5,10 @@
 Commit 2〜5でFlowDocument、pagination、DOM preview、増分リフロー、縦書きpreviewを実装した。
 Commit 6AではFixedとFlowを同じ作品順へ配置する純粋なProject v6 authoring modelを追加した。
 Commit 6BではProject v6をStudio state、Undo/Redo、IndexedDB、DSP、owner専用Firestore authoring文書へ接続した。
+Commit 7Aでは保存済みFlow原稿をruntimeで再ページ化し、EditorとPressの確認用ページ列へ接続した。
 
-Flow編集UI、Press、DSF発行、Viewerにはまだ未接続である。保存済みFlow原稿から生成したページを
-`state.pages`へ書き戻すことも、この段階では行わない。
+Flow原稿の編集UI、WebP化、DSF／Horizon発行、Viewerにはまだ未接続である。生成ページを
+`state.blocks`、`state.sections`、`state.pages`へ書き戻すことも行わない。
 
 ## 境界
 
@@ -221,6 +222,23 @@ Commit 6Aの対象外:
   複製・削除を無効化し、Flow Groupを含む作品のPress／DSF発行は欠落を防ぐため停止する。
 
 詳細は`docs/cloud-save-contract.md`を正本とする。
+
+## Studio runtime page projection（Commit 7A）
+
+- `blocks[]`の作品順を走査し、Fixedページを1件、Flow Groupを生成ページ数分のruntime cellへ展開する。
+- Flow Group自身は左ページ列で「Flow原稿」として残し、その直下に読取専用の生成ページを表示する。
+- 通しページ番号、Editorの前後移動／スライダー、Pressのページ一覧は同じruntime projectionを使う。
+- `state.activeIdx`は従来どおりFixed互換Sectionのindexとし、Flow生成ページの選択を代入しない。
+- DOM計測と表示は`renderFlowGeneratedPage()`を共有し、横書き／日本語縦書きの同じ結果を使う。
+- requested languageの全Text BlockとTypographyが揃う場合だけその言語を表示する。翻訳が未完成なら
+  原文へ明示fallbackし、翻訳本文があるのにTypographyだけ欠ける場合は設定エラーとして停止する。
+- Project／言語／フォントの変更とroom退室では進行中の生成を中止する。完成した最新snapshotだけを表示する。
+- runtime cacheはセッション限定LRUであり、生成page、fragment、選択位置を保存しない。
+- Fixed／Flow混在時の見開き表示と言語比較は、統一された見開き契約を実装するまで無効化する。
+- Pressは生成ページと通し番号の確認だけを行う。Flowを含む作品のDSF書き出し／Horizon発行は、
+  WebP rendererを接続する次工程までUIと最終処理の両方で停止する。
+
+次の実装単位はFlow原稿編集面、その後に言語別Flow翻訳、Flow pageのWebP化／DSF発行を扱う。
 
 ## DOM preview boundary（Commit 3）
 

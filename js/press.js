@@ -28,11 +28,22 @@ import { encodeCanvasToWebP } from './canvas-encoding.js';
 import { getLangProps } from './lang.js';
 import { createId } from './utils.js';
 import { getBookCompositionIssues, getPageCoverKey, getPageDisplayLabel, normalizeBookSettings } from './page-labels.js';
+import { renderFlowGeneratedPage } from './flow-dom-measurer.js';
+import {
+    FLOW_RUNTIME_INVALIDATED_EVENT,
+    createFlowRuntimePageProjection,
+    createFlowRuntimeProjectionSignature,
+    getCachedFlowRuntimePageProjection,
+} from './flow-runtime-pages.js';
 
 let _estimateTimer = null;
 let _estimateRunId = 0;
 let _pressListenersBound = false;
 let _pressThumbLang = '';
+let _pressFlowPreviewState = 'idle';
+let _pressFlowPreviewError = null;
+let _pressFlowPreviewController = null;
+let _pressFlowPreviewRequestId = 0;
 const PRESS_IMAGE_WEBP_QUALITY_BY_SCALE = Object.freeze({
     1: 0.84,
     2: 0.86,
@@ -277,8 +288,17 @@ function _bindPressTrialTextBinaryOnce() {
 
 /** Press Room に入ったときにページサムネイルと言語タブを描画する */
 export function enterPressRoom() {
-    _ensureBookSettings();
+    if (!hasFlowGroups(state)) _ensureBookSettings();
     _ensurePressThumbLang();
+    if (hasFlowGroups(state)) {
+        _pressFlowPreviewState = 'working';
+        _pressFlowPreviewError = null;
+    } else {
+        _pressFlowPreviewController?.abort();
+        _pressFlowPreviewController = null;
+        _pressFlowPreviewState = 'ready';
+        _pressFlowPreviewError = null;
+    }
     _renderThumbLangTabs();
     _renderPageThumbs();
     _renderLangTabs();
@@ -292,6 +312,17 @@ export function enterPressRoom() {
         _pressListenersBound = true;
         document.getElementById('press-resolution')?.addEventListener('change', _queueSizeEstimate);
     }
+    if (hasFlowGroups(state)) void _requestPressFlowPreview();
+}
+
+export function leavePressRoom() {
+    _pressFlowPreviewController?.abort();
+    _pressFlowPreviewController = null;
+    _pressFlowPreviewRequestId += 1;
+    _pressFlowPreviewState = 'idle';
+    clearTimeout(_estimateTimer);
+    _estimateTimer = null;
+    _estimateRunId += 1;
 }
 
 function _ensurePressThumbLang() {
@@ -307,6 +338,80 @@ function _getPressThumbLang() {
     _ensurePressThumbLang();
     return _pressThumbLang || state.defaultLang || 'ja';
 }
+
+function _getPressFlowPreviewProjection() {
+    if (!hasFlowGroups(state)) return null;
+    return getCachedFlowRuntimePageProjection(state, _getPressThumbLang(), state.sections || [], document);
+}
+
+function _getPressFlowPreviewErrorMessage(error) {
+    if (error?.code === 'FLOW_LANGUAGE_TYPOGRAPHY_MISSING') {
+        return 'Flow原稿の組版設定を確認してください。';
+    }
+    if (error?.code === 'MAX_PAGES_EXCEEDED') {
+        return 'Flow原稿のページ数が安全上限を超えました。';
+    }
+    return error?.message || 'Flowページの生成に失敗しました。';
+}
+
+async function _requestPressFlowPreview() {
+    if (!hasFlowGroups(state)) return null;
+    const languageKey = _getPressThumbLang();
+    const requestSignature = createFlowRuntimeProjectionSignature(state, languageKey, state.sections || [], document);
+    const requestId = _pressFlowPreviewRequestId + 1;
+    _pressFlowPreviewRequestId = requestId;
+    _pressFlowPreviewController?.abort();
+    const controller = new AbortController();
+    _pressFlowPreviewController = controller;
+    _pressFlowPreviewState = 'working';
+    _pressFlowPreviewError = null;
+    _renderPageThumbs();
+    _renderBookSettings();
+    try {
+        const projection = await createFlowRuntimePageProjection(state, {
+            ownerDocument: document,
+            fixedPages: state.sections || [],
+            languageKey,
+            revision: requestId,
+            signal: controller.signal,
+            onProgress(progress) {
+                if (requestId !== _pressFlowPreviewRequestId || controller.signal.aborted) return;
+                const container = document.getElementById('press-page-thumbs');
+                const progressEl = container?.querySelector('[data-flow-press-progress]');
+                if (progressEl) progressEl.textContent = `Flowページを生成中… ${progress.generatedPageCount}ページ`;
+            },
+        });
+        if (
+            controller.signal.aborted
+            || requestId !== _pressFlowPreviewRequestId
+            || requestSignature !== createFlowRuntimeProjectionSignature(state, languageKey, state.sections || [], document)
+            || languageKey !== _getPressThumbLang()
+        ) return null;
+        _pressFlowPreviewController = null;
+        _pressFlowPreviewState = 'ready';
+        _pressFlowPreviewError = null;
+        _renderPageThumbs();
+        _renderBookSettings();
+        _updatePublishBtn();
+        _queueSizeEstimate();
+        return projection;
+    } catch (error) {
+        if (error?.name === 'AbortError' || controller.signal.aborted) return null;
+        console.error('[Flow pages] Press preview failed:', error);
+        if (requestId !== _pressFlowPreviewRequestId) return null;
+        _pressFlowPreviewController = null;
+        _pressFlowPreviewState = 'error';
+        _pressFlowPreviewError = error;
+        _renderPageThumbs();
+        _renderBookSettings();
+        return null;
+    }
+}
+
+document.addEventListener(FLOW_RUNTIME_INVALIDATED_EVENT, () => {
+    if (document.body?.dataset?.room !== 'press' || !hasFlowGroups(state)) return;
+    void _requestPressFlowPreview();
+});
 
 function _getLangDirection(code) {
     const props = getLangProps(code);
@@ -357,21 +462,64 @@ function _renderThumbLangTabs() {
 function _renderPageThumbs() {
     const container = document.getElementById('press-page-thumbs');
     if (!container) return;
+    const lang = _getPressThumbLang();
+    container.classList.toggle('press-page-thumbs--rtl', _getLangDirection(lang) === 'rtl');
+    const hasFlow = hasFlowGroups(state);
+    const projection = hasFlow ? _getPressFlowPreviewProjection() : null;
+    container.dataset.projectionState = hasFlow ? _pressFlowPreviewState : 'ready';
+    if (hasFlow && (_pressFlowPreviewState === 'working' || !projection)) {
+        delete container.dataset.pageCount;
+        if (_pressFlowPreviewState === 'error') {
+            container.innerHTML = `
+                <p class="press-empty press-flow-preview-error" role="alert">
+                    ${_esc(_getPressFlowPreviewErrorMessage(_pressFlowPreviewError))}
+                </p>`;
+        } else {
+            container.innerHTML = `
+                <p class="press-empty press-flow-preview-loading" data-flow-press-progress aria-live="polite">
+                    Flowページを生成中…
+                </p>`;
+        }
+        return;
+    }
 
-    const pages = _getRenderablePages();
-    if (!pages.length) {
+    const previewPages = hasFlow
+        ? projection.pages
+        : _getRenderablePages().map((section, index) => ({ kind: 'fixed', section, index }));
+    if (!previewPages.length) {
+        container.dataset.pageCount = '0';
         container.innerHTML = '<p class="press-empty">ページがありません</p>';
         return;
     }
-    const lang = _getPressThumbLang();
-    container.classList.toggle('press-page-thumbs--rtl', _getLangDirection(lang) === 'rtl');
 
-    container.innerHTML = pages.map((section, i) => {
-        const label = getPageDisplayLabel(i, pages.length, state.book, state.bookMode);
-        const roles = _getCoverRolesForPage(i);
+    container.dataset.pageCount = String(previewPages.length);
+
+    container.innerHTML = previewPages.map((previewPage, i) => {
+        const label = getPageDisplayLabel(i, previewPages.length, state.book, state.bookMode);
+        const roles = _getCoverRolesForPage(i, previewPages.length);
         const badges = roles.length
             ? `<div class="press-thumb-cover-badges">${roles.map(role => `<span>${role.toUpperCase()}</span>`).join('')}</div>`
             : '';
+        if (previewPage.kind === 'flow') {
+            const fallbackBadge = previewPage.isSourceFallback
+                ? `<span class="press-flow-source-language">原文 ${_esc(previewPage.languageKey.toUpperCase())}</span>`
+                : '';
+            return `<div class="press-thumb-item press-thumb-item--flow"
+                data-testid="press-flow-page"
+                data-publication-index="${i}"
+                data-flow-page-index="${previewPage.flowPageIndex}">
+                <div class="press-thumb-media">
+                    <div class="press-thumb-flow-viewport">
+                        <div class="press-thumb-flow-page" data-flow-runtime-key="${_esc(previewPage.runtimeKey)}"></div>
+                    </div>
+                    <span class="press-flow-page-badge">FLOW</span>
+                    ${fallbackBadge}
+                    ${badges}
+                </div>
+                <div class="press-thumb-label">${_esc(label)}</div>
+            </div>`;
+        }
+        const section = previewPage.section;
         if (section.type === 'text') {
             const raw = section.texts?.[lang] || section.text || '';
             const snippet = _makeTextThumbSnippet(raw);
@@ -398,6 +546,28 @@ function _renderPageThumbs() {
             <div class="press-thumb-label">${label}</div>
         </div>`;
     }).join('');
+
+    if (projection) {
+        const flowPageByKey = new Map(projection.pages
+            .filter((page) => page.kind === 'flow')
+            .map((page) => [page.runtimeKey, page]));
+        container.querySelectorAll('.press-thumb-flow-page').forEach((pageElement) => {
+            const page = flowPageByKey.get(pageElement.dataset.flowRuntimeKey || '');
+            if (!page) return;
+            renderFlowGeneratedPage(pageElement, {
+                page: page.page,
+                pageBox: page.pageBox,
+                languageKey: page.languageKey,
+                writingMode: page.writingMode,
+                typography: page.typography,
+            });
+            pageElement.style.position = 'absolute';
+            pageElement.style.left = '0';
+            pageElement.style.top = '0';
+            pageElement.style.transformOrigin = 'top left';
+            pageElement.style.transform = 'scale(0.2)';
+        });
+    }
 }
 
 function _makeTextThumbSnippet(raw) {
@@ -470,7 +640,8 @@ function _readBookSettings(pageCount = _getRenderablePages().length) {
 }
 
 function _writeBookSettings(next, shouldAutosave = true) {
-    const pageCount = _getRenderablePages().length;
+    const projection = hasFlowGroups(state) ? _getPressFlowPreviewProjection() : null;
+    const pageCount = projection?.totalPageCount ?? _getRenderablePages().length;
     const normalized = _normalizeBookSettings(next, pageCount);
     dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'bookMode', value: normalized.mode } });
     dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'book', value: normalized } });
@@ -497,13 +668,21 @@ function _ensureBookSettings() {
 function _renderBookSettings() {
     const container = document.getElementById('press-book-settings');
     if (!container) return;
-    const pages = _getRenderablePages();
-    if (!pages.length) {
+    const hasFlow = hasFlowGroups(state);
+    const projection = hasFlow ? _getPressFlowPreviewProjection() : null;
+    if (hasFlow && (_pressFlowPreviewState === 'working' || !projection)) {
+        container.innerHTML = _pressFlowPreviewState === 'error'
+            ? `<p class="press-book-empty">Flowページを確認できません</p>`
+            : `<p class="press-book-empty">Flowページ数を計算中…</p>`;
+        return;
+    }
+    const pageCount = hasFlow ? projection.totalPageCount : _getRenderablePages().length;
+    if (!pageCount) {
         container.innerHTML = `<p class="press-book-empty">${_esc(t('press_book_no_pages'))}</p>`;
         return;
     }
 
-    const settings = _readBookSettings(pages.length);
+    const settings = _readBookSettings(pageCount);
     const mode = settings.mode;
     const coverRow = (key, labelKey) => {
         const pageIndex = settings.covers[key]?.pageIndex;
@@ -535,8 +714,8 @@ function _renderBookSettings() {
     if (modeEl) modeEl.addEventListener('change', () => window.updatePressBookMode(modeEl.value));
 }
 
-function _getCoverRolesForPage(pageIndex) {
-    const key = getPageCoverKey(pageIndex, state.book, state.bookMode, _getRenderablePages().length);
+function _getCoverRolesForPage(pageIndex, total = _getRenderablePages().length) {
+    const key = getPageCoverKey(pageIndex, state.book, state.bookMode, total);
     return key ? [key] : [];
 }
 
@@ -557,6 +736,11 @@ async function _updateSizeEstimate() {
     if (!el) return;
 
     const runId = ++_estimateRunId;
+
+    if (hasFlowGroups(state)) {
+        el.textContent = 'Flowページは表示確認のみ（発行サイズ計算は次工程）';
+        return;
+    }
     el.textContent = t('press_estimating_size');
 
     const resKey = resolvePressResolutionKey(document.getElementById('press-resolution')?.value);
@@ -622,13 +806,14 @@ async function _updateSizeEstimate() {
 }
 
 function _updatePublishBtn() {
-    const btn = document.getElementById('press-publish-cloud-btn');
-    if (!btn) return;
     const hasFlow = hasFlowGroups(state);
-    btn.disabled = !state.uid || hasFlow;
-    btn.title = hasFlow
-        ? 'Flowページ生成がPressへ接続されるまで発行できません'
-        : (state.uid ? '' : 'ログインが必要です');
+    document.querySelectorAll('[data-flow-publication-required]').forEach((btn) => {
+        const needsAuth = btn.hasAttribute('data-auth-required');
+        btn.disabled = hasFlow || (needsAuth && !state.uid);
+        btn.title = hasFlow
+            ? 'Flowページは確認できます。発行はWebP出力接続後に有効になります'
+            : (needsAuth && !state.uid ? 'ログインが必要です' : '');
+    });
 }
 
 /** Press Room の言語タブをトグル（複数選択可） */
@@ -643,7 +828,11 @@ window.switchPressThumbLang = (code) => {
     if (!langs.includes(code)) return;
     _pressThumbLang = code;
     _renderThumbLangTabs();
-    _renderPageThumbs();
+    if (hasFlowGroups(state)) {
+        void _requestPressFlowPreview();
+    } else {
+        _renderPageThumbs();
+    }
 };
 
 window.updatePressBookMode = (mode) => {

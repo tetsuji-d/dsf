@@ -8,6 +8,11 @@
 import { state, dispatch, actionTypes } from './state.js';
 import { deepClone, createId } from './utils.js';
 import { CANONICAL_PAGE_WIDTH, CANONICAL_PAGE_HEIGHT } from './page-geometry.js';
+import { renderFlowGeneratedPage } from './flow-dom-measurer.js';
+import {
+    getCachedFlowRuntimePageProjection,
+    getSelectedFlowRuntimePageIndex,
+} from './flow-runtime-pages.js';
 
 // ──────────────────────────────────────────────────────────────
 //  画像 URL 最適化（将来の Cloudflare CDN 配信に対応）
@@ -368,9 +373,9 @@ function getBlockSummary(block) {
     if (kind === 'flow') {
         const title = block?.flow?.document?.sections?.[0]?.title?.[lang] || '';
         return {
-            badge: 'Flow',
+            badge: 'Flow原稿',
             title: truncateText(title) || 'Flowテキスト',
-            subtitle: '編集UI未接続（読取専用）',
+            subtitle: 'ページ生成中（読取専用）',
         };
     }
     return { badge: kind, title: '' };
@@ -758,6 +763,25 @@ export function renderThumbs() {
     const strictAuthoring = state.version === 6;
     const pageBlockIndices = getPageBlockIndices(blocks);
     const pageIndexByBlock = new Map(pageBlockIndices.map((bi, pageIdx) => [bi, pageIdx]));
+    const runtimeProjection = strictAuthoring
+        ? getCachedFlowRuntimePageProjection(
+            state,
+            state.activeLang || state.defaultLang || 'ja',
+            state.sections || [],
+            document,
+        )
+        : null;
+    const runtimePagesByBlock = new Map();
+    const runtimePageByKey = new Map();
+    if (runtimeProjection) {
+        runtimeProjection.pages.forEach((page) => {
+            runtimePageByKey.set(page.runtimeKey, page);
+            const entries = runtimePagesByBlock.get(page.blockIndex) || [];
+            entries.push(page);
+            runtimePagesByBlock.set(page.blockIndex, entries);
+        });
+    }
+    const presentationPageCount = runtimeProjection?.totalPageCount || pageBlockIndices.length;
     const context = { chapter: false, section: false, item: false };
     const activeSpreadGroupId = state.sections?.[state.activeIdx]?.spreadImage?.groupId || '';
 
@@ -802,7 +826,13 @@ export function renderThumbs() {
 
         if (b?.kind === 'page') {
             const pageIdx = pageIndexByBlock.get(blockIdx) ?? 0;
-            const pageLabel = getPageDisplayLabel(pageIdx, pageBlockIndices.length, state.book, state.bookMode);
+            const runtimePage = (runtimePagesByBlock.get(blockIdx) || [])[0];
+            const pageLabel = getPageDisplayLabel(
+                runtimePage?.index ?? pageIdx,
+                presentationPageCount,
+                state.book,
+                state.bookMode,
+            );
             const s = state.sections[pageIdx] || createDefaultSection();
             const spreadGroupId = s?.spreadImage?.groupId || '';
             const spreadThumbClass = getSpreadThumbClass(pageIdx);
@@ -871,20 +901,27 @@ export function renderThumbs() {
             `;
         }
 
-        const info = getBlockSummary(b);
         const canInsertBefore = canInsertNearBlock(b, 'before');
         const canInsertAfter = canInsertNearBlock(b, 'after');
         const canMove = canManualMoveBlock(b);
         const canMoveUp = canMove && findMovableTargetIndex(blocks, blockIdx, 'up') >= 0;
         const canMoveDown = canMove && findMovableTargetIndex(blocks, blockIdx, 'down') >= 0;
         const isFlow = b?.kind === 'flow';
+        const generatedFlowPages = isFlow ? (runtimePagesByBlock.get(blockIdx) || []) : [];
+        const rawInfo = getBlockSummary(b);
+        const info = isFlow && generatedFlowPages.length > 0
+            ? { ...rawInfo, subtitle: `${generatedFlowPages.length}ページ / 読取専用` }
+            : rawInfo;
+        const selectedFlowPageIndex = isFlow ? getSelectedFlowRuntimePageIndex(b.id) : 0;
         const coverLock = isLockedBlock(b)
-            ? `<span class="thumb-card-lock" title="${isFlow ? 'Flow編集UI未接続（読取専用）' : '位置固定'}">${isFlow ? 'READ ONLY' : 'LOCK'}</span>`
+            ? `<span class="thumb-card-lock" title="${isFlow ? 'Flow原稿（読取専用）' : '位置固定'}">${isFlow ? 'SOURCE' : 'LOCK'}</span>`
             : '';
-        return `
-            <div class="thumb-wrap thumb-card ${selected ? 'active' : ''}" data-block-index="${blockIdx}" data-tree-depth="${depth}"
-                ${isFlow ? 'aria-disabled="true"' : `onclick="changeBlock(${blockIdx})"`}
-                aria-current="${selected ? 'true' : 'false'}"
+        const sourceSelected = selected && generatedFlowPages.length === 0;
+        const sourceCard = `
+            <div class="thumb-wrap thumb-card ${isFlow ? 'flow-source-card' : ''} ${sourceSelected ? 'active' : ''}" data-block-index="${blockIdx}" data-tree-depth="${depth}"
+                onclick="changeBlock(${blockIdx})"
+                ${isFlow ? 'aria-readonly="true"' : ''}
+                aria-current="${sourceSelected ? 'true' : 'false'}"
                 draggable="false">
                 <div class="thumb-canvas thumb-canvas-meta thumb-canvas-structure kind-${escapeHtml(b?.kind || 'unknown')}">
                     <div class="thumb-card-meta">
@@ -905,7 +942,61 @@ export function renderThumbs() {
                 : ''}
             </div>
         `;
+        if (!isFlow || generatedFlowPages.length === 0) return sourceCard;
+
+        const generatedCards = generatedFlowPages.map((page) => {
+            const pageLabel = getPageDisplayLabel(
+                page.index,
+                presentationPageCount,
+                state.book,
+                state.bookMode,
+            );
+            const pageSelected = selected && page.flowPageIndex === selectedFlowPageIndex;
+            const fallbackBadge = page.isSourceFallback
+                ? `<span class="flow-runtime-language-badge">原文 ${escapeHtml(page.languageKey.toUpperCase())}</span>`
+                : '';
+            return `
+                <div class="thumb-wrap thumb-card flow-generated-thumb ${pageSelected ? 'active' : ''}"
+                    data-block-index="${blockIdx}"
+                    data-flow-page-index="${page.flowPageIndex}"
+                    data-publication-index="${page.index}"
+                    data-tree-depth="${depth + 1}"
+                    onclick="changeFlowGeneratedPage(${blockIdx}, ${page.flowPageIndex})"
+                    aria-current="${pageSelected ? 'true' : 'false'}"
+                    aria-label="Flowページ ${escapeAttr(pageLabel)}"
+                    draggable="false">
+                    <div class="thumb-canvas">
+                        <div class="flow-generated-thumb-viewport">
+                            <div class="flow-generated-thumb-page" data-flow-runtime-key="${escapeAttr(page.runtimeKey)}"></div>
+                        </div>
+                        <span class="thumb-card-badge thumb-card-badge-flow">FLOW</span>
+                        ${fallbackBadge}
+                    </div>
+                    <span class="thumb-page-num">${escapeHtml(pageLabel)}</span>
+                </div>
+            `;
+        }).join('');
+        return sourceCard + generatedCards;
     }).join('');
+
+    container.querySelectorAll('.flow-generated-thumb-page').forEach((pageElement) => {
+        const page = runtimePageByKey.get(pageElement.dataset.flowRuntimeKey || '');
+        if (!page) return;
+        renderFlowGeneratedPage(pageElement, {
+            page: page.page,
+            pageBox: page.pageBox,
+            languageKey: page.languageKey,
+            writingMode: page.writingMode,
+            typography: page.typography,
+        });
+        const viewport = pageElement.parentElement;
+        const scale = Math.max(0, (viewport?.clientWidth || 0) / CANONICAL_PAGE_WIDTH);
+        pageElement.style.position = 'absolute';
+        pageElement.style.left = '0';
+        pageElement.style.top = '0';
+        pageElement.style.transformOrigin = 'top left';
+        pageElement.style.transform = `scale(${scale})`;
+    });
 
     if (isDesktop) {
         container.innerHTML += `

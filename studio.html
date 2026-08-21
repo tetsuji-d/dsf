@@ -194,10 +194,10 @@
                         <button class="btn-tool btn-tool-icon" onclick="insertSpreadImageBeforeActive()">
                             <span class="material-icons" aria-hidden="true">view_week</span><span data-i18n="btn_add_spread_image_section">見開き画像ページ</span>
                         </button>
-                        <button class="btn-tool btn-tool-icon" onclick="addBubbleFab()">
+                        <button class="btn-tool btn-tool-icon" onclick="addBubbleFab()" data-fixed-page-edit>
                             <span class="material-icons" aria-hidden="true">text_fields</span><span data-i18n="btn_add_bubble">テキスト追加</span>
                         </button>
-                        <button class="btn-tool btn-tool-icon" onclick="document.getElementById('file-upload').click()">
+                        <button class="btn-tool btn-tool-icon" onclick="document.getElementById('file-upload').click()" data-fixed-page-edit>
                             <span class="material-icons" aria-hidden="true">image</span><span data-i18n="btn_add_image">画像追加</span>
                         </button>
                     </div>
@@ -207,7 +207,7 @@
                         <button class="btn-tool btn-tool-icon" onclick="resetCanvasView()">
                             <span class="material-icons" aria-hidden="true">zoom_out_map</span><span data-i18n="btn_fit_view">全体表示</span>
                         </button>
-                        <button class="btn-tool btn-tool-icon" onclick="toggleImageAdjustment()" id="btn-adjust-img"
+                        <button class="btn-tool btn-tool-icon" onclick="toggleImageAdjustment()" id="btn-adjust-img" data-fixed-page-edit
                             title="画像の位置・サイズを調整">
                             <span class="material-icons" aria-hidden="true">crop_free</span><span data-i18n="btn_adjust_img">画像調整</span>
                         </button>
@@ -415,7 +415,7 @@
                         <button id="image-flip-btn" class="btn-sm zoom-btn img-zoom-btn" onmousedown="event.stopPropagation()"
                             ontouchstart="event.stopPropagation()" onclick="toggleImageFlipX()" title="左右反転">⇄</button>
                     </div>
-                    <button id="fab-add-bubble" class="fab-btn" onclick="addBubbleFab()" title="テキスト追加">
+                    <button id="fab-add-bubble" class="fab-btn" onclick="addBubbleFab()" title="テキスト追加" data-fixed-page-edit>
                         <span class="material-icons">text_fields</span>
                     </button>
                 </div>
@@ -455,10 +455,10 @@
                     <div id="image-only-props">
                         <label data-i18n="label_bg_image">背景画像変更 / 位置調整</label>
                         <div class="inline-actions">
-                            <button class="btn-sm" onclick="document.getElementById('file-upload').click()">
+                            <button class="btn-sm" onclick="document.getElementById('file-upload').click()" data-fixed-page-edit>
                                 <span class="material-icons inline-icon">image</span> <span data-i18n="btn_change_image">画像変更</span>
                             </button>
-                            <button class="btn-sm" onclick="toggleImageAdjustment()" id="btn-adjust-img-panel"
+                            <button class="btn-sm" onclick="toggleImageAdjustment()" id="btn-adjust-img-panel" data-fixed-page-edit
                                 title="位置・サイズ調整">
                                 <span class="material-icons inline-icon">crop_free</span> <span data-i18n="btn_adjust">調整</span>
                             </button>
@@ -592,8 +592,8 @@
             <div id="mobile-sheet-add" class="mobile-sheet-content">
                 <button class="btn-tool btn-tool-icon" onclick="insertSectionBeforeActive()"><span class="material-icons" aria-hidden="true">add_box</span><span data-i18n="btn_add_section">画像ページ</span></button>
                 <button class="btn-tool btn-tool-icon" onclick="insertSpreadImageBeforeActive()"><span class="material-icons" aria-hidden="true">view_week</span><span data-i18n="btn_add_spread_image_section">見開き画像ページ</span></button>
-                <button class="btn-tool btn-tool-icon" onclick="addBubbleFab()"><span class="material-icons" aria-hidden="true">text_fields</span><span data-i18n="btn_add_bubble">テキスト追加</span></button>
-                <button class="btn-tool btn-tool-icon" onclick="document.getElementById('file-upload').click()"><span class="material-icons" aria-hidden="true">image</span><span data-i18n="btn_add_image">画像追加</span></button>
+                <button class="btn-tool btn-tool-icon" onclick="addBubbleFab()" data-fixed-page-edit><span class="material-icons" aria-hidden="true">text_fields</span><span data-i18n="btn_add_bubble">テキスト追加</span></button>
+                <button class="btn-tool btn-tool-icon" onclick="document.getElementById('file-upload').click()" data-fixed-page-edit><span class="material-icons" aria-hidden="true">image</span><span data-i18n="btn_add_image">画像追加</span></button>
             </div>
             <div id="mobile-sheet-export" class="mobile-sheet-content">
                 <button class="btn-tool btn-tool-icon" onclick="saveProject()" data-auth-required><span class="material-icons" aria-hidden="true">cloud_upload</span><span data-i18n="mobile_save_cloud">クラウド保存</span></button>
@@ -601,7 +601,7 @@
                 <button class="btn-tool btn-tool-icon" onclick="document.getElementById('dsp-upload-mobile').click()"><span class="material-icons" aria-hidden="true">folder_open</span><span data-i18n="mobile_open_local">ローカルから開く (.dsp)</span></button>
                 <input type="file" id="dsp-upload-mobile" style="display: none;" onchange="importDSP(event)">
                 <button class="btn-tool btn-tool-icon" onclick="exportDSP()"><span class="material-icons" aria-hidden="true">download</span><span data-i18n="mobile_export_dsp">Project (.dsp)</span></button>
-                <button class="btn-tool btn-tool-icon" onclick="exportDSF()"><span class="material-icons" aria-hidden="true">publish</span><span data-i18n="mobile_export_dsf">Publish (.dsf)</span></button>
+                <button class="btn-tool btn-tool-icon" onclick="exportDSF()" data-flow-publication-required><span class="material-icons" aria-hidden="true">publish</span><span data-i18n="mobile_export_dsf">Publish (.dsf)</span></button>
                 <button class="btn-tool btn-tool-icon" onclick="openProjectModal()" data-auth-required><span class="material-icons" aria-hidden="true">folder</span><span data-i18n="mobile_projects">プロジェクト一覧</span></button>
             </div>
             <div id="mobile-sheet-lang" class="mobile-sheet-content" hidden></div>
@@ -671,11 +671,11 @@
                         <aside class="press-panel press-publish-panel">
                             <h3 data-i18n="press_publish">発行</h3>
                             <div class="press-publish-actions">
-                                <button class="press-publish-btn primary" onclick="exportDSF()">
+                                <button class="press-publish-btn primary" onclick="exportDSF()" data-flow-publication-required>
                                     <span class="material-icons">download</span>
                                     <span><span data-i18n="btn_export_dsf">DSF 書き出し</span><small data-i18n="btn_export_dsf_sub">.dsf ファイルを保存</small></span>
                                 </button>
-                                <button id="press-publish-cloud-btn" class="press-publish-btn" onclick="publishToCloud()" data-auth-required>
+                                <button id="press-publish-cloud-btn" class="press-publish-btn" onclick="publishToCloud()" data-auth-required data-flow-publication-required>
                                     <span class="material-icons">cloud_upload</span>
                                     <span><span data-i18n="btn_publish_cloud">Horizonに発行</span><small data-i18n="btn_publish_cloud_sub">Horizon で作品を公開します</small></span>
                                 </button>

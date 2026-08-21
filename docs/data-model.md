@@ -814,7 +814,7 @@ state.pages    ← viewer/export surface（v5 Page Object の配列）
 - `state.sections` / `state.pages` は互換面として再生成可能であることを優先する
 - 現行 editor 実装では `sections` から編集が入る経路が残るが、保存前には必ず `blocks` へ再同期する
 
-Project v6 authoring／runtime関係（Commit 6A/6B）:
+Project v6 authoring／runtime関係（Commit 6A/6B/7A）:
 
 ```
 ProjectV6.blocks[]
@@ -826,12 +826,17 @@ Flow生成ページは`state.blocks`、`state.sections`、`state.pages`のいず
 Firestoreでは完全な`ProjectV6.blocks[]`をowner専用`authoring/current`へ保存し、公開可能rootには
 Fixed互換投影だけを置く。
 
+Commit 7AのEditor／Pressページ一覧は、mixed authoring spineをセッション内だけで
+`Fixed page | Flow generated page`へ展開する。生成page、fragment、runtime選択、cacheは保存せず、
+Flowを含む作品のDSF／Horizon発行はWebP renderer接続まで停止する。
+
 ---
 
 ## 変更履歴
 
 | 日付 | 変更内容 |
 |------|---------|
+| 2026-08-21 | Commit 7A: 保存済みFlow原稿のruntime paginationをEditor／Pressの読取専用ページ一覧と通し番号へ接続。生成ページ非永続と発行停止を維持 |
 | 2026-08-19 | Commit 6B: Project v6をstate／Undo／IndexedDB／DSP／owner専用Firestore authoring childへ接続。公開root分離、850 KiB soft limit、version downgrade guardを追加 |
 | 2026-08-18 | Project v6の純粋authoring contractを追加。Fixed BlockとFlow Groupの混在、FlowDocument／FlowLayoutの所有境界、生成ページ非永続化を定義（保存経路は未接続） |
 | 2026-02-25 | 全面改訂: `works` → `users/{uid}/projects/{pid}` に修正、v5 Page スキーマ追加、AR フィールド追加、Security Rules を実態に更新 |

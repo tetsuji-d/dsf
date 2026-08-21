@@ -300,7 +300,8 @@ const sectionsSource = readFileSync(new URL('../js/sections.js', import.meta.url
 const firebaseSource = readFileSync(new URL('../js/firebase.js', import.meta.url), 'utf8');
 assert.match(exportSource, /FLOW_PUBLICATION_NOT_CONNECTED/);
 assert.match(pressSource, /hasFlowGroups\(state\)/);
-assert.match(sectionsSource, /編集UI未接続（読取専用）/);
+assert.match(sectionsSource, /Flow原稿（読取専用）/);
+assert.match(sectionsSource, /changeFlowGeneratedPage/);
 assert.match(firebaseSource, /rootData\.version === 6/);
 assert.match(firebaseSource, /prepareFirestoreProjectIngress\(persistedData\)/);
 

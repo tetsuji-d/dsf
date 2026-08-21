@@ -18,7 +18,7 @@ import { addSection, addTextSection, changeSection, changeBlock, insertStructure
 import { pushState, undo, redo, getHistoryInfo, clearHistory } from './history.js';
 import { openProjectModal, closeProjectModal, fetchCloudProjects, getCoverImage, getPageCount, deleteCloudProject } from './projects.js';
 import { openWorksRoom, closeWorksRoom } from './works.js';
-import { enterPressRoom } from './press.js';
+import { enterPressRoom, leavePressRoom } from './press.js';
 import { getLangProps, getAllLangs } from './lang.js';
 import { t, applyI18n, setUILang, getUILang } from './i18n-studio.js';
 import { getBlockIndexFromPageIndex, getPageIndexFromBlockIndex, migrateSectionsToBlocks, syncBlocksWithSections, extractSectionsFromBlocks } from './blocks.js';
@@ -32,6 +32,17 @@ import { CANONICAL_PAGE_WIDTH, CANONICAL_PAGE_HEIGHT } from './page-geometry.js'
 import { canInsertSpreadImageAt, getBookCompositionIssues, getPageDisplayLabel, getReadablePageCount, normalizeBookSettings, getPageCoverKey } from './page-labels.js';
 import { composeText, paginateText, PAGE_BREAK_MARKER, getWritingModeFromConfigs, getFontPresetFromConfigs, getFontPresetOptions, parseRubyTokens, tokensToPlainText, alignRubyToLines } from './layout.js';
 import { formatPublicationDate, normalizePlanTier } from './publication.js';
+import { hasFlowGroups } from './flow-project-model.js';
+import { renderFlowGeneratedPage } from './flow-dom-measurer.js';
+import {
+    FLOW_RUNTIME_INVALIDATED_EVENT,
+    createFlowRuntimePageProjection,
+    createFlowRuntimeProjectionSignature,
+    getCachedFlowRuntimePageProjection,
+    getSelectedFlowRuntimePageIndex,
+    invalidateFlowRuntimePages,
+    setSelectedFlowRuntimePageIndex,
+} from './flow-runtime-pages.js';
 import { collection, getDocs, query, where, limit } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
 
 const EDITOR_FRAME_WIDTH = CANONICAL_PAGE_WIDTH;
@@ -64,6 +75,289 @@ let imageSnapState = { ...EMPTY_IMAGE_SNAP_STATE };
 // 見開きクリックで「隣ページをアクティブ化」した時、元のアクティブページを隣として維持するための一時保持
 let _spreadActivationPinnedAdjIdx = -1;
 let _pageHeadingPushTimer = null;
+let _editorFlowProjectionController = null;
+let _editorFlowProjectionRequestId = 0;
+let _editorFlowProjectionRequestKey = '';
+
+function resetFlowRuntimeForProjectChange() {
+    _editorFlowProjectionController?.abort();
+    _editorFlowProjectionController = null;
+    _editorFlowProjectionRequestKey = '';
+    _editorFlowProjectionRequestId += 1;
+    invalidateFlowRuntimePages();
+}
+
+function getEditorPageProjection() {
+    if (state.version !== 6 || !hasFlowGroups(state)) return null;
+    return getCachedFlowRuntimePageProjection(
+        state,
+        state.activeLang || state.defaultLang || 'ja',
+        state.sections || [],
+        document,
+    );
+}
+
+function getActiveProjectionPageIndex(projection = getEditorPageProjection()) {
+    if (!projection?.pages?.length) return -1;
+    const activeBlock = getActiveBlock();
+    if (activeBlock?.kind === 'page') {
+        return projection.pages.findIndex((page) => (
+            page.kind === 'fixed' && page.blockIndex === state.activeBlockIdx
+        ));
+    }
+    if (activeBlock?.kind === 'flow') {
+        const selected = getSelectedFlowRuntimePageIndex(activeBlock.id);
+        return projection.pages.findIndex((page) => (
+            page.kind === 'flow'
+            && page.groupId === activeBlock.id
+            && page.flowPageIndex === selected
+        ));
+    }
+    if (Number.isInteger(state.activeBlockIdx)) {
+        const currentFixedPageIndex = projection.pages.findIndex((page) => (
+            page.kind === 'fixed' && page.fixedPageIndex === state.activeIdx
+        ));
+        if (currentFixedPageIndex >= 0) return currentFixedPageIndex;
+        const nextPageIndex = projection.pages.findIndex((page) => page.blockIndex >= state.activeBlockIdx);
+        return nextPageIndex >= 0 ? nextPageIndex : projection.pages.length - 1;
+    }
+    return 0;
+}
+
+function activateProjectionPage(page) {
+    if (!page) return;
+    if (page.kind === 'flow') {
+        setSelectedFlowRuntimePageIndex(page.groupId, page.flowPageIndex, page.flowPageCount);
+    }
+    changeBlock(page.blockIndex, refreshForThumbSelection);
+}
+
+function renderEditorFlowGeneratedPage(activeBlock, projection) {
+    const render = document.getElementById('content-render');
+    if (!render || activeBlock?.kind !== 'flow') return;
+    const groupPages = projection.pages.filter((page) => (
+        page.kind === 'flow' && page.groupId === activeBlock.id
+    ));
+    if (!groupPages.length) {
+        render.innerHTML = `
+            <div id="flow-readonly-placeholder" data-flow-preview-state="error">
+                <span class="material-icons">error_outline</span>
+                <strong>Flowページを表示できません</strong>
+                <span>原稿のページ生成結果が空です。</span>
+            </div>`;
+        return;
+    }
+    const selectedIndex = setSelectedFlowRuntimePageIndex(
+        activeBlock.id,
+        getSelectedFlowRuntimePageIndex(activeBlock.id),
+        groupPages.length,
+    );
+    const page = groupPages[selectedIndex];
+    const pageLabel = getPageDisplayLabel(
+        page.index,
+        projection.totalPageCount,
+        state.book,
+        state.bookMode,
+    );
+    render.classList.add('flow-editor-preview-active');
+    render.innerHTML = `
+        <div class="flow-editor-page-surface"
+            data-testid="flow-editor-generated-page"
+            data-flow-runtime-key="${escapeStudioHtml(page.runtimeKey)}"
+            data-publication-index="${page.index}"></div>`;
+    const pageElement = render.querySelector('.flow-editor-page-surface');
+    renderFlowGeneratedPage(pageElement, {
+        page: page.page,
+        pageBox: page.pageBox,
+        languageKey: page.languageKey,
+        writingMode: page.writingMode,
+        typography: page.typography,
+    });
+    render.dataset.flowPreviewState = 'ready';
+    render.dataset.flowPageCount = String(groupPages.length);
+    render.dataset.publicationPageCount = String(projection.totalPageCount);
+    const pageLockNote = document.getElementById('page-lock-note');
+    if (pageLockNote) {
+        const sourceLabel = page.isSourceFallback ? ` / 原文 ${page.languageKey.toUpperCase()}` : '';
+        pageLockNote.textContent = `Flow原稿 ${selectedIndex + 1} / ${groupPages.length}（作品内 ${pageLabel}ページ${sourceLabel}・読取専用）`;
+        pageLockNote.style.display = 'block';
+    }
+    syncPageNavigationSlider();
+    syncEditorPageCounters();
+}
+
+function clampEditorFlowProjectionSelection(activeBlock, projection) {
+    if (activeBlock?.kind !== 'flow') return;
+    const pageCount = projection.pages.filter((page) => (
+        page.kind === 'flow' && page.groupId === activeBlock.id
+    )).length;
+    setSelectedFlowRuntimePageIndex(
+        activeBlock.id,
+        getSelectedFlowRuntimePageIndex(activeBlock.id),
+        pageCount,
+    );
+}
+
+function getFlowProjectionErrorMessage(error) {
+    if (error?.code === 'FLOW_LANGUAGE_TYPOGRAPHY_MISSING') {
+        return 'このFlow原稿の組版設定を確認してください。';
+    }
+    if (error?.code === 'MAX_PAGES_EXCEEDED') {
+        return 'ページ数が安全上限を超えました。';
+    }
+    return error?.message || 'Flowページの生成に失敗しました。';
+}
+
+function requestEditorFlowProjection(activeBlock) {
+    if (activeBlock?.kind !== 'flow') return;
+    const languageKey = state.activeLang || state.defaultLang || activeBlock.flow.document.sourceLanguage || 'ja';
+    const requestKey = createFlowRuntimeProjectionSignature(state, languageKey, state.sections || [], document);
+    const cached = getCachedFlowRuntimePageProjection(state, languageKey, state.sections || [], document);
+    if (cached) {
+        _editorFlowProjectionController?.abort();
+        _editorFlowProjectionController = null;
+        _editorFlowProjectionRequestKey = '';
+        _editorFlowProjectionRequestId += 1;
+        const currentBlock = getActiveBlock();
+        clampEditorFlowProjectionSelection(currentBlock, cached);
+        if (currentBlock?.kind === 'flow') {
+            renderThumbs();
+            renderEditorFlowGeneratedPage(currentBlock, cached);
+        } else if (!state.sections?.[state.activeIdx]) {
+            const flowBlockIndex = (state.blocks || []).findIndex((block) => block?.id === activeBlock.id);
+            if (flowBlockIndex >= 0) changeBlock(flowBlockIndex, refreshForThumbSelection);
+        } else {
+            renderThumbs();
+            syncPageNavigationSlider();
+            syncEditorPageCounters();
+        }
+        return;
+    }
+    if (_editorFlowProjectionRequestKey === requestKey && _editorFlowProjectionController) return;
+
+    _editorFlowProjectionController?.abort();
+    const controller = new AbortController();
+    const requestId = _editorFlowProjectionRequestId + 1;
+    _editorFlowProjectionRequestId = requestId;
+    _editorFlowProjectionRequestKey = requestKey;
+    _editorFlowProjectionController = controller;
+    const render = document.getElementById('content-render');
+    if (render) render.dataset.flowPreviewState = 'working';
+
+    void createFlowRuntimePageProjection(state, {
+        ownerDocument: document,
+        fixedPages: state.sections || [],
+        languageKey,
+        revision: requestId,
+        signal: controller.signal,
+        onProgress(progress) {
+            if (requestId !== _editorFlowProjectionRequestId || controller.signal.aborted) return;
+            const status = document.querySelector('#flow-readonly-placeholder [data-flow-progress]');
+            if (status) status.textContent = `ページ生成中… ${progress.generatedPageCount}ページ`;
+        },
+    }).then((projection) => {
+        if (
+            controller.signal.aborted
+            || requestId !== _editorFlowProjectionRequestId
+            || requestKey !== createFlowRuntimeProjectionSignature(state, languageKey, state.sections || [], document)
+            || languageKey !== (state.activeLang || state.defaultLang || 'ja')
+        ) return;
+        _editorFlowProjectionController = null;
+        _editorFlowProjectionRequestKey = '';
+        const currentBlock = getActiveBlock();
+        clampEditorFlowProjectionSelection(currentBlock, projection);
+        renderThumbs();
+        if (currentBlock?.kind === 'flow') {
+            renderEditorFlowGeneratedPage(currentBlock, projection);
+        } else if (!state.sections?.[state.activeIdx]) {
+            const flowBlockIndex = (state.blocks || []).findIndex((block) => block?.id === activeBlock.id);
+            if (flowBlockIndex >= 0) changeBlock(flowBlockIndex, refreshForThumbSelection);
+        } else {
+            syncPageNavigationSlider();
+            syncEditorPageCounters();
+        }
+    }).catch((error) => {
+        if (error?.name === 'AbortError' || controller.signal.aborted) return;
+        console.error('[Flow pages] Editor preview failed:', error);
+        if (
+            requestId !== _editorFlowProjectionRequestId
+            || languageKey !== (state.activeLang || state.defaultLang || 'ja')
+        ) return;
+        _editorFlowProjectionController = null;
+        _editorFlowProjectionRequestKey = '';
+        const currentBlock = getActiveBlock();
+        if (currentBlock?.kind !== 'flow') return;
+        const currentRender = document.getElementById('content-render');
+        if (!currentRender) return;
+        currentRender.innerHTML = `
+            <div id="flow-readonly-placeholder" data-flow-preview-state="error">
+                <span class="material-icons">error_outline</span>
+                <strong>Flowページを表示できません</strong>
+                <span>${escapeStudioHtml(getFlowProjectionErrorMessage(error))}</span>
+            </div>`;
+        currentRender.dataset.flowPreviewState = 'error';
+        const pageLockNote = document.getElementById('page-lock-note');
+        if (pageLockNote) {
+            pageLockNote.textContent = `Flowページを表示できません: ${getFlowProjectionErrorMessage(error)}`;
+            pageLockNote.style.display = 'block';
+        }
+    });
+}
+
+document.addEventListener(FLOW_RUNTIME_INVALIDATED_EVENT, () => {
+    if (getCurrentRoom() !== 'editor' || !hasFlowGroups(state)) return;
+    _editorFlowProjectionController?.abort();
+    _editorFlowProjectionController = null;
+    _editorFlowProjectionRequestKey = '';
+    _editorFlowProjectionRequestId += 1;
+    refresh();
+});
+
+function getEditorPresentationState() {
+    const projection = getEditorPageProjection();
+    const projectionIndex = getActiveProjectionPageIndex(projection);
+    if (projection && projectionIndex >= 0) {
+        const total = projection.totalPageCount;
+        return {
+            projection,
+            activeIndex: projectionIndex,
+            total,
+            label: getPageDisplayLabel(projectionIndex, total, state.book, state.bookMode),
+            readableTotal: getReadablePageCount(total, state.book, state.bookMode) || total,
+        };
+    }
+    const total = (state.sections || []).length;
+    const activeIndex = Math.min(Math.max(state.activeIdx ?? 0, 0), Math.max(0, total - 1));
+    return {
+        projection: null,
+        activeIndex,
+        total,
+        label: getPageDisplayLabel(activeIndex, total, state.book, state.bookMode),
+        readableTotal: getReadablePageCount(total, state.book, state.bookMode) || total,
+    };
+}
+
+function syncEditorPageCounters() {
+    const presentation = getEditorPresentationState();
+    const counterText = `${presentation.label || '—'} / ${presentation.readableTotal || presentation.total || '—'}`;
+    const canvasPageLabel = document.getElementById('canvas-page-label');
+    if (canvasPageLabel) {
+        const langCode = (state.activeLang || 'ja').toUpperCase();
+        canvasPageLabel.textContent = `${counterText} ${langCode}`;
+    }
+    const stripCounter = document.getElementById('page-strip-counter');
+    if (stripCounter) stripCounter.textContent = counterText;
+    const mobileCounter = document.getElementById('page-strip-counter-mobile');
+    if (mobileCounter) mobileCounter.textContent = counterText;
+
+    const prevBtn = document.getElementById('btn-page-prev');
+    const nextBtn = document.getElementById('btn-page-next');
+    const pageDir = getEditorLangDirection(state.activeLang || state.defaultLang || 'ja');
+    const activeIndex = presentation.activeIndex;
+    const total = presentation.total;
+    if (prevBtn) prevBtn.disabled = pageDir === 'rtl' ? activeIndex >= total - 1 : activeIndex <= 0;
+    if (nextBtn) nextBtn.disabled = pageDir === 'rtl' ? activeIndex <= 0 : activeIndex >= total - 1;
+}
 
 function getEditorImageFrameMetrics(bgUrl, frameWidth = EDITOR_FRAME_WIDTH, frameHeight = EDITOR_FRAME_HEIGHT, percentBaseWidth = EDITOR_FRAME_WIDTH, percentBaseHeight = EDITOR_FRAME_HEIGHT) {
     const aspect = editorImageAspectCache.get(bgUrl);
@@ -287,6 +581,35 @@ function getActiveBlock() {
         return blocks[fallbackBlockIdx];
     }
     return null;
+}
+
+function getEditableActiveFixedSection(expectedType = null) {
+    const activeBlock = getActiveBlock();
+    if (activeBlock?.kind !== 'page') return null;
+    const pageIndex = getPageIndexFromBlockIndex(state.blocks || [], state.activeBlockIdx);
+    if (pageIndex < 0 || pageIndex !== state.activeIdx) return null;
+    const section = state.sections?.[pageIndex];
+    if (!section || (expectedType && section.type !== expectedType)) return null;
+    return section;
+}
+
+function canEditActiveFixedPage(expectedType = null) {
+    return !!getEditableActiveFixedSection(expectedType);
+}
+
+function getFlowPreviewTargetBlock(activeBlock = getActiveBlock()) {
+    if (activeBlock?.kind === 'flow') return activeBlock;
+    const blocks = state.blocks || [];
+    const activeIndex = Number.isInteger(state.activeBlockIdx) ? state.activeBlockIdx : -1;
+    if (activeIndex >= 0) {
+        for (let index = activeIndex + 1; index < blocks.length; index += 1) {
+            if (blocks[index]?.kind === 'flow') return blocks[index];
+        }
+        for (let index = activeIndex - 1; index >= 0; index -= 1) {
+            if (blocks[index]?.kind === 'flow') return blocks[index];
+        }
+    }
+    return blocks.find((block) => block?.kind === 'flow') || null;
 }
 
 
@@ -692,6 +1015,7 @@ async function renderHomeDashboard() {
             const snapshotId = card.dataset.id;
             try {
                 const loadedState = hydrateProjectFromPersistence(await loadLocalRecentProject(snapshotId));
+                resetFlowRuntimeForProjectChange();
                 clearHistory();
                 dispatch({ type: actionTypes.LOAD_PROJECT, payload: loadedState });
                 refresh();
@@ -755,8 +1079,16 @@ function updateAuthUI() {
     }
     document.body.classList.toggle('auth-guest', !signedIn);
     document.querySelectorAll('[data-auth-required]').forEach((el) => {
-        el.disabled = !signedIn;
-        el.title = !signedIn ? t('login_required') : '';
+        const flowPublicationBlocked = el.hasAttribute('data-flow-publication-required') && hasFlowGroups(state);
+        el.disabled = !signedIn || flowPublicationBlocked;
+        el.title = !signedIn
+            ? t('login_required')
+            : (flowPublicationBlocked ? 'FlowのWebP出力接続後に有効になります' : '');
+    });
+    document.querySelectorAll('[data-flow-publication-required]:not([data-auth-required])').forEach((el) => {
+        const blocked = hasFlowGroups(state);
+        el.disabled = blocked;
+        el.title = blocked ? 'FlowのWebP出力接続後に有効になります' : '';
     });
     syncStudioShell();
 }
@@ -1158,12 +1490,14 @@ function refresh(options = {}) {
 
     syncBlocksFromState();
     const activeBlock = getActiveBlock();
+    const flowPreviewTargetBlock = getFlowPreviewTargetBlock(activeBlock);
     const s = state.sections[state.activeIdx];
     const render = document.getElementById('content-render');
     const lang = state.activeLang;
     const langProps = getLangProps(lang);
     const isFlowReadOnly = activeBlock?.kind === 'flow'
         || (!s && state.version === 6 && (state.blocks || []).some((block) => block?.kind === 'flow'));
+    render.classList.toggle('flow-editor-preview-active', isFlowReadOnly);
 
     // Normalize stale bubble selection
     if (state.activeBubbleIdx !== null && (!s?.bubbles || !s.bubbles[state.activeBubbleIdx])) {
@@ -1176,8 +1510,15 @@ function refresh(options = {}) {
             <div id="flow-readonly-placeholder">
                 <span class="material-icons">article</span>
                 <strong>Flowテキスト</strong>
-                <span>編集UIは次の実装単位で接続します。この原稿は現在読取専用です。</span>
+                <span data-flow-progress>ページ生成中…</span>
+                <span>原稿編集は次の実装単位で接続します。生成ページは現在読取専用です。</span>
             </div>`;
+        const pageLockNote = document.getElementById('page-lock-note');
+        if (pageLockNote) {
+            pageLockNote.textContent = 'Flow原稿のページを生成中…（読取専用）';
+            pageLockNote.style.display = 'block';
+        }
+        requestEditorFlowProjection(flowPreviewTargetBlock);
         _hideTextPreviewOverlay();
         const imageProps = document.getElementById('image-only-props');
         if (imageProps) imageProps.style.display = 'none';
@@ -1278,9 +1619,44 @@ function refresh(options = {}) {
         deleteBtn.disabled = isFlowReadOnly;
         deleteBtn.title = isFlowReadOnly ? 'Flow編集UI接続後に操作できます' : '';
     }
+    if (!isFlowReadOnly) {
+        const pageLockNote = document.getElementById('page-lock-note');
+        if (pageLockNote) {
+            pageLockNote.textContent = '';
+            pageLockNote.style.display = 'none';
+        }
+    }
+    const editableFixedSection = getEditableActiveFixedSection();
+    const fixedPageEditingDisabled = !editableFixedSection;
+    if (fixedPageEditingDisabled && isImageAdjusting) {
+        exitImageAdjustmentModeUi();
+    }
+    document.querySelectorAll('[data-fixed-page-edit]').forEach((control) => {
+        if (control.dataset.defaultTitle === undefined) {
+            control.dataset.defaultTitle = control.title || '';
+        }
+        control.disabled = fixedPageEditingDisabled;
+        control.title = fixedPageEditingDisabled ? 'ページ原稿または生成ページは読取専用です' : control.dataset.defaultTitle;
+    });
+    const activeBubbleLayer = document.getElementById('bubble-layer');
+    if (activeBubbleLayer) {
+        if (fixedPageEditingDisabled) activeBubbleLayer.style.pointerEvents = 'none';
+        else if (!isImageAdjusting) activeBubbleLayer.style.pointerEvents = '';
+    }
+    document.querySelectorAll('[data-flow-publication-required]').forEach((control) => {
+        const needsAuth = control.hasAttribute('data-auth-required');
+        const blocked = hasFlowGroups(state);
+        control.disabled = blocked || (needsAuth && !state.uid);
+        control.title = blocked
+            ? 'FlowのWebP出力接続後に有効になります'
+            : (needsAuth && !state.uid ? t('login_required') : '');
+    });
 
-    const isTextSection = !isFlowReadOnly && s?.type === 'text';
-    const isPageSection = !isFlowReadOnly && (s?.type === 'image' || s?.type === 'text');
+    const isTextSection = editableFixedSection?.type === 'text';
+    const isPageSection = editableFixedSection?.type === 'image' || editableFixedSection?.type === 'text';
+    if (!isFlowReadOnly && hasFlowGroups(state) && !getEditorPageProjection()) {
+        if (flowPreviewTargetBlock) requestEditorFlowProjection(flowPreviewTargetBlock);
+    }
 
     // FAB「テキスト追加」ボタンをテキストページでは非表示
     const fabAddBubble = document.getElementById('fab-add-bubble');
@@ -1351,37 +1727,16 @@ function refresh(options = {}) {
     if (propTitle && document.activeElement !== propTitle) {
         propTitle.value = getActiveLanguageWorkTitle();
     }
-    // キャンバス下部の旧ページ番号ラベルはスライダー表示へ移行したため非表示のまま同期のみ残す
-    const canvasPageLabel = document.getElementById('canvas-page-label');
-    if (canvasPageLabel) {
-        const totalPages = (state.sections || []).length;
-        const currentPage = getPageDisplayLabel(state.activeIdx ?? 0, totalPages, state.book, state.bookMode);
-        const readableTotal = getReadablePageCount(totalPages, state.book, state.bookMode) || totalPages;
-        const langCode = (state.activeLang || 'ja').toUpperCase();
-        canvasPageLabel.textContent = `${currentPage} / ${readableTotal} ${langCode}`;
-    }
-
-    // ストリップヘッダーのページカウンターを更新（デスクトップ・モバイル共通）
-    const _totalPages   = (state.sections || []).length;
-    const _currentPage  = getPageDisplayLabel(state.activeIdx ?? 0, _totalPages, state.book, state.bookMode);
-    const _readableTotal = getReadablePageCount(_totalPages, state.book, state.bookMode) || _totalPages;
-    const _counterText  = `${_currentPage} / ${_readableTotal}`;
-    const stripCounter = document.getElementById('page-strip-counter');
-    if (stripCounter) stripCounter.textContent = _counterText;
-    const mobileCounter = document.getElementById('page-strip-counter-mobile');
-    if (mobileCounter) mobileCounter.textContent = _counterText;
+    // 生成Flowページを含むruntime projectionとFixed互換ページを同じ番号体系で表示する。
+    syncEditorPageCounters();
     syncPageNavigationSlider();
-
-    const prevBtn = document.getElementById('btn-page-prev');
-    const nextBtn = document.getElementById('btn-page-next');
-    const _pageDir = getEditorLangDirection(state.activeLang || state.defaultLang || 'ja');
-    const _activeIdx = state.activeIdx ?? 0;
-    if (prevBtn) prevBtn.disabled = _pageDir === 'rtl' ? _activeIdx >= _totalPages - 1 : _activeIdx <= 0;
-    if (nextBtn) nextBtn.disabled = _pageDir === 'rtl' ? _activeIdx <= 0 : _activeIdx >= _totalPages - 1;
 
     // モバイル見開きボタンのアクティブ状態
     const mobileSpreadBtn = document.getElementById('btn-spread-view-mobile');
-    if (mobileSpreadBtn) mobileSpreadBtn.classList.toggle('active', !!(state.uiPrefs?.spreadView));
+    if (mobileSpreadBtn) {
+        mobileSpreadBtn.classList.toggle('active', !!(state.uiPrefs?.spreadView) && !hasFlowGroups(state));
+        mobileSpreadBtn.disabled = hasFlowGroups(state);
+    }
 
     // 見開きページを更新
     refreshSpreadPage();
@@ -1434,7 +1789,19 @@ function refreshForThumbSelection() {
 function syncThumbSelectionDom() {
     document.querySelectorAll('.thumb-wrap, .thumb-row').forEach((el) => {
         const blockIndex = Number(el.dataset.blockIndex);
-        const isActive = Number.isInteger(blockIndex) && blockIndex === state.activeBlockIdx;
+        const flowPageIndex = el.dataset.flowPageIndex === undefined
+            ? null
+            : Number(el.dataset.flowPageIndex);
+        const activeBlock = getActiveBlock();
+        const isFlowPage = Number.isInteger(flowPageIndex);
+        const isActive = Number.isInteger(blockIndex)
+            && blockIndex === state.activeBlockIdx
+            && (
+                isFlowPage
+                    ? activeBlock?.kind === 'flow'
+                        && flowPageIndex === getSelectedFlowRuntimePageIndex(activeBlock.id)
+                    : activeBlock?.kind !== 'flow'
+            );
         el.classList.toggle('active', isActive);
         el.setAttribute('aria-current', isActive ? 'true' : 'false');
     });
@@ -1956,9 +2323,7 @@ function onThumbTouchCancel() {
 //  セクションプロパティ更新
 // ──────────────────────────────────────
 function update(k, v) {
-    const activeBlock = getActiveBlock();
-    if (activeBlock && activeBlock.kind !== 'page') return;
-    const s = state.sections[state.activeIdx];
+    const s = getEditableActiveFixedSection();
     if (!s) return;
     pushState();
     s[k] = v;
@@ -2107,6 +2472,7 @@ function roundRotationHalfStep(value) {
 }
 
 window.adjustImageZoom = (delta) => {
+    if (!canEditActiveFixedPage('image')) return;
     const pos = getActiveImagePosition();
     if (!isImageAdjusting || !pos) return;
     pushState();
@@ -2119,7 +2485,7 @@ window.adjustImageZoom = (delta) => {
 };
 
 window.resetImageTransform = () => {
-    const s = state.sections[state.activeIdx];
+    const s = getEditableActiveFixedSection('image');
     const pos = getActiveImagePosition();
     if (!isImageAdjusting || !s || !pos) return;
     const base = s.imageBasePosition || { x: 0, y: 0, scale: 1, rotation: 0, flipX: false };
@@ -2135,6 +2501,7 @@ window.resetImageTransform = () => {
 };
 
 window.toggleImageFlipX = () => {
+    if (!canEditActiveFixedPage('image')) return;
     const pos = getActiveImagePosition();
     if (!isImageAdjusting || !pos) return;
     pushState();
@@ -2144,6 +2511,7 @@ window.toggleImageFlipX = () => {
 };
 
 window.setImageRotationFromSlider = (value) => {
+    if (!canEditActiveFixedPage('image')) return;
     const pos = getActiveImagePosition();
     if (!isImageAdjusting || !pos) return;
     const rotation = roundRotationHalfStep(Math.max(-180, Math.min(180, Number(value) || 0)));
@@ -2155,6 +2523,7 @@ window.setImageRotationFromSlider = (value) => {
 };
 
 window.startImageRotationSliderAdjust = (event) => {
+    if (!canEditActiveFixedPage('image')) return;
     if (event) {
         event.stopPropagation();
         event.preventDefault();
@@ -2192,7 +2561,7 @@ window.moveImageRotationSliderAdjust = (event) => {
 };
 
 window.startImageHandleDrag = (e, handleType) => {
-    if (!isImageAdjusting) return;
+    if (!isImageAdjusting || !canEditActiveFixedPage('image')) return;
     e.preventDefault();
     e.stopPropagation();
     const pos = getActiveImagePosition();
@@ -2224,7 +2593,7 @@ window.startImageHandleDrag = (e, handleType) => {
 };
 
 function onImageHandleDragMove(e) {
-    if (!isImageAdjusting || !imageHandleDrag) return;
+    if (!isImageAdjusting || !imageHandleDrag || !canEditActiveFixedPage('image')) return;
     const pos = getActiveImagePosition();
     if (!pos) return;
 
@@ -2268,13 +2637,41 @@ function onImageHandleDragEnd() {
     triggerAutoSave();
 }
 
+function exitImageAdjustmentModeUi() {
+    isImageAdjusting = false;
+    isAdjustingRotationSlider = false;
+    imageHandleDrag = null;
+    window.removeEventListener('mousemove', onImageHandleDragMove);
+    window.removeEventListener('mouseup', onImageHandleDragEnd);
+    resetImageSnapState();
+    ['btn-adjust-img', 'btn-adjust-img-panel'].forEach((id) => {
+        const btn = document.getElementById(id);
+        if (!btn) return;
+        btn.style.background = '#fff';
+        btn.style.color = '#333';
+    });
+    document.getElementById('canvas-transform-layer')?.classList.remove('adjust-image-mode');
+    const bubbleLayer = document.getElementById('bubble-layer');
+    if (bubbleLayer) bubbleLayer.style.pointerEvents = '';
+    document.getElementById('image-zoom-controls-floating')?.classList.remove('visible');
+    if (mobileAdjustViewBackup) {
+        canvasScale = mobileAdjustViewBackup.scale;
+        canvasTranslate = { ...mobileAdjustViewBackup.translate };
+        mobileAdjustViewBackup = null;
+        updateCanvasTransform();
+    }
+    document.body.classList.remove('image-adjusting-mobile');
+    const info = document.getElementById('text-label');
+    if (info) info.textContent = 'テキスト入力';
+}
+
 window.toggleImageAdjustment = () => {
-    const s = state.sections[state.activeIdx];
-    if (!s || s.type !== 'image') return;
+    const s = getEditableActiveFixedSection('image');
+    if (!s) return;
 
     isImageAdjusting = !isImageAdjusting;
     if (!isImageAdjusting) {
-        isAdjustingRotationSlider = false;
+        exitImageAdjustmentModeUi();
     }
 
     // UI更新
@@ -2503,7 +2900,7 @@ function initImageAdjustment() {
 // ──────────────────────────────────────
 let textPushTimer = null;
 function updateActiveText(v) {
-    const s = state.sections[state.activeIdx];
+    const s = getEditableActiveFixedSection();
     if (!s) return;
     if (!textPushTimer) {
         pushState();
@@ -3035,8 +3432,8 @@ function updateTextSectionAlign(value) {
     if (!TEXT_ALIGN_VALUES.includes(value)) return;
 
     const idx = state.activeIdx;
-    const section = state.sections?.[idx];
-    if (!section || section.type !== 'text') return;
+    const section = getEditableActiveFixedSection('text');
+    if (!section) return;
 
     pushState();
 
@@ -3088,6 +3485,7 @@ function updateTextSectionAlign(value) {
 
 function updateTextSectionPaperPreset(key) {
     if (!TEXT_PAPER_PRESETS[key]) return;
+    if (!canEditActiveFixedPage('text')) return;
 
     pushState();
 
@@ -3187,6 +3585,7 @@ function _createContinuationBlock(masterBlock, text, flowId, flowIdx, lang) {
  *    B テキストをクリア。他言語コンテンツがあれば削除せず保持。
  */
 function autoFlowTextSection() {
+    if (!canEditActiveFixedPage('text')) return;
     const lang = state.activeLang || state.defaultLang || 'ja';
     const pageIdx = state.activeIdx;
     const blockIdx = getBlockIndexFromPageIndex(state.blocks, pageIdx);
@@ -3364,14 +3763,19 @@ function _getSectionHeadingForToc(section, lang) {
 
 function getEditorTocItems() {
     const lang = state.activeLang || state.defaultLang || 'ja';
-    const pageCount = (state.sections || []).length;
+    const projection = getEditorPageProjection();
+    const pageCount = projection?.totalPageCount || (state.sections || []).length;
     return (state.sections || [])
         .map((section, pageIndex) => {
             const heading = _getSectionHeadingForToc(section, lang);
             if (!heading) return null;
+            const projectedPage = projection?.pages?.find((page) => (
+                page.kind === 'fixed' && page.fixedPageIndex === pageIndex
+            ));
+            const presentationIndex = projectedPage?.index ?? pageIndex;
             return {
                 pageIndex,
-                label: getPageDisplayLabel(pageIndex, pageCount, state.book, state.bookMode),
+                label: getPageDisplayLabel(presentationIndex, pageCount, state.book, state.bookMode),
                 heading
             };
         })
@@ -3381,7 +3785,7 @@ function getEditorTocItems() {
 function renderEditorTocPreview() {
     const panels = [...document.querySelectorAll('.js-toc-preview-panel')];
     if (!panels.length) return;
-    const activeSection = state.sections?.[state.activeIdx];
+    const activeSection = getEditableActiveFixedSection();
     const isPageSection = activeSection?.type === 'image' || activeSection?.type === 'text';
     panels.forEach((panel) => { panel.style.display = isPageSection ? 'block' : 'none'; });
     if (!isPageSection) return;
@@ -3409,7 +3813,7 @@ function renderEditorTocPreview() {
 
 function updatePageHeading(value, langOverride) {
     const idx = state.activeIdx;
-    const section = state.sections[idx];
+    const section = getEditableActiveFixedSection();
     if (!section || (section.type !== 'image' && section.type !== 'text')) return;
     const lang = langOverride || state.activeLang || state.defaultLang || 'ja';
 
@@ -3457,8 +3861,8 @@ function updatePageHeading(value, langOverride) {
  */
 function updateTextSectionBody(v) {
     const idx = state.activeIdx;
-    const s = state.sections[idx];
-    if (!s || s.type !== 'text') return;
+    const s = getEditableActiveFixedSection('text');
+    if (!s) return;
     const lang = state.activeLang || state.defaultLang || 'ja';
 
     if (!_textBodyPushTimer) {
@@ -3495,8 +3899,8 @@ function updateTextSectionBody(v) {
 }
 
 function updateBubbleShape(shapeName) {
-    const s = state.sections[state.activeIdx];
-    if (state.activeBubbleIdx !== null && s.bubbles && s.bubbles[state.activeBubbleIdx]) {
+    const s = getEditableActiveFixedSection();
+    if (s && state.activeBubbleIdx !== null && s.bubbles && s.bubbles[state.activeBubbleIdx]) {
         pushState();
         s.bubbles[state.activeBubbleIdx].shape = shapeName;
         refresh();
@@ -3557,8 +3961,8 @@ window.applyRecentColor = applyRecentColor;
 
 function updateBubbleColor(prop, value) {
     _lastColorProp = prop;
-    const s = state.sections[state.activeIdx];
-    if (state.activeBubbleIdx !== null && s.bubbles && s.bubbles[state.activeBubbleIdx]) {
+    const s = getEditableActiveFixedSection();
+    if (s && state.activeBubbleIdx !== null && s.bubbles && s.bubbles[state.activeBubbleIdx]) {
         s.bubbles[state.activeBubbleIdx][prop] = value;
         addRecentColor(value);
         refresh();
@@ -3619,12 +4023,14 @@ function syncLangPanel() {
 
 async function onLoadProject(pid) {
     try {
+        resetFlowRuntimeForProjectChange();
         await loadProject(pid, () => {
             clearHistory();
             ensureUiPrefs();
             applyThumbColumnsFromPrefs();
             refresh();
             renderLangSettings();
+            if (getCurrentRoom() === 'press') enterPressRoom();
         });
         return true;
     } catch (error) {
@@ -3651,13 +4057,16 @@ document.addEventListener('keydown', (e) => {
 // --- グローバル関数の登録 ---
 window.handleCanvasClick = (e) => {
     // テキストページはキャンバスクリックを無効にする（吹き出し追加・画像操作不要）
-    const activeSection = state.sections?.[state.activeIdx];
-    if (activeSection?.type === 'text') return;
+    const activeSection = getEditableActiveFixedSection();
+    if (!activeSection || activeSection.type === 'text') return;
     pushState();
     handleCanvasClick(e, refresh);
     triggerAutoSave();
 };
-window.selectBubble = (e, i) => selectBubble(e, i, refresh);
+window.selectBubble = (e, i) => {
+    if (!canEditActiveFixedPage()) return;
+    selectBubble(e, i, refresh);
+};
 function hideContextMenu() {
     const contextMenu = document.getElementById('context-menu');
     if (!contextMenu) return;
@@ -3819,6 +4228,7 @@ window.jumpToTocPage = (pageIndex) => {
 
 /** テキストエリアのカーソル位置に改ページマーカーを挿入する */
 window.insertPageBreak = function() {
+    if (!canEditActiveFixedPage('text')) return;
     const ta = document.getElementById('prop-body-text');
     if (!ta) return;
     const start = ta.selectionStart;
@@ -3838,6 +4248,7 @@ window.insertPageBreak = function() {
 
 /** テキストエリアの選択範囲をルビ記法に変換する */
 window.insertRubyMarkup = function() {
+    if (!canEditActiveFixedPage('text')) return;
     const ta = document.getElementById('prop-body-text');
     if (!ta) return;
     const start = ta.selectionStart ?? 0;
@@ -3859,8 +4270,8 @@ window.insertRubyMarkup = function() {
 
 // ── キャンバスへのドラッグ&ドロップ（画像アップロード） ──────────────────────
 window.handleCanvasDragOver = (e) => {
-    const s = state.sections?.[state.activeIdx];
-    if (s?.type !== 'image') return;
+    const s = getEditableActiveFixedSection('image');
+    if (!s) return;
     // 画像ファイルを含むドラッグのみ受け付ける
     if ([...e.dataTransfer.types].some(t => t === 'Files')) {
         e.preventDefault();
@@ -3879,8 +4290,8 @@ window.handleCanvasDragLeave = (e) => {
 window.handleCanvasDrop = (e) => {
     e.preventDefault();
     document.getElementById('canvas-view')?.classList.remove('drag-over');
-    const s = state.sections?.[state.activeIdx];
-    if (s?.type !== 'image') return;
+    const s = getEditableActiveFixedSection('image');
+    if (!s) return;
     const file = e.dataTransfer.files[0];
     if (!file || !file.type.startsWith('image/')) return;
     // 既存の uploadToStorage に File を渡すため擬似 input を作成
@@ -4038,9 +4449,9 @@ function getPageSliderBubbleParts() {
 }
 
 function syncPageNavigationSlider() {
-    const sections = state.sections || [];
-    const total = sections.length;
-    const activeIdx = Math.min(Math.max(state.activeIdx ?? 0, 0), Math.max(0, total - 1));
+    const presentation = getEditorPresentationState();
+    const total = presentation.total;
+    const activeIdx = presentation.activeIndex;
     const slider = document.getElementById('page-nav-slider');
     const bubble = document.getElementById('page-nav-slider-bubble');
     const totalEl = document.getElementById('page-nav-slider-total');
@@ -4060,7 +4471,7 @@ function syncPageNavigationSlider() {
         slider.dataset.dir = pageDirection;
     }
     if (bubble) {
-        const parts = getPageSliderBubbleParts();
+        const parts = presentation.projection ? null : getPageSliderBubbleParts();
         if (parts) {
             bubble.classList.add('is-pair');
             bubble.classList.toggle('active-left', parts.activeSide === 'left');
@@ -4069,7 +4480,7 @@ function syncPageNavigationSlider() {
         } else {
             bubble.classList.remove('is-pair');
             bubble.classList.remove('active-left', 'active-right');
-            bubble.textContent = getPageSliderBubbleText();
+            bubble.textContent = presentation.label || getPageSliderBubbleText();
         }
         const width = slider?.clientWidth || bubble.parentElement?.clientWidth || 0;
         const thumb = 16;
@@ -4082,12 +4493,23 @@ function syncPageNavigationSlider() {
     if (compareBtn) {
         const enabled = !!state.uiPrefs?.languageCompareView && !!getActiveCompareLang();
         compareBtn.classList.toggle('active', enabled);
-        compareBtn.disabled = !Array.isArray(state.languages) || state.languages.length < 2;
+        compareBtn.disabled = hasFlowGroups(state)
+            || !Array.isArray(state.languages)
+            || state.languages.length < 2;
     }
+    const spreadBtn = document.getElementById('btn-spread-view');
+    if (spreadBtn) spreadBtn.disabled = hasFlowGroups(state);
 }
 
 window.onPageSliderInput = (value) => {
     const nextIdx = Number(value);
+    const projection = getEditorPageProjection();
+    if (projection) {
+        if (!Number.isInteger(nextIdx) || nextIdx < 0 || nextIdx >= projection.pages.length) return;
+        _spreadActivationPinnedAdjIdx = -1;
+        activateProjectionPage(projection.pages[nextIdx]);
+        return;
+    }
     const sections = state.sections || [];
     if (!Number.isInteger(nextIdx) || nextIdx < 0 || nextIdx >= sections.length) return;
     _spreadActivationPinnedAdjIdx = -1;
@@ -4096,12 +4518,26 @@ window.onPageSliderInput = (value) => {
 
 window.pagePrev = () => {
     _spreadActivationPinnedAdjIdx = -1; // 通常ナビ時はピンを解除
+    const projection = getEditorPageProjection();
+    if (projection) {
+        const index = getActiveProjectionPageIndex(projection);
+        if (index > 0) activateProjectionPage(projection.pages[index - 1]);
+        return;
+    }
     const idx = state.activeIdx ?? 0;
     if (idx > 0) changeSection(idx - 1, refreshForThumbSelection);
 };
 
 window.pageNext = () => {
     _spreadActivationPinnedAdjIdx = -1; // 通常ナビ時はピンを解除
+    const projection = getEditorPageProjection();
+    if (projection) {
+        const index = getActiveProjectionPageIndex(projection);
+        if (index >= 0 && index < projection.pages.length - 1) {
+            activateProjectionPage(projection.pages[index + 1]);
+        }
+        return;
+    }
     const idx = state.activeIdx ?? 0;
     if (idx < (state.sections || []).length - 1) changeSection(idx + 1, refreshForThumbSelection);
 };
@@ -4110,6 +4546,20 @@ window.pageVisualLeft = () => movePageSelectionByVisualDirection('left');
 window.pageVisualRight = () => movePageSelectionByVisualDirection('right');
 
 function movePageSelectionByVisualDirection(direction) {
+    const projection = getEditorPageProjection();
+    if (projection) {
+        const index = getActiveProjectionPageIndex(projection);
+        if (index < 0) return;
+        const pageDirection = getEditorLangDirection(state.activeLang || state.defaultLang || 'ja');
+        const delta = direction === 'right'
+            ? (pageDirection === 'rtl' ? -1 : 1)
+            : (pageDirection === 'rtl' ? 1 : -1);
+        const nextIndex = index + delta;
+        if (nextIndex < 0 || nextIndex >= projection.pages.length) return;
+        _spreadActivationPinnedAdjIdx = -1;
+        activateProjectionPage(projection.pages[nextIndex]);
+        return;
+    }
     const idx = state.activeIdx ?? 0;
     const pages = state.sections || [];
     if (!pages.length) return;
@@ -4131,6 +4581,7 @@ function movePageSelectionByVisualDirection(direction) {
 // ──────────────────────────────────────
 
 window.toggleSpreadView = () => {
+    if (hasFlowGroups(state)) return;
     const current = state.uiPrefs?.spreadView || false;
     const next = !current;
     dispatch({ type: actionTypes.SET_STATE_FIELD, payload: {
@@ -4147,6 +4598,7 @@ window.toggleSpreadView = () => {
 };
 
 window.toggleLanguageCompareView = () => {
+    if (hasFlowGroups(state)) return;
     if (!getActiveCompareLang()) return;
     const current = !!state.uiPrefs?.languageCompareView;
     const next = !current;
@@ -4292,6 +4744,13 @@ function refreshSpreadPage() {
     const spreadEl = document.getElementById('canvas-spread-page');
     const stage    = document.getElementById('canvas-stage');
     if (!spreadEl || !stage) return;
+    if (hasFlowGroups(state)) {
+        spreadEl.style.display = 'none';
+        stage.style.flexDirection = '';
+        stage.classList.remove('spread-image-pair-active');
+        document.getElementById('canvas-transform-layer')?.classList.remove('active-pair-page');
+        return;
+    }
 
     // スプレッドボタンのアクティブ状態を同期
     const btn = document.getElementById('btn-spread-view');
@@ -4516,6 +4975,17 @@ window.changeBlock = (idx) => {
     if (Date.now() < suppressThumbClickUntil) return;
     changeBlock(idx, refreshForThumbSelection);
 };
+window.changeFlowGeneratedPage = (blockIndex, flowPageIndex) => {
+    if (Date.now() < suppressThumbClickUntil) return;
+    const block = state.blocks?.[Number(blockIndex)];
+    if (block?.kind !== 'flow') return;
+    const projection = getEditorPageProjection();
+    const pageCount = projection?.pages?.filter((page) => (
+        page.kind === 'flow' && page.groupId === block.id
+    )).length || 1;
+    setSelectedFlowRuntimePageIndex(block.id, flowPageIndex, pageCount);
+    changeBlock(blockIndex, refreshForThumbSelection);
+};
 window.insertSectionAtIndex = (idx, e) => {
     if (e) {
         e.preventDefault();
@@ -4635,7 +5105,7 @@ window.update = update;
 window.updateActiveText = updateActiveText;
 window.updateBubbleShape = updateBubbleShape;
 window.changeBubbleShapeFromMenu = (idx, shapeName) => {
-    const s = state.sections[state.activeIdx];
+    const s = getEditableActiveFixedSection();
     if (s?.bubbles?.[idx]) {
         pushState();
         s.bubbles[idx].shape = shapeName;
@@ -4673,13 +5143,21 @@ window.setThumbSize = (sizeKey) => {
     refresh();
     triggerAutoSave();
 };
-window.uploadToStorage = (input) => { pushState(); uploadToStorage(input, refresh); };
+window.uploadToStorage = (input) => {
+    if (!canEditActiveFixedPage()) {
+        if (input) input.value = '';
+        return;
+    }
+    pushState();
+    uploadToStorage(input, refresh);
+};
 
 window.performUndo = () => { undo(refresh); triggerAutoSave(); };
 window.performRedo = () => { redo(refresh); triggerAutoSave(); };
 
 // FAB用
 window.addBubbleFab = () => {
+    if (!canEditActiveFixedPage()) return;
     pushState();
     addBubbleAtCenter(refresh);
     triggerAutoSave();
@@ -4687,16 +5165,19 @@ window.addBubbleFab = () => {
 
 // バブル移動ハンドル用
 window.onHandleDown = (e, i) => {
+    if (!canEditActiveFixedPage()) return;
     startDrag(e, i, refresh);
 };
 
 // しっぽ移動ハンドル用
 window.onTailHandleDown = (e, i) => {
+    if (!canEditActiveFixedPage()) return;
     startTailDrag(e, i, refresh);
 };
 
 // ウニ・スパイク長ハンドル用
 window.onSpikeHandleDown = (e, i) => {
+    if (!canEditActiveFixedPage()) return;
     startSpikeDrag(e, i, refresh);
 };
 
@@ -4919,6 +5400,7 @@ window.importDSP = async (event) => {
     try {
         const loadedState = hydrateProjectFromPersistence(await parseAndLoadDSP(file));
 
+        resetFlowRuntimeForProjectChange();
         clearHistory();
         dispatch({
             type: actionTypes.LOAD_PROJECT,
@@ -5020,8 +5502,8 @@ window.updateVisibility = async (val) => {
 let directEditPushTimer = null;
 window.onBubbleTextInput = (e, i) => {
     const text = (e.target.innerText || '').replace(/\n+$/, '');
-    const s = state.sections[state.activeIdx];
-    if (s.bubbles && s.bubbles[i]) {
+    const s = getEditableActiveFixedSection('image');
+    if (s?.bubbles && s.bubbles[i]) {
         if (!directEditPushTimer) {
             pushState();
         } else {
@@ -5134,6 +5616,7 @@ window.loadAndRepress = async (pid) => {
 // 新規プロジェクト
 window.newProject = () => {
     if (state.projectId && !confirm('現在のプロジェクトを閉じて新しいプロジェクトを作成しますか？')) return false;
+    resetFlowRuntimeForProjectChange();
     dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'projectId', value: null } });
     dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'version', value: 5 } });
     dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'workId', value: createId('work') } });
@@ -5664,9 +6147,16 @@ window.saveProjectSettings = () => {
 // ===== Room Navigation（body.dataset.room の単一入口。各 room の「中身」は下記のみ委譲） =====
 window.switchRoom = (room) => {
     const targetRoom = getValidStudioRoom(room);
+    const previousRoom = getCurrentRoom();
+    if (previousRoom === 'press' && targetRoom !== 'press') {
+        leavePressRoom();
+    }
     document.body.dataset.room = targetRoom;
     syncStudioRoomUrl(targetRoom);
     syncStudioShell();
+    if (targetRoom === 'editor' && previousRoom !== 'editor') {
+        refresh();
+    }
     if (targetRoom === 'home') {
         renderHomeDashboard().catch((e) => console.warn('[Home] render failed:', e));
     }
@@ -6099,6 +6589,7 @@ async function bootstrapApp() {
                 const restoredState = hydrateProjectFromPersistence(JSON.parse(stateStr));
 
                 // Only dispatch state keys that exist in our actual store
+                resetFlowRuntimeForProjectChange();
                 clearHistory();
                 dispatch({ type: actionTypes.LOAD_PROJECT, payload: restoredState });
                 console.log("[DSF] Auto-save restored successfully.");
@@ -6111,6 +6602,9 @@ async function bootstrapApp() {
     refresh();
     renderLangSettings();
     updateAuthUI();
+    if (getCurrentRoom() === 'press') {
+        enterPressRoom();
+    }
     if (getCurrentRoom() === 'home') {
         renderHomeDashboard().catch((e) => console.warn('[Home] initial render failed:', e));
     }
@@ -6175,6 +6669,10 @@ function initContextMenu() {
         if (!canvasView || !canvasView.contains(e.target)) return;
 
         e.preventDefault(); // デフォルトメニューを禁止
+        if (!canEditActiveFixedPage()) {
+            hideContextMenu();
+            return;
+        }
 
         // どこがクリックされたか判定
         const bubbleSvg = e.target.closest('.bubble-svg');
@@ -6255,6 +6753,7 @@ window.addBubbleAtPointer = function (e) {
     const contextMenu = document.getElementById('context-menu');
     if (!contextMenu) return;
     hideContextMenu();
+    if (!canEditActiveFixedPage()) return;
 
     const clientX = parseFloat(contextMenu.dataset.pointerX);
     const clientY = parseFloat(contextMenu.dataset.pointerY);
@@ -6301,7 +6800,7 @@ window.duplicateSelectedBubble = function (bubbleIndex) {
     const contextMenu = document.getElementById('context-menu');
     if (contextMenu) hideContextMenu();
 
-    const section = state.sections[state.activeIdx];
+    const section = getEditableActiveFixedSection();
     if (!section || !section.bubbles || !section.bubbles[bubbleIndex]) return;
 
     pushState();
@@ -6322,7 +6821,7 @@ window.deleteSelectedBubble = function (bubbleIndex) {
     const contextMenu = document.getElementById('context-menu');
     if (contextMenu) hideContextMenu();
 
-    const section = state.sections[state.activeIdx];
+    const section = getEditableActiveFixedSection();
     if (!section || !section.bubbles || !section.bubbles[bubbleIndex]) return;
 
     pushState();
