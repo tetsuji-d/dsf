@@ -837,6 +837,7 @@ Flowを含む作品のDSF／Horizon発行はWebP renderer接続まで停止す�
 | 日付 | 変更内容 |
 |------|---------|
 | 2026-08-21 | Commit 7A: 保存済みFlow原稿のruntime paginationをEditor／Pressの読取専用ページ一覧と通し番号へ接続。生成ページ非永続と発行停止を維持 |
+| 2026-08-21 | Commit 8A: FlowDocumentのsourceLanguage原稿をStudioの連続semantic editorへ接続。Heading／Paragraph／PageBreak編集、既存Undo/Redo・autosave、runtime増分reflowを使用し、生成ページ非永続と発行停止を維持 |
 | 2026-08-19 | Commit 6B: Project v6をstate／Undo／IndexedDB／DSP／owner専用Firestore authoring childへ接続。公開root分離、850 KiB soft limit、version downgrade guardを追加 |
 | 2026-08-18 | Project v6の純粋authoring contractを追加。Fixed BlockとFlow Groupの混在、FlowDocument／FlowLayoutの所有境界、生成ページ非永続化を定義（保存経路は未接続） |
 | 2026-02-25 | 全面改訂: `works` → `users/{uid}/projects/{pid}` に修正、v5 Page スキーマ追加、AR フィールド追加、Security Rules を実態に更新 |

@@ -102,6 +102,8 @@ export async function uploadPressPage(blob, path) {
 let autoSaveTimer = null;
 let saveStatus = 'idle'; // 'idle' | 'saving' | 'saved' | 'error'
 let isSaving = false;
+let saveRequested = false;
+let activeSavePromise = null;
 let isThumbnailGenerating = false;
 const THUMB_BASE_WIDTH = 360;
 const THUMB_BASE_HEIGHT = 640;
@@ -111,13 +113,13 @@ function requireUid() {
     return state.uid;
 }
 
-function projectDocRef(projectId) {
-    const uid = requireUid();
+function projectDocRef(projectId, ownerUid = '') {
+    const uid = ownerUid || requireUid();
     return doc(db, "users", uid, "projects", projectId);
 }
 
-function projectAuthoringDocRef(projectId) {
-    const uid = requireUid();
+function projectAuthoringDocRef(projectId, ownerUid = '') {
+    const uid = ownerUid || requireUid();
     return doc(db, 'users', uid, 'projects', projectId, 'authoring', 'current');
 }
 
@@ -634,7 +636,17 @@ export function triggerAutoSave() {
 
     updateSaveIndicator('idle', '未保存');
 
+    // An edit made while a save is in flight must be included in the same
+    // serialized save loop; waiting for the debounce timer can otherwise let
+    // the UI report the older snapshot as saved.
+    if (activeSavePromise) {
+        saveRequested = true;
+        autoSaveTimer = null;
+        return;
+    }
+
     autoSaveTimer = setTimeout(async () => {
+        autoSaveTimer = null;
         try {
             await performSave();
         } catch (error) {
@@ -653,6 +665,23 @@ export async function flushSave() {
         autoSaveTimer = null;
     }
     await performSave();
+}
+
+/** Wait only when an autosave is pending or already in flight. */
+export async function flushPendingSave() {
+    const hadPendingTimer = !!autoSaveTimer;
+    if (autoSaveTimer) {
+        clearTimeout(autoSaveTimer);
+        autoSaveTimer = null;
+    }
+    if (activeSavePromise) {
+        if (hadPendingTimer) saveRequested = true;
+        await activeSavePromise;
+        return true;
+    }
+    if (!hadPendingTimer && !saveRequested) return false;
+    await performSave();
+    return true;
 }
 
 // ─── Blob URL 解決ヘルパー ─────────────────────────────────────────────────────
@@ -823,10 +852,16 @@ function buildAuthoringProjectInput(overrides = {}) {
 /**
  * 実際の保存処理
  */
-async function performSave() {
-    if (isSaving) return;
-    isSaving = true;
+async function performSaveOnce() {
     try {
+    const saveIdentity = Object.freeze({
+        projectId: String(state.projectId || ''),
+        uid: String(state.uid || ''),
+        workId: String(state.workId || ''),
+        user: state.user || auth.currentUser || null,
+        ownerEmail: String(state.user?.email || auth.currentUser?.email || ''),
+        visibility: state.visibility || 'private',
+    });
     // レイアウト確定: テキストセクションの layout[lang] を計算して state.sections に書き込む（意図的な mutation）
     composeCanonicalLayoutsForSections(state.sections, state.languages, state.languageConfigs);
     // Flow sourceを含むauthoring spineを検証し、Fixed互換面だけを再投影する。
@@ -871,14 +906,14 @@ async function performSave() {
     }
 
     // 2. クラウドバックアップ (ログイン時のみ)
-    if (state.projectId && state.uid) {
+    if (saveIdentity.projectId && saveIdentity.uid) {
         try {
-            await assertAccountCanEdit();
-            const visibility = state.visibility || 'private';
+            await assertAccountCanEdit(saveIdentity.user);
+            const visibility = saveIdentity.visibility;
 
             // Read the current root before uploading blobs. A future/newer
             // schema must never be overwritten by this client.
-            const rootRef = projectDocRef(state.projectId);
+            const rootRef = projectDocRef(saveIdentity.projectId, saveIdentity.uid);
             const existingSnap = await getDoc(rootRef);
             const existingData = existingSnap.exists() ? existingSnap.data() : {};
             if (!isProjectVersionTransitionAllowed(existingData.version, authoringProject.version)) {
@@ -891,13 +926,13 @@ async function performSave() {
             if (authoringProject.version === 6) {
                 assertFirestoreAuthoringSize({
                     ...authoringProject,
-                    projectId: state.projectId,
+                    projectId: saveIdentity.projectId,
                 });
             }
 
             // blob: URL が残っている場合は Storage にアップロードして実 URL に変換
-            const cleanSections = await resolveBlobUrlsInSections(authoringProject.sections, state.uid);
-            const cleanBlocks   = await resolveBlobUrlsInBlocks(blocksToSave, state.uid);
+            const cleanSections = await resolveBlobUrlsInSections(authoringProject.sections, saveIdentity.uid);
+            const cleanBlocks   = await resolveBlobUrlsInBlocks(blocksToSave, saveIdentity.uid);
             const persistedProject = prepareProjectForSave({
                 ...authoringProject,
                 blocks: cleanBlocks,
@@ -927,20 +962,20 @@ async function performSave() {
                 projectBytes,
                 pageCount,
                 visibility: visibility,
-                ownerUid: state.uid,
-                ownerEmail: state.user?.email || '',
+                ownerUid: saveIdentity.uid,
+                ownerEmail: saveIdentity.ownerEmail,
                 lastUpdated: new Date()
             };
 
             if (persistedProject.version === 6) {
                 const authoringDocument = {
                     ...persistedProject,
-                    projectId: state.projectId,
+                    projectId: saveIdentity.projectId,
                     lastUpdated: new Date(),
                 };
                 assertFirestoreAuthoringSize(authoringDocument);
                 const batch = writeBatch(db);
-                batch.set(projectAuthoringDocRef(state.projectId), authoringDocument);
+                batch.set(projectAuthoringDocRef(saveIdentity.projectId, saveIdentity.uid), authoringDocument);
                 batch.set(rootRef, rootProjection, { merge: true });
                 await batch.commit();
             } else {
@@ -949,19 +984,19 @@ async function performSave() {
                 await setDoc(rootRef, rootProjection, { merge: true });
             }
 
-            if (state.workId) {
-                await setDoc(doc(db, "users", state.uid, "works", state.workId), {
-                    workId: state.workId,
-                    projectId: state.projectId,
-                    ownerUid: state.uid,
-                    title: state.title || '',
-                    labelName: state.labelName || '',
-                    rating: state.rating || 'all',
-                    license: state.license || 'all-rights-reserved',
-                    textPaperPreset: state.textPaperPreset || 'white',
-                    meta: state.meta || {},
-                    languages: state.languages || ['ja'],
-                    defaultLang: state.defaultLang || state.languages?.[0] || 'ja',
+            if (saveIdentity.workId) {
+                await setDoc(doc(db, "users", saveIdentity.uid, "works", saveIdentity.workId), {
+                    workId: saveIdentity.workId,
+                    projectId: saveIdentity.projectId,
+                    ownerUid: saveIdentity.uid,
+                    title: persistedProject.title || '',
+                    labelName: persistedProject.labelName || '',
+                    rating: persistedProject.rating || 'all',
+                    license: persistedProject.license || 'all-rights-reserved',
+                    textPaperPreset: persistedProject.textPaperPreset || 'white',
+                    meta: persistedProject.meta || {},
+                    languages: persistedProject.languages || ['ja'],
+                    defaultLang: persistedProject.defaultLang || persistedProject.languages?.[0] || 'ja',
                     updatedAt: serverTimestamp()
                 }, { merge: true });
             }
@@ -969,7 +1004,7 @@ async function performSave() {
             // 公開インデックス（public_projects）は Press / Works が管理する。
             // 通常の編集保存では DSP 本体だけを更新し、公開状態は変えない。
             updateSaveIndicator('saved', '保存済み (Cloud)');
-            console.log(`[DSF] Auto-saved project to cloud: ${state.projectId}`);
+            console.log(`[DSF] Auto-saved project to cloud: ${saveIdentity.projectId}`);
         } catch (e) {
             console.error("[DSF] Cloud auto-save failed:", e);
             updateSaveIndicator('error', '保存失敗 (Cloud)');
@@ -979,7 +1014,23 @@ async function performSave() {
         console.error('[DSF] Project save failed before persistence:', error);
         updateSaveIndicator('error', '保存失敗');
         throw error;
+    }
+}
+
+async function performSave() {
+    saveRequested = true;
+    if (activeSavePromise) return activeSavePromise;
+    isSaving = true;
+    activeSavePromise = (async () => {
+        while (saveRequested) {
+            saveRequested = false;
+            await performSaveOnce();
+        }
+    })();
+    try {
+        await activeSavePromise;
     } finally {
+        activeSavePromise = null;
         isSaving = false;
     }
 }

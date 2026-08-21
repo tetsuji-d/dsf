@@ -7,6 +7,7 @@ import { state } from './state.js';
 const MAX_HISTORY = 50;
 let undoStack = [];
 let redoStack = [];
+let activeHistoryGroup = null;
 
 function clone(value, fallback) {
     return JSON.parse(JSON.stringify(value ?? fallback));
@@ -39,7 +40,23 @@ function restoreHistorySnapshot(snapshot) {
 /**
  * 現在の状態をundoスタックに保存する（変更前に呼ぶ）
  */
-export function pushState() {
+export function pushState(options = {}) {
+    const groupKey = typeof options.groupKey === 'string' && options.groupKey
+        ? options.groupKey
+        : '';
+    const now = Number.isFinite(options.now) ? options.now : Date.now();
+    const mergeWindowMs = Number.isFinite(options.mergeWindowMs)
+        ? Math.max(0, options.mergeWindowMs)
+        : 900;
+    if (
+        groupKey
+        && activeHistoryGroup?.key === groupKey
+        && now - activeHistoryGroup.lastAt <= mergeWindowMs
+    ) {
+        activeHistoryGroup.lastAt = now;
+        return false;
+    }
+
     const snapshot = createHistorySnapshot(state);
     undoStack.push(snapshot);
     if (undoStack.length > MAX_HISTORY) {
@@ -47,6 +64,14 @@ export function pushState() {
     }
     // 新しい操作をしたらredoスタックはクリア
     redoStack = [];
+    activeHistoryGroup = groupKey ? { key: groupKey, lastAt: now } : null;
+    return true;
+}
+
+/** End a grouped typing session (blur, cursor change, structural edit, etc.). */
+export function endHistoryGroup(groupKey = '') {
+    if (!activeHistoryGroup) return;
+    if (!groupKey || activeHistoryGroup.key === groupKey) activeHistoryGroup = null;
 }
 
 /**
@@ -56,6 +81,7 @@ export function pushState() {
  */
 export function undo(refresh) {
     if (undoStack.length === 0) return false;
+    activeHistoryGroup = null;
 
     // 現在の状態をredoスタックに保存
     redoStack.push(createHistorySnapshot(state));
@@ -75,6 +101,7 @@ export function undo(refresh) {
  */
 export function redo(refresh) {
     if (redoStack.length === 0) return false;
+    activeHistoryGroup = null;
 
     // 現在の状態をundoスタックに保存
     undoStack.push(createHistorySnapshot(state));
@@ -105,4 +132,5 @@ export function getHistoryInfo() {
 export function clearHistory() {
     undoStack = [];
     redoStack = [];
+    activeHistoryGroup = null;
 }

@@ -229,5 +229,10 @@ assert.notEqual(
     createFlowRuntimeProjectionSignature({ blocks: [completeTranslation] }, 'ja', [], documentContextB),
     'DOM measurement contexts must not share a projection cache key',
 );
+assert.notEqual(
+    createFlowRuntimeProjectionSignature({ blocks: [completeTranslation] }, 'ja', [], documentContextA, 'editor'),
+    createFlowRuntimeProjectionSignature({ blocks: [completeTranslation] }, 'ja', [], documentContextA, 'press'),
+    'Editor and Press must not share projection/session cache identities',
+);
 
 console.log('Flow page projection checks passed.');

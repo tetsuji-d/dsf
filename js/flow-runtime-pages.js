@@ -15,8 +15,10 @@ import { deepClone } from './utils.js';
 const DEFAULT_MAX_PAGES_PER_GROUP = 2000;
 const MAX_GROUP_CACHE_ENTRIES = 32;
 const MAX_PROJECTION_CACHE_ENTRIES = 8;
+const MAX_GROUP_SESSION_ENTRIES = 16;
 const groupCache = new Map();
 const projectionCache = new Map();
+const groupSessionCache = new Map();
 const selectedFlowPageByGroup = new Map();
 const trackedFontDocuments = new WeakSet();
 const fontEpochByDocument = new WeakMap();
@@ -65,6 +67,9 @@ function trackFonts(ownerDocument) {
         fontEpochByDocument.set(ownerDocument, getFontEpoch(ownerDocument) + 1);
         for (const [key, value] of groupCache.entries()) {
             if (value.ownerDocument === ownerDocument) groupCache.delete(key);
+        }
+        for (const [key, value] of groupSessionCache.entries()) {
+            if (value.ownerDocument === ownerDocument) deleteGroupSession(key);
         }
         projectionCache.clear();
         const EventConstructor = ownerDocument.defaultView?.CustomEvent;
@@ -142,16 +147,54 @@ export function resolveFlowRuntimeLanguage(group, requestedLanguageKey) {
     });
 }
 
-function getGroupCacheKey(group, language, ownerDocument) {
+function getGroupCacheKey(group, language, ownerDocument, options = {}) {
     return JSON.stringify([
         FLOW_DOM_RENDERER_VERSION,
         getDocumentCacheIdentity(ownerDocument),
         getFontEpoch(ownerDocument),
+        String(options.sessionScope || 'default'),
         language.requestedLanguageKey,
         language.languageKey,
         group.id,
         group.flow,
     ]);
+}
+
+function getGroupSessionKey(group, language, ownerDocument, options = {}) {
+    return JSON.stringify([
+        FLOW_DOM_RENDERER_VERSION,
+        getDocumentCacheIdentity(ownerDocument),
+        getFontEpoch(ownerDocument),
+        String(options.sessionScope || 'default'),
+        options.maxPagesPerGroup || DEFAULT_MAX_PAGES_PER_GROUP,
+        language.requestedLanguageKey,
+        language.languageKey,
+        group.id,
+        group.flow?.document?.sourceLanguage,
+        group.flow?.layout,
+    ]);
+}
+
+function disposeGroupSession(session) {
+    try {
+        session?.paginator?.invalidate?.();
+        session?.measurer?.dispose?.();
+    } catch (error) {
+        console.warn('[Flow pages] Failed to dispose runtime session:', error);
+    }
+}
+
+function deleteGroupSession(key) {
+    const session = groupSessionCache.get(key);
+    if (session) disposeGroupSession(session);
+    groupSessionCache.delete(key);
+}
+
+function setGroupSession(key, session) {
+    groupSessionCache.set(key, session);
+    while (groupSessionCache.size > MAX_GROUP_SESSION_ENTRIES) {
+        deleteGroupSession(groupSessionCache.keys().next().value);
+    }
 }
 
 function getCachedGroup(cacheKey) {
@@ -210,7 +253,7 @@ async function paginateFlowGroup(group, options) {
     const { requestedLanguageKey, ownerDocument, signal } = options;
     const language = resolveFlowRuntimeLanguage(group, requestedLanguageKey);
     const { languageKey, profile } = language;
-    const cacheKey = getGroupCacheKey(group, language, ownerDocument);
+    const cacheKey = getGroupCacheKey(group, language, ownerDocument, options);
     const cached = getCachedGroup(cacheKey);
     if (cached) {
         return cached.result;
@@ -230,13 +273,26 @@ async function paginateFlowGroup(group, options) {
     );
     throwIfAborted(signal);
 
-    const measurer = createFlowDomPageMeasurer({
-        ownerDocument,
-        languageKey,
-        writingMode,
-        typography,
-    });
-    try {
+    const sessionKey = getGroupSessionKey(group, language, ownerDocument, options);
+    let session = groupSessionCache.get(sessionKey);
+    if (session) {
+        groupSessionCache.delete(sessionKey);
+        groupSessionCache.set(sessionKey, session);
+    } else {
+        for (const [key, value] of groupSessionCache.entries()) {
+            if (
+                value.ownerDocument === ownerDocument
+                && value.groupId === group.id
+                && value.requestedLanguageKey === requestedLanguageKey
+                && value.sessionScope === String(options.sessionScope || 'default')
+            ) deleteGroupSession(key);
+        }
+        const measurer = createFlowDomPageMeasurer({
+            ownerDocument,
+            languageKey,
+            writingMode,
+            typography,
+        });
         const paginator = createIncrementalFlowPaginator({
             pageBox,
             languageKey,
@@ -246,7 +302,20 @@ async function paginateFlowGroup(group, options) {
             measurementKey: () => measurer.getLayoutKey(),
             getPageVariantKey: () => 'uniform',
         });
-        const { pagination, changeSet } = await paginator.paginateAsync(group.flow.document, {
+        session = {
+            ownerDocument,
+            groupId: group.id,
+            requestedLanguageKey,
+            languageKey,
+            sessionScope: String(options.sessionScope || 'default'),
+            measurer,
+            paginator,
+        };
+        setGroupSession(sessionKey, session);
+    }
+
+    session.measurer.resetMetrics();
+    const { pagination, changeSet } = await session.paginator.paginateAsync(group.flow.document, {
             revision: options.revision,
             signal,
             maxPagesPerChunk: options.maxPagesPerChunk || 1,
@@ -261,33 +330,30 @@ async function paginateFlowGroup(group, options) {
                 }));
             },
         });
-        throwIfAborted(signal);
-        const result = Object.freeze({
-            groupId: group.id,
-            documentId: group.flow.document.id,
-            requestedLanguageKey,
-            languageKey,
-            isSourceFallback: language.isSourceFallback,
-            pageBox,
-            writingMode,
-            typography,
-            pagination,
-            changeSet,
-            metrics: measurer.getMetrics(),
-        });
-        const entry = Object.freeze({
-            ownerDocument,
-            groupId: group.id,
-            requestedLanguageKey,
-            languageKey,
-            cacheKey,
-            result,
-        });
-        setCachedGroup(cacheKey, entry);
-        return result;
-    } finally {
-        measurer.dispose();
-    }
+    throwIfAborted(signal);
+    const result = Object.freeze({
+        groupId: group.id,
+        documentId: group.flow.document.id,
+        requestedLanguageKey,
+        languageKey,
+        isSourceFallback: language.isSourceFallback,
+        pageBox,
+        writingMode,
+        typography,
+        pagination,
+        changeSet,
+        metrics: session.measurer.getMetrics(),
+    });
+    const entry = Object.freeze({
+        ownerDocument,
+        groupId: group.id,
+        requestedLanguageKey,
+        languageKey,
+        cacheKey,
+        result,
+    });
+    setCachedGroup(cacheKey, entry);
+    return result;
 }
 
 export function createFlowRuntimeProjectionSignature(
@@ -295,10 +361,12 @@ export function createFlowRuntimeProjectionSignature(
     languageKey,
     fixedPages = [],
     ownerDocument = globalThis.document,
+    sessionScope = 'default',
 ) {
     return JSON.stringify([
         FLOW_DOM_RENDERER_VERSION,
         getDocumentCacheIdentity(ownerDocument),
+        String(sessionScope || 'default'),
         String(languageKey || ''),
         Array.isArray(project?.blocks) ? project.blocks : [],
         Array.isArray(fixedPages) ? fixedPages : [],
@@ -334,6 +402,7 @@ export async function createFlowRuntimePageProjection(project, options = {}) {
         requestedLanguageKey,
         fixedPages,
         ownerDocument,
+        options.sessionScope,
     );
     const groups = blocks.filter((block) => block?.kind === 'flow');
     for (let groupIndex = 0; groupIndex < groups.length; groupIndex += 1) {
@@ -371,10 +440,22 @@ export async function createFlowRuntimePageProjection(project, options = {}) {
     return completed;
 }
 
-export function invalidateFlowRuntimePages() {
+export function invalidateFlowRuntimePages(options = {}) {
     groupCache.clear();
     projectionCache.clear();
-    selectedFlowPageByGroup.clear();
+    if (options.preserveSessions !== true) {
+        for (const key of [...groupSessionCache.keys()]) deleteGroupSession(key);
+    }
+    if (options.preserveSelection !== true) selectedFlowPageByGroup.clear();
+}
+
+/** Invalidate source-dependent results while retaining incremental checkpoints. */
+export function invalidateFlowRuntimeAuthoring(groupId = '') {
+    const key = String(groupId || '');
+    for (const [cacheKey, value] of groupCache.entries()) {
+        if (!key || value.groupId === key) groupCache.delete(cacheKey);
+    }
+    projectionCache.clear();
 }
 
 export function getCachedFlowRuntimePageProjection(
@@ -382,9 +463,10 @@ export function getCachedFlowRuntimePageProjection(
     languageKey,
     fixedPages = [],
     ownerDocument = globalThis.document,
+    sessionScope = 'default',
 ) {
     const key = String(languageKey || '');
-    const signature = createFlowRuntimeProjectionSignature(project, key, fixedPages, ownerDocument);
+    const signature = createFlowRuntimeProjectionSignature(project, key, fixedPages, ownerDocument, sessionScope);
     const cached = projectionCache.get(signature);
     if (!cached) return null;
     projectionCache.delete(signature);

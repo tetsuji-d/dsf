@@ -81,7 +81,7 @@
                         <button class="home-action-btn primary" onclick="switchRoom('works')">
                             <span class="material-icons">library_books</span> <span data-i18n="nav_works">作品</span>
                         </button>
-                        <button class="home-action-btn" onclick="if (newProject()) switchRoom('editor')">
+                        <button class="home-action-btn" onclick="newProject().then(created => { if (created) switchRoom('editor'); })">
                             <span class="material-icons">add</span> <span data-i18n="btn_new_project">新規プロジェクト</span>
                         </button>
                     </div>
@@ -185,6 +185,9 @@
                 </div>
                 <div class="ribbon-panel" data-ribbon-panel="insert">
                     <div class="ribbon-group">
+                        <button class="btn-tool btn-tool-icon" onclick="insertFlowGroupBeforeActive()" title="ページ境界を意識せず編集するFlow原稿を追加">
+                            <span class="material-icons" aria-hidden="true">subject</span><span>Flow原稿</span>
+                        </button>
                         <button class="btn-tool btn-tool-icon" onclick="insertTextSectionBeforeActive()">
                             <span class="material-icons" aria-hidden="true">article</span><span data-i18n="btn_add_text_section">テキストページ</span>
                         </button>
@@ -350,6 +353,7 @@
                     ondragover="handleCanvasDragOver(event)"
                     ondragleave="handleCanvasDragLeave(event)"
                     ondrop="handleCanvasDrop(event)">
+                    <div id="flow-authoring-surface" data-testid="flow-authoring" hidden></div>
                     <div id="canvas-stage">
                         <div id="canvas-transform-layer">
                             <div id="canvas-page-heading-props"
@@ -451,6 +455,16 @@
                 </div>
                     <div class="control-group">
                         <div id="page-lock-note" class="panel-lock-note" style="display:none;"></div>
+
+                    <div id="flow-authoring-props" class="flow-authoring-props" hidden>
+                        <span class="flow-authoring-props-kicker">FLOW SOURCE</span>
+                        <strong>連続原稿を編集</strong>
+                        <p>中央で見出し・段落・改ページを編集します。下のページは自動生成されます。</p>
+                        <dl>
+                            <div><dt>原稿言語</dt><dd id="flow-authoring-language">—</dd></div>
+                            <div><dt>生成ページ</dt><dd id="flow-authoring-page-count">—</dd></div>
+                        </dl>
+                    </div>
 
                     <div id="image-only-props">
                         <label data-i18n="label_bg_image">背景画像変更 / 位置調整</label>
@@ -592,6 +606,7 @@
             <div id="mobile-sheet-add" class="mobile-sheet-content">
                 <button class="btn-tool btn-tool-icon" onclick="insertSectionBeforeActive()"><span class="material-icons" aria-hidden="true">add_box</span><span data-i18n="btn_add_section">画像ページ</span></button>
                 <button class="btn-tool btn-tool-icon" onclick="insertSpreadImageBeforeActive()"><span class="material-icons" aria-hidden="true">view_week</span><span data-i18n="btn_add_spread_image_section">見開き画像ページ</span></button>
+                <button class="btn-tool btn-tool-icon" onclick="closeMobileSheet(); insertFlowGroupBeforeActive()"><span class="material-icons" aria-hidden="true">article</span><span>Flow原稿</span></button>
                 <button class="btn-tool btn-tool-icon" onclick="addBubbleFab()" data-fixed-page-edit><span class="material-icons" aria-hidden="true">text_fields</span><span data-i18n="btn_add_bubble">テキスト追加</span></button>
                 <button class="btn-tool btn-tool-icon" onclick="document.getElementById('file-upload').click()" data-fixed-page-edit><span class="material-icons" aria-hidden="true">image</span><span data-i18n="btn_add_image">画像追加</span></button>
             </div>

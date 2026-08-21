@@ -194,6 +194,8 @@ export function buildFlowPageProjection(options = {}) {
             blockIndex,
             firstPageIndex,
             pageCount: generatedPages.length,
+            changeSet: result.changeSet || null,
+            metrics: result.metrics || null,
         }));
     });
 

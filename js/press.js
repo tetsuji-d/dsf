@@ -341,7 +341,7 @@ function _getPressThumbLang() {
 
 function _getPressFlowPreviewProjection() {
     if (!hasFlowGroups(state)) return null;
-    return getCachedFlowRuntimePageProjection(state, _getPressThumbLang(), state.sections || [], document);
+    return getCachedFlowRuntimePageProjection(state, _getPressThumbLang(), state.sections || [], document, 'press');
 }
 
 function _getPressFlowPreviewErrorMessage(error) {
@@ -357,7 +357,7 @@ function _getPressFlowPreviewErrorMessage(error) {
 async function _requestPressFlowPreview() {
     if (!hasFlowGroups(state)) return null;
     const languageKey = _getPressThumbLang();
-    const requestSignature = createFlowRuntimeProjectionSignature(state, languageKey, state.sections || [], document);
+    const requestSignature = createFlowRuntimeProjectionSignature(state, languageKey, state.sections || [], document, 'press');
     const requestId = _pressFlowPreviewRequestId + 1;
     _pressFlowPreviewRequestId = requestId;
     _pressFlowPreviewController?.abort();
@@ -370,6 +370,7 @@ async function _requestPressFlowPreview() {
     try {
         const projection = await createFlowRuntimePageProjection(state, {
             ownerDocument: document,
+            sessionScope: 'press',
             fixedPages: state.sections || [],
             languageKey,
             revision: requestId,
@@ -384,7 +385,7 @@ async function _requestPressFlowPreview() {
         if (
             controller.signal.aborted
             || requestId !== _pressFlowPreviewRequestId
-            || requestSignature !== createFlowRuntimeProjectionSignature(state, languageKey, state.sections || [], document)
+            || requestSignature !== createFlowRuntimeProjectionSignature(state, languageKey, state.sections || [], document, 'press')
             || languageKey !== _getPressThumbLang()
         ) return null;
         _pressFlowPreviewController = null;

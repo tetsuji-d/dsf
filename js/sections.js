@@ -13,6 +13,7 @@ import {
     getCachedFlowRuntimePageProjection,
     getSelectedFlowRuntimePageIndex,
 } from './flow-runtime-pages.js';
+import { isFlowSourceSelected } from './flow-editor-session.js';
 
 // ──────────────────────────────────────────────────────────────
 //  画像 URL 最適化（将来の Cloudflare CDN 配信に対応）
@@ -375,7 +376,7 @@ function getBlockSummary(block) {
         return {
             badge: 'Flow原稿',
             title: truncateText(title) || 'Flowテキスト',
-            subtitle: 'ページ生成中（読取専用）',
+            subtitle: '原稿を編集',
         };
     }
     return { badge: kind, title: '' };
@@ -766,9 +767,12 @@ export function renderThumbs() {
     const runtimeProjection = strictAuthoring
         ? getCachedFlowRuntimePageProjection(
             state,
-            state.activeLang || state.defaultLang || 'ja',
+            blocks[state.activeBlockIdx]?.kind === 'flow' && isFlowSourceSelected(blocks[state.activeBlockIdx].id)
+                ? blocks[state.activeBlockIdx].flow?.document?.sourceLanguage || state.defaultLang || 'ja'
+                : state.activeLang || state.defaultLang || 'ja',
             state.sections || [],
             document,
+            'editor',
         )
         : null;
     const runtimePagesByBlock = new Map();
@@ -910,18 +914,19 @@ export function renderThumbs() {
         const generatedFlowPages = isFlow ? (runtimePagesByBlock.get(blockIdx) || []) : [];
         const rawInfo = getBlockSummary(b);
         const info = isFlow && generatedFlowPages.length > 0
-            ? { ...rawInfo, subtitle: `${generatedFlowPages.length}ページ / 読取専用` }
+            ? { ...rawInfo, subtitle: `${generatedFlowPages.length}ページ / 原稿を編集` }
             : rawInfo;
         const selectedFlowPageIndex = isFlow ? getSelectedFlowRuntimePageIndex(b.id) : 0;
         const coverLock = isLockedBlock(b)
-            ? `<span class="thumb-card-lock" title="${isFlow ? 'Flow原稿（読取専用）' : '位置固定'}">${isFlow ? 'SOURCE' : 'LOCK'}</span>`
+            ? `<span class="thumb-card-lock" title="${isFlow ? 'Flow Groupの位置は固定・原稿は編集可能' : '位置固定'}">${isFlow ? 'SOURCE' : 'LOCK'}</span>`
             : '';
-        const sourceSelected = selected && generatedFlowPages.length === 0;
+        const sourceSelected = selected && (!isFlow || isFlowSourceSelected(b.id));
         const sourceCard = `
             <div class="thumb-wrap thumb-card ${isFlow ? 'flow-source-card' : ''} ${sourceSelected ? 'active' : ''}" data-block-index="${blockIdx}" data-tree-depth="${depth}"
-                onclick="changeBlock(${blockIdx})"
-                ${isFlow ? 'aria-readonly="true"' : ''}
+                ${isFlow ? 'data-testid="flow-source-card" onclick="changeFlowSourceBlock(' + blockIdx + ')"' : 'onclick="changeBlock(' + blockIdx + ')"'}
+                onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();${isFlow ? 'changeFlowSourceBlock(' + blockIdx + ')' : 'changeBlock(' + blockIdx + ')'}}"
                 aria-current="${sourceSelected ? 'true' : 'false'}"
+                role="button" tabindex="0"
                 draggable="false">
                 <div class="thumb-canvas thumb-canvas-meta thumb-canvas-structure kind-${escapeHtml(b?.kind || 'unknown')}">
                     <div class="thumb-card-meta">
@@ -951,19 +956,24 @@ export function renderThumbs() {
                 state.book,
                 state.bookMode,
             );
-            const pageSelected = selected && page.flowPageIndex === selectedFlowPageIndex;
+            const pageSelected = selected
+                && !isFlowSourceSelected(b.id)
+                && page.flowPageIndex === selectedFlowPageIndex;
             const fallbackBadge = page.isSourceFallback
                 ? `<span class="flow-runtime-language-badge">原文 ${escapeHtml(page.languageKey.toUpperCase())}</span>`
                 : '';
             return `
                 <div class="thumb-wrap thumb-card flow-generated-thumb ${pageSelected ? 'active' : ''}"
+                    data-testid="flow-generated-thumb"
                     data-block-index="${blockIdx}"
                     data-flow-page-index="${page.flowPageIndex}"
                     data-publication-index="${page.index}"
                     data-tree-depth="${depth + 1}"
                     onclick="changeFlowGeneratedPage(${blockIdx}, ${page.flowPageIndex})"
+                    onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();changeFlowGeneratedPage(${blockIdx}, ${page.flowPageIndex})}"
                     aria-current="${pageSelected ? 'true' : 'false'}"
                     aria-label="Flowページ ${escapeAttr(pageLabel)}"
+                    role="button" tabindex="0"
                     draggable="false">
                     <div class="thumb-canvas">
                         <div class="flow-generated-thumb-viewport">

@@ -6,8 +6,9 @@ Commit 2〜5でFlowDocument、pagination、DOM preview、増分リフロー、�
 Commit 6AではFixedとFlowを同じ作品順へ配置する純粋なProject v6 authoring modelを追加した。
 Commit 6BではProject v6をStudio state、Undo/Redo、IndexedDB、DSP、owner専用Firestore authoring文書へ接続した。
 Commit 7Aでは保存済みFlow原稿をruntimeで再ページ化し、EditorとPressの確認用ページ列へ接続した。
+Commit 8AではFlow原稿カードを連続semantic editorへ接続し、増分reflow、既存Undo/Redo、autosaveを利用できるようにした。
 
-Flow原稿の編集UI、WebP化、DSF／Horizon発行、Viewerにはまだ未接続である。生成ページを
+言語別Flow翻訳、WebP化、DSF／Horizon発行、Viewerにはまだ未接続である。生成ページを
 `state.blocks`、`state.sections`、`state.pages`へ書き戻すことも行わない。
 
 ## 境界
@@ -218,8 +219,8 @@ Commit 6Aの対象外:
 - 公開rootは明示的な公開field allowlistから構築し、未知のauthoring拡張はowner専用childだけで保持する。
 - `authoring/current`は850 KiBのsoft limitを持つ。超過時もlocal/DSP原稿は維持し、cloud writeだけを停止する。
 - Firestore RulesはProject versionのdowngradeと、authoring childを残したroot単独削除を拒否する。
-- Studioの既存EditorではFlow Groupを読取専用カードとplaceholderで表示する。Flow専用編集面の接続までは
-  複製・削除を無効化し、Flow Groupを含む作品のPress／DSF発行は欠落を防ぐため停止する。
+- StudioのFlow Group外側は作品順の誤変更を防ぐため位置固定とする。内側のsemantic原稿はCommit 8Aの
+  連続原稿面で編集する。Flow Groupを含む作品のPress／DSF発行は欠落を防ぐため停止する。
 
 詳細は`docs/cloud-save-contract.md`を正本とする。
 
@@ -238,7 +239,23 @@ Commit 6Aの対象外:
 - Pressは生成ページと通し番号の確認だけを行う。Flowを含む作品のDSF書き出し／Horizon発行は、
   WebP rendererを接続する次工程までUIと最終処理の両方で停止する。
 
-次の実装単位はFlow原稿編集面、その後に言語別Flow翻訳、Flow pageのWebP化／DSF発行を扱う。
+## Studio Flow authoring（Commit 8A）
+
+- Flow原稿カードと生成ページカードはruntime-onlyの別選択とする。原稿カードでは連続編集面、生成ページでは
+  既存360×640ページpreviewを表示し、`state.activeIdx`へFlowページ番号を代入しない。
+- 編集正本はFlowDocumentのSection／Heading／Paragraph／PageBreakだけで、入力のたびに`state.blocks`を
+  検証済みの新しいspineへ置換する。生成page、fragment、cacheはstate／DSP／Firestoreへ保存しない。
+- text入力では既存Block ID、他言語、未知fieldを保持する。新しいsemantic BlockだけfactoryでIDを作る。
+- semantic sourceはinputごとに更新し、DOM paginationだけを140ms debounceする。IME composition中はreflowと
+  autosaveを保留し、compositionend後に最新revisionを1回生成する。
+- DOM measurerとincremental paginatorはEditor／Press別のruntime sessionとして保持する。原稿差分では前回の
+  checkpointと計測cacheを再利用し、project／layout／font変更では破棄する。
+- 連続入力は既存Historyのgrouped snapshotを使い、PageBreak追加・削除・移動・Heading level変更は独立操作とする。
+- 保存中に次のautosave要求が来た場合は、進行中保存の完了後に最新版をもう一度保存する。
+- 今回編集できるのはFlowDocumentの`sourceLanguage`だけ。Section追加・削除、段落途中のBlock分割、翻訳、
+  Flow Group外側の移動・削除、Flow pageのWebP発行は次の実装単位とする。
+
+次の実装単位は言語別Flow翻訳、その後にFlow pageのWebP化／DSF発行を扱う。
 
 ## DOM preview boundary（Commit 3）
 

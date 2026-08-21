@@ -11,11 +11,11 @@
  *   - 認証 UI: getStudioAuthMarkup → renderStudioAuthSlot（GIS ボタン + フォールバック）
  */
 import { state, dispatch, actionTypes } from './state.js';
-import { saveProject as persistProject, loadProject, uploadToStorage, uploadCoverToStorage, uploadStructureToStorage, triggerAutoSave, flushSave, generateCroppedThumbnail, listLocalRecentProjects, loadLocalRecentProject, cacheLocalRecentProject, ensureUserBootstrap, auth as firebaseAuth, authReady, db } from './firebase.js';
+import { saveProject as persistProject, loadProject, uploadToStorage, uploadCoverToStorage, uploadStructureToStorage, triggerAutoSave, flushSave, flushPendingSave, generateCroppedThumbnail, listLocalRecentProjects, loadLocalRecentProject, cacheLocalRecentProject, ensureUserBootstrap, auth as firebaseAuth, authReady, db } from './firebase.js';
 import { initGIS, renderGISButton, signInWithGoogle, signOutUser, onAuthChanged, handleRedirectResult } from './gis-auth.js';
 import { handleCanvasClick, selectBubble, renderBubbleHTML, getBubbleText, setBubbleText, addBubbleAtCenter, startDrag, startTailDrag, startSpikeDrag } from './bubbles.js';
 import { addSection, addTextSection, changeSection, changeBlock, insertStructureBlock, renderThumbs, deleteActive, deleteSectionAt, insertSectionAt, insertSpreadImageAt, duplicateSectionAt, moveSection, moveSectionRange, insertPageNearBlock, duplicateBlockAt, moveBlockAt, getOptimizedImageUrl } from './sections.js';
-import { pushState, undo, redo, getHistoryInfo, clearHistory } from './history.js';
+import { pushState, endHistoryGroup, undo, redo, getHistoryInfo, clearHistory } from './history.js';
 import { openProjectModal, closeProjectModal, fetchCloudProjects, getCoverImage, getPageCount, deleteCloudProject } from './projects.js';
 import { openWorksRoom, closeWorksRoom } from './works.js';
 import { enterPressRoom, leavePressRoom } from './press.js';
@@ -32,7 +32,19 @@ import { CANONICAL_PAGE_WIDTH, CANONICAL_PAGE_HEIGHT } from './page-geometry.js'
 import { canInsertSpreadImageAt, getBookCompositionIssues, getPageDisplayLabel, getReadablePageCount, normalizeBookSettings, getPageCoverKey } from './page-labels.js';
 import { composeText, paginateText, PAGE_BREAK_MARKER, getWritingModeFromConfigs, getFontPresetFromConfigs, getFontPresetOptions, parseRubyTokens, tokensToPlainText, alignRubyToLines } from './layout.js';
 import { formatPublicationDate, normalizePlanTier } from './publication.js';
-import { hasFlowGroups } from './flow-project-model.js';
+import { PROJECT_SCHEMA_VERSION, createFlowGroupBlock, hasFlowGroups } from './flow-project-model.js';
+import { applyFlowAuthoringOperation } from './flow-authoring.js';
+import {
+    renderFlowAuthoringView,
+    updateFlowAuthoringViewStatus,
+} from './flow-authoring-view.js';
+import {
+    getFlowEditorSelection,
+    isFlowSourceSelected,
+    resetFlowEditorSelections,
+    selectFlowGeneratedPage,
+    selectFlowSource,
+} from './flow-editor-session.js';
 import { renderFlowGeneratedPage } from './flow-dom-measurer.js';
 import {
     FLOW_RUNTIME_INVALIDATED_EVENT,
@@ -40,6 +52,7 @@ import {
     createFlowRuntimeProjectionSignature,
     getCachedFlowRuntimePageProjection,
     getSelectedFlowRuntimePageIndex,
+    invalidateFlowRuntimeAuthoring,
     invalidateFlowRuntimePages,
     setSelectedFlowRuntimePageIndex,
 } from './flow-runtime-pages.js';
@@ -78,8 +91,19 @@ let _pageHeadingPushTimer = null;
 let _editorFlowProjectionController = null;
 let _editorFlowProjectionRequestId = 0;
 let _editorFlowProjectionRequestKey = '';
+let _flowAuthoringReflowTimer = null;
+let _flowAuthoringSourceRevision = 0;
+let _flowAuthoringRenderedRevision = 0;
+let _flowAuthoringComposing = false;
 
 function resetFlowRuntimeForProjectChange() {
+    if (_flowAuthoringReflowTimer) clearTimeout(_flowAuthoringReflowTimer);
+    _flowAuthoringReflowTimer = null;
+    _flowAuthoringSourceRevision = 0;
+    _flowAuthoringRenderedRevision = 0;
+    _flowAuthoringComposing = false;
+    endHistoryGroup();
+    resetFlowEditorSelections();
     _editorFlowProjectionController?.abort();
     _editorFlowProjectionController = null;
     _editorFlowProjectionRequestKey = '';
@@ -89,11 +113,13 @@ function resetFlowRuntimeForProjectChange() {
 
 function getEditorPageProjection() {
     if (state.version !== 6 || !hasFlowGroups(state)) return null;
+    const languageKey = getEditorFlowProjectionLanguage(getActiveBlock());
     return getCachedFlowRuntimePageProjection(
         state,
-        state.activeLang || state.defaultLang || 'ja',
+        languageKey,
         state.sections || [],
         document,
+        'editor',
     );
 }
 
@@ -127,6 +153,7 @@ function getActiveProjectionPageIndex(projection = getEditorPageProjection()) {
 function activateProjectionPage(page) {
     if (!page) return;
     if (page.kind === 'flow') {
+        selectFlowGeneratedPage(page.groupId);
         setSelectedFlowRuntimePageIndex(page.groupId, page.flowPageIndex, page.flowPageCount);
     }
     changeBlock(page.blockIndex, refreshForThumbSelection);
@@ -186,6 +213,316 @@ function renderEditorFlowGeneratedPage(activeBlock, projection) {
     syncEditorPageCounters();
 }
 
+function getFlowAuthoringSurface() {
+    return document.getElementById('flow-authoring-surface');
+}
+
+function setFlowAuthoringSurfaceVisible(visible) {
+    const surface = getFlowAuthoringSurface();
+    const stage = document.getElementById('canvas-stage');
+    if (surface) surface.hidden = !visible;
+    if (stage) stage.hidden = !!visible;
+    document.getElementById('canvas-view')?.classList.toggle('flow-authoring-active', !!visible);
+    syncMobileCanvasZoomBar();
+}
+
+function getFlowGroupById(groupId) {
+    return (state.blocks || []).find((block) => block?.kind === 'flow' && block.id === groupId) || null;
+}
+
+function getFlowAuthoringGroupProjection(projection, groupId) {
+    return projection?.flowGroups?.find((entry) => entry.groupId === groupId) || null;
+}
+
+function updateActiveFlowAuthoringStatus(projection, options = {}) {
+    const root = getFlowAuthoringSurface();
+    const activeBlock = getActiveBlock();
+    if (!root || activeBlock?.kind !== 'flow' || !isFlowSourceSelected(activeBlock.id)) return;
+    const groupProjection = getFlowAuthoringGroupProjection(projection, activeBlock.id);
+    const panelPageCount = document.getElementById('flow-authoring-page-count');
+    if (panelPageCount) panelPageCount.textContent = groupProjection?.pageCount ? `${groupProjection.pageCount}ページ` : '更新中';
+    updateFlowAuthoringViewStatus(root, {
+        state: options.state || (projection ? 'idle' : 'working'),
+        pageCount: groupProjection?.pageCount || Number(root.dataset.pageCount) || 0,
+        sourceRevision: _flowAuthoringSourceRevision,
+        renderedRevision: projection ? _flowAuthoringRenderedRevision : _flowAuthoringRenderedRevision,
+        changeSet: groupProjection?.changeSet,
+        message: options.message,
+    });
+    if (projection) {
+        syncPageNavigationSlider();
+        syncEditorPageCounters();
+    }
+}
+
+function renderFlowAuthoringSurface(activeBlock, projection = getEditorPageProjection()) {
+    const root = getFlowAuthoringSurface();
+    if (!root || activeBlock?.kind !== 'flow') return;
+    const sourceLanguage = activeBlock.flow?.document?.sourceLanguage || state.defaultLang || 'ja';
+    const groupProjection = getFlowAuthoringGroupProjection(projection, activeBlock.id);
+    const scrollTop = root.scrollTop;
+    renderFlowAuthoringView(root, {
+        group: activeBlock,
+        languageKey: sourceLanguage,
+        pageCount: groupProjection?.pageCount || 0,
+        onInput: handleFlowAuthoringInput,
+        onChange: handleFlowAuthoringChange,
+        onAction: handleFlowAuthoringAction,
+        onFocus: handleFlowAuthoringFocus,
+        onBlur: () => endHistoryGroup(),
+        onCompositionStart: handleFlowAuthoringCompositionStart,
+        onCompositionEnd: handleFlowAuthoringCompositionEnd,
+    });
+    root.scrollTop = scrollTop;
+    updateFlowAuthoringViewStatus(root, {
+        state: projection ? 'idle' : 'working',
+        pageCount: groupProjection?.pageCount || 0,
+        sourceRevision: _flowAuthoringSourceRevision,
+        renderedRevision: _flowAuthoringRenderedRevision,
+        changeSet: groupProjection?.changeSet,
+    });
+}
+
+function getFlowAuthoringTarget(target) {
+    const root = target?.closest?.('#flow-authoring-surface');
+    const blockElement = target?.closest?.('[data-testid="flow-block"]');
+    const sectionElement = target?.closest?.('[data-testid="flow-section"]');
+    return {
+        root,
+        groupId: String(target?.dataset?.flowGroupId || blockElement?.dataset?.flowGroupId || root?.dataset?.flowGroupId || ''),
+        sectionId: String(target?.dataset?.flowSectionId || blockElement?.dataset?.flowSectionId || sectionElement?.dataset?.flowSectionId || ''),
+        blockId: String(target?.dataset?.flowBlockId || blockElement?.dataset?.flowBlockId || ''),
+        blockElement,
+    };
+}
+
+function findFlowSourceValue(target, field) {
+    const group = getFlowGroupById(target.groupId);
+    const section = group?.flow?.document?.sections?.find((entry) => entry?.id === target.sectionId);
+    if (field === 'section-title') return section?.title?.[group?.flow?.document?.sourceLanguage] || '';
+    const block = section?.blocks?.find((entry) => entry?.id === target.blockId);
+    if (field === 'block-text') return block?.texts?.[group?.flow?.document?.sourceLanguage] || '';
+    if (field === 'heading-level') return block?.level;
+    return undefined;
+}
+
+function scheduleFlowAuthoringReflow(groupId, options = {}) {
+    if (_flowAuthoringReflowTimer) clearTimeout(_flowAuthoringReflowTimer);
+    _editorFlowProjectionController?.abort();
+    _editorFlowProjectionController = null;
+    _editorFlowProjectionRequestKey = '';
+    _editorFlowProjectionRequestId += 1;
+    invalidateFlowRuntimeAuthoring(groupId);
+    updateActiveFlowAuthoringStatus(null, { state: 'working' });
+    if (_flowAuthoringComposing) return;
+    _flowAuthoringReflowTimer = setTimeout(() => {
+        _flowAuthoringReflowTimer = null;
+        const group = getFlowGroupById(groupId);
+        if (group) requestEditorFlowProjection(group);
+    }, options.immediate ? 0 : 140);
+}
+
+function applyFlowAuthoringEdit(operation, options = {}) {
+    const historyKey = String(options.historyKey || '');
+    if (options.recordHistory !== false) {
+        pushState(historyKey ? { groupKey: historyKey, mergeWindowMs: 900 } : {});
+    }
+    const nextBlocks = applyFlowAuthoringOperation(state.blocks || [], operation);
+    dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'blocks', value: nextBlocks } });
+    _flowAuthoringSourceRevision += 1;
+    if (options.rerender === true) {
+        const activeGroup = getFlowGroupById(operation.groupId);
+        if (activeGroup) renderFlowAuthoringSurface(activeGroup, null);
+    }
+    if (!_flowAuthoringComposing) {
+        scheduleFlowAuthoringReflow(operation.groupId, { immediate: options.immediate === true });
+        triggerAutoSave();
+    }
+    return nextBlocks;
+}
+
+function getFlowAuthoringSectionFromBlocks(blocks, groupId, sectionId) {
+    const group = (blocks || []).find((block) => block?.kind === 'flow' && block.id === groupId);
+    return group?.flow?.document?.sections?.find((section) => section?.id === sectionId) || null;
+}
+
+function restoreFlowAuthoringBlockFocus(blockId, sectionId) {
+    requestAnimationFrame(() => {
+        const root = getFlowAuthoringSurface();
+        const blockElement = [...(root?.querySelectorAll?.('[data-testid="flow-block"]') || [])]
+            .find((entry) => entry.dataset.flowBlockId === blockId);
+        const focusTarget = blockElement?.querySelector('.flow-authoring-input, [data-flow-action]')
+            || [...(root?.querySelectorAll?.('[data-testid="flow-section"]') || [])]
+                .find((entry) => entry.dataset.flowSectionId === sectionId)
+                ?.querySelector('[data-flow-field="section-title"], [data-flow-action="insert"]');
+        focusTarget?.focus?.({ preventScroll: true });
+    });
+}
+
+function captureFlowAuthoringFocusSnapshot() {
+    const activeElement = document.activeElement;
+    if (!activeElement?.closest?.('#flow-authoring-surface')) return null;
+    const target = getFlowAuthoringTarget(activeElement);
+    return {
+        groupId: target.groupId,
+        sectionId: target.sectionId,
+        blockId: target.blockId,
+        field: String(activeElement.dataset?.flowField || ''),
+        selectionStart: Number.isInteger(activeElement.selectionStart) ? activeElement.selectionStart : null,
+        selectionEnd: Number.isInteger(activeElement.selectionEnd) ? activeElement.selectionEnd : null,
+        selectionDirection: activeElement.selectionDirection || 'none',
+    };
+}
+
+function restoreFlowAuthoringFocusSnapshot(snapshot) {
+    if (!snapshot) return;
+    requestAnimationFrame(() => {
+        const root = getFlowAuthoringSurface();
+        const candidates = [...(root?.querySelectorAll?.(`[data-flow-field="${snapshot.field}"]`) || [])];
+        const focusTarget = candidates.find((entry) => {
+            const target = getFlowAuthoringTarget(entry);
+            return target.groupId === snapshot.groupId
+                && target.sectionId === snapshot.sectionId
+                && target.blockId === snapshot.blockId;
+        });
+        if (!focusTarget) {
+            restoreFlowAuthoringBlockFocus(snapshot.blockId, snapshot.sectionId);
+            return;
+        }
+        focusTarget.focus({ preventScroll: true });
+        if (snapshot.selectionStart !== null && typeof focusTarget.setSelectionRange === 'function') {
+            const max = String(focusTarget.value || '').length;
+            focusTarget.setSelectionRange(
+                Math.min(snapshot.selectionStart, max),
+                Math.min(snapshot.selectionEnd ?? snapshot.selectionStart, max),
+                snapshot.selectionDirection,
+            );
+        }
+    });
+}
+
+function handleFlowAuthoringInput(event) {
+    const field = event.target?.dataset?.flowField;
+    if (field !== 'block-text' && field !== 'section-title') return;
+    const target = getFlowAuthoringTarget(event.target);
+    const group = getFlowGroupById(target.groupId);
+    const languageKey = group?.flow?.document?.sourceLanguage || '';
+    if (!group || !languageKey) return;
+    const value = event.target.value;
+    if (findFlowSourceValue(target, field) === value) return;
+    if (field === 'section-title') {
+        const outlineButton = [...(target.root?.querySelectorAll?.('.flow-authoring-outline [data-flow-section-id]') || [])]
+            .find((entry) => entry.dataset.flowSectionId === target.sectionId);
+        if (outlineButton) outlineButton.textContent = value || '名称未設定';
+    }
+    selectFlowSource(target.groupId, { sectionId: target.sectionId, blockId: target.blockId });
+    applyFlowAuthoringEdit({
+        type: field === 'section-title' ? 'setSectionTitle' : 'setText',
+        groupId: target.groupId,
+        sectionId: target.sectionId,
+        blockId: target.blockId,
+        languageKey,
+        text: value,
+    }, {
+        historyKey: `flow:${target.groupId}:${target.sectionId}:${target.blockId || 'title'}:${languageKey}`,
+    });
+}
+
+function handleFlowAuthoringChange(event) {
+    if (event.target?.dataset?.flowField !== 'heading-level') return;
+    const target = getFlowAuthoringTarget(event.target);
+    const level = Number(event.target.value);
+    if (findFlowSourceValue(target, 'heading-level') === level) return;
+    endHistoryGroup();
+    applyFlowAuthoringEdit({
+        type: 'setHeadingLevel',
+        groupId: target.groupId,
+        sectionId: target.sectionId,
+        blockId: target.blockId,
+        level,
+    }, { immediate: true });
+}
+
+function handleFlowAuthoringAction(event) {
+    const button = event.target?.closest?.('[data-flow-action]');
+    if (!button) return;
+    const action = button.dataset.flowAction;
+    const target = getFlowAuthoringTarget(button);
+    if (action === 'jump-section') {
+        const section = [...(getFlowAuthoringSurface()?.querySelectorAll?.('[data-testid="flow-section"]') || [])]
+            .find((entry) => entry.dataset.flowSectionId === button.dataset.flowSectionId);
+        section?.scrollIntoView?.({ block: 'start', behavior: 'smooth' });
+        return;
+    }
+    if (!target.groupId || !target.sectionId) return;
+    event.preventDefault();
+    endHistoryGroup();
+    if (action === 'insert') {
+        const nextBlocks = applyFlowAuthoringEdit({
+            type: 'insertBlock',
+            groupId: target.groupId,
+            sectionId: target.sectionId,
+            afterBlockId: target.blockId || null,
+            blockType: button.dataset.flowBlockType,
+            languageKey: getFlowGroupById(target.groupId)?.flow?.document?.sourceLanguage || 'ja',
+        }, { rerender: true, immediate: true });
+        const nextSection = getFlowAuthoringSectionFromBlocks(nextBlocks, target.groupId, target.sectionId);
+        const afterIndex = target.blockId
+            ? nextSection?.blocks?.findIndex((block) => block?.id === target.blockId)
+            : (nextSection?.blocks?.length ?? 1) - 2;
+        const insertedBlock = nextSection?.blocks?.[Math.max(0, Number(afterIndex) + 1)];
+        restoreFlowAuthoringBlockFocus(insertedBlock?.id || '', target.sectionId);
+        return;
+    }
+    if (action === 'remove') {
+        const previousSection = getFlowAuthoringSectionFromBlocks(state.blocks, target.groupId, target.sectionId);
+        const previousIndex = previousSection?.blocks?.findIndex((block) => block?.id === target.blockId) ?? -1;
+        const nextBlocks = applyFlowAuthoringEdit({
+            type: 'removeBlock',
+            groupId: target.groupId,
+            sectionId: target.sectionId,
+            blockId: target.blockId,
+        }, { rerender: true, immediate: true });
+        const nextSection = getFlowAuthoringSectionFromBlocks(nextBlocks, target.groupId, target.sectionId);
+        const focusBlock = nextSection?.blocks?.[Math.min(Math.max(previousIndex, 0), Math.max(0, nextSection.blocks.length - 1))];
+        restoreFlowAuthoringBlockFocus(focusBlock?.id || '', target.sectionId);
+        return;
+    }
+    if (action === 'move') {
+        applyFlowAuthoringEdit({
+            type: 'moveBlock',
+            groupId: target.groupId,
+            sectionId: target.sectionId,
+            blockId: target.blockId,
+            delta: Number(button.dataset.flowDelta),
+        }, { rerender: true, immediate: true });
+        restoreFlowAuthoringBlockFocus(target.blockId, target.sectionId);
+    }
+}
+
+function handleFlowAuthoringFocus(event) {
+    const target = getFlowAuthoringTarget(event.target);
+    if (!target.groupId) return;
+    selectFlowSource(target.groupId, { sectionId: target.sectionId, blockId: target.blockId });
+}
+
+function handleFlowAuthoringCompositionStart() {
+    _flowAuthoringComposing = true;
+    const root = getFlowAuthoringSurface();
+    if (root) root.dataset.composing = 'true';
+    if (_flowAuthoringReflowTimer) clearTimeout(_flowAuthoringReflowTimer);
+    _flowAuthoringReflowTimer = null;
+}
+
+function handleFlowAuthoringCompositionEnd(event) {
+    _flowAuthoringComposing = false;
+    const root = getFlowAuthoringSurface();
+    if (root) root.dataset.composing = 'false';
+    const target = getFlowAuthoringTarget(event.target);
+    if (target.groupId) scheduleFlowAuthoringReflow(target.groupId, { immediate: true });
+    triggerAutoSave();
+}
+
 function clampEditorFlowProjectionSelection(activeBlock, projection) {
     if (activeBlock?.kind !== 'flow') return;
     const pageCount = projection.pages.filter((page) => (
@@ -208,11 +545,22 @@ function getFlowProjectionErrorMessage(error) {
     return error?.message || 'Flowページの生成に失敗しました。';
 }
 
+function getEditorFlowProjectionLanguage(projectionTarget) {
+    const activeBlock = getActiveBlock();
+    const sourceLanguage = projectionTarget?.flow?.document?.sourceLanguage || state.defaultLang || 'ja';
+    if (
+        activeBlock?.kind === 'flow'
+        && activeBlock.id === projectionTarget?.id
+        && isFlowSourceSelected(activeBlock.id)
+    ) return sourceLanguage;
+    return state.activeLang || state.defaultLang || sourceLanguage;
+}
+
 function requestEditorFlowProjection(activeBlock) {
     if (activeBlock?.kind !== 'flow') return;
-    const languageKey = state.activeLang || state.defaultLang || activeBlock.flow.document.sourceLanguage || 'ja';
-    const requestKey = createFlowRuntimeProjectionSignature(state, languageKey, state.sections || [], document);
-    const cached = getCachedFlowRuntimePageProjection(state, languageKey, state.sections || [], document);
+    const languageKey = getEditorFlowProjectionLanguage(activeBlock);
+    const requestKey = createFlowRuntimeProjectionSignature(state, languageKey, state.sections || [], document, 'editor');
+    const cached = getCachedFlowRuntimePageProjection(state, languageKey, state.sections || [], document, 'editor');
     if (cached) {
         _editorFlowProjectionController?.abort();
         _editorFlowProjectionController = null;
@@ -222,7 +570,9 @@ function requestEditorFlowProjection(activeBlock) {
         clampEditorFlowProjectionSelection(currentBlock, cached);
         if (currentBlock?.kind === 'flow') {
             renderThumbs();
-            renderEditorFlowGeneratedPage(currentBlock, cached);
+            _flowAuthoringRenderedRevision = _flowAuthoringSourceRevision;
+            if (isFlowSourceSelected(currentBlock.id)) updateActiveFlowAuthoringStatus(cached);
+            else renderEditorFlowGeneratedPage(currentBlock, cached);
         } else if (!state.sections?.[state.activeIdx]) {
             const flowBlockIndex = (state.blocks || []).findIndex((block) => block?.id === activeBlock.id);
             if (flowBlockIndex >= 0) changeBlock(flowBlockIndex, refreshForThumbSelection);
@@ -243,9 +593,11 @@ function requestEditorFlowProjection(activeBlock) {
     _editorFlowProjectionController = controller;
     const render = document.getElementById('content-render');
     if (render) render.dataset.flowPreviewState = 'working';
+    updateActiveFlowAuthoringStatus(null, { state: 'working' });
 
     void createFlowRuntimePageProjection(state, {
         ownerDocument: document,
+        sessionScope: 'editor',
         fixedPages: state.sections || [],
         languageKey,
         revision: requestId,
@@ -259,16 +611,18 @@ function requestEditorFlowProjection(activeBlock) {
         if (
             controller.signal.aborted
             || requestId !== _editorFlowProjectionRequestId
-            || requestKey !== createFlowRuntimeProjectionSignature(state, languageKey, state.sections || [], document)
-            || languageKey !== (state.activeLang || state.defaultLang || 'ja')
+            || requestKey !== createFlowRuntimeProjectionSignature(state, languageKey, state.sections || [], document, 'editor')
+            || languageKey !== getEditorFlowProjectionLanguage(getActiveBlock())
         ) return;
         _editorFlowProjectionController = null;
         _editorFlowProjectionRequestKey = '';
+        _flowAuthoringRenderedRevision = _flowAuthoringSourceRevision;
         const currentBlock = getActiveBlock();
         clampEditorFlowProjectionSelection(currentBlock, projection);
         renderThumbs();
         if (currentBlock?.kind === 'flow') {
-            renderEditorFlowGeneratedPage(currentBlock, projection);
+            if (isFlowSourceSelected(currentBlock.id)) updateActiveFlowAuthoringStatus(projection);
+            else renderEditorFlowGeneratedPage(currentBlock, projection);
         } else if (!state.sections?.[state.activeIdx]) {
             const flowBlockIndex = (state.blocks || []).findIndex((block) => block?.id === activeBlock.id);
             if (flowBlockIndex >= 0) changeBlock(flowBlockIndex, refreshForThumbSelection);
@@ -281,12 +635,19 @@ function requestEditorFlowProjection(activeBlock) {
         console.error('[Flow pages] Editor preview failed:', error);
         if (
             requestId !== _editorFlowProjectionRequestId
-            || languageKey !== (state.activeLang || state.defaultLang || 'ja')
+            || languageKey !== getEditorFlowProjectionLanguage(getActiveBlock())
         ) return;
         _editorFlowProjectionController = null;
         _editorFlowProjectionRequestKey = '';
         const currentBlock = getActiveBlock();
         if (currentBlock?.kind !== 'flow') return;
+        if (isFlowSourceSelected(currentBlock.id)) {
+            updateActiveFlowAuthoringStatus(null, {
+                state: 'error',
+                message: getFlowProjectionErrorMessage(error),
+            });
+            return;
+        }
         const currentRender = document.getElementById('content-render');
         if (!currentRender) return;
         currentRender.innerHTML = `
@@ -310,6 +671,12 @@ document.addEventListener(FLOW_RUNTIME_INVALIDATED_EVENT, () => {
     _editorFlowProjectionController = null;
     _editorFlowProjectionRequestKey = '';
     _editorFlowProjectionRequestId += 1;
+    const activeBlock = getActiveBlock();
+    if (activeBlock?.kind === 'flow' && isFlowSourceSelected(activeBlock.id)) {
+        updateActiveFlowAuthoringStatus(null, { state: 'working' });
+        if (!_flowAuthoringComposing) requestEditorFlowProjection(activeBlock);
+        return;
+    }
     refresh();
 });
 
@@ -1014,6 +1381,7 @@ async function renderHomeDashboard() {
         card.addEventListener('click', async () => {
             const snapshotId = card.dataset.id;
             try {
+                await flushPendingSave();
                 const loadedState = hydrateProjectFromPersistence(await loadLocalRecentProject(snapshotId));
                 resetFlowRuntimeForProjectChange();
                 clearHistory();
@@ -1380,7 +1748,8 @@ function syncMobileHeader() {
 function syncMobileCanvasZoomBar() {
     const zoomBar = document.getElementById('mobile-canvas-zoom-bar');
     if (!zoomBar) return;
-    const visible = getDeviceKey() === 'mobile' && getCurrentRoom() === 'editor';
+    const flowSourceActive = document.getElementById('canvas-view')?.classList.contains('flow-authoring-active');
+    const visible = getDeviceKey() === 'mobile' && getCurrentRoom() === 'editor' && !flowSourceActive;
     zoomBar.hidden = !visible;
     document.body.classList.toggle('mobile-canvas-zoom-visible', visible);
     if (visible) syncCanvasZoomUI();
@@ -1497,7 +1866,15 @@ function refresh(options = {}) {
     const langProps = getLangProps(lang);
     const isFlowReadOnly = activeBlock?.kind === 'flow'
         || (!s && state.version === 6 && (state.blocks || []).some((block) => block?.kind === 'flow'));
-    render.classList.toggle('flow-editor-preview-active', isFlowReadOnly);
+    const isFlowAuthoring = activeBlock?.kind === 'flow' && isFlowSourceSelected(activeBlock.id);
+    setFlowAuthoringSurfaceVisible(isFlowAuthoring);
+    render.classList.toggle('flow-editor-preview-active', isFlowReadOnly && !isFlowAuthoring);
+    const flowAuthoringProps = document.getElementById('flow-authoring-props');
+    if (flowAuthoringProps) flowAuthoringProps.hidden = !isFlowAuthoring;
+    const flowAuthoringLanguage = document.getElementById('flow-authoring-language');
+    if (flowAuthoringLanguage && isFlowAuthoring) {
+        flowAuthoringLanguage.textContent = (activeBlock.flow?.document?.sourceLanguage || 'ja').toUpperCase();
+    }
 
     // Normalize stale bubble selection
     if (state.activeBubbleIdx !== null && (!s?.bubbles || !s.bubbles[state.activeBubbleIdx])) {
@@ -1505,13 +1882,32 @@ function refresh(options = {}) {
     }
 
     // メインキャンバスの描画 — image pages only
-    if (isFlowReadOnly) {
+    if (isFlowAuthoring) {
+        renderFlowAuthoringSurface(activeBlock, getEditorPageProjection());
+        const pageLockNote = document.getElementById('page-lock-note');
+        if (pageLockNote) {
+            const sourceLanguage = activeBlock.flow?.document?.sourceLanguage || 'ja';
+            pageLockNote.textContent = `Flow原稿を編集中（原稿言語 ${sourceLanguage.toUpperCase()}）`;
+            pageLockNote.style.display = 'block';
+        }
+        requestEditorFlowProjection(activeBlock);
+        _hideTextPreviewOverlay();
+        const imageProps = document.getElementById('image-only-props');
+        if (imageProps) imageProps.style.display = 'none';
+        const bubbleLayer = document.getElementById('bubble-layer');
+        if (bubbleLayer) {
+            bubbleLayer.innerHTML = '';
+            bubbleLayer.style.display = 'none';
+        }
+        const bubbleShapeProps = document.getElementById('bubble-shape-props');
+        if (bubbleShapeProps) bubbleShapeProps.style.display = 'none';
+    } else if (isFlowReadOnly) {
         render.innerHTML = `
             <div id="flow-readonly-placeholder">
                 <span class="material-icons">article</span>
                 <strong>Flowテキスト</strong>
                 <span data-flow-progress>ページ生成中…</span>
-                <span>原稿編集は次の実装単位で接続します。生成ページは現在読取専用です。</span>
+                <span>生成ページの確認画面です。編集するには親の「Flow原稿」を選択してください。</span>
             </div>`;
         const pageLockNote = document.getElementById('page-lock-note');
         if (pageLockNote) {
@@ -1617,7 +2013,7 @@ function refresh(options = {}) {
     const deleteBtn = document.getElementById('btn-delete-active');
     if (deleteBtn) {
         deleteBtn.disabled = isFlowReadOnly;
-        deleteBtn.title = isFlowReadOnly ? 'Flow編集UI接続後に操作できます' : '';
+        deleteBtn.title = isFlowReadOnly ? 'Flow原稿は連続原稿画面のブロック操作から編集します' : '';
     }
     if (!isFlowReadOnly) {
         const pageLockNote = document.getElementById('page-lock-note');
@@ -1799,8 +2195,11 @@ function syncThumbSelectionDom() {
             && (
                 isFlowPage
                     ? activeBlock?.kind === 'flow'
+                        && !isFlowSourceSelected(activeBlock.id)
                         && flowPageIndex === getSelectedFlowRuntimePageIndex(activeBlock.id)
-                    : activeBlock?.kind !== 'flow'
+                    : activeBlock?.kind === 'flow'
+                        ? isFlowSourceSelected(activeBlock.id)
+                        : true
             );
         el.classList.toggle('active', isActive);
         el.setAttribute('aria-current', isActive ? 'true' : 'false');
@@ -4023,6 +4422,7 @@ function syncLangPanel() {
 
 async function onLoadProject(pid) {
     try {
+        await flushPendingSave();
         resetFlowRuntimeForProjectChange();
         await loadProject(pid, () => {
             clearHistory();
@@ -4042,17 +4442,35 @@ async function onLoadProject(pid) {
 
 // --- キーボードショートカット ---
 document.addEventListener('keydown', (e) => {
+    if (e.isComposing || e.keyCode === 229 || _flowAuthoringComposing) return;
     if ((e.ctrlKey || e.metaKey) && !e.shiftKey && e.key === 'z') {
         e.preventDefault();
-        undo(refresh);
-        triggerAutoSave();
+        performProjectUndo();
     }
     if ((e.ctrlKey || e.metaKey) && (e.shiftKey && e.key === 'Z' || e.key === 'y')) {
         e.preventDefault();
-        redo(refresh);
-        triggerAutoSave();
+        performProjectRedo();
     }
 });
+
+function refreshAfterHistoryRestore(focusSnapshot = null) {
+    _flowAuthoringSourceRevision += 1;
+    invalidateFlowRuntimeAuthoring();
+    refresh();
+    restoreFlowAuthoringFocusSnapshot(focusSnapshot);
+}
+
+function performProjectUndo() {
+    endHistoryGroup();
+    const focusSnapshot = captureFlowAuthoringFocusSnapshot();
+    if (undo(() => refreshAfterHistoryRestore(focusSnapshot))) triggerAutoSave();
+}
+
+function performProjectRedo() {
+    endHistoryGroup();
+    const focusSnapshot = captureFlowAuthoringFocusSnapshot();
+    if (redo(() => refreshAfterHistoryRestore(focusSnapshot))) triggerAutoSave();
+}
 
 // --- グローバル関数の登録 ---
 window.handleCanvasClick = (e) => {
@@ -4175,6 +4593,39 @@ window.addTextSection = () => {
     if (addProjectPageAtTail('text')) return;
     pushState();
     addTextSection(refresh);
+    triggerAutoSave();
+};
+window.insertFlowGroupBeforeActive = () => {
+    endHistoryGroup();
+    pushState();
+    const sourceLanguage = state.defaultLang || state.activeLang || state.languages?.[0] || 'ja';
+    const writingMode = getWritingModeFromConfigs(sourceLanguage, state.languageConfigs);
+    const group = createFlowGroupBlock({
+        sourceLanguage,
+        writingMode,
+        document: {
+            sourceLanguage,
+            sections: [{
+                title: { [sourceLanguage]: '新しいFlow原稿' },
+                blocks: [
+                    { type: 'heading', level: 1, texts: { [sourceLanguage]: '見出し' } },
+                    { type: 'paragraph', texts: { [sourceLanguage]: '' } },
+                ],
+            }],
+        },
+    });
+    const nextBlocks = [...(state.blocks || [])];
+    const insertAt = Number.isInteger(state.activeBlockIdx)
+        ? Math.max(0, Math.min(state.activeBlockIdx, nextBlocks.length))
+        : nextBlocks.length;
+    nextBlocks.splice(insertAt, 0, group);
+    dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'version', value: PROJECT_SCHEMA_VERSION } });
+    dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'blocks', value: nextBlocks } });
+    dispatch({ type: actionTypes.SET_ACTIVE_BLOCK_INDEX, payload: insertAt });
+    dispatch({ type: actionTypes.SET_ACTIVE_BUBBLE_INDEX, payload: null });
+    invalidateFlowRuntimePages({ preserveSelection: true });
+    selectFlowSource(group.id);
+    refresh();
     triggerAutoSave();
 };
 window.insertSectionBeforeActive = () => insertSectionBeforeActiveByType('image');
@@ -4975,6 +5426,14 @@ window.changeBlock = (idx) => {
     if (Date.now() < suppressThumbClickUntil) return;
     changeBlock(idx, refreshForThumbSelection);
 };
+window.changeFlowSourceBlock = (blockIndex) => {
+    if (Date.now() < suppressThumbClickUntil) return;
+    const block = state.blocks?.[Number(blockIndex)];
+    if (block?.kind !== 'flow') return;
+    endHistoryGroup();
+    selectFlowSource(block.id);
+    changeBlock(blockIndex, refresh);
+};
 window.changeFlowGeneratedPage = (blockIndex, flowPageIndex) => {
     if (Date.now() < suppressThumbClickUntil) return;
     const block = state.blocks?.[Number(blockIndex)];
@@ -4983,6 +5442,8 @@ window.changeFlowGeneratedPage = (blockIndex, flowPageIndex) => {
     const pageCount = projection?.pages?.filter((page) => (
         page.kind === 'flow' && page.groupId === block.id
     )).length || 1;
+    endHistoryGroup();
+    selectFlowGeneratedPage(block.id);
     setSelectedFlowRuntimePageIndex(block.id, flowPageIndex, pageCount);
     changeBlock(blockIndex, refreshForThumbSelection);
 };
@@ -5152,8 +5613,8 @@ window.uploadToStorage = (input) => {
     uploadToStorage(input, refresh);
 };
 
-window.performUndo = () => { undo(refresh); triggerAutoSave(); };
-window.performRedo = () => { redo(refresh); triggerAutoSave(); };
+window.performUndo = performProjectUndo;
+window.performRedo = performProjectRedo;
 
 // FAB用
 window.addBubbleFab = () => {
@@ -5398,6 +5859,7 @@ window.importDSP = async (event) => {
     document.body.style.cursor = 'wait';
 
     try {
+        await flushPendingSave();
         const loadedState = hydrateProjectFromPersistence(await parseAndLoadDSP(file));
 
         resetFlowRuntimeForProjectChange();
@@ -5614,8 +6076,9 @@ window.loadAndRepress = async (pid) => {
 };
 
 // 新規プロジェクト
-window.newProject = () => {
+window.newProject = async () => {
     if (state.projectId && !confirm('現在のプロジェクトを閉じて新しいプロジェクトを作成しますか？')) return false;
+    await flushPendingSave();
     resetFlowRuntimeForProjectChange();
     dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'projectId', value: null } });
     dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'version', value: 5 } });
@@ -6151,6 +6614,14 @@ window.switchRoom = (room) => {
     if (previousRoom === 'press' && targetRoom !== 'press') {
         leavePressRoom();
     }
+    if (previousRoom === 'editor' && targetRoom !== 'editor') {
+        if (_flowAuthoringReflowTimer) clearTimeout(_flowAuthoringReflowTimer);
+        _flowAuthoringReflowTimer = null;
+        _editorFlowProjectionController?.abort();
+        _editorFlowProjectionController = null;
+        _editorFlowProjectionRequestKey = '';
+        _editorFlowProjectionRequestId += 1;
+    }
     document.body.dataset.room = targetRoom;
     syncStudioRoomUrl(targetRoom);
     syncStudioShell();
@@ -6207,8 +6678,8 @@ const MOBILE_ROOM_ACTIONS = {
             key: 'new-project',
             icon: 'add_circle',
             labelKey: 'bottom_new_project',
-            onClick: () => {
-                if (newProject()) {
+            onClick: async () => {
+                if (await window.newProject()) {
                     window.switchRoom('editor');
                 }
             }
@@ -6608,6 +7079,71 @@ async function bootstrapApp() {
     if (getCurrentRoom() === 'home') {
         renderHomeDashboard().catch((e) => console.warn('[Home] initial render failed:', e));
     }
+}
+
+if (import.meta.env.MODE !== 'production') {
+    Object.defineProperty(window, '__flowAuthoringLab', {
+        configurable: true,
+        value: Object.freeze({
+            getSourceSnapshot() {
+                const active = getActiveBlock();
+                return active?.kind === 'flow'
+                    ? Object.freeze(JSON.parse(JSON.stringify(active.flow.document)))
+                    : null;
+            },
+            getRuntimeState() {
+                const root = getFlowAuthoringSurface();
+                const active = getActiveBlock();
+                const projection = getEditorPageProjection();
+                const groupProjection = active?.kind === 'flow'
+                    ? getFlowAuthoringGroupProjection(projection, active.id)
+                    : null;
+                return Object.freeze({
+                    groupId: active?.kind === 'flow' ? active.id : '',
+                    mode: active?.kind === 'flow' ? getFlowEditorSelection(active.id).mode : '',
+                    reflowState: root?.dataset.reflowState || '',
+                    sourceRevision: Number(root?.dataset.sourceRevision || 0),
+                    renderedRevision: Number(root?.dataset.renderedRevision || 0),
+                    pageCount: Number(root?.dataset.pageCount || groupProjection?.pageCount || 0),
+                    changeMode: root?.dataset.changeMode || '',
+                    prefixPageCount: Number(root?.dataset.prefixPageCount || 0),
+                    measuredPageCount: Number(root?.dataset.measuredPageCount || 0),
+                    composing: root?.dataset.composing === 'true',
+                });
+            },
+            getHistoryInfo() {
+                return Object.freeze({ ...getHistoryInfo() });
+            },
+            awaitSettled(revision = _flowAuthoringSourceRevision) {
+                const target = Number(revision) || 0;
+                return new Promise((resolve, reject) => {
+                    const startedAt = Date.now();
+                    const check = () => {
+                        const snapshot = this.getRuntimeState();
+                        if (snapshot.reflowState === 'error') {
+                            reject(new Error('Flow authoring reflow failed.'));
+                            return;
+                        }
+                        if (
+                            snapshot.reflowState === 'idle'
+                            && snapshot.renderedRevision >= target
+                            && !_editorFlowProjectionController
+                            && !_flowAuthoringReflowTimer
+                        ) {
+                            resolve(snapshot);
+                            return;
+                        }
+                        if (Date.now() - startedAt > 30000) {
+                            reject(new Error('Timed out waiting for Flow authoring reflow.'));
+                            return;
+                        }
+                        setTimeout(check, 25);
+                    };
+                    check();
+                });
+            },
+        }),
+    });
 }
 
 bootstrapApp();
