@@ -12,8 +12,10 @@ Commit 8B-2Aでは原文更新をBlock／Section title単位で検出する任�
 missing／stale／untracked／review状態を導出する純粋ロジックを追加した。
 Commit 8B-2Bではその状態をStudioのFlow翻訳面とruntime previewへ接続し、本文がmissing／staleの間は
 翻訳文を保持したまま原文ページを表示し、明示確認とUndo／Redoを追加した。
+Commit 8B-2C-AではGen4のprovider接続からページスロット依存を除いたruntime-only provider層と、
+Flow semantic unitの翻訳request／atomic apply planを追加した。Studioの翻訳ボタンと結果適用はまだ接続しない。
 
-自動翻訳provider、翻訳job、WebP化、DSF／Horizon発行、Viewerにはまだ未接続である。生成ページを
+自動翻訳のStudio UI／翻訳job、WebP化、DSF／Horizon発行、Viewerにはまだ未接続である。生成ページを
 `state.blocks`、`state.sections`、`state.pages`へ書き戻すことも行わない。
 
 ## 境界
@@ -371,6 +373,31 @@ Commit 8B-2Bの対象外:
 - 翻訳job、進捗、cancel、atomic batch apply
 - Flow pageのWebP化、DSF／Horizon発行、Viewer
 - Flow編集画面全体の再設計
+
+## Flow translation provider foundation（Commit 8B-2C-A）
+
+- `translation-provider.js`はprovider登録、model一覧、要求／応答validation、cancel対応だけを所有する。
+  Project state、History、保存、UI状態は所有しない。
+- `browser-translator-provider.js`はChrome Translator APIのlocal sessionを再利用し、URL、テンプレートtoken、
+  製品コードと空白を保護する。FlowのPageBreakは独立Blockなので、本文内の改ページmarkerやpage slot同期は扱わない。
+- `lm-studio-translator-provider.js`はloopbackのOpenAI互換endpointとmodel discoveryを再利用する。promptは
+  翻訳後のページ数変更を明示許可し、旧Gen4の固定page slot数への文字数圧縮を要求しない。
+- `flow-translation-request.js`はSection title、Heading、Paragraphを安定ID付きprovider unitへ変換し、
+  PageBreakを要求から除外する。既定対象は`missing`／`stale`で、`untracked`および手動lockは上書きしない。
+- requestは原文fingerprintとtargetのruntime snapshotを持つ。provider完了までに原文・翻訳文が変わる、
+  unitが削除／別Sectionへ移動する、resultが欠ける、unit errorがある、またはcancelされた場合、
+  atomic apply planは編集を1件も返さない。
+- provider/model/base URL、request、target snapshot、進捗、error、AbortControllerはruntime-onlyであり、
+  `flow.translationState`、IndexedDB、DSP、Firestore、DSFへ保存しない。
+- Gen4の`translateTextFlows()`、`synchronizeTextFlowPages()`、共通page slot数、target page数変更禁止は移植しない。
+
+Commit 8B-2C-Aの対象外:
+
+- Studioへのprovider登録、provider／model選択UI、翻訳ボタン
+- job進捗、cancel表示、retry、同時job制御
+- atomic planを`state.blocks`へ適用するmachine／mixed transactionとUndo／Redo
+- 実Chrome Translator／実LM Studioへの接続確認
+- Flow pageのWebP化、DSF／Horizon発行、Viewer
 
 ## DOM preview boundary（Commit 3）
 

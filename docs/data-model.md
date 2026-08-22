@@ -860,6 +860,7 @@ Flowを含む作品のDSF／Horizon発行はWebP renderer接続まで停止す�
 
 | 日付 | 変更内容 |
 |------|---------|
+| 2026-08-23 | Commit 8B-2C-A: Chrome Translator／LM Studioのruntime-only provider基盤とFlow semantic unit request／atomic apply planを追加。旧page slot同期は移植せず、provider設定・job・snapshotは非永続、schema version変更なし |
 | 2026-08-22 | Commit 8B-2B: Flow翻訳状態をStudio表示とruntime原文fallbackへ接続。原文編集前baseline、翻訳unit単位更新、明示確認を既存Undo／保存経路へ統合。schema versionと公開境界は変更なし |
 | 2026-08-22 | Commit 8B-2A: 任意の`flow.translationState` v1、Block／Section title別の短い原文fingerprint、missing／stale／untracked／review状態の純粋導出を追加。Project／Flow／DSP version、公開境界、生成ページ非永続は変更なし |
 | 2026-08-22 | Commit 8B-1: 既存`texts[languageKey]`／`title[languageKey]`／`typographyByLanguage`をStudioのFlow言語別編集へ接続。構造とPageBreakは原稿言語で共有し、翻訳言語は独立reflowする。Project／Flow schema versionと保存境界は変更なし |

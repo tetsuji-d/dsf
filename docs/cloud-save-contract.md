@@ -57,6 +57,10 @@ The following are runtime-only and are rejected rather than silently stripped:
 - pagination results and caches
 - translation provider/model/endpoint settings and translation job progress/error/cancel state
 
+Commit 8B-2C-Aのprovider registry、model discovery、Flow translation request、target snapshot、
+provider response、atomic apply planもこのruntime-only境界に含む。これらはStudioへ接続する前の純粋な実行契約であり、
+Project v6や`flow.translationState`へ追加fieldを作らない。
+
 The public project root is built from an explicit public-field allowlist. It
 contains the Fixed compatibility projection, but no Flow group or unknown
 authoring extension. Unknown authoring fields remain round-trippable only in the
