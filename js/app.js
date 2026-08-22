@@ -40,6 +40,7 @@ import {
     getFlowSourceLanguageGroupIds,
     resolveFlowAuthoringLanguage,
 } from './flow-multilingual-authoring.js';
+import { deriveFlowTranslationStatus } from './flow-translation-state.js';
 import {
     renderFlowAuthoringView,
     updateFlowAuthoringViewStatus,
@@ -101,6 +102,7 @@ let _flowAuthoringReflowTimer = null;
 let _flowAuthoringSourceRevision = 0;
 let _flowAuthoringRenderedRevision = 0;
 let _flowAuthoringComposing = false;
+let _flowAuthoringLanguageFeedback = null;
 
 function resetFlowRuntimeForProjectChange() {
     if (_flowAuthoringReflowTimer) clearTimeout(_flowAuthoringReflowTimer);
@@ -108,6 +110,7 @@ function resetFlowRuntimeForProjectChange() {
     _flowAuthoringSourceRevision = 0;
     _flowAuthoringRenderedRevision = 0;
     _flowAuthoringComposing = false;
+    _flowAuthoringLanguageFeedback = null;
     endHistoryGroup();
     resetFlowEditorSelections();
     _editorFlowProjectionController?.abort();
@@ -248,18 +251,47 @@ function getFlowAuthoringGroupProjection(projection, groupId) {
     return projection?.flowGroups?.find((entry) => entry.groupId === groupId) || null;
 }
 
+function getFlowAuthoringLanguageFeedback(group, languageKey, options = {}) {
+    const canReuse = options.reuse === true
+        && _flowAuthoringLanguageFeedback?.groupId === group.id
+        && _flowAuthoringLanguageFeedback?.languageKey === languageKey;
+    if (canReuse) return _flowAuthoringLanguageFeedback;
+    const feedback = Object.freeze({
+        groupId: group.id,
+        languageKey,
+        languageProgress: getFlowLanguageProgress(group, languageKey),
+        translationStatus: deriveFlowTranslationStatus(group, languageKey),
+    });
+    _flowAuthoringLanguageFeedback = feedback;
+    return feedback;
+}
+
 function updateActiveFlowAuthoringStatus(projection, options = {}) {
     const root = getFlowAuthoringSurface();
     const activeBlock = getActiveBlock();
     if (!root || activeBlock?.kind !== 'flow' || !isFlowSourceSelected(activeBlock.id)) return;
     const groupProjection = getFlowAuthoringGroupProjection(projection, activeBlock.id);
     const languageKey = getFlowAuthoringLanguage(activeBlock);
-    const languageProgress = getFlowLanguageProgress(activeBlock, languageKey);
+    const { languageProgress, translationStatus } = getFlowAuthoringLanguageFeedback(
+        activeBlock,
+        languageKey,
+        { reuse: !projection && options.state !== 'error' },
+    );
     const panelPageCount = document.getElementById('flow-authoring-page-count');
     if (panelPageCount) {
-        panelPageCount.textContent = groupProjection?.isSourceFallback
-            ? '原文プレビュー'
-            : groupProjection?.pageCount ? `${groupProjection.pageCount}ページ` : '更新中';
+        if (!projection) {
+            panelPageCount.textContent = '更新中';
+        } else if (groupProjection?.isSourceFallback) {
+            panelPageCount.textContent = translationStatus.body.counts.stale > 0
+                ? '原文プレビュー（要更新）'
+                : '原文プレビュー（未翻訳）';
+        } else if (translationStatus.body.counts.untracked > 0) {
+            panelPageCount.textContent = `${groupProjection?.pageCount || 0}ページ（状態未登録）`;
+        } else if (translationStatus.hasOutlineIssues) {
+            panelPageCount.textContent = `${groupProjection?.pageCount || 0}ページ（章名要確認）`;
+        } else {
+            panelPageCount.textContent = groupProjection?.pageCount ? `${groupProjection.pageCount}ページ` : '更新中';
+        }
     }
     updateFlowAuthoringViewStatus(root, {
         state: options.state || (projection ? 'idle' : 'working'),
@@ -269,6 +301,7 @@ function updateActiveFlowAuthoringStatus(projection, options = {}) {
         changeSet: groupProjection?.changeSet,
         isSourceFallback: groupProjection?.isSourceFallback === true,
         languageProgress,
+        translationStatus,
         message: options.message,
     });
     if (projection) {
@@ -281,13 +314,14 @@ function renderFlowAuthoringSurface(activeBlock, projection = getEditorPageProje
     const root = getFlowAuthoringSurface();
     if (!root || activeBlock?.kind !== 'flow') return;
     const languageKey = getFlowAuthoringLanguage(activeBlock);
-    const languageProgress = getFlowLanguageProgress(activeBlock, languageKey);
+    const { languageProgress, translationStatus } = getFlowAuthoringLanguageFeedback(activeBlock, languageKey);
     const groupProjection = getFlowAuthoringGroupProjection(projection, activeBlock.id);
     const scrollTop = root.scrollTop;
     renderFlowAuthoringView(root, {
         group: activeBlock,
         languageKey,
         pageCount: groupProjection?.pageCount || 0,
+        translationStatus,
         onInput: handleFlowAuthoringInput,
         onChange: handleFlowAuthoringChange,
         onAction: handleFlowAuthoringAction,
@@ -305,6 +339,7 @@ function renderFlowAuthoringSurface(activeBlock, projection = getEditorPageProje
         changeSet: groupProjection?.changeSet,
         isSourceFallback: groupProjection?.isSourceFallback === true,
         languageProgress,
+        translationStatus,
     });
 }
 
@@ -501,7 +536,20 @@ function handleFlowAuthoringAction(event) {
         return;
     }
     const group = getFlowGroupById(target.groupId);
-    if (!group || getFlowAuthoringLanguage(group) !== group.flow?.document?.sourceLanguage) return;
+    if (!group) return;
+    const languageKey = getFlowAuthoringLanguage(group);
+    if (action === 'confirm-translation') {
+        if (languageKey === group.flow?.document?.sourceLanguage) return;
+        event.preventDefault();
+        endHistoryGroup();
+        applyFlowAuthoringEdit({
+            type: 'confirmTranslation',
+            groupId: target.groupId,
+            languageKey,
+        }, { rerender: true, immediate: true });
+        return;
+    }
+    if (languageKey !== group.flow?.document?.sourceLanguage) return;
     if (!target.groupId || !target.sectionId) return;
     event.preventDefault();
     endHistoryGroup();
@@ -7158,6 +7206,10 @@ if (import.meta.env.MODE !== 'production') {
                 const groupProjection = active?.kind === 'flow'
                     ? getFlowAuthoringGroupProjection(projection, active.id)
                     : null;
+                const languageKey = active?.kind === 'flow' ? getFlowAuthoringLanguage(active) : '';
+                const translationStatus = active?.kind === 'flow'
+                    ? deriveFlowTranslationStatus(active, languageKey)
+                    : null;
                 return Object.freeze({
                     groupId: active?.kind === 'flow' ? active.id : '',
                     mode: active?.kind === 'flow' ? getFlowEditorSelection(active.id).mode : '',
@@ -7169,7 +7221,24 @@ if (import.meta.env.MODE !== 'production') {
                     prefixPageCount: Number(root?.dataset.prefixPageCount || 0),
                     measuredPageCount: Number(root?.dataset.measuredPageCount || 0),
                     composing: root?.dataset.composing === 'true',
+                    sourceFallback: root?.dataset.sourceFallback === 'true',
+                    translationStatus: translationStatus?.status || '',
+                    outlineIssues: translationStatus?.hasOutlineIssues === true,
                 });
+            },
+            getTranslationStatus() {
+                const active = getActiveBlock();
+                if (active?.kind !== 'flow') return null;
+                return Object.freeze(JSON.parse(JSON.stringify(
+                    deriveFlowTranslationStatus(active, getFlowAuthoringLanguage(active)),
+                )));
+            },
+            getTranslationStateSnapshot() {
+                const active = getActiveBlock();
+                if (active?.kind !== 'flow') return null;
+                return active.flow.translationState === undefined
+                    ? null
+                    : Object.freeze(JSON.parse(JSON.stringify(active.flow.translationState)));
             },
             getHistoryInfo() {
                 return Object.freeze({ ...getHistoryInfo() });

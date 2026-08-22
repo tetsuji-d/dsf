@@ -31,6 +31,7 @@
     "verify:flow-authoring": "node scripts/verify-flow-authoring.js",
     "verify:flow-multilingual-authoring": "node scripts/verify-flow-multilingual-authoring.js",
     "verify:flow-translation-state": "node scripts/verify-flow-translation-state.js",
+    "verify:flow-translation-ui": "node scripts/verify-flow-translation-ui.js",
     "deploy:prod:check": "node scripts/deploy-prod-safe.js --check-only",
     "deploy:prod:safe": "node scripts/deploy-prod-safe.js",
     "deploy:pages": "node scripts/deploy-prod-safe.js --skip-firebase",

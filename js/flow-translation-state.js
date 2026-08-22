@@ -423,6 +423,247 @@ export function createFlowTranslationLanguageBaseline(group, languageKey, option
     return deepClone(baseline);
 }
 
+const FLOW_TRANSLATION_UNIT_MAPS = new Set(['blocks', 'sectionTitles']);
+
+function replaceExactMapEntry(value, key, entryValue) {
+    const entries = isRecord(value)
+        ? Object.entries(value).filter(([entryKey]) => entryKey !== key)
+        : [];
+    entries.push([key, entryValue]);
+    return Object.fromEntries(entries);
+}
+
+function appendUniqueExactId(value, unitId) {
+    const ids = Array.isArray(value) ? [...value] : [];
+    if (!ids.includes(unitId)) ids.push(unitId);
+    return ids;
+}
+
+function resolveFlowTranslationUnit(group, unitMap, unitId) {
+    const source = requireFlowGroup(group);
+    if (!FLOW_TRANSLATION_UNIT_MAPS.has(unitMap)) {
+        throw new RangeError(`Unsupported Flow translation unit map: ${String(unitMap)}`);
+    }
+    const exactUnitId = requireExactKey(unitId, 'Flow translation unit ID');
+    const document = source.flow.document;
+    const sourceLanguage = document.sourceLanguage;
+
+    if (unitMap === 'sectionTitles') {
+        const section = document.sections.find((entry) => entry?.id === exactUnitId);
+        if (!section) throw new RangeError(`Flow Section title not found: ${exactUnitId}`);
+        const sourceTitle = getExactText(section.title, sourceLanguage);
+        return Object.freeze({
+            unitMap,
+            unitId: exactUnitId,
+            targetMap: section.title,
+            trackable: sourceTitle.present,
+            sourceFingerprint: sourceTitle.present
+                ? createFlowSectionTitleSourceFingerprint(section, sourceLanguage)
+                : '',
+        });
+    }
+
+    for (const section of document.sections) {
+        const block = section.blocks.find((entry) => entry?.id === exactUnitId);
+        if (!block) continue;
+        if (block.type !== 'heading' && block.type !== 'paragraph') {
+            throw new TypeError('Only Flow Heading and Paragraph blocks are translation units.');
+        }
+        return Object.freeze({
+            unitMap,
+            unitId: exactUnitId,
+            targetMap: block.texts,
+            trackable: true,
+            sourceFingerprint: createFlowBlockSourceFingerprint(section.id, block, sourceLanguage),
+        });
+    }
+    throw new RangeError(`Flow translation Block not found: ${exactUnitId}`);
+}
+
+function getValidatedTranslationState(group) {
+    const state = group.flow.translationState;
+    assertValidFlowTranslationState(state, group.flow.document);
+    return state;
+}
+
+function createMutableTranslationState(group) {
+    const existing = getValidatedTranslationState(group);
+    return existing === undefined
+        ? { schemaVersion: FLOW_TRANSLATION_STATE_SCHEMA_VERSION, languages: {} }
+        : deepClone(existing);
+}
+
+function getTranslationLanguageState(state, languageKey) {
+    return isRecord(state?.languages)
+        && hasOwn(state.languages, languageKey)
+        && isRecord(state.languages[languageKey])
+        ? state.languages[languageKey]
+        : null;
+}
+
+function createManualLanguageState() {
+    return {
+        sourceFingerprints: { blocks: {}, sectionTitles: {} },
+        reviewState: 'reviewed',
+        origin: 'manual',
+    };
+}
+
+function upsertTranslationLanguageState(state, languageKey, languageState) {
+    state.languages = replaceExactMapEntry(state.languages, languageKey, languageState);
+}
+
+function setLanguageUnitFingerprint(languageState, unit, options = {}) {
+    const next = deepClone(languageState || createManualLanguageState());
+    const fingerprints = isRecord(next.sourceFingerprints)
+        ? deepClone(next.sourceFingerprints)
+        : { blocks: {}, sectionTitles: {} };
+    fingerprints.blocks = isRecord(fingerprints.blocks) ? fingerprints.blocks : {};
+    fingerprints.sectionTitles = isRecord(fingerprints.sectionTitles) ? fingerprints.sectionTitles : {};
+    fingerprints[unit.unitMap] = replaceExactMapEntry(
+        fingerprints[unit.unitMap],
+        unit.unitId,
+        unit.sourceFingerprint,
+    );
+    next.sourceFingerprints = fingerprints;
+
+    if (next.origin === 'machine') next.origin = 'mixed';
+    if (next.origin === 'mixed') {
+        next.lockedUnitIds = appendUniqueExactId(next.lockedUnitIds, unit.unitId);
+    }
+    if (options.reviewState) next.reviewState = options.reviewState;
+    return next;
+}
+
+function createTranslationStateMutationResult(group, nextState) {
+    const previous = group.flow.translationState;
+    assertValidFlowTranslationState(nextState, group.flow.document);
+    const changed = JSON.stringify(previous) !== JSON.stringify(nextState);
+    return Object.freeze({
+        changed,
+        translationState: changed ? nextState : previous,
+    });
+}
+
+/**
+ * Capture only previously untracked target values immediately before editing
+ * their source unit. Existing fingerprints never move, so repeated source
+ * keystrokes remain stale against the first pre-edit source.
+ */
+export function captureFlowTranslationUnitBeforeSourceEdit(group, options = {}) {
+    const source = requireFlowGroup(group);
+    if (!isRecord(options)) throw new TypeError('Flow translation capture options must be an object.');
+    const unit = resolveFlowTranslationUnit(source, options.unitMap, options.unitId);
+    const previous = getValidatedTranslationState(source);
+    if (!unit.trackable || !isRecord(unit.targetMap)) {
+        return Object.freeze({ changed: false, translationState: previous });
+    }
+
+    const sourceLanguage = source.flow.document.sourceLanguage;
+    const targetLanguages = Object.entries(unit.targetMap)
+        .filter(([languageKey, value]) => languageKey !== sourceLanguage && isExactKey(languageKey) && typeof value === 'string')
+        .map(([languageKey]) => languageKey);
+    if (!targetLanguages.length) {
+        return Object.freeze({ changed: false, translationState: previous });
+    }
+
+    const nextState = createMutableTranslationState(source);
+    let changed = false;
+    for (const languageKey of targetLanguages) {
+        const existing = getTranslationLanguageState(nextState, languageKey);
+        const storedMap = existing?.sourceFingerprints?.[unit.unitMap];
+        if (isRecord(storedMap) && hasOwn(storedMap, unit.unitId)) continue;
+        upsertTranslationLanguageState(
+            nextState,
+            languageKey,
+            setLanguageUnitFingerprint(existing, unit, { reviewState: 'needs-review' }),
+        );
+        changed = true;
+    }
+    if (!changed) return Object.freeze({ changed: false, translationState: previous });
+    return createTranslationStateMutationResult(source, nextState);
+}
+
+/** Register one manually edited target unit against the current source. */
+export function recordFlowManualTranslationUnitEdit(group, languageKey, options = {}) {
+    const source = requireFlowGroup(group);
+    const targetLanguage = requireExactKey(languageKey, 'Flow target language');
+    const sourceLanguage = source.flow.document.sourceLanguage;
+    if (targetLanguage === sourceLanguage) {
+        throw new RangeError('The Flow source language cannot be recorded as a translation edit.');
+    }
+    if (!isRecord(options)) throw new TypeError('Flow translation edit options must be an object.');
+    const unit = resolveFlowTranslationUnit(source, options.unitMap, options.unitId);
+    const previous = getValidatedTranslationState(source);
+    const target = getExactText(unit.targetMap, targetLanguage);
+    if (!unit.trackable || !target.present) {
+        return Object.freeze({ changed: false, translationState: previous });
+    }
+
+    const nextState = createMutableTranslationState(source);
+    const existing = getTranslationLanguageState(nextState, targetLanguage);
+    upsertTranslationLanguageState(
+        nextState,
+        targetLanguage,
+        setLanguageUnitFingerprint(existing, unit),
+    );
+    return createTranslationStateMutationResult(source, nextState);
+}
+
+/**
+ * Explicitly accept every currently present target value against the current
+ * source while preserving origin, locks, other languages, and unknown fields.
+ */
+export function confirmFlowTranslationAgainstCurrentSource(group, languageKey) {
+    const source = requireFlowGroup(group);
+    const targetLanguage = requireExactKey(languageKey, 'Flow target language');
+    const sourceLanguage = source.flow.document.sourceLanguage;
+    if (targetLanguage === sourceLanguage) {
+        throw new RangeError('The Flow source language cannot be confirmed as a translation.');
+    }
+    const previous = getValidatedTranslationState(source);
+    const existing = previous === undefined ? null : getTranslationLanguageState(previous, targetLanguage);
+    const statusBeforeConfirmation = deriveFlowTranslationStatus(source, targetLanguage);
+    const previouslyUntrackedIds = [
+        ...(statusBeforeConfirmation.body.ids.untracked || []),
+        ...(statusBeforeConfirmation.outline.ids.untracked || []),
+    ];
+    const existingLockedIds = Array.isArray(existing?.lockedUnitIds) ? existing.lockedUnitIds : [];
+    const nextLockedIds = (existing?.origin === 'machine' || existing?.origin === 'mixed')
+        ? previouslyUntrackedIds.reduce(appendUniqueExactId, [...existingLockedIds])
+        : [...existingLockedIds];
+    const nextOrigin = existing?.origin === 'machine' && previouslyUntrackedIds.length
+        ? 'mixed'
+        : existing?.origin || 'manual';
+    const baseline = createFlowTranslationLanguageBaseline(source, targetLanguage, {
+        origin: nextOrigin,
+        reviewState: 'reviewed',
+        ...(nextLockedIds.length ? { lockedUnitIds: nextLockedIds } : {}),
+    });
+    const presentCount = Object.keys(baseline.sourceFingerprints.blocks).length
+        + Object.keys(baseline.sourceFingerprints.sectionTitles).length;
+    if (presentCount === 0) {
+        return Object.freeze({ changed: false, translationState: previous });
+    }
+
+    const nextState = createMutableTranslationState(source);
+    const preservedFingerprintFields = isRecord(existing?.sourceFingerprints)
+        ? Object.entries(existing.sourceFingerprints)
+            .filter(([key]) => key !== 'blocks' && key !== 'sectionTitles')
+        : [];
+    const sourceFingerprints = Object.fromEntries([
+        ...preservedFingerprintFields,
+        ['blocks', baseline.sourceFingerprints.blocks],
+        ['sectionTitles', baseline.sourceFingerprints.sectionTitles],
+    ]);
+    upsertTranslationLanguageState(nextState, targetLanguage, {
+        ...(existing ? deepClone(existing) : {}),
+        ...baseline,
+        sourceFingerprints,
+    });
+    return createTranslationStateMutationResult(source, nextState);
+}
+
 function deriveUnitCollection(units, languageKey, storedFingerprints, lockedUnitIds, origin) {
     const ids = { missing: [], current: [], stale: [], untracked: [], locked: [] };
     const explicitLocks = new Set(Array.isArray(lockedUnitIds) ? lockedUnitIds : []);

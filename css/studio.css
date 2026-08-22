@@ -8139,6 +8139,93 @@ textarea.ps-meta-input {
     white-space: nowrap;
 }
 
+.flow-authoring-summary > span[data-tone="warning"],
+.flow-authoring-summary > span[data-tone="review"] {
+    border-color: #fbbf24;
+    color: #92400e;
+    background: #fffbeb;
+}
+
+.flow-authoring-summary > span[data-tone="outline"],
+.flow-authoring-summary > span[data-tone="info"] {
+    border-color: #93c5fd;
+    color: #1d4ed8;
+    background: #eff6ff;
+}
+
+.flow-authoring-summary > span[data-tone="ready"] {
+    border-color: #86efac;
+    color: #166534;
+    background: #f0fdf4;
+}
+
+.flow-authoring-translation-status {
+    width: min(100%, 860px);
+    margin: 0 auto 12px;
+    padding: 11px 12px;
+    border: 1px solid #cbd5e1;
+    border-radius: 9px;
+    box-sizing: border-box;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 14px;
+    color: #334155;
+    background: rgba(255, 255, 255, 0.88);
+}
+
+.flow-authoring-translation-status[hidden] {
+    display: none;
+}
+
+.flow-authoring-translation-status > div {
+    display: grid;
+    gap: 2px;
+}
+
+.flow-authoring-translation-status strong {
+    font-size: 12px;
+}
+
+.flow-authoring-translation-status span {
+    color: #64748b;
+    font-size: 11px;
+    line-height: 1.55;
+}
+
+.flow-authoring-translation-status button {
+    flex: 0 0 auto;
+    padding: 7px 10px;
+    border: 1px solid currentColor;
+    border-radius: 7px;
+    color: inherit;
+    background: rgba(255, 255, 255, 0.72);
+    font: inherit;
+    font-size: 11px;
+    font-weight: 800;
+    cursor: pointer;
+}
+
+.flow-authoring-translation-status[data-tone="warning"],
+.flow-authoring-translation-status[data-tone="review"] {
+    border-color: #fbbf24;
+    color: #92400e;
+    background: #fffbeb;
+}
+
+.flow-authoring-translation-status[data-tone="outline"],
+.flow-authoring-translation-status[data-tone="info"] {
+    border-color: #93c5fd;
+    color: #1d4ed8;
+    background: #eff6ff;
+}
+
+.flow-authoring-translation-status[data-tone="ready"] {
+    border-color: #86efac;
+    color: #166534;
+    background: #f0fdf4;
+}
+
 #flow-authoring-surface[data-reflow-state="working"] [data-flow-authoring-status] {
     color: #92400e;
     background: #fffbeb;
@@ -8287,6 +8374,39 @@ textarea.ps-meta-input {
     font-size: 10px;
 }
 
+.flow-authoring-unit-status {
+    display: inline-flex;
+    align-items: center;
+    padding: 2px 7px;
+    border: 1px solid #cbd5e1;
+    border-radius: 999px;
+    color: #64748b;
+    background: #f8fafc;
+    font-size: 10px;
+    font-weight: 800;
+}
+
+.flow-authoring-unit-status[hidden] {
+    display: none;
+}
+
+.flow-authoring-section-heading .flow-authoring-unit-status {
+    justify-self: start;
+}
+
+.flow-authoring-unit-status[data-status="missing"],
+.flow-authoring-unit-status[data-status="stale"] {
+    border-color: #fbbf24;
+    color: #92400e;
+    background: #fffbeb;
+}
+
+.flow-authoring-unit-status[data-status="untracked"] {
+    border-color: #93c5fd;
+    color: #1d4ed8;
+    background: #eff6ff;
+}
+
 .flow-authoring-translation-lock {
     margin-left: auto;
 }
@@ -8315,6 +8435,18 @@ textarea.ps-meta-input {
 .flow-authoring-section-heading input.is-translation-missing {
     border-bottom-color: #f59e0b;
     background: linear-gradient(180deg, transparent 70%, rgba(245, 158, 11, 0.08));
+}
+
+.flow-authoring-input.is-translation-stale,
+.flow-authoring-section-heading input.is-translation-stale {
+    border-bottom-color: #f97316;
+    background: linear-gradient(180deg, transparent 70%, rgba(249, 115, 22, 0.1));
+}
+
+.flow-authoring-input.is-translation-untracked,
+.flow-authoring-section-heading input.is-translation-untracked {
+    border-bottom-color: #60a5fa;
+    background: linear-gradient(180deg, transparent 70%, rgba(96, 165, 250, 0.09));
 }
 
 .flow-authoring-heading-input {
@@ -8469,6 +8601,70 @@ body[data-theme="dark"] .flow-authoring-level select {
     background: #2d3442;
 }
 
+body[data-theme="dark"] .flow-authoring-translation-status {
+    border-color: #4b5563;
+    color: #e5e7eb;
+    background: #252d3d;
+}
+
+body[data-theme="dark"] .flow-authoring-translation-status span {
+    color: #cbd5e1;
+}
+
+body[data-theme="dark"] .flow-authoring-translation-status button {
+    color: inherit;
+    background: rgba(15, 23, 42, 0.72);
+}
+
+body[data-theme="dark"] .flow-authoring-translation-status[data-tone="warning"],
+body[data-theme="dark"] .flow-authoring-translation-status[data-tone="review"] {
+    border-color: #a16207;
+    color: #fde68a;
+    background: #422006;
+}
+
+body[data-theme="dark"] .flow-authoring-translation-status[data-tone="outline"],
+body[data-theme="dark"] .flow-authoring-translation-status[data-tone="info"] {
+    border-color: #1d4ed8;
+    color: #bfdbfe;
+    background: #172554;
+}
+
+body[data-theme="dark"] .flow-authoring-translation-status[data-tone="ready"] {
+    border-color: #15803d;
+    color: #bbf7d0;
+    background: #052e16;
+}
+
+body[data-theme="dark"] .flow-authoring-unit-status {
+    border-color: #4b5563;
+    color: #cbd5e1;
+    background: #2d3442;
+}
+
+body[data-theme="dark"] .flow-authoring-summary > span[data-tone="warning"],
+body[data-theme="dark"] .flow-authoring-summary > span[data-tone="review"],
+body[data-theme="dark"] .flow-authoring-unit-status[data-status="missing"],
+body[data-theme="dark"] .flow-authoring-unit-status[data-status="stale"] {
+    border-color: #a16207;
+    color: #fde68a;
+    background: #422006;
+}
+
+body[data-theme="dark"] .flow-authoring-summary > span[data-tone="outline"],
+body[data-theme="dark"] .flow-authoring-summary > span[data-tone="info"],
+body[data-theme="dark"] .flow-authoring-unit-status[data-status="untracked"] {
+    border-color: #1d4ed8;
+    color: #bfdbfe;
+    background: #172554;
+}
+
+body[data-theme="dark"] .flow-authoring-summary > span[data-tone="ready"] {
+    border-color: #15803d;
+    color: #bbf7d0;
+    background: #052e16;
+}
+
 body[data-theme="dark"] .flow-authoring-level-readonly,
 body[data-theme="dark"] .flow-authoring-translation-lock {
     border-color: #4b5563;
@@ -8484,6 +8680,15 @@ body[data-theme="dark"] .flow-authoring-translation-structure-note {
 @media (max-width: 767px) {
     #flow-authoring-surface {
         padding: 18px 10px 96px;
+    }
+
+    .flow-authoring-translation-status {
+        align-items: stretch;
+        flex-direction: column;
+    }
+
+    .flow-authoring-translation-status button {
+        width: 100%;
     }
 
     .flow-authoring-header {

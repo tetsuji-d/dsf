@@ -10,6 +10,7 @@ import { createIncrementalFlowPaginator } from './flow-incremental-pagination.js
 import { createCanonicalFlowPageBox } from './flow-pagination.js';
 import { assertValidFlowProjectData } from './flow-project-model.js';
 import { buildFlowPageProjection } from './flow-page-projection.js';
+import { deriveFlowTranslationStatus } from './flow-translation-state.js';
 import { deepClone } from './utils.js';
 
 const DEFAULT_MAX_PAGES_PER_GROUP = 2000;
@@ -108,8 +109,12 @@ export function resolveFlowRuntimeLanguage(group, requestedLanguageKey) {
     const requestedHasProfile = requestedProfile
         && typeof requestedProfile === 'object'
         && !Array.isArray(requestedProfile);
+    const translationStatus = requestedLanguageKey === sourceLanguage
+        ? null
+        : deriveFlowTranslationStatus(group, requestedLanguageKey);
+    const requiresSourceFallback = translationStatus?.requiresSourceFallback === true;
 
-    if (requestedLanguageKey === sourceLanguage || (requestedHasText && requestedHasProfile)) {
+    if (requestedLanguageKey === sourceLanguage || (requestedHasText && requestedHasProfile && !requiresSourceFallback)) {
         if (!requestedHasProfile) {
             throw new FlowRuntimePageError(
                 'FLOW_LANGUAGE_TYPOGRAPHY_MISSING',
@@ -125,7 +130,7 @@ export function resolveFlowRuntimeLanguage(group, requestedLanguageKey) {
         });
     }
 
-    if (requestedHasText && !requestedHasProfile) {
+    if (requestedHasText && !requestedHasProfile && !requiresSourceFallback) {
         throw new FlowRuntimePageError(
             'FLOW_LANGUAGE_TYPOGRAPHY_MISSING',
             `Flow typography is not available for translated language ${requestedLanguageKey}.`,

@@ -310,6 +310,9 @@ FlowTranslationStateのfingerprintは`u1` + FNV-1a 64-bit base64url 11文字で�
 Block ID、Section titleはSection ID単位で追跡する。target本文、Typography、Heading level、PageBreak、
 生成pageはfingerprintへ含めない。`stale` booleanは保存せず、現在の原文fingerprintとの不一致から導出する。
 metadataがない8B-1以前のtarget本文は`untracked`として有効かつ自動上書き保護対象とする。
+8B-2B以降、既存target値を持つ原文unitを初めて編集する直前に旧fingerprintを一度だけ登録し、原文変更後の
+`stale`を検出する。翻訳unitの手動編集はそのunitだけを現在のfingerprintへ更新し、言語全体の明示確認は
+値が存在するunitだけを再登録する。これらは本文と同じProject v6 transaction／Undo単位で保存する。
 
 Project v6 normalizerはFixed Blockをopaqueに保持する。未知のauthoring Blockや未知のFlow semantic Blockは
 round-tripのため保持するが、対応できない内容を黙って欠落させないようvalidationで編集・paginationを停止する。
@@ -857,6 +860,7 @@ Flowを含む作品のDSF／Horizon発行はWebP renderer接続まで停止す�
 
 | 日付 | 変更内容 |
 |------|---------|
+| 2026-08-22 | Commit 8B-2B: Flow翻訳状態をStudio表示とruntime原文fallbackへ接続。原文編集前baseline、翻訳unit単位更新、明示確認を既存Undo／保存経路へ統合。schema versionと公開境界は変更なし |
 | 2026-08-22 | Commit 8B-2A: 任意の`flow.translationState` v1、Block／Section title別の短い原文fingerprint、missing／stale／untracked／review状態の純粋導出を追加。Project／Flow／DSP version、公開境界、生成ページ非永続は変更なし |
 | 2026-08-22 | Commit 8B-1: 既存`texts[languageKey]`／`title[languageKey]`／`typographyByLanguage`をStudioのFlow言語別編集へ接続。構造とPageBreakは原稿言語で共有し、翻訳言語は独立reflowする。Project／Flow schema versionと保存境界は変更なし |
 | 2026-08-21 | Commit 8A: FlowDocumentのsourceLanguage原稿をStudioの連続semantic editorへ接続。Heading／Paragraph／PageBreak編集、既存Undo/Redo・autosave、runtime増分reflowを使用し、生成ページ非永続と発行停止を維持 |

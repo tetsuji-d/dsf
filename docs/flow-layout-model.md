@@ -10,8 +10,10 @@ Commit 8AではFlow原稿カードを連続semantic editorへ接続し、増分r
 Commit 8B-1では既存作品言語タブをFlow編集言語へ接続し、原稿構造を共有した言語別本文編集と独立reflowを追加した。
 Commit 8B-2Aでは原文更新をBlock／Section title単位で検出する任意の`translationState` v1と、
 missing／stale／untracked／review状態を導出する純粋ロジックを追加した。
+Commit 8B-2Bではその状態をStudioのFlow翻訳面とruntime previewへ接続し、本文がmissing／staleの間は
+翻訳文を保持したまま原文ページを表示し、明示確認とUndo／Redoを追加した。
 
-自動翻訳provider、stale表示とpreview切替、WebP化、DSF／Horizon発行、Viewerにはまだ未接続である。生成ページを
+自動翻訳provider、翻訳job、WebP化、DSF／Horizon発行、Viewerにはまだ未接続である。生成ページを
 `state.blocks`、`state.sections`、`state.pages`へ書き戻すことも行わない。
 
 ## 境界
@@ -344,6 +346,31 @@ Commit 8B-2Aの対象外:
 - Chrome Translator／LM Studio provider
 - 翻訳job、進捗、cancel、atomic apply
 - Flow pageのWebP化、DSF／Horizon発行、Viewer
+
+## Studio translation freshness feedback（Commit 8B-2B）
+
+- Studio中央のFlow翻訳面は`deriveFlowTranslationStatus()`の本文とoutline内訳を表示する。未翻訳、原文更新、
+  状態未登録、要確認、確認済みを区別し、PageBreakには翻訳状態を付けない。
+- 本文Heading／Paragraphにmissingまたはstaleがある場合、`resolveFlowRuntimeLanguage()`は翻訳文を削除せず
+  原稿言語へfallbackする。既存8B-1翻訳の`untracked`だけではfallbackせず、Section titleだけの問題でも
+  本文ページは翻訳言語を維持する。EditorとPressの確認用runtimeは同じ判定を使う。
+- metadataなしの既存翻訳を持つ原文unitが初めて編集される時は、変更直前のfingerprintを一度だけ登録する。
+  2文字目以降の入力でbaselineを動かさないため、更新後は確実にstaleとなる。既存fingerprintは上書きしない。
+- 翻訳Heading／Paragraph／Section titleを手動編集した場合は、そのunitだけを現在の原文fingerprintへ更新する。
+  machine由来のunitは`mixed`へ移し、そのunitを`lockedUnitIds`で保護する。他のstale／missing unitは変えない。
+- 状態帯の「現在の原文に対応済みとして確認」は、値が存在するunitだけを現在のfingerprintへ再登録し、
+  `reviewState:'reviewed'`とする。missing unitはmissingのままであり、翻訳文を自動生成しない。
+- 原文編集前baseline、翻訳unit更新、明示確認は本文変更と同じ`state.blocks` transactionに含める。
+  既存History、autosave、IndexedDB、DSP、owner専用Firestore経路を使い、専用Undoや別保存面を作らない。
+- runtimeの`stale`とpreview選択は保存しない。Project v6、FlowDocument v1、FlowLayout v1、
+  FlowTranslationState v1、DSP schema v2および公開境界は変更しない。
+
+Commit 8B-2Bの対象外:
+
+- Chrome Translator／LM Studio providerとprovider設定UI
+- 翻訳job、進捗、cancel、atomic batch apply
+- Flow pageのWebP化、DSF／Horizon発行、Viewer
+- Flow編集画面全体の再設計
 
 ## DOM preview boundary（Commit 3）
 

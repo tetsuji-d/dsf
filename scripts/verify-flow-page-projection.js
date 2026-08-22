@@ -153,6 +153,8 @@ const runtimeGroup = (texts, profiles) => ({
     flow: {
         document: {
             id: 'doc_runtime',
+            schemaVersion: 1,
+            layoutType: 'flow',
             sourceLanguage: 'ja',
             sections: [{
                 id: 'section_runtime',

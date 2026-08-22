@@ -15,6 +15,11 @@ import {
     PROJECT_SCHEMA_VERSION,
     assertValidFlowProjectData,
 } from './flow-project-model.js';
+import {
+    captureFlowTranslationUnitBeforeSourceEdit,
+    confirmFlowTranslationAgainstCurrentSource,
+    recordFlowManualTranslationUnitEdit,
+} from './flow-translation-state.js';
 import { createId, deepClone } from './utils.js';
 
 const TEXT_BLOCK_TYPES = new Set(['heading', 'paragraph']);
@@ -33,20 +38,27 @@ function fail(code, message, context = {}) {
     throw new FlowAuthoringError(code, message, context);
 }
 
-function findFlowContext(blocks, operation) {
+function findFlowGroupContext(blocks, operation) {
     if (!Array.isArray(blocks)) fail('INVALID_BLOCKS', 'Authoring blocks must be an array.');
     const groupId = String(operation?.groupId || '');
     const groupIndex = blocks.findIndex((block) => block?.kind === 'flow' && block.id === groupId);
     if (groupIndex < 0) fail('FLOW_GROUP_NOT_FOUND', `Flow group not found: ${groupId}`, { groupId });
 
-    const group = blocks[groupIndex];
+    return { group: blocks[groupIndex], groupIndex };
+}
+
+function findFlowContext(blocks, operation, groupContext = findFlowGroupContext(blocks, operation)) {
+    const { group, groupIndex } = groupContext;
     const sections = group.flow?.document?.sections;
     const sectionId = String(operation?.sectionId || '');
     const sectionIndex = Array.isArray(sections)
         ? sections.findIndex((section) => section?.id === sectionId)
         : -1;
     if (sectionIndex < 0) {
-        fail('FLOW_SECTION_NOT_FOUND', `Flow section not found: ${sectionId}`, { groupId, sectionId });
+        fail('FLOW_SECTION_NOT_FOUND', `Flow section not found: ${sectionId}`, {
+            groupId: group.id,
+            sectionId,
+        });
     }
 
     return {
@@ -93,13 +105,23 @@ function validateLanguageKey(value) {
  * - insertBlock: insert heading/paragraph/pageBreak after afterBlockId, or append
  * - removeBlock: remove one semantic block
  * - moveBlock: move one semantic block by delta (-1 or +1)
+ * - confirmTranslation: accept all present target values against current source
  */
 export function applyFlowAuthoringOperation(blocks, operation, options = {}) {
     if (!operation || typeof operation !== 'object' || Array.isArray(operation)) {
         throw new TypeError('Flow authoring operation must be an object.');
     }
     const nextBlocks = deepClone(blocks);
-    const context = findFlowContext(nextBlocks, operation);
+    const groupContext = findFlowGroupContext(nextBlocks, operation);
+    if (operation.type === 'confirmTranslation') {
+        const languageKey = validateLanguageKey(operation.languageKey);
+        const result = confirmFlowTranslationAgainstCurrentSource(groupContext.group, languageKey);
+        if (result.changed) groupContext.group.flow.translationState = result.translationState;
+        assertValidFlowProjectData({ version: PROJECT_SCHEMA_VERSION, blocks: nextBlocks });
+        return nextBlocks;
+    }
+
+    const context = findFlowContext(nextBlocks, operation, groupContext);
     const section = context.section;
     const idFactory = typeof options.idFactory === 'function' ? options.idFactory : createId;
 
@@ -115,13 +137,43 @@ export function applyFlowAuthoringOperation(blocks, operation, options = {}) {
             }
             const languageKey = validateLanguageKey(operation.languageKey);
             if (typeof operation.text !== 'string') fail('INVALID_FLOW_TEXT', 'Flow text must be a string.');
+            const sourceLanguage = context.group.flow.document.sourceLanguage;
+            if (languageKey === sourceLanguage) {
+                const captured = captureFlowTranslationUnitBeforeSourceEdit(context.group, {
+                    unitMap: 'blocks',
+                    unitId: block.id,
+                });
+                if (captured.changed) context.group.flow.translationState = captured.translationState;
+            }
             block.texts = { ...(block.texts || {}), [languageKey]: operation.text };
+            if (languageKey !== sourceLanguage) {
+                const recorded = recordFlowManualTranslationUnitEdit(context.group, languageKey, {
+                    unitMap: 'blocks',
+                    unitId: block.id,
+                });
+                if (recorded.changed) context.group.flow.translationState = recorded.translationState;
+            }
             break;
         }
         case 'setSectionTitle': {
             const languageKey = validateLanguageKey(operation.languageKey);
             if (typeof operation.text !== 'string') fail('INVALID_FLOW_TEXT', 'Section title must be a string.');
+            const sourceLanguage = context.group.flow.document.sourceLanguage;
+            if (languageKey === sourceLanguage) {
+                const captured = captureFlowTranslationUnitBeforeSourceEdit(context.group, {
+                    unitMap: 'sectionTitles',
+                    unitId: section.id,
+                });
+                if (captured.changed) context.group.flow.translationState = captured.translationState;
+            }
             section.title = { ...(section.title || {}), [languageKey]: operation.text };
+            if (languageKey !== sourceLanguage) {
+                const recorded = recordFlowManualTranslationUnitEdit(context.group, languageKey, {
+                    unitMap: 'sectionTitles',
+                    unitId: section.id,
+                });
+                if (recorded.changed) context.group.flow.translationState = recorded.translationState;
+            }
             break;
         }
         case 'setHeadingLevel': {
