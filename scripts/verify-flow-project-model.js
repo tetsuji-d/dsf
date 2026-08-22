@@ -18,6 +18,7 @@ import {
     validateFlowProjectData,
 } from '../js/flow-project-model.js';
 import { FLOW_DOCUMENT_SCHEMA_VERSION } from '../js/flow-document.js';
+import { FLOW_TRANSLATION_STATE_SCHEMA_VERSION } from '../js/flow-translation-state.js';
 import { PAGE_SCHEMA_VERSION, normalizeProjectDataV5 } from '../js/pages.js';
 
 let generatedId = 0;
@@ -37,11 +38,13 @@ assert.deepEqual(getFlowProjectModelVersions(), {
     project: 6,
     flowDocument: 1,
     flowLayout: 1,
+    flowTranslationState: 1,
 });
 assert.equal(PROJECT_SCHEMA_VERSION, 6);
 assert.equal(PAGE_SCHEMA_VERSION, 5);
 assert.equal(FLOW_DOCUMENT_SCHEMA_VERSION, 1);
 assert.equal(FLOW_LAYOUT_SCHEMA_VERSION, 1);
+assert.equal(FLOW_TRANSLATION_STATE_SCHEMA_VERSION, 1);
 
 const factoryGroup = createFlowGroupBlock({ idFactory });
 assert.equal(factoryGroup.kind, FLOW_GROUP_KIND);

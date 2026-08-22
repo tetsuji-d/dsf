@@ -4,6 +4,10 @@ import { readFileSync } from 'node:fs';
 import { syncBlocksWithSections } from '../js/blocks.js';
 import { createFlowGroupBlock } from '../js/flow-project-model.js';
 import {
+    FLOW_TRANSLATION_STATE_SCHEMA_VERSION,
+    createFlowTranslationLanguageBaseline,
+} from '../js/flow-translation-state.js';
+import {
     FIRESTORE_AUTHORING_MAX_BYTES,
     applyDspMetadataFallbacks,
     assertSupportedDspEnvelope,
@@ -128,6 +132,19 @@ const flow = createFlowGroupBlock({
         },
     },
 });
+flow.flow.translationState = {
+    schemaVersion: FLOW_TRANSLATION_STATE_SCHEMA_VERSION,
+    languages: {
+        'en-us': {
+            ...createFlowTranslationLanguageBaseline(flow, 'en-us', {
+                origin: 'machine',
+                reviewState: 'needs-review',
+            }),
+            futureLanguageState: { keep: 'PRIVATE_TRANSLATION_SENTINEL' },
+        },
+    },
+    futureState: { keep: true },
+};
 
 const mixedInput = {
     version: 6,
@@ -149,6 +166,7 @@ assert.equal(
     'blob: という語から始まる本文\n空白も保持する  ',
 );
 assert.equal(mixedSaved.blocks[0].content.layers[0].id, 'layer_a');
+assert.deepEqual(mixedSaved.blocks[1].flow.translationState, flow.flow.translationState);
 const mixedWithBoundaries = prepareProjectForSave({
     ...mixedInput,
     blocks: [
@@ -166,12 +184,15 @@ assert.deepEqual(publicProjection.blocks.map((block) => block.kind), ['page', 'p
 assert.equal(publicProjection.authoringRef, 'authoring/current');
 assert.equal(publicProjection.authoringSchemaVersion, 6);
 assert.equal(JSON.stringify(publicProjection).includes('blob: という語から始まる本文'), false);
+assert.equal(JSON.stringify(publicProjection).includes('PRIVATE_TRANSLATION_SENTINEL'), false);
+assert.equal(JSON.stringify(publicProjection).includes('translationState'), false);
 assert.equal(Object.hasOwn(publicProjection, 'futureProject'), false, 'unknown authoring fields must stay private');
 
 const serialized = serializeProject(mixedSaved);
 const roundTripped = deserializeProject(serialized);
 assert.deepEqual(roundTripped, hydrateProjectFromPersistence(mixedSaved));
 assert.deepEqual(roundTripped.blocks.map((block) => block.kind), ['page', 'flow', 'page']);
+assert.deepEqual(roundTripped.blocks[1].flow.translationState, flow.flow.translationState);
 
 const staleCompatibility = clone(mixedSaved);
 staleCompatibility.sections[0].texts.ja = 'STALE';
@@ -317,15 +338,18 @@ try {
     pushState();
     state.blocks[0].flow.document.sections[0].blocks[0].texts.ja = '変更後';
     state.blocks[0].flow.layout.typographyByLanguage.ja.writingMode = 'horizontal-tb';
+    state.blocks[0].flow.translationState.languages['en-us'].reviewState = 'reviewed';
     assert.equal(undo(() => {}), true);
     assert.equal(
         state.blocks[0].flow.document.sections[0].blocks[0].texts.ja,
         'blob: という語から始まる本文\n空白も保持する  ',
     );
     assert.equal(state.blocks[0].flow.layout.typographyByLanguage.ja.writingMode, 'vertical-rl');
+    assert.equal(state.blocks[0].flow.translationState.languages['en-us'].reviewState, 'needs-review');
     assert.equal(redo(() => {}), true);
     assert.equal(state.blocks[0].flow.document.sections[0].blocks[0].texts.ja, '変更後');
     assert.equal(state.blocks[0].flow.layout.typographyByLanguage.ja.writingMode, 'horizontal-tb');
+    assert.equal(state.blocks[0].flow.translationState.languages['en-us'].reviewState, 'reviewed');
 } finally {
     clearHistory();
     for (const key of Object.keys(state)) delete state[key];

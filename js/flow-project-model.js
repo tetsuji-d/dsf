@@ -15,6 +15,11 @@ import {
     validateFlowDocument,
 } from './flow-document.js';
 import {
+    FLOW_TRANSLATION_STATE_SCHEMA_VERSION,
+    normalizeFlowTranslationState,
+    validateFlowTranslationState,
+} from './flow-translation-state.js';
+import {
     DEFAULT_FLOW_WRITING_MODE,
     isFlowWritingModeSupported,
 } from './flow-typography.js';
@@ -280,7 +285,11 @@ export function createFlowGroupBlock(options = {}) {
  */
 export function normalizeFlowGroupBlock(input) {
     if (!isRecord(input)) throw new TypeError('Flow group input must be an object.');
-    return deepClone(input);
+    const normalized = deepClone(input);
+    if (isRecord(normalized.flow) && hasOwn(normalized.flow, 'translationState')) {
+        normalized.flow.translationState = normalizeFlowTranslationState(normalized.flow.translationState);
+    }
+    return normalized;
 }
 
 function isKnownLocalizedMapPath(path) {
@@ -296,6 +305,9 @@ function findForbiddenRuntimeKeys(value, path, issues) {
     if (!isRecord(value)) return;
     for (const [key, nestedValue] of Object.entries(value)) {
         const nestedPath = path ? `${path}.${key}` : key;
+        // translationState has its own validator. Treat its language/unit maps
+        // as metadata maps so exact keys such as "pages" remain valid IDs.
+        if (nestedPath === 'flow.translationState') continue;
         if (FORBIDDEN_FLOW_RUNTIME_KEYS.includes(key)) {
             addIssue(
                 issues,
@@ -337,6 +349,13 @@ export function validateFlowGroupBlock(block) {
         addIssue(issues, 'invalid_flow_layout', 'flow.layout', 'Flow group must contain FlowLayout settings.');
     } else {
         prefixIssues(issues, 'flow.layout', validateFlowLayoutSettings(block.flow.layout).issues);
+    }
+    if (hasOwn(block.flow, 'translationState')) {
+        prefixIssues(
+            issues,
+            'flow.translationState',
+            validateFlowTranslationState(block.flow.translationState, block.flow.document).issues,
+        );
     }
 
     const sourceLanguage = block.flow.document?.sourceLanguage;
@@ -507,5 +526,6 @@ export function getFlowProjectModelVersions() {
         project: PROJECT_SCHEMA_VERSION,
         flowDocument: FLOW_DOCUMENT_SCHEMA_VERSION,
         flowLayout: FLOW_LAYOUT_SCHEMA_VERSION,
+        flowTranslationState: FLOW_TRANSLATION_STATE_SCHEMA_VERSION,
     });
 }

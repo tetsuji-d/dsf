@@ -132,11 +132,22 @@ schema v1/v2は読込可能だが、未知のfuture schemaは本文欠落を避�
 ```
 
 Project v6の`blocks[].flow.document`がsemantic source、`flow.layout`がFlowLayout正本である。
+任意の`blocks[].flow.translationState` v1は、言語別翻訳が対応する原文をBlock／Section title単位の短い
+fingerprintで記録するauthoring metadataである。本文は従来どおり`document.sections[].blocks[].texts`／
+`sections[].title`だけに保存し、translationStateへ原文・翻訳文を複製しない。provider／model／接続先、
+翻訳job、進捗、error、cancel状態も収録しない。
+
+translationStateはProject v6 DSPの任意拡張なので、`meta.json.schemaVersion:2`、`project.json.version:6`、
+FlowDocument v1、FlowLayout v1は変更しない。translationState自身が`schemaVersion:1`を持つ。stateがない
+8B-1以前の手動翻訳は有効な`untracked`本文として読み込み、暗黙生成・暗黙上書きしない。futureまたは不正な
+translationState schemaは本文欠落を防ぐためProject validationで停止する。
+
 生成ページ、fragment、pagination checkpoint/cacheは`project.json`へ収録しない。`sections`と`pages`は
 Fixed Blockだけの互換投影であり、Flow-only DSPでは空配列となる。本文の完全な復元には必ず`blocks[]`を使う。
 
 DSP importはProject v6全体をvalidationしてからasset Object URLを作成し、stateへdispatchする。
-不正なFlow、Project v5へのFlow混入、future Project／FlowDocument／FlowLayoutはFixedへfallbackしない。
+不正なFlow、Project v5へのFlow混入、future Project／FlowDocument／FlowLayout／FlowTranslationStateは
+Fixedへfallbackしない。
 
 ### `content.json` (DSF ファイル専用)
 ブラウザやネイティブリーダーが、最小の計算コストでページを描画するための最適化（フラット化）データ。

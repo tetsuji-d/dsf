@@ -45,6 +45,7 @@ semantics so Press fields are not dropped by a fragile client-side allowlist.
 
 - Flow Group `flow.document` semantic source
 - Flow Group `flow.layout`
+- optional Flow Group `flow.translationState` v1 source fingerprints and review/lock metadata
 - ordered mixed `blocks[]`
 - Fixed compatibility `sections[]` and Page v5 `pages[]`
 - project metadata, exact saved language keys, and UI preferences
@@ -54,6 +55,7 @@ The following are runtime-only and are rejected rather than silently stripped:
 - generated Flow pages
 - fragments and source checkpoints
 - pagination results and caches
+- translation provider/model/endpoint settings and translation job progress/error/cancel state
 
 The public project root is built from an explicit public-field allowlist. It
 contains the Fixed compatibility projection, but no Flow group or unknown
@@ -69,6 +71,16 @@ Before writing `authoring/current`, Studio measures its UTF-8 JSON size and uses
 an 850 KiB soft limit. This leaves room below Firestore's document limit for
 field names and encoding overhead. Over-limit Flow source still remains in the
 local IndexedDB backup and can be exported as DSP; only the cloud write fails.
+
+Flow translationState uses one compact fingerprint per tracked Block or Section
+title and target language. It must not duplicate source/target prose or repeat
+provider metadata per unit. The 8B-2A conservative 100-Section/1,000-Paragraph
+fixture measures about 45 KiB for one target language's translationState and
+about 280 KiB for the complete Project v6 envelope. A conservative fixture with
+UUID-length IDs and five target languages measures about 357 KiB of translation
+metadata and 902 KiB total, so the existing guard rejects its cloud write while
+local IndexedDB and DSP serialization remain available. Supporting that scale
+in cloud authoring requires a future split of the owner-only authoring child.
 
 ## Version downgrade protection
 

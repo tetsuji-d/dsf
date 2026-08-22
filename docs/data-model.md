@@ -269,6 +269,19 @@ Project v6では`blocks[]`を順序付きauthoring spineとし、既存Fixed Blo
           "typographyByLanguage": {
             "ja": { "writingMode": "vertical-rl" }
           }
+        },
+        "translationState": {
+          "schemaVersion": 1,
+          "languages": {
+            "en-us": {
+              "sourceFingerprints": {
+                "blocks": { "flow_paragraph_1": "u1AbCdEf012_-" },
+                "sectionTitles": {}
+              },
+              "reviewState": "needs-review",
+              "origin": "machine"
+            }
+          }
         }
       }
     },
@@ -282,14 +295,21 @@ Project v6では`blocks[]`を順序付きauthoring spineとし、既存Fixed Blo
 - Fixed Blockは従来の固定編集データを所有する。
 - Flow Groupの`flow.document`がsemantic sourceを所有する。
 - `flow.layout`はDSF標準ページpreset、padding、言語別Typographyを所有する。
+- 任意の`flow.translationState` v1は、言語別本文が対応する原文の短いBlock／Section title fingerprintと
+  `origin`／`reviewState`／手動保護unitだけを所有する。原文、翻訳文、provider設定、job状態は複製しない。
 - Flow生成ページ、fragment、pagination cacheはruntime派生値であり、Project v6へ保存しない。
 - Flow生成ページはPage v5ではなく、永続IDを持たない。
 - Flow本文を廃止予定のFixed `content.text`／`content.richText`へ複製しない。
 - Flow Groupに`status`は置かず、spine内に存在すること自体を原稿へ接続中とみなす。
 
-バージョン境界はProject v6、Page v5、FlowDocument v1、FlowLayout v1とする。Commit 6Bで
+バージョン境界はProject v6、Page v5、FlowDocument v1、FlowLayout v1、任意のFlowTranslationState v1とする。Commit 6Bで
 `state.blocks`、IndexedDB、DSP、Firestoreへ接続した。Fixed-only作品はv5を維持し、Flow Groupを含む作品は
 明示的なv6として保存する。
+
+FlowTranslationStateのfingerprintは`u1` + FNV-1a 64-bit base64url 11文字である。Heading／Paragraphは
+Block ID、Section titleはSection ID単位で追跡する。target本文、Typography、Heading level、PageBreak、
+生成pageはfingerprintへ含めない。`stale` booleanは保存せず、現在の原文fingerprintとの不一致から導出する。
+metadataがない8B-1以前のtarget本文は`untracked`として有効かつ自動上書き保護対象とする。
 
 Project v6 normalizerはFixed Blockをopaqueに保持する。未知のauthoring Blockや未知のFlow semantic Blockは
 round-tripのため保持するが、対応できない内容を黙って欠落させないようvalidationで編集・paginationを停止する。
@@ -299,7 +319,7 @@ round-tripのため保持するが、対応できない内容を黙って欠落�
 公開済みproject rootは第三者が読めるため、Flow本文、翻訳原稿、FlowLayoutを含む完全なProject v6 envelopeは
 owner専用の`authoring/current`子documentへ保存する。rootと子documentは同一Firestore batchで更新する。
 
-- child: 完全なProject v6 `blocks[]`、Fixed互換`sections[]`／`pages[]`、言語・編集metadata
+- child: 完全なProject v6 `blocks[]`、Fixed互換`sections[]`／`pages[]`、言語・編集metadata（Flow translationStateを含む）
 - root: 明示的な公開field allowlistによる一覧／Press／Viewer用metadata、Fixed互換投影、`authoringRef`
 - 未知のProject v6 authoring拡張: owner専用childでは保持し、公開rootには投影しない
 - child欠落時: rootのFixed投影へfallbackせず読込停止
@@ -819,7 +839,8 @@ Project v6 authoring／runtime関係（Commit 6A/6B/7A）:
 ```
 ProjectV6.blocks[]
     ├─ Fixed Block ─────────────→ 既存Page v5 projection
-    └─ kind:'flow' Flow Group ─→ FlowDocument ─→ runtime generated pages
+    └─ kind:'flow' Flow Group ─┬→ FlowDocument ─→ runtime generated pages
+                              └→ translationState（authoring-only freshness metadata）
 ```
 
 Flow生成ページは`state.blocks`、`state.sections`、`state.pages`のいずれにも書き戻さない。
@@ -836,6 +857,7 @@ Flowを含む作品のDSF／Horizon発行はWebP renderer接続まで停止す�
 
 | 日付 | 変更内容 |
 |------|---------|
+| 2026-08-22 | Commit 8B-2A: 任意の`flow.translationState` v1、Block／Section title別の短い原文fingerprint、missing／stale／untracked／review状態の純粋導出を追加。Project／Flow／DSP version、公開境界、生成ページ非永続は変更なし |
 | 2026-08-22 | Commit 8B-1: 既存`texts[languageKey]`／`title[languageKey]`／`typographyByLanguage`をStudioのFlow言語別編集へ接続。構造とPageBreakは原稿言語で共有し、翻訳言語は独立reflowする。Project／Flow schema versionと保存境界は変更なし |
 | 2026-08-21 | Commit 8A: FlowDocumentのsourceLanguage原稿をStudioの連続semantic editorへ接続。Heading／Paragraph／PageBreak編集、既存Undo/Redo・autosave、runtime増分reflowを使用し、生成ページ非永続と発行停止を維持 |
 | 2026-08-21 | Commit 7A: 保存済みFlow原稿のruntime paginationをEditor／Pressの読取専用ページ一覧と通し番号へ接続。生成ページ非永続と発行停止を維持 |

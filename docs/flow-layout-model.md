@@ -8,8 +8,10 @@ Commit 6BではProject v6をStudio state、Undo/Redo、IndexedDB、DSP、owner�
 Commit 7Aでは保存済みFlow原稿をruntimeで再ページ化し、EditorとPressの確認用ページ列へ接続した。
 Commit 8AではFlow原稿カードを連続semantic editorへ接続し、増分reflow、既存Undo/Redo、autosaveを利用できるようにした。
 Commit 8B-1では既存作品言語タブをFlow編集言語へ接続し、原稿構造を共有した言語別本文編集と独立reflowを追加した。
+Commit 8B-2Aでは原文更新をBlock／Section title単位で検出する任意の`translationState` v1と、
+missing／stale／untracked／review状態を導出する純粋ロジックを追加した。
 
-自動翻訳provider、翻訳stale管理、WebP化、DSF／Horizon発行、Viewerにはまだ未接続である。生成ページを
+自動翻訳provider、stale表示とpreview切替、WebP化、DSF／Horizon発行、Viewerにはまだ未接続である。生成ページを
 `state.blocks`、`state.sections`、`state.pages`へ書き戻すことも行わない。
 
 ## 境界
@@ -274,8 +276,74 @@ Commit 6Aの対象外:
 - FlowDocumentの`sourceLanguage`として使われている作品言語はProject Settingsから削除できない。
 
 8B-1は手動言語別編集の境界である。Gen4の旧翻訳orchestratorは共通ページスロットを前提として翻訳先の
-ページ数変更を禁止するため移植しない。次の8B-2ではChrome／LM Studio providerの接続と、原文更新後の
-stale判定をFlow semantic Block向けに別設計する。その後にFlow pageのWebP化／DSF発行を扱う。
+ページ数変更を禁止するため移植しない。8B-2Aでは原文更新後のstale判定をFlow semantic Block向けに追加し、
+8B-2BでStudio表示とpreview fallback、8B-2C以降でChrome／LM Studio providerを段階接続する。その後に
+Flow pageのWebP化／DSF発行を扱う。
+
+## Flow translation freshness contract（Commit 8B-2A）
+
+`flow.translationState`はFlow本文や組版ではなく、翻訳がどの原文に対応しているかを示す任意のauthoring
+metadataである。Project v6、FlowDocument v1、FlowLayout v1、DSP schema v2は変更せず、translationState
+だけが独立した`schemaVersion:1`を持つ。
+
+```json
+{
+  "translationState": {
+    "schemaVersion": 1,
+    "languages": {
+      "en-us": {
+        "sourceFingerprints": {
+          "blocks": {
+            "flow_paragraph_1": "u1AbCdEf012_-"
+          },
+          "sectionTitles": {
+            "flow_section_1": "u1ZyXwVu98765"
+          }
+        },
+        "reviewState": "needs-review",
+        "origin": "machine",
+        "lockedUnitIds": []
+      }
+    }
+  }
+}
+```
+
+- `languages`は保存済み言語キーを完全一致で使い、原稿言語自身のentryは持たない。
+- fingerprintは`u1` + FNV-1a 64-bitのbase64url 11文字で、原文や翻訳文をmetadataへ複製しない。
+- canonical配列、UTF-8化、hash、byte順、encodingのいずれかを変える場合はprefixを`u2`へ上げ、`u1`を再解釈しない。
+- Heading／ParagraphはBlock ID、Section titleはSection IDで個別追跡する。
+- 原稿言語キー自体がないSection titleは翻訳対象外とし、意図的な空文字キーは追跡対象として区別する。
+- fingerprint対象は原稿言語キー、Section所属、ID、Block type、原文キーの有無、原文文字列である。
+- target本文、Typography、Heading level、PageBreak、生成page、Blockの同一Section内順序はfingerprintへ含めない。
+- 別SectionへBlockを移した場合はSection所属が変わるためstaleになる。
+- `stale`は保存せず、保存fingerprintと現在の原文fingerprintの不一致から毎回導出する。
+- 既存8B-1翻訳のようにmetadataがない完全なtarget本文は`untracked`として表示可能かつ上書き保護対象とする。
+- `origin:'manual'`はfingerprintを持つ既存unitだけを暗黙ロックする。後から追加されたmissing unitはロックしない。
+- `lockedUnitIds`は`mixed`等で個別の手動修正unitを保護する任意リストであり、全IDを重複保存しない。
+- `origin`は`manual | machine | mixed`、`reviewState`は`needs-review | reviewed`だけを保存する。
+- provider／model／接続先、進捗、error、cancel状態はProjectへ保存しない。
+- 現在の文書に存在しない古いfingerprint IDは読込を停止せず無視できる。明示更新時に整理する。
+
+statusは本文Heading／ParagraphとoutlineのSection titleを分けて導出する。本文のmissingまたはstaleは後続の
+Commit 8B-2Bで原文previewへfallbackさせる。metadataなしの`untracked`は8B-1互換のため、それだけを理由に
+fallbackしない。Section titleだけがstaleでも本文ページはfallbackしない。
+
+translationStateはFlow Group内に保存するため、IndexedDB、DSP、owner専用Firestore
+`authoring/current`ではround-tripし、公開project rootと配信DSFには出さない。850 KiB制限を守るため、
+per-unit provider名、timestamp、原文、翻訳文は保存しない。100 Section／1,000 Paragraph／1対象言語の
+検証fixtureではtranslationStateは約45 KiB、Project全体は約280 KiBだった。UUID相当の長いIDと5対象言語を
+持つ保守的fixtureではtranslationState約357 KiB、Project全体約902 KiBとなり、現行850 KiB cloud soft limitが
+明示拒否することも検証する。この場合もlocal／DSP原稿は維持される。多数言語・長大原稿のcloud保存は、将来の
+authoring child分割で解決する必要がある。
+
+Commit 8B-2Aの対象外:
+
+- Studioのbadge、警告、原文preview切替
+- source編集時のbaseline登録、手動確認、Undo操作
+- Chrome Translator／LM Studio provider
+- 翻訳job、進捗、cancel、atomic apply
+- Flow pageのWebP化、DSF／Horizon発行、Viewer
 
 ## DOM preview boundary（Commit 3）
 
