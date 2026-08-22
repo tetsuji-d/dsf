@@ -611,6 +611,83 @@ export function recordFlowManualTranslationUnitEdit(group, languageKey, options 
 }
 
 /**
+ * Register one atomic machine-translation batch against the current source.
+ *
+ * The translated text must already be present in the semantic document. This
+ * function only updates compact freshness metadata; provider/job details never
+ * enter FlowTranslationState. Existing manual units become explicit locks when
+ * a language changes from manual to mixed ownership.
+ */
+export function recordFlowMachineTranslationUnitBatch(group, languageKey, units) {
+    const source = requireFlowGroup(group);
+    const targetLanguage = requireExactKey(languageKey, 'Flow target language');
+    const sourceLanguage = source.flow.document.sourceLanguage;
+    if (targetLanguage === sourceLanguage) {
+        throw new RangeError('The Flow source language cannot be recorded as a machine translation.');
+    }
+    if (!Array.isArray(units) || units.length === 0) {
+        throw new TypeError('Flow machine translation units must be a non-empty array.');
+    }
+
+    const previous = getValidatedTranslationState(source);
+    const nextState = createMutableTranslationState(source);
+    const existing = getTranslationLanguageState(nextState, targetLanguage);
+    const seen = new Set();
+    const resolvedUnits = units.map((entry) => {
+        if (!isRecord(entry)) throw new TypeError('Flow machine translation unit must be an object.');
+        const unit = resolveFlowTranslationUnit(source, entry.unitMap, entry.unitId);
+        if (seen.has(unit.unitId)) throw new RangeError(`Duplicate Flow translation unit: ${unit.unitId}`);
+        seen.add(unit.unitId);
+        const target = getExactText(unit.targetMap, targetLanguage);
+        if (!unit.trackable || !target.present) {
+            throw new RangeError(`Machine translation target is missing: ${unit.unitId}`);
+        }
+        if (entry.sourceFingerprint !== unit.sourceFingerprint) {
+            throw new RangeError(`Flow source changed before machine translation apply: ${unit.unitId}`);
+        }
+        return unit;
+    });
+
+    const fingerprints = isRecord(existing?.sourceFingerprints)
+        ? deepClone(existing.sourceFingerprints)
+        : { blocks: {}, sectionTitles: {} };
+    fingerprints.blocks = isRecord(fingerprints.blocks) ? fingerprints.blocks : {};
+    fingerprints.sectionTitles = isRecord(fingerprints.sectionTitles) ? fingerprints.sectionTitles : {};
+    for (const unit of resolvedUnits) {
+        fingerprints[unit.unitMap] = replaceExactMapEntry(
+            fingerprints[unit.unitMap],
+            unit.unitId,
+            unit.sourceFingerprint,
+        );
+    }
+
+    const existingOrigin = existing?.origin || '';
+    const nextOrigin = existingOrigin === 'manual' || existingOrigin === 'mixed'
+        ? 'mixed'
+        : 'machine';
+    let lockedUnitIds = Array.isArray(existing?.lockedUnitIds)
+        ? [...existing.lockedUnitIds]
+        : [];
+    if (existingOrigin === 'manual') {
+        for (const unitId of Object.keys(existing?.sourceFingerprints?.blocks || {})) {
+            lockedUnitIds = appendUniqueExactId(lockedUnitIds, unitId);
+        }
+        for (const unitId of Object.keys(existing?.sourceFingerprints?.sectionTitles || {})) {
+            lockedUnitIds = appendUniqueExactId(lockedUnitIds, unitId);
+        }
+    }
+
+    upsertTranslationLanguageState(nextState, targetLanguage, {
+        ...(existing ? deepClone(existing) : {}),
+        sourceFingerprints: fingerprints,
+        reviewState: 'needs-review',
+        origin: nextOrigin,
+        ...(lockedUnitIds.length ? { lockedUnitIds } : {}),
+    });
+    return createTranslationStateMutationResult(source, nextState);
+}
+
+/**
  * Explicitly accept every currently present target value against the current
  * source while preserving origin, locks, other languages, and unknown fields.
  */

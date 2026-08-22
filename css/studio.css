@@ -8226,6 +8226,105 @@ textarea.ps-meta-input {
     background: #f0fdf4;
 }
 
+.flow-translation-automation {
+    width: min(100%, 860px);
+    margin: 0 auto 12px;
+    padding: 12px;
+    border: 1px solid #c7d2fe;
+    border-radius: 9px;
+    box-sizing: border-box;
+    color: #334155;
+    background: rgba(238, 242, 255, 0.92);
+}
+
+.flow-translation-controls {
+    display: flex;
+    align-items: end;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+.flow-translation-controls label {
+    display: grid;
+    gap: 4px;
+    min-width: 170px;
+    color: #64748b;
+    font-size: 10px;
+    font-weight: 800;
+}
+
+.flow-translation-controls select,
+.flow-translation-controls button {
+    min-height: 32px;
+    padding: 6px 9px;
+    border: 1px solid #a5b4fc;
+    border-radius: 7px;
+    color: #3730a3;
+    background: #fff;
+    font: inherit;
+    font-size: 11px;
+}
+
+.flow-translation-controls button {
+    cursor: pointer;
+    font-weight: 800;
+}
+
+.flow-translation-controls button:disabled,
+.flow-translation-controls select:disabled {
+    opacity: 0.52;
+    cursor: default;
+}
+
+.flow-translation-target-count {
+    align-self: center;
+    color: #6366f1;
+    font-size: 11px;
+    font-weight: 800;
+}
+
+.flow-translation-run-actions {
+    display: flex;
+    gap: 6px;
+    margin-left: auto;
+}
+
+.flow-translation-controls .flow-translation-start {
+    border-color: #4f46e5;
+    color: #fff;
+    background: #4f46e5;
+}
+
+.flow-translation-controls .flow-translation-cancel {
+    border-color: #dc2626;
+    color: #b91c1c;
+}
+
+.flow-translation-automation p {
+    margin: 8px 0 0;
+    font-size: 11px;
+    line-height: 1.55;
+}
+
+.flow-translation-automation [data-flow-translation-job-status] {
+    color: #334155;
+    font-weight: 700;
+}
+
+.flow-translation-safety-note {
+    color: #64748b;
+}
+
+.flow-translation-automation[data-job-state="success"] {
+    border-color: #86efac;
+    background: #f0fdf4;
+}
+
+.flow-translation-automation[data-job-state="error"] {
+    border-color: #fca5a5;
+    background: #fef2f2;
+}
+
 #flow-authoring-surface[data-reflow-state="working"] [data-flow-authoring-status] {
     color: #92400e;
     background: #fffbeb;
@@ -8636,6 +8735,44 @@ body[data-theme="dark"] .flow-authoring-translation-status[data-tone="ready"] {
     background: #052e16;
 }
 
+body[data-theme="dark"] .flow-translation-automation {
+    border-color: #4f5b75;
+    color: #e5e7eb;
+    background: #252d3d;
+}
+
+body[data-theme="dark"] .flow-translation-controls label,
+body[data-theme="dark"] .flow-translation-safety-note {
+    color: #94a3b8;
+}
+
+body[data-theme="dark"] .flow-translation-controls select,
+body[data-theme="dark"] .flow-translation-controls button {
+    border-color: #4f5b75;
+    color: #dbeafe;
+    background: #2d3442;
+}
+
+body[data-theme="dark"] .flow-translation-controls .flow-translation-start {
+    border-color: #818cf8;
+    color: #fff;
+    background: #4f46e5;
+}
+
+body[data-theme="dark"] .flow-translation-automation [data-flow-translation-job-status] {
+    color: #e2e8f0;
+}
+
+body[data-theme="dark"] .flow-translation-automation[data-job-state="success"] {
+    border-color: #15803d;
+    background: #052e16;
+}
+
+body[data-theme="dark"] .flow-translation-automation[data-job-state="error"] {
+    border-color: #b91c1c;
+    background: #450a0a;
+}
+
 body[data-theme="dark"] .flow-authoring-unit-status {
     border-color: #4b5563;
     color: #cbd5e1;
@@ -8689,6 +8826,18 @@ body[data-theme="dark"] .flow-authoring-translation-structure-note {
 
     .flow-authoring-translation-status button {
         width: 100%;
+    }
+
+    .flow-translation-controls,
+    .flow-translation-controls label,
+    .flow-translation-controls select,
+    .flow-translation-controls button,
+    .flow-translation-run-actions {
+        width: 100%;
+    }
+
+    .flow-translation-run-actions {
+        margin-left: 0;
     }
 
     .flow-authoring-header {

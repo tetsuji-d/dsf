@@ -86,12 +86,31 @@ renderFlowAuthoringView(fakeRoot, {
     languageKey: 'en-us',
     pageCount: 2,
     translationStatus: legacyStatus,
+    translationAutomation: {
+        providers: [
+            { id: 'chrome-translator', label: 'Chrome Translator', available: false },
+            { id: 'lm-studio', label: 'LM Studio', available: true },
+        ],
+        providerId: 'lm-studio',
+        models: [{ id: 'verify-model', label: 'Verify model' }],
+        modelId: 'verify-model',
+        modelState: 'ready',
+        targetCount: 2,
+        jobState: 'idle',
+        canStart: true,
+    },
 });
 assert.equal(fakeRoot.dataset.translationStatus, 'untracked');
 assert.equal(fakeRoot.dataset.outlineIssues, 'true');
 assert.match(fakeRoot.innerHTML, /data-flow-translation-status-panel/);
 assert.match(fakeRoot.innerHTML, /data-testid="flow-translation-confirm"/);
 assert.match(fakeRoot.innerHTML, /data-flow-translation-unit-status/);
+assert.match(fakeRoot.innerHTML, /data-testid="flow-translation-automation"/);
+assert.match(fakeRoot.innerHTML, /data-flow-field="translation-provider"/);
+assert.match(fakeRoot.innerHTML, /data-flow-field="translation-model"/);
+assert.match(fakeRoot.innerHTML, /data-testid="flow-translation-start"/);
+assert.match(fakeRoot.innerHTML, /data-testid="flow-translation-cancel"/);
+assert.match(fakeRoot.innerHTML, /手動訳と状態未登録の訳は上書きしません/);
 assert.equal(
     (fakeRoot.innerHTML.match(/data-flow-translation-unit-status/g) || []).length,
     2,

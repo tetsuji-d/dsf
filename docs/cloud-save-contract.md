@@ -61,6 +61,10 @@ Commit 8B-2C-Aのprovider registry、model discovery、Flow translation request�
 provider response、atomic apply planもこのruntime-only境界に含む。これらはStudioへ接続する前の純粋な実行契約であり、
 Project v6や`flow.translationState`へ追加fieldを作らない。
 
+Commit 8B-2C-BでStudioへ接続したprovider／model選択、model一覧、job進捗、error、cancel stateも保存しない。
+成功時に保存されるのは既存FlowDocument内の言語別`title`／`texts`と、既存schemaの
+`flow.translationState` machine／mixed freshness metadataだけである。schema versionと公開root境界は変更しない。
+
 The public project root is built from an explicit public-field allowlist. It
 contains the Fixed compatibility projection, but no Flow group or unknown
 authoring extension. Unknown authoring fields remain round-trippable only in the

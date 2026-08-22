@@ -42,8 +42,29 @@ import {
 } from './flow-multilingual-authoring.js';
 import { deriveFlowTranslationStatus } from './flow-translation-state.js';
 import {
+    createFlowTranslationApplyPlan,
+    createFlowTranslationRequest,
+} from './flow-translation-request.js';
+import { applyFlowTranslationPlan } from './flow-translation-apply.js';
+import {
+    listTranslationProviderModels,
+    listTranslationProviders,
+    registerTranslationProvider,
+    runTranslationProvider,
+} from './translation-provider.js';
+import {
+    BROWSER_TRANSLATOR_PROVIDER_ID,
+    createBrowserTranslationProvider,
+    isBrowserTranslatorSupported,
+} from './browser-translator-provider.js';
+import {
+    LM_STUDIO_TRANSLATOR_PROVIDER_ID,
+    createLMStudioTranslationProvider,
+} from './lm-studio-translator-provider.js';
+import {
     renderFlowAuthoringView,
     updateFlowAuthoringViewStatus,
+    updateFlowTranslationAutomationView,
 } from './flow-authoring-view.js';
 import {
     getFlowEditorSelection,
@@ -104,6 +125,37 @@ let _flowAuthoringRenderedRevision = 0;
 let _flowAuthoringComposing = false;
 let _flowAuthoringLanguageFeedback = null;
 
+registerTranslationProvider(
+    BROWSER_TRANSLATOR_PROVIDER_ID,
+    createBrowserTranslationProvider(),
+);
+registerTranslationProvider(
+    LM_STUDIO_TRANSLATOR_PROVIDER_ID,
+    createLMStudioTranslationProvider(),
+);
+
+const _flowTranslationRuntime = {
+    providerId: isBrowserTranslatorSupported(globalThis)
+        ? BROWSER_TRANSLATOR_PROVIDER_ID
+        : LM_STUDIO_TRANSLATOR_PROVIDER_ID,
+    modelsByProvider: {
+        [BROWSER_TRANSLATOR_PROVIDER_ID]: [{
+            id: 'chrome-managed',
+            label: 'Chrome built-in model',
+        }],
+    },
+    modelIdByProvider: {
+        [BROWSER_TRANSLATOR_PROVIDER_ID]: 'chrome-managed',
+    },
+    modelStateByProvider: {
+        [BROWSER_TRANSLATOR_PROVIDER_ID]: 'ready',
+        [LM_STUDIO_TRANSLATOR_PROVIDER_ID]: 'idle',
+    },
+    modelMessageByProvider: {},
+};
+let _flowTranslationJob = null;
+let _flowTranslationJobSequence = 0;
+
 function resetFlowRuntimeForProjectChange() {
     if (_flowAuthoringReflowTimer) clearTimeout(_flowAuthoringReflowTimer);
     _flowAuthoringReflowTimer = null;
@@ -111,6 +163,8 @@ function resetFlowRuntimeForProjectChange() {
     _flowAuthoringRenderedRevision = 0;
     _flowAuthoringComposing = false;
     _flowAuthoringLanguageFeedback = null;
+    _flowTranslationJob?.controller?.abort?.();
+    _flowTranslationJob = null;
     endHistoryGroup();
     resetFlowEditorSelections();
     _editorFlowProjectionController?.abort();
@@ -266,6 +320,334 @@ function getFlowAuthoringLanguageFeedback(group, languageKey, options = {}) {
     return feedback;
 }
 
+function getFlowTranslationProviderOptions() {
+    return listTranslationProviders().map((provider) => ({
+        ...provider,
+        available: provider.id !== BROWSER_TRANSLATOR_PROVIDER_ID
+            || isBrowserTranslatorSupported(globalThis),
+    }));
+}
+
+function normalizeFlowTranslationProviderSelection() {
+    const providers = getFlowTranslationProviderOptions();
+    const current = providers.find((provider) => (
+        provider.id === _flowTranslationRuntime.providerId && provider.available !== false
+    ));
+    if (current) return current;
+    const fallback = providers.find((provider) => provider.available !== false) || providers[0] || null;
+    _flowTranslationRuntime.providerId = fallback?.id || '';
+    return fallback;
+}
+
+function getFlowTranslationAutomation(group, languageKey) {
+    const sourceLanguage = String(group?.flow?.document?.sourceLanguage || '');
+    if (!group || !languageKey || languageKey === sourceLanguage) return null;
+    const provider = normalizeFlowTranslationProviderSelection();
+    const providerId = provider?.id || '';
+    const models = _flowTranslationRuntime.modelsByProvider[providerId] || [];
+    const modelState = _flowTranslationRuntime.modelStateByProvider[providerId] || 'idle';
+    let modelId = _flowTranslationRuntime.modelIdByProvider[providerId] || '';
+    if (!models.some((model) => model.id === modelId)) {
+        modelId = models[0]?.id || '';
+        _flowTranslationRuntime.modelIdByProvider[providerId] = modelId;
+    }
+
+    const job = _flowTranslationJob;
+    const isCurrentJob = job?.groupId === group.id && job?.languageKey === languageKey;
+    const anotherJobRunning = job?.state === 'running' && !isCurrentJob;
+    let targetCount = isCurrentJob && job.state === 'running'
+        ? Math.max(0, Number(job.total) || 0)
+        : 0;
+    let requestMessage = '';
+    if (!(isCurrentJob && job.state === 'running')) {
+        try {
+            targetCount = createFlowTranslationRequest(group, {
+                targetLang: languageKey,
+                modelId,
+            }).units.length;
+        } catch (error) {
+            requestMessage = error?.message || String(error);
+        }
+    }
+
+    const jobState = isCurrentJob ? job.state : (anotherJobRunning ? 'running' : 'idle');
+    const message = isCurrentJob
+        ? job.message
+        : anotherJobRunning
+            ? '別のFlow原稿を翻訳中です。完了または中止してから実行してください。'
+            : requestMessage || _flowTranslationRuntime.modelMessageByProvider[providerId] || '';
+    return {
+        providers: getFlowTranslationProviderOptions(),
+        providerId,
+        models,
+        modelId,
+        modelState,
+        targetCount,
+        jobState,
+        message,
+        canStart: provider?.available !== false
+            && modelState === 'ready'
+            && !!modelId
+            && targetCount > 0
+            && job?.state !== 'running',
+    };
+}
+
+function refreshFlowTranslationAutomationSurface() {
+    const group = getActiveBlock();
+    if (group?.kind !== 'flow' || !isFlowSourceSelected(group.id)) return;
+    renderFlowAuthoringSurface(group, getEditorPageProjection());
+}
+
+function updateCurrentFlowTranslationAutomation() {
+    const root = getFlowAuthoringSurface();
+    const group = getActiveBlock();
+    if (!root || group?.kind !== 'flow') return;
+    updateFlowTranslationAutomationView(
+        root,
+        getFlowTranslationAutomation(group, getFlowAuthoringLanguage(group)),
+    );
+}
+
+async function loadFlowTranslationProviderModels(providerId, options = {}) {
+    const providerKey = String(providerId || _flowTranslationRuntime.providerId || '');
+    if (!providerKey) return [];
+    if (
+        options.force !== true
+        && _flowTranslationRuntime.modelStateByProvider[providerKey] === 'ready'
+        && _flowTranslationRuntime.modelsByProvider[providerKey]?.length
+    ) {
+        return _flowTranslationRuntime.modelsByProvider[providerKey];
+    }
+
+    _flowTranslationRuntime.modelStateByProvider[providerKey] = 'loading';
+    _flowTranslationRuntime.modelMessageByProvider[providerKey] = '利用可能なモデルを取得しています…';
+    refreshFlowTranslationAutomationSurface();
+    try {
+        const models = await listTranslationProviderModels(providerKey);
+        _flowTranslationRuntime.modelsByProvider[providerKey] = models;
+        _flowTranslationRuntime.modelStateByProvider[providerKey] = 'ready';
+        const selected = _flowTranslationRuntime.modelIdByProvider[providerKey];
+        if (!models.some((model) => model.id === selected)) {
+            _flowTranslationRuntime.modelIdByProvider[providerKey] = models[0]?.id || '';
+        }
+        _flowTranslationRuntime.modelMessageByProvider[providerKey] = models.length
+            ? `${models.length}件のモデルを取得しました。`
+            : '利用可能なモデルがありません。';
+        return models;
+    } catch (error) {
+        _flowTranslationRuntime.modelsByProvider[providerKey] = [];
+        _flowTranslationRuntime.modelStateByProvider[providerKey] = 'error';
+        _flowTranslationRuntime.modelMessageByProvider[providerKey] = error?.message || String(error);
+        return [];
+    } finally {
+        refreshFlowTranslationAutomationSurface();
+    }
+}
+
+function getFlowTranslationProgressMessage(progress = {}) {
+    if (progress.phase === 'preparing') return '翻訳モデルを準備しています…';
+    if (progress.phase === 'downloading') {
+        return `翻訳モデルを準備しています… ${Math.round((Number(progress.loaded) || 0) * 100)}%`;
+    }
+    if (progress.phase === 'translating') {
+        return `翻訳中… ${Number(progress.current) || 0} / ${Number(progress.total) || 0}`;
+    }
+    return '翻訳結果を確認しています…';
+}
+
+function cancelFlowTranslationJob() {
+    if (_flowTranslationJob?.state !== 'running') return;
+    _flowTranslationJob.message = '翻訳を中止しています…';
+    _flowTranslationJob.controller?.abort?.();
+    updateCurrentFlowTranslationAutomation();
+}
+
+function installFlowTranslationVerificationProvider(options = {}) {
+    const providerId = 'flow-verification-provider';
+    const delayMs = Math.max(0, Math.min(5000, Number(options.delayMs) || 25));
+    const expansionFactor = Math.max(1, Math.min(4, Number(options.expansionFactor) || 1));
+    registerTranslationProvider(providerId, {
+        id: providerId,
+        label: 'Flow verification provider',
+        local: true,
+        modelMode: 'fixed',
+        defaultModelId: 'verification-model',
+        defaultModelLabel: 'Verification model',
+        async translate(request, context = {}) {
+            context.onProgress?.({
+                phase: 'translating',
+                current: 0,
+                total: request.units.length,
+            });
+            await new Promise((resolve) => setTimeout(resolve, delayMs));
+            if (context.signal?.aborted) return { units: [], cancelled: true };
+            const units = request.units.map((unit, index) => {
+                context.onProgress?.({
+                    phase: 'translating',
+                    current: index + 1,
+                    total: request.units.length,
+                });
+                return {
+                    unitId: unit.unitId,
+                    text: unit.text
+                        ? `[${request.targetLang}] ${unit.text.repeat(expansionFactor)}`
+                        : '',
+                    status: 'needs-review',
+                };
+            });
+            return { units, cancelled: false };
+        },
+    });
+    _flowTranslationRuntime.providerId = providerId;
+    _flowTranslationRuntime.modelsByProvider[providerId] = [{
+        id: 'verification-model',
+        label: 'Verification model',
+    }];
+    _flowTranslationRuntime.modelIdByProvider[providerId] = 'verification-model';
+    _flowTranslationRuntime.modelStateByProvider[providerId] = 'ready';
+    _flowTranslationRuntime.modelMessageByProvider[providerId] = '';
+    _flowTranslationJob = null;
+    refreshFlowTranslationAutomationSurface();
+    return providerId;
+}
+
+async function startFlowTranslationJob(groupId) {
+    if (_flowTranslationJob?.state === 'running') return;
+    const group = getFlowGroupById(groupId);
+    if (!group) return;
+    const languageKey = getFlowAuthoringLanguage(group);
+    const sourceLanguage = group.flow?.document?.sourceLanguage;
+    if (!languageKey || languageKey === sourceLanguage) return;
+
+    const provider = normalizeFlowTranslationProviderSelection();
+    const providerId = provider?.id || '';
+    if (!providerId || provider?.available === false) return;
+    if (_flowTranslationRuntime.modelStateByProvider[providerId] !== 'ready') {
+        await loadFlowTranslationProviderModels(providerId);
+    }
+    const modelId = _flowTranslationRuntime.modelIdByProvider[providerId] || '';
+    let request;
+    try {
+        request = createFlowTranslationRequest(getFlowGroupById(groupId), {
+            targetLang: languageKey,
+            modelId,
+        });
+    } catch (error) {
+        _flowTranslationJob = {
+            id: ++_flowTranslationJobSequence,
+            groupId,
+            languageKey,
+            state: 'error',
+            message: error?.message || String(error),
+            controller: null,
+        };
+        updateCurrentFlowTranslationAutomation();
+        return;
+    }
+    if (!request.units.length) {
+        _flowTranslationJob = {
+            id: ++_flowTranslationJobSequence,
+            groupId,
+            languageKey,
+            state: 'success',
+            message: '自動翻訳が必要な未翻訳・原文更新箇所はありません。',
+            controller: null,
+        };
+        updateCurrentFlowTranslationAutomation();
+        return;
+    }
+
+    const controller = new AbortController();
+    const jobId = ++_flowTranslationJobSequence;
+    _flowTranslationJob = {
+        id: jobId,
+        groupId,
+        languageKey,
+        total: request.units.length,
+        state: 'running',
+        message: `翻訳を開始しています… 0 / ${request.units.length}`,
+        controller,
+    };
+    updateCurrentFlowTranslationAutomation();
+
+    try {
+        const response = await runTranslationProvider(request, {
+            providerId,
+            signal: controller.signal,
+            onProgress(progress) {
+                if (_flowTranslationJob?.id !== jobId) return;
+                _flowTranslationJob.message = getFlowTranslationProgressMessage(progress);
+                updateCurrentFlowTranslationAutomation();
+            },
+        });
+        if (_flowTranslationJob?.id !== jobId) return;
+        if (response.cancelled) {
+            _flowTranslationJob = {
+                ..._flowTranslationJob,
+                state: 'cancelled',
+                message: '翻訳を中止しました。原稿は変更されていません。',
+                controller: null,
+            };
+            updateCurrentFlowTranslationAutomation();
+            return;
+        }
+
+        const currentGroup = getFlowGroupById(groupId);
+        const plan = createFlowTranslationApplyPlan(currentGroup, request, response);
+        if (!plan.ready) {
+            _flowTranslationJob = {
+                ..._flowTranslationJob,
+                state: 'error',
+                message: '翻訳中に原稿または訳文が変更されたため、結果を適用しませんでした。',
+                controller: null,
+            };
+            updateCurrentFlowTranslationAutomation();
+            return;
+        }
+
+        const existingWritingMode = currentGroup.flow?.layout?.typographyByLanguage?.[languageKey]?.writingMode;
+        const authoringBlocks = ensureFlowLanguageTypography(state.blocks || [], {
+            groupId,
+            languageKey,
+            writingMode: existingWritingMode
+                || getWritingModeFromConfigs(languageKey, state.languageConfigs),
+        }).blocks;
+        const nextBlocks = applyFlowTranslationPlan(authoringBlocks, {
+            groupId,
+            targetLang: languageKey,
+            plan,
+        });
+        endHistoryGroup();
+        pushState();
+        dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'blocks', value: nextBlocks } });
+        updateHistoryButtons();
+        _flowAuthoringSourceRevision += 1;
+        _flowAuthoringLanguageFeedback = null;
+        _flowTranslationJob = {
+            ..._flowTranslationJob,
+            state: 'success',
+            message: `${plan.edits.length}件を一括適用しました。内容を確認してください。`,
+            controller: null,
+        };
+        const updatedGroup = getFlowGroupById(groupId);
+        if (updatedGroup && getActiveBlock()?.id === groupId) renderFlowAuthoringSurface(updatedGroup, null);
+        scheduleFlowAuthoringReflow(groupId, { immediate: true });
+        triggerAutoSave();
+    } catch (error) {
+        if (_flowTranslationJob?.id !== jobId) return;
+        _flowTranslationJob = {
+            ..._flowTranslationJob,
+            state: controller.signal.aborted ? 'cancelled' : 'error',
+            message: controller.signal.aborted
+                ? '翻訳を中止しました。原稿は変更されていません。'
+                : `翻訳に失敗しました。原稿は変更されていません。${error?.message ? ` ${error.message}` : ''}`,
+            controller: null,
+        };
+        updateCurrentFlowTranslationAutomation();
+    }
+}
+
 function updateActiveFlowAuthoringStatus(projection, options = {}) {
     const root = getFlowAuthoringSurface();
     const activeBlock = getActiveBlock();
@@ -304,6 +686,10 @@ function updateActiveFlowAuthoringStatus(projection, options = {}) {
         translationStatus,
         message: options.message,
     });
+    updateFlowTranslationAutomationView(
+        root,
+        getFlowTranslationAutomation(activeBlock, languageKey),
+    );
     if (projection) {
         syncPageNavigationSlider();
         syncEditorPageCounters();
@@ -315,6 +701,7 @@ function renderFlowAuthoringSurface(activeBlock, projection = getEditorPageProje
     if (!root || activeBlock?.kind !== 'flow') return;
     const languageKey = getFlowAuthoringLanguage(activeBlock);
     const { languageProgress, translationStatus } = getFlowAuthoringLanguageFeedback(activeBlock, languageKey);
+    const translationAutomation = getFlowTranslationAutomation(activeBlock, languageKey);
     const groupProjection = getFlowAuthoringGroupProjection(projection, activeBlock.id);
     const scrollTop = root.scrollTop;
     renderFlowAuthoringView(root, {
@@ -322,6 +709,7 @@ function renderFlowAuthoringSurface(activeBlock, projection = getEditorPageProje
         languageKey,
         pageCount: groupProjection?.pageCount || 0,
         translationStatus,
+        translationAutomation,
         onInput: handleFlowAuthoringInput,
         onChange: handleFlowAuthoringChange,
         onAction: handleFlowAuthoringAction,
@@ -384,6 +772,12 @@ function scheduleFlowAuthoringReflow(groupId, options = {}) {
 
 function applyFlowAuthoringEdit(operation, options = {}) {
     const historyKey = String(options.historyKey || '');
+    if (
+        _flowTranslationJob?.groupId === operation.groupId
+        && _flowTranslationJob.state !== 'running'
+    ) {
+        _flowTranslationJob = null;
+    }
     let authoringBlocks = state.blocks || [];
     const group = getFlowGroupById(operation.groupId);
     const languageKey = String(operation.languageKey || '');
@@ -508,7 +902,34 @@ function handleFlowAuthoringInput(event) {
 }
 
 function handleFlowAuthoringChange(event) {
-    if (event.target?.dataset?.flowField !== 'heading-level') return;
+    const field = event.target?.dataset?.flowField;
+    if (field === 'translation-provider') {
+        const providerId = String(event.target.value || '');
+        const provider = getFlowTranslationProviderOptions().find((entry) => (
+            entry.id === providerId && entry.available !== false
+        ));
+        if (!provider || _flowTranslationJob?.state === 'running') return;
+        _flowTranslationRuntime.providerId = providerId;
+        _flowTranslationJob = null;
+        refreshFlowTranslationAutomationSurface();
+        if (_flowTranslationRuntime.modelStateByProvider[providerId] !== 'ready') {
+            void loadFlowTranslationProviderModels(providerId);
+        }
+        return;
+    }
+    if (field === 'translation-model') {
+        if (_flowTranslationJob?.state === 'running') return;
+        const providerId = _flowTranslationRuntime.providerId;
+        const modelId = String(event.target.value || '');
+        const models = _flowTranslationRuntime.modelsByProvider[providerId] || [];
+        if (models.some((model) => model.id === modelId)) {
+            _flowTranslationRuntime.modelIdByProvider[providerId] = modelId;
+            _flowTranslationJob = null;
+            updateCurrentFlowTranslationAutomation();
+        }
+        return;
+    }
+    if (field !== 'heading-level') return;
     const target = getFlowAuthoringTarget(event.target);
     const group = getFlowGroupById(target.groupId);
     if (!group || getFlowAuthoringLanguage(group) !== group.flow?.document?.sourceLanguage) return;
@@ -538,6 +959,24 @@ function handleFlowAuthoringAction(event) {
     const group = getFlowGroupById(target.groupId);
     if (!group) return;
     const languageKey = getFlowAuthoringLanguage(group);
+    if (action === 'refresh-translation-models') {
+        if (languageKey === group.flow?.document?.sourceLanguage || _flowTranslationJob?.state === 'running') return;
+        event.preventDefault();
+        _flowTranslationJob = null;
+        void loadFlowTranslationProviderModels(_flowTranslationRuntime.providerId, { force: true });
+        return;
+    }
+    if (action === 'start-translation') {
+        if (languageKey === group.flow?.document?.sourceLanguage) return;
+        event.preventDefault();
+        void startFlowTranslationJob(group.id);
+        return;
+    }
+    if (action === 'cancel-translation') {
+        event.preventDefault();
+        cancelFlowTranslationJob();
+        return;
+    }
     if (action === 'confirm-translation') {
         if (languageKey === group.flow?.document?.sourceLanguage) return;
         event.preventDefault();
@@ -4556,12 +4995,20 @@ function refreshAfterHistoryRestore(focusSnapshot = null) {
 }
 
 function performProjectUndo() {
+    if (_flowTranslationJob?.state === 'running') {
+        _flowTranslationJob.controller?.abort?.();
+        _flowTranslationJob = null;
+    }
     endHistoryGroup();
     const focusSnapshot = captureFlowAuthoringFocusSnapshot();
     if (undo(() => refreshAfterHistoryRestore(focusSnapshot))) triggerAutoSave();
 }
 
 function performProjectRedo() {
+    if (_flowTranslationJob?.state === 'running') {
+        _flowTranslationJob.controller?.abort?.();
+        _flowTranslationJob = null;
+    }
     endHistoryGroup();
     const focusSnapshot = captureFlowAuthoringFocusSnapshot();
     if (redo(() => refreshAfterHistoryRestore(focusSnapshot))) triggerAutoSave();
@@ -7178,6 +7625,12 @@ async function bootstrapApp() {
         }
     }
 
+    if (import.meta.env.DEV && urlParams.get('flowTranslationVerification') === '1') {
+        installFlowTranslationVerificationProvider({
+            delayMs: Number(urlParams.get('flowTranslationDelayMs')) || 25,
+            expansionFactor: Number(urlParams.get('flowTranslationExpansionFactor')) || 1,
+        });
+    }
     refresh();
     renderLangSettings();
     updateAuthUI();
@@ -7239,6 +7692,32 @@ if (import.meta.env.MODE !== 'production') {
                 return active.flow.translationState === undefined
                     ? null
                     : Object.freeze(JSON.parse(JSON.stringify(active.flow.translationState)));
+            },
+            installDeterministicTranslationProvider(options = {}) {
+                return installFlowTranslationVerificationProvider(options);
+            },
+            getTranslationJob() {
+                if (!_flowTranslationJob) return null;
+                const { controller, ...snapshot } = _flowTranslationJob;
+                return Object.freeze(JSON.parse(JSON.stringify(snapshot)));
+            },
+            awaitTranslationSettled() {
+                return new Promise((resolve, reject) => {
+                    const startedAt = Date.now();
+                    const check = () => {
+                        const snapshot = this.getTranslationJob();
+                        if (snapshot && snapshot.state !== 'running') {
+                            resolve(snapshot);
+                            return;
+                        }
+                        if (Date.now() - startedAt > 30000) {
+                            reject(new Error('Timed out waiting for Flow translation.'));
+                            return;
+                        }
+                        setTimeout(check, 25);
+                    };
+                    check();
+                });
             },
             getHistoryInfo() {
                 return Object.freeze({ ...getHistoryInfo() });

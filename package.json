@@ -36,6 +36,7 @@
     "verify:browser-translator": "node scripts/verify-browser-translator-provider.js",
     "verify:lm-studio-translator": "node scripts/verify-lm-studio-translator-provider.js",
     "verify:flow-translation-provider": "node scripts/verify-flow-translation-provider.js",
+    "verify:flow-translation-apply": "node scripts/verify-flow-translation-apply.js",
     "deploy:prod:check": "node scripts/deploy-prod-safe.js --check-only",
     "deploy:prod:safe": "node scripts/deploy-prod-safe.js",
     "deploy:pages": "node scripts/deploy-prod-safe.js --skip-firebase",

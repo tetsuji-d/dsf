@@ -39,6 +39,90 @@ function getTranslationUnitLabel(status) {
     return '';
 }
 
+function renderTranslationAutomation(automation = {}) {
+    const providers = Array.isArray(automation.providers) ? automation.providers : [];
+    const models = Array.isArray(automation.models) ? automation.models : [];
+    const providerId = String(automation.providerId || '');
+    const modelId = String(automation.modelId || '');
+    const modelState = String(automation.modelState || 'idle');
+    const running = automation.jobState === 'running';
+    const modelDisabled = running || modelState === 'loading' || models.length === 0;
+    const targetCount = Math.max(0, Number(automation.targetCount) || 0);
+    return `
+        <section class="flow-translation-automation" data-testid="flow-translation-automation">
+            <div class="flow-translation-controls">
+                <label>翻訳方法
+                    <select data-flow-field="translation-provider" aria-label="翻訳Provider" ${running ? 'disabled' : ''}>
+                        ${providers.map((provider) => `
+                            <option value="${escapeHtml(provider.id)}"
+                                ${provider.id === providerId ? 'selected' : ''}
+                                ${provider.available === false ? 'disabled' : ''}>
+                                ${escapeHtml(provider.label)}${provider.available === false ? '（利用不可）' : ''}
+                            </option>`).join('')}
+                    </select>
+                </label>
+                <label>モデル
+                    <select data-flow-field="translation-model" aria-label="翻訳モデル" ${modelDisabled ? 'disabled' : ''}>
+                        ${models.length
+                            ? models.map((model) => `<option value="${escapeHtml(model.id)}" ${model.id === modelId ? 'selected' : ''}>${escapeHtml(model.label || model.id)}</option>`).join('')
+                            : `<option value="">${modelState === 'loading' ? '取得中…' : 'モデル未取得'}</option>`}
+                    </select>
+                </label>
+                <button type="button" data-flow-action="refresh-translation-models" ${running ? 'disabled' : ''}>
+                    モデル更新
+                </button>
+                <span class="flow-translation-target-count">対象 ${targetCount}件</span>
+                <div class="flow-translation-run-actions">
+                    <button type="button" class="flow-translation-start" data-flow-action="start-translation" data-testid="flow-translation-start">
+                        未翻訳・原文更新を翻訳
+                    </button>
+                    <button type="button" class="flow-translation-cancel" data-flow-action="cancel-translation" data-testid="flow-translation-cancel" hidden>
+                        中止
+                    </button>
+                </div>
+            </div>
+            <p data-flow-translation-job-status role="status" aria-live="polite"></p>
+            <p class="flow-translation-safety-note">手動訳と状態未登録の訳は上書きしません。翻訳後のページ数は自動リフローで変わります。</p>
+        </section>`;
+}
+
+export function updateFlowTranslationAutomationView(root, automation = {}) {
+    const panel = root?.querySelector?.('[data-testid="flow-translation-automation"]');
+    if (!panel) return;
+    const jobState = String(automation.jobState || 'idle');
+    const running = jobState === 'running';
+    root.dataset.translationJobState = jobState;
+    panel.dataset.jobState = jobState;
+    panel.setAttribute('aria-busy', running ? 'true' : 'false');
+
+    const provider = panel.querySelector?.('[data-flow-field="translation-provider"]');
+    const model = panel.querySelector?.('[data-flow-field="translation-model"]');
+    const refresh = panel.querySelector?.('[data-flow-action="refresh-translation-models"]');
+    const start = panel.querySelector?.('[data-flow-action="start-translation"]');
+    const cancel = panel.querySelector?.('[data-flow-action="cancel-translation"]');
+    const status = panel.querySelector?.('[data-flow-translation-job-status]');
+    const count = panel.querySelector?.('.flow-translation-target-count');
+    const targetCount = Math.max(0, Number(automation.targetCount) || 0);
+    if (provider && automation.providerId) provider.value = automation.providerId;
+    if (model && automation.modelId) model.value = automation.modelId;
+    if (provider) provider.disabled = running;
+    if (model) model.disabled = running || automation.modelState === 'loading' || !automation.models?.length;
+    if (refresh) refresh.disabled = running;
+    if (start) start.disabled = running || automation.canStart !== true;
+    if (cancel) {
+        cancel.hidden = !running;
+        cancel.disabled = !running;
+    }
+    if (count) count.textContent = `対象 ${targetCount}件`;
+    if (status) {
+        status.textContent = automation.message || (
+            targetCount
+                ? '翻訳を実行すると、結果を一括適用して要確認にします。'
+                : '自動翻訳が必要な未翻訳・原文更新箇所はありません。'
+        );
+    }
+}
+
 export function getFlowTranslationStatusPresentation(status) {
     if (!status || status.isSourceLanguage) return null;
     const body = status.body?.counts || {};
@@ -389,6 +473,7 @@ export function renderFlowAuthoringView(root, options = {}) {
                 入力済みの翻訳を現在の原文に対応済みとして確認
             </button>
         </div>
+        ${isTranslation ? renderTranslationAutomation(options.translationAutomation) : ''}
         <nav class="flow-authoring-outline" aria-label="Flow原稿のセクション">
             ${sections.map((section, index) => {
                 const title = section.title?.[languageKey] || `Section ${index + 1}`;
@@ -405,6 +490,7 @@ export function renderFlowAuthoringView(root, options = {}) {
     root.dataset.authoringMode = isTranslation ? 'translation' : 'source';
     autosizeFlowAuthoringTextareas(root);
     updateFlowTranslationStatusView(root, options.translationStatus);
+    if (isTranslation) updateFlowTranslationAutomationView(root, options.translationAutomation);
 
     root.oninput = (event) => {
         if (event.target?.classList?.contains('flow-authoring-input')) autosizeTextarea(event.target);

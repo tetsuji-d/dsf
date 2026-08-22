@@ -13,9 +13,11 @@ missing／stale／untracked／review状態を導出する純粋ロジックを�
 Commit 8B-2Bではその状態をStudioのFlow翻訳面とruntime previewへ接続し、本文がmissing／staleの間は
 翻訳文を保持したまま原文ページを表示し、明示確認とUndo／Redoを追加した。
 Commit 8B-2C-AではGen4のprovider接続からページスロット依存を除いたruntime-only provider層と、
-Flow semantic unitの翻訳request／atomic apply planを追加した。Studioの翻訳ボタンと結果適用はまだ接続しない。
+Flow semantic unitの翻訳request／atomic apply planを追加した。
+Commit 8B-2C-BではChrome Translator／LM Studioの選択UI、model discovery、進捗／cancel、
+atomic result applyをStudioへ接続し、機械翻訳結果を既存Undo／Redoとautosaveへ統合した。
 
-自動翻訳のStudio UI／翻訳job、WebP化、DSF／Horizon発行、Viewerにはまだ未接続である。生成ページを
+Flow生成ページのWebP化、DSF／Horizon発行、Viewerにはまだ未接続である。生成ページを
 `state.blocks`、`state.sections`、`state.pages`へ書き戻すことも行わない。
 
 ## 境界
@@ -397,6 +399,30 @@ Commit 8B-2C-Aの対象外:
 - job進捗、cancel表示、retry、同時job制御
 - atomic planを`state.blocks`へ適用するmachine／mixed transactionとUndo／Redo
 - 実Chrome Translator／実LM Studioへの接続確認
+- Flow pageのWebP化、DSF／Horizon発行、Viewer
+
+## Studio translation job integration（Commit 8B-2C-B）
+
+- Flow翻訳原稿だけにprovider／model選択、model更新、対象件数、翻訳開始／中止を表示する。
+  Chrome Translatorが利用できないブラウザーでは選択肢を無効化し、LM Studioはloopbackからmodelを取得する。
+- 自動翻訳の既定対象は`missing`／`stale`だけとし、`untracked`、手動訳、明示lockは上書きしない。
+  PageBreakはproviderへ送らず、原稿言語と全翻訳言語で共有する。
+- 同時実行jobは1件だけとし、進捗、error、cancel、AbortController、provider／model選択はruntime-onlyとする。
+  project切替、Undo／Redoでは進行中jobを中止する。
+- provider完了後に原文fingerprint、target snapshot、unit identityを再検証する。1件でも変更、欠落、provider errorが
+  あれば結果を1件も適用しない。cancel時もFlowDocumentとHistoryを変更しない。
+- 成功時は全結果を1回の`state.blocks` transactionで適用する。machine unitだけを現在の原文へ対応付け、
+  既存手動訳がある言語は`origin:'mixed'`としてそのunit lockを維持し、全体を`needs-review`にする。
+- apply直前に既存Historyへsnapshotを1件だけ積むため、Undo一回で翻訳前へ戻り、Redoで一括結果を復元する。
+  適用後は既存autosaveとFlow増分reflowを使い、翻訳後のページ数変更を許可する。
+- development専用の`flowTranslationVerification=1`は外部providerを使わずUI接続を検証するためのlocal test hookで、
+  productionでは有効にならず、Project／DSP／Firestoreへ保存されない。
+
+Commit 8B-2C-Bの対象外:
+
+- glossary、追加指示、LM Studio endpoint変更の一般向けUI
+- unit個別選択、retry queue、複数同時job
+- Chrome Translator／LM Studioの翻訳品質評価
 - Flow pageのWebP化、DSF／Horizon発行、Viewer
 
 ## DOM preview boundary（Commit 3）
