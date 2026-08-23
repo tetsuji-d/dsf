@@ -16,6 +16,8 @@ Commit 8B-2C-AではGen4のprovider接続からページスロット依存を除
 Flow semantic unitの翻訳request／atomic apply planを追加した。
 Commit 8B-2C-BではChrome Translator／LM Studioの選択UI、model discovery、進捗／cancel、
 atomic result applyをStudioへ接続し、機械翻訳結果を既存Undo／Redoとautosaveへ統合した。
+Commit 8B-2C-Cではatomic apply失敗理由をProvider error／編集競合／不正結果へ分け、
+一括適用しなかった理由を原稿を変更せずStudioへ表示するruntime feedbackを追加した。
 
 Flow生成ページのWebP化、DSF／Horizon発行、Viewerにはまだ未接続である。生成ページを
 `state.blocks`、`state.sections`、`state.pages`へ書き戻すことも行わない。
@@ -423,6 +425,25 @@ Commit 8B-2C-Bの対象外:
 - glossary、追加指示、LM Studio endpoint変更の一般向けUI
 - unit個別選択、retry queue、複数同時job
 - Chrome Translator／LM Studioの翻訳品質評価
+- Flow pageのWebP化、DSF／Horizon発行、Viewer
+
+## Studio translation failure feedback（Commit 8B-2C-C）
+
+- atomic applyの「1件でも失敗すれば全件を適用しない」境界は変更しない。
+- `provider-error`は失敗件数と最初のProvider messageを表示し、原文／訳文変更とは区別する。
+- unit削除、原文fingerprint変更、target snapshot変更、手動lock追加は編集競合として表示する。
+- Provider errorと編集競合が同時に存在する場合は両方の件数を表示する。不明なvalidation issueは
+  「翻訳結果を検証できなかった」と表示し、編集競合だったと推測しない。
+- failure kind、issue、Provider messageはjobと同じruntime-only情報であり、Project、translationState、
+  IndexedDB、DSP、Firestore、DSFへ保存しない。
+- Undo／Redo時は完了済みjob messageも破棄し、復元後の翻訳状態と矛盾する成功表示を残さない。
+- development専用verification providerはunit errorを再現できるが、本番buildと保存データには入らない。
+
+Commit 8B-2C-Cの対象外:
+
+- failed unitだけのretry、成功unitの部分適用、同時翻訳job
+- LM Studioのtimeout値や推論性能の変更
+- Chrome Translatorの対応言語ペア拡張
 - Flow pageのWebP化、DSF／Horizon発行、Viewer
 
 ## DOM preview boundary（Commit 3）

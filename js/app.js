@@ -62,6 +62,7 @@ import {
     createLMStudioTranslationProvider,
 } from './lm-studio-translator-provider.js';
 import {
+    getFlowTranslationApplyFailurePresentation,
     renderFlowAuthoringView,
     updateFlowAuthoringViewStatus,
     updateFlowTranslationAutomationView,
@@ -467,6 +468,10 @@ function installFlowTranslationVerificationProvider(options = {}) {
     const providerId = 'flow-verification-provider';
     const delayMs = Math.max(0, Math.min(5000, Number(options.delayMs) || 25));
     const expansionFactor = Math.max(1, Math.min(4, Number(options.expansionFactor) || 1));
+    const requestedFailUnitIndex = Number(options.failUnitIndex);
+    const failUnitIndex = Number.isInteger(requestedFailUnitIndex) && requestedFailUnitIndex >= 0
+        ? requestedFailUnitIndex
+        : -1;
     registerTranslationProvider(providerId, {
         id: providerId,
         label: 'Flow verification provider',
@@ -488,6 +493,14 @@ function installFlowTranslationVerificationProvider(options = {}) {
                     current: index + 1,
                     total: request.units.length,
                 });
+                if (index === failUnitIndex) {
+                    return {
+                        unitId: unit.unitId,
+                        text: '',
+                        status: 'error',
+                        error: 'Verification provider failed this unit.',
+                    };
+                }
                 return {
                     unitId: unit.unitId,
                     text: unit.text
@@ -596,10 +609,15 @@ async function startFlowTranslationJob(groupId) {
         const currentGroup = getFlowGroupById(groupId);
         const plan = createFlowTranslationApplyPlan(currentGroup, request, response);
         if (!plan.ready) {
+            const failure = getFlowTranslationApplyFailurePresentation(plan, {
+                totalCount: request.units.length,
+            });
             _flowTranslationJob = {
                 ..._flowTranslationJob,
                 state: 'error',
-                message: '翻訳中に原稿または訳文が変更されたため、結果を適用しませんでした。',
+                message: failure.message,
+                failureKind: failure.kind,
+                issues: plan.issues,
                 controller: null,
             };
             updateCurrentFlowTranslationAutomation();
@@ -4997,8 +5015,8 @@ function refreshAfterHistoryRestore(focusSnapshot = null) {
 function performProjectUndo() {
     if (_flowTranslationJob?.state === 'running') {
         _flowTranslationJob.controller?.abort?.();
-        _flowTranslationJob = null;
     }
+    _flowTranslationJob = null;
     endHistoryGroup();
     const focusSnapshot = captureFlowAuthoringFocusSnapshot();
     if (undo(() => refreshAfterHistoryRestore(focusSnapshot))) triggerAutoSave();
@@ -5007,8 +5025,8 @@ function performProjectUndo() {
 function performProjectRedo() {
     if (_flowTranslationJob?.state === 'running') {
         _flowTranslationJob.controller?.abort?.();
-        _flowTranslationJob = null;
     }
+    _flowTranslationJob = null;
     endHistoryGroup();
     const focusSnapshot = captureFlowAuthoringFocusSnapshot();
     if (redo(() => refreshAfterHistoryRestore(focusSnapshot))) triggerAutoSave();
@@ -7629,6 +7647,9 @@ async function bootstrapApp() {
         installFlowTranslationVerificationProvider({
             delayMs: Number(urlParams.get('flowTranslationDelayMs')) || 25,
             expansionFactor: Number(urlParams.get('flowTranslationExpansionFactor')) || 1,
+            failUnitIndex: urlParams.has('flowTranslationFailUnitIndex')
+                ? Number(urlParams.get('flowTranslationFailUnitIndex'))
+                : -1,
         });
     }
     refresh();

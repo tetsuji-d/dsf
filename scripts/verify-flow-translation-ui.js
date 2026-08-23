@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 
 import { applyFlowAuthoringOperation, FlowAuthoringError } from '../js/flow-authoring.js';
 import {
+    getFlowTranslationApplyFailurePresentation,
     getFlowTranslationStatusPresentation,
     renderFlowAuthoringView,
 } from '../js/flow-authoring-view.js';
@@ -117,6 +118,58 @@ assert.equal(
     'PageBreak must not receive a translation-unit status slot',
 );
 assert.equal(JSON.stringify(originalBlocks), originalJson, 'View rendering must not mutate semantic content');
+
+const providerFailurePresentation = getFlowTranslationApplyFailurePresentation({
+    ready: false,
+    reason: 'atomic-validation-failed',
+    issues: [{
+        unitId: 'paragraph_translation_ui',
+        reason: 'provider-error',
+        error: 'LM Studio did not respond before the request timed out.',
+    }],
+}, { totalCount: 3 });
+assert.equal(providerFailurePresentation.kind, 'provider-error');
+assert.equal(providerFailurePresentation.providerErrorCount, 1);
+assert.match(providerFailurePresentation.message, /1件の翻訳に失敗/);
+assert.match(providerFailurePresentation.message, /3件の結果を適用しませんでした/);
+assert.match(providerFailurePresentation.message, /LM Studio did not respond/);
+
+const conflictPresentation = getFlowTranslationApplyFailurePresentation({
+    ready: false,
+    reason: 'atomic-validation-failed',
+    issues: [{ unitId: 'paragraph_translation_ui', reason: 'target-changed' }],
+}, { totalCount: 2 });
+assert.equal(conflictPresentation.kind, 'content-changed');
+assert.equal(conflictPresentation.conflictCount, 1);
+assert.match(conflictPresentation.message, /原稿または訳文が変更/);
+assert.doesNotMatch(conflictPresentation.message, /翻訳に失敗/);
+
+const mixedFailurePresentation = getFlowTranslationApplyFailurePresentation({
+    ready: false,
+    reason: 'atomic-validation-failed',
+    issues: [
+        { unitId: 'heading_translation_ui', reason: 'provider-error', error: 'Provider failed.' },
+        { unitId: 'paragraph_translation_ui', reason: 'source-changed' },
+    ],
+}, { totalCount: 2 });
+assert.equal(mixedFailurePresentation.kind, 'provider-error-and-conflict');
+assert.match(mixedFailurePresentation.message, /1件のProviderエラーと1件の編集競合/);
+
+const invalidFailurePresentation = getFlowTranslationApplyFailurePresentation({
+    ready: false,
+    reason: 'atomic-validation-failed',
+    issues: [{ unitId: 'heading_translation_ui', reason: 'invalid-request-unit' }],
+});
+assert.equal(invalidFailurePresentation.kind, 'invalid-result');
+assert.match(invalidFailurePresentation.message, /翻訳結果を検証できなかった/);
+
+const cancelledPresentation = getFlowTranslationApplyFailurePresentation({
+    ready: false,
+    reason: 'cancelled',
+    issues: ['paragraph_translation_ui'],
+});
+assert.equal(cancelledPresentation.kind, 'cancelled');
+assert.match(cancelledPresentation.message, /原稿は変更されていません/);
 
 const sourceEdited = applyFlowAuthoringOperation(originalBlocks, {
     type: 'setText',

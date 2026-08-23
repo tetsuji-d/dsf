@@ -39,6 +39,76 @@ function getTranslationUnitLabel(status) {
     return '';
 }
 
+const FLOW_TRANSLATION_CONFLICT_ISSUES = new Set([
+    'unit-removed',
+    'source-changed',
+    'target-changed',
+    'target-locked',
+]);
+
+function compactFlowTranslationProviderError(value) {
+    const message = String(value || '').replace(/\s+/g, ' ').trim();
+    if (!message) return '';
+    return message.length > 240 ? `${message.slice(0, 237)}…` : message;
+}
+
+export function getFlowTranslationApplyFailurePresentation(plan, options = {}) {
+    const issues = Array.isArray(plan?.issues) ? plan.issues : [];
+    const providerErrors = issues.filter((issue) => issue?.reason === 'provider-error');
+    const conflicts = issues.filter((issue) => FLOW_TRANSLATION_CONFLICT_ISSUES.has(issue?.reason));
+    const validationIssues = issues.filter((issue) => (
+        issue?.reason !== 'provider-error'
+        && !FLOW_TRANSLATION_CONFLICT_ISSUES.has(issue?.reason)
+    ));
+    const totalCount = Math.max(0, Number(options.totalCount) || 0);
+    const resultLabel = totalCount ? `${totalCount}件の結果` : '結果';
+    const firstProviderError = compactFlowTranslationProviderError(providerErrors[0]?.error);
+
+    if (plan?.reason === 'cancelled') {
+        return {
+            kind: 'cancelled',
+            message: '翻訳を中止しました。原稿は変更されていません。',
+            providerErrorCount: 0,
+            conflictCount: 0,
+            validationIssueCount: issues.length,
+        };
+    }
+    if (providerErrors.length && conflicts.length) {
+        return {
+            kind: 'provider-error-and-conflict',
+            message: `${providerErrors.length}件のProviderエラーと${conflicts.length}件の編集競合があるため、${resultLabel}を適用しませんでした。${firstProviderError ? ` ${firstProviderError}` : ''}`,
+            providerErrorCount: providerErrors.length,
+            conflictCount: conflicts.length,
+            validationIssueCount: validationIssues.length,
+        };
+    }
+    if (providerErrors.length) {
+        return {
+            kind: 'provider-error',
+            message: `${providerErrors.length}件の翻訳に失敗したため、${resultLabel}を適用しませんでした。${firstProviderError ? ` ${firstProviderError}` : ''}`,
+            providerErrorCount: providerErrors.length,
+            conflictCount: 0,
+            validationIssueCount: validationIssues.length,
+        };
+    }
+    if (conflicts.length) {
+        return {
+            kind: 'content-changed',
+            message: `翻訳中に原稿または訳文が変更されたため、${resultLabel}を適用しませんでした。`,
+            providerErrorCount: 0,
+            conflictCount: conflicts.length,
+            validationIssueCount: validationIssues.length,
+        };
+    }
+    return {
+        kind: 'invalid-result',
+        message: `翻訳結果を検証できなかったため、${resultLabel}を適用しませんでした。`,
+        providerErrorCount: 0,
+        conflictCount: 0,
+        validationIssueCount: validationIssues.length,
+    };
+}
+
 function renderTranslationAutomation(automation = {}) {
     const providers = Array.isArray(automation.providers) ? automation.providers : [];
     const models = Array.isArray(automation.models) ? automation.models : [];
