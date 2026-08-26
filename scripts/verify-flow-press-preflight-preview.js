@@ -1,0 +1,121 @@
+import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import {
+    getFlowPressPreflightPreviewIssueMessage,
+    prepareFlowPressPreflightPreview,
+} from '../js/flow-press-preflight-preview.js';
+import {
+    FLOW_PRESS_PREFLIGHT_FIXTURE_FONT_REGISTRY,
+    resolveFlowPressPreflightFixtureFont,
+} from '../js/fixtures/flow-press-preflight-fixture.js';
+import { validateDsfProductionFontRegistry } from '../js/dsf-font-registry.js';
+
+assert.equal(validateDsfProductionFontRegistry(FLOW_PRESS_PREFLIGHT_FIXTURE_FONT_REGISTRY).valid, true);
+assert.equal(resolveFlowPressPreflightFixtureFont("'Noto Sans JP',sans-serif", 'ja', 'vertical-rl')?.fontId, 'fixture-flow-press-noto-sans-jp');
+assert.equal(resolveFlowPressPreflightFixtureFont("'Noto Sans',sans-serif", 'en', 'horizontal-tb')?.fontId, 'fixture-flow-press-noto-sans');
+assert.equal(resolveFlowPressPreflightFixtureFont("'Noto Sans',sans-serif", 'ja', 'horizontal-tb'), null);
+
+const flowA = { id: 'flow-a', kind: 'flow', flow: { layout: { typographyByLanguage: { ja: {}, en: {} } } } };
+const flowB = { id: 'flow-b', kind: 'flow', flow: { layout: { typographyByLanguage: { ja: {}, en: {} } } } };
+const fixed = { id: 'fixed-a', kind: 'page', content: { pageKind: 'graphic' } };
+const project = { version: 6, defaultLang: 'ja', languages: ['ja', 'en'], blocks: [fixed, flowA, flowB] };
+const disposed = [];
+const captureCalls = [];
+const preflightCalls = [];
+
+const result = await prepareFlowPressPreflightPreview({
+    project,
+    languages: ['ja', 'en'],
+    revision: 42,
+    documentRef: {},
+    dependencies: {
+        deriveTranslationStatus(group, language) {
+            return {
+                isSourceLanguage: language === 'ja',
+                requiresSourceFallback: language === 'en' && group.id === 'flow-b',
+            };
+        },
+        resolveTypography(language) {
+            return { fontFamily: language === 'ja' ? "'Noto Sans JP',sans-serif" : "'Noto Sans',sans-serif" };
+        },
+        resolveFixtureFont(fontFamily, language) {
+            return { fontId: `fixture-${language}-${fontFamily.includes(' JP') ? 'jp' : 'latin'}` };
+        },
+        async createCaptureSession(options) {
+            captureCalls.push({ groupId: options.flowGroup.id, language: options.language, revision: options.revision });
+            return {
+                paginate() {
+                    return { pages: options.flowGroup.id === 'flow-a' ? [{}, {}] : [{}] };
+                },
+                capture() {
+                    return { status: 'complete' };
+                },
+                dispose() {
+                    disposed.push(`${options.language}:${options.flowGroup.id}`);
+                },
+            };
+        },
+        projectFlow(options) {
+            const pageCount = options.pagination.pages.length;
+            return {
+                ok: true,
+                summary: { pageCount, lineCount: pageCount * 3 },
+                manifest: { pages: options.pagination.pages },
+            };
+        },
+        createPreflight(input) {
+            preflightCalls.push(input);
+            const projectionCount = Object.keys(input.flowPublicationProjections).length;
+            const publishable = projectionCount === 2;
+            return {
+                publishable,
+                issues: publishable ? [] : [{ code: 'FLOW_PUBLICATION_PROJECTION_MISSING' }],
+                summary: {
+                    flowPageCount: Object.values(input.flowPublicationProjections)
+                        .reduce((sum, projection) => sum + projection.summary.pageCount, 0),
+                    deliveryPageCount: 1 + Object.values(input.flowPublicationProjections)
+                        .reduce((sum, projection) => sum + projection.summary.pageCount, 0),
+                    imagePageCount: 1,
+                    fixedTextPageCount: Object.values(input.flowPublicationProjections)
+                        .reduce((sum, projection) => sum + projection.summary.pageCount, 0),
+                },
+            };
+        },
+    },
+});
+
+assert.equal(result.ok, false);
+assert.equal(result.revision, 42);
+assert.equal(result.languages[0].state, 'ready');
+assert.equal(result.languages[0].preflight.summary.flowPageCount, 3);
+assert.equal(result.languages[1].state, 'blocked');
+assert.equal(result.languages[1].groupResults[1].issue.code, 'FLOW_PUBLICATION_TRANSLATION_NOT_READY');
+assert.match(getFlowPressPreflightPreviewIssueMessage(result.languages[1].groupResults[1].issue), /原文へ代替せず停止/);
+assert.deepEqual(captureCalls, [
+    { groupId: 'flow-a', language: 'ja', revision: 42 },
+    { groupId: 'flow-b', language: 'ja', revision: 42 },
+    { groupId: 'flow-a', language: 'en', revision: 42 },
+]);
+assert.deepEqual(disposed, ['ja:flow-a', 'ja:flow-b', 'en:flow-a']);
+assert.deepEqual(preflightCalls[0].flowPublicationRevisions, { 'flow-a': 42, 'flow-b': 42 });
+assert.deepEqual(Object.keys(preflightCalls[1].flowPublicationProjections), ['flow-a']);
+
+await assert.rejects(
+    () => prepareFlowPressPreflightPreview({ project, revision: -1 }),
+    /non-negative revision/,
+);
+
+const moduleSource = readFileSync(new URL('../js/flow-press-preflight-preview.js', import.meta.url), 'utf8');
+for (const forbidden of ['./firebase', './export', './dsf-release-assembly', 'uploadPressPage', 'setDoc', 'fetch(']) {
+    assert.equal(moduleSource.includes(forbidden), false, `9A-6A adapter cannot depend on ${forbidden}`);
+}
+
+const pressSource = readFileSync(new URL('../js/press.js', import.meta.url), 'utf8');
+const studioCssSource = readFileSync(new URL('../css/studio.css', import.meta.url), 'utf8');
+assert.match(pressSource, /import\.meta\.env\.DEV[\s\S]*import\('\.\/flow-press-preflight-preview\.js'\)/);
+assert.match(pressSource, /summary\.dataset\.testid = 'press-flow-preflight-dev-summary'/);
+assert.match(pressSource, /btn\.disabled = hasFlow/);
+assert.match(pressSource, /Flow作品のupload・発行はまだ有効化されていないため、このプロジェクトは発行できません/);
+assert.match(studioCssSource, /\.press-publish-btn:disabled\s*\{/);
+
+console.log('Flow Press preflight local preview verification passed.');

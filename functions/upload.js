@@ -115,7 +115,7 @@ async function getFirebasePublicKeys() {
 /**
  * Verifies a Firebase ID token and returns the user UID, or null on failure.
  */
-async function verifyFirebaseToken(token, projectId) {
+export async function verifyFirebaseToken(token, projectId) {
     try {
         const parts = token.split('.');
         if (parts.length !== 3) { console.error('[upload] Bad JWT parts:', parts.length); return null; }

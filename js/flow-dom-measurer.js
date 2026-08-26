@@ -14,7 +14,8 @@ import {
 
 export const FLOW_DOM_SUPPORTED_WRITING_MODE = 'horizontal-tb';
 export const FLOW_DOM_SUPPORTED_WRITING_MODES = Object.freeze(['horizontal-tb', 'vertical-rl']);
-export const FLOW_DOM_RENDERER_VERSION = 3;
+export const FLOW_DOM_RENDERER_VERSION = 4;
+export const FLOW_DOM_HYPHENATION_MODES = Object.freeze(['auto', 'none']);
 
 const DEFAULT_MEASUREMENT_CACHE_SIZE = 2048;
 const FLOW_DOM_BOUNDS_EPSILON_PX = 0.5;
@@ -69,6 +70,18 @@ export function assertFlowDomWritingMode(writingMode, languageKey = 'ja') {
     return mode;
 }
 
+export function resolveFlowDomHyphenation(value, writingMode = FLOW_DOM_SUPPORTED_WRITING_MODE) {
+    const fallback = writingMode === 'vertical-rl' ? 'none' : 'auto';
+    const hyphenation = String(value || fallback);
+    if (!FLOW_DOM_HYPHENATION_MODES.includes(hyphenation)) {
+        throw new FlowDomMeasurementError('INVALID_HYPHENATION', 'Flow DOM hyphenation mode is unsupported.', {
+            value,
+            writingMode,
+        });
+    }
+    return hyphenation;
+}
+
 export function resolveFlowDomTypography(
     languageKey = 'ja',
     overrides = {},
@@ -111,7 +124,7 @@ function setPageStyles(pageElement, pageBox, typography) {
     });
 }
 
-function setContentStyles(contentElement, pageBox, typography, languageKey, writingMode) {
+function setContentStyles(contentElement, pageBox, typography, languageKey, writingMode, hyphenation) {
     const { contentBox } = pageBox;
     Object.assign(contentElement.style, {
         position: 'absolute',
@@ -137,13 +150,13 @@ function setContentStyles(contentElement, pageBox, typography, languageKey, writ
         overflowWrap: 'anywhere',
         wordBreak: 'normal',
         lineBreak: typography.lineBreak,
-        hyphens: writingMode === 'vertical-rl' ? 'none' : 'auto',
+        hyphens: hyphenation,
         textRendering: 'optimizeLegibility',
     });
     contentElement.lang = String(languageKey || 'ja');
 }
 
-function createFragmentElement(ownerDocument, fragment, typography, writingMode) {
+function createFragmentElement(ownerDocument, fragment, typography, hyphenation) {
     const element = ownerDocument.createElement(fragment.blockType === 'heading' ? 'h2' : 'p');
     element.className = `flow-dom-block flow-dom-block--${fragment.blockType}`;
     element.dataset.flowBlockId = fragment.blockId;
@@ -177,7 +190,7 @@ function createFragmentElement(ownerDocument, fragment, typography, writingMode)
         overflowWrap: 'anywhere',
         wordBreak: 'normal',
         lineBreak: typography.lineBreak,
-        hyphens: writingMode === 'vertical-rl' ? 'none' : 'auto',
+        hyphens: hyphenation,
     });
     if (fragment.text) {
         element.textContent = fragment.text;
@@ -198,7 +211,7 @@ function normalizeCacheSize(value) {
     return size;
 }
 
-function createMeasurementCacheKey(context, pageBox, writingMode, languageKey, typography, epoch) {
+function createMeasurementCacheKey(context, pageBox, writingMode, languageKey, typography, hyphenation, epoch) {
     return JSON.stringify([
         FLOW_DOM_RENDERER_VERSION,
         epoch,
@@ -221,6 +234,7 @@ function createMeasurementCacheKey(context, pageBox, writingMode, languageKey, t
         typography.textColor,
         typography.paperColor,
         typography.lineBreak,
+        hyphenation,
         (Array.isArray(context.fragments) ? context.fragments : []).map((fragment) => [
             fragment.blockType,
             fragment.headingLevel ?? null,
@@ -239,21 +253,22 @@ export function renderFlowFragments(contentElement, options = {}) {
     const pageBox = normalizeFlowPageBox(options.pageBox);
     const languageKey = String(options.languageKey || 'ja');
     const writingMode = assertFlowDomWritingMode(options.writingMode, languageKey);
+    const hyphenation = resolveFlowDomHyphenation(options.hyphenation, writingMode);
     const typography = resolveFlowDomTypography(languageKey, options.typography, writingMode);
     const fragments = Array.isArray(options.fragments) ? options.fragments : [];
 
     contentElement.replaceChildren();
     contentElement.className = 'flow-dom-content';
-    setContentStyles(contentElement, pageBox, typography, languageKey, writingMode);
+    setContentStyles(contentElement, pageBox, typography, languageKey, writingMode, hyphenation);
     for (const fragment of fragments) {
         contentElement.appendChild(createFragmentElement(
             contentElement.ownerDocument,
             fragment,
             typography,
-            writingMode,
+            hyphenation,
         ));
     }
-    return { pageBox, typography };
+    return { pageBox, typography, hyphenation };
 }
 
 /** Render one generated page using the same DOM path as measurement. */
@@ -264,6 +279,7 @@ export function renderFlowGeneratedPage(pageElement, options = {}) {
     const pageBox = normalizeFlowPageBox(options.pageBox);
     const languageKey = String(options.languageKey || 'ja');
     const writingMode = assertFlowDomWritingMode(options.writingMode, languageKey);
+    const hyphenation = resolveFlowDomHyphenation(options.hyphenation, writingMode);
     const typography = resolveFlowDomTypography(languageKey, options.typography, writingMode);
     setPageStyles(pageElement, pageBox, typography);
     pageElement.replaceChildren();
@@ -275,6 +291,7 @@ export function renderFlowGeneratedPage(pageElement, options = {}) {
         languageKey,
         writingMode,
         typography,
+        hyphenation,
     });
     return contentElement;
 }
@@ -287,6 +304,7 @@ export function createFlowDomPageMeasurer(options = {}) {
     }
     const languageKey = String(options.languageKey || 'ja');
     const writingMode = assertFlowDomWritingMode(options.writingMode, languageKey);
+    const hyphenation = resolveFlowDomHyphenation(options.hyphenation, writingMode);
     const typography = resolveFlowDomTypography(languageKey, options.typography, writingMode);
     const maxCacheEntries = normalizeCacheSize(options.maxCacheEntries);
     const measurementCache = new Map();
@@ -343,6 +361,7 @@ export function createFlowDomPageMeasurer(options = {}) {
             resolvedWritingMode,
             resolvedLanguageKey,
             typography,
+            hyphenation,
             layoutEpoch,
         );
         if (maxCacheEntries > 0 && measurementCache.has(cacheKey)) {
@@ -364,6 +383,7 @@ export function createFlowDomPageMeasurer(options = {}) {
             languageKey: resolvedLanguageKey,
             writingMode: resolvedWritingMode,
             typography,
+            hyphenation,
         });
         const scrollWidth = contentElement.scrollWidth;
         const scrollHeight = contentElement.scrollHeight;
@@ -400,6 +420,7 @@ export function createFlowDomPageMeasurer(options = {}) {
         measurePage,
         typography,
         writingMode,
+        hyphenation,
         element: host,
         invalidate() {
             layoutEpoch += 1;
@@ -413,6 +434,7 @@ export function createFlowDomPageMeasurer(options = {}) {
                 languageKey,
                 writingMode,
                 typography,
+                hyphenation,
             ]);
         },
         getMetrics() {

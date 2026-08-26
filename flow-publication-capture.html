@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="ja">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Flow Publication Capture | DSF local fixture</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link
+        href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;700&display=swap"
+        rel="stylesheet">
+    <link rel="stylesheet" href="css/variables.css">
+    <link rel="stylesheet" href="css/flow-publication-capture.css">
+</head>
+
+<body data-capture-state="loading">
+    <main class="capture-shell">
+        <header class="capture-header">
+            <p class="capture-kicker">DSF 9A-5B / DEVELOPMENT ONLY</p>
+            <h1>Flow publication composition capture</h1>
+            <p>認定font・no-hyphenation条件の実DOMから、行／列座標とsemantic source rangeを採取するローカル確認画面です。</p>
+        </header>
+
+        <section class="capture-status-card" aria-live="polite">
+            <strong id="capture-status" data-testid="capture-status">fontとDOMを準備しています</strong>
+            <span id="capture-detail">Press、assembly、upload、公開Viewerには接続しません。</span>
+        </section>
+
+        <section id="capture-results" class="capture-results" data-testid="capture-results"></section>
+        <pre id="capture-error" class="capture-error" data-testid="capture-error" hidden></pre>
+    </main>
+
+    <script type="module" src="js/fixtures/flow-publication-capture-fixture.js"></script>
+</body>
+
+</html>

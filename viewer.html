@@ -171,14 +171,17 @@
                         <div class="page-slider-preview-frame">
                             <div class="page-slider-preview-surface page-slider-preview-left">
                                 <img alt="" class="page-slider-preview-image">
+                                <div class="page-slider-preview-fixed-text" aria-hidden="true"></div>
                                 <div class="page-slider-preview-empty"></div>
                             </div>
                             <div class="page-slider-preview-surface page-slider-preview-right">
                                 <img alt="" class="page-slider-preview-image">
+                                <div class="page-slider-preview-fixed-text" aria-hidden="true"></div>
                                 <div class="page-slider-preview-empty"></div>
                             </div>
                             <div class="page-slider-preview-surface page-slider-preview-single">
                                 <img alt="" class="page-slider-preview-image">
+                                <div class="page-slider-preview-fixed-text" aria-hidden="true"></div>
                                 <div class="page-slider-preview-empty"></div>
                             </div>
                         </div>
@@ -197,7 +200,7 @@
     </div>
 
     <!-- Hidden File Input -->
-    <input type="file" id="file-input" onchange="loadDsf(this)">
+    <input type="file" id="file-input" accept=".dsf,.dsp,.zip,.json,application/vnd.dsf.content+zip" onchange="loadDsf(this)">
 
     <script type="module" src="js/viewer.js"></script>
 </body>

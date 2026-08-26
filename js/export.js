@@ -10,6 +10,7 @@ import {
     getPressBookConfigForExport,
     getPressBookCompositionIssueMessages,
     getPressSpreadImageDsfMetadata,
+    getFlowPortableDsfDownloadArtifact,
     renderPressSectionToWebP,
     resetPressRenderCancel,
     requestPressRenderCancel,
@@ -198,9 +199,18 @@ export async function buildDSP() {
 // --- Build .dsf (Content/Publish Archive) ---
 export async function buildDSF() {
     if (hasFlowGroups(state)) {
-        const error = new Error('Flowページ生成がPressへ接続されるまで、このプロジェクトはDSF発行できません。');
-        error.code = 'FLOW_PUBLICATION_NOT_CONNECTED';
-        throw error;
+        const artifact = getFlowPortableDsfDownloadArtifact();
+        const currentArtifact = getFlowPortableDsfDownloadArtifact();
+        if (currentArtifact.packageSignature !== artifact.packageSignature
+            || currentArtifact.sha256 !== artifact.sha256
+            || currentArtifact.byteLength !== artifact.byteLength
+            || currentArtifact.blob !== artifact.blob) {
+            const error = new Error('Flow portable DSF changed before download. Run the Press verification again.');
+            error.code = 'FLOW_PORTABLE_DOWNLOAD_STALE';
+            throw error;
+        }
+        saveAs(currentArtifact.blob, currentArtifact.filename);
+        return;
     }
     resetPressRenderCancel();
     const onEscKey = (e) => {

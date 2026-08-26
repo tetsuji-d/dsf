@@ -319,7 +319,8 @@ const exportSource = readFileSync(new URL('../js/export.js', import.meta.url), '
 const pressSource = readFileSync(new URL('../js/press.js', import.meta.url), 'utf8');
 const sectionsSource = readFileSync(new URL('../js/sections.js', import.meta.url), 'utf8');
 const firebaseSource = readFileSync(new URL('../js/firebase.js', import.meta.url), 'utf8');
-assert.match(exportSource, /FLOW_PUBLICATION_NOT_CONNECTED/);
+assert.match(exportSource, /getFlowPortableDsfDownloadArtifact/);
+assert.match(exportSource, /saveAs\(currentArtifact\.blob, currentArtifact\.filename\)/);
 assert.match(pressSource, /hasFlowGroups\(state\)/);
 assert.match(sectionsSource, /data-testid="flow-source-card"/);
 assert.match(sectionsSource, /changeFlowGeneratedPage/);

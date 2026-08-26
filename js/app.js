@@ -18,7 +18,7 @@ import { addSection, addTextSection, changeSection, changeBlock, insertStructure
 import { pushState, endHistoryGroup, undo, redo, getHistoryInfo, clearHistory } from './history.js';
 import { openProjectModal, closeProjectModal, fetchCloudProjects, getCoverImage, getPageCount, deleteCloudProject } from './projects.js';
 import { openWorksRoom, closeWorksRoom } from './works.js';
-import { enterPressRoom, leavePressRoom } from './press.js';
+import { enterPressRoom, leavePressRoom, refreshFlowHorizonDryRunReadiness } from './press.js';
 import { getLangProps, getAllLangs } from './lang.js';
 import { t, applyI18n, setUILang, getUILang } from './i18n-studio.js';
 import { getBlockIndexFromPageIndex, getPageIndexFromBlockIndex, migrateSectionsToBlocks, syncBlocksWithSections, extractSectionsFromBlocks } from './blocks.js';
@@ -1976,6 +1976,25 @@ async function renderHomeDashboard() {
 // ── Studio 認証 UI — GIS ボタン + フォールバック Google ──
 //    実体のサインインは gis-auth.js。ここはマークアップとスロット束ね。
 
+function isVerifiedFlowPortableDownloadControl(control) {
+    return hasFlowGroups(state)
+        && control?.hasAttribute('data-flow-portable-download')
+        && control.dataset.flowPortableState === 'ready'
+        && document.body?.dataset?.room === 'press';
+}
+
+function isFlowHorizonDryRunControl(control) {
+    return hasFlowGroups(state)
+        && control?.id === 'press-publish-cloud-btn'
+        && document.body?.dataset?.room === 'press';
+}
+
+function getFlowHorizonDryRunControlTitle(control) {
+    return control?.dataset?.flowHorizonState === 'ready'
+        ? 'Horizon upload入力のdry-runは合格しています。実upload・発行はまだ無効です'
+        : 'Horizon upload入力をdry-runで検証中です。実upload・発行はまだ無効です';
+}
+
 function updateAuthUI() {
     const effectiveUser = state.user || firebaseAuth.currentUser || null;
     if (effectiveUser?.uid && state.uid !== effectiveUser.uid) {
@@ -1996,16 +2015,27 @@ function updateAuthUI() {
     }
     document.body.classList.toggle('auth-guest', !signedIn);
     document.querySelectorAll('[data-auth-required]').forEach((el) => {
-        const flowPublicationBlocked = el.hasAttribute('data-flow-publication-required') && hasFlowGroups(state);
+        const flowPortableReady = isVerifiedFlowPortableDownloadControl(el);
+        const flowHorizonControl = isFlowHorizonDryRunControl(el);
+        const flowPublicationBlocked = el.hasAttribute('data-flow-publication-required')
+            && hasFlowGroups(state)
+            && !flowPortableReady;
         el.disabled = !signedIn || flowPublicationBlocked;
         el.title = !signedIn
             ? t('login_required')
-            : (flowPublicationBlocked ? 'FlowのWebP出力接続後に有効になります' : '');
+            : (flowPublicationBlocked
+                ? (flowHorizonControl
+                    ? getFlowHorizonDryRunControlTitle(el)
+                    : 'FlowのローカルZIP検証完了後に有効になります')
+                : (flowPortableReady ? '検証済みFlow portable .dsfをローカルへ保存します' : ''));
     });
     document.querySelectorAll('[data-flow-publication-required]:not([data-auth-required])').forEach((el) => {
-        const blocked = hasFlowGroups(state);
+        const flowPortableReady = isVerifiedFlowPortableDownloadControl(el);
+        const blocked = hasFlowGroups(state) && !flowPortableReady;
         el.disabled = blocked;
-        el.title = blocked ? 'FlowのWebP出力接続後に有効になります' : '';
+        el.title = blocked
+            ? 'FlowのローカルZIP検証完了後に有効になります'
+            : (flowPortableReady ? '検証済みFlow portable .dsfをローカルへ保存します' : '');
     });
     syncStudioShell();
 }
@@ -2014,6 +2044,9 @@ function applyStudioAuthUser(user) {
     state.user = user || null;
     state.uid = user?.uid || null;
     updateAuthUI();
+    if (document.body?.dataset?.room === 'press' && hasFlowGroups(state)) {
+        void refreshFlowHorizonDryRunReadiness();
+    }
 }
 
 let studioAuthGlobalBound = false;
@@ -2593,11 +2626,17 @@ function refresh(options = {}) {
     }
     document.querySelectorAll('[data-flow-publication-required]').forEach((control) => {
         const needsAuth = control.hasAttribute('data-auth-required');
-        const blocked = hasFlowGroups(state);
+        const flowPortableReady = isVerifiedFlowPortableDownloadControl(control);
+        const flowHorizonControl = isFlowHorizonDryRunControl(control);
+        const blocked = hasFlowGroups(state) && !flowPortableReady;
         control.disabled = blocked || (needsAuth && !state.uid);
-        control.title = blocked
-            ? 'FlowのWebP出力接続後に有効になります'
-            : (needsAuth && !state.uid ? t('login_required') : '');
+        control.title = needsAuth && !state.uid
+            ? t('login_required')
+            : (blocked
+                ? (flowHorizonControl
+                    ? getFlowHorizonDryRunControlTitle(control)
+                    : 'FlowのローカルZIP検証完了後に有効になります')
+                : (flowPortableReady ? '検証済みFlow portable .dsfをローカルへ保存します' : ''));
     });
 
     const isTextSection = editableFixedSection?.type === 'text';
@@ -6460,20 +6499,43 @@ window.exportDSP = async () => {
     }
 };
 
+let _dsfExportInProgress = false;
+
 window.exportDSF = async () => {
+    if (_dsfExportInProgress) return;
+    _dsfExportInProgress = true;
     const btnDataList = document.querySelectorAll('button[onclick="exportDSF()"]');
-    btnDataList.forEach(btn => btn.textContent = '⏳ ZIP生成中...');
+    const buttonSnapshots = Array.from(btnDataList, (btn) => ({
+        btn,
+        innerHTML: btn.innerHTML,
+        disabled: btn.disabled,
+    }));
+    buttonSnapshots.forEach(({ btn }) => {
+        btn.textContent = '⏳ ZIP確認中...';
+        btn.disabled = true;
+        btn.setAttribute('aria-busy', 'true');
+    });
     try {
         await buildDSF();
     } catch (e) {
         console.error("Export DSF failed:", e);
         if (e?.code === 'PRESS_RENDER_CANCELLED') {
             alert(t('press_render_cancelled'));
+        } else if (e?.code === 'FLOW_PORTABLE_DOWNLOAD_NOT_READY'
+            || e?.code === 'FLOW_PORTABLE_DOWNLOAD_STALE'
+            || e?.code === 'FLOW_PORTABLE_DOWNLOAD_PACKAGE_UNVERIFIED'
+            || e?.code === 'FLOW_PORTABLE_DOWNLOAD_BLOB_INVALID') {
+            alert('Flow portable .dsfの検証結果が現在の原稿と一致しません。PressのZIP検証完了後にもう一度実行してください。');
         } else {
             alert("エクスポート中にエラーが発生しました。\n" + e.message);
         }
     } finally {
-        btnDataList.forEach(btn => btn.textContent = '⬇ 配信データ出力 (.dsf)');
+        _dsfExportInProgress = false;
+        buttonSnapshots.forEach(({ btn, innerHTML, disabled }) => {
+            btn.innerHTML = innerHTML;
+            btn.disabled = disabled;
+            btn.removeAttribute('aria-busy');
+        });
     }
 };
 

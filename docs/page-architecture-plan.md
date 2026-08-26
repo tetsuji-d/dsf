@@ -3,16 +3,22 @@
 > Status: partially historical.
 > この文書は `pages[]` 単一モデルへの移行計画を記録していますが、現行 runtime canonical は `blocks` です。
 > 現在の判断には `docs/data-model.md` と `js/pages.js` の `normalizeProjectDataV5()` を優先してください。
+> 2026-03-25のWebP-only方針は、2026-08-23の9A-0で後方互換v1として位置づけ直されました。
+> 新しい配信方針はグラフィックWebPと組版済み固定テキストを併用し、Viewer内ではリフローしません。
+> `docs/fixed-text-delivery-contract.md`を優先してください。
 
 最終更新: 2026-03-25
 対象: DSF Studio エディター/ビューワーの `sections/blocks` 混在実装を、`pages` 単一モデルへ整理
 
-> **2026-03-25 方針変更**: DSF Gen 3 として「WebP 画像のみ」方針を採用。
+> **2026-03-25 当時の方針（履歴）**: DSF Gen 3 として「WebP 画像のみ」方針を採用。
 > - `bodyKind:'text'` は**廃止予定**（テキストページは画像化して扱う）
 > - `content.richText` 系は**廃止予定**
 > - `bodyKind:'image'` と `bodyKind:'theme'` のみ継続
-> - 以下のセクション 11.6〜11.8 のうち richText / text 関連仕様は廃案。
+> - 以下のセクション 11.6〜11.8 のうち richText / text 関連仕様は当時廃案とした。
 > - `role`・`bodyKind` の分離・表紙/裏表紙固定化・TOC自動生成などの構造は継続有効。
+>
+> **2026-08-23更新**: `bodyKind:'text'` authoringは維持する。配信時はauthoring objectを直接公開せず、
+> Pressで固定行／列へ投影したDSF delivery v2 `renderKind:'fixedText'`をViewerが固定座標描画する。
 
 ## 1. 目的
 - ユーザー視点で「すべてページ」として理解できる情報設計に統一する。

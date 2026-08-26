@@ -6,7 +6,7 @@
 
 本書は DSF Studio における 2 つの主要アーカイブ（**`.dsf`（配信）** および **`.dsp`（編集用プロジェクト）**）の構造とデータモデルを定義します。どちらも **ZIP アーカイブ** をコンテナとし、Excel（`.xlsx`）や EPUB と同様に、将来の拡張に対して上位/下位互換を保ちやすい設計を目指します。
 
-**論理ページ（9:16）の基準**: アプリ内の編集・組版・Press の座標系は **`360×640` 論理ピクセル**を正とする（実装は `js/page-geometry.js`、表示トークンは `css/variables.css` の `--dsf-canonical-page-*`）。配信用ラスタは **少なくとも `1080×1920`（論理の 3 倍）** を最低ラインとする想定で、`meta.json` の `presentation.aspectRatio`（例: `"9:16"`）と整合させる。
+**論理ページ（9:16）の基準**: アプリ内の編集・組版・Press の座標系は **`360×640` 論理ピクセル**を正とする（実装は `js/page-geometry.js`、表示トークンは `css/variables.css` の `--dsf-canonical-page-*`）。画像ページの配信用ラスタは **少なくとも `1080×1920`（論理の 3 倍）** を最低ラインとする。固定テキストページは同じ論理座標上の組版済み行／縦書き列を保持し、Viewerで再組版しない。どちらも`meta.json`の`presentation.aspectRatio`（例: `"9:16"`）と整合させる。
 
 ---
 
@@ -24,17 +24,82 @@
 *   **用途**: エンドユーザー（読者）へ向けた**配信・配布用ファイル**。ブラウザ Viewer や将来のサードパーティリーダーでの閲覧に特化。（歴史的文脈では「Digital Smart Format」表記の資料もある）
 *   **特徴**:
     *   エディタ固有のUI設定や不要なメタデータをパージし、ファイルサイズを最小限まで削ぎ落とす。
-    *   画像は閲覧に最適なサイズと品質（WebP等の高圧縮フォーマット）に **事前リサイズ・最適化・切り抜き済み** のもののみを収録する。
+    *   グラフィック／写真ページは閲覧に最適なサイズと品質（WebP等の高圧縮フォーマット）に **事前リサイズ・最適化・切り抜き済み** のもののみを収録する。
+    *   テキスト中心ページは、Studio／Pressで改行・改ページ・座標を確定した固定テキストprojectionを収録できる。
     *   ビューアが即座にパースして描画開始できるように、不要なリレーション階層（Sections と Blocks の関係など）をフラット化して軽量化する。
 
-Flow LayoutはStudio／DSP側のauthoring方式であり、配信DSFをリフロー形式へ変更しない。将来Flow原稿を
-発行する場合も、Pressで固定WebPページへ描画し、Viewerは従来どおり画像ページを読む。
+Flow LayoutはStudio／DSP側のauthoring方式であり、配信DSFをリフロー形式へ変更しない。Flow原稿もPressで
+ページ境界と行／列を確定し、DSF delivery v2の`fixedText`ページへ投影する。端末幅や読者設定によるViewer内の
+再改行・再ページ化は行わない。グラフィックページおよび固定テキスト非対応の効果を持つページはWebPを使う。
+
+hybrid delivery v2の詳細は[fixed-text-delivery-contract.md](fixed-text-delivery-contract.md)を正本とする。
+公開／共有URL runtimeはまだv1 WebP-onlyであり、9A実装完了まではFlowを含む作品の発行停止を維持する。
+9A-4Aのpure release assemblerはv2 `content.json`／言語manifest相当の確定JSONとasset planをメモリ上で作るだけで、
+`.dsf` ZIP、R2 object、Firestore Release、公開Viewer loadを生成しない。
+9A-4Bのlocal byte sealingは、実WebP bytesのRIFF／chunk／codec寸法、静止画制約、SHA-256を検証して
+immutable Blobへ結び付けるだけで、archive file inventory、ZIP、uploadを生成しない。
+9A-4Cのlocal release file inventoryは、確定JSONとsealed WebPを実bytesから再hashし、`mimetype`、
+`manifest.json`、`meta.json`、`content.json`、言語manifest、画像の完全なファイル一覧をメモリ上で作る。
+ZIP bytes、download、upload、Firestore Release、公開Viewer loadはまだ生成しない。
+9A-4Dのlocal ZIP packageはそのinventoryを決定的なentry順でZIP化し、CRC付き再展開と全entryのSHA-256照合を
+完了したimmutable Blobだけを返す。download、Press UI、upload、Firestore Release、公開Viewerには接続しない。
+9A-5Aのpure Flow publication projectionはsemantic source、成功pagination、認定fontで実測済みの行／列snapshotを
+照合してv2 `fixedText` page fragmentを作る。snapshot自体やsemantic FlowDocumentを配信DSFへ保存せず、
+9A-5Bのlocal browser sessionが認定font・no-hyphenation条件でpaginationとDOM Range snapshotを作れるが、
+9A-5Cで現在revisionと完全一致する成功projectionをpure Press preflightへ通し、Fixed／Flow／WebPを作者順の
+言語別manifestへpure release assemblyできる。9A-6Aではdevelopment-only Press UIで言語別候補page数と停止理由を
+確認できるが、local fixture結果はDSFへ保存せず、staging／production Press、ZIP、upload、公開Viewerには接続しない。
+9A-6B-Aでは本番font registry専用の準備ゲートをstaging／productionを含むPress UIへ接続した。この時点ではregistryが空なので
+`FONT_NOT_CERTIFIED`で停止する。準備結果はDSFへ保存せず、発行、容量見積り、release assembly、ZIP、uploadにも使わない。
+9A-6B-B1／B2では、registryに将来登録するWOFF2を実bytesのheader／byteLength／SHA-256で検証し、session専用familyへ
+一時loadできた場合だけFlow captureへ進む。runtime evidenceと一時FontFaceはDSFへ保存しない。この時点ではregistryを空に保つ。
+9A-6B-B3-AではNoto Sans JP 2.004-H2とNoto Serif JP 2.003-H1のfull variable WOFF2候補を固定したが、
+production R2実体とremote evidence、Architect reviewが未完了なのでregistryへは登録しない。保存schemaは変更しない。
+9A-6B-B3-Cではproduction evidenceとArchitect review済みの2候補だけをactive registryへ登録し、Flow Press実ブラウザー
+pagination／projectionを確認した。registry、runtime lease、capture結果はDSFへ保存しないため、ファイルschemaは変更しない。
+9A-6B-B3-A2ではHorizon用assemblyからダウンロード専用portable assemblyを派生し、使用fontのexact WOFF2を
+`fonts/<sha256>.woff2`へ必須同梱できるlocal gateを追加した。download UI、upload、Firestore、公開Viewerには未接続である。
+9A-6C-Aでは成功したFlow本番準備とsealed WebP descriptorから既存v2 assemblyをin-memory生成し、Horizon payloadと
+portable payloadを見積もる。portable値は確定JSON、実WebP byte数、registry認定font byte数を含むがZIP container overheadは
+含まない。assembly／見積りは非永続であり、ZIP、download、upload、発行には接続しないため、ファイルschemaは変更しない。
+9A-6C-Bでは同じsealed WebPと、active registryから取得してexact検証した使用WOFF2を既存portable inventory／deterministic
+ZIP builderへ渡す。全entryを再展開してpath／byteLength／SHA-256を照合し、ローカル検証用`.dsf`の実container容量を得る。
+既存のembedded font declaration、`fonts/<sha256>.woff2`、WebP entryをそのまま使うためschema変更はない。生成物はruntime-onlyで、
+download、upload、発行にはまだ接続しない。
+9A-6C-C-Aでは9A-6C-Bのround-trip合格済みZIP Blobを現在のpackage signature、MIME、byteLength、SHA-256へ再照合し、
+同じBlobをportable `.dsf`としてローカル保存できる。既存entry、embedded font declaration、archive hashを変更せず、
+旧WebP-only builderで再生成しないためschema変更はない。Flow upload、Firestore、Horizon発行、公開Viewer loadは未接続である。
+9A-6C-C-Bではportable v2 `.dsf`をローカルViewerで開ける。CRC付きZIPを展開し、canonical `manifest.json`／`meta.json`／
+`content.json`／言語manifest、manifestの完全entry集合、MIME、byteLength、SHA-256を検証する。`fonts/<sha256>.woff2`は
+active production registryのfamily／version／font ID／hash／埋込権と一致し、WOFF2実bytes検査を通った場合だけsession固有の
+FontFaceへ登録する。画像は参照entryだけを静止WebP／指定寸法まで検証してobject URL化する。検証途中の不足、余分なentry、
+case衝突、path traversal、hash不一致、未知の必須contentはpackage全体を拒否する。schemaは変更せず、WebP／`fixedText`混在と
+言語別ページ列を既存Viewerへ渡す。旧v1／DSP／JSONのローカル読込は従来経路を維持し、公開／共有URL、upload、Firestore、
+Horizon Releaseは変更しない。
+9A-6C-C-C-0ではHorizon artifactの保存pathを`users/{uid}/dsf/{workId}/{releaseId}/`へ固定し、その下へ
+`content.json`、言語manifest、WebP assetをassemblyの相対pathどおりに置くpure upload planを追加した。Horizonは認定fontの
+共有immutable CDN URLを使うため、releaseごとのWOFF2は含めない。全fileの予定URL、MIME、byteLength、SHA-256、
+`public, max-age=31536000, immutable`がupload receiptと完全一致するまで、v2 Release metadataをpublishableにしない。
+これはschemaを変更せず、upload API、R2、Firestore、Press、Works、公開Viewerへまだ接続しない。
+9A-6C-C-C-1Aでは、このfile plan専用の`POST /upload-release`を追加した。認証UIDを含むrelease rootと上記JSON／WebP pathだけを
+許可し、serverが実bytesのSHA-256、byteLength、MIME、形式を再検証する。R2はcreate-onlyかつimmutable cacheで保存し、同じ
+metadataの再送だけをidempotent成功とする。responseのexact receiptはC-C-C-0 sealと同じ6項目で、file format schemaは変更しない。
+既存画像用`/upload`、Press、実R2、Firestore、Works、公開Viewerには未接続である。
+9A-6C-C-C-1Bでは、plan内canonical JSONとcallerが解決したexact WebP Blobをclient側でbyteLength／SHA-256へ再照合してから、
+全fileをrelease endpointへ逐次送信する。responseとreceiptのfield集合・値を厳密に検査し、完全集合が揃った場合だけpure sealを返す。
+partial receiptはfile skipやmetadata生成に使用せず、retryでは完全planを再送してendpointのidempotent HEAD検証を通す。このclient
+transportもfile format schemaを変更せず、Press、実R2、Firestore、Works、公開Viewerには未接続である。
+9A-6C-C-C-1C-Aでは、Press planning内のassembly asset descriptorとsession内sealed WebP Blobをlanguage／block／page単位で
+exactly oneに結び付け、実bytesの構造、寸法、byteLength、SHA-256を再検証してHorizon planのimage fileへ渡すdry-run handoffを
+追加した。保存済みJSON、ZIP entry、Firestore fieldは増やさず、file format schemaを変更しない。
+9A-6C-C-C-1C-Bでは、そのnetwork-idle resultをPressへread-only表示する。runtime release IDと状態表示はDSP／DSF／ZIPへ保存せず、
+配信file set、canonical JSON、asset path、format schemaを変更しない。
 
 ---
 
 ## 2. ZIPコンテナ構造とポータビリティ
 このフォーマットは**特定のサーバーシステム（FirebaseやAWS等）には一切依存しません。**
-画像などのメディアファイルはクラウドのURLではなく、**すべてZIPファイルの中（`assets/` ディレクトリ下）に実体を含みます。** これにより、ネットワーク接続がないオフライン環境であっても、ファイル単体さえあればリーダーやエディタで完全に描画・復元できる「ポータブル」なフォーマットとなります。エクスポート時に画像の再取得に失敗した場合は、URL だけを残して続行せず、書き出し全体を失敗として扱います。
+画像などのメディアは`assets/`、固定テキストが使うfontは`fonts/`として、**ダウンロード用ZIP内に必要な実体をすべて含みます。** これにより、ネットワーク接続がないオフライン環境であっても、ファイル単体さえあればリーダーで完全に描画できる「ポータブル」なフォーマットとなります。エクスポート時に画像またはfontの実bytesを確定できない場合は、URLだけを残して続行せず、書き出し全体を失敗として扱います。
 
 どちらのファイルも、ZIP展開すると以下のようなファイル・ディレクトリ構造を持ちます。
 
@@ -44,14 +109,18 @@ filename.dsf / filename.dsp
  ├── manifest.json           // アーカイブ内の全ファイル一覧とそのハッシュ等
  ├── meta.json               // 作品のメタデータ（タイトル、作者、バージョン、言語構成など）
  ├── project.json            // [DSPのみ] エディタが復元するための状態（state）の完全なダンプ
- ├── content.json            // [DSFのみ] リーダーが描画するためのページ構成、セリフ、画像パス
+ ├── content.json            // [DSFのみ] リーダー向けページindex（v1はページ列、v2は言語manifest index）
+ ├── content/                // [DSF v2] 言語別の固定ページ列
+ │    ├── ja.json
+ │    └── en.json
+ ├── fonts/                  // [DSF v2 download] 使用する固定テキスト用WOFF2（必須同梱）
  └── assets/                 // メディアファイル格納庫
       ├── images/            // DSF: 閲覧用最適化済み画像
       ├── originals/         // DSP: 編集用オリジナル高解像度画像
       └── thumbs/            // DSP: エディタ表示用サムネイル画像
 ```
 
-**メタデータの分担（現行）**: アーカイブ整合性・ファイル一覧は主に **`manifest.json`**、作品タイトル・言語リスト・表示系のルート設定は **`meta.json`**、ビューア向けのフラットな **ページ列** は **`content.json`**（DSF）が担います。**レーティング**など追加の出版メタは、`meta.json` の拡張キーとして解釈不能なら無視する方針で追加していく想定です。
+**メタデータの分担**: アーカイブ整合性・ファイル一覧は主に **`manifest.json`**、作品タイトル・言語リスト・表示系のルート設定は **`meta.json`** が担う。DSF v1では **`content.json`** がフラットなWebPページ列、v2では小さな言語indexとなり、実ページ列は **`content/{language}.json`** が担う。**レーティング**など表示に影響しない出版メタは、解釈不能なら無視できる拡張キーとして追加する。
 
 ---
 
@@ -62,13 +131,55 @@ filename.dsf / filename.dsp
 *   `.dsp` の場合: `application/vnd.dsf.project+zip`
 *   `.dsf` の場合: `application/vnd.dsf.content+zip`
 
+### `manifest.json`
+
+DSF archive manifest schema v1は、アーカイブpayloadのpath、MIME type、byteLength、SHA-256を列挙する。
+
+```json
+{
+  "schemaVersion": 1,
+  "format": "dsf-archive-manifest-1",
+  "rootContent": "content.json",
+  "self": {
+    "path": "manifest.json",
+    "integrity": "external-inventory"
+  },
+  "files": [
+    {
+      "path": "content.json",
+      "mimeType": "application/json",
+      "byteLength": 1234,
+      "sha256": "..."
+    }
+  ],
+  "fileCount": 1,
+  "payloadByteLength": 1234
+}
+```
+
+`files[]`は`manifest.json`自身以外の全payloadを列挙する。manifestが自分自身のhashを内部に含めると内容とhashが
+再帰して確定できないためである。archiveの外側inventoryまたは配信metadataが`manifest.json`自身のSHA-256を保持する。
+pathは相対pathだけを許可し、空segment、`.`、`..`、backslash、先頭slash、重複pathを拒否する。
+9A-4Cはこのmanifestと外側inventoryを作るだけで、ZIP entryへはまだ変換しない。
+
+### ZIP entry contract（9A-4D）
+
+- 9A-4C inventoryの順序をそのままentry順にし、`mimetype`を先頭に置く。
+- `mimetype`と既に圧縮済みのWOFF2 fontはSTORE、その他はDEFLATE level 9とする。
+- entry日時は`1980-01-01T00:00:00Z`、platformはDOS、`streamFiles:false`に固定する。
+- directory entry、暗号化、data descriptor、unsafe path、case-insensitive path衝突を認めない。
+- 生成後にCRC検証付きで再展開し、local headerと全entryのpath、byteLength、SHA-256をinventoryへ照合する。
+
+この固定は同じ入力から同じbyte列を再現し、archive hashを安定させるためのlocal package契約である。
+9A-4D時点では生成Blobをdownload、upload、公開配信しない。
+
 ### `meta.json`
 プロジェクト全体の基本情報。機能追加時はルートにキーを追加し、解釈できないキーは無視する仕組みで拡張性を担保。
 
 ```json
 {
   "version": "1.0.0",               // フォーマットのバージョン
-  "schemaVersion": 1,               // DSF／Fixed DSPは1、Project v6 DSPは2
+  "schemaVersion": 1,               // DSF v1／Fixed DSPは1、DSF hybrid v2／Project v6 DSPは2
   "projectVersion": 5,              // DSPのみ。Project authoring version
   "projectId": "proj_abc123",       // 編集単位のID（存在する場合）
   "workId": "work_abc123",          // 読者向けに不変の作品ID（存在する場合）
@@ -154,6 +265,8 @@ Fixedへfallbackしない。
 *   `sections` や `blocks` という編集用概念を統合・破棄し、純粋な `pages` サブシステムの配列へ変換される。
 *   画像の `background` などのパスは、FirebaseのURLからZIP内の `assets/images/xxx.webp` のような相対パスに書き換えて格納する。
 
+#### DSF v1（WebP-only、後方互換）
+
 ```json
 {
   "projectId": "proj_abc123",
@@ -182,6 +295,109 @@ Fixedへfallbackしない。
   ]
 }
 ```
+
+#### DSF delivery v2（WebP + 固定テキスト）
+
+v2の`content.json`は言語別固定ページ列への小さなindexとする。Flow翻訳は言語ごとにページ数が異なり得るため、
+1つの物理ページ配列へ言語variantを押し込まない。
+
+同じReleaseから2種類の配信artifactを作る。Horizonのオンライン閲覧用indexは`source:'registry'`と共有immutable CDN URLを
+使用できる。ダウンロード用`.dsf`は、使用fontをすべて`fonts/<sha256>.woff2`へ1回だけ同梱し、indexを
+`source:'embedded'`とarchive相対`href`へ書き換える。ダウンロード用indexに外部font URLを残してはならない。
+
+```json
+{
+  "schemaVersion": 2,
+  "layoutModel": "fixed-page-hybrid-1",
+  "canonicalPage": { "width": 360, "height": 640, "aspectRatio": "9:16" },
+  "defaultLang": "ja",
+  "fonts": {
+    "dsf-mincho-ja-v1": {
+      "family": "DSF Mincho JA",
+      "version": "1",
+      "source": "registry",
+      "href": "https://fonts.example/dsf-mincho-ja-v1.woff2",
+      "sha256": "..."
+    }
+  },
+  "languages": {
+    "ja": { "href": "content/ja.json", "pageCount": 128, "pageDirection": "rtl", "sha256": "..." },
+    "en": { "href": "content/en.json", "pageCount": 143, "pageDirection": "ltr", "sha256": "..." }
+  }
+}
+```
+
+ダウンロード用`.dsf`では、上のfont宣言だけが次の形へ変わる。family、version、SHA-256、固定ページ座標は同一である。
+
+```json
+{
+  "family": "DSF Mincho JA",
+  "version": "1",
+  "source": "embedded",
+  "href": "fonts/<full-sha256>.woff2",
+  "sha256": "<full-sha256>"
+}
+```
+
+`content/{language}.json`は`styles`と順序付き`pages[]`を持つ。各pageは必ず
+`renderKind:'image'|'fixedText'`のいずれかである。
+
+```json
+{
+  "schemaVersion": 1,
+  "language": "ja",
+  "styles": {
+    "body": {
+      "fontRef": "dsf-mincho-ja-v1",
+      "fontSize": 16,
+      "fontWeight": 400,
+      "lineHeight": 1.8,
+      "letterSpacing": 0,
+      "color": "#1f2937"
+    }
+  },
+  "pages": [
+    {
+      "id": "cover-front",
+      "renderKind": "image",
+      "sourceAnchor": { "kind": "fixed", "blockId": "cover_front" },
+      "image": { "href": "../assets/images/cover.webp", "width": 1080, "height": 1920, "mimeType": "image/webp" }
+    },
+    {
+      "id": "flow-story-ja-0001",
+      "renderKind": "fixedText",
+      "sourceAnchor": {
+        "kind": "flow",
+        "flowGroupId": "flow_group_story",
+        "firstBlockId": "flow_paragraph_1",
+        "blockProgress": 0
+      },
+      "background": { "color": "#fffdf8" },
+      "lines": [
+        {
+          "x": 324,
+          "y": 20,
+          "width": 16,
+          "height": 600,
+          "writingMode": "vertical-rl",
+          "textOrientation": "mixed",
+          "styleRef": "body",
+          "runs": [
+            {
+              "text": "冬の金沢は静かだった。",
+              "source": { "blockId": "flow_paragraph_1", "startGrapheme": 0, "endGrapheme": 11 }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
+```
+
+固定テキストの`lines[]`はStudio／Pressで確定済みであり、Viewerは折り返さない。任意HTML／CSSは収録せず、
+Viewerはwhitelist済みstyleだけをDOMへ適用し、本文は`textContent`で設定する。フォント、座標、overflow、
+未知の必須機能をPressとViewerの両方で検証する。
 
 ---
 

@@ -77,7 +77,8 @@ AI エージェント、人間の開発者ともに、まずこの文書を読�
 
 ### 技術的な特徴（フォーマット方針）
 
-- **9:16 固定比率**の **WebP** をページ単位のマスターとして扱う（Gen3）。
+- **9:16 固定比率**のページをマスターとし、グラフィック／写真ページは **WebP**、テキスト中心ページは
+  Studio／Pressで組版を確定した **固定テキスト**として配信できる。どちらもViewerではリフローしない。
 - **ページ単位の遅延ロード**等により、先頭から順に読み始めやすくする（低速回線でも閲覧開始を早める設計方針）。
 - **パノラマ・見開き**は、表示ユニットを**連結**するモデルで表現する（実装・スキーマは `docs/` および `pages.js` を参照）。
 - ZIP コンテナ内の **`manifest.json` / `meta.json` / `content.json`** 等で、ページ構成・多言語・表示メタ（綴じ方向・アスペクト比など）を管理する。詳細は `docs/file-format-spec.md`。
@@ -140,6 +141,7 @@ npx wrangler pages deploy dist --project-name dsf-studio --branch staging # stag
 | ホスティング | Cloudflare Pages (`dsf.ink`) | ローカル開発: Vite / staging: Cloudflare Pages preview |
 | 画像ストレージ | Cloudflare R2 (`dsf-media` バケット) | ローカル開発: Firebase Storage / staging: Cloudflare R2 (`dsf-media-staging`) |
 | 画像アップロード API | Cloudflare Pages Function (`/upload`) | ローカル開発: Firebase Storage SDK / staging: Cloudflare Pages Function (`/upload`) |
+| DSF v2 release API | Cloudflare Pages Function (`/upload-release`) | mock検証済み・Press未接続 / staging実通信未確認 |
 | 認証 | Firebase Auth | Firebase Auth |
 | データベース | Firestore | Firestore |
 
@@ -156,18 +158,107 @@ npx wrangler pages deploy dist --project-name dsf-studio --branch staging # stag
 - `firebase` → ローカル Vite 開発（`.env.development`）
 
 ### Cloudflare Pages Function
-`functions/upload.js`: Firebase ID トークンを検証し R2 にアップロードする serverless エンドポイント。
+`functions/upload.js`: Firebase ID トークンを検証し authoring画像をR2へアップロードするserverless endpoint。
+`functions/upload-release.js`: DSF v2 releaseの限定JSON／WebPをserver-side hash検証し、create-onlyでR2へ置く専用endpoint。client
+transportは`js/dsf-horizon-release-upload.js`だが、Pressと実環境にはまだ接続しない。
 `wrangler.toml`: R2 バインディング・環境変数の設定。本番・プレビュー両環境に `R2_BUCKET` バインディングが必要。preview 側は `FIREBASE_PROJECT_ID=vmnn-26345-stg` と staging 用 `R2_PUBLIC_URL` を設定する。
 
 ## アーキテクチャ
 
-### Gen3（DSF のページ表現）
+### DSF の固定ページ表現
 
-**配信ページは WebP 画像として出力する。** テキスト組版はエディターで完結し、結果を WebP に焼き付けてビューアーに渡す。ビューアーは **`<img>` 中心の軽量表示**に専念し、共有 URL では **発行済み DSF（`dsfPages`）のみ**を扱う。
+DSFは作者が確定したページレイアウトを配信する。グラフィック／写真／自由配置レイヤーはWebPへ合成し、
+小説等のテキスト中心ページは、Pressで確定した改行・列・座標を固定テキストとして配信できる。
 
-- ビューアー側での SVG レンダリング・WebGL・richText によるリッチ組版は採用しない
-- `bodyKind: 'text'` / `richText` フィールドは将来的に廃止方向
-- **多言語**: 言語ごとに WebP を生成し、必要な言語のみ遅延ロードする
+- Viewerは画像と固定テキストの2つのrendererを持つが、どちらも正規`360×640`ページを一様に拡大縮小する
+- Viewerは端末幅による再ページ化、本文リフロー、読者による本文文字サイズ変更を行わない
+- 固定テキストはStudio／Pressで組版済みの行／縦書き列をDOM文字として固定座標へ描画し、Viewer側で再組版しない
+- WebGL / Three.jsおよびViewer内のauthoring用rich-text editorは採用しない
+- 既存のWebP-only DSF v1は後方互換として継続表示する
+- hybrid delivery v2は言語別ページ列を持ち、Flow翻訳で言語ごとのページ数が異なることを許可する
+- 公開共有URLは引き続き発行済みDSFだけを読み、DSP authoring sourceを直接公開しない
+
+詳細契約は[docs/fixed-text-delivery-contract.md](docs/fixed-text-delivery-contract.md)を参照する。9A-5Bでは
+semantic Flow source、成功pagination、認定fontで実測済みの行／列snapshotをno-lossで照合し、
+言語別`fixedText` page fragmentへpure projectionできる。認定font・no-hyphenation条件のpaginationと
+DOM Range snapshot採取はdevelopment-only local sessionで確認済みである。9A-5Cでは現在revisionと完全一致する
+成功projectionだけをpure Press preflightへ通し、Fixed／Flow／WebPを作者順の言語別manifestへpure assemblyできる。
+9A-6Aではdevelopment-only Press UIでFlowの実DOM captureからpreflightまでを実行し、言語別候補page数と停止理由を
+確認できる。local fixture fontだけを使い、staging／production Press、ZIP、upload、公開Viewerには未接続である。
+9A-6B-Aではfixture非依存の同じpreflight処理を本番font registry専用のPress準備ゲートへ接続し、staging／productionでも
+言語別停止理由を確認できる。この時点では本番registryが空なので実原稿は`FONT_NOT_CERTIFIED`でDOM capture前に停止し、発行ボタン、
+容量見積り、release assembly、ZIP、upload、公開Viewerには接続しない。
+9A-6B-B1／B2では本番WOFF2のheader／実byteLength／SHA-256をregistryへ照合し、検証済みbytesだけをsession専用
+FontFace familyへ一時登録してFlow DOM計測へ渡すgateを追加した。固定URL取得はcredentialなし・redirect拒否で、lease終了時に
+FontFaceを削除する。この時点では本番registryが空のためasset取得を開始せず、実font登録と発行は人間確認待ちである。
+9A-6B-B3-AではNoto Sans JP 2.004-H2とNoto Serif JP 2.003-H1のfull variable WOFF2を技術候補として固定した。
+source provenance、実bytes hash／length、縦書きfeature、OFL根拠は`docs/production-font-certification.md`に記録し、
+production R2実体とremote header／bytes、Architect reviewを確認するまでは本番registryを空のまま維持する。
+9A-6B-B3-A2では同じReleaseから配信artifactを分け、Horizonオンライン閲覧は共有immutable CDN font、ダウンロード用
+`.dsf`は使用fontのexact WOFF2を`fonts/<sha256>.woff2`へ必須同梱する契約とlocal package gateを追加した。
+portable indexは全fontを`source:'embedded'`へ書き換え、外部font参照、font欠落、埋込権未確認、hash不一致を拒否する。
+download UI、R2、Firestore、公開Viewerにはまだ接続しない。
+9A-6B-B3-Bのstaging確認では両Noto WOFF2を`dsf-media-staging`へ配置し、MIME、CORS、immutable cache、
+remote exact bytes、Chromiumの横書き／縦書きとweight 400／700、portable ZIP同梱round-tripを確認した。
+production asset／registry、発行、download UI、Firestore、公開Viewerは未変更である。
+2026-08-24にproduction R2へ両WOFF2と書体別OFL noticeをcontent-addressed filenameで配置し、remote exact bytes、
+Originなし／`dsf.ink` Origin付きGET、CORS `*`、immutable cache、production Chromiumの横書き／縦書きと400／700を
+確認した。ArchitectのWeb配信／portable embedding承認後、候補projection gateを通した2書体をactive production registryへ
+登録し、Flow Press既定経路でSans／Serifそれぞれ横書き／縦書きのpaginationとprojectionを実測確認した。Flow発行、
+download UI、Firestore、Viewer runtimeはまだ変更していない。
+9A-6C-Aでは、成功した本番Flow準備結果とPressが生成・検証した実WebP descriptorを、既存のDSF v2 release assemblyへ
+in-memoryで接続した。PressはWebP／fixedText件数、Horizon payload、portable download payloadと同梱font分を表示する。
+portable値は確定JSON、実WebP byte数、registry認定font byte数の合計であり、ZIP container overheadはまだ含まない。
+ZIP、download、upload、Firestore、Horizon発行、公開Viewer runtimeは引き続き未接続で、Flow発行guardも維持する。
+9A-6C-Bでは、同じPress sessionのsealed WebPと、active registry URLからcredentialなしで取得してlength／SHA-256を
+再検証した使用WOFF2を、既存portable planner、file inventory、deterministic ZIP builderへ渡す。全ZIP entryを再展開して
+path／bytes／SHA-256を照合した後、ローカル検証用`.dsf`の実測ZIP容量とSHA-256をPressにread-only表示する。結果とBlobは
+runtime-onlyであり、download、upload、Firestore、Horizon発行、公開Viewer runtimeにはまだ接続しない。
+9A-6C-C-Aでは、9A-6C-Bのround-trip合格済みZIP Blobを再生成せず、現在のPress設定とのsignature、MIME、byteLength、
+SHA-256が一致する場合だけ既存「DSF書き出し」から、安全化した作品タイトルの`.dsf`名でローカル保存できる。保存直前にも
+同じBlob identityと検証値を再照合し、入力変更、検証待ち、失敗、Press離脱時はボタンを無効化する。これはportable `.dsf` downloadだけの接続であり、
+upload、Firestore、Horizon発行、公開Viewer runtimeは引き続き未接続である。
+9A-6C-C-Bでは、そのportable v2 `.dsf`をViewerのローカルファイル選択から開けるようにした。ViewerはZIPのCRC、canonical JSON、
+manifestの完全entry集合、各entryのbyteLength／SHA-256、production registryに一致する同梱WOFF2、WebP形式／寸法をすべて
+fail closedで検証してから、言語別のWebP／`fixedText`混在ページを既存ページ操作へ渡す。同梱fontはファイルsession固有familyへ
+一時登録し、画像object URLとともに別ファイル読込／page unload時に破棄する。既存WebP-only v1、DSP、JSONのローカル読込は
+従来経路へfallbackする。これはローカルファイルViewerだけの接続で、公開／共有URL、Horizon upload、Firestore、Release metadataは
+変更していない。
+9A-6C-C-C-0では、Horizon v2を外部状態へ接続する前のpure publication contractを追加した。verified assemblyから
+`users/{uid}/dsf/{workId}/{releaseId}`配下のcanonical JSON／言語manifest／sealed WebP upload planを作り、全fileについて
+予定したURL、MIME、byteLength、SHA-256、`public, max-age=31536000, immutable`が一致するupload receiptを受け取るまで、
+Firestore／`public_projects`へ書けるlocatorを生成しない。公開Viewerのtransport選択もpure contractとして固定し、schema v2が
+宣言済みまたは部分的に存在する場合は、不正locatorから旧`dsfPages`へfallbackしない。現行upload API、Press、Works、Viewer、
+Firestore、R2はまだ接続していない。
+9A-6C-C-C-1Aでは、既存画像用`/upload`を維持したまま、Horizon v2 release専用`/upload-release`を追加した。認証UID配下の
+限定JSON／WebP path、server-side SHA-256、実byteLength、MIME、形式、immutable cache metadataを照合し、R2 create-only writeと
+同一内容の再送だけを許可してexact receiptを返す。mock R2でのみ検証し、Press、実R2、Firestore、Works、公開Viewer、deployには
+接続していない。
+9A-6C-C-C-1Bでは、verified planのcanonical JSON／exact WebP Blobをclient側で再hashし、requestごとにtokenを取得して全fileを
+逐次送信するtransportを追加した。response／receiptをstrictに照合し、partial failure、通信失敗、token欠落、abort、改ざん時はsealを
+返さない。完全成功時だけ既存pure sealを返す。mock fetchでのみ検証し、Press、実token／R2、Firestore、Works、公開Viewer、deployには
+接続していない。
+9A-6C-C-C-1C-Aでは、Pressの成功planningとsealed WebP集合をimmutable Horizon planへ再照合し、全画像の実Blob構造、寸法、容量、
+SHA-256を検証したnetwork-idle handoffを追加した。mock transport統合だけを確認し、Press UI、実fetch／token／R2、Firestore、Works、
+公開Viewer、deployには接続していない。
+9A-6C-C-C-1C-Bでは、そのhandoffをPressの既存ローカル配信設計summaryへread-only接続した。認証／クラウド作品identity、検証状態、
+file数、exact bytes、WebP照合数、upload未実行を表示する。Flow Horizon発行buttonはready後もdisabledで、実transport／token／R2、
+Firestore、Works、公開Viewer、deployには接続していない。
+9A-4Dでは
+9A-4C inventoryを決定的なentry順でDSF ZIPへメモリ生成し、再展開した全entryのCRC、byteLength、SHA-256を
+照合できる。まだdownload、Press UI、uploadには接続しない。
+9A-4Cでは
+9A-4Aの確定JSONと9A-4Bのsealed WebPを再照合し、`mimetype`、archive manifest、metadata、content、
+言語manifest、画像の完全なlocal file inventoryを作れる。まだZIP、download、uploadには接続しない。
+9A-4Bでは
+実WebP bytesのRIFF構造、codec寸法、静止画制約を検査し、Web Crypto SHA-256とimmutable Blobを
+9A-4A descriptorへ結び付けられる。
+9A-4Aでは
+公開可能なpreflight結果からhash済みcontent index／言語manifestとasset planをpure assemblyできるが、
+WebP実bytes、R2、Firestore、Press UI、公開Viewerには未接続である。
+active production font registryとpure Press preflightにより、Fixed／Flow pageをfixedText候補または理由付きWebPへ分類できる。
+portable v2 `.dsf`のローカル書き出し／Viewer読込は接続済みだが、Horizon発行／公開runtimeはまだWebP-onlyである。
+9Aの段階実装が完了するまでFlow作品の発行停止を維持する。
 
 #### 高度な和欧文組版エンジン（実装済み / 2026-04）
 
@@ -186,7 +277,8 @@ npx wrangler pages deploy dist --project-name dsf-studio --branch staging # stag
 - 縦書き: 列幅 = `frame.w / maxLines`、文字ピッチ = `frame.h / charsPerLine`（フレームを等分）
 - 横書き: 行高 = `frame.h / maxLines`（フレームを等分、フルページで上下対称）
 
-> Press（WebP 書き出し）側の Canvas 2D テキスト描画は Phase 3 で実装予定。
+> 現行Pressは固定テキストページもWebPへ描画する。hybrid delivery v2では、この組版結果から固定行／列の
+> 配信projectionを生成し、未対応フォントや効果を持つページだけをWebPへfallbackする。
 
 **正規論理ページ（9:16）**: レイアウト・エディター・ビューワー・Press の基準座標は **`js/page-geometry.js`**（`CANONICAL_PAGE_WIDTH` / `HEIGHT` 等）と **`css/variables.css`** の `--dsf-canonical-page-*` で一致させる。配信用ビットマップの**物理ピクセル最低ラインは 1080×1920**（論理の 3 倍）を前提とする（詳細は `docs/implementation-plan-9-16-layout.md`）。
 

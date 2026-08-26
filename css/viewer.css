@@ -302,6 +302,58 @@ body.viewer-ui-visible .viewer-side-nav-btn {
     object-position: right center;
 }
 
+/* DSF delivery v2 fixed text: already composed at canonical 360x640 coordinates. */
+.viewer-fixed-text-page {
+    position: relative;
+    width: var(--dsf-canonical-page-width, 360px);
+    height: var(--dsf-canonical-page-height, 640px);
+    overflow: hidden;
+    background: #fff;
+    isolation: isolate;
+    font-synthesis: none;
+    text-rendering: optimizeLegibility;
+}
+
+.viewer-fixed-text-background {
+    position: absolute;
+    inset: 0;
+    z-index: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    pointer-events: none;
+}
+
+.viewer-fixed-text-line {
+    position: absolute;
+    z-index: 1;
+    display: block;
+    margin: 0;
+    padding: 0;
+    overflow: hidden;
+    white-space: nowrap;
+    word-break: normal;
+    overflow-wrap: normal;
+    text-wrap: nowrap;
+}
+
+.viewer-fixed-text-run {
+    white-space: inherit;
+}
+
+.viewer-fixed-text-error {
+    width: 100%;
+    height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 28px;
+    background: #fff7ed;
+    color: #9a3412;
+    font: 700 13px/1.6 sans-serif;
+    text-align: center;
+}
+
 .viewer-text-page {
     width: 100%;
     height: 100%;
@@ -2156,8 +2208,11 @@ body[data-theme="dark"] .viewer-lang-option .viewer-lang-badge {
 }
 
 .page-slider-preview-surface {
+    position: relative;
     min-width: 0;
     min-height: 0;
+    overflow: hidden;
+    background: #fff;
 }
 
 .page-slider-preview-left,
@@ -2180,6 +2235,32 @@ body[data-theme="dark"] .viewer-lang-option .viewer-lang-badge {
     display: block;
     object-fit: cover;
     object-position: center center;
+}
+
+.page-slider-preview-fixed-text {
+    position: absolute;
+    inset: 0;
+    display: none;
+    width: 54px;
+    height: 96px;
+    overflow: hidden;
+    background: #fff;
+}
+
+.page-slider-preview-surface[data-render-kind="fixedText"] .page-slider-preview-image,
+.page-slider-preview-surface[data-render-kind="fixedText"] .page-slider-preview-empty {
+    display: none;
+}
+
+.page-slider-preview-surface[data-render-kind="fixedText"] .page-slider-preview-fixed-text {
+    display: block;
+}
+
+.page-slider-preview-fixed-text > .viewer-fixed-text-page {
+    width: 360px;
+    height: 640px;
+    transform: scale(0.15);
+    transform-origin: top left;
 }
 
 .page-slider-preview-surface[data-spread-role="left"] .page-slider-preview-image {

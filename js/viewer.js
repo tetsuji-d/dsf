@@ -16,6 +16,12 @@ import { doc, getDoc, getDocs, setDoc, deleteDoc, addDoc, collection, query, whe
 import { parseAndLoadDSF } from './export.js';
 import { CANONICAL_PAGE_WIDTH, CANONICAL_PAGE_HEIGHT, CANONICAL_PAGE_ASPECT } from './page-geometry.js';
 import { formatPublicationDate, getPublicationInactiveReason, isPublicationActive } from './publication.js';
+import {
+    createDsfViewerPageContentElement,
+    getDsfViewerPageRenderKind,
+    prepareDsfViewerFixedTextContext,
+} from './viewer-fixed-text.js';
+import { mapDsfLanguagePage } from './dsf-delivery-v2.js';
 
 // ── Module State ──────────────────────────────────────────────
 let sharedProjectRef = null;
@@ -29,6 +35,16 @@ let bookmarkRestoreAttempted = false;
 let bookmarkSaveTimer = null;
 let bookmarkUiState = createBookmarkUiState();
 let reviewUiState = createReviewUiState();
+let viewerFixedTextContext = null;
+let viewerLocalFixtureAssetUrls = new Map();
+let viewerLocalPortableSession = null;
+
+function replaceViewerLocalPortableSession(nextSession = null) {
+    if (viewerLocalPortableSession && viewerLocalPortableSession !== nextSession) {
+        viewerLocalPortableSession.dispose();
+    }
+    viewerLocalPortableSession = nextSession;
+}
 
 // 見開き表示フラグ
 let spreadMode = false;
@@ -320,9 +336,9 @@ async function init() {
     document.addEventListener('keydown', onKeydown);
     document.addEventListener('wheel', onWheel, { passive: false });
     window.addEventListener('resize', handleViewerResize);
+    window.addEventListener('beforeunload', () => replaceViewerLocalPortableSession(null), { once: true });
     setupStandaloneFileDrop();
 
-    await initAuth().catch((e) => console.warn('[Viewer] initAuth failed:', e));
     applyViewerUiLanguage();
     updateViewerInfoPanelLayout();
     renderViewerInfoPanel();
@@ -336,7 +352,24 @@ async function init() {
     const pid = params.get('project') || params.get('id');
     const uid = params.get('author') || params.get('uid');
     const src = params.get('src') || params.get('file') || params.get('url');
+    const fixtureId = String(params.get('fixture') || '').trim();
     requestedBookMode = String(params.get('bookMode') || params.get('book') || '').toLowerCase();
+    if (fixtureId) {
+        if (!import.meta.env.DEV) {
+            showLocalFixtureError(new Error('Local Viewer fixtures are available only on the development server.'));
+        } else {
+            try {
+                await loadLocalViewerFixture(fixtureId);
+            } catch (error) {
+                showLocalFixtureError(error);
+            }
+        }
+        resizeCanvas();
+        updateUiVisibility();
+        return;
+    }
+
+    await initAuth().catch((e) => console.warn('[Viewer] initAuth failed:', e));
     if (workId) {
         sharedProjectRef = { workId };
         attemptLoad();
@@ -351,6 +384,58 @@ async function init() {
 
     resizeCanvas();
     updateUiVisibility();
+}
+
+function showLocalFixtureError(error) {
+    showStandaloneEmpty();
+    const title = document.getElementById('viewer-empty-title');
+    const body = document.getElementById('viewer-empty-body');
+    if (title) title.textContent = 'DSF v2 fixture error';
+    if (body) body.textContent = error?.message || String(error);
+    console.warn('[Viewer] local fixture failed:', error);
+}
+
+async function loadLocalViewerFixture(fixtureId) {
+    const fixtureModule = await import('./fixtures/dsf-delivery-v2-viewer-fixture.js');
+    if (fixtureId !== fixtureModule.DSF_DELIVERY_V2_VIEWER_FIXTURE_ID) {
+        throw new Error(`Unknown local Viewer fixture: ${fixtureId}`);
+    }
+    const bundle = fixtureModule.createDsfDeliveryV2ViewerFixture();
+    const language = bundle.index.defaultLang;
+    const fixedTextContext = await prepareDsfViewerFixedTextContext({
+        bundle,
+        language,
+        certifiedFonts: fixtureModule.DSF_DELIVERY_V2_FIXTURE_FONT_CERTIFICATES,
+        fontFaceSet: document.fonts,
+    });
+    const imageDataUrl = fixtureModule.createDsfDeliveryV2FixtureImageDataUrl(document);
+    const manifest = fixedTextContext.manifest;
+    const pages = manifest.pages.map((deliveryPage) => ({
+        id: deliveryPage.id,
+        deliveryV2: deliveryPage,
+        content: {
+            backgrounds: deliveryPage.renderKind === 'image'
+                ? { '__all': deliveryPage.image.href }
+                : {},
+            bubbles: {},
+        },
+    }));
+    loadProjectData({
+        title: 'DSF v2 Viewer local fixture',
+        pages,
+        languages: [language],
+        defaultLang: language,
+        languageConfigs: {
+            [language]: { pageDirection: bundle.index.languages[language].pageDirection },
+        },
+    }, {
+        source: 'local-fixture',
+        fixedTextContext,
+        fixtureAssetUrls: new Map([[
+            fixtureModule.DSF_DELIVERY_V2_FIXTURE_IMAGE_HREF,
+            imageDataUrl,
+        ]]),
+    });
 }
 
 // ── Auth ─────────────────────────────────────────────────────
@@ -612,7 +697,26 @@ async function loadViewerFile(file) {
     if (!file) return;
     document.body.style.cursor = 'wait';
     try {
-        if (/\.(dsf|dsp|zip)$/i.test(file.name)) {
+        if (/\.(dsf|zip)$/i.test(file.name)) {
+            const { loadDsfLocalViewerPackage } = await import('./dsf-local-viewer-package.js');
+            const portableSession = await loadDsfLocalViewerPackage({ file });
+            if (portableSession) {
+                try {
+                    loadProjectData(portableSession.project, {
+                        source: 'local-portable-v2',
+                        fixedTextContext: portableSession.contextsByLanguage.get(portableSession.project.defaultLang),
+                        assetUrls: portableSession.assetUrls,
+                        localPortableSession: portableSession,
+                    });
+                } catch (error) {
+                    portableSession.dispose();
+                    if (viewerLocalPortableSession === portableSession) viewerLocalPortableSession = null;
+                    throw error;
+                }
+                return;
+            }
+            loadProjectData(await parseAndLoadDSF(file), { source: 'file' });
+        } else if (/\.dsp$/i.test(file.name)) {
             loadProjectData(await parseAndLoadDSF(file), { source: 'file' });
         } else {
             loadProjectData(JSON.parse(await file.text()), { source: 'file' });
@@ -680,13 +784,23 @@ window.loadDsf = async (input) => {
 // ── Project Data ──────────────────────────────────────────────
 function loadProjectData(raw, options = {}) {
     const source = options.source || 'file';
+    replaceViewerLocalPortableSession(options.localPortableSession || null);
+    viewerFixedTextContext = options.fixedTextContext || null;
+    const deliveryAssetUrls = options.assetUrls instanceof Map
+        ? options.assetUrls
+        : options.fixtureAssetUrls;
+    viewerLocalFixtureAssetUrls = deliveryAssetUrls instanceof Map
+        ? new Map(deliveryAssetUrls)
+        : new Map();
     const hasDsfPages = Array.isArray(raw.dsfPages) && raw.dsfPages.length > 0;
     if (source === 'shared' && !hasDsfPages) {
         throw new Error(vt('unpublishedProject'));
     }
     const pages = hasDsfPages
         ? normalizeDsfPages(raw.dsfPages)
-        : normalizePagesGen3(raw.pages || raw.sections || []);
+        : normalizePagesGen3(raw.pages || raw.sections || [], {
+            preserveDeliveryV2: source === 'local-fixture' || !!options.fixedTextContext,
+        });
     const languages = resolveViewerLanguages(raw, hasDsfPages);
     const defaultLang = languages.includes(raw.defaultLang) ? raw.defaultLang : languages[0];
     const languageConfigs = normalizeLanguageConfigs(raw.languageConfigs, languages);
@@ -698,6 +812,7 @@ function loadProjectData(raw, options = {}) {
     resetMetricState();
     bookSpreadIndex = 0;
     viewerInfoPanelState = 'closed';
+    viewerPreloadedImageUrls.clear();
 
     dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'projectId', value: raw.projectId || '' } });
     dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'workId', value: raw.workId || raw.projectId || '' } });
@@ -1904,7 +2019,7 @@ function normalizeDsfSpreadImageMeta(raw) {
  * Gen3 ページ正規化。
  * 旧フォーマット（content.background 単一文字列）も受け入れる。
  */
-function normalizePagesGen3(rawPages) {
+function normalizePagesGen3(rawPages, options = {}) {
     return rawPages.map((p, i) => {
         const c = p.content || {};
         const spreadImage = normalizeDsfSpreadImageMeta(c.spreadImage || p.spreadImage);
@@ -1922,6 +2037,9 @@ function normalizePagesGen3(rawPages) {
             : (Array.isArray(c.bubbles) ? { '__all': c.bubbles } : {});
         return {
             id: p.id || `page_${i}`,
+            ...(options.preserveDeliveryV2 && p.deliveryV2 && typeof p.deliveryV2 === 'object'
+                ? { deliveryV2: p.deliveryV2 }
+                : {}),
             content: {
                 backgrounds,
                 thumbnail: c.thumbnail || '',
@@ -2219,8 +2337,37 @@ function findBookUnitIndexForPage(pageIndex) {
 
 // ── Language ──────────────────────────────────────────────────
 window.switchViewerLang = (code) => {
+    if (!state.languages?.includes(code)) return;
+    if (viewerLocalPortableSession?.contextsByLanguage?.has(code)) {
+        const sourceLanguage = state.activeLang;
+        const sourceManifest = viewerLocalPortableSession.manifests?.[sourceLanguage];
+        const targetManifest = viewerLocalPortableSession.manifests?.[code];
+        const mapping = sourceManifest && targetManifest
+            ? mapDsfLanguagePage(sourceManifest, targetManifest, getIndex())
+            : { pageIndex: 0 };
+        const pages = viewerLocalPortableSession.pagesByLanguage.get(code) || [];
+        const pageIndex = pages.length
+            ? Math.max(0, Math.min(pages.length - 1, mapping.pageIndex))
+            : 0;
+        viewerFixedTextContext = viewerLocalPortableSession.contextsByLanguage.get(code);
+        viewerLocalFixtureAssetUrls = new Map(viewerLocalPortableSession.assetUrls);
+        viewerBookModel = buildViewerBookModel(viewerLocalPortableSession.project, pages);
+        viewerPreloadedImageUrls.clear();
+        dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'pages', value: pages } });
+        dispatch({ type: actionTypes.SET_ACTIVE_LANG, payload: code });
+        dispatch({ type: actionTypes.SET_ACTIVE_INDEX, payload: pageIndex });
+        syncViewerAutoSpreadMode();
+        bookSpreadIndex = findBookUnitIndexForPage(pageIndex);
+        closeViewerLangMenu();
+        renderViewerLanguagePicker();
+        refresh();
+        queueBookmarkSave();
+        trackPageView('language_change');
+        return;
+    }
     dispatch({ type: actionTypes.SET_ACTIVE_LANG, payload: code });
     closeViewerLangMenu();
+    renderViewerLanguagePicker();
     refresh();
     queueBookmarkSave();
     trackPageView('language_change');
@@ -2515,9 +2662,19 @@ function getTotal() { return getPages().length; }
 function getIndex() { return Math.max(0, Math.min(state.activeIdx || 0, getTotal() - 1)); }
 
 function getPageAssetUrl(page, lang) {
+    if (page?.deliveryV2?.renderKind === 'fixedText') return '';
+    if (page?.deliveryV2?.renderKind === 'image') {
+        const deliveryHref = page.deliveryV2.image?.href || '';
+        if (!deliveryHref) return '';
+        return viewerLocalFixtureAssetUrls.get(deliveryHref) || getOptimizedImageUrl(deliveryHref);
+    }
     const bgs = page?.content?.backgrounds || {};
     const rawUrl = bgs[lang] || bgs['__all'] || '';
     return rawUrl ? getOptimizedImageUrl(rawUrl) : '';
+}
+
+function resolveViewerDeliveryAssetHref(href) {
+    return viewerLocalFixtureAssetUrls.get(href) || href;
 }
 
 function getPreloadLanguages() {
@@ -2753,15 +2910,29 @@ async function runViewerDevMorphPipeline() {
 
 function renderPageContentHTML(page, lang) {
     const url = getPageAssetUrl(page, lang);
-    if (!url) {
+    const renderKind = getDsfViewerPageRenderKind(page);
+    if ((renderKind === 'legacyImage' || renderKind === 'image') && !url) {
         return `<div style="width:100%;height:100%;display:flex;align-items:center;justify-content:center;color:#666;font-size:14px;">${vt('imageMissing')}</div>`;
     }
     const spreadRole = getSurfacePhysicalSpreadRole(page, lang);
     const spreadClass = spreadRole ? ` viewer-page-image-spread viewer-page-image-spread-${spreadRole}` : '';
-    const spreadAttr = spreadRole ? ` data-spread-role="${esc(spreadRole)}"` : '';
-    // Never set crossOrigin on the displayed img: without media CORS the image fails to decode (broken image).
-    // Morph uses fetch() + createImageBitmap so pixels are readable when R2 CORS allows the viewer origin.
-    return `<img class="viewer-page-image${spreadClass}"${spreadAttr} src="${esc(url)}" loading="eager">`;
+    try {
+        const element = createDsfViewerPageContentElement({
+            documentRef: document,
+            page,
+            context: viewerFixedTextContext,
+            imageUrl: url,
+            imageClassName: `viewer-page-image${spreadClass}`,
+            resolveAssetHref: resolveViewerDeliveryAssetHref,
+        });
+        if (spreadRole) element.dataset.spreadRole = spreadRole;
+        // DSF text enters the generated element through textContent in viewer-fixed-text.js.
+        // outerHTML is used only to fit the existing transition/single-spread HTML pipeline.
+        return element.outerHTML;
+    } catch (error) {
+        console.warn('[Viewer] page renderer failed closed:', error);
+        return `<div class="viewer-fixed-text-error" role="alert">${esc(error?.code || 'UNSUPPORTED_PAGE')}: ${esc(error?.message || String(error))}</div>`;
+    }
 }
 
 function renderPageBubblesHTML(page, lang) {
@@ -3704,11 +3875,11 @@ function getViewerPreviewData(displayIndex) {
     return {
         label: isBook ? getViewerSliderLabel(true, clamped) : getViewerSliderLabel(false, clamped),
         spread: !!surfaces.spread,
-        singleUrl: getViewerSurfacePreviewUrl(surfaces.single),
+        singleSurface: surfaces.single || null,
         singleRole: getSurfacePhysicalSpreadRole(surfaces.single, state.activeLang),
-        leftUrl: getViewerSurfacePreviewUrl(surfaces.left),
+        leftSurface: surfaces.left || null,
         leftRole: getSurfacePhysicalSpreadRole(surfaces.left, state.activeLang),
-        rightUrl: getViewerSurfacePreviewUrl(surfaces.right),
+        rightSurface: surfaces.right || null,
         rightRole: getSurfacePhysicalSpreadRole(surfaces.right, state.activeLang)
     };
 }
@@ -3749,9 +3920,9 @@ function updateSliderPreview(event) {
     const left = preview.querySelector('.page-slider-preview-left');
     const right = preview.querySelector('.page-slider-preview-right');
     const label = preview.querySelector('.page-slider-preview-label');
-    setSliderPreviewSurface(single, data.singleUrl, data.singleRole);
-    setSliderPreviewSurface(left, data.leftUrl, data.leftRole);
-    setSliderPreviewSurface(right, data.rightUrl, data.rightRole);
+    setSliderPreviewSurface(single, data.singleSurface, data.singleRole);
+    setSliderPreviewSurface(left, data.leftSurface, data.leftRole);
+    setSliderPreviewSurface(right, data.rightSurface, data.rightRole);
     if (label) label.textContent = data.label;
     preview.dataset.spread = data.spread ? 'true' : 'false';
     preview.style.left = `${physicalRatio * 100}%`;
@@ -3759,12 +3930,37 @@ function updateSliderPreview(event) {
     preview.hidden = false;
 }
 
-function setSliderPreviewSurface(surfaceEl, url, spreadRole = '') {
+function setSliderPreviewSurface(surfaceEl, page, spreadRole = '') {
     if (!surfaceEl) return;
+    const url = getViewerSurfacePreviewUrl(page);
+    const renderKind = page?.virtualBlank ? 'empty' : getDsfViewerPageRenderKind(page);
     const image = surfaceEl.querySelector('.page-slider-preview-image');
-    if (image && url && image.getAttribute('src') !== url) image.setAttribute('src', url);
-    if (image && !url) image.removeAttribute('src');
-    surfaceEl.dataset.empty = url ? 'false' : 'true';
+    const fixedText = surfaceEl.querySelector('.page-slider-preview-fixed-text');
+    if (renderKind === 'fixedText') {
+        try {
+            const fixedTextPage = createDsfViewerPageContentElement({
+                documentRef: document,
+                page,
+                context: viewerFixedTextContext,
+                imageUrl: '',
+                resolveAssetHref: resolveViewerDeliveryAssetHref,
+            });
+            fixedText?.replaceChildren(fixedTextPage);
+            surfaceEl.dataset.renderKind = 'fixedText';
+            surfaceEl.dataset.empty = 'false';
+            if (image) image.removeAttribute('src');
+        } catch (error) {
+            fixedText?.replaceChildren();
+            surfaceEl.dataset.renderKind = 'error';
+            surfaceEl.dataset.empty = 'true';
+        }
+    } else {
+        fixedText?.replaceChildren();
+        if (image && url && image.getAttribute('src') !== url) image.setAttribute('src', url);
+        if (image && !url) image.removeAttribute('src');
+        surfaceEl.dataset.renderKind = url ? 'image' : 'empty';
+        surfaceEl.dataset.empty = url ? 'false' : 'true';
+    }
     if (spreadRole === 'left' || spreadRole === 'right') {
         surfaceEl.dataset.spreadRole = spreadRole;
     } else {

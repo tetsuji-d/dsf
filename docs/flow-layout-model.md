@@ -19,7 +19,63 @@ atomic result applyをStudioへ接続し、機械翻訳結果を既存Undo／Red
 Commit 8B-2C-Cではatomic apply失敗理由をProvider error／編集競合／不正結果へ分け、
 一括適用しなかった理由を原稿を変更せずStudioへ表示するruntime feedbackを追加した。
 
-Flow生成ページのWebP化、DSF／Horizon発行、Viewerにはまだ未接続である。生成ページを
+Commit 9A-0では、グラフィックWebPと組版済み固定テキストを併用するDSF delivery v2の設計契約を確定した。
+Commit 9A-1では、配信v2 index／言語manifestのpure normalizerとstrict validator、
+Fixed／Flow source anchorによる言語別page mappingを追加した。
+Commit 9A-2では、認定font gateと固定座標DOM rendererをViewerのdevelopment-only fixtureへ接続し、
+WebPとのdual dispatch、ページ全体zoom、active branchのslider previewを確認した。別branchにある
+未統合full minimapは対象に含めていない。
+Commit 9A-3Aでは、既存Fixed text blockと認定fontに結び付けたcomposition snapshotから配信v2の1ページfragmentを
+作るpure projectionを追加した。未対応表現は理由付きで既存WebP経路へ戻す。
+Commit 9A-3Bでは、そのprojectionをdevelopment-only Pressサムネイルへ接続し、fixture fontで
+fixedText DOM候補とWebP fallback理由を確認できるようにした。公開v2 loader、実発行、
+Flow生成ページの固定テキストprojection、DSF／Horizon発行にはまだ未接続である。
+Commit 9A-3Cでは、本番認定font registryの厳格契約とFixed pageごとのpure Press preflightを追加した。
+本番registryは権利・実WOFF2・実hash未確認のため空であり、既存Fixed textはWebPを継続する。
+Flow Groupを含むpreflightは未接続として公開不可にする。
+Commit 9A-4Aでは、公開可能preflightと検証済みWebP descriptorからhash済みcontent index／言語manifestと
+asset planを作るpure release assemblerを追加した。Flowのblocked preflight、WebP bytes、R2、実発行には未接続である。
+Commit 9A-4Bでは、実WebP bytesのRIFF／chunk／codec寸法と静止画制約を検査し、Web Crypto SHA-256と
+immutable Blobを9A-4A descriptorへ結び付けるlocal byte sealingを追加した。Flow発行やuploadには未接続である。
+Commit 9A-4Cでは、その確定JSONとsealed WebPを再照合し、DSF archiveを構成する全ファイルのimmutableな
+local inventoryを追加した。ZIP生成、Flow発行、Press UI、uploadには未接続である。
+Commit 9A-4Dでは、そのinventoryを決定的なDSF ZIPへメモリ生成し、全entryのCRC／byteLength／SHA-256を
+再展開照合するlocal packageを追加した。Flow発行、download、Press UI、uploadには未接続である。
+Commit 9A-5Aでは、semantic FlowDocument、成功pagination、認定fontで実測済みのcomposition snapshotを
+revision／page／grapheme range／line geometryでno-loss照合し、言語別`fixedText` page fragmentへpure projectionする
+契約を追加した。文字数から行座標を推測せず、DOM snapshot capture、Press UI、assembly、uploadには未接続である。
+Commit 9A-5Bでは、認定fontを明示loadし、単一font family・no-hyphenationの同一browser sessionで
+Flowをページ化して`Range.getClientRects()`から行／縦書き列とsource grapheme runを採取し、直後に9A-5Aへ
+no-loss投影するlocal captureを追加した。snapshotはruntime-onlyで、Press UI、assembly、uploadには未接続である。
+Commit 9A-5Cでは、現在revisionと完全一致する成功Flow projectionだけをpure Press preflightへ通し、
+Fixed／Flow／WebPを作者順の言語別manifestへpure assemblyする統合を追加した。Flowが言語ごとに異なるpage数へ
+展開されても後続page順を維持し、古いrevision、別言語、未知font、anchor不一致、暗黙WebP fallbackを拒否する。
+現在のPress UI／runtime、ZIP、upload、公開Viewerには未接続である。
+Commit 9A-6Aではdevelopment-only Press UIから実DOM capture、Flow publication projection、preflightを接続し、
+言語別候補page数と停止理由を表示する。missing／stale翻訳は原文fallbackせず停止する。local fixture fontだけを使い、
+発行ボタン、容量見積り、release assembly、staging／production runtimeには接続しない。
+Commit 9A-6B-Aではfixture非依存の共通preflightへ本番font registry resolverを接続し、staging／productionを含むPressで
+本番準備状態を表示する。この時点ではregistryが空のため実原稿は`FONT_NOT_CERTIFIED`でDOM capture前に停止し、発行経路は無効のままにする。
+Commit 9A-6B-B1／B2では本番WOFF2の実bytes検証とsession専用verified FontFace leaseを追加し、production Flow captureは
+registry hashへ一致したbytesをbrowserがloadできた場合だけ進む。この時点ではregistryが空のためasset request前に停止する。
+Commit 9A-6B-B3-AではNoto Sans JP 2.004-H2とNoto Serif JP 2.003-H1のsource／asset hash、full WOFF2 table比較、
+縦書きfeature、OFL根拠を技術候補台帳へ固定した。production R2実体とremote evidence、Architect review未確認のため
+この時点ではregistryを空にし、Flow発行停止を維持する。
+Commit 9A-6B-B3-Cではremote evidenceとArchitect review済みの2候補だけをactive registryへ登録し、Flow Press既定経路で
+Sans／Serifの横書き／縦書き、本文400／見出し700、巨大Paragraph、PageBreakを実測した。4ケースとも4ページのprojectionが
+`ready`となり、exact hashとsession cleanupを確認した。発行ボタン、release assembly、upload、公開Viewerは未接続である。
+Commit 9A-6C-Aでは成功した本番Flow準備とFixed pageのsealed WebP descriptorを既存DSF v2 release assemblyへin-memory接続し、
+PressでWebP／fixedText件数、Horizon／portable payload、同梱font容量を確認できる。ZIP container込みの完成file sizeではなく、
+ZIP、download、upload、Firestore、Horizon発行、公開Viewerには未接続である。Flow発行guardも維持する。
+Commit 9A-6C-Bでは同じPress sessionのsealed WebPとactive registryから取得・exact検証した使用WOFF2を、既存portable planner、
+complete file inventory、deterministic ZIP builderへ渡す。全entryを再展開してpath／bytes／SHA-256を照合した後、ローカル検証用
+`.dsf`の実測ZIP容量とSHA-256をread-only表示する。Blob／結果はruntime-onlyで、download、upload、Firestore、Horizon発行、
+公開Viewerには未接続である。Flow発行guardも維持する。
+Commit 9A-6C-C-Aでは現在のPress設定とsignature一致するround-trip合格済みportable ZIP Blobだけを既存DSF書き出しへ渡す。
+安全化した作品タイトルの`.dsf`名を使い、保存直前にもBlob identity／MIME／size／SHA-256を再照合し、旧WebP-only builderで再生成しない。入力変更、検証待ち／失敗、
+Press離脱時は書き出しを無効化する。semantic Flow sourceはDSP側だけに残り、download artifactへ追加しない。Flow upload、Firestore、
+Horizon発行、公開Viewer loadには未接続である。
+生成ページを
 `state.blocks`、`state.sections`、`state.pages`へ書き戻すことも行わない。
 
 ## 境界
@@ -29,7 +85,10 @@ Flow生成ページのWebP化、DSF／Horizon発行、Viewerにはまだ未接�
 - Flow本文の正本はFlow Group内の独立した`FlowDocument`とする。
 - Flow内の`sections[].blocks[]`は`type`を使い、既存Blockの`kind`と混在させない。
 - ページは編集データではなく、FlowDocumentから毎回導出する一時結果。
-- 配信時は導出ページをStudio／Press側でWebP化し、Viewerは既存の画像ページを読む方針を維持する。
+- 配信時はStudio／Pressが導出ページの改行・改ページを確定し、DSF v2の`fixedText`ページへ投影する。
+  Viewerは組版済み行／縦書き列を固定座標へ描画し、再組版しない。グラフィックページと固定テキスト非対応の
+  フォント／効果を持つページは従来どおりWebPを使う。
+- 詳細は`docs/fixed-text-delivery-contract.md`を正本とする。実装完了まではFlow発行停止を維持する。
 
 ## Project v6 authoring spine（Commit 6A）
 
@@ -81,7 +140,7 @@ Project v6の`blocks[]`は、FixedページとFlow原稿の作品内順序を保
 - Fixed generated/output Page schema: v5（変更なし）
 - FlowDocument schema: v1
 - FlowLayout schema: v1
-- 配信DSF schema: v1（変更なし）
+- 配信DSF schema: v1はWebP-only互換、hybrid deliveryはv2（9A-0設計、runtime未接続）
 
 Project v6 normalizerは既存Fixed Blockをopaqueなauthoring dataとしてdeep cloneし、Flow Groupだけを
 識別する。既存`blocks[]`がないlegacy Fixed v5入力だけは`normalizeProjectDataV5()`でcanonical blocksへ
@@ -248,7 +307,7 @@ Commit 6Aの対象外:
 - runtime cacheはセッション限定LRUであり、生成page、fragment、選択位置を保存しない。
 - Fixed／Flow混在時の見開き表示と言語比較は、統一された見開き契約を実装するまで無効化する。
 - Pressは生成ページと通し番号の確認だけを行う。Flowを含む作品のDSF書き出し／Horizon発行は、
-  WebP rendererを接続する次工程までUIと最終処理の両方で停止する。
+  hybrid delivery v2の固定テキストprojectionとViewerを接続するまでUIと最終処理の両方で停止する。
 
 ## Studio Flow authoring（Commit 8A）
 
@@ -264,7 +323,7 @@ Commit 6Aの対象外:
 - 連続入力は既存Historyのgrouped snapshotを使い、PageBreak追加・削除・移動・Heading level変更は独立操作とする。
 - 保存中に次のautosave要求が来た場合は、進行中保存の完了後に最新版をもう一度保存する。
 - 今回編集できるのはFlowDocumentの`sourceLanguage`だけ。Section追加・削除、段落途中のBlock分割、翻訳、
-  Flow Group外側の移動・削除、Flow pageのWebP発行は次の実装単位とする。
+  Flow Group外側の移動・削除、Flow pageの固定テキスト発行は次の実装単位とする。
 
 ## Studio Flow multilingual authoring（Commit 8B-1）
 
@@ -286,7 +345,7 @@ Commit 6Aの対象外:
 8B-1は手動言語別編集の境界である。Gen4の旧翻訳orchestratorは共通ページスロットを前提として翻訳先の
 ページ数変更を禁止するため移植しない。8B-2Aでは原文更新後のstale判定をFlow semantic Block向けに追加し、
 8B-2BでStudio表示とpreview fallback、8B-2C以降でChrome／LM Studio providerを段階接続する。その後に
-Flow pageのWebP化／DSF発行を扱う。
+Flow pageの固定テキストprojection／DSF delivery v2発行を扱う。
 
 ## Flow translation freshness contract（Commit 8B-2A）
 
@@ -351,7 +410,7 @@ Commit 8B-2Aの対象外:
 - source編集時のbaseline登録、手動確認、Undo操作
 - Chrome Translator／LM Studio provider
 - 翻訳job、進捗、cancel、atomic apply
-- Flow pageのWebP化、DSF／Horizon発行、Viewer
+- Flow pageの固定テキストprojection、DSF／Horizon発行、Viewer
 
 ## Studio translation freshness feedback（Commit 8B-2B）
 
@@ -375,7 +434,7 @@ Commit 8B-2Bの対象外:
 
 - Chrome Translator／LM Studio providerとprovider設定UI
 - 翻訳job、進捗、cancel、atomic batch apply
-- Flow pageのWebP化、DSF／Horizon発行、Viewer
+- Flow pageの固定テキストprojection、DSF／Horizon発行、Viewer
 - Flow編集画面全体の再設計
 
 ## Flow translation provider foundation（Commit 8B-2C-A）
@@ -401,7 +460,7 @@ Commit 8B-2C-Aの対象外:
 - job進捗、cancel表示、retry、同時job制御
 - atomic planを`state.blocks`へ適用するmachine／mixed transactionとUndo／Redo
 - 実Chrome Translator／実LM Studioへの接続確認
-- Flow pageのWebP化、DSF／Horizon発行、Viewer
+- Flow pageの固定テキストprojection、DSF／Horizon発行、Viewer
 
 ## Studio translation job integration（Commit 8B-2C-B）
 
@@ -425,7 +484,7 @@ Commit 8B-2C-Bの対象外:
 - glossary、追加指示、LM Studio endpoint変更の一般向けUI
 - unit個別選択、retry queue、複数同時job
 - Chrome Translator／LM Studioの翻訳品質評価
-- Flow pageのWebP化、DSF／Horizon発行、Viewer
+- Flow pageの固定テキストprojection、DSF／Horizon発行、Viewer
 
 ## Studio translation failure feedback（Commit 8B-2C-C）
 
@@ -444,7 +503,7 @@ Commit 8B-2C-Cの対象外:
 - failed unitだけのretry、成功unitの部分適用、同時翻訳job
 - LM Studioのtimeout値や推論性能の変更
 - Chrome Translatorの対応言語ペア拡張
-- Flow pageのWebP化、DSF／Horizon発行、Viewer
+- Flow pageの固定テキストprojection、DSF／Horizon発行、Viewer
 
 ## DOM preview boundary（Commit 3）
 

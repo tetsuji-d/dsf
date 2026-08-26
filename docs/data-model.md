@@ -1,11 +1,13 @@
 # Data Model Documentation
 
-**最終更新**: 2026-04-27
+**最終更新**: 2026-08-23
 **ステータス**: Architect 管理下（変更には Architect 承認が必要）
 
-> **2026-03-25 方針変更**: DSF Gen 3 として「WebP 画像のみ」方針を採用。
-> `bodyKind:'text'`・`content.richText`・`content.layout`・`ar` フィールドは**廃止予定**。
-> WebGL / Three.js は使用しない。詳細は `AGENTS.md` 参照。
+> **2026-08-23 9A-0承認方針**: 既存WebP-only DSF v1の後方互換を維持しつつ、グラフィックはWebP、
+> テキスト中心ページは組版済み固定テキストで配信できるDSF delivery v2を段階実装する。
+> `bodyKind:'text'`等のFixed authoring dataは廃止しない。Viewerは固定テキストをDOM文字として描画するが、
+> 再組版、端末幅リフロー、読者向け本文文字サイズ変更は行わない。WebGL / Three.jsは使用しない。
+> 詳細は`docs/fixed-text-delivery-contract.md`を参照。現行runtimeはまだv1 WebP-onlyである。
 
 ---
 
@@ -219,7 +221,11 @@ Storage/R2 側に空フォルダを作るのではなく、namespace をここ�
   },
   "dsfPublishedAt": "Timestamp (最新 DSF 発行日時)",
   "dsfRenderStamp": "Number (最新 DSF アセットのレンダリング識別子)",
-  "dsfPages": [ "Array (最新 DSF ページ URL 群)" ],
+  "dsfPages": [ "Array (DSF v1互換: 最新WebPページURL群)" ],
+  "dsfSchemaVersion": "Number (v1は1、hybrid delivery v2は2)",
+  "dsfContentUrl": "String (v2: R2/CDN上のimmutable content.json)",
+  "dsfContentHash": "String (v2: content indexのsha256)",
+  "dsfPageCounts": { "ja": "Number", "en": "Number" },
   "blocks": [ "Block[] — Blocks モデル（正規モデル）" ],
   "sections": [ "Section[] — レガシー互換フラット配列（syncBlocksWithSections で同期）" ],
   "pages": [ "Page[] — v5 Page Object（ビューワー出力）" ]
@@ -386,13 +392,9 @@ owner専用の`authoring/current`子documentへ保存する。rootと子document
 > - `sections` は editor 互換フローのために残るフラット投影
 > - 新しい仕様判断は `blocks` を起点に行い、`pages` 単体を正本として扱わない
 >
-> ⚠️ **廃止予定フィールド（2026-03-25）**:
-> - `ar` — WebGL/WebXR 廃止に伴い不要。既存データは無視する。
-> - `content.richText` / `content.richTextLangs` — bodyKind:'text' 廃止に伴い不要。
-> - `content.layout` — テキスト組版廃止に伴い不要。
-> - `content.texts` / `content.text` — テキストページ廃止に伴い不要。
->
-> Gen 3 では `content.background`（WebP画像URL）と `content.bubbles`・`content.thumbnail` が主要フィールド。
+> `ar`はWebGL/WebXR廃止に伴う廃止予定フィールドであり、既存データは無視する。
+> `content.richText` / `richTextLangs` / `layout` / `texts` / `text`はFixed text authoringと互換読込のため維持する。
+> 配信DSF v2へauthoring objectをそのまま公開せず、Pressで検証済み`fixedText`行／列projectionへ変換する。
 
 #### Bubble Object（`content.bubbles` の各要素）
 
@@ -466,7 +468,52 @@ Press Room で Horizon 発行するたびに作成する発行スナップショ
 }
 ```
 
-当面の Viewer はプロジェクトドキュメント上の最新 `dsfPages` を読む。`releases` は公開履歴、ロールバック、監査、版指定URLのための土台として保持する。
+DSF delivery v2では長編本文をFirestoreへinline保存せず、R2/CDN上のimmutable content indexを参照する。
+既存`dsfPages[]`はv1 WebP-only互換fieldとして維持する。
+
+```json
+{
+  "dsfSchemaVersion": 2,
+  "dsfContentUrl": "String (R2/CDN上のcontent.json)",
+  "dsfContentHash": "String (sha256)",
+  "dsfLangs": ["ja", "en"],
+  "dsfPageCounts": { "ja": 128, "en": 143 },
+  "dsfTotalBytes": "Number"
+}
+```
+
+- `dsfContentUrl`は`releaseId`を含むimmutable pathとし、再発行では新しいReleaseを作る。
+- `dsfPageCounts`は言語別Flow reflowによるページ数差を許可する。
+- v2 Viewerは`dsfSchemaVersion===2`と完全な`dsfContentUrl` locatorを優先する。v2が宣言済みまたはlocatorが部分的に存在するのに
+  検証できない場合は、同じdocumentの旧`dsfPages[]`へfallbackせず停止する。schema未指定／v1だけが既存`dsfPages[]`を読む。
+- `public_projects/{workId}`には公開URL解決に必要な同じv2 locatorと、default languageの`pageCount`を投影する。
+- authoring用FlowDocument、translationState、pagination cache、Undo／Redoは公開Releaseへ保存しない。
+
+9A-6C-C-C-0のHorizon pure契約では、verified assemblyから
+`users/{uid}/dsf/{workId}/{releaseId}/content.json`を起点とするimmutable file planを作る。全JSON／WebPについて予定した
+public URL、MIME、byteLength、SHA-256、immutable cache policyと一致するupload receiptが揃うまで、上記Release metadataと
+`public_projects`用locatorを生成しない。これによりpartial uploadやstale metadataを公開しない。
+
+9A-6C-C-C-1Aの`POST /upload-release`はそのreceiptを作るbackend境界である。認証UID配下の限定JSON／WebP path、実bytesの
+server-side SHA-256／size／MIME／形式を検証し、R2 objectをcreate-only、immutable cacheで保存する。同一metadataの既存objectだけを
+idempotent retryとして受理し、不一致は上書きせず409で停止する。このendpointはFirestore documentを作成・更新せず、Pressからも
+未接続である。したがって上記Firestore schemaとsecurity rulesに変更はない。
+
+9A-6C-C-C-1Bのclient transportはplan全fileを逐次送信し、全exact receiptが揃った場合だけ既存pure sealを返す。途中まで成功しても
+partial receiptからRelease／`public_projects` documentを作らず、retry時も完全planをserverへ再検証させる。この単位もFirestoreを
+importせず、document write／security rules／schemaを変更しない。
+
+9A-6C-C-C-1C-AのPress dry-run handoffは、成功planningのassemblyとsession内sealed WebPをHorizon planへexactに結び付けるだけで、
+network requestもFirestore importも行わない。結果の`readyForUpload:true`はローカル入力検証済みを示し、upload receipt未取得のため
+`readyForMetadataWrite:false`を維持する。Release／`public_projects` documentとsecurity rules／schemaは変更しない。
+
+9A-6C-C-C-1C-Bは現在の認証UID、project／work IDとruntime-only release IDをdry-run path検証に使用するが、state、DSP、Firestoreへ
+release IDやhandoff resultを保存しない。Press表示が`ready`でもupload receiptがないためRelease／`public_projects` writeは許可せず、
+document schemaとsecurity rulesを変更しない。
+
+現行公開runtimeのViewerはプロジェクトドキュメント上の最新`dsfPages`を読む。v2 public transportの選択契約は
+9A-6C-C-C-0でpure実装済みだが、Viewer fetchには未接続である。`releases`は公開履歴、ロールバック、監査、版指定URLのための
+土台として保持する。
 
 #### `publication` — 掲載可能期間 / 公開期限
 
@@ -658,7 +705,11 @@ Viewer の閲覧行動を append-only の raw event として保存する。日�
     "expireReason": "'listing' | 'public' | null"
   },
   "dsfLangs": ["ja"],
-  "pageCount": "Number"
+  "pageCount": "Number (default language)",
+  "dsfSchemaVersion": "Number",
+  "dsfContentUrl": "String (DSF v2の場合)",
+  "dsfContentHash": "String (DSF v2の場合)",
+  "dsfPageCounts": { "ja": "Number", "en": "Number" }
 }
 ```
 
@@ -852,7 +903,7 @@ Fixed互換投影だけを置く。
 
 Commit 7AのEditor／Pressページ一覧は、mixed authoring spineをセッション内だけで
 `Fixed page | Flow generated page`へ展開する。生成page、fragment、runtime選択、cacheは保存せず、
-Flowを含む作品のDSF／Horizon発行はWebP renderer接続まで停止する。
+Flowを含む作品のDSF／Horizon発行はhybrid delivery v2の検証済みprojectionとViewer接続まで停止する。
 
 ---
 
@@ -860,6 +911,27 @@ Flowを含む作品のDSF／Horizon発行はWebP renderer接続まで停止す�
 
 | 日付 | 変更内容 |
 |------|---------|
+| 2026-08-25 | 9A-6C-C-A: 現在のPress package signatureと一致するround-trip合格済みportable ZIP Blobだけを既存DSF書き出しへ接続。保存前にBlob identity／MIME／size／SHA-256を再照合する。artifactはruntime-onlyで、Firestore、DSP／DSF保存schema、Flow upload、Horizon発行、公開Viewerは未変更 |
+| 2026-08-25 | 9A-6C-B: Press sessionのsealed WebPとactive registryから取得・exact検証した使用WOFF2を、既存portable inventory／deterministic ZIPへ接続し全entryをround-trip検証。ZIP Blob、inventory、SHA-256、実測容量はruntime-onlyで、Firestore、DSP／DSF保存schema、download、upload、実発行、公開Viewerは未変更 |
+| 2026-08-24 | 9A-6C-A: Flow本番準備、sealed WebP descriptor、既存v2 release assemblyからHorizon／portable payload容量をruntime-onlyで計算しPressへ表示。結果と画像bytesはstateへ保存せず、Firestore、DSP／DSF schema、ZIP、download、upload、実発行、公開Viewerは未変更 |
+| 2026-08-24 | 9A-6B-B3-C: Noto Sans JP／Noto Serif JPのactive production registry登録とFlow Press実ブラウザーacceptanceを完了。registryはcode定数であり、runtime FontFace／capture resultは非永続のため、Firestore、DSP／DSF保存schema、実発行、公開Viewerは未変更 |
+| 2026-08-23 | 9A-6B-B3-A: Noto Sans JP 2.004-H2／Noto Serif JP 2.003-H1のproduction font候補台帳を追加。source commit、WOFF2実byteLength／SHA-256、no-subset table比較、縦書きfeature、OFL根拠を固定した。candidateはruntime registryと分離し、production R2実体／remote evidence／Architect review未確認のためregistryは空、Firestore、DSP／DSF schema、発行、公開Viewerは未変更 |
+| 2026-08-23 | 9A-6B-B1/B2: production WOFF2 exact-byte verifierとverified FontFace runtime leaseを追加。header／実byteLength／SHA-256一致とbrowser loadをFlow capture前に必須化した。evidence／Blob／runtime familyは非永続で、registryは空、Firestore、DSP／DSF schema、実発行、公開Viewerは未変更 |
+| 2026-08-23 | 9A-6B-A: fixture非依存のFlow preflight共通処理と本番font registry専用Press準備ゲートを追加。保存言語別に停止理由を表示するが、空registryの実原稿はDOM capture前に`FONT_NOT_CERTIFIED`となる。結果／revision／projectionはruntime-onlyで、Firestore、DSP／DSF schema、発行、公開Viewerは未変更 |
+| 2026-08-23 | 9A-6A: development-only Press UIでFlow実DOM capture、publication projection、preflightを接続し、言語別候補page数と停止理由をruntime表示。結果、revision、fixture registryは非永続で、Firestore、DSP／DSF保存schema、staging／production Press、公開Viewerは未変更 |
+| 2026-08-23 | 9A-5C: 現在authoring revisionと完全一致する成功Flow projectionをpure Press preflightへ統合し、Fixed／Flow／WebPを作者順の言語別manifestへpure assembly。projection／revision mapと生成pageはruntime-onlyで、Firestore、DSP／DSF保存schema、Press実行runtime、公開Viewerは未変更 |
+| 2026-08-23 | 9A-5B: 認定font・no-hyphenationの同一browser sessionでFlow paginationとRange実測snapshotを作り、9A-5Aへno-loss投影するlocal captureを追加。snapshot、生成page、sessionはruntime-onlyで、Firestore、DSP／DSF保存schema、Press、公開Viewerは未変更 |
+| 2026-08-23 | 9A-5A: semantic Flow source、成功pagination、認定font実測snapshotをrevision／page／grapheme range／line geometryでno-loss照合し、言語別`fixedText` page fragmentへpure projectionする契約を追加。生成snapshotはruntime-onlyで、Firestore、DSP／DSF保存schema、Press、公開Viewerは未変更 |
+| 2026-08-23 | 9A-4D: 9A-4C inventoryから決定的なDSF ZIPをメモリ生成し、local header、CRC、全entryのbyteLength／SHA-256を再展開照合するlocal packageを追加。download、Press UI、R2、Firestore、公開Viewer、保存schemaは未変更 |
+| 2026-08-23 | 9A-4C: 9A-4Aの確定JSONと9A-4Bのsealed WebPを再検証し、`mimetype`、archive manifest、metadata、content、言語manifest、画像の完全なlocal file inventoryを追加。ZIP、Press UI、R2、Firestore、公開Viewer、保存schemaは未変更 |
+| 2026-08-23 | 9A-4B: 実WebP bytesのRIFF／chunk境界、VP8・VP8L・VP8X寸法、静止画制約を検証し、Web Crypto SHA-256とimmutable Blobを9A-4A descriptorへ結び付けるlocal byte sealingを追加。既存Press render、upload、R2、Firestore、公開Viewer、保存schemaは未変更 |
+| 2026-08-23 | 9A-4A: 公開可能な言語別preflightと検証済みWebP descriptorから、DSF v2 content index／言語manifestの確定JSONとhash、衝突しないasset path、Release metadata draftを作るpure assemblerを追加。WebP実bytes、R2、Firestore、Press UI、公開Viewer、保存schemaは未変更 |
+| 2026-08-23 | 9A-3C: 本番認定font registryの厳格validatorとFixed pageごとのpure Press preflightを追加。registryは権利・実WOFF2・実hash未確認のため空。Fixed textは理由付きWebP fallbackを維持し、Flowは未接続として公開不可。Press UI、R2、Firestore、実発行、公開Viewer、保存schemaは未変更 |
+| 2026-08-23 | 9A-3B: 9A-3A Fixed text projectionをdevelopment-only Pressサムネイルへ接続。正規360×640 DOM pageの0.2倍表示、fixture font load gate、fixedText候補数、WebP fallback code／理由を確認できる。実発行、R2、Firestore、公開Viewer、保存schemaは未変更。fixtureはstaging buildへ含めない |
+| 2026-08-23 | 9A-3A: canonical Fixed text blockと同一本文・layout version・認定font ID／hashを結び付けたcomposition snapshotからDSF delivery v2の1ページmanifest fragmentを作るpure projectionを追加。認定font不一致、ruby、縦中横、overlay、overflow、未計測の横書き中央／末尾揃えは理由付きWebP fallback。Press／公開runtime／保存schemaは未変更 |
+| 2026-08-23 | 9A-2: DSF delivery v2 fixed-text DOM renderer、認定font gate、WebPとのdual dispatch、slider previewをdevelopment-only Viewer fixtureへ接続。公開v2 loader／Press／Firestore／R2には未接続、schema変更なし |
+| 2026-08-23 | 9A-1: DSF delivery v2 index／言語manifestのpure model、strict validation、Fixed／Flow anchorによる言語別page mappingを追加。Viewer／Press／Firestore／R2／UIには未接続 |
+| 2026-08-23 | 9A-0: WebP-only v1の互換を維持し、言語別固定ページ列、R2 content index、`image`／`fixedText` page unionを持つDSF delivery v2設計を承認。Viewer内リフローと本文文字サイズ変更は行わない。runtime接続は未実装 |
 | 2026-08-23 | Commit 8B-2C-B: Flow翻訳provider／model UI、runtime job、cancel、atomic machine／mixed applyをStudioへ接続。結果は既存FlowDocumentとtranslationStateへ一括保存し、既存Undo／Redo・autosave・reflowを使用。provider設定とjobは非永続、schema versionと公開境界変更なし |
 | 2026-08-23 | Commit 8B-2C-A: Chrome Translator／LM Studioのruntime-only provider基盤とFlow semantic unit request／atomic apply planを追加。旧page slot同期は移植せず、provider設定・job・snapshotは非永続、schema version変更なし |
 | 2026-08-22 | Commit 8B-2B: Flow翻訳状態をStudio表示とruntime原文fallbackへ接続。原文編集前baseline、翻訳unit単位更新、明示確認を既存Undo／保存経路へ統合。schema versionと公開境界は変更なし |
