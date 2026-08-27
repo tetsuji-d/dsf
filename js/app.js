@@ -75,6 +75,7 @@ import {
     selectFlowSource,
 } from './flow-editor-session.js';
 import { renderFlowGeneratedPage } from './flow-dom-measurer.js';
+import { mapFlowClientPointToSource } from './flow-source-mapping.js';
 import {
     FLOW_RUNTIME_INVALIDATED_EVENT,
     createFlowRuntimePageProjection,
@@ -125,6 +126,7 @@ let _flowAuthoringSourceRevision = 0;
 let _flowAuthoringRenderedRevision = 0;
 let _flowAuthoringComposing = false;
 let _flowAuthoringLanguageFeedback = null;
+let _flowPendingSourceCaret = null;
 
 registerTranslationProvider(
     BROWSER_TRANSLATOR_PROVIDER_ID,
@@ -164,6 +166,7 @@ function resetFlowRuntimeForProjectChange() {
     _flowAuthoringRenderedRevision = 0;
     _flowAuthoringComposing = false;
     _flowAuthoringLanguageFeedback = null;
+    _flowPendingSourceCaret = null;
     _flowTranslationJob?.controller?.abort?.();
     _flowTranslationJob = null;
     endHistoryGroup();
@@ -172,6 +175,25 @@ function resetFlowRuntimeForProjectChange() {
     _editorFlowProjectionController = null;
     _editorFlowProjectionRequestKey = '';
     _editorFlowProjectionRequestId += 1;
+    invalidateFlowRuntimePages();
+}
+
+function resetFlowRuntimeAfterGroupRemoval(groupId) {
+    if (_flowAuthoringReflowTimer) clearTimeout(_flowAuthoringReflowTimer);
+    _flowAuthoringReflowTimer = null;
+    _flowAuthoringComposing = false;
+    _flowAuthoringLanguageFeedback = null;
+    _flowPendingSourceCaret = null;
+    if (_flowTranslationJob?.groupId === groupId) {
+        _flowTranslationJob.controller?.abort?.();
+        _flowTranslationJob = null;
+    }
+    resetFlowEditorSelections();
+    _editorFlowProjectionController?.abort();
+    _editorFlowProjectionController = null;
+    _editorFlowProjectionRequestKey = '';
+    _editorFlowProjectionRequestId += 1;
+    _flowAuthoringSourceRevision += 1;
     invalidateFlowRuntimePages();
 }
 
@@ -223,6 +245,69 @@ function activateProjectionPage(page) {
     changeBlock(page.blockIndex, refreshForThumbSelection);
 }
 
+function restoreMappedFlowSourceCaret(groupId, sourcePoint) {
+    _flowPendingSourceCaret = Object.freeze({ groupId, sourcePoint });
+    requestAnimationFrame(() => {
+        const pending = _flowPendingSourceCaret;
+        if (!pending || pending.groupId !== groupId || pending.sourcePoint !== sourcePoint) return;
+        _flowPendingSourceCaret = null;
+        const root = getFlowAuthoringSurface();
+        if (
+            !root
+            || root.hidden
+            || root.dataset.flowGroupId !== groupId
+            || root.dataset.languageKey !== sourcePoint.languageKey
+        ) return;
+        const input = [...root.querySelectorAll('[data-flow-field="block-text"]')].find((element) => {
+            const target = getFlowAuthoringTarget(element);
+            return target.sectionId === sourcePoint.sectionId && target.blockId === sourcePoint.blockId;
+        });
+        const utf16Offset = Number(sourcePoint.utf16Offset);
+        if (
+            !input
+            || !Number.isInteger(utf16Offset)
+            || utf16Offset < 0
+            || utf16Offset > String(input.value || '').length
+            || typeof input.setSelectionRange !== 'function'
+        ) return;
+        input.focus({ preventScroll: true });
+        input.setSelectionRange(utf16Offset, utf16Offset, 'none');
+        input.scrollIntoView?.({ block: 'center', behavior: 'auto' });
+        root.dataset.sourceMappedBlockId = sourcePoint.blockId;
+        root.dataset.sourceMappedGraphemeOffset = String(sourcePoint.graphemeOffset);
+        root.dataset.sourceMappedUtf16Offset = String(sourcePoint.utf16Offset);
+        const pageLockNote = document.getElementById('page-lock-note');
+        if (pageLockNote) {
+            const label = sourcePoint.blockType === 'heading' ? '見出し' : '段落';
+            pageLockNote.textContent = `生成ページから${label}の該当位置へ移動しました（読取マッピング）`;
+            pageLockNote.style.display = 'block';
+        }
+    });
+}
+
+function handleFlowGeneratedPageSourceClick(event, activeBlock, page, pageElement) {
+    if (event.button !== 0 || page.isSourceFallback) return;
+    let sourcePoint;
+    try {
+        sourcePoint = mapFlowClientPointToSource(
+            pageElement,
+            page.page,
+            event.clientX,
+            event.clientY,
+        );
+    } catch (error) {
+        console.warn('[Flow source mapping] Generated page click could not be mapped:', error);
+        return;
+    }
+    if (!sourcePoint) return;
+    event.preventDefault();
+    event.stopPropagation();
+    endHistoryGroup();
+    selectFlowSource(activeBlock.id, sourcePoint);
+    restoreMappedFlowSourceCaret(activeBlock.id, sourcePoint);
+    refresh();
+}
+
 function renderEditorFlowGeneratedPage(activeBlock, projection) {
     const render = document.getElementById('content-render');
     if (!render || activeBlock?.kind !== 'flow') return;
@@ -264,13 +349,21 @@ function renderEditorFlowGeneratedPage(activeBlock, projection) {
         writingMode: page.writingMode,
         typography: page.typography,
     });
+    pageElement.dataset.flowSourceMapping = page.isSourceFallback ? 'source-fallback' : 'ready';
+    if (!page.isSourceFallback) {
+        pageElement.setAttribute('aria-label', 'Flow生成ページ。本文をクリックすると原稿の該当位置へ移動します');
+        pageElement.addEventListener('click', (event) => {
+            handleFlowGeneratedPageSourceClick(event, activeBlock, page, pageElement);
+        });
+    }
     render.dataset.flowPreviewState = 'ready';
     render.dataset.flowPageCount = String(groupPages.length);
     render.dataset.publicationPageCount = String(projection.totalPageCount);
     const pageLockNote = document.getElementById('page-lock-note');
     if (pageLockNote) {
         const sourceLabel = page.isSourceFallback ? ` / 原文 ${page.languageKey.toUpperCase()}` : '';
-        pageLockNote.textContent = `Flow原稿 ${selectedIndex + 1} / ${groupPages.length}（作品内 ${pageLabel}ページ${sourceLabel}・読取専用）`;
+        const mappingLabel = page.isSourceFallback ? '' : '・本文クリックで原稿位置へ';
+        pageLockNote.textContent = `Flow原稿 ${selectedIndex + 1} / ${groupPages.length}（作品内 ${pageLabel}ページ${sourceLabel}・読取専用${mappingLabel}）`;
         pageLockNote.style.display = 'block';
     }
     syncPageNavigationSlider();
@@ -717,6 +810,9 @@ function updateActiveFlowAuthoringStatus(projection, options = {}) {
 function renderFlowAuthoringSurface(activeBlock, projection = getEditorPageProjection()) {
     const root = getFlowAuthoringSurface();
     if (!root || activeBlock?.kind !== 'flow') return;
+    delete root.dataset.sourceMappedBlockId;
+    delete root.dataset.sourceMappedGraphemeOffset;
+    delete root.dataset.sourceMappedUtf16Offset;
     const languageKey = getFlowAuthoringLanguage(activeBlock);
     const { languageProgress, translationStatus } = getFlowAuthoringLanguageFeedback(activeBlock, languageKey);
     const translationAutomation = getFlowTranslationAutomation(activeBlock, languageKey);
@@ -2597,8 +2693,16 @@ function refresh(options = {}) {
     }
     const deleteBtn = document.getElementById('btn-delete-active');
     if (deleteBtn) {
-        deleteBtn.disabled = isFlowReadOnly;
-        deleteBtn.title = isFlowReadOnly ? 'Flow原稿は連続原稿画面のブロック操作から編集します' : '';
+        const canDeleteFlowSource = isFlowAuthoring;
+        const deleteLabelKey = canDeleteFlowSource ? 'btn_delete_flow' : 'btn_delete';
+        deleteBtn.disabled = isFlowReadOnly && !canDeleteFlowSource;
+        deleteBtn.dataset.i18n = deleteLabelKey;
+        deleteBtn.textContent = t(deleteLabelKey);
+        deleteBtn.title = canDeleteFlowSource
+            ? t('flow_delete_source_title')
+            : isFlowReadOnly
+                ? t('flow_delete_generated_title')
+                : '';
     }
     if (!isFlowReadOnly) {
         const pageLockNote = document.getElementById('page-lock-note');
@@ -6155,8 +6259,42 @@ window.startThumbTouchDrag = (e, idx) => {
     };
     bindTouchDragListeners();
 };
+function deleteActiveFlowGroup(activeBlock) {
+    if (activeBlock?.kind !== 'flow' || !isFlowSourceSelected(activeBlock.id)) return false;
+    if (!window.confirm(t('confirm_delete_flow'))) return false;
+
+    const removedIndex = state.activeBlockIdx;
+    const nextBlocks = applyFlowAuthoringOperation(state.blocks || [], {
+        type: 'removeGroup',
+        groupId: activeBlock.id,
+    });
+    const nextBlockIndex = nextBlocks.length
+        ? Math.max(0, Math.min(removedIndex, nextBlocks.length - 1))
+        : 0;
+    const nextBlock = nextBlocks[nextBlockIndex] || null;
+    const nextPageIndex = nextBlock
+        ? Math.max(0, getPageIndexFromBlockIndex(nextBlocks, nextBlockIndex))
+        : 0;
+
+    endHistoryGroup();
+    pushState();
+    resetFlowRuntimeAfterGroupRemoval(activeBlock.id);
+    dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'blocks', value: nextBlocks } });
+    dispatch({ type: actionTypes.SET_ACTIVE_BLOCK_INDEX, payload: nextBlockIndex });
+    dispatch({ type: actionTypes.SET_ACTIVE_INDEX, payload: nextPageIndex });
+    dispatch({ type: actionTypes.SET_ACTIVE_BUBBLE_INDEX, payload: null });
+    if (nextBlock?.kind === 'flow') selectFlowSource(nextBlock.id);
+    refresh();
+    triggerAutoSave();
+    return true;
+}
+
 window.deleteActive = () => {
-    if (state.blocks?.[state.activeBlockIdx]?.kind === 'flow') return;
+    const activeBlock = state.blocks?.[state.activeBlockIdx];
+    if (activeBlock?.kind === 'flow') {
+        deleteActiveFlowGroup(activeBlock);
+        return;
+    }
     pushState();
     deleteActive(refresh);
     triggerAutoSave();

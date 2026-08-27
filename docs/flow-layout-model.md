@@ -77,6 +77,9 @@ Press離脱時は書き出しを無効化する。semantic Flow sourceはDSP側�
 Horizon発行、公開Viewer loadには未接続である。
 生成ページを
 `state.blocks`、`state.sections`、`state.pages`へ書き戻すことも行わない。
+Commit 10A-0ではFlow原稿カードを選択中だけ既存の削除操作を有効化し、確認後にFlow Group全体を
+authoring spineから1回のtransactionで削除する。原稿、翻訳metadata、生成ページはまとめて消え、既存Undo／Redo、
+autosave、IndexedDB、DSP、owner専用Firestore保存経路をそのまま使う。生成ページの個別削除は引き続き禁止する。
 
 ## 境界
 
@@ -504,6 +507,51 @@ Commit 8B-2C-Cの対象外:
 - LM Studioのtimeout値や推論性能の変更
 - Chrome Translatorの対応言語ペア拡張
 - Flow pageの固定テキストprojection、DSF／Horizon発行、Viewer
+
+## Studio Flow group deletion（Commit 10A-0）
+
+- Flow原稿カードのsource編集面を選択している時だけ、既存Editパネルの削除ボタンを
+  「Flow原稿を削除」として有効化する。生成ページ選択中は無効のままとする。
+- 確認文は原稿本文、全翻訳、translation metadata、生成ページがまとめて消えることと、Undoで復元できることを明示する。
+- 削除はFlow Groupをmixed `blocks[]`から取り除くpure transactionとし、前後のFixed／Flow Block、未知field、
+  `sections[]`のFixed互換面を変更しない。Project v6を暗黙にv5へdowngradeしない。
+- 削除直前にHistory snapshotを1件だけ積む。UndoはFlowDocument、FlowLayout、翻訳を含むGroup全体を復元し、
+  Redoは再度Group全体を削除する。専用Undo systemは作らない。
+- 対象Groupの進行中翻訳、reflow、DOM paginationを中止し、runtime cache／selectionを破棄する。
+  隣接BlockがFlowならそのsource、Fixedならそのページを選択し、既存autosaveを要求する。
+- schema、DSP／Firestore保存形式、Press、Viewer、Horizon公開経路は変更しない。
+
+## Paginated WYSIWYG Flow roadmap（Commit 10A-1以降）
+
+現在のStudioは、semanticなHeading／Paragraph／PageBreakを連続textareaで編集し、生成された9:16ページを
+別のread-only previewとして確認する段階である。Wordの印刷レイアウトのように生成ページ上へcaretを置いて
+直接編集するには、次の安全単位に分ける。
+
+1. **10A-1 Source mapping**: 生成fragmentのDOM位置とsemantic Block ID／grapheme offsetを双方向に対応付け、
+   ページ上のクリックを原稿caretへno-lossで変換する。まだ文字は変更しない。
+2. **10A-2 Direct typing**: 横書きの単一Block内で直接入力、選択、IME compositionを受け、semantic source更新後に
+   増分reflowする。ページごとの`contentEditable`へ本文を複製しない。
+3. **10A-3 Structural editing**: Enter／Backspace、Paragraph分割・結合、Heading、PageBreak、ページ境界を跨ぐ選択を
+   既存Undo／Redoとautosaveへ統合する。
+4. **10A-4 Production acceptance**: 縦書き、多言語切替、翻訳freshness、font load、長大原稿、caret復元、
+   Browser差を確認し、従来の連続原稿面をfallbackとして維持する。
+
+WYSIWYGでも保存正本はFlowDocumentであり、生成ページやページ別HTMLを保存しない。ページ編集は常に
+`semantic source -> pagination -> generated fixed pages`を往復するprojectionとして実装する。
+
+## Paginated WYSIWYG Flow source mapping（Commit 10A-1）
+
+- pagination fragmentが既に持つSection ID、Block ID、language key、UTF-16 range、grapheme rangeを
+  可視Flow DOMへruntime data属性としてno-loss投影する。Project／DSP／Firestoreには保存しない。
+- pure mappingはfragment内DOM caretからsemantic grapheme境界へ変換でき、逆にsemantic source pointから
+  対象page／fragment／DOM caret位置を求められる。絵文字ZWJ列や結合文字の途中をsource caretにしない。
+- 生成ページ本文のクリックはBrowserのcaret hit-testを使い、同じ言語・Section・Blockの連続原稿textareaへ切り替えて
+  UTF-16 caretを置く。本文、History、revision、autosaveを変更しない読み取り専用操作とする。
+- 翻訳済みpageは翻訳原稿の同じBlockへ対応する。翻訳欠落／staleにより原文fallbackを表示中のpageでは、
+  編集言語との誤対応を避けるためクリックマッピングを有効にしない。多言語fallbackの直接編集は10A-4で扱う。
+- 生成pageは`contentEditable`にせず、keydown／beforeinput／IME compositionもまだ受けない。ページ上の直接入力、
+  semantic source更新、増分reflowは10A-2へ分離する。
+- Fixed Layout、Flow schema、Press、Viewer、Horizon publication contractは変更しない。
 
 ## DOM preview boundary（Commit 3）
 

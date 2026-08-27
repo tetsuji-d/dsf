@@ -105,6 +105,7 @@ function validateLanguageKey(value) {
  * - insertBlock: insert heading/paragraph/pageBreak after afterBlockId, or append
  * - removeBlock: remove one semantic block
  * - moveBlock: move one semantic block by delta (-1 or +1)
+ * - removeGroup: remove the complete Flow manuscript from the mixed authoring spine
  * - confirmTranslation: accept all present target values against current source
  */
 export function applyFlowAuthoringOperation(blocks, operation, options = {}) {
@@ -113,6 +114,11 @@ export function applyFlowAuthoringOperation(blocks, operation, options = {}) {
     }
     const nextBlocks = deepClone(blocks);
     const groupContext = findFlowGroupContext(nextBlocks, operation);
+    if (operation.type === 'removeGroup') {
+        nextBlocks.splice(groupContext.groupIndex, 1);
+        assertValidFlowProjectData({ version: PROJECT_SCHEMA_VERSION, blocks: nextBlocks });
+        return nextBlocks;
+    }
     if (operation.type === 'confirmTranslation') {
         const languageKey = validateLanguageKey(operation.languageKey);
         const result = confirmFlowTranslationAgainstCurrentSource(groupContext.group, languageKey);

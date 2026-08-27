@@ -198,6 +198,10 @@ export const STRINGS = {
         label_font_color:     '文字色',
         label_recent_colors:  '最近使った色',
         btn_delete:           '削除',
+        btn_delete_flow:      'Flow原稿を削除',
+        flow_delete_source_title: 'Flow原稿全体を削除します',
+        flow_delete_generated_title: '生成ページは個別削除できません。親のFlow原稿を選択してください',
+        confirm_delete_flow:  'このFlow原稿を削除しますか？\n\n原稿本文、翻訳、生成ページがすべて削除されます。\n「元に戻す」で復元できます。',
 
         // Page strip
         page_strip_label:     'ページ',
@@ -523,6 +527,10 @@ export const STRINGS = {
         label_font_color:     'Text Color',
         label_recent_colors:  'Recent Colors',
         btn_delete:           'Delete',
+        btn_delete_flow:      'Delete Flow manuscript',
+        flow_delete_source_title: 'Delete the complete Flow manuscript',
+        flow_delete_generated_title: 'Generated pages cannot be deleted individually. Select the parent Flow manuscript.',
+        confirm_delete_flow:  'Delete this Flow manuscript?\n\nIts source text, translations, and generated pages will all be removed.\nYou can restore it with Undo.',
 
         // Page strip
         page_strip_label:     'Pages',

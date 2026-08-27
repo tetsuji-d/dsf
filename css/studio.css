@@ -8269,6 +8269,10 @@ textarea.ps-meta-input {
     inset: 0;
 }
 
+.flow-editor-page-surface[data-flow-source-mapping="ready"] .flow-dom-block {
+    cursor: text;
+}
+
 #flow-authoring-surface {
     position: absolute;
     inset: 0;

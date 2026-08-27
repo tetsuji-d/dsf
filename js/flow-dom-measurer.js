@@ -156,13 +156,18 @@ function setContentStyles(contentElement, pageBox, typography, languageKey, writ
     contentElement.lang = String(languageKey || 'ja');
 }
 
-function createFragmentElement(ownerDocument, fragment, typography, hyphenation) {
+function createFragmentElement(ownerDocument, fragment, fragmentIndex, typography, hyphenation) {
     const element = ownerDocument.createElement(fragment.blockType === 'heading' ? 'h2' : 'p');
     element.className = `flow-dom-block flow-dom-block--${fragment.blockType}`;
+    element.dataset.flowFragmentIndex = String(fragmentIndex);
+    element.dataset.flowSectionId = fragment.sectionId;
     element.dataset.flowBlockId = fragment.blockId;
     element.dataset.flowBlockType = fragment.blockType;
+    element.dataset.flowLanguageKey = fragment.languageKey;
     element.dataset.sourceStart = String(fragment.sourceRange.start);
     element.dataset.sourceEnd = String(fragment.sourceRange.end);
+    element.dataset.sourceStartGrapheme = String(fragment.sourceRange.startGrapheme);
+    element.dataset.sourceEndGrapheme = String(fragment.sourceRange.endGrapheme);
     element.dataset.blockStart = String(fragment.isBlockStart);
     element.dataset.blockEnd = String(fragment.isBlockEnd);
     const isHeading = fragment.blockType === 'heading';
@@ -260,14 +265,15 @@ export function renderFlowFragments(contentElement, options = {}) {
     contentElement.replaceChildren();
     contentElement.className = 'flow-dom-content';
     setContentStyles(contentElement, pageBox, typography, languageKey, writingMode, hyphenation);
-    for (const fragment of fragments) {
+    fragments.forEach((fragment, fragmentIndex) => {
         contentElement.appendChild(createFragmentElement(
             contentElement.ownerDocument,
             fragment,
+            fragmentIndex,
             typography,
             hyphenation,
         ));
-    }
+    });
     return { pageBox, typography, hyphenation };
 }
 
