@@ -156,3 +156,4 @@ main（常に安定・マージ済みコードのみ）
 | 2026-08-26 | 9A-6C-C-C-1C-B: network-idle Horizon handoffをPress既存ローカル配信設計summaryへread-only接続。認証／cloud作品identity、working／blocked／error／ready、file数、exact bytes、WebP照合数、upload未実行を表示し、Flow発行buttonはready後もdisabled。実transport／token／R2、Firestore、Works、公開Viewer、deployは未接続 |
 | 2026-08-26 | 10A-0: Flow原稿source選択時だけ既存削除操作を有効化。確認後に原稿・翻訳を含むFlow Group全体を1 transactionで削除し、生成ページ個別削除は禁止。対象runtimeを中止・破棄し、既存Undo／Redoとautosaveで復元・保存する。schema／Press／Viewerは未変更 |
 | 2026-08-26 | 10A-1: 生成Flow fragment DOMとsemantic Block／grapheme caretを双方向に対応付け、生成ページ本文クリックから同じ言語の連続原稿textareaへno-lossで移動するread-only source mappingを追加。原文fallback page、直接入力、schema／Press／Viewerは未変更 |
+| 2026-08-27 | 10A-2: 原稿言語・横書きHeading／Paragraphの生成ページへruntime caretと不可視input proxyを追加。通常入力とIME確定をsemantic `setText`、既存Undo／Redo・autosave・増分reflowへ接続。日本語の新規Flowは明示writingMode未設定時だけ既存の縦／横設定を継承。Enter／構造編集、縦書き、翻訳直接編集、schema／Press／Viewerは未変更 |

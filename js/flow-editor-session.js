@@ -77,8 +77,34 @@ export function selectFlowGeneratedPage(groupId) {
     return Object.freeze({ ...next });
 }
 
+/** Keep a semantic source caret while the generated page remains visible. */
+export function selectFlowDirectEditing(groupId, options = {}) {
+    const key = keyFor(groupId);
+    const previous = selectionByGroup.get(key) || createEmptySelection(key);
+    const next = {
+        mode: 'direct',
+        groupId: key,
+        sectionId: String(options.sectionId ?? previous.sectionId ?? ''),
+        blockId: String(options.blockId ?? previous.blockId ?? ''),
+        languageKey: String(options.languageKey ?? previous.languageKey ?? ''),
+        graphemeOffset: options.graphemeOffset !== undefined
+            ? optionalOffset(options.graphemeOffset)
+            : previous.graphemeOffset,
+        utf16Offset: options.utf16Offset !== undefined
+            ? optionalOffset(options.utf16Offset)
+            : previous.utf16Offset,
+        affinity: String(options.affinity || previous.affinity || 'nearest'),
+    };
+    selectionByGroup.set(key, next);
+    return Object.freeze({ ...next });
+}
+
 export function isFlowSourceSelected(groupId) {
     return getFlowEditorSelection(groupId).mode === 'source';
+}
+
+export function isFlowDirectEditing(groupId) {
+    return getFlowEditorSelection(groupId).mode === 'direct';
 }
 
 export function resetFlowEditorSelections() {

@@ -609,10 +609,12 @@ export function alignRubyToLines(tokens, lines) {
 }
 
 export function getWritingModeFromConfigs(lang, languageConfigs) {
-    if (languageConfigs && languageConfigs[lang]?.writingMode) {
-        return languageConfigs[lang].writingMode;
-    }
-    return (lang || '').toLowerCase().startsWith('ja') ? 'vertical-rl' : 'horizontal-tb';
+    const config = languageConfigs?.[lang];
+    if (config?.writingMode) return config.writingMode;
+    const japanese = (lang || '').toLowerCase().startsWith('ja');
+    if (japanese && config?.pageDirection === 'ltr') return 'horizontal-tb';
+    if (japanese && config?.pageDirection === 'rtl') return 'vertical-rl';
+    return japanese ? 'vertical-rl' : 'horizontal-tb';
 }
 
 export function getFontPresetFromConfigs(lang, languageConfigs) {

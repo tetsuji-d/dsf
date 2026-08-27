@@ -4,8 +4,10 @@ import { readFileSync } from 'node:fs';
 import { applyFlowAuthoringOperation, FlowAuthoringError } from '../js/flow-authoring.js';
 import {
     getFlowEditorSelection,
+    isFlowDirectEditing,
     isFlowSourceSelected,
     resetFlowEditorSelections,
+    selectFlowDirectEditing,
     selectFlowGeneratedPage,
     selectFlowSource,
 } from '../js/flow-editor-session.js';
@@ -206,6 +208,26 @@ assert.deepEqual(getFlowEditorSelection('flow_group_authoring'), {
 });
 selectFlowGeneratedPage('flow_group_authoring');
 assert.equal(getFlowEditorSelection('flow_group_authoring').graphemeOffset, 4);
+selectFlowDirectEditing('flow_group_authoring', {
+    sectionId: 'flow_section_authoring',
+    blockId: 'flow_paragraph_authoring',
+    languageKey: 'ja',
+    graphemeOffset: 5,
+    utf16Offset: 5,
+    affinity: 'forward',
+});
+assert.equal(isFlowDirectEditing('flow_group_authoring'), true);
+assert.equal(isFlowSourceSelected('flow_group_authoring'), false);
+assert.deepEqual(getFlowEditorSelection('flow_group_authoring'), {
+    mode: 'direct',
+    groupId: 'flow_group_authoring',
+    sectionId: 'flow_section_authoring',
+    blockId: 'flow_paragraph_authoring',
+    languageKey: 'ja',
+    graphemeOffset: 5,
+    utf16Offset: 5,
+    affinity: 'forward',
+});
 
 const persisted = {
     version: 6,

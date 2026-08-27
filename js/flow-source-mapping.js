@@ -97,6 +97,17 @@ function snapDomOffsetToBoundary(text, domOffset, languageKey, affinity = 'neare
     };
 }
 
+/** Convert a UTF-16 textarea offset to a grapheme-safe offset in the same text. */
+export function mapFlowTextUtf16OffsetToGrapheme(text, utf16Offset, languageKey, affinity = 'nearest') {
+    const value = String(text ?? '');
+    const offset = requireDomOffset(utf16Offset, value.length);
+    const snapped = snapDomOffsetToBoundary(value, offset, String(languageKey || 'und'), affinity);
+    return Object.freeze({
+        utf16Offset: snapped.domOffset,
+        graphemeOffset: snapped.localGraphemeOffset,
+    });
+}
+
 function assertFragmentGraphemeCount(normalized, segments) {
     const expected = normalized.endGrapheme - normalized.startGrapheme;
     if (segments.length !== expected) {
@@ -288,4 +299,80 @@ export function mapFlowSourcePointToDomPosition(pageElement, page, sourcePoint) 
         fragmentElement,
         fragmentIndex: selected.fragmentIndex,
     });
+}
+
+function snapshotRect(rect, overrides = {}) {
+    return Object.freeze({
+        left: Number(rect?.left || 0),
+        top: Number(rect?.top || 0),
+        right: Number(rect?.right || 0),
+        bottom: Number(rect?.bottom || 0),
+        width: Number(rect?.width || 0),
+        height: Number(rect?.height || 0),
+        ...overrides,
+    });
+}
+
+function firstUsableRect(range) {
+    return [...(range?.getClientRects?.() || [])].find((rect) => rect.height > 0)
+        || range?.getBoundingClientRect?.()
+        || null;
+}
+
+/** Measure a horizontal visual caret without mutating generated page DOM. */
+export function getFlowSourcePointClientRect(pageElement, page, sourcePoint) {
+    const position = mapFlowSourcePointToDomPosition(pageElement, page, sourcePoint);
+    const ownerDocument = pageElement?.ownerDocument;
+    if (!position || !ownerDocument?.createRange) return null;
+    const range = ownerDocument.createRange();
+    range.setStart(position.node, position.offset);
+    range.collapse(true);
+    let rect = firstUsableRect(range);
+    if (rect?.height > 0) return snapshotRect(rect, { width: 0, right: rect.left });
+
+    const fragment = getPageFragments(page)[position.fragmentIndex];
+    const text = String(fragment?.text || '');
+    const segments = segmentGraphemes(text, fragment?.languageKey || 'und');
+    const next = segments.find((segment) => segment.index >= position.offset);
+    const previous = [...segments].reverse().find((segment) => segment.end <= position.offset);
+    if (next) {
+        range.setStart(position.node, next.index);
+        range.setEnd(position.node, next.end);
+        rect = firstUsableRect(range);
+        return rect?.height > 0 ? snapshotRect(rect, { width: 0, right: rect.left }) : null;
+    }
+    if (previous) {
+        range.setStart(position.node, previous.index);
+        range.setEnd(position.node, previous.end);
+        rect = firstUsableRect(range);
+        return rect?.height > 0 ? snapshotRect(rect, { left: rect.right, width: 0 }) : null;
+    }
+    const fragmentRect = position.fragmentElement?.getBoundingClientRect?.();
+    if (fragmentRect?.height > 0) {
+        return snapshotRect(fragmentRect, {
+            right: fragmentRect.left,
+            width: 0,
+        });
+    }
+    return null;
+}
+
+/** Measure visible selection rectangles when both endpoints exist on one page. */
+export function getFlowSourceRangeClientRects(pageElement, page, startPoint, endPoint) {
+    const start = mapFlowSourcePointToDomPosition(pageElement, page, startPoint);
+    const end = mapFlowSourcePointToDomPosition(pageElement, page, endPoint);
+    const ownerDocument = pageElement?.ownerDocument;
+    if (!start || !end || !ownerDocument?.createRange) return [];
+    const range = ownerDocument.createRange();
+    try {
+        range.setStart(start.node, start.offset);
+        range.setEnd(end.node, end.offset);
+    } catch (_) {
+        return [];
+    }
+    return Object.freeze(
+        [...range.getClientRects()]
+            .filter((rect) => rect.width > 0 && rect.height > 0)
+            .map((rect) => snapshotRect(rect)),
+    );
 }

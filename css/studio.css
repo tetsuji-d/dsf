@@ -8273,6 +8273,78 @@ textarea.ps-meta-input {
     cursor: text;
 }
 
+.flow-editor-page-surface.flow-direct-edit-active {
+    cursor: text;
+}
+
+.flow-direct-input-proxy {
+    position: absolute;
+    z-index: 12;
+    width: 2px;
+    min-width: 2px;
+    max-width: 2px;
+    margin: 0;
+    padding: 0;
+    overflow: hidden;
+    resize: none;
+    border: 0;
+    outline: 0;
+    opacity: 0.01;
+    color: transparent;
+    caret-color: transparent;
+    background: transparent;
+    pointer-events: none;
+}
+
+.flow-direct-caret,
+.flow-direct-selection,
+.flow-direct-composition {
+    position: absolute;
+    z-index: 10;
+    box-sizing: border-box;
+    pointer-events: none;
+}
+
+.flow-direct-caret {
+    width: 2px;
+    background: #2563eb;
+    animation: flow-direct-caret-blink 1s steps(1, end) infinite;
+}
+
+.flow-direct-selection {
+    background: rgba(37, 99, 235, 0.24);
+    border-radius: 2px;
+}
+
+.flow-direct-composition {
+    z-index: 11;
+    width: max-content;
+    max-width: min(260px, 70%);
+    padding: 0 1px 1px;
+    overflow: hidden;
+    color: inherit;
+    white-space: pre;
+    text-decoration: underline 2px #2563eb;
+    text-underline-offset: 3px;
+    background: color-mix(in srgb, white 88%, transparent);
+}
+
+.flow-direct-edit-reflow-pending .flow-direct-caret {
+    opacity: 0.45;
+    animation: none;
+}
+
+@keyframes flow-direct-caret-blink {
+    0%, 48% { opacity: 1; }
+    49%, 100% { opacity: 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .flow-direct-caret {
+        animation: none;
+    }
+}
+
 #flow-authoring-surface {
     position: absolute;
     inset: 0;

@@ -553,6 +553,23 @@ WYSIWYGでも保存正本はFlowDocumentであり、生成ページやページ�
   semantic source更新、増分reflowは10A-2へ分離する。
 - Fixed Layout、Flow schema、Press、Viewer、Horizon publication contractは変更しない。
 
+## Paginated WYSIWYG Flow direct typing（10A-2）
+
+- 原稿言語の`horizontal-tb`生成ページで、Heading／Paragraph内のクリック位置にruntime caretを表示し、
+  同じsemantic Blockの全文を持つ不可視textareaへ入力を受ける。生成DOMと不可視入力は保存しない。
+- 新規Flow作成時は保存済み`writingMode`を最優先し、未設定の日本語だけ既存の「縦書き／横書き」
+  `pageDirection`をwriting modeへ対応付ける。既存Flow Group内の組版値は自動変更しない。
+- 通常入力と削除は、表示時の原稿本文が現在値と一致することをpure contractで再確認してから、既存の
+  `setText` transaction、History grouping、autosaveへ渡す。確定後は既存incremental paginatorで即時reflowし、
+  semantic caretが移動した生成ページを再選択する。
+- IME composition中の未確定文字列はsemantic source、History、autosave、paginationを変更しない。
+  composition確定時に最終値を1 transactionとして反映する。変換中文字はruntime overlayだけに表示する。
+- Undo／Redo後は保存しないdirect-edit sessionからSection／Block／言語を再解決し、復元後本文の範囲へcaretを
+  clampしてから再ページ化する。専用Undo systemは追加しない。
+- Enter／改行、複数行paste、Block分割・結合、ページを跨ぐ構造選択は拒否し、連続原稿面での編集へ案内する。
+  翻訳言語、原文fallback、`vertical-rl`も10A-4まで直接編集対象外とし、10A-1の原稿caret移動をfallbackにする。
+- Flow schema、DSP／Firestore、Press、Viewer、Horizon publication contractは変更しない。
+
 ## DOM preview boundary（Commit 3）
 
 `flow-preview.html`は、FlowDocumentと生成ページの関係を実ブラウザで確認するための独立画面である。

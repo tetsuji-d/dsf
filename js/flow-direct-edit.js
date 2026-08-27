@@ -1,0 +1,230 @@
+/**
+ * Pure contract for editing semantic Flow text from a generated page.
+ *
+ * Generated page DOM is only a hit-test/rendering surface. The returned
+ * operation always targets the persisted heading/paragraph source block.
+ */
+
+import { mapFlowTextUtf16OffsetToGrapheme } from './flow-source-mapping.js';
+
+const DIRECT_TEXT_TYPES = new Set(['heading', 'paragraph']);
+const UNSUPPORTED_LINE_BREAK = /[\r\n\u2028\u2029]/u;
+
+export class FlowDirectEditError extends Error {
+    constructor(code, message, context = {}) {
+        super(message);
+        this.name = 'FlowDirectEditError';
+        this.code = code;
+        this.context = context;
+    }
+}
+
+function fail(code, message, context = {}) {
+    throw new FlowDirectEditError(code, message, context);
+}
+
+function requireFlowGroup(group) {
+    if (group?.kind !== 'flow' || !group.id || !group.flow?.document) {
+        fail('FLOW_GROUP_REQUIRED', 'Direct editing requires one semantic Flow group.');
+    }
+    return group;
+}
+
+function requireSourceTarget(group, sectionId, blockId) {
+    const section = group.flow.document.sections?.find((entry) => entry?.id === sectionId);
+    if (!section) fail('FLOW_SECTION_NOT_FOUND', `Flow section not found: ${sectionId}`, { sectionId });
+    const block = section.blocks?.find((entry) => entry?.id === blockId);
+    if (!block) fail('FLOW_BLOCK_NOT_FOUND', `Flow block not found: ${blockId}`, { blockId });
+    if (!DIRECT_TEXT_TYPES.has(block.type)) {
+        fail('FLOW_BLOCK_NOT_DIRECT_TEXT', 'Only heading and paragraph blocks support direct page editing.', {
+            blockId,
+            blockType: block.type,
+        });
+    }
+    return { section, block };
+}
+
+function requireSingleLineText(value, code = 'FLOW_DIRECT_MULTILINE_UNSUPPORTED') {
+    if (typeof value !== 'string') fail('FLOW_DIRECT_TEXT_INVALID', 'Direct Flow text must be a string.');
+    if (UNSUPPORTED_LINE_BREAK.test(value)) {
+        fail(code, 'Direct page editing does not yet change paragraph structure or line-break blocks.');
+    }
+    return value;
+}
+
+function requireSelectionOffset(value, maximum, name) {
+    const offset = Number(value);
+    if (!Number.isInteger(offset) || offset < 0 || offset > maximum) {
+        fail('FLOW_DIRECT_SELECTION_INVALID', `${name} is outside the semantic text.`, {
+            [name]: value,
+            maximum,
+        });
+    }
+    return offset;
+}
+
+function createSourcePoint(target, text, utf16Offset, affinity = 'nearest') {
+    const mapped = mapFlowTextUtf16OffsetToGrapheme(
+        text,
+        utf16Offset,
+        target.languageKey,
+        affinity,
+    );
+    return Object.freeze({
+        sectionId: target.sectionId,
+        blockId: target.blockId,
+        blockType: target.blockType,
+        languageKey: target.languageKey,
+        graphemeOffset: mapped.graphemeOffset,
+        utf16Offset: mapped.utf16Offset,
+        affinity: String(affinity || 'nearest'),
+    });
+}
+
+/** Validate a page hit and create a runtime-only direct-edit session. */
+export function createFlowDirectEditSession(groupInput, options = {}) {
+    const group = requireFlowGroup(groupInput);
+    const sourceLanguage = String(group.flow.document.sourceLanguage || '');
+    const pageLanguageKey = String(options.pageLanguageKey || '');
+    const writingMode = String(options.writingMode || '');
+    const sourcePoint = options.sourcePoint;
+
+    if (options.isSourceFallback === true) {
+        fail('FLOW_DIRECT_SOURCE_FALLBACK', 'A fallback rendering cannot edit the requested language.');
+    }
+    if (!sourceLanguage || pageLanguageKey !== sourceLanguage) {
+        fail('FLOW_DIRECT_SOURCE_LANGUAGE_ONLY', 'Direct page editing currently supports the source language only.', {
+            sourceLanguage,
+            pageLanguageKey,
+        });
+    }
+    if (writingMode !== 'horizontal-tb') {
+        fail('FLOW_DIRECT_HORIZONTAL_ONLY', 'Direct page editing currently supports horizontal writing only.', {
+            writingMode,
+        });
+    }
+    if (
+        !sourcePoint
+        || String(sourcePoint.languageKey || '') !== sourceLanguage
+        || !String(sourcePoint.sectionId || '')
+        || !String(sourcePoint.blockId || '')
+    ) {
+        fail('FLOW_DIRECT_SOURCE_POINT_INVALID', 'A complete source-language caret is required.');
+    }
+
+    const sectionId = String(sourcePoint.sectionId);
+    const blockId = String(sourcePoint.blockId);
+    const { block } = requireSourceTarget(group, sectionId, blockId);
+    if (sourcePoint.blockType && sourcePoint.blockType !== block.type) {
+        fail('FLOW_DIRECT_BLOCK_TYPE_MISMATCH', 'The generated fragment no longer matches its source block.', {
+            renderedBlockType: sourcePoint.blockType,
+            sourceBlockType: block.type,
+        });
+    }
+    const text = requireSingleLineText(block.texts?.[sourceLanguage] ?? '');
+    const utf16Offset = requireSelectionOffset(sourcePoint.utf16Offset, text.length, 'utf16Offset');
+    const mapped = mapFlowTextUtf16OffsetToGrapheme(
+        text,
+        utf16Offset,
+        sourceLanguage,
+        sourcePoint.affinity,
+    );
+    if (
+        sourcePoint.graphemeOffset !== undefined
+        && sourcePoint.graphemeOffset !== null
+        && Number(sourcePoint.graphemeOffset) !== mapped.graphemeOffset
+    ) {
+        fail('FLOW_DIRECT_SOURCE_OFFSET_MISMATCH', 'UTF-16 and grapheme offsets identify different carets.', {
+            sourcePoint,
+            mapped,
+        });
+    }
+
+    return Object.freeze({
+        groupId: group.id,
+        sectionId,
+        blockId,
+        blockType: block.type,
+        languageKey: sourceLanguage,
+        writingMode,
+        expectedText: text,
+        selectionStart: mapped.utf16Offset,
+        selectionEnd: mapped.utf16Offset,
+        selectionDirection: 'none',
+        sourcePoint: createSourcePoint({
+            sectionId,
+            blockId,
+            blockType: block.type,
+            languageKey: sourceLanguage,
+        }, text, mapped.utf16Offset, sourcePoint.affinity),
+    });
+}
+
+/**
+ * Convert the current textarea value into one semantic setText transaction.
+ * Stale source and structural line breaks are rejected before state mutation.
+ */
+export function createFlowDirectEditTransaction(groupInput, session, input = {}) {
+    const group = requireFlowGroup(groupInput);
+    if (!session || session.groupId !== group.id) {
+        fail('FLOW_DIRECT_SESSION_STALE', 'The direct-edit session no longer targets the active Flow group.');
+    }
+    const sourceLanguage = String(group.flow.document.sourceLanguage || '');
+    if (session.languageKey !== sourceLanguage || session.writingMode !== 'horizontal-tb') {
+        fail('FLOW_DIRECT_SESSION_STALE', 'The direct-edit language or writing mode changed.');
+    }
+    const { block } = requireSourceTarget(group, session.sectionId, session.blockId);
+    if (block.type !== session.blockType) {
+        fail('FLOW_DIRECT_SESSION_STALE', 'The direct-edit source block changed type.');
+    }
+    const currentText = requireSingleLineText(block.texts?.[sourceLanguage] ?? '');
+    if (currentText !== session.expectedText) {
+        fail('FLOW_DIRECT_SOURCE_STALE', 'The semantic source changed after the generated page was rendered.', {
+            expectedText: session.expectedText,
+            currentText,
+        });
+    }
+    const text = requireSingleLineText(input.text, 'FLOW_DIRECT_STRUCTURAL_EDIT_UNSUPPORTED');
+    const selectionStart = requireSelectionOffset(input.selectionStart, text.length, 'selectionStart');
+    const selectionEnd = requireSelectionOffset(input.selectionEnd, text.length, 'selectionEnd');
+    if (selectionStart > selectionEnd) {
+        fail('FLOW_DIRECT_SELECTION_INVALID', 'selectionStart must not exceed selectionEnd.');
+    }
+    const selectionDirection = input.selectionDirection === 'backward' ? 'backward' : 'none';
+    const target = {
+        sectionId: session.sectionId,
+        blockId: session.blockId,
+        blockType: session.blockType,
+        languageKey: sourceLanguage,
+    };
+    const startPoint = createSourcePoint(target, text, selectionStart, 'forward');
+    const endPoint = createSourcePoint(target, text, selectionEnd, 'backward');
+    const focusPoint = selectionDirection === 'backward' ? startPoint : endPoint;
+
+    return Object.freeze({
+        operation: Object.freeze({
+            type: 'setText',
+            groupId: group.id,
+            sectionId: session.sectionId,
+            blockId: session.blockId,
+            languageKey: sourceLanguage,
+            text,
+        }),
+        nextSession: Object.freeze({
+            ...session,
+            expectedText: text,
+            selectionStart,
+            selectionEnd,
+            selectionDirection,
+            sourcePoint: focusPoint,
+        }),
+        selection: Object.freeze({
+            startPoint,
+            endPoint,
+            focusPoint,
+            selectionStart,
+            selectionEnd,
+            selectionDirection,
+        }),
+    });
+}
