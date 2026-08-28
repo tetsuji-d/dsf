@@ -90,7 +90,7 @@ function requireCurrentDirectSession(groupInput, session) {
     if (session.languageKey !== sourceLanguage || session.writingMode !== 'horizontal-tb') {
         fail('FLOW_DIRECT_SESSION_STALE', 'The direct-edit language or writing mode changed.');
     }
-    const { block } = requireSourceTarget(group, session.sectionId, session.blockId);
+    const { section, block } = requireSourceTarget(group, session.sectionId, session.blockId);
     if (block.type !== session.blockType) {
         fail('FLOW_DIRECT_SESSION_STALE', 'The direct-edit source block changed type.');
     }
@@ -101,7 +101,7 @@ function requireCurrentDirectSession(groupInput, session) {
             currentText,
         });
     }
-    return { group, sourceLanguage, block, currentText };
+    return { group, sourceLanguage, section, block, currentText };
 }
 
 function requireNewBlockId(value) {
@@ -314,6 +314,94 @@ export function createFlowDirectParagraphSplitTransaction(groupInput, session, i
             focusPoint: nextSourcePoint,
             selectionStart: 0,
             selectionEnd: 0,
+            selectionDirection: 'none',
+        }),
+    });
+}
+
+/**
+ * Convert Backspace at the start of a Paragraph into one atomic backward merge.
+ * The removed Paragraph must not own saved target-language text.
+ */
+export function createFlowDirectParagraphMergeBackwardTransaction(groupInput, session, input = {}) {
+    const {
+        group,
+        sourceLanguage,
+        section,
+        block,
+        currentText,
+    } = requireCurrentDirectSession(groupInput, session);
+    if (block.type !== 'paragraph') {
+        fail('FLOW_DIRECT_PARAGRAPH_REQUIRED', 'Backspace directly merges Paragraph blocks only.', {
+            blockId: block.id,
+            blockType: block.type,
+        });
+    }
+    const selectionStart = requireSelectionOffset(input.selectionStart, currentText.length, 'selectionStart');
+    const selectionEnd = requireSelectionOffset(input.selectionEnd, currentText.length, 'selectionEnd');
+    if (selectionStart !== selectionEnd) {
+        fail('FLOW_DIRECT_COLLAPSED_CARET_REQUIRED', 'Paragraph merging requires a collapsed caret.', {
+            selectionStart,
+            selectionEnd,
+        });
+    }
+    if (selectionStart !== 0) {
+        fail('FLOW_DIRECT_PARAGRAPH_START_REQUIRED', 'Paragraph merging requires a caret at the Paragraph start.', {
+            selectionStart,
+        });
+    }
+
+    const blockIndex = section.blocks.findIndex((entry) => entry?.id === block.id);
+    const previousBlock = section.blocks[blockIndex - 1];
+    if (previousBlock?.type !== 'paragraph') {
+        fail('FLOW_DIRECT_PREVIOUS_PARAGRAPH_REQUIRED', 'Paragraph merging requires an immediately preceding Paragraph.', {
+            blockId: block.id,
+            previousBlockId: previousBlock?.id || '',
+            previousBlockType: previousBlock?.type || '',
+        });
+    }
+    const translatedLanguageKeys = Object.entries(block.texts || {})
+        .filter(([key, value]) => key !== sourceLanguage && typeof value === 'string')
+        .map(([key]) => key);
+    if (translatedLanguageKeys.length) {
+        fail('FLOW_DIRECT_MERGE_TRANSLATION_DATA_PRESENT', 'A Paragraph with saved translations cannot be removed by merging.', {
+            blockId: block.id,
+            translatedLanguageKeys,
+        });
+    }
+
+    const previousText = requireSingleLineText(previousBlock.texts?.[sourceLanguage] ?? '');
+    const mergedText = previousText + currentText;
+    const joinOffset = previousText.length;
+    const focusPoint = createSourcePoint({
+        sectionId: session.sectionId,
+        blockId: previousBlock.id,
+        blockType: 'paragraph',
+        languageKey: sourceLanguage,
+    }, mergedText, joinOffset, 'forward');
+
+    return Object.freeze({
+        operation: Object.freeze({
+            type: 'mergeParagraphBackward',
+            groupId: group.id,
+            sectionId: session.sectionId,
+            blockId: session.blockId,
+            languageKey: sourceLanguage,
+        }),
+        nextSession: Object.freeze({
+            ...session,
+            blockId: previousBlock.id,
+            blockType: 'paragraph',
+            expectedText: mergedText,
+            selectionStart: joinOffset,
+            selectionEnd: joinOffset,
+            selectionDirection: 'none',
+            sourcePoint: focusPoint,
+        }),
+        selection: Object.freeze({
+            focusPoint,
+            selectionStart: joinOffset,
+            selectionEnd: joinOffset,
             selectionDirection: 'none',
         }),
     });

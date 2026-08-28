@@ -62,6 +62,20 @@ function createFixture() {
     ];
 }
 
+function createMergeFixture(options = {}) {
+    const blocks = createFixture();
+    blocks[1].flow.document.sections[0].blocks.push({
+        id: 'flow_paragraph_merge_current',
+        type: 'paragraph',
+        texts: {
+            ja: '神谷はコートを手に取った。',
+            ...(options.includeTranslation ? { en: options.translationText ?? 'Kamiya picked up his coat.' } : {}),
+        },
+        futureMergeParagraph: { keep: true },
+    });
+    return blocks;
+}
+
 const originalBlocks = createFixture();
 const originalJson = JSON.stringify(originalBlocks);
 
@@ -254,6 +268,109 @@ assert.deepEqual(
     'A valid source-missing empty Paragraph must still split safely',
 );
 
+const mergeInput = createMergeFixture();
+const mergeInputJson = JSON.stringify(mergeInput);
+const mergedBlocks = applyFlowAuthoringOperation(mergeInput, {
+    type: 'mergeParagraphBackward',
+    groupId: 'flow_group_authoring',
+    sectionId: 'flow_section_authoring',
+    blockId: 'flow_paragraph_merge_current',
+    languageKey: 'ja',
+});
+const mergedSectionBlocks = mergedBlocks[1].flow.document.sections[0].blocks;
+assert.equal(JSON.stringify(mergeInput), mergeInputJson, 'Paragraph merge must not mutate input');
+assert.deepEqual(mergedBlocks[0], mergeInput[0], 'Paragraph merge must preserve the Fixed prefix');
+assert.deepEqual(mergedBlocks[2], mergeInput[2], 'Paragraph merge must preserve the Fixed suffix');
+assert.deepEqual(mergedSectionBlocks.map((block) => block.type), ['heading', 'paragraph']);
+assert.equal(mergedSectionBlocks[1].id, 'flow_paragraph_authoring', 'The preceding Paragraph keeps its identity');
+assert.equal(
+    mergedSectionBlocks[1].texts.ja,
+    '冬の金沢は静かだった。神谷はコートを手に取った。',
+    'Removing the Paragraph boundary must concatenate source text without guessing a separator',
+);
+assert.equal(
+    mergedSectionBlocks[1].texts.en,
+    'Kanazawa was quiet in winter.',
+    'The preceding Paragraph translation must be retained',
+);
+assert.deepEqual(mergedSectionBlocks[1].futureParagraph, { keep: true });
+assert.equal(
+    mergedSectionBlocks.some((block) => block.id === 'flow_paragraph_merge_current'),
+    false,
+    'The current Paragraph must be removed after merging',
+);
+const mergeTranslationStatus = deriveFlowTranslationStatus(mergedBlocks[1], 'en');
+assert.deepEqual(mergeTranslationStatus.body.ids.stale, ['flow_paragraph_authoring']);
+
+const mergeRoundTrip = deserializeProject(serializeProject({
+    version: 6,
+    languages: ['ja', 'en'],
+    defaultLang: 'ja',
+    blocks: mergedBlocks,
+    sections: [
+        { type: 'image', backgrounds: {}, bubbles: [] },
+        { type: 'image', backgrounds: {}, bubbles: [] },
+    ],
+    pages: [],
+}));
+assert.deepEqual(
+    mergeRoundTrip.blocks[1].flow.document.sections[0].blocks,
+    mergedSectionBlocks,
+    'Merged semantic Paragraph structure must survive save/reload',
+);
+
+assert.throws(() => applyFlowAuthoringOperation(createMergeFixture({
+    includeTranslation: true,
+    translationText: '',
+}), {
+    type: 'mergeParagraphBackward',
+    groupId: 'flow_group_authoring',
+    sectionId: 'flow_section_authoring',
+    blockId: 'flow_paragraph_merge_current',
+    languageKey: 'ja',
+}), (error) => error instanceof FlowAuthoringError && error.code === 'FLOW_MERGE_TRANSLATION_DATA_PRESENT');
+assert.throws(() => applyFlowAuthoringOperation(createFixture(), {
+    type: 'mergeParagraphBackward',
+    groupId: 'flow_group_authoring',
+    sectionId: 'flow_section_authoring',
+    blockId: 'flow_paragraph_authoring',
+    languageKey: 'ja',
+}), (error) => error instanceof FlowAuthoringError && error.code === 'FLOW_PREVIOUS_PARAGRAPH_REQUIRED');
+const pageBreakMergeInput = createMergeFixture();
+pageBreakMergeInput[1].flow.document.sections[0].blocks.splice(-1, 0, {
+    id: 'flow_merge_page_break',
+    type: 'pageBreak',
+});
+assert.throws(() => applyFlowAuthoringOperation(pageBreakMergeInput, {
+    type: 'mergeParagraphBackward',
+    groupId: 'flow_group_authoring',
+    sectionId: 'flow_section_authoring',
+    blockId: 'flow_paragraph_merge_current',
+    languageKey: 'ja',
+}), (error) => error instanceof FlowAuthoringError && error.code === 'FLOW_PREVIOUS_PARAGRAPH_REQUIRED');
+assert.throws(() => applyFlowAuthoringOperation(createMergeFixture(), {
+    type: 'mergeParagraphBackward',
+    groupId: 'flow_group_authoring',
+    sectionId: 'flow_section_authoring',
+    blockId: 'flow_paragraph_merge_current',
+    languageKey: 'en',
+}), (error) => error instanceof FlowAuthoringError && error.code === 'FLOW_MERGE_SOURCE_LANGUAGE_ONLY');
+const missingSourceMergeInput = createMergeFixture();
+delete missingSourceMergeInput[1].flow.document.sections[0].blocks[1].texts.ja;
+delete missingSourceMergeInput[1].flow.document.sections[0].blocks[2].texts.ja;
+const missingSourceMergedBlocks = applyFlowAuthoringOperation(missingSourceMergeInput, {
+    type: 'mergeParagraphBackward',
+    groupId: 'flow_group_authoring',
+    sectionId: 'flow_section_authoring',
+    blockId: 'flow_paragraph_merge_current',
+    languageKey: 'ja',
+});
+assert.equal(
+    missingSourceMergedBlocks[1].flow.document.sections[0].blocks[1].texts.ja,
+    '',
+    'Valid source-missing Paragraphs must merge as empty source strings',
+);
+
 const groupRemovalInputJson = JSON.stringify(blocks);
 const blocksWithoutFlowGroup = applyFlowAuthoringOperation(blocks, {
     type: 'removeGroup',
@@ -425,6 +542,32 @@ try {
     );
     assert.equal(redo(() => {}), true, 'Paragraph split must redo as one project transaction');
     assert.equal(state.blocks[1].flow.document.sections[0].blocks.at(-1).id, 'history_paragraph_split');
+
+    clearHistory();
+    state.blocks = createMergeFixture();
+    pushState();
+    state.blocks = applyFlowAuthoringOperation(state.blocks, {
+        type: 'mergeParagraphBackward',
+        groupId: 'flow_group_authoring',
+        sectionId: 'flow_section_authoring',
+        blockId: 'flow_paragraph_merge_current',
+        languageKey: 'ja',
+    });
+    assert.equal(getHistoryInfo().undoCount, 1, 'Paragraph merge must create one history snapshot');
+    assert.deepEqual(
+        state.blocks[1].flow.document.sections[0].blocks.map((block) => block.id),
+        ['flow_heading_authoring', 'flow_paragraph_authoring'],
+    );
+    assert.equal(undo(() => {}), true, 'Paragraph merge must undo as one project transaction');
+    assert.deepEqual(
+        state.blocks[1].flow.document.sections[0].blocks.map((block) => block.id),
+        ['flow_heading_authoring', 'flow_paragraph_authoring', 'flow_paragraph_merge_current'],
+    );
+    assert.equal(redo(() => {}), true, 'Paragraph merge must redo as one project transaction');
+    assert.equal(
+        state.blocks[1].flow.document.sections[0].blocks.some((block) => block.id === 'flow_paragraph_merge_current'),
+        false,
+    );
 
     clearHistory();
     state.version = 5;

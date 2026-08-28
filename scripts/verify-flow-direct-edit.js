@@ -5,6 +5,7 @@ import {
     FlowDirectEditError,
     createFlowDirectEditSession,
     createFlowDirectEditTransaction,
+    createFlowDirectParagraphMergeBackwardTransaction,
     createFlowDirectParagraphSplitTransaction,
 } from '../js/flow-direct-edit.js';
 import { createFlowGroupBlock } from '../js/flow-project-model.js';
@@ -30,10 +31,28 @@ function createFixture(overrides = {}) {
                     id: 'flow_direct_paragraph',
                     type: 'paragraph',
                     texts: { ja: '雪👩‍💻の日' },
+                }, {
+                    id: 'flow_direct_paragraph_next',
+                    type: 'paragraph',
+                    texts: { ja: '足音が近づいた。' },
                 }],
             }],
         },
         ...overrides,
+    });
+}
+
+function createMergeSession(group = createFixture()) {
+    return createSession(group, {
+        sourcePoint: {
+            sectionId: 'flow_direct_section',
+            blockId: 'flow_direct_paragraph_next',
+            blockType: 'paragraph',
+            languageKey: 'ja',
+            utf16Offset: 0,
+            graphemeOffset: 0,
+            affinity: 'nearest',
+        },
     });
 }
 
@@ -178,6 +197,95 @@ assert.throws(
         && error.code === 'FLOW_DIRECT_PARAGRAPH_REQUIRED',
 );
 
+const mergeSession = createMergeSession(group);
+const merge = createFlowDirectParagraphMergeBackwardTransaction(group, mergeSession, {
+    selectionStart: 0,
+    selectionEnd: 0,
+});
+const mergeJoinOffset = '雪👩‍💻の日'.length;
+assert.deepEqual(merge.operation, {
+    type: 'mergeParagraphBackward',
+    groupId: 'flow_direct_group',
+    sectionId: 'flow_direct_section',
+    blockId: 'flow_direct_paragraph_next',
+    languageKey: 'ja',
+});
+assert.equal(merge.nextSession.blockId, 'flow_direct_paragraph');
+assert.equal(merge.nextSession.expectedText, '雪👩‍💻の日足音が近づいた。');
+assert.equal(merge.nextSession.selectionStart, mergeJoinOffset);
+assert.equal(merge.nextSession.selectionEnd, mergeJoinOffset);
+assert.equal(merge.selection.focusPoint.blockId, 'flow_direct_paragraph');
+assert.equal(merge.selection.focusPoint.utf16Offset, mergeJoinOffset);
+assert.equal(merge.selection.focusPoint.graphemeOffset, 4);
+assert.throws(
+    () => createFlowDirectParagraphMergeBackwardTransaction(group, mergeSession, {
+        selectionStart: 0,
+        selectionEnd: 1,
+    }),
+    (error) => error instanceof FlowDirectEditError
+        && error.code === 'FLOW_DIRECT_COLLAPSED_CARET_REQUIRED',
+);
+assert.throws(
+    () => createFlowDirectParagraphMergeBackwardTransaction(group, mergeSession, {
+        selectionStart: 1,
+        selectionEnd: 1,
+    }),
+    (error) => error instanceof FlowDirectEditError
+        && error.code === 'FLOW_DIRECT_PARAGRAPH_START_REQUIRED',
+);
+const firstParagraphSession = createSession(group, {
+    sourcePoint: {
+        sectionId: 'flow_direct_section',
+        blockId: 'flow_direct_paragraph',
+        blockType: 'paragraph',
+        languageKey: 'ja',
+        utf16Offset: 0,
+        graphemeOffset: 0,
+        affinity: 'nearest',
+    },
+});
+assert.throws(
+    () => createFlowDirectParagraphMergeBackwardTransaction(group, firstParagraphSession, {
+        selectionStart: 0,
+        selectionEnd: 0,
+    }),
+    (error) => error instanceof FlowDirectEditError
+        && error.code === 'FLOW_DIRECT_PREVIOUS_PARAGRAPH_REQUIRED',
+);
+assert.throws(
+    () => createFlowDirectParagraphMergeBackwardTransaction(group, headingSession, {
+        selectionStart: 1,
+        selectionEnd: 1,
+    }),
+    (error) => error instanceof FlowDirectEditError
+        && error.code === 'FLOW_DIRECT_PARAGRAPH_REQUIRED',
+);
+const pageBreakGroup = structuredClone(group);
+pageBreakGroup.flow.document.sections[0].blocks.splice(-1, 0, {
+    id: 'flow_direct_page_break',
+    type: 'pageBreak',
+});
+const pageBreakMergeSession = createMergeSession(pageBreakGroup);
+assert.throws(
+    () => createFlowDirectParagraphMergeBackwardTransaction(pageBreakGroup, pageBreakMergeSession, {
+        selectionStart: 0,
+        selectionEnd: 0,
+    }),
+    (error) => error instanceof FlowDirectEditError
+        && error.code === 'FLOW_DIRECT_PREVIOUS_PARAGRAPH_REQUIRED',
+);
+const translatedMergeGroup = structuredClone(group);
+translatedMergeGroup.flow.document.sections[0].blocks.at(-1).texts.en = '';
+const translatedMergeSession = createMergeSession(translatedMergeGroup);
+assert.throws(
+    () => createFlowDirectParagraphMergeBackwardTransaction(translatedMergeGroup, translatedMergeSession, {
+        selectionStart: 0,
+        selectionEnd: 0,
+    }),
+    (error) => error instanceof FlowDirectEditError
+        && error.code === 'FLOW_DIRECT_MERGE_TRANSLATION_DATA_PRESENT',
+);
+
 const staleGroup = structuredClone(group);
 staleGroup.flow.document.sections[0].blocks[1].texts.ja = '別の編集';
 assert.throws(
@@ -225,8 +333,11 @@ const appSource = await readFile(new URL('../js/app.js', import.meta.url), 'utf8
 const studioCss = await readFile(new URL('../css/studio.css', import.meta.url), 'utf8');
 assert.match(appSource, /createFlowDirectEditTransaction\(/);
 assert.match(appSource, /createFlowDirectParagraphSplitTransaction\(/);
+assert.match(appSource, /createFlowDirectParagraphMergeBackwardTransaction\(/);
 assert.match(appSource, /newBlockId: createId\('flow_paragraph'\)/);
 assert.match(appSource, /applyFlowAuthoringEdit\(transaction\.operation, \{ immediate: true \}\)/);
+assert.match(appSource, /event\.inputType === 'deleteContentBackward'/);
+assert.match(appSource, /event\.key === 'Backspace'/);
 assert.match(appSource, /addEventListener\('beforeinput', handleFlowDirectBeforeInput\)/);
 assert.match(appSource, /addEventListener\('compositionstart', handleFlowDirectCompositionStart\)/);
 assert.match(appSource, /addEventListener\('compositionend', handleFlowDirectCompositionEnd\)/);

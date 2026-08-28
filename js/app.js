@@ -38,6 +38,7 @@ import {
     FlowDirectEditError,
     createFlowDirectEditSession,
     createFlowDirectEditTransaction,
+    createFlowDirectParagraphMergeBackwardTransaction,
     createFlowDirectParagraphSplitTransaction,
 } from './flow-direct-edit.js';
 import {
@@ -544,6 +545,58 @@ function splitFlowDirectParagraph(proxy) {
     return true;
 }
 
+function mergeFlowDirectParagraphBackward(proxy) {
+    if (proxy !== _flowDirectEditProxy || !_flowDirectEditSession || _flowDirectEditApplying) return false;
+    const group = getFlowGroupById(_flowDirectEditSession.groupId);
+    if (!group) return false;
+    let transaction;
+    try {
+        transaction = createFlowDirectParagraphMergeBackwardTransaction(group, _flowDirectEditSession, {
+            selectionStart: proxy.selectionStart,
+            selectionEnd: proxy.selectionEnd,
+        });
+    } catch (error) {
+        if (!(error instanceof FlowDirectEditError)) throw error;
+        if (error.code === 'FLOW_DIRECT_PARAGRAPH_REQUIRED') {
+            setFlowDirectEditNote('見出しはBackspaceで前の段落へ結合できません。');
+        } else if (error.code === 'FLOW_DIRECT_COLLAPSED_CARET_REQUIRED') {
+            setFlowDirectEditNote('選択範囲を含む段落結合は未対応です。選択を解除してください。');
+        } else if (error.code === 'FLOW_DIRECT_PARAGRAPH_START_REQUIRED') {
+            setFlowDirectEditNote('段落の先頭でのみ、Backspaceによる前段落との結合ができます。');
+        } else if (error.code === 'FLOW_DIRECT_PREVIOUS_PARAGRAPH_REQUIRED') {
+            setFlowDirectEditNote('直前が段落ではないため結合しませんでした。見出しや改ページは保持されます。');
+        } else if (error.code === 'FLOW_DIRECT_MERGE_TRANSLATION_DATA_PRESENT') {
+            setFlowDirectEditNote('この段落には翻訳本文があるため、データ保護のため結合しませんでした。');
+        } else {
+            recoverFlowDirectEditProxy(proxy, '段落を安全に結合できませんでした。Flow原稿画面で編集してください。');
+        }
+        return false;
+    }
+
+    endHistoryGroup();
+    _flowDirectEditSession = transaction.nextSession;
+    selectFlowDirectEditing(transaction.operation.groupId, transaction.selection.focusPoint);
+    _flowDirectEditMounting = true;
+    proxy.value = transaction.nextSession.expectedText;
+    proxy.dataset.flowBlockId = transaction.nextSession.blockId;
+    proxy.setSelectionRange(
+        transaction.nextSession.selectionStart,
+        transaction.nextSession.selectionEnd,
+        transaction.nextSession.selectionDirection,
+    );
+    _flowDirectEditMounting = false;
+    _flowDirectEditApplying = true;
+    proxy.dataset.flowReflowPending = 'true';
+    proxy._flowDirectPageElement?.classList.add('flow-direct-edit-reflow-pending');
+    try {
+        applyFlowAuthoringEdit(transaction.operation, { immediate: true });
+    } finally {
+        _flowDirectEditApplying = false;
+    }
+    setFlowDirectEditNote('前の段落へ結合しました。後続ページを再配置しています。');
+    return true;
+}
+
 function handleFlowDirectBeforeInput(event) {
     if (event.target !== _flowDirectEditProxy) return;
     if (event.inputType === 'historyUndo' || event.inputType === 'historyRedo') {
@@ -555,6 +608,17 @@ function handleFlowDirectBeforeInput(event) {
     if (event.inputType === 'insertParagraph') {
         event.preventDefault();
         if (!event.isComposing && !_flowAuthoringComposing) splitFlowDirectParagraph(event.target);
+        return;
+    }
+    if (
+        event.inputType === 'deleteContentBackward'
+        && !event.isComposing
+        && !_flowAuthoringComposing
+        && event.target.selectionStart === 0
+        && event.target.selectionEnd === 0
+    ) {
+        event.preventDefault();
+        mergeFlowDirectParagraphBackward(event.target);
         return;
     }
     if (
@@ -650,6 +714,21 @@ function mountFlowDirectEditProxy(activeBlock, page, pageElement, session) {
                 return;
             }
             splitFlowDirectParagraph(proxy);
+            return;
+        }
+        if (
+            event.key === 'Backspace'
+            && !event.isComposing
+            && !_flowAuthoringComposing
+            && !event.shiftKey
+            && !event.ctrlKey
+            && !event.metaKey
+            && !event.altKey
+            && proxy.selectionStart === 0
+            && proxy.selectionEnd === 0
+        ) {
+            event.preventDefault();
+            mergeFlowDirectParagraphBackward(proxy);
         }
     });
     proxy.addEventListener('paste', (event) => {

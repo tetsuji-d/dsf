@@ -567,7 +567,8 @@ WYSIWYGでも保存正本はFlowDocumentであり、生成ページやページ�
 - Undo／Redo後は保存しないdirect-edit sessionからSection／Block／言語を再解決し、復元後本文の範囲へcaretを
   clampしてから再ページ化する。専用Undo systemは追加しない。
 - 10A-2時点ではEnter／改行、複数行paste、Block分割・結合、ページを跨ぐ構造選択を拒否する。
-  collapsed caretでのParagraph分割だけは10A-3Aで追加し、それ以外の構造編集は連続原稿面へ案内する。
+  collapsed caretでのParagraph分割は10A-3A、Paragraph先頭のBackspace結合は10A-3Bで追加し、
+  それ以外の構造編集は連続原稿面へ案内する。
   翻訳言語、原文fallback、`vertical-rl`も10A-4まで直接編集対象外とし、10A-1の原稿caret移動をfallbackにする。
 - Flow schema、DSP／Firestore、Press、Viewer、Horizon publication contractは変更しない。
 
@@ -583,6 +584,20 @@ WYSIWYGでも保存正本はFlowDocumentであり、生成ページやページ�
   生成ページ上のcaretは新Paragraph先頭へ移し、再ページ化によるページ数増減に追従する。
 - 選択範囲付きEnter、Heading、Shift+Enter、BackspaceによるParagraph結合、複数行paste、ページ跨ぎ選択、
   翻訳ページ、原文fallback、`vertical-rl`はこの単位では変更しない。
+- Flow schema、DSP／Firestore、Press、Viewer、Horizon publication contractは変更しない。
+
+## Paginated WYSIWYG Paragraph backward merge（10A-3B）
+
+- 原稿言語・`horizontal-tb`・Paragraph先頭のcollapsed caretで、修飾キーなしBackspaceを押した場合だけ、
+  同じSection内で直前に隣接するParagraphとの境界を削除する。本文間に空白や改行を推測挿入しない。
+- 直前ParagraphはBlock ID、未知field、既存の翻訳本文を維持し、原文本文へ現在Paragraphの原文を連結する。
+  現在Paragraphはsemantic sourceから削除し、caretを結合位置へ移す。
+- 削除される現在Paragraphに原稿以外の保存済み文字列が1つでもある場合は、空文字の翻訳も含めて結合を拒否する。
+  直前Paragraphの翻訳は保持したまま原文変更前のfingerprintを記録し、既存freshness契約によりstaleとする。
+- 結合は既存Project Historyへ1 snapshotとして積み、autosaveとincremental reflowを即時要求する。
+  keyboardのBackspaceとmobile系`beforeinput: deleteContentBackward`を同じpure contractへ接続する。
+- Paragraph内の通常Backspaceは従来の`setText`、Heading／PageBreak／Section境界でのBackspaceは非構造操作のままとする。
+  選択範囲を含む結合、Deleteキー、ページを跨ぐ一般選択、翻訳ページ、原文fallback、`vertical-rl`は変更しない。
 - Flow schema、DSP／Firestore、Press、Viewer、Horizon publication contractは変更しない。
 
 ## DOM preview boundary（Commit 3）

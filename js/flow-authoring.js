@@ -141,6 +141,7 @@ function validateGraphemeBoundary(text, utf16Offset, languageKey) {
  * - setHeadingLevel: update heading level 1..6
  * - insertBlock: insert heading/paragraph/pageBreak after afterBlockId, or append
  * - splitParagraph: split one source Paragraph into two adjacent Paragraphs
+ * - mergeParagraphBackward: merge one source Paragraph into its previous Paragraph
  * - removeBlock: remove one semantic block
  * - moveBlock: move one semantic block by delta (-1 or +1)
  * - removeGroup: remove the complete Flow manuscript from the mixed authoring spine
@@ -290,6 +291,61 @@ export function applyFlowAuthoringOperation(blocks, operation, options = {}) {
                 texts: { [sourceLanguage]: afterText },
             });
             section.blocks.splice(blockIndex + 1, 0, inserted);
+            break;
+        }
+        case 'mergeParagraphBackward': {
+            const blockIndex = findBlockIndex(section, operation.blockId);
+            const block = section.blocks[blockIndex];
+            if (block.type !== 'paragraph') {
+                fail('FLOW_BLOCK_NOT_PARAGRAPH', 'Only paragraph blocks can merge backward.', {
+                    blockId: block.id,
+                    blockType: block.type,
+                });
+            }
+            const sourceLanguage = context.group.flow.document.sourceLanguage;
+            const languageKey = validateLanguageKey(operation.languageKey);
+            if (languageKey !== sourceLanguage) {
+                fail('FLOW_MERGE_SOURCE_LANGUAGE_ONLY', 'Paragraph merging currently supports the source language only.', {
+                    sourceLanguage,
+                    languageKey,
+                });
+            }
+            const previousBlock = section.blocks[blockIndex - 1];
+            if (previousBlock?.type !== 'paragraph') {
+                fail('FLOW_PREVIOUS_PARAGRAPH_REQUIRED', 'Paragraph merging requires an immediately preceding Paragraph.', {
+                    blockId: block.id,
+                    previousBlockId: previousBlock?.id || '',
+                    previousBlockType: previousBlock?.type || '',
+                });
+            }
+            const translatedLanguageKeys = Object.entries(block.texts || {})
+                .filter(([key, value]) => key !== sourceLanguage && typeof value === 'string')
+                .map(([key]) => key);
+            if (translatedLanguageKeys.length) {
+                fail('FLOW_MERGE_TRANSLATION_DATA_PRESENT', 'A Paragraph with saved translations cannot be removed by merging.', {
+                    blockId: block.id,
+                    translatedLanguageKeys,
+                });
+            }
+            const previousValue = previousBlock.texts?.[sourceLanguage];
+            const currentValue = block.texts?.[sourceLanguage];
+            const previousText = previousValue === undefined ? '' : previousValue;
+            const currentText = currentValue === undefined ? '' : currentValue;
+            if (typeof previousText !== 'string' || typeof currentText !== 'string') {
+                fail('INVALID_FLOW_TEXT', 'Paragraph source text must be a string.');
+            }
+
+            const captured = captureFlowTranslationUnitBeforeSourceEdit(context.group, {
+                unitMap: 'blocks',
+                unitId: previousBlock.id,
+            });
+            if (captured.changed) context.group.flow.translationState = captured.translationState;
+
+            previousBlock.texts = {
+                ...(previousBlock.texts || {}),
+                [sourceLanguage]: previousText + currentText,
+            };
+            section.blocks.splice(blockIndex, 1);
             break;
         }
         case 'removeBlock': {
