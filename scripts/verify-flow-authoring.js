@@ -12,6 +12,7 @@ import {
     selectFlowSource,
 } from '../js/flow-editor-session.js';
 import { createFlowGroupBlock } from '../js/flow-project-model.js';
+import { deriveFlowTranslationStatus } from '../js/flow-translation-state.js';
 import { clearHistory, getHistoryInfo, pushState, redo, undo } from '../js/history.js';
 import { deserializeProject, serializeProject } from '../js/project-persistence.js';
 import { state } from '../js/state.js';
@@ -151,6 +152,107 @@ assert.throws(() => applyFlowAuthoringOperation(blocks, {
     languageKey: 'ja',
     text: 'lost',
 }), (error) => error instanceof FlowAuthoringError && error.code === 'FLOW_BLOCK_NOT_FOUND');
+
+const splitInput = createFixture();
+const splitInputJson = JSON.stringify(splitInput);
+const splitOffset = '冬の金沢は'.length;
+const splitBlocks = applyFlowAuthoringOperation(splitInput, {
+    type: 'splitParagraph',
+    groupId: 'flow_group_authoring',
+    sectionId: 'flow_section_authoring',
+    blockId: 'flow_paragraph_authoring',
+    languageKey: 'ja',
+    utf16Offset: splitOffset,
+    newBlockId: 'flow_paragraph_after_split',
+});
+const splitSectionBlocks = splitBlocks[1].flow.document.sections[0].blocks;
+assert.equal(JSON.stringify(splitInput), splitInputJson, 'Paragraph split must not mutate input');
+assert.deepEqual(splitBlocks[0], splitInput[0], 'Paragraph split must preserve the Fixed prefix');
+assert.deepEqual(splitBlocks[2], splitInput[2], 'Paragraph split must preserve the Fixed suffix');
+assert.deepEqual(splitSectionBlocks.map((block) => block.type), ['heading', 'paragraph', 'paragraph']);
+assert.equal(splitSectionBlocks[1].id, 'flow_paragraph_authoring', 'The leading Paragraph keeps its identity');
+assert.equal(splitSectionBlocks[1].texts.ja, '冬の金沢は');
+assert.equal(splitSectionBlocks[1].texts.en, 'Kanazawa was quiet in winter.', 'Existing translation is not guessed or split');
+assert.deepEqual(splitSectionBlocks[1].futureParagraph, { keep: true });
+assert.equal(splitSectionBlocks[2].id, 'flow_paragraph_after_split');
+assert.equal(splitSectionBlocks[2].texts.ja, '静かだった。');
+assert.equal(Object.hasOwn(splitSectionBlocks[2].texts, 'en'), false, 'The new Paragraph starts untranslated');
+const splitTranslationStatus = deriveFlowTranslationStatus(splitBlocks[1], 'en');
+assert.equal(splitTranslationStatus.status, 'partial');
+assert.equal(splitTranslationStatus.requiresSourceFallback, true);
+assert.deepEqual(splitTranslationStatus.body.ids.stale, ['flow_paragraph_authoring']);
+assert.deepEqual(splitTranslationStatus.body.ids.missing, ['flow_paragraph_after_split']);
+
+const splitRoundTrip = deserializeProject(serializeProject({
+    version: 6,
+    languages: ['ja', 'en'],
+    defaultLang: 'ja',
+    blocks: splitBlocks,
+    sections: [
+        { type: 'image', backgrounds: {}, bubbles: [] },
+        { type: 'image', backgrounds: {}, bubbles: [] },
+    ],
+    pages: [],
+}));
+assert.deepEqual(
+    splitRoundTrip.blocks[1].flow.document.sections[0].blocks,
+    splitSectionBlocks,
+    'Both semantic Paragraphs must survive save/reload',
+);
+assert.throws(() => applyFlowAuthoringOperation(createFixture(), {
+    type: 'splitParagraph',
+    groupId: 'flow_group_authoring',
+    sectionId: 'flow_section_authoring',
+    blockId: 'flow_heading_authoring',
+    languageKey: 'ja',
+    utf16Offset: 1,
+    newBlockId: 'flow_heading_split_rejected',
+}), (error) => error instanceof FlowAuthoringError && error.code === 'FLOW_BLOCK_NOT_PARAGRAPH');
+assert.throws(() => applyFlowAuthoringOperation(createFixture(), {
+    type: 'splitParagraph',
+    groupId: 'flow_group_authoring',
+    sectionId: 'flow_section_authoring',
+    blockId: 'flow_paragraph_authoring',
+    languageKey: 'en',
+    utf16Offset: 1,
+    newBlockId: 'flow_translation_split_rejected',
+}), (error) => error instanceof FlowAuthoringError && error.code === 'FLOW_SPLIT_SOURCE_LANGUAGE_ONLY');
+assert.throws(() => applyFlowAuthoringOperation(createFixture(), {
+    type: 'splitParagraph',
+    groupId: 'flow_group_authoring',
+    sectionId: 'flow_section_authoring',
+    blockId: 'flow_paragraph_authoring',
+    languageKey: 'ja',
+    utf16Offset: 1,
+    newBlockId: 'flow_heading_authoring',
+}), (error) => error instanceof FlowAuthoringError && error.code === 'FLOW_BLOCK_ID_CONFLICT');
+const graphemeSplitInput = createFixture();
+graphemeSplitInput[1].flow.document.sections[0].blocks[1].texts.ja = '雪👩‍💻の日';
+assert.throws(() => applyFlowAuthoringOperation(graphemeSplitInput, {
+    type: 'splitParagraph',
+    groupId: 'flow_group_authoring',
+    sectionId: 'flow_section_authoring',
+    blockId: 'flow_paragraph_authoring',
+    languageKey: 'ja',
+    utf16Offset: 2,
+    newBlockId: 'flow_mid_grapheme_rejected',
+}), (error) => error instanceof FlowAuthoringError && error.code === 'FLOW_SPLIT_GRAPHEME_BOUNDARY_REQUIRED');
+const missingSourceSplitInput = createFixture();
+delete missingSourceSplitInput[1].flow.document.sections[0].blocks[1].texts.ja;
+const missingSourceSplitBlocks = applyFlowAuthoringOperation(missingSourceSplitInput, {
+    type: 'splitParagraph',
+    groupId: 'flow_group_authoring',
+    sectionId: 'flow_section_authoring',
+    blockId: 'flow_paragraph_authoring',
+    languageKey: 'ja',
+    utf16Offset: 0,
+    newBlockId: 'flow_missing_source_after_split',
+});
+assert.deepEqual(
+    missingSourceSplitBlocks[1].flow.document.sections[0].blocks.slice(1).map((block) => block.texts.ja),
+    ['', ''],
+    'A valid source-missing empty Paragraph must still split safely',
+);
 
 const groupRemovalInputJson = JSON.stringify(blocks);
 const blocksWithoutFlowGroup = applyFlowAuthoringOperation(blocks, {
@@ -299,6 +401,30 @@ try {
     assert.equal(state.blocks[1].flow.document.sections[0].blocks.some((block) => block.id === 'history_page_break'), false);
     assert.equal(redo(() => {}), true);
     assert.equal(state.blocks[1].flow.document.sections[0].blocks.at(-1).id, 'history_page_break');
+
+    clearHistory();
+    state.blocks = createFixture();
+    pushState();
+    state.blocks = applyFlowAuthoringOperation(state.blocks, {
+        type: 'splitParagraph',
+        groupId: 'flow_group_authoring',
+        sectionId: 'flow_section_authoring',
+        blockId: 'flow_paragraph_authoring',
+        languageKey: 'ja',
+        utf16Offset: splitOffset,
+        newBlockId: 'history_paragraph_split',
+    });
+    assert.deepEqual(
+        state.blocks[1].flow.document.sections[0].blocks.map((block) => block.id),
+        ['flow_heading_authoring', 'flow_paragraph_authoring', 'history_paragraph_split'],
+    );
+    assert.equal(undo(() => {}), true, 'Paragraph split must undo as one project transaction');
+    assert.deepEqual(
+        state.blocks[1].flow.document.sections[0].blocks.map((block) => block.id),
+        ['flow_heading_authoring', 'flow_paragraph_authoring'],
+    );
+    assert.equal(redo(() => {}), true, 'Paragraph split must redo as one project transaction');
+    assert.equal(state.blocks[1].flow.document.sections[0].blocks.at(-1).id, 'history_paragraph_split');
 
     clearHistory();
     state.version = 5;

@@ -5,6 +5,7 @@ import {
     FlowDirectEditError,
     createFlowDirectEditSession,
     createFlowDirectEditTransaction,
+    createFlowDirectParagraphSplitTransaction,
 } from '../js/flow-direct-edit.js';
 import { createFlowGroupBlock } from '../js/flow-project-model.js';
 import { getWritingModeFromConfigs } from '../js/layout.js';
@@ -104,6 +105,79 @@ assert.equal(selected.selection.focusPoint.utf16Offset, 1);
 assert.equal(selected.selection.startPoint.graphemeOffset, 1);
 assert.equal(selected.selection.endPoint.graphemeOffset, 2);
 
+const splitOffset = '雪👩‍💻'.length;
+const split = createFlowDirectParagraphSplitTransaction(group, session, {
+    selectionStart: splitOffset,
+    selectionEnd: splitOffset,
+    newBlockId: 'flow_direct_paragraph_after',
+});
+assert.deepEqual(split.operation, {
+    type: 'splitParagraph',
+    groupId: 'flow_direct_group',
+    sectionId: 'flow_direct_section',
+    blockId: 'flow_direct_paragraph',
+    languageKey: 'ja',
+    utf16Offset: splitOffset,
+    newBlockId: 'flow_direct_paragraph_after',
+});
+assert.equal(split.selection.splitPoint.graphemeOffset, 2);
+assert.equal(split.nextSession.blockId, 'flow_direct_paragraph_after');
+assert.equal(split.nextSession.expectedText, 'の日');
+assert.equal(split.nextSession.selectionStart, 0);
+assert.equal(split.selection.focusPoint.utf16Offset, 0);
+assert.equal(split.selection.focusPoint.graphemeOffset, 0);
+
+const splitAtStart = createFlowDirectParagraphSplitTransaction(group, session, {
+    selectionStart: 0,
+    selectionEnd: 0,
+    newBlockId: 'flow_direct_paragraph_at_start',
+});
+assert.equal(splitAtStart.nextSession.expectedText, session.expectedText);
+const splitAtEnd = createFlowDirectParagraphSplitTransaction(group, session, {
+    selectionStart: session.expectedText.length,
+    selectionEnd: session.expectedText.length,
+    newBlockId: 'flow_direct_paragraph_at_end',
+});
+assert.equal(splitAtEnd.nextSession.expectedText, '');
+assert.throws(
+    () => createFlowDirectParagraphSplitTransaction(group, session, {
+        selectionStart: 1,
+        selectionEnd: splitOffset,
+        newBlockId: 'flow_direct_selected_split',
+    }),
+    (error) => error instanceof FlowDirectEditError
+        && error.code === 'FLOW_DIRECT_COLLAPSED_CARET_REQUIRED',
+);
+assert.throws(
+    () => createFlowDirectParagraphSplitTransaction(group, session, {
+        selectionStart: 2,
+        selectionEnd: 2,
+        newBlockId: 'flow_direct_mid_grapheme_split',
+    }),
+    (error) => error instanceof FlowDirectEditError
+        && error.code === 'FLOW_DIRECT_GRAPHEME_BOUNDARY_REQUIRED',
+);
+const headingSession = createSession(group, {
+    sourcePoint: {
+        sectionId: 'flow_direct_section',
+        blockId: 'flow_direct_heading',
+        blockType: 'heading',
+        languageKey: 'ja',
+        utf16Offset: 1,
+        graphemeOffset: 1,
+        affinity: 'nearest',
+    },
+});
+assert.throws(
+    () => createFlowDirectParagraphSplitTransaction(group, headingSession, {
+        selectionStart: 1,
+        selectionEnd: 1,
+        newBlockId: 'flow_direct_heading_split',
+    }),
+    (error) => error instanceof FlowDirectEditError
+        && error.code === 'FLOW_DIRECT_PARAGRAPH_REQUIRED',
+);
+
 const staleGroup = structuredClone(group);
 staleGroup.flow.document.sections[0].blocks[1].texts.ja = '別の編集';
 assert.throws(
@@ -150,6 +224,9 @@ assert.throws(
 const appSource = await readFile(new URL('../js/app.js', import.meta.url), 'utf8');
 const studioCss = await readFile(new URL('../css/studio.css', import.meta.url), 'utf8');
 assert.match(appSource, /createFlowDirectEditTransaction\(/);
+assert.match(appSource, /createFlowDirectParagraphSplitTransaction\(/);
+assert.match(appSource, /newBlockId: createId\('flow_paragraph'\)/);
+assert.match(appSource, /applyFlowAuthoringEdit\(transaction\.operation, \{ immediate: true \}\)/);
 assert.match(appSource, /addEventListener\('beforeinput', handleFlowDirectBeforeInput\)/);
 assert.match(appSource, /addEventListener\('compositionstart', handleFlowDirectCompositionStart\)/);
 assert.match(appSource, /addEventListener\('compositionend', handleFlowDirectCompositionEnd\)/);

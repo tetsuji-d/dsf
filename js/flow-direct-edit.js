@@ -81,6 +81,38 @@ function createSourcePoint(target, text, utf16Offset, affinity = 'nearest') {
     });
 }
 
+function requireCurrentDirectSession(groupInput, session) {
+    const group = requireFlowGroup(groupInput);
+    if (!session || session.groupId !== group.id) {
+        fail('FLOW_DIRECT_SESSION_STALE', 'The direct-edit session no longer targets the active Flow group.');
+    }
+    const sourceLanguage = String(group.flow.document.sourceLanguage || '');
+    if (session.languageKey !== sourceLanguage || session.writingMode !== 'horizontal-tb') {
+        fail('FLOW_DIRECT_SESSION_STALE', 'The direct-edit language or writing mode changed.');
+    }
+    const { block } = requireSourceTarget(group, session.sectionId, session.blockId);
+    if (block.type !== session.blockType) {
+        fail('FLOW_DIRECT_SESSION_STALE', 'The direct-edit source block changed type.');
+    }
+    const currentText = requireSingleLineText(block.texts?.[sourceLanguage] ?? '');
+    if (currentText !== session.expectedText) {
+        fail('FLOW_DIRECT_SOURCE_STALE', 'The semantic source changed after the generated page was rendered.', {
+            expectedText: session.expectedText,
+            currentText,
+        });
+    }
+    return { group, sourceLanguage, block, currentText };
+}
+
+function requireNewBlockId(value) {
+    if (typeof value !== 'string' || !value || value !== value.trim()) {
+        fail('FLOW_DIRECT_NEW_BLOCK_ID_INVALID', 'Paragraph splitting requires one exact new block ID.', {
+            newBlockId: value,
+        });
+    }
+    return value;
+}
+
 /** Validate a page hit and create a runtime-only direct-edit session. */
 export function createFlowDirectEditSession(groupInput, options = {}) {
     const group = requireFlowGroup(groupInput);
@@ -165,25 +197,7 @@ export function createFlowDirectEditSession(groupInput, options = {}) {
  * Stale source and structural line breaks are rejected before state mutation.
  */
 export function createFlowDirectEditTransaction(groupInput, session, input = {}) {
-    const group = requireFlowGroup(groupInput);
-    if (!session || session.groupId !== group.id) {
-        fail('FLOW_DIRECT_SESSION_STALE', 'The direct-edit session no longer targets the active Flow group.');
-    }
-    const sourceLanguage = String(group.flow.document.sourceLanguage || '');
-    if (session.languageKey !== sourceLanguage || session.writingMode !== 'horizontal-tb') {
-        fail('FLOW_DIRECT_SESSION_STALE', 'The direct-edit language or writing mode changed.');
-    }
-    const { block } = requireSourceTarget(group, session.sectionId, session.blockId);
-    if (block.type !== session.blockType) {
-        fail('FLOW_DIRECT_SESSION_STALE', 'The direct-edit source block changed type.');
-    }
-    const currentText = requireSingleLineText(block.texts?.[sourceLanguage] ?? '');
-    if (currentText !== session.expectedText) {
-        fail('FLOW_DIRECT_SOURCE_STALE', 'The semantic source changed after the generated page was rendered.', {
-            expectedText: session.expectedText,
-            currentText,
-        });
-    }
+    const { group, sourceLanguage } = requireCurrentDirectSession(groupInput, session);
     const text = requireSingleLineText(input.text, 'FLOW_DIRECT_STRUCTURAL_EDIT_UNSUPPORTED');
     const selectionStart = requireSelectionOffset(input.selectionStart, text.length, 'selectionStart');
     const selectionEnd = requireSelectionOffset(input.selectionEnd, text.length, 'selectionEnd');
@@ -225,6 +239,82 @@ export function createFlowDirectEditTransaction(groupInput, session, input = {})
             selectionStart,
             selectionEnd,
             selectionDirection,
+        }),
+    });
+}
+
+/**
+ * Convert a collapsed Enter caret into one atomic semantic Paragraph split.
+ * Translations are never divided by a source-language offset.
+ */
+export function createFlowDirectParagraphSplitTransaction(groupInput, session, input = {}) {
+    const {
+        group,
+        sourceLanguage,
+        block,
+        currentText,
+    } = requireCurrentDirectSession(groupInput, session);
+    if (block.type !== 'paragraph') {
+        fail('FLOW_DIRECT_PARAGRAPH_REQUIRED', 'Enter directly splits Paragraph blocks only.', {
+            blockId: block.id,
+            blockType: block.type,
+        });
+    }
+    const selectionStart = requireSelectionOffset(input.selectionStart, currentText.length, 'selectionStart');
+    const selectionEnd = requireSelectionOffset(input.selectionEnd, currentText.length, 'selectionEnd');
+    if (selectionStart !== selectionEnd) {
+        fail('FLOW_DIRECT_COLLAPSED_CARET_REQUIRED', 'Paragraph splitting requires a collapsed caret.', {
+            selectionStart,
+            selectionEnd,
+        });
+    }
+    const splitPoint = createSourcePoint({
+        sectionId: session.sectionId,
+        blockId: session.blockId,
+        blockType: block.type,
+        languageKey: sourceLanguage,
+    }, currentText, selectionStart, 'nearest');
+    if (splitPoint.utf16Offset !== selectionStart) {
+        fail('FLOW_DIRECT_GRAPHEME_BOUNDARY_REQUIRED', 'Paragraphs can only split between complete graphemes.', {
+            utf16Offset: selectionStart,
+            snappedUtf16Offset: splitPoint.utf16Offset,
+        });
+    }
+    const newBlockId = requireNewBlockId(input.newBlockId);
+    const nextText = currentText.slice(selectionStart);
+    const nextSourcePoint = createSourcePoint({
+        sectionId: session.sectionId,
+        blockId: newBlockId,
+        blockType: 'paragraph',
+        languageKey: sourceLanguage,
+    }, nextText, 0, 'forward');
+
+    return Object.freeze({
+        operation: Object.freeze({
+            type: 'splitParagraph',
+            groupId: group.id,
+            sectionId: session.sectionId,
+            blockId: session.blockId,
+            languageKey: sourceLanguage,
+            utf16Offset: selectionStart,
+            newBlockId,
+        }),
+        nextSession: Object.freeze({
+            ...session,
+            blockId: newBlockId,
+            blockType: 'paragraph',
+            expectedText: nextText,
+            selectionStart: 0,
+            selectionEnd: 0,
+            selectionDirection: 'none',
+            sourcePoint: nextSourcePoint,
+        }),
+        selection: Object.freeze({
+            splitPoint,
+            focusPoint: nextSourcePoint,
+            selectionStart: 0,
+            selectionEnd: 0,
+            selectionDirection: 'none',
         }),
     });
 }

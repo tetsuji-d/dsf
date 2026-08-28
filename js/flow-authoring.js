@@ -20,6 +20,7 @@ import {
     confirmFlowTranslationAgainstCurrentSource,
     recordFlowManualTranslationUnitEdit,
 } from './flow-translation-state.js';
+import { segmentGraphemes } from './grapheme.js';
 import { createId, deepClone } from './utils.js';
 
 const TEXT_BLOCK_TYPES = new Set(['heading', 'paragraph']);
@@ -95,6 +96,42 @@ function validateLanguageKey(value) {
     return value;
 }
 
+function validateBlockId(value, name = 'Flow block ID') {
+    if (typeof value !== 'string' || !value || value !== value.trim()) {
+        fail('INVALID_FLOW_BLOCK_ID', `${name} must be a non-empty exact ID.`, {
+            blockId: value,
+        });
+    }
+    return value;
+}
+
+function flowDocumentHasId(document, id) {
+    if (document?.id === id) return true;
+    return (document?.sections || []).some((section) => (
+        section?.id === id || (section?.blocks || []).some((block) => block?.id === id)
+    ));
+}
+
+function validateGraphemeBoundary(text, utf16Offset, languageKey) {
+    const offset = Number(utf16Offset);
+    if (!Number.isInteger(offset) || offset < 0 || offset > text.length) {
+        fail('INVALID_FLOW_SPLIT_OFFSET', 'Paragraph split offset is outside the source text.', {
+            utf16Offset,
+            maximum: text.length,
+        });
+    }
+    if (
+        offset !== 0
+        && offset !== text.length
+        && !segmentGraphemes(text, languageKey).some((segment) => segment.index === offset)
+    ) {
+        fail('FLOW_SPLIT_GRAPHEME_BOUNDARY_REQUIRED', 'Paragraphs can only split between complete graphemes.', {
+            utf16Offset: offset,
+        });
+    }
+    return offset;
+}
+
 /**
  * Apply one semantic Flow edit without mutating the input.
  *
@@ -103,6 +140,7 @@ function validateLanguageKey(value) {
  * - setSectionTitle: update outline-only section title
  * - setHeadingLevel: update heading level 1..6
  * - insertBlock: insert heading/paragraph/pageBreak after afterBlockId, or append
+ * - splitParagraph: split one source Paragraph into two adjacent Paragraphs
  * - removeBlock: remove one semantic block
  * - moveBlock: move one semantic block by delta (-1 or +1)
  * - removeGroup: remove the complete Flow manuscript from the mixed authoring spine
@@ -205,6 +243,53 @@ export function applyFlowAuthoringOperation(blocks, operation, options = {}) {
             }
             const inserted = createInsertedBlock(blockType, languageKey, idFactory);
             section.blocks.splice(insertIndex, 0, inserted);
+            break;
+        }
+        case 'splitParagraph': {
+            const blockIndex = findBlockIndex(section, operation.blockId);
+            const block = section.blocks[blockIndex];
+            if (block.type !== 'paragraph') {
+                fail('FLOW_BLOCK_NOT_PARAGRAPH', 'Only paragraph blocks can be split.', {
+                    blockId: block.id,
+                    blockType: block.type,
+                });
+            }
+            const sourceLanguage = context.group.flow.document.sourceLanguage;
+            const languageKey = validateLanguageKey(operation.languageKey);
+            if (languageKey !== sourceLanguage) {
+                fail('FLOW_SPLIT_SOURCE_LANGUAGE_ONLY', 'Paragraph splitting currently supports the source language only.', {
+                    sourceLanguage,
+                    languageKey,
+                });
+            }
+            const sourceValue = block.texts?.[sourceLanguage];
+            const text = sourceValue === undefined ? '' : sourceValue;
+            if (typeof text !== 'string') fail('INVALID_FLOW_TEXT', 'Paragraph source text must be a string.');
+            const utf16Offset = validateGraphemeBoundary(text, operation.utf16Offset, sourceLanguage);
+            const requestedId = operation.newBlockId == null || operation.newBlockId === ''
+                ? null
+                : validateBlockId(operation.newBlockId, 'New paragraph ID');
+            if (requestedId && flowDocumentHasId(context.group.flow.document, requestedId)) {
+                fail('FLOW_BLOCK_ID_CONFLICT', `Flow ID is already in use: ${requestedId}`, {
+                    blockId: requestedId,
+                });
+            }
+
+            const captured = captureFlowTranslationUnitBeforeSourceEdit(context.group, {
+                unitMap: 'blocks',
+                unitId: block.id,
+            });
+            if (captured.changed) context.group.flow.translationState = captured.translationState;
+
+            const beforeText = text.slice(0, utf16Offset);
+            const afterText = text.slice(utf16Offset);
+            block.texts = { ...(block.texts || {}), [sourceLanguage]: beforeText };
+            const inserted = createFlowParagraph({
+                ...(requestedId ? { id: requestedId } : {}),
+                idFactory,
+                texts: { [sourceLanguage]: afterText },
+            });
+            section.blocks.splice(blockIndex + 1, 0, inserted);
             break;
         }
         case 'removeBlock': {

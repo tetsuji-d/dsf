@@ -566,8 +566,23 @@ WYSIWYGでも保存正本はFlowDocumentであり、生成ページやページ�
   composition確定時に最終値を1 transactionとして反映する。変換中文字はruntime overlayだけに表示する。
 - Undo／Redo後は保存しないdirect-edit sessionからSection／Block／言語を再解決し、復元後本文の範囲へcaretを
   clampしてから再ページ化する。専用Undo systemは追加しない。
-- Enter／改行、複数行paste、Block分割・結合、ページを跨ぐ構造選択は拒否し、連続原稿面での編集へ案内する。
+- 10A-2時点ではEnter／改行、複数行paste、Block分割・結合、ページを跨ぐ構造選択を拒否する。
+  collapsed caretでのParagraph分割だけは10A-3Aで追加し、それ以外の構造編集は連続原稿面へ案内する。
   翻訳言語、原文fallback、`vertical-rl`も10A-4まで直接編集対象外とし、10A-1の原稿caret移動をfallbackにする。
+- Flow schema、DSP／Firestore、Press、Viewer、Horizon publication contractは変更しない。
+
+## Paginated WYSIWYG Paragraph split（10A-3A）
+
+- 原稿言語・`horizontal-tb`・Paragraph内のcollapsed caretでEnterを押した場合だけ、同じSection内で
+  現Paragraphを前半と後半の2つへ分割する。先頭／末尾でのEnterも空Paragraphとして保持する。
+- 前半は元Block IDと未知fieldを維持し、後半は新しいParagraph IDと原稿言語本文だけを持つ。
+  翻訳本文を原文のUTF-16位置で推測分割しない。元Paragraphの翻訳は原文変更によりstale、後半はmissingとなり、
+  既存の翻訳freshness／原文fallback契約へ渡す。
+- 絵文字ZWJ列や結合文字の途中を分割位置にせず、pure authoring transaction側でもgrapheme境界を再検証する。
+- 分割は既存Project Historyへ1 snapshotとして積み、semantic source更新後にautosaveとincremental reflowを即時要求する。
+  生成ページ上のcaretは新Paragraph先頭へ移し、再ページ化によるページ数増減に追従する。
+- 選択範囲付きEnter、Heading、Shift+Enter、BackspaceによるParagraph結合、複数行paste、ページ跨ぎ選択、
+  翻訳ページ、原文fallback、`vertical-rl`はこの単位では変更しない。
 - Flow schema、DSP／Firestore、Press、Viewer、Horizon publication contractは変更しない。
 
 ## DOM preview boundary（Commit 3）
