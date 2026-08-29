@@ -5,6 +5,7 @@ import {
     FlowDirectEditError,
     createFlowDirectEditSession,
     createFlowDirectEditTransaction,
+    createFlowDirectEmptyParagraphAfterHeadingRemovalTransaction,
     createFlowDirectHeadingParagraphTransaction,
     createFlowDirectParagraphMergeBackwardTransaction,
     createFlowDirectParagraphMergeForwardTransaction,
@@ -359,6 +360,144 @@ assert.throws(
     }),
     (error) => error instanceof FlowDirectEditError
         && error.code === 'FLOW_DIRECT_HEADING_REQUIRED',
+);
+
+const headingRemovalInputJson = JSON.stringify(headingInsertedGroup);
+const headingRemoval = createFlowDirectEmptyParagraphAfterHeadingRemovalTransaction(
+    headingInsertedGroup,
+    headingParagraph.nextSession,
+    {
+        selectionStart: 0,
+        selectionEnd: 0,
+    },
+);
+assert.equal(JSON.stringify(headingInsertedGroup), headingRemovalInputJson, 'Empty Paragraph removal planning must not mutate source');
+assert.deepEqual(headingRemoval.operation, {
+    type: 'removeBlock',
+    groupId: 'flow_direct_group',
+    sectionId: 'flow_direct_section',
+    blockId: 'flow_direct_paragraph_after_heading',
+});
+assert.equal(headingRemoval.nextSession.blockId, 'flow_direct_heading');
+assert.equal(headingRemoval.nextSession.blockType, 'heading');
+assert.equal(headingRemoval.nextSession.expectedText, '見出し');
+assert.equal(headingRemoval.nextSession.selectionStart, headingEnd);
+assert.equal(headingRemoval.nextSession.selectionEnd, headingEnd);
+assert.equal(headingRemoval.selection.focusPoint.blockId, 'flow_direct_heading');
+assert.equal(headingRemoval.selection.focusPoint.utf16Offset, headingEnd);
+const headingRestoredGroup = applyFlowAuthoringOperation(
+    [headingInsertedGroup],
+    headingRemoval.operation,
+)[0];
+assert.deepEqual(
+    headingRestoredGroup,
+    translatedHeadingGroup,
+    'Heading Enter followed by empty-Paragraph Backspace must restore the exact semantic group',
+);
+
+const nonEmptyAfterHeadingGroup = structuredClone(headingInsertedGroup);
+nonEmptyAfterHeadingGroup.flow.document.sections[0].blocks[1].texts.ja = '本文';
+const nonEmptyAfterHeadingSession = createSession(nonEmptyAfterHeadingGroup, {
+    sourcePoint: {
+        sectionId: 'flow_direct_section',
+        blockId: 'flow_direct_paragraph_after_heading',
+        blockType: 'paragraph',
+        languageKey: 'ja',
+        utf16Offset: 0,
+        affinity: 'nearest',
+    },
+});
+assert.throws(
+    () => createFlowDirectEmptyParagraphAfterHeadingRemovalTransaction(
+        nonEmptyAfterHeadingGroup,
+        nonEmptyAfterHeadingSession,
+        { selectionStart: 0, selectionEnd: 0 },
+    ),
+    (error) => error instanceof FlowDirectEditError
+        && error.code === 'FLOW_DIRECT_EMPTY_PARAGRAPH_REQUIRED',
+);
+assert.throws(
+    () => createFlowDirectEmptyParagraphAfterHeadingRemovalTransaction(
+        nonEmptyAfterHeadingGroup,
+        nonEmptyAfterHeadingSession,
+        { selectionStart: 0, selectionEnd: 1 },
+    ),
+    (error) => error instanceof FlowDirectEditError
+        && error.code === 'FLOW_DIRECT_COLLAPSED_CARET_REQUIRED',
+);
+
+for (const protectedEmptyParagraphGroup of (() => {
+    const translated = structuredClone(headingInsertedGroup);
+    translated.flow.document.sections[0].blocks[1].texts.en = '';
+    const extended = structuredClone(headingInsertedGroup);
+    extended.flow.document.sections[0].blocks[1].futureParagraph = { keep: true };
+    const tracked = structuredClone(headingInsertedGroup);
+    tracked.flow.translationState = {
+        schemaVersion: 1,
+        languages: {
+            en: {
+                sourceFingerprints: {
+                    blocks: { flow_direct_paragraph_after_heading: 'u1aaaaaaaaaaa' },
+                    sectionTitles: {},
+                },
+                reviewState: 'reviewed',
+                origin: 'manual',
+                lockedUnitIds: ['flow_direct_paragraph_after_heading'],
+            },
+        },
+    };
+    return [translated, extended, tracked];
+})()) {
+    const protectedSession = createSession(protectedEmptyParagraphGroup, {
+        sourcePoint: {
+            sectionId: 'flow_direct_section',
+            blockId: 'flow_direct_paragraph_after_heading',
+            blockType: 'paragraph',
+            languageKey: 'ja',
+            utf16Offset: 0,
+            affinity: 'nearest',
+        },
+    });
+    assert.throws(
+        () => createFlowDirectEmptyParagraphAfterHeadingRemovalTransaction(
+            protectedEmptyParagraphGroup,
+            protectedSession,
+            { selectionStart: 0, selectionEnd: 0 },
+        ),
+        (error) => error instanceof FlowDirectEditError
+            && error.code === 'FLOW_DIRECT_EMPTY_PARAGRAPH_DATA_PRESENT',
+    );
+}
+
+const emptyAfterParagraphGroup = structuredClone(group);
+emptyAfterParagraphGroup.flow.document.sections[0].blocks.at(-1).texts.ja = '';
+const emptyAfterParagraphSession = createSession(emptyAfterParagraphGroup, {
+    sourcePoint: {
+        sectionId: 'flow_direct_section',
+        blockId: 'flow_direct_paragraph_next',
+        blockType: 'paragraph',
+        languageKey: 'ja',
+        utf16Offset: 0,
+        affinity: 'nearest',
+    },
+});
+assert.throws(
+    () => createFlowDirectEmptyParagraphAfterHeadingRemovalTransaction(
+        emptyAfterParagraphGroup,
+        emptyAfterParagraphSession,
+        { selectionStart: 0, selectionEnd: 0 },
+    ),
+    (error) => error instanceof FlowDirectEditError
+        && error.code === 'FLOW_DIRECT_PREVIOUS_HEADING_REQUIRED',
+);
+assert.throws(
+    () => createFlowDirectEmptyParagraphAfterHeadingRemovalTransaction(
+        group,
+        headingSession,
+        { selectionStart: 1, selectionEnd: 1 },
+    ),
+    (error) => error instanceof FlowDirectEditError
+        && error.code === 'FLOW_DIRECT_PARAGRAPH_REQUIRED',
 );
 
 const mergeSession = createMergeSession(group);
@@ -734,6 +873,7 @@ assert.throws(
 const appSource = await readFile(new URL('../js/app.js', import.meta.url), 'utf8');
 const studioCss = await readFile(new URL('../css/studio.css', import.meta.url), 'utf8');
 assert.match(appSource, /createFlowDirectEditTransaction\(/);
+assert.match(appSource, /createFlowDirectEmptyParagraphAfterHeadingRemovalTransaction\(/);
 assert.match(appSource, /createFlowDirectHeadingParagraphTransaction\(/);
 assert.match(appSource, /createFlowDirectParagraphSplitTransaction\(/);
 assert.match(appSource, /createFlowDirectParagraphMergeBackwardTransaction\(/);
@@ -745,6 +885,8 @@ assert.match(appSource, /event\.inputType === 'deleteContentForward'/);
 assert.match(appSource, /event\.key === 'Backspace'/);
 assert.match(appSource, /event\.key === 'Delete'/);
 assert.match(appSource, /function applyFlowDirectEnter\(proxy\)/);
+assert.match(appSource, /function applyFlowDirectBackspace\(proxy\)/);
+assert.match(appSource, /isFlowDirectParagraphImmediatelyAfterHeading\(/);
 assert.match(appSource, /_flowDirectEditSession\?\.blockType === 'heading'/);
 assert.match(appSource, /addEventListener\('beforeinput', handleFlowDirectBeforeInput\)/);
 assert.match(appSource, /addEventListener\('compositionstart', handleFlowDirectCompositionStart\)/);

@@ -38,6 +38,7 @@ import {
     FlowDirectEditError,
     createFlowDirectEditSession,
     createFlowDirectEditTransaction,
+    createFlowDirectEmptyParagraphAfterHeadingRemovalTransaction,
     createFlowDirectHeadingParagraphTransaction,
     createFlowDirectParagraphMergeBackwardTransaction,
     createFlowDirectParagraphMergeForwardTransaction,
@@ -599,6 +600,73 @@ function applyFlowDirectEnter(proxy) {
     return splitFlowDirectParagraph(proxy);
 }
 
+function removeFlowDirectEmptyParagraphAfterHeading(proxy) {
+    if (proxy !== _flowDirectEditProxy || !_flowDirectEditSession || _flowDirectEditApplying) return false;
+    const group = getFlowGroupById(_flowDirectEditSession.groupId);
+    if (!group) return false;
+    let transaction;
+    try {
+        transaction = createFlowDirectEmptyParagraphAfterHeadingRemovalTransaction(group, _flowDirectEditSession, {
+            selectionStart: proxy.selectionStart,
+            selectionEnd: proxy.selectionEnd,
+        });
+    } catch (error) {
+        if (!(error instanceof FlowDirectEditError)) throw error;
+        if (error.code === 'FLOW_DIRECT_EMPTY_PARAGRAPH_REQUIRED') {
+            setFlowDirectEditNote('見出し直後の段落に本文があるため、Backspaceでは削除しません。');
+        } else if (error.code === 'FLOW_DIRECT_EMPTY_PARAGRAPH_DATA_PRESENT') {
+            setFlowDirectEditNote('この空段落には翻訳または追加情報があるため、データ保護のため削除しませんでした。');
+        } else if (error.code === 'FLOW_DIRECT_COLLAPSED_CARET_REQUIRED') {
+            setFlowDirectEditNote('選択範囲を含む空段落削除は未対応です。選択を解除してください。');
+        } else if (error.code === 'FLOW_DIRECT_PARAGRAPH_START_REQUIRED') {
+            setFlowDirectEditNote('空段落の先頭でのみ、Backspaceで見出し末尾へ戻れます。');
+        } else {
+            recoverFlowDirectEditProxy(proxy, '空段落を安全に削除できませんでした。Flow原稿画面で編集してください。');
+        }
+        return false;
+    }
+
+    endHistoryGroup();
+    _flowDirectEditSession = transaction.nextSession;
+    selectFlowDirectEditing(transaction.operation.groupId, transaction.selection.focusPoint);
+    _flowDirectEditMounting = true;
+    proxy.value = transaction.nextSession.expectedText;
+    proxy.dataset.flowBlockId = transaction.nextSession.blockId;
+    proxy.setSelectionRange(
+        transaction.nextSession.selectionStart,
+        transaction.nextSession.selectionEnd,
+        transaction.nextSession.selectionDirection,
+    );
+    _flowDirectEditMounting = false;
+    _flowDirectEditApplying = true;
+    proxy.dataset.flowReflowPending = 'true';
+    proxy._flowDirectPageElement?.classList.add('flow-direct-edit-reflow-pending');
+    try {
+        applyFlowAuthoringEdit(transaction.operation, { immediate: true });
+    } finally {
+        _flowDirectEditApplying = false;
+    }
+    setFlowDirectEditNote('空段落を削除し、見出し末尾へ戻りました。後続ページを再配置しています。');
+    return true;
+}
+
+function isFlowDirectParagraphImmediatelyAfterHeading(group, session) {
+    if (session?.blockType !== 'paragraph') return false;
+    const section = group?.flow?.document?.sections?.find((entry) => entry?.id === session.sectionId);
+    const blockIndex = section?.blocks?.findIndex((entry) => entry?.id === session.blockId) ?? -1;
+    return blockIndex > 0 && section.blocks[blockIndex - 1]?.type === 'heading';
+}
+
+function applyFlowDirectBackspace(proxy) {
+    const group = _flowDirectEditSession
+        ? getFlowGroupById(_flowDirectEditSession.groupId)
+        : null;
+    if (group && isFlowDirectParagraphImmediatelyAfterHeading(group, _flowDirectEditSession)) {
+        return removeFlowDirectEmptyParagraphAfterHeading(proxy);
+    }
+    return mergeFlowDirectParagraphBackward(proxy);
+}
+
 function mergeFlowDirectParagraphBackward(proxy) {
     if (proxy !== _flowDirectEditProxy || !_flowDirectEditSession || _flowDirectEditApplying) return false;
     const group = getFlowGroupById(_flowDirectEditSession.groupId);
@@ -724,7 +792,7 @@ function handleFlowDirectBeforeInput(event) {
         && event.target.selectionEnd === 0
     ) {
         event.preventDefault();
-        mergeFlowDirectParagraphBackward(event.target);
+        applyFlowDirectBackspace(event.target);
         return;
     }
     if (
@@ -845,7 +913,7 @@ function mountFlowDirectEditProxy(activeBlock, page, pageElement, session) {
             && proxy.selectionEnd === 0
         ) {
             event.preventDefault();
-            mergeFlowDirectParagraphBackward(proxy);
+            applyFlowDirectBackspace(proxy);
             return;
         }
         if (

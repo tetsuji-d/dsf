@@ -125,6 +125,40 @@ function requireMergeRemovalSafe(block, sourceLanguage) {
     }
 }
 
+function requireDisposableEmptyParagraph(group, block, sourceLanguage) {
+    const texts = block?.texts;
+    const hasExactEmptySource = !!texts
+        && typeof texts === 'object'
+        && !Array.isArray(texts)
+        && Object.prototype.hasOwnProperty.call(texts, sourceLanguage)
+        && texts[sourceLanguage] === '';
+    const textKeys = texts && typeof texts === 'object' && !Array.isArray(texts)
+        ? Object.keys(texts)
+        : [];
+    const extraBlockKeys = Object.keys(block || {})
+        .filter((key) => key !== 'id' && key !== 'type' && key !== 'texts');
+    const translationMetadataLanguages = Object.entries(group.flow?.translationState?.languages || {})
+        .filter(([, languageState]) => (
+            Object.prototype.hasOwnProperty.call(languageState?.sourceFingerprints?.blocks || {}, block.id)
+            || (Array.isArray(languageState?.lockedUnitIds) && languageState.lockedUnitIds.includes(block.id))
+        ))
+        .map(([languageKey]) => languageKey);
+    if (
+        !hasExactEmptySource
+        || textKeys.length !== 1
+        || textKeys[0] !== sourceLanguage
+        || extraBlockKeys.length
+        || translationMetadataLanguages.length
+    ) {
+        fail('FLOW_DIRECT_EMPTY_PARAGRAPH_DATA_PRESENT', 'Only an exact source-only empty Paragraph can be removed directly.', {
+            blockId: block?.id || '',
+            textKeys,
+            extraBlockKeys,
+            translationMetadataLanguages,
+        });
+    }
+}
+
 /** Validate a page hit and create a runtime-only direct-edit session. */
 export function createFlowDirectEditSession(groupInput, options = {}) {
     const group = requireFlowGroup(groupInput);
@@ -394,6 +428,90 @@ export function createFlowDirectHeadingParagraphTransaction(groupInput, session,
             focusPoint: nextSourcePoint,
             selectionStart: 0,
             selectionEnd: 0,
+            selectionDirection: 'none',
+        }),
+    });
+}
+
+/**
+ * Remove one exact source-only empty Paragraph immediately after a Heading.
+ * The preceding Heading is not edited; the caret returns to its source-text end.
+ */
+export function createFlowDirectEmptyParagraphAfterHeadingRemovalTransaction(groupInput, session, input = {}) {
+    const {
+        group,
+        sourceLanguage,
+        section,
+        block,
+        currentText,
+    } = requireCurrentDirectSession(groupInput, session);
+    if (block.type !== 'paragraph') {
+        fail('FLOW_DIRECT_PARAGRAPH_REQUIRED', 'Empty Paragraph removal requires a Paragraph block.', {
+            blockId: block.id,
+            blockType: block.type,
+        });
+    }
+    const selectionStart = requireSelectionOffset(input.selectionStart, currentText.length, 'selectionStart');
+    const selectionEnd = requireSelectionOffset(input.selectionEnd, currentText.length, 'selectionEnd');
+    if (selectionStart !== selectionEnd) {
+        fail('FLOW_DIRECT_COLLAPSED_CARET_REQUIRED', 'Empty Paragraph removal requires a collapsed caret.', {
+            selectionStart,
+            selectionEnd,
+        });
+    }
+    if (selectionStart !== 0) {
+        fail('FLOW_DIRECT_PARAGRAPH_START_REQUIRED', 'Empty Paragraph removal requires a caret at the Paragraph start.', {
+            selectionStart,
+        });
+    }
+    if (currentText !== '') {
+        fail('FLOW_DIRECT_EMPTY_PARAGRAPH_REQUIRED', 'Backspace after a Heading only removes an empty Paragraph.', {
+            blockId: block.id,
+            textLength: currentText.length,
+        });
+    }
+
+    const blockIndex = section.blocks.findIndex((entry) => entry?.id === block.id);
+    const previousBlock = section.blocks[blockIndex - 1];
+    if (previousBlock?.type !== 'heading') {
+        fail('FLOW_DIRECT_PREVIOUS_HEADING_REQUIRED', 'Empty Paragraph removal requires an immediately preceding Heading.', {
+            blockId: block.id,
+            previousBlockId: previousBlock?.id || '',
+            previousBlockType: previousBlock?.type || '',
+        });
+    }
+    requireDisposableEmptyParagraph(group, block, sourceLanguage);
+
+    const headingText = requireSingleLineText(previousBlock.texts?.[sourceLanguage] ?? '');
+    const headingEnd = headingText.length;
+    const focusPoint = createSourcePoint({
+        sectionId: session.sectionId,
+        blockId: previousBlock.id,
+        blockType: 'heading',
+        languageKey: sourceLanguage,
+    }, headingText, headingEnd, 'backward');
+
+    return Object.freeze({
+        operation: Object.freeze({
+            type: 'removeBlock',
+            groupId: group.id,
+            sectionId: session.sectionId,
+            blockId: block.id,
+        }),
+        nextSession: Object.freeze({
+            ...session,
+            blockId: previousBlock.id,
+            blockType: 'heading',
+            expectedText: headingText,
+            selectionStart: headingEnd,
+            selectionEnd: headingEnd,
+            selectionDirection: 'none',
+            sourcePoint: focusPoint,
+        }),
+        selection: Object.freeze({
+            focusPoint,
+            selectionStart: headingEnd,
+            selectionEnd: headingEnd,
             selectionDirection: 'none',
         }),
     });

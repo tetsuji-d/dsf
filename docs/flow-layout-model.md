@@ -569,7 +569,7 @@ WYSIWYGでも保存正本はFlowDocumentであり、生成ページやページ�
 - 10A-2時点ではEnter／改行、複数行paste、Block分割・結合、ページを跨ぐ構造選択を拒否する。
   collapsed caretでのParagraph分割は10A-3A、Paragraph先頭のBackspace結合は10A-3B、
   Paragraph末尾のDelete結合は10A-3C-Aで追加し、10A-3C-Bで複数生成ページ境界の増減回帰を固定する。
-  Heading末尾のEnterによる空Paragraph追加は10A-3D-Aで扱う。
+  Heading末尾のEnterによる空Paragraph追加は10A-3D-A、その安全なBackspace逆操作は10A-3D-Bで扱う。
   それ以外の構造編集は連続原稿面へ案内する。
   翻訳言語、原文fallback、`vertical-rl`も10A-4まで直接編集対象外とし、10A-1の原稿caret移動をfallbackにする。
 - Flow schema、DSP／Firestore、Press、Viewer、Horizon publication contractは変更しない。
@@ -640,6 +640,19 @@ WYSIWYGでも保存正本はFlowDocumentであり、生成ページやページ�
 - 挿入後は新Paragraph先頭へcaretを移し、既存History、autosave、incremental reflowへ1 transactionで接続する。
 - 選択付きEnter、修飾キー付きEnter、Heading途中のEnter、Heading分割、PageBreak直接編集、翻訳ページ、
   原文fallback、`vertical-rl`はこの単位では変更しない。
+- Flow schema、DSP／Firestore、Press、Viewer、Horizon publication contractは変更しない。
+
+## Paginated WYSIWYG Heading paragraph Backspace（10A-3D-B）
+
+- 原稿言語・`horizontal-tb`で、Heading直後の空Paragraph先頭にcollapsed caretがある状態で修飾キーなし
+  Backspaceを押した場合だけ、そのParagraphを削除してHeading原稿末尾へcaretを戻す。
+- 削除対象は10A-3D-Aが作る形と同じ、`id`／`type`／原稿言語だけの空`texts`以外にBlock fieldを持たない
+  Paragraphへ限定する。空文字でも翻訳keyがある場合、未知field、translation fingerprint／lockがある場合は
+  保存済みデータとして削除を拒否する。
+- 既存`removeBlock`を1 transactionとして使用し、直前HeadingのID、level、原稿、翻訳、未知fieldを変更しない。
+  既存History、autosave、incremental reflowへ接続し、Enter直後のBackspaceでsemantic groupを完全に元へ戻す。
+- 本文があるParagraph、Paragraph同士の境界、PageBreak／Section境界、Heading自体のBackspace、選択付き操作、
+  翻訳ページ、原文fallback、`vertical-rl`はこの単位では変更しない。
 - Flow schema、DSP／Firestore、Press、Viewer、Horizon publication contractは変更しない。
 
 ## DOM preview boundary（Commit 3）
