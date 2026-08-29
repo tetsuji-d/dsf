@@ -113,6 +113,47 @@ blocks = applyFlowAuthoringOperation(blocks, {
 });
 assert.equal(blocks[1].flow.document.sections[0].blocks[0].level, 2);
 
+const exactInsertInput = createFixture();
+const exactInsertInputJson = JSON.stringify(exactInsertInput);
+const exactInsertBlocks = applyFlowAuthoringOperation(exactInsertInput, {
+    type: 'insertBlock',
+    groupId: 'flow_group_authoring',
+    sectionId: 'flow_section_authoring',
+    afterBlockId: 'flow_heading_authoring',
+    blockType: 'paragraph',
+    languageKey: 'ja',
+    newBlockId: 'flow_paragraph_after_heading',
+});
+const exactInsertSectionBlocks = exactInsertBlocks[1].flow.document.sections[0].blocks;
+assert.equal(JSON.stringify(exactInsertInput), exactInsertInputJson, 'Exact-ID insertion must not mutate input');
+assert.deepEqual(
+    exactInsertSectionBlocks.map((block) => block.id),
+    ['flow_heading_authoring', 'flow_paragraph_after_heading', 'flow_paragraph_authoring'],
+);
+assert.deepEqual(exactInsertSectionBlocks[1].texts, { ja: '' }, 'A new Paragraph starts with source text only');
+assert.equal(exactInsertSectionBlocks[0].texts.en, 'Snow Day', 'Heading translation must remain untouched');
+assert.equal(exactInsertSectionBlocks[0].futureHeading, true, 'Heading unknown fields must remain untouched');
+const exactInsertTranslationStatus = deriveFlowTranslationStatus(exactInsertBlocks[1], 'en');
+assert.deepEqual(exactInsertTranslationStatus.body.ids.missing, ['flow_paragraph_after_heading']);
+assert.throws(() => applyFlowAuthoringOperation(createFixture(), {
+    type: 'insertBlock',
+    groupId: 'flow_group_authoring',
+    sectionId: 'flow_section_authoring',
+    afterBlockId: 'flow_heading_authoring',
+    blockType: 'paragraph',
+    languageKey: 'ja',
+    newBlockId: 'flow_heading_authoring',
+}), (error) => error instanceof FlowAuthoringError && error.code === 'FLOW_BLOCK_ID_CONFLICT');
+assert.throws(() => applyFlowAuthoringOperation(createFixture(), {
+    type: 'insertBlock',
+    groupId: 'flow_group_authoring',
+    sectionId: 'flow_section_authoring',
+    afterBlockId: 'flow_heading_authoring',
+    blockType: 'paragraph',
+    languageKey: 'ja',
+    newBlockId: ' ',
+}), (error) => error instanceof FlowAuthoringError && error.code === 'INVALID_FLOW_BLOCK_ID');
+
 blocks = applyFlowAuthoringOperation(blocks, {
     type: 'insertBlock',
     groupId: 'flow_group_authoring',

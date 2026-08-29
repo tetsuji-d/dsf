@@ -569,6 +569,7 @@ WYSIWYGでも保存正本はFlowDocumentであり、生成ページやページ�
 - 10A-2時点ではEnter／改行、複数行paste、Block分割・結合、ページを跨ぐ構造選択を拒否する。
   collapsed caretでのParagraph分割は10A-3A、Paragraph先頭のBackspace結合は10A-3B、
   Paragraph末尾のDelete結合は10A-3C-Aで追加し、10A-3C-Bで複数生成ページ境界の増減回帰を固定する。
+  Heading末尾のEnterによる空Paragraph追加は10A-3D-Aで扱う。
   それ以外の構造編集は連続原稿面へ案内する。
   翻訳言語、原文fallback、`vertical-rl`も10A-4まで直接編集対象外とし、10A-1の原稿caret移動をfallbackにする。
 - Flow schema、DSP／Firestore、Press、Viewer、Horizon publication contractは変更しない。
@@ -626,6 +627,19 @@ WYSIWYGでも保存正本はFlowDocumentであり、生成ページやページ�
   既存`mergeParagraphBackward`で削除する。ページ数は3から2へ戻り、結果は初期paginationおよびcold paginationと一致する。
 - この単位は10A-3A／3B／3C-Aの結合回帰を固定するだけで、新しい編集操作は追加しない。Heading／PageBreak編集、
   ページを跨ぐ一般選択、翻訳ページ、原文fallback、`vertical-rl`は変更しない。
+- Flow schema、DSP／Firestore、Press、Viewer、Horizon publication contractは変更しない。
+
+## Paginated WYSIWYG Heading end Enter（10A-3D-A）
+
+- 原稿言語・`horizontal-tb`・Heading末尾のcollapsed caretで、修飾キーなしEnterを押した場合だけ、
+  同じSectionのHeading直後へ空のParagraphを1つ挿入する。Heading途中の分割は行わない。
+- HeadingのID、level、原稿、保存済み翻訳、未知fieldは一切変更しない。新Paragraphは新しいIDと原稿言語の
+  空文字だけを持ち、対象言語の翻訳状態は`missing`として既存契約で導出する。
+- `insertBlock`操作は任意の`newBlockId`をruntime引数として受け取り、衝突を拒否する。これはUndo／Redoと
+  caret復元で同じIDを使うためであり、FlowDocumentの保存schemaへfieldを追加しない。
+- 挿入後は新Paragraph先頭へcaretを移し、既存History、autosave、incremental reflowへ1 transactionで接続する。
+- 選択付きEnter、修飾キー付きEnter、Heading途中のEnter、Heading分割、PageBreak直接編集、翻訳ページ、
+  原文fallback、`vertical-rl`はこの単位では変更しない。
 - Flow schema、DSP／Firestore、Press、Viewer、Horizon publication contractは変更しない。
 
 ## DOM preview boundary（Commit 3）

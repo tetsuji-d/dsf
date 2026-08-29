@@ -5,6 +5,7 @@ import {
     FlowDirectEditError,
     createFlowDirectEditSession,
     createFlowDirectEditTransaction,
+    createFlowDirectHeadingParagraphTransaction,
     createFlowDirectParagraphMergeBackwardTransaction,
     createFlowDirectParagraphMergeForwardTransaction,
     createFlowDirectParagraphSplitTransaction,
@@ -274,6 +275,90 @@ assert.throws(
     }),
     (error) => error instanceof FlowDirectEditError
         && error.code === 'FLOW_DIRECT_PARAGRAPH_REQUIRED',
+);
+
+const translatedHeadingGroup = createFixture();
+const translatedHeading = translatedHeadingGroup.flow.document.sections[0].blocks[0];
+translatedHeading.texts.en = 'Heading';
+translatedHeading.futureHeading = { keep: true };
+const translatedHeadingBefore = structuredClone(translatedHeading);
+const headingEnd = translatedHeading.texts.ja.length;
+const headingEndSession = createSession(translatedHeadingGroup, {
+    sourcePoint: {
+        sectionId: 'flow_direct_section',
+        blockId: 'flow_direct_heading',
+        blockType: 'heading',
+        languageKey: 'ja',
+        utf16Offset: headingEnd,
+        affinity: 'nearest',
+    },
+});
+const headingParagraph = createFlowDirectHeadingParagraphTransaction(
+    translatedHeadingGroup,
+    headingEndSession,
+    {
+        selectionStart: headingEnd,
+        selectionEnd: headingEnd,
+        newBlockId: 'flow_direct_paragraph_after_heading',
+    },
+);
+assert.deepEqual(headingParagraph.operation, {
+    type: 'insertBlock',
+    groupId: 'flow_direct_group',
+    sectionId: 'flow_direct_section',
+    afterBlockId: 'flow_direct_heading',
+    blockType: 'paragraph',
+    languageKey: 'ja',
+    newBlockId: 'flow_direct_paragraph_after_heading',
+});
+assert.equal(headingParagraph.nextSession.blockId, 'flow_direct_paragraph_after_heading');
+assert.equal(headingParagraph.nextSession.blockType, 'paragraph');
+assert.equal(headingParagraph.nextSession.expectedText, '');
+assert.equal(headingParagraph.selection.focusPoint.utf16Offset, 0);
+assert.equal(headingParagraph.selection.focusPoint.graphemeOffset, 0);
+const headingInsertedGroup = applyFlowAuthoringOperation(
+    [translatedHeadingGroup],
+    headingParagraph.operation,
+)[0];
+const headingInsertedBlocks = headingInsertedGroup.flow.document.sections[0].blocks;
+assert.deepEqual(
+    headingInsertedBlocks.map((block) => block.id),
+    [
+        'flow_direct_heading',
+        'flow_direct_paragraph_after_heading',
+        'flow_direct_paragraph',
+        'flow_direct_paragraph_next',
+    ],
+);
+assert.deepEqual(headingInsertedBlocks[0], translatedHeadingBefore, 'Heading source, translation, and unknown fields remain exact');
+assert.deepEqual(headingInsertedBlocks[1].texts, { ja: '' }, 'Inserted Paragraph starts untranslated');
+assert.deepEqual(translatedHeadingGroup.flow.document.sections[0].blocks[0], translatedHeadingBefore, 'Transaction application must not mutate input');
+assert.throws(
+    () => createFlowDirectHeadingParagraphTransaction(translatedHeadingGroup, headingEndSession, {
+        selectionStart: 0,
+        selectionEnd: headingEnd,
+        newBlockId: 'flow_direct_selected_heading_insert',
+    }),
+    (error) => error instanceof FlowDirectEditError
+        && error.code === 'FLOW_DIRECT_COLLAPSED_CARET_REQUIRED',
+);
+assert.throws(
+    () => createFlowDirectHeadingParagraphTransaction(translatedHeadingGroup, headingEndSession, {
+        selectionStart: 1,
+        selectionEnd: 1,
+        newBlockId: 'flow_direct_mid_heading_insert',
+    }),
+    (error) => error instanceof FlowDirectEditError
+        && error.code === 'FLOW_DIRECT_HEADING_END_REQUIRED',
+);
+assert.throws(
+    () => createFlowDirectHeadingParagraphTransaction(group, session, {
+        selectionStart: 1,
+        selectionEnd: 1,
+        newBlockId: 'flow_direct_paragraph_heading_insert',
+    }),
+    (error) => error instanceof FlowDirectEditError
+        && error.code === 'FLOW_DIRECT_HEADING_REQUIRED',
 );
 
 const mergeSession = createMergeSession(group);
@@ -649,6 +734,7 @@ assert.throws(
 const appSource = await readFile(new URL('../js/app.js', import.meta.url), 'utf8');
 const studioCss = await readFile(new URL('../css/studio.css', import.meta.url), 'utf8');
 assert.match(appSource, /createFlowDirectEditTransaction\(/);
+assert.match(appSource, /createFlowDirectHeadingParagraphTransaction\(/);
 assert.match(appSource, /createFlowDirectParagraphSplitTransaction\(/);
 assert.match(appSource, /createFlowDirectParagraphMergeBackwardTransaction\(/);
 assert.match(appSource, /createFlowDirectParagraphMergeForwardTransaction\(/);
@@ -658,6 +744,8 @@ assert.match(appSource, /event\.inputType === 'deleteContentBackward'/);
 assert.match(appSource, /event\.inputType === 'deleteContentForward'/);
 assert.match(appSource, /event\.key === 'Backspace'/);
 assert.match(appSource, /event\.key === 'Delete'/);
+assert.match(appSource, /function applyFlowDirectEnter\(proxy\)/);
+assert.match(appSource, /_flowDirectEditSession\?\.blockType === 'heading'/);
 assert.match(appSource, /addEventListener\('beforeinput', handleFlowDirectBeforeInput\)/);
 assert.match(appSource, /addEventListener\('compositionstart', handleFlowDirectCompositionStart\)/);
 assert.match(appSource, /addEventListener\('compositionend', handleFlowDirectCompositionEnd\)/);

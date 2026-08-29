@@ -38,6 +38,7 @@ import {
     FlowDirectEditError,
     createFlowDirectEditSession,
     createFlowDirectEditTransaction,
+    createFlowDirectHeadingParagraphTransaction,
     createFlowDirectParagraphMergeBackwardTransaction,
     createFlowDirectParagraphMergeForwardTransaction,
     createFlowDirectParagraphSplitTransaction,
@@ -546,6 +547,58 @@ function splitFlowDirectParagraph(proxy) {
     return true;
 }
 
+function insertFlowDirectParagraphAfterHeading(proxy) {
+    if (proxy !== _flowDirectEditProxy || !_flowDirectEditSession || _flowDirectEditApplying) return false;
+    const group = getFlowGroupById(_flowDirectEditSession.groupId);
+    if (!group) return false;
+    let transaction;
+    try {
+        transaction = createFlowDirectHeadingParagraphTransaction(group, _flowDirectEditSession, {
+            selectionStart: proxy.selectionStart,
+            selectionEnd: proxy.selectionEnd,
+            newBlockId: createId('flow_paragraph'),
+        });
+    } catch (error) {
+        if (!(error instanceof FlowDirectEditError)) throw error;
+        if (error.code === 'FLOW_DIRECT_HEADING_REQUIRED') {
+            setFlowDirectEditNote('この位置では見出し後の本文段落を追加できません。');
+        } else if (error.code === 'FLOW_DIRECT_COLLAPSED_CARET_REQUIRED') {
+            setFlowDirectEditNote('選択範囲を含む見出し後の段落追加は未対応です。選択を解除してください。');
+        } else if (error.code === 'FLOW_DIRECT_HEADING_END_REQUIRED') {
+            setFlowDirectEditNote('見出しの末尾でのみ、Enterで本文段落を追加できます。');
+        } else {
+            recoverFlowDirectEditProxy(proxy, '見出しの後ろへ本文段落を安全に追加できませんでした。Flow原稿画面で編集してください。');
+        }
+        return false;
+    }
+
+    endHistoryGroup();
+    _flowDirectEditSession = transaction.nextSession;
+    selectFlowDirectEditing(transaction.operation.groupId, transaction.selection.focusPoint);
+    _flowDirectEditMounting = true;
+    proxy.value = transaction.nextSession.expectedText;
+    proxy.dataset.flowBlockId = transaction.nextSession.blockId;
+    proxy.setSelectionRange(0, 0, 'none');
+    _flowDirectEditMounting = false;
+    _flowDirectEditApplying = true;
+    proxy.dataset.flowReflowPending = 'true';
+    proxy._flowDirectPageElement?.classList.add('flow-direct-edit-reflow-pending');
+    try {
+        applyFlowAuthoringEdit(transaction.operation, { immediate: true });
+    } finally {
+        _flowDirectEditApplying = false;
+    }
+    setFlowDirectEditNote('見出しの後ろに本文段落を追加しました。後続ページを再配置しています。');
+    return true;
+}
+
+function applyFlowDirectEnter(proxy) {
+    if (_flowDirectEditSession?.blockType === 'heading') {
+        return insertFlowDirectParagraphAfterHeading(proxy);
+    }
+    return splitFlowDirectParagraph(proxy);
+}
+
 function mergeFlowDirectParagraphBackward(proxy) {
     if (proxy !== _flowDirectEditProxy || !_flowDirectEditSession || _flowDirectEditApplying) return false;
     const group = getFlowGroupById(_flowDirectEditSession.groupId);
@@ -660,7 +713,7 @@ function handleFlowDirectBeforeInput(event) {
     }
     if (event.inputType === 'insertParagraph') {
         event.preventDefault();
-        if (!event.isComposing && !_flowAuthoringComposing) splitFlowDirectParagraph(event.target);
+        if (!event.isComposing && !_flowAuthoringComposing) applyFlowDirectEnter(event.target);
         return;
     }
     if (
@@ -777,7 +830,7 @@ function mountFlowDirectEditProxy(activeBlock, page, pageElement, session) {
                 setFlowDirectEditNote('修飾キー付きEnterは未対応です。現在はFlow原稿画面で編集してください。');
                 return;
             }
-            splitFlowDirectParagraph(proxy);
+            applyFlowDirectEnter(proxy);
             return;
         }
         if (

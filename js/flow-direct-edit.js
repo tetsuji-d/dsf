@@ -106,7 +106,7 @@ function requireCurrentDirectSession(groupInput, session) {
 
 function requireNewBlockId(value) {
     if (typeof value !== 'string' || !value || value !== value.trim()) {
-        fail('FLOW_DIRECT_NEW_BLOCK_ID_INVALID', 'Paragraph splitting requires one exact new block ID.', {
+        fail('FLOW_DIRECT_NEW_BLOCK_ID_INVALID', 'Structural direct editing requires one exact new block ID.', {
             newBlockId: value,
         });
     }
@@ -323,6 +323,74 @@ export function createFlowDirectParagraphSplitTransaction(groupInput, session, i
         }),
         selection: Object.freeze({
             splitPoint,
+            focusPoint: nextSourcePoint,
+            selectionStart: 0,
+            selectionEnd: 0,
+            selectionDirection: 'none',
+        }),
+    });
+}
+
+/**
+ * Convert Enter at a source Heading end into one empty source Paragraph.
+ * The Heading text, identity, level, translations, and unknown fields remain untouched.
+ */
+export function createFlowDirectHeadingParagraphTransaction(groupInput, session, input = {}) {
+    const {
+        group,
+        sourceLanguage,
+        block,
+        currentText,
+    } = requireCurrentDirectSession(groupInput, session);
+    if (block.type !== 'heading') {
+        fail('FLOW_DIRECT_HEADING_REQUIRED', 'Heading Paragraph insertion requires a Heading block.', {
+            blockId: block.id,
+            blockType: block.type,
+        });
+    }
+    const selectionStart = requireSelectionOffset(input.selectionStart, currentText.length, 'selectionStart');
+    const selectionEnd = requireSelectionOffset(input.selectionEnd, currentText.length, 'selectionEnd');
+    if (selectionStart !== selectionEnd) {
+        fail('FLOW_DIRECT_COLLAPSED_CARET_REQUIRED', 'Heading Paragraph insertion requires a collapsed caret.', {
+            selectionStart,
+            selectionEnd,
+        });
+    }
+    if (selectionEnd !== currentText.length) {
+        fail('FLOW_DIRECT_HEADING_END_REQUIRED', 'Heading Paragraph insertion requires a caret at the Heading end.', {
+            selectionEnd,
+            maximum: currentText.length,
+        });
+    }
+    const newBlockId = requireNewBlockId(input.newBlockId);
+    const nextSourcePoint = createSourcePoint({
+        sectionId: session.sectionId,
+        blockId: newBlockId,
+        blockType: 'paragraph',
+        languageKey: sourceLanguage,
+    }, '', 0, 'forward');
+
+    return Object.freeze({
+        operation: Object.freeze({
+            type: 'insertBlock',
+            groupId: group.id,
+            sectionId: session.sectionId,
+            afterBlockId: session.blockId,
+            blockType: 'paragraph',
+            languageKey: sourceLanguage,
+            newBlockId,
+        }),
+        nextSession: Object.freeze({
+            ...session,
+            blockId: newBlockId,
+            blockType: 'paragraph',
+            expectedText: '',
+            selectionStart: 0,
+            selectionEnd: 0,
+            selectionDirection: 'none',
+            sourcePoint: nextSourcePoint,
+        }),
+        selection: Object.freeze({
             focusPoint: nextSourcePoint,
             selectionStart: 0,
             selectionEnd: 0,

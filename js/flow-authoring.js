@@ -79,8 +79,8 @@ function findBlockIndex(section, blockId) {
     return index;
 }
 
-function createInsertedBlock(type, languageKey, idFactory) {
-    const options = { idFactory };
+function createInsertedBlock(type, languageKey, idFactory, id = null) {
+    const options = id ? { idFactory, id } : { idFactory };
     if (type === 'heading') return createFlowHeading({ ...options, level: 1, texts: { [languageKey]: '' } });
     if (type === 'paragraph') return createFlowParagraph({ ...options, texts: { [languageKey]: '' } });
     if (type === 'pageBreak') return createFlowPageBreak(options);
@@ -139,7 +139,7 @@ function validateGraphemeBoundary(text, utf16Offset, languageKey) {
  * - setText: update heading/paragraph localized text
  * - setSectionTitle: update outline-only section title
  * - setHeadingLevel: update heading level 1..6
- * - insertBlock: insert heading/paragraph/pageBreak after afterBlockId, or append
+ * - insertBlock: insert heading/paragraph/pageBreak after afterBlockId, or append; optional newBlockId preserves caller identity
  * - splitParagraph: split one source Paragraph into two adjacent Paragraphs
  * - mergeParagraphBackward: merge one source Paragraph into its previous Paragraph
  * - removeBlock: remove one semantic block
@@ -238,11 +238,19 @@ export function applyFlowAuthoringOperation(blocks, operation, options = {}) {
                 fail('UNSUPPORTED_FLOW_BLOCK_TYPE', `Unsupported Flow block type: ${blockType}`, { blockType });
             }
             const languageKey = validateLanguageKey(operation.languageKey);
+            const requestedId = operation.newBlockId == null || operation.newBlockId === ''
+                ? null
+                : validateBlockId(operation.newBlockId, 'New block ID');
+            if (requestedId && flowDocumentHasId(context.group.flow.document, requestedId)) {
+                fail('FLOW_BLOCK_ID_CONFLICT', `Flow ID is already in use: ${requestedId}`, {
+                    blockId: requestedId,
+                });
+            }
             let insertIndex = section.blocks.length;
             if (operation.afterBlockId != null && operation.afterBlockId !== '') {
                 insertIndex = findBlockIndex(section, operation.afterBlockId) + 1;
             }
-            const inserted = createInsertedBlock(blockType, languageKey, idFactory);
+            const inserted = createInsertedBlock(blockType, languageKey, idFactory, requestedId);
             section.blocks.splice(insertIndex, 0, inserted);
             break;
         }
