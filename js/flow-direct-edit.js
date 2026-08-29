@@ -113,6 +113,18 @@ function requireNewBlockId(value) {
     return value;
 }
 
+function requireMergeRemovalSafe(block, sourceLanguage) {
+    const translatedLanguageKeys = Object.entries(block.texts || {})
+        .filter(([key, value]) => key !== sourceLanguage && typeof value === 'string')
+        .map(([key]) => key);
+    if (translatedLanguageKeys.length) {
+        fail('FLOW_DIRECT_MERGE_TRANSLATION_DATA_PRESENT', 'A Paragraph with saved translations cannot be removed by merging.', {
+            blockId: block.id,
+            translatedLanguageKeys,
+        });
+    }
+}
+
 /** Validate a page hit and create a runtime-only direct-edit session. */
 export function createFlowDirectEditSession(groupInput, options = {}) {
     const group = requireFlowGroup(groupInput);
@@ -360,15 +372,7 @@ export function createFlowDirectParagraphMergeBackwardTransaction(groupInput, se
             previousBlockType: previousBlock?.type || '',
         });
     }
-    const translatedLanguageKeys = Object.entries(block.texts || {})
-        .filter(([key, value]) => key !== sourceLanguage && typeof value === 'string')
-        .map(([key]) => key);
-    if (translatedLanguageKeys.length) {
-        fail('FLOW_DIRECT_MERGE_TRANSLATION_DATA_PRESENT', 'A Paragraph with saved translations cannot be removed by merging.', {
-            blockId: block.id,
-            translatedLanguageKeys,
-        });
-    }
+    requireMergeRemovalSafe(block, sourceLanguage);
 
     const previousText = requireSingleLineText(previousBlock.texts?.[sourceLanguage] ?? '');
     const mergedText = previousText + currentText;
@@ -392,6 +396,85 @@ export function createFlowDirectParagraphMergeBackwardTransaction(groupInput, se
             ...session,
             blockId: previousBlock.id,
             blockType: 'paragraph',
+            expectedText: mergedText,
+            selectionStart: joinOffset,
+            selectionEnd: joinOffset,
+            selectionDirection: 'none',
+            sourcePoint: focusPoint,
+        }),
+        selection: Object.freeze({
+            focusPoint,
+            selectionStart: joinOffset,
+            selectionEnd: joinOffset,
+            selectionDirection: 'none',
+        }),
+    });
+}
+
+/**
+ * Convert Delete at the end of a Paragraph into one atomic forward merge.
+ * The following Paragraph is removed through the shared backward-merge operation.
+ */
+export function createFlowDirectParagraphMergeForwardTransaction(groupInput, session, input = {}) {
+    const {
+        group,
+        sourceLanguage,
+        section,
+        block,
+        currentText,
+    } = requireCurrentDirectSession(groupInput, session);
+    if (block.type !== 'paragraph') {
+        fail('FLOW_DIRECT_PARAGRAPH_REQUIRED', 'Delete directly merges Paragraph blocks only.', {
+            blockId: block.id,
+            blockType: block.type,
+        });
+    }
+    const selectionStart = requireSelectionOffset(input.selectionStart, currentText.length, 'selectionStart');
+    const selectionEnd = requireSelectionOffset(input.selectionEnd, currentText.length, 'selectionEnd');
+    if (selectionStart !== selectionEnd) {
+        fail('FLOW_DIRECT_COLLAPSED_CARET_REQUIRED', 'Forward Paragraph merging requires a collapsed caret.', {
+            selectionStart,
+            selectionEnd,
+        });
+    }
+    if (selectionEnd !== currentText.length) {
+        fail('FLOW_DIRECT_PARAGRAPH_END_REQUIRED', 'Forward Paragraph merging requires a caret at the Paragraph end.', {
+            selectionEnd,
+            maximum: currentText.length,
+        });
+    }
+
+    const blockIndex = section.blocks.findIndex((entry) => entry?.id === block.id);
+    const nextBlock = section.blocks[blockIndex + 1];
+    if (nextBlock?.type !== 'paragraph') {
+        fail('FLOW_DIRECT_NEXT_PARAGRAPH_REQUIRED', 'Forward Paragraph merging requires an immediately following Paragraph.', {
+            blockId: block.id,
+            nextBlockId: nextBlock?.id || '',
+            nextBlockType: nextBlock?.type || '',
+        });
+    }
+    requireMergeRemovalSafe(nextBlock, sourceLanguage);
+
+    const nextText = requireSingleLineText(nextBlock.texts?.[sourceLanguage] ?? '');
+    const mergedText = currentText + nextText;
+    const joinOffset = currentText.length;
+    const focusPoint = createSourcePoint({
+        sectionId: session.sectionId,
+        blockId: block.id,
+        blockType: 'paragraph',
+        languageKey: sourceLanguage,
+    }, mergedText, joinOffset, 'forward');
+
+    return Object.freeze({
+        operation: Object.freeze({
+            type: 'mergeParagraphBackward',
+            groupId: group.id,
+            sectionId: session.sectionId,
+            blockId: nextBlock.id,
+            languageKey: sourceLanguage,
+        }),
+        nextSession: Object.freeze({
+            ...session,
             expectedText: mergedText,
             selectionStart: joinOffset,
             selectionEnd: joinOffset,
