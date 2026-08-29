@@ -9,7 +9,15 @@ import {
     createFlowDirectParagraphMergeForwardTransaction,
     createFlowDirectParagraphSplitTransaction,
 } from '../js/flow-direct-edit.js';
+import { applyFlowAuthoringOperation } from '../js/flow-authoring.js';
+import { countGraphemes } from '../js/grapheme.js';
+import { createIncrementalFlowPaginator } from '../js/flow-incremental-pagination.js';
+import {
+    createCanonicalFlowPageBox,
+    paginateFlowDocument,
+} from '../js/flow-pagination.js';
 import { createFlowGroupBlock } from '../js/flow-project-model.js';
+import { findFlowSourcePointInPages } from '../js/flow-source-mapping.js';
 import { getWritingModeFromConfigs } from '../js/layout.js';
 
 function createFixture(overrides = {}) {
@@ -89,6 +97,60 @@ function createSession(group = createFixture(), overrides = {}) {
         },
         ...overrides,
     });
+}
+
+function createPageBoundaryFixture() {
+    return createFlowGroupBlock({
+        id: 'flow_direct_boundary_group',
+        sourceLanguage: 'ja',
+        idFactory: (prefix) => `${prefix}_boundary`,
+        document: {
+            id: 'flow_direct_boundary_document',
+            sourceLanguage: 'ja',
+            sections: [{
+                id: 'flow_direct_boundary_section',
+                title: {},
+                blocks: [{
+                    id: 'flow_direct_boundary_paragraph',
+                    type: 'paragraph',
+                    texts: { ja: 'あいうえおかきく' },
+                }],
+            }],
+        },
+    });
+}
+
+function createPageBoundaryMeasurer(capacity) {
+    return ({ fragments }) => ({
+        fits: fragments.reduce((total, fragment) => (
+            total
+            + Math.max(1, countGraphemes(fragment.text, fragment.languageKey))
+            + (fragment.isBlockStart ? 2 : 0)
+        ), 0) <= capacity,
+    });
+}
+
+function createPageBoundaryPaginator(pageBox, measurePage) {
+    return createIncrementalFlowPaginator({
+        pageBox,
+        languageKey: 'ja',
+        writingMode: 'horizontal-tb',
+        measurePage,
+        measurementKey: 'flow-direct-page-boundary-capacity-5',
+        getPageVariantKey: () => 'uniform',
+    });
+}
+
+function paginatePageBoundary(paginator, group, pageBox, measurePage) {
+    const result = paginator.paginate(group.flow.document);
+    const cold = paginateFlowDocument(group.flow.document, {
+        pageBox,
+        languageKey: 'ja',
+        writingMode: 'horizontal-tb',
+        measurePage,
+    });
+    assert.deepEqual(result.pagination, cold, 'direct edits must remain cold-pagination equivalent');
+    return result;
 }
 
 const group = createFixture();
@@ -391,6 +453,154 @@ assert.throws(
     }),
     (error) => error instanceof FlowDirectEditError
         && error.code === 'FLOW_DIRECT_MERGE_TRANSLATION_DATA_PRESENT',
+);
+
+// A semantic Paragraph may span generated pages. Structural edits must reflow
+// from the semantic source, move the caret to the new fragment, and never save
+// generated page state back into the FlowDocument.
+const boundaryPageBox = createCanonicalFlowPageBox();
+const boundaryMeasurePage = createPageBoundaryMeasurer(5);
+const boundaryGroup = createPageBoundaryFixture();
+const boundaryParagraphText = boundaryGroup.flow.document.sections[0].blocks[0].texts.ja;
+const splitUtf16Offset = 6;
+const boundarySourcePoint = {
+    sectionId: 'flow_direct_boundary_section',
+    blockId: 'flow_direct_boundary_paragraph',
+    blockType: 'paragraph',
+    languageKey: 'ja',
+    utf16Offset: splitUtf16Offset,
+    graphemeOffset: splitUtf16Offset,
+    affinity: 'nearest',
+};
+const backwardBoundaryPaginator = createPageBoundaryPaginator(boundaryPageBox, boundaryMeasurePage);
+const initialBoundary = paginatePageBoundary(
+    backwardBoundaryPaginator,
+    boundaryGroup,
+    boundaryPageBox,
+    boundaryMeasurePage,
+);
+assert.equal(initialBoundary.pagination.pages.length, 2);
+assert.deepEqual(initialBoundary.pagination.pages.map((page) => (
+    page.fragments.map((entry) => [entry.blockId, entry.sourceRange.startGrapheme, entry.sourceRange.endGrapheme])
+)), [
+    [['flow_direct_boundary_paragraph', 0, 3]],
+    [['flow_direct_boundary_paragraph', 3, 8]],
+]);
+assert.equal(
+    findFlowSourcePointInPages(initialBoundary.pagination.pages, boundarySourcePoint).pageIndex,
+    1,
+    'a caret in the continuation fragment must resolve to the second generated page',
+);
+
+const boundarySession = createFlowDirectEditSession(boundaryGroup, {
+    pageLanguageKey: 'ja',
+    writingMode: 'horizontal-tb',
+    isSourceFallback: false,
+    sourcePoint: boundarySourcePoint,
+});
+const boundarySplit = createFlowDirectParagraphSplitTransaction(boundaryGroup, boundarySession, {
+    selectionStart: splitUtf16Offset,
+    selectionEnd: splitUtf16Offset,
+    newBlockId: 'flow_direct_boundary_paragraph_after',
+});
+const splitBoundaryGroup = applyFlowAuthoringOperation([boundaryGroup], boundarySplit.operation)[0];
+const splitBoundary = paginatePageBoundary(
+    backwardBoundaryPaginator,
+    splitBoundaryGroup,
+    boundaryPageBox,
+    boundaryMeasurePage,
+);
+assert.equal(splitBoundary.changeSet.mode, 'incremental');
+assert.equal(splitBoundary.pagination.pages.length, 3);
+assert.deepEqual(
+    splitBoundaryGroup.flow.document.sections[0].blocks.map((entry) => [entry.id, entry.texts.ja]),
+    [
+        ['flow_direct_boundary_paragraph', boundaryParagraphText.slice(0, splitUtf16Offset)],
+        ['flow_direct_boundary_paragraph_after', boundaryParagraphText.slice(splitUtf16Offset)],
+    ],
+);
+assert.equal(
+    findFlowSourcePointInPages(splitBoundary.pagination.pages, boundarySplit.selection.focusPoint).pageIndex,
+    2,
+    'Enter must move the semantic caret to the new Paragraph on its reflowed generated page',
+);
+assert.equal(Object.hasOwn(splitBoundaryGroup.flow.document, 'pages'), false);
+assert.equal(Object.hasOwn(splitBoundaryGroup.flow.document, 'fragments'), false);
+
+const boundaryBackwardMerge = createFlowDirectParagraphMergeBackwardTransaction(
+    splitBoundaryGroup,
+    boundarySplit.nextSession,
+    { selectionStart: 0, selectionEnd: 0 },
+);
+const backwardMergedGroup = applyFlowAuthoringOperation(
+    [splitBoundaryGroup],
+    boundaryBackwardMerge.operation,
+)[0];
+const backwardMergedBoundary = paginatePageBoundary(
+    backwardBoundaryPaginator,
+    backwardMergedGroup,
+    boundaryPageBox,
+    boundaryMeasurePage,
+);
+assert.equal(backwardMergedBoundary.changeSet.mode, 'incremental');
+assert.equal(backwardMergedBoundary.pagination.pages.length, 2);
+assert.deepEqual(backwardMergedBoundary.pagination, initialBoundary.pagination);
+assert.deepEqual(
+    backwardMergedGroup.flow.document.sections[0].blocks.map((entry) => [entry.id, entry.texts.ja]),
+    [['flow_direct_boundary_paragraph', boundaryParagraphText]],
+);
+assert.equal(
+    findFlowSourcePointInPages(
+        backwardMergedBoundary.pagination.pages,
+        boundaryBackwardMerge.selection.focusPoint,
+    ).pageIndex,
+    1,
+    'Backspace must keep the join caret on the surviving Paragraph continuation page',
+);
+
+const forwardBoundaryPaginator = createPageBoundaryPaginator(boundaryPageBox, boundaryMeasurePage);
+paginatePageBoundary(forwardBoundaryPaginator, boundaryGroup, boundaryPageBox, boundaryMeasurePage);
+paginatePageBoundary(forwardBoundaryPaginator, splitBoundaryGroup, boundaryPageBox, boundaryMeasurePage);
+const boundaryForwardSession = createFlowDirectEditSession(splitBoundaryGroup, {
+    pageLanguageKey: 'ja',
+    writingMode: 'horizontal-tb',
+    isSourceFallback: false,
+    sourcePoint: boundarySourcePoint,
+});
+const boundaryForwardMerge = createFlowDirectParagraphMergeForwardTransaction(
+    splitBoundaryGroup,
+    boundaryForwardSession,
+    { selectionStart: splitUtf16Offset, selectionEnd: splitUtf16Offset },
+);
+assert.deepEqual(
+    boundaryForwardMerge.operation,
+    boundaryBackwardMerge.operation,
+    'Delete and Backspace must remove the same semantic Paragraph boundary',
+);
+const forwardMergedGroup = applyFlowAuthoringOperation(
+    [splitBoundaryGroup],
+    boundaryForwardMerge.operation,
+)[0];
+const forwardMergedBoundary = paginatePageBoundary(
+    forwardBoundaryPaginator,
+    forwardMergedGroup,
+    boundaryPageBox,
+    boundaryMeasurePage,
+);
+assert.equal(forwardMergedBoundary.changeSet.mode, 'incremental');
+assert.equal(forwardMergedBoundary.pagination.pages.length, 2);
+assert.deepEqual(forwardMergedBoundary.pagination, initialBoundary.pagination);
+assert.deepEqual(
+    forwardMergedGroup.flow.document.sections[0].blocks.map((entry) => [entry.id, entry.texts.ja]),
+    [['flow_direct_boundary_paragraph', boundaryParagraphText]],
+);
+assert.equal(
+    findFlowSourcePointInPages(
+        forwardMergedBoundary.pagination.pages,
+        boundaryForwardMerge.selection.focusPoint,
+    ).pageIndex,
+    1,
+    'Delete must keep the join caret on the surviving Paragraph continuation page',
 );
 
 const staleGroup = structuredClone(group);

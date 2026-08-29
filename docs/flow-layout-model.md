@@ -568,7 +568,8 @@ WYSIWYGでも保存正本はFlowDocumentであり、生成ページやページ�
   clampしてから再ページ化する。専用Undo systemは追加しない。
 - 10A-2時点ではEnter／改行、複数行paste、Block分割・結合、ページを跨ぐ構造選択を拒否する。
   collapsed caretでのParagraph分割は10A-3A、Paragraph先頭のBackspace結合は10A-3B、
-  Paragraph末尾のDelete結合は10A-3C-Aで追加し、それ以外の構造編集は連続原稿面へ案内する。
+  Paragraph末尾のDelete結合は10A-3C-Aで追加し、10A-3C-Bで複数生成ページ境界の増減回帰を固定する。
+  それ以外の構造編集は連続原稿面へ案内する。
   翻訳言語、原文fallback、`vertical-rl`も10A-4まで直接編集対象外とし、10A-1の原稿caret移動をfallbackにする。
 - Flow schema、DSP／Firestore、Press、Viewer、Horizon publication contractは変更しない。
 
@@ -613,6 +614,18 @@ WYSIWYGでも保存正本はFlowDocumentであり、生成ページやページ�
   incremental reflowへ接続する。
 - Paragraph内の通常Deleteは従来の`setText`とする。Heading／PageBreak／Section境界、選択範囲を含む結合、
   翻訳ページ、原文fallback、`vertical-rl`は変更しない。
+- Flow schema、DSP／Firestore、Press、Viewer、Horizon publication contractは変更しない。
+
+## Paginated WYSIWYG multi-page structural regression（10A-3C-B）
+
+- 1つのsemantic Paragraphが複数の生成ページへ分割された状態を決定的なpure計測で再現し、continuation fragment内の
+  caretが同じBlock ID／source offsetのまま後続生成ページへ対応することを固定する。
+- 2ページにまたがるParagraphの後半でEnterを実行した場合、原稿を2つのParagraphへ分割して3ページへ増加し、
+  caretを新Paragraphの実際の生成ページへ移す。生成page／fragmentはFlowDocumentへ保存しない。
+- 分割直後の新Paragraph先頭でBackspace、または前Paragraph末尾でDeleteを実行した場合、同じsemantic境界を
+  既存`mergeParagraphBackward`で削除する。ページ数は3から2へ戻り、結果は初期paginationおよびcold paginationと一致する。
+- この単位は10A-3A／3B／3C-Aの結合回帰を固定するだけで、新しい編集操作は追加しない。Heading／PageBreak編集、
+  ページを跨ぐ一般選択、翻訳ページ、原文fallback、`vertical-rl`は変更しない。
 - Flow schema、DSP／Firestore、Press、Viewer、Horizon publication contractは変更しない。
 
 ## DOM preview boundary（Commit 3）
