@@ -1002,7 +1002,7 @@ assert.throws(
         selectionEnd: 5,
     }),
     (error) => error instanceof FlowDirectEditError
-        && error.code === 'FLOW_DIRECT_STRUCTURAL_EDIT_UNSUPPORTED',
+        && error.code === 'FLOW_DIRECT_LINE_BREAK_STRUCTURE_UNSUPPORTED',
 );
 assert.throws(
     () => createSession(group, { pageLanguageKey: 'en' }),
@@ -1022,8 +1022,91 @@ assert.throws(
 
 const multilineGroup = createFixture();
 multilineGroup.flow.document.sections[0].blocks[1].texts.ja = '既存\n改行';
+const multilineSession = createSession(multilineGroup, { writingMode: 'vertical-rl' });
+assert.equal(multilineSession.expectedText, '既存\n改行');
+const multilineEdited = createFlowDirectEditTransaction(multilineGroup, multilineSession, {
+    text: '既存の\n改行',
+    selectionStart: 3,
+    selectionEnd: 3,
+});
+assert.equal(multilineEdited.operation.text, '既存の\n改行');
+assert.equal(multilineEdited.nextSession.expectedText, '既存の\n改行');
+const multilineAfterBreakSession = createSession(multilineGroup, {
+    writingMode: 'vertical-rl',
+    sourcePoint: {
+        sectionId: 'flow_direct_section',
+        blockId: 'flow_direct_paragraph',
+        blockType: 'paragraph',
+        languageKey: 'ja',
+        utf16Offset: 4,
+        affinity: 'nearest',
+    },
+});
+const multilineAfterBreakEdited = createFlowDirectEditTransaction(
+    multilineGroup,
+    multilineAfterBreakSession,
+    {
+        text: '既存\n改訂行',
+        selectionStart: 5,
+        selectionEnd: 5,
+    },
+);
+const multilineAppliedGroup = applyFlowAuthoringOperation(
+    [multilineGroup],
+    multilineAfterBreakEdited.operation,
+)[0];
+assert.equal(
+    multilineAppliedGroup.flow.document.sections[0].blocks[1].texts.ja,
+    '既存\n改訂行',
+);
+assert.equal(multilineAfterBreakEdited.selection.focusPoint.utf16Offset, 5);
+assert.equal(Object.hasOwn(multilineAppliedGroup.flow.document, 'pages'), false);
+assert.equal(Object.hasOwn(multilineAppliedGroup.flow.document, 'fragments'), false);
 assert.throws(
-    () => createSession(multilineGroup),
+    () => createFlowDirectEditTransaction(multilineGroup, multilineSession, {
+        text: '既存改行',
+        selectionStart: 4,
+        selectionEnd: 4,
+    }),
+    (error) => error instanceof FlowDirectEditError
+        && error.code === 'FLOW_DIRECT_LINE_BREAK_STRUCTURE_UNSUPPORTED',
+);
+assert.throws(
+    () => createFlowDirectEditTransaction(multilineGroup, multilineSession, {
+        text: '既\n存改行',
+        selectionStart: 2,
+        selectionEnd: 2,
+    }),
+    (error) => error instanceof FlowDirectEditError
+        && error.code === 'FLOW_DIRECT_LINE_BREAK_STRUCTURE_UNSUPPORTED',
+);
+assert.throws(
+    () => createFlowDirectEditTransaction(multilineGroup, multilineSession, {
+        text: '既X\nY行',
+        selectionStart: 4,
+        selectionEnd: 4,
+    }),
+    (error) => error instanceof FlowDirectEditError
+        && error.code === 'FLOW_DIRECT_LINE_BREAK_STRUCTURE_UNSUPPORTED',
+);
+assert.throws(
+    () => createFlowDirectEditTransaction(multilineGroup, multilineSession, {
+        text: '既存\n\n改行',
+        selectionStart: 4,
+        selectionEnd: 4,
+    }),
+    (error) => error instanceof FlowDirectEditError
+        && error.code === 'FLOW_DIRECT_LINE_BREAK_STRUCTURE_UNSUPPORTED',
+);
+assert.throws(
+    () => createFlowDirectParagraphSplitTransaction(multilineGroup, {
+        ...multilineSession,
+        writingMode: 'horizontal-tb',
+    }, {
+        selectionStart: 2,
+        selectionEnd: 2,
+        newBlockId: 'paragraph_multiline_split',
+    }),
     (error) => error instanceof FlowDirectEditError
         && error.code === 'FLOW_DIRECT_MULTILINE_UNSUPPORTED',
 );
@@ -1052,6 +1135,8 @@ assert.match(appSource, /addEventListener\('compositionstart', handleFlowDirectC
 assert.match(appSource, /addEventListener\('compositionend', handleFlowDirectCompositionEnd\)/);
 assert.match(appSource, /event\.isComposing \|\| event\.keyCode === 229 \|\| _flowAuthoringComposing/);
 assert.match(appSource, /function rejectFlowDirectVerticalStructuralEdit\(\)/);
+assert.match(appSource, /function flowDirectSelectionTouchesLineBreak\(proxy, inputType\)/);
+assert.match(appSource, /FLOW_DIRECT_LINE_BREAK_STRUCTURE_UNSUPPORTED/);
 assert.match(appSource, /dataset\.flowCompositionResumeReflow/);
 assert.match(appSource, /_editorFlowProjectionController\?\.abort\(\)/);
 assert.match(appSource, /proxy\.dataset\.flowWritingMode = session\.writingMode/);

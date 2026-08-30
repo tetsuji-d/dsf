@@ -571,7 +571,10 @@ function commitFlowDirectEdit(proxy) {
         });
     } catch (error) {
         if (error instanceof FlowDirectEditError) {
-            recoverFlowDirectEditProxy(proxy, 'この操作はまだ直接編集できません。Flow原稿画面で編集してください。');
+            const message = error.code === 'FLOW_DIRECT_LINE_BREAK_STRUCTURE_UNSUPPORTED'
+                ? '改行の追加・削除は次の実装単位で対応します。通常の文字編集は続けられます。'
+                : 'この操作はまだ直接編集できません。Flow原稿画面で編集してください。';
+            recoverFlowDirectEditProxy(proxy, message);
             return;
         }
         throw error;
@@ -872,6 +875,23 @@ function rejectFlowDirectVerticalStructuralEdit() {
     return true;
 }
 
+function flowDirectSelectionTouchesLineBreak(proxy, inputType) {
+    const value = String(proxy?.value || '');
+    const selectionStart = Number(proxy?.selectionStart);
+    const selectionEnd = Number(proxy?.selectionEnd);
+    if (!Number.isInteger(selectionStart) || !Number.isInteger(selectionEnd)) return false;
+    if (selectionStart !== selectionEnd) {
+        return /[\r\n\u2028\u2029]/u.test(value.slice(selectionStart, selectionEnd));
+    }
+    if (inputType === 'deleteContentBackward' && selectionStart > 0) {
+        return /[\r\n\u2028\u2029]/u.test(value.slice(selectionStart - 1, selectionStart));
+    }
+    if (inputType === 'deleteContentForward' && selectionEnd < value.length) {
+        return /[\r\n\u2028\u2029]/u.test(value.slice(selectionEnd, selectionEnd + 1));
+    }
+    return false;
+}
+
 function handleFlowDirectBeforeInput(event) {
     if (event.target !== _flowDirectEditProxy) return;
     if (event.isComposing || _flowAuthoringComposing) return;
@@ -879,6 +899,11 @@ function handleFlowDirectBeforeInput(event) {
         event.preventDefault();
         if (event.inputType === 'historyUndo') performProjectUndo();
         else performProjectRedo();
+        return;
+    }
+    if (flowDirectSelectionTouchesLineBreak(event.target, event.inputType)) {
+        event.preventDefault();
+        setFlowDirectEditNote('既存の改行をまたぐ編集は未対応です。通常の文字編集は続けられます。');
         return;
     }
     if (event.inputType === 'insertParagraph') {

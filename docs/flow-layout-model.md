@@ -683,7 +683,9 @@ WYSIWYGでも保存正本はFlowDocumentであり、生成ページやページ�
 - IME変換中のEnter、Escape、Backspace、Delete、history inputをStudio操作として解釈しない。
   縦書きの通常文字入力と選択範囲置換だけをこの単位で開放し、EnterによるParagraph追加／分割、
   Block境界のBackspace／Deleteによる結合はUIとpure transactionの両方で拒否する。構造編集は10A-4Cとする。
-- 翻訳ページ、原文fallback、複数行貼り付け、縦中横、ルビ、圏点、割注は変更しない。
+- 既存Paragraph／Heading内のLFは保持したまま通常文字を直接編集できる。改行の追加・削除・改行をまたぐ
+  選択置換と複数行貼り付けは拒否し、Block分割・結合とあわせて10A-4C以降へ分離する。
+  翻訳ページ、原文fallback、縦中横、ルビ、圏点、割注は変更しない。
   Flow schema、DSP／Firestore、Press、Viewer、Horizon publication contractも変更しない。
 
 ## DOM preview boundary（Commit 3）
