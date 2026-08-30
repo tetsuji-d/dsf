@@ -132,23 +132,23 @@ function createPageBoundaryMeasurer(capacity) {
     });
 }
 
-function createPageBoundaryPaginator(pageBox, measurePage) {
+function createPageBoundaryPaginator(pageBox, measurePage, writingMode = 'horizontal-tb') {
     return createIncrementalFlowPaginator({
         pageBox,
         languageKey: 'ja',
-        writingMode: 'horizontal-tb',
+        writingMode,
         measurePage,
-        measurementKey: 'flow-direct-page-boundary-capacity-5',
+        measurementKey: `flow-direct-page-boundary-capacity-5-${writingMode}`,
         getPageVariantKey: () => 'uniform',
     });
 }
 
-function paginatePageBoundary(paginator, group, pageBox, measurePage) {
+function paginatePageBoundary(paginator, group, pageBox, measurePage, writingMode = 'horizontal-tb') {
     const result = paginator.paginate(group.flow.document);
     const cold = paginateFlowDocument(group.flow.document, {
         pageBox,
         languageKey: 'ja',
-        writingMode: 'horizontal-tb',
+        writingMode,
         measurePage,
     });
     assert.deepEqual(result.pagination, cold, 'direct edits must remain cold-pagination equivalent');
@@ -168,6 +168,164 @@ assert.equal(
     'vertical-rl',
     'an explicit saved writingMode must remain authoritative',
 );
+
+const verticalSession = createSession(group, { writingMode: 'vertical-rl' });
+assert.equal(verticalSession.writingMode, 'vertical-rl');
+assert.equal(verticalSession.expectedText, session.expectedText);
+const verticalInserted = createFlowDirectEditTransaction(group, verticalSession, {
+    text: '雪深い👩‍💻の日',
+    selectionStart: 3,
+    selectionEnd: 3,
+    selectionDirection: 'none',
+});
+assert.equal(verticalInserted.nextSession.writingMode, 'vertical-rl');
+assert.equal(verticalInserted.selection.focusPoint.utf16Offset, 3);
+assert.equal(
+    verticalInserted.selection.focusPoint.affinity,
+    'forward',
+    'a collapsed direct-input caret must advance to the following vertical glyph position',
+);
+const verticalAppliedGroup = applyFlowAuthoringOperation([group], verticalInserted.operation)[0];
+assert.equal(
+    verticalAppliedGroup.flow.document.sections[0].blocks[1].texts.ja,
+    '雪深い👩‍💻の日',
+    'vertical direct input must update semantic source through the shared setText operation',
+);
+assert.equal(Object.hasOwn(verticalAppliedGroup.flow.document, 'pages'), false);
+assert.equal(Object.hasOwn(verticalAppliedGroup.flow.document, 'fragments'), false);
+
+const verticalHeadingSession = createSession(group, {
+    writingMode: 'vertical-rl',
+    sourcePoint: {
+        sectionId: 'flow_direct_section',
+        blockId: 'flow_direct_heading',
+        blockType: 'heading',
+        languageKey: 'ja',
+        utf16Offset: 3,
+        graphemeOffset: 3,
+        affinity: 'nearest',
+    },
+});
+const verticalHeadingEdited = createFlowDirectEditTransaction(group, verticalHeadingSession, {
+    text: '縦書き見出し',
+    selectionStart: 6,
+    selectionEnd: 6,
+});
+const verticalHeadingGroup = applyFlowAuthoringOperation([group], verticalHeadingEdited.operation)[0];
+assert.equal(verticalHeadingGroup.flow.document.sections[0].blocks[0].texts.ja, '縦書き見出し');
+
+for (const [createStructuralTransaction, input] of [
+    [createFlowDirectParagraphSplitTransaction, {
+        selectionStart: 1,
+        selectionEnd: 1,
+        newBlockId: 'flow_direct_vertical_split',
+    }],
+    [createFlowDirectHeadingParagraphTransaction, {
+        selectionStart: 1,
+        selectionEnd: 1,
+        newBlockId: 'flow_direct_vertical_after_heading',
+    }],
+    [createFlowDirectEmptyParagraphAfterHeadingRemovalTransaction, {
+        selectionStart: 0,
+        selectionEnd: 0,
+    }],
+    [createFlowDirectParagraphMergeBackwardTransaction, {
+        selectionStart: 0,
+        selectionEnd: 0,
+    }],
+    [createFlowDirectParagraphMergeForwardTransaction, {
+        selectionStart: verticalSession.expectedText.length,
+        selectionEnd: verticalSession.expectedText.length,
+    }],
+]) {
+    assert.throws(
+        () => createStructuralTransaction(group, verticalSession, input),
+        (error) => error instanceof FlowDirectEditError
+            && error.code === 'FLOW_DIRECT_VERTICAL_STRUCTURE_UNSUPPORTED',
+    );
+}
+
+const verticalBoundaryPageBox = createCanonicalFlowPageBox();
+const verticalBoundaryMeasurePage = createPageBoundaryMeasurer(5);
+const verticalBoundaryGroup = createPageBoundaryFixture();
+const verticalBoundaryPaginator = createPageBoundaryPaginator(
+    verticalBoundaryPageBox,
+    verticalBoundaryMeasurePage,
+    'vertical-rl',
+);
+const verticalBoundaryInitial = paginatePageBoundary(
+    verticalBoundaryPaginator,
+    verticalBoundaryGroup,
+    verticalBoundaryPageBox,
+    verticalBoundaryMeasurePage,
+    'vertical-rl',
+);
+assert.equal(verticalBoundaryInitial.pagination.pages.length, 2);
+const verticalBoundaryText = verticalBoundaryGroup.flow.document.sections[0].blocks[0].texts.ja;
+const verticalBoundarySession = createFlowDirectEditSession(verticalBoundaryGroup, {
+    pageLanguageKey: 'ja',
+    writingMode: 'vertical-rl',
+    isSourceFallback: false,
+    sourcePoint: {
+        sectionId: 'flow_direct_boundary_section',
+        blockId: 'flow_direct_boundary_paragraph',
+        blockType: 'paragraph',
+        languageKey: 'ja',
+        utf16Offset: verticalBoundaryText.length,
+        graphemeOffset: countGraphemes(verticalBoundaryText, 'ja'),
+        affinity: 'forward',
+    },
+});
+const verticalExpandedText = `${verticalBoundaryText}さしすせそたちつてと`;
+const verticalExpandedTransaction = createFlowDirectEditTransaction(
+    verticalBoundaryGroup,
+    verticalBoundarySession,
+    {
+        text: verticalExpandedText,
+        selectionStart: verticalExpandedText.length,
+        selectionEnd: verticalExpandedText.length,
+    },
+);
+const verticalExpandedGroup = applyFlowAuthoringOperation(
+    [verticalBoundaryGroup],
+    verticalExpandedTransaction.operation,
+)[0];
+const verticalBoundaryExpanded = paginatePageBoundary(
+    verticalBoundaryPaginator,
+    verticalExpandedGroup,
+    verticalBoundaryPageBox,
+    verticalBoundaryMeasurePage,
+    'vertical-rl',
+);
+assert.equal(verticalBoundaryExpanded.changeSet.mode, 'incremental');
+assert.ok(
+    verticalBoundaryExpanded.pagination.pages.length > verticalBoundaryInitial.pagination.pages.length,
+    'vertical direct input must add generated pages when semantic text grows',
+);
+const verticalShrunkTransaction = createFlowDirectEditTransaction(
+    verticalExpandedGroup,
+    verticalExpandedTransaction.nextSession,
+    {
+        text: verticalBoundaryText,
+        selectionStart: verticalBoundaryText.length,
+        selectionEnd: verticalBoundaryText.length,
+    },
+);
+const verticalShrunkGroup = applyFlowAuthoringOperation(
+    [verticalExpandedGroup],
+    verticalShrunkTransaction.operation,
+)[0];
+const verticalBoundaryShrunk = paginatePageBoundary(
+    verticalBoundaryPaginator,
+    verticalShrunkGroup,
+    verticalBoundaryPageBox,
+    verticalBoundaryMeasurePage,
+    'vertical-rl',
+);
+assert.equal(verticalBoundaryShrunk.changeSet.mode, 'incremental');
+assert.deepEqual(verticalBoundaryShrunk.pagination, verticalBoundaryInitial.pagination);
+assert.equal(Object.hasOwn(verticalShrunkGroup.flow.document, 'pages'), false);
+assert.equal(Object.hasOwn(verticalShrunkGroup.flow.document, 'fragments'), false);
 
 const inserted = createFlowDirectEditTransaction(group, session, {
     text: '雪深い👩‍💻の日',
@@ -857,9 +1015,9 @@ assert.throws(
         && error.code === 'FLOW_DIRECT_SOURCE_FALLBACK',
 );
 assert.throws(
-    () => createSession(group, { writingMode: 'vertical-rl' }),
+    () => createSession(group, { writingMode: 'sideways-rl' }),
     (error) => error instanceof FlowDirectEditError
-        && error.code === 'FLOW_DIRECT_HORIZONTAL_ONLY',
+        && error.code === 'FLOW_DIRECT_WRITING_MODE_UNSUPPORTED',
 );
 
 const multilineGroup = createFixture();
@@ -871,6 +1029,7 @@ assert.throws(
 );
 
 const appSource = await readFile(new URL('../js/app.js', import.meta.url), 'utf8');
+const directEditSource = await readFile(new URL('../js/flow-direct-edit.js', import.meta.url), 'utf8');
 const studioCss = await readFile(new URL('../css/studio.css', import.meta.url), 'utf8');
 assert.match(appSource, /createFlowDirectEditTransaction\(/);
 assert.match(appSource, /createFlowDirectEmptyParagraphAfterHeadingRemovalTransaction\(/);
@@ -891,12 +1050,25 @@ assert.match(appSource, /_flowDirectEditSession\?\.blockType === 'heading'/);
 assert.match(appSource, /addEventListener\('beforeinput', handleFlowDirectBeforeInput\)/);
 assert.match(appSource, /addEventListener\('compositionstart', handleFlowDirectCompositionStart\)/);
 assert.match(appSource, /addEventListener\('compositionend', handleFlowDirectCompositionEnd\)/);
+assert.match(appSource, /event\.isComposing \|\| event\.keyCode === 229 \|\| _flowAuthoringComposing/);
+assert.match(appSource, /function rejectFlowDirectVerticalStructuralEdit\(\)/);
+assert.match(appSource, /dataset\.flowCompositionResumeReflow/);
+assert.match(appSource, /_editorFlowProjectionController\?\.abort\(\)/);
+assert.match(appSource, /proxy\.dataset\.flowWritingMode = session\.writingMode/);
+assert.match(appSource, /writingMode: 'vertical-rl'/);
+assert.match(appSource, /fontFeatureSettings/);
 assert.match(appSource, /applyFlowAuthoringEdit\(transaction\.operation/);
 assert.match(appSource, /historyKey: `flow:\$\{transaction\.operation\.groupId\}/);
 assert.match(appSource, /immediate: true/);
 assert.match(appSource, /findFlowSourcePointInPages\(/);
 assert.match(studioCss, /\.flow-direct-input-proxy/);
+assert.match(studioCss, /\.flow-direct-input-proxy\[data-flow-writing-mode="vertical-rl"\]/);
 assert.match(studioCss, /\.flow-direct-caret/);
+assert.match(studioCss, /\.flow-direct-composition\[data-flow-writing-mode="vertical-rl"\]/);
+assert.match(directEditSource, /DIRECT_TEXT_WRITING_MODES = new Set\(\['horizontal-tb', 'vertical-rl'\]\)/);
+assert.match(directEditSource, /FLOW_DIRECT_VERTICAL_STRUCTURE_UNSUPPORTED/);
+assert.doesNotMatch(appSource, /geometry-only/);
+assert.doesNotMatch(appSource, /renderFlowDirectCaretPreview/);
 assert.doesNotMatch(appSource, /pageElement\.contentEditable\s*=/);
 
 console.log('Flow direct edit verification passed.');

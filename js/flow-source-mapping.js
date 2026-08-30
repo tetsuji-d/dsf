@@ -273,7 +273,34 @@ export function mapFlowClientPointToSource(pageElement, page, clientX, clientY, 
         offset = range?.startOffset || 0;
     }
     if (!node || !pageElement.contains(node)) return null;
-    return mapFlowDomPositionToSource(pageElement, page, node, offset, options);
+    const sourcePoint = mapFlowDomPositionToSource(pageElement, page, node, offset, options);
+    const writingMode = options.writingMode;
+    if (
+        !sourcePoint
+        || !writingMode
+        || options.affinity === 'forward'
+        || options.affinity === 'backward'
+    ) return sourcePoint;
+
+    const backwardPoint = Object.freeze({ ...sourcePoint, affinity: 'backward' });
+    const forwardPoint = Object.freeze({ ...sourcePoint, affinity: 'forward' });
+    const affinity = resolveFlowCaretAffinityFromClientPoint({
+        clientX,
+        clientY,
+        backwardRect: getFlowSourcePointClientRect(
+            pageElement,
+            page,
+            backwardPoint,
+            { writingMode },
+        ),
+        forwardRect: getFlowSourcePointClientRect(
+            pageElement,
+            page,
+            forwardPoint,
+            { writingMode },
+        ),
+    });
+    return Object.freeze({ ...sourcePoint, affinity });
 }
 
 /** Resolve a semantic source point to a DOM Selection-compatible position. */
@@ -313,48 +340,174 @@ function snapshotRect(rect, overrides = {}) {
     });
 }
 
-function firstUsableRect(range) {
-    return [...(range?.getClientRects?.() || [])].find((rect) => rect.height > 0)
-        || range?.getBoundingClientRect?.()
-        || null;
+function requireCaretWritingMode(value) {
+    const writingMode = String(value || 'horizontal-tb');
+    if (writingMode !== 'horizontal-tb' && writingMode !== 'vertical-rl') {
+        throw new FlowSourceMappingError(
+            'CARET_WRITING_MODE_INVALID',
+            'Flow caret geometry requires horizontal-tb or vertical-rl.',
+            { writingMode },
+        );
+    }
+    return writingMode;
 }
 
-/** Measure a horizontal visual caret without mutating generated page DOM. */
-export function getFlowSourcePointClientRect(pageElement, page, sourcePoint) {
+function hasInlineExtent(rect, writingMode) {
+    return writingMode === 'vertical-rl'
+        ? Number(rect?.width) > 0
+        : Number(rect?.height) > 0;
+}
+
+function normalizeCaretRect(rect, writingMode, edge, basis) {
+    if (!rect) return null;
+    const source = snapshotRect(rect);
+    if (writingMode === 'vertical-rl') {
+        if (source.width <= 0) return null;
+        const top = edge === 'after' ? source.bottom : source.top;
+        return snapshotRect({
+            left: source.left,
+            top,
+            right: source.right,
+            bottom: top,
+            width: source.width,
+            height: 0,
+        }, {
+            writingMode,
+            caretOrientation: 'horizontal',
+            basis,
+        });
+    }
+    if (source.height <= 0) return null;
+    const left = edge === 'after' ? source.right : source.left;
+    return snapshotRect({
+        left,
+        top: source.top,
+        right: left,
+        bottom: source.bottom,
+        width: 0,
+        height: source.height,
+    }, {
+        writingMode,
+        caretOrientation: 'vertical',
+        basis,
+    });
+}
+
+/**
+ * Resolve one visual caret from browser Range measurements.
+ *
+ * The helper is pure so vertical/horizontal edge semantics can be verified
+ * without treating generated page DOM as editable source.
+ */
+export function resolveFlowCaretClientGeometry(options = {}) {
+    const writingMode = requireCaretWritingMode(options.writingMode);
+    const affinity = String(options.affinity || 'nearest');
+    const preferPrevious = affinity === 'backward';
+    const adjacent = preferPrevious
+        ? [
+            [options.previousRect, 'after', 'previous'],
+            [options.nextRect, 'before', 'next'],
+        ]
+        : [
+            [options.nextRect, 'before', 'next'],
+            [options.previousRect, 'after', 'previous'],
+        ];
+    const resolveAdjacent = () => {
+        for (const [rect, edge, basis] of adjacent) {
+            const resolved = normalizeCaretRect(rect, writingMode, edge, basis);
+            if (resolved) return resolved;
+        }
+        return null;
+    };
+
+    if (affinity === 'forward' || affinity === 'backward') {
+        const resolved = resolveAdjacent();
+        if (resolved) return resolved;
+    }
+
+    const collapsedRect = options.collapsedRect ? snapshotRect(options.collapsedRect) : null;
+    if (collapsedRect && hasInlineExtent(collapsedRect, writingMode)) {
+        const collapsed = normalizeCaretRect(collapsedRect, writingMode, 'before', 'collapsed');
+        if (collapsed) return collapsed;
+    }
+
+    const resolved = resolveAdjacent();
+    if (resolved) return resolved;
+    return normalizeCaretRect(options.fragmentRect, writingMode, 'before', 'fragment');
+}
+
+function squaredDistanceToRect(rect, clientX, clientY) {
+    if (!rect) return Number.POSITIVE_INFINITY;
+    const left = Math.min(Number(rect.left), Number(rect.right));
+    const right = Math.max(Number(rect.left), Number(rect.right));
+    const top = Math.min(Number(rect.top), Number(rect.bottom));
+    const bottom = Math.max(Number(rect.top), Number(rect.bottom));
+    const dx = clientX < left ? left - clientX : clientX > right ? clientX - right : 0;
+    const dy = clientY < top ? top - clientY : clientY > bottom ? clientY - bottom : 0;
+    return (dx * dx) + (dy * dy);
+}
+
+/** Preserve which visual side of a wrapped source offset the user clicked. */
+export function resolveFlowCaretAffinityFromClientPoint(options = {}) {
+    const clientX = Number(options.clientX);
+    const clientY = Number(options.clientY);
+    if (!Number.isFinite(clientX) || !Number.isFinite(clientY)) {
+        throw new FlowSourceMappingError(
+            'CARET_CLIENT_POINT_INVALID',
+            'Flow caret affinity requires a finite client point.',
+            { clientX: options.clientX, clientY: options.clientY },
+        );
+    }
+    const backwardDistance = squaredDistanceToRect(options.backwardRect, clientX, clientY);
+    const forwardDistance = squaredDistanceToRect(options.forwardRect, clientX, clientY);
+    if (!Number.isFinite(backwardDistance) && !Number.isFinite(forwardDistance)) return 'nearest';
+    if (backwardDistance === forwardDistance) return 'nearest';
+    return backwardDistance < forwardDistance ? 'backward' : 'forward';
+}
+
+function firstRangeRect(range, predicate = (rect) => rect.width > 0 || rect.height > 0) {
+    const clientRect = [...(range?.getClientRects?.() || [])].find(predicate);
+    if (clientRect) return snapshotRect(clientRect);
+    const boundingRect = range?.getBoundingClientRect?.();
+    return boundingRect && predicate(boundingRect) ? snapshotRect(boundingRect) : null;
+}
+
+/** Measure a writing-mode-aware visual caret without mutating generated page DOM. */
+export function getFlowSourcePointClientRect(pageElement, page, sourcePoint, options = {}) {
     const position = mapFlowSourcePointToDomPosition(pageElement, page, sourcePoint);
     const ownerDocument = pageElement?.ownerDocument;
     if (!position || !ownerDocument?.createRange) return null;
+    const writingMode = requireCaretWritingMode(options.writingMode);
     const range = ownerDocument.createRange();
     range.setStart(position.node, position.offset);
     range.collapse(true);
-    let rect = firstUsableRect(range);
-    if (rect?.height > 0) return snapshotRect(rect, { width: 0, right: rect.left });
+    const collapsedRect = firstRangeRect(range, (rect) => hasInlineExtent(rect, writingMode));
 
     const fragment = getPageFragments(page)[position.fragmentIndex];
     const text = String(fragment?.text || '');
     const segments = segmentGraphemes(text, fragment?.languageKey || 'und');
     const next = segments.find((segment) => segment.index >= position.offset);
     const previous = [...segments].reverse().find((segment) => segment.end <= position.offset);
+    let nextRect = null;
+    let previousRect = null;
     if (next) {
         range.setStart(position.node, next.index);
         range.setEnd(position.node, next.end);
-        rect = firstUsableRect(range);
-        return rect?.height > 0 ? snapshotRect(rect, { width: 0, right: rect.left }) : null;
+        nextRect = firstRangeRect(range, (rect) => rect.width > 0 && rect.height > 0);
     }
     if (previous) {
         range.setStart(position.node, previous.index);
         range.setEnd(position.node, previous.end);
-        rect = firstUsableRect(range);
-        return rect?.height > 0 ? snapshotRect(rect, { left: rect.right, width: 0 }) : null;
+        previousRect = firstRangeRect(range, (rect) => rect.width > 0 && rect.height > 0);
     }
-    const fragmentRect = position.fragmentElement?.getBoundingClientRect?.();
-    if (fragmentRect?.height > 0) {
-        return snapshotRect(fragmentRect, {
-            right: fragmentRect.left,
-            width: 0,
-        });
-    }
-    return null;
+    return resolveFlowCaretClientGeometry({
+        writingMode,
+        affinity: sourcePoint?.affinity,
+        collapsedRect,
+        nextRect,
+        previousRect,
+        fragmentRect: position.fragmentElement?.getBoundingClientRect?.(),
+    });
 }
 
 /** Measure visible selection rectangles when both endpoints exist on one page. */

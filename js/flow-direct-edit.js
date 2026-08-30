@@ -8,6 +8,7 @@
 import { mapFlowTextUtf16OffsetToGrapheme } from './flow-source-mapping.js';
 
 const DIRECT_TEXT_TYPES = new Set(['heading', 'paragraph']);
+const DIRECT_TEXT_WRITING_MODES = new Set(['horizontal-tb', 'vertical-rl']);
 const UNSUPPORTED_LINE_BREAK = /[\r\n\u2028\u2029]/u;
 
 export class FlowDirectEditError extends Error {
@@ -87,7 +88,7 @@ function requireCurrentDirectSession(groupInput, session) {
         fail('FLOW_DIRECT_SESSION_STALE', 'The direct-edit session no longer targets the active Flow group.');
     }
     const sourceLanguage = String(group.flow.document.sourceLanguage || '');
-    if (session.languageKey !== sourceLanguage || session.writingMode !== 'horizontal-tb') {
+    if (session.languageKey !== sourceLanguage || !DIRECT_TEXT_WRITING_MODES.has(session.writingMode)) {
         fail('FLOW_DIRECT_SESSION_STALE', 'The direct-edit language or writing mode changed.');
     }
     const { section, block } = requireSourceTarget(group, session.sectionId, session.blockId);
@@ -102,6 +103,16 @@ function requireCurrentDirectSession(groupInput, session) {
         });
     }
     return { group, sourceLanguage, section, block, currentText };
+}
+
+function requireHorizontalStructuralSession(session) {
+    if (session?.writingMode !== 'horizontal-tb') {
+        fail(
+            'FLOW_DIRECT_VERTICAL_STRUCTURE_UNSUPPORTED',
+            'Vertical direct editing does not yet change Heading or Paragraph structure.',
+            { writingMode: session?.writingMode || '' },
+        );
+    }
 }
 
 function requireNewBlockId(value) {
@@ -176,8 +187,8 @@ export function createFlowDirectEditSession(groupInput, options = {}) {
             pageLanguageKey,
         });
     }
-    if (writingMode !== 'horizontal-tb') {
-        fail('FLOW_DIRECT_HORIZONTAL_ONLY', 'Direct page editing currently supports horizontal writing only.', {
+    if (!DIRECT_TEXT_WRITING_MODES.has(writingMode)) {
+        fail('FLOW_DIRECT_WRITING_MODE_UNSUPPORTED', 'Direct page editing requires horizontal-tb or vertical-rl.', {
             writingMode,
         });
     }
@@ -257,8 +268,9 @@ export function createFlowDirectEditTransaction(groupInput, session, input = {})
         blockType: session.blockType,
         languageKey: sourceLanguage,
     };
+    const collapsed = selectionStart === selectionEnd;
     const startPoint = createSourcePoint(target, text, selectionStart, 'forward');
-    const endPoint = createSourcePoint(target, text, selectionEnd, 'backward');
+    const endPoint = createSourcePoint(target, text, selectionEnd, collapsed ? 'forward' : 'backward');
     const focusPoint = selectionDirection === 'backward' ? startPoint : endPoint;
 
     return Object.freeze({
@@ -300,6 +312,7 @@ export function createFlowDirectParagraphSplitTransaction(groupInput, session, i
         block,
         currentText,
     } = requireCurrentDirectSession(groupInput, session);
+    requireHorizontalStructuralSession(session);
     if (block.type !== 'paragraph') {
         fail('FLOW_DIRECT_PARAGRAPH_REQUIRED', 'Enter directly splits Paragraph blocks only.', {
             blockId: block.id,
@@ -376,6 +389,7 @@ export function createFlowDirectHeadingParagraphTransaction(groupInput, session,
         block,
         currentText,
     } = requireCurrentDirectSession(groupInput, session);
+    requireHorizontalStructuralSession(session);
     if (block.type !== 'heading') {
         fail('FLOW_DIRECT_HEADING_REQUIRED', 'Heading Paragraph insertion requires a Heading block.', {
             blockId: block.id,
@@ -445,6 +459,7 @@ export function createFlowDirectEmptyParagraphAfterHeadingRemovalTransaction(gro
         block,
         currentText,
     } = requireCurrentDirectSession(groupInput, session);
+    requireHorizontalStructuralSession(session);
     if (block.type !== 'paragraph') {
         fail('FLOW_DIRECT_PARAGRAPH_REQUIRED', 'Empty Paragraph removal requires a Paragraph block.', {
             blockId: block.id,
@@ -529,6 +544,7 @@ export function createFlowDirectParagraphMergeBackwardTransaction(groupInput, se
         block,
         currentText,
     } = requireCurrentDirectSession(groupInput, session);
+    requireHorizontalStructuralSession(session);
     if (block.type !== 'paragraph') {
         fail('FLOW_DIRECT_PARAGRAPH_REQUIRED', 'Backspace directly merges Paragraph blocks only.', {
             blockId: block.id,
@@ -609,6 +625,7 @@ export function createFlowDirectParagraphMergeForwardTransaction(groupInput, ses
         block,
         currentText,
     } = requireCurrentDirectSession(groupInput, session);
+    requireHorizontalStructuralSession(session);
     if (block.type !== 'paragraph') {
         fail('FLOW_DIRECT_PARAGRAPH_REQUIRED', 'Delete directly merges Paragraph blocks only.', {
             blockId: block.id,

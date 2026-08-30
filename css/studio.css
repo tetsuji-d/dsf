@@ -8296,6 +8296,13 @@ textarea.ps-meta-input {
     pointer-events: none;
 }
 
+.flow-direct-input-proxy[data-flow-writing-mode="vertical-rl"] {
+    max-width: none;
+    writing-mode: vertical-rl;
+    text-orientation: mixed;
+    direction: ltr;
+}
+
 .flow-direct-caret,
 .flow-direct-selection,
 .flow-direct-composition {
@@ -8309,6 +8316,10 @@ textarea.ps-meta-input {
     width: 2px;
     background: #2563eb;
     animation: flow-direct-caret-blink 1s steps(1, end) infinite;
+}
+
+.flow-direct-caret[data-flow-caret-orientation="horizontal"] {
+    height: 2px;
 }
 
 .flow-direct-selection {
@@ -8327,6 +8338,17 @@ textarea.ps-meta-input {
     text-decoration: underline 2px #2563eb;
     text-underline-offset: 3px;
     background: color-mix(in srgb, white 88%, transparent);
+}
+
+.flow-direct-composition[data-flow-writing-mode="vertical-rl"] {
+    width: auto;
+    max-width: none;
+    height: max-content;
+    max-height: min(260px, 70%);
+    writing-mode: vertical-rl;
+    text-orientation: mixed;
+    direction: ltr;
+    text-underline-position: right;
 }
 
 .flow-direct-edit-reflow-pending .flow-direct-caret {

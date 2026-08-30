@@ -655,6 +655,37 @@ WYSIWYGでも保存正本はFlowDocumentであり、生成ページやページ�
   翻訳ページ、原文fallback、`vertical-rl`はこの単位では変更しない。
 - Flow schema、DSP／Firestore、Press、Viewer、Horizon publication contractは変更しない。
 
+## Paginated WYSIWYG vertical caret geometry（10A-4A）
+
+- 原稿言語・`vertical-rl`の生成ページ本文クリックを、既存のBrowser caret hit-testとsemantic
+  Section／Block／grapheme mappingへ接続する。source offsetの順序は横書きと共通で、列順に合わせて反転しない。
+- writing modeを明示してcaret geometryを解決する。横書きは文字の左／右辺に高さを持つ縦棒、縦書きは
+  文字の上／下辺に幅を持つ横棒とし、先頭、途中、末尾、空Paragraphを同じpure contractで扱う。
+  折返し行／列の同一source offsetでは、click座標に近い前側／後側のvisual affinityをruntimeだけで保持する。
+- Studioの縦書きクリックはruntime-onlyの横棒caretと非focusable anchorだけを表示する。
+  不可視textarea、`selectFlowDirectEditing()`、input／beforeinput／composition listenerは接続せず、
+  semantic source、History、revision、autosave、paginationを変更しない。
+- `createFlowDirectEditSession()`とdirect-edit transactionの`horizontal-tb`限定guardを維持する。
+  縦書きの通常入力と日本語IMEは10A-4B、既存構造編集の縦書き開放は10A-4Cへ分離する。
+- 翻訳ページ、原文fallback、複数Block／複数page選択、縦中横、ルビ、圏点、割注は変更しない。
+  Fixed Layout、Flow schema、DSP／Firestore、Press、Viewer、Horizon publication contractも変更しない。
+
+## Paginated WYSIWYG vertical text input and IME（10A-4B）
+
+- 原稿言語・`vertical-rl`のHeading／Paragraphを、10A-4Aのsemantic caret mappingから既存の
+  runtime-only textareaへ接続する。入力は横書きと同じsemantic `setText` transactionを使い、
+  FlowDocumentだけを正本として既存History、autosave、増分reflowへ統合する。
+- textareaは縦書き横棒caretの位置へ置き、生成本文と同じwriting mode、font、line height、letter spacing、
+  vertical OpenType featureを明示する。10A-4Aのread-only anchorは、有効な直接編集sessionでは使用しない。
+- 日本語IMEのcomposition中はsemantic source、History、autosave、paginationを変更せず、runtime-onlyの
+  composition文字列だけを縦書きで表示する。composition開始時に進行中の旧projectionを中止し、確定時だけ
+  1回の`setText`として反映する。変換取消時は、中止前から必要だったreflowだけを再開する。
+- IME変換中のEnter、Escape、Backspace、Delete、history inputをStudio操作として解釈しない。
+  縦書きの通常文字入力と選択範囲置換だけをこの単位で開放し、EnterによるParagraph追加／分割、
+  Block境界のBackspace／Deleteによる結合はUIとpure transactionの両方で拒否する。構造編集は10A-4Cとする。
+- 翻訳ページ、原文fallback、複数行貼り付け、縦中横、ルビ、圏点、割注は変更しない。
+  Flow schema、DSP／Firestore、Press、Viewer、Horizon publication contractも変更しない。
+
 ## DOM preview boundary（Commit 3）
 
 `flow-preview.html`は、FlowDocumentと生成ページの関係を実ブラウザで確認するための独立画面である。
