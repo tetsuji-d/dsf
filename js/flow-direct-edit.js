@@ -9,7 +9,6 @@ import { mapFlowTextUtf16OffsetToGrapheme } from './flow-source-mapping.js';
 
 const DIRECT_TEXT_TYPES = new Set(['heading', 'paragraph']);
 const DIRECT_TEXT_WRITING_MODES = new Set(['horizontal-tb', 'vertical-rl']);
-const UNSUPPORTED_LINE_BREAK = /[\r\n\u2028\u2029]/u;
 const UNSUPPORTED_DIRECT_TEXT_LINE_BREAK = /[\r\u2028\u2029]/u;
 
 export class FlowDirectEditError extends Error {
@@ -62,46 +61,6 @@ function requireDirectEditableText(value) {
     return text;
 }
 
-function requireSingleLineText(value, code = 'FLOW_DIRECT_MULTILINE_UNSUPPORTED') {
-    const text = requireDirectText(value);
-    if (UNSUPPORTED_LINE_BREAK.test(text)) {
-        fail(code, 'Direct page editing does not yet change paragraph structure or line-break blocks.');
-    }
-    return text;
-}
-
-function requirePreservedLineBreakStructure(previousText, nextText) {
-    const maximumPrefixLength = Math.min(previousText.length, nextText.length);
-    let prefixLength = 0;
-    while (
-        prefixLength < maximumPrefixLength
-        && previousText.charCodeAt(prefixLength) === nextText.charCodeAt(prefixLength)
-    ) {
-        prefixLength += 1;
-    }
-
-    let previousSuffixStart = previousText.length;
-    let nextSuffixStart = nextText.length;
-    while (
-        previousSuffixStart > prefixLength
-        && nextSuffixStart > prefixLength
-        && previousText.charCodeAt(previousSuffixStart - 1) === nextText.charCodeAt(nextSuffixStart - 1)
-    ) {
-        previousSuffixStart -= 1;
-        nextSuffixStart -= 1;
-    }
-
-    const removedText = previousText.slice(prefixLength, previousSuffixStart);
-    const insertedText = nextText.slice(prefixLength, nextSuffixStart);
-    if (UNSUPPORTED_LINE_BREAK.test(removedText) || UNSUPPORTED_LINE_BREAK.test(insertedText)) {
-        fail(
-            'FLOW_DIRECT_LINE_BREAK_STRUCTURE_UNSUPPORTED',
-            'Direct page editing cannot yet add, remove, or replace embedded line breaks.',
-            { prefixLength, removedText, insertedText },
-        );
-    }
-}
-
 function requireSelectionOffset(value, maximum, name) {
     const offset = Number(value);
     if (!Number.isInteger(offset) || offset < 0 || offset > maximum) {
@@ -152,16 +111,6 @@ function requireCurrentDirectSession(groupInput, session) {
         });
     }
     return { group, sourceLanguage, section, block, currentText };
-}
-
-function requireHorizontalStructuralSession(session) {
-    if (session?.writingMode !== 'horizontal-tb') {
-        fail(
-            'FLOW_DIRECT_VERTICAL_STRUCTURE_UNSUPPORTED',
-            'Vertical direct editing does not yet change Heading or Paragraph structure.',
-            { writingMode: session?.writingMode || '' },
-        );
-    }
 }
 
 function requireNewBlockId(value) {
@@ -326,12 +275,13 @@ export function createFlowDirectBlockFormatTransaction(groupInput, session, inpu
 
 /**
  * Convert the current textarea value into one semantic setText transaction.
- * Stale source and structural line breaks are rejected before state mutation.
+ * LF stays inside the same semantic block: it may be inserted, deleted, or
+ * replaced without creating/removing blocks. Stale source and non-LF line
+ * separators are rejected before state mutation.
  */
 export function createFlowDirectEditTransaction(groupInput, session, input = {}) {
     const { group, sourceLanguage } = requireCurrentDirectSession(groupInput, session);
-    const text = requireDirectText(input.text);
-    requirePreservedLineBreakStructure(session.expectedText, text);
+    const text = requireDirectEditableText(input.text);
     const selectionStart = requireSelectionOffset(input.selectionStart, text.length, 'selectionStart');
     const selectionEnd = requireSelectionOffset(input.selectionEnd, text.length, 'selectionEnd');
     if (selectionStart > selectionEnd) {
@@ -533,8 +483,6 @@ export function createFlowDirectEmptyParagraphAfterHeadingRemovalTransaction(gro
         block,
         currentText,
     } = requireCurrentDirectSession(groupInput, session);
-    requireHorizontalStructuralSession(session);
-    requireSingleLineText(currentText);
     if (block.type !== 'paragraph') {
         fail('FLOW_DIRECT_PARAGRAPH_REQUIRED', 'Empty Paragraph removal requires a Paragraph block.', {
             blockId: block.id,
@@ -572,7 +520,7 @@ export function createFlowDirectEmptyParagraphAfterHeadingRemovalTransaction(gro
     }
     requireDisposableEmptyParagraph(group, block, sourceLanguage);
 
-    const headingText = requireSingleLineText(previousBlock.texts?.[sourceLanguage] ?? '');
+    const headingText = requireDirectEditableText(previousBlock.texts?.[sourceLanguage] ?? '');
     const headingEnd = headingText.length;
     const focusPoint = createSourcePoint({
         sectionId: session.sectionId,
@@ -619,8 +567,6 @@ export function createFlowDirectParagraphMergeBackwardTransaction(groupInput, se
         block,
         currentText,
     } = requireCurrentDirectSession(groupInput, session);
-    requireHorizontalStructuralSession(session);
-    requireSingleLineText(currentText);
     if (block.type !== 'paragraph') {
         fail('FLOW_DIRECT_PARAGRAPH_REQUIRED', 'Backspace directly merges Paragraph blocks only.', {
             blockId: block.id,
@@ -652,7 +598,7 @@ export function createFlowDirectParagraphMergeBackwardTransaction(groupInput, se
     }
     requireMergeRemovalSafe(block, sourceLanguage);
 
-    const previousText = requireSingleLineText(previousBlock.texts?.[sourceLanguage] ?? '');
+    const previousText = requireDirectEditableText(previousBlock.texts?.[sourceLanguage] ?? '');
     const mergedText = previousText + currentText;
     const joinOffset = previousText.length;
     const focusPoint = createSourcePoint({
@@ -701,8 +647,6 @@ export function createFlowDirectParagraphMergeForwardTransaction(groupInput, ses
         block,
         currentText,
     } = requireCurrentDirectSession(groupInput, session);
-    requireHorizontalStructuralSession(session);
-    requireSingleLineText(currentText);
     if (block.type !== 'paragraph') {
         fail('FLOW_DIRECT_PARAGRAPH_REQUIRED', 'Delete directly merges Paragraph blocks only.', {
             blockId: block.id,
@@ -735,7 +679,7 @@ export function createFlowDirectParagraphMergeForwardTransaction(groupInput, ses
     }
     requireMergeRemovalSafe(nextBlock, sourceLanguage);
 
-    const nextText = requireSingleLineText(nextBlock.texts?.[sourceLanguage] ?? '');
+    const nextText = requireDirectEditableText(nextBlock.texts?.[sourceLanguage] ?? '');
     const mergedText = currentText + nextText;
     const joinOffset = currentText.length;
     const focusPoint = createSourcePoint({

@@ -37,5 +37,7 @@
 - `npm run build:staging`合格。lint／TypeScript専用scriptは未設定。
 - これはOSの変換候補ウィンドウを再現するテストではない。Windows日本語IMEの実候補位置・確定操作は
   次のステージング反映後に実機確認が必要。仮表示の長文折返し／ページ越境は今回変更していない。
-- 選択範囲は既存reflow同様、設定後にfocus側の単一caretへ戻る。複数Blockの範囲書式変更は未対応。
+- 当初は設定後にfocus側の単一caretへ戻っていたが、後続の
+  [基本キー操作・選択保持](flow-direct-edit-navigation.md)で同じBlock内の範囲保持へ修正。
+  複数Blockの範囲書式変更は未対応。
 - この単位ではcommit／deployを実行していない。

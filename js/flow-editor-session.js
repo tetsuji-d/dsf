@@ -94,9 +94,27 @@ export function selectFlowDirectEditing(groupId, options = {}) {
             ? optionalOffset(options.utf16Offset)
             : previous.utf16Offset,
         affinity: String(options.affinity || previous.affinity || 'nearest'),
+        // A direct selection is a range in the semantic block, not in a page fragment.
+        // An explicit point (click / structural edit) collapses it unless a range is supplied.
+        selectionStart: optionalOffset(options.selectionStart ?? options.utf16Offset),
+        selectionEnd: optionalOffset(options.selectionEnd ?? options.selectionStart ?? options.utf16Offset),
+        selectionDirection: options.selectionDirection === 'backward' ? 'backward' : 'none',
     };
     selectionByGroup.set(key, next);
     return Object.freeze({ ...next });
+}
+
+/** Reapply a runtime range after pagination recreates the input DOM. */
+export function restoreFlowDirectSelection(session, saved) {
+    if (!session || !saved || saved.mode !== 'direct'
+        || session.groupId !== saved.groupId || session.sectionId !== saved.sectionId
+        || session.blockId !== saved.blockId || session.languageKey !== saved.languageKey
+        || saved.selectionStart === null || saved.selectionStart === undefined) return session;
+    const length = session.expectedText.length;
+    const start = Math.min(saved.selectionStart, length);
+    const end = Math.max(start, Math.min(saved.selectionEnd ?? start, length));
+    return Object.freeze({ ...session, selectionStart: start, selectionEnd: end,
+        selectionDirection: saved.selectionDirection === 'backward' ? 'backward' : 'none' });
 }
 
 export function isFlowSourceSelected(groupId) {

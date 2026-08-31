@@ -8264,6 +8264,77 @@ textarea.ps-meta-input {
     background: #fff;
 }
 
+/* Flow has its own scroll surface. Fixed pages retain their stage transform,
+   image adjustment layers, and existing pan/zoom behavior unchanged. */
+#canvas-view.flow-canvas-active {
+    touch-action: pan-x pan-y;
+}
+
+#flow-canvas-viewport {
+    position: absolute;
+    inset: 0;
+    z-index: 25;
+    overflow: auto;
+    direction: ltr;
+    overscroll-behavior: contain;
+    touch-action: pan-x pan-y;
+}
+
+#flow-canvas-viewport[hidden] { display: none; }
+
+#flow-canvas-track {
+    position: relative;
+    direction: ltr;
+}
+
+.flow-canvas-page-slot {
+    position: absolute;
+    overflow: visible;
+}
+
+.flow-canvas-page-frame {
+    position: relative;
+    width: 100%;
+    height: var(--flow-canvas-page-height, 640px);
+    /* A downscaled canonical page must not enlarge horizontal scroll overflow
+       with its unscaled 360px box. Clip only at the existing page boundary. */
+    overflow: clip;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.28);
+}
+
+.flow-canvas-page-frame > .flow-editor-page-surface {
+    position: relative;
+    inset: auto;
+    width: var(--dsf-canonical-page-width, 360px);
+    height: var(--dsf-canonical-page-height, 640px);
+    transform: scale(var(--flow-canvas-scale, 1));
+    transform-origin: top left;
+}
+
+.flow-canvas-page-slot[data-selected="true"] > .flow-canvas-page-frame {
+    outline: 2px solid var(--primary, #2563eb);
+    outline-offset: 3px;
+}
+
+.flow-canvas-page-label {
+    position: absolute;
+    top: calc(var(--flow-canvas-page-height, 640px) + 6px);
+    left: 0;
+    width: 100%;
+    color: var(--text-secondary, #b3bbc8);
+    font-size: 12px;
+    line-height: 18px;
+    text-align: center;
+    font-variant-numeric: tabular-nums;
+    pointer-events: none;
+    user-select: none;
+}
+
+#canvas-view.flow-canvas-active #image-zoom-controls-floating,
+#canvas-view.flow-canvas-active .fab-btn {
+    display: none;
+}
+
 .flow-editor-page-surface {
     position: absolute;
     inset: 0;

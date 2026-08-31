@@ -35,6 +35,8 @@ import { formatPublicationDate, normalizePlanTier } from './publication.js';
 import { PROJECT_SCHEMA_VERSION, createFlowGroupBlock, hasFlowGroups } from './flow-project-model.js';
 import { applyFlowAuthoringOperation } from './flow-authoring.js';
 import { alignFlowDirectCompositionElement } from './flow-direct-composition.js';
+import { createFlowCanvasView } from './flow-canvas-view.js';
+import { measureFlowDirectNavigationStops, resolveFlowDirectNavigation } from './flow-direct-navigation.js';
 import {
     FlowDirectEditError,
     createFlowDirectEditSession,
@@ -84,6 +86,7 @@ import {
     isFlowDirectEditing,
     isFlowSourceSelected,
     resetFlowEditorSelections,
+    restoreFlowDirectSelection,
     selectFlowDirectEditing,
     selectFlowGeneratedPage,
     selectFlowSource,
@@ -153,6 +156,28 @@ let _flowDirectCompositionText = '';
 let _flowDirectCompositionRange = null;
 let _flowDirectEditMounting = false;
 let _flowDirectEditApplying = false;
+let _flowDirectPreferredInlinePosition = null;
+let _flowDirectPointerCleanup = null;
+let _flowCanvasView = null;
+let _flowCanvasContextKey = '';
+
+function hideFlowCanvas() {
+    _flowCanvasView?.setVisible(false);
+    _flowCanvasContextKey = '';
+    document.getElementById('canvas-view')?.classList.remove('flow-canvas-active');
+    const stage = document.getElementById('canvas-stage');
+    if (stage) stage.hidden = false;
+}
+
+function rememberFlowDirectSelection(session = _flowDirectEditSession) {
+    if (!session) return;
+    selectFlowDirectEditing(session.groupId, {
+        ...session.sourcePoint,
+        selectionStart: session.selectionStart,
+        selectionEnd: session.selectionEnd,
+        selectionDirection: session.selectionDirection,
+    });
+}
 
 registerTranslationProvider(
     BROWSER_TRANSLATOR_PROVIDER_ID,
@@ -274,6 +299,7 @@ function activateProjectionPage(page) {
 }
 
 function clearFlowDirectEditRuntime(options = {}) {
+    _flowDirectPointerCleanup?.();
     const pageElement = _flowDirectEditProxy?._flowDirectPageElement;
     if (pageElement) {
         pageElement.classList.remove('flow-direct-edit-active', 'flow-direct-edit-reflow-pending');
@@ -287,6 +313,9 @@ function clearFlowDirectEditRuntime(options = {}) {
     _flowDirectCompositionRange = null;
     _flowDirectEditMounting = false;
     _flowDirectEditApplying = false;
+    _flowCanvasView?.getMountedPages().forEach(({ pageElement }) => {
+        pageElement.querySelectorAll('[data-flow-direct-indicator]').forEach(element => element.remove());
+    });
     if (options.resetComposition !== false) _flowAuthoringComposing = false;
     syncFlowDirectFormatControls();
 }
@@ -344,7 +373,7 @@ function handleFlowDirectFormatChange(event) {
     try {
         applyFlowAuthoringEdit(transaction.operation, { immediate: true });
         _flowDirectEditSession = transaction.nextSession;
-        selectFlowDirectEditing(session.groupId, transaction.nextSession.sourcePoint);
+        rememberFlowDirectSelection();
         proxy.dataset.flowReflowPending = 'true';
         proxy._flowDirectPageElement?.classList.add('flow-direct-edit-reflow-pending');
     } finally {
@@ -422,7 +451,9 @@ function renderFlowDirectEditIndicators(proxy = _flowDirectEditProxy) {
     const pageElement = proxy?._flowDirectPageElement;
     const page = proxy?._flowDirectPageEntry;
     if (!proxy || proxy !== _flowDirectEditProxy || !session || !pageElement || !page) return;
-    pageElement.querySelectorAll('[data-flow-direct-indicator]').forEach((element) => element.remove());
+    const mountedPages = _flowCanvasView?.getMountedPages() || [{ pageElement, page }];
+    mountedPages.forEach(entry => entry.pageElement.querySelectorAll('[data-flow-direct-indicator]')
+        .forEach(element => element.remove()));
     const isComposing = _flowAuthoringComposing && proxy.dataset.composing === 'true';
     if (!isComposing && String(proxy.value || '') !== session.expectedText) return;
 
@@ -457,12 +488,21 @@ function renderFlowDirectEditIndicators(proxy = _flowDirectEditProxy) {
             session,
             text,
             direction === 'backward' ? start : end,
-            direction === 'backward' ? 'backward' : 'forward',
+            session.sourcePoint?.affinity || (direction === 'backward' ? 'backward' : 'forward'),
         );
 
     if (start < end) {
-        getFlowSourceRangeClientRects(pageElement, page.page, startPoint, endPoint).forEach((rect) => {
-            const local = toFlowPageLocalRect(pageElement, rect);
+        mountedPages.forEach(({ pageElement: surface, page: entry }) => {
+        const fragments = entry.page.fragments.filter(fragment => fragment.blockId === session.blockId
+            && fragment.sectionId === session.sectionId);
+        if (!fragments.length) return;
+        const clippedStart = Math.max(startPoint.utf16Offset, fragments[0].sourceRange.start);
+        const clippedEnd = Math.min(endPoint.utf16Offset, fragments.at(-1).sourceRange.end);
+        if (clippedStart >= clippedEnd) return;
+        const pageStart = createFlowDirectSourcePoint(session, text, clippedStart, 'forward');
+        const pageEnd = createFlowDirectSourcePoint(session, text, clippedEnd, 'backward');
+        getFlowSourceRangeClientRects(surface, entry.page, pageStart, pageEnd).forEach((rect) => {
+            const local = toFlowPageLocalRect(surface, rect);
             if (!local) return;
             const highlight = document.createElement('span');
             highlight.className = 'flow-direct-selection';
@@ -473,18 +513,27 @@ function renderFlowDirectEditIndicators(proxy = _flowDirectEditProxy) {
                 width: `${local.width}px`,
                 height: `${local.height}px`,
             });
-            pageElement.appendChild(highlight);
+            surface.appendChild(highlight);
+        });
         });
     }
 
+    const focusLocation = findFlowSourcePointInPages(mountedPages.map(entry => entry.page), focusPoint);
+    const focusEntry = mountedPages[focusLocation?.pageIndex] || { pageElement, page };
     const renderedCaret = renderFlowCaretIndicator(
-        pageElement,
-        page,
+        focusEntry.pageElement,
+        focusEntry.page,
         focusPoint,
         session.writingMode,
     );
     if (!renderedCaret) return;
-    const { localCaret, caretRect } = renderedCaret;
+    // The input/IME anchor belongs to the replacement start, while the visible
+    // focus caret may be on another page. Keep the native input stable before IME starts.
+    const inputRect = start < end
+        ? getFlowSourcePointClientRect(pageElement, page.page, startPoint, { writingMode: session.writingMode })
+        : renderedCaret.caretRect;
+    const caretRect = inputRect || renderedCaret.caretRect;
+    const localCaret = toFlowPageLocalRect(pageElement, caretRect);
     const verticalWriting = session.writingMode === 'vertical-rl';
     const sourceFragment = [...pageElement.querySelectorAll('.flow-dom-block')].find((element) => (
         element.dataset.flowSectionId === session.sectionId
@@ -580,7 +629,7 @@ function updateFlowDirectSelectionFromProxy(proxy, options = {}) {
         || _flowDirectEditMounting
         || _flowDirectEditApplying
         || _flowAuthoringComposing
-        || proxy.dataset.flowReflowPending === 'true'
+        || (proxy.dataset.flowReflowPending === 'true' && !options.allowPending)
         || String(proxy.value || '') !== _flowDirectEditSession.expectedText
     ) return;
     const text = _flowDirectEditSession.expectedText;
@@ -592,7 +641,9 @@ function updateFlowDirectSelectionFromProxy(proxy, options = {}) {
         _flowDirectEditSession,
         text,
         focusOffset,
-        selectionDirection === 'backward' ? 'backward' : 'forward',
+        focusOffset === _flowDirectEditSession.sourcePoint.utf16Offset
+            ? _flowDirectEditSession.sourcePoint.affinity
+            : selectionDirection === 'backward' ? 'backward' : 'forward',
     );
     _flowDirectEditSession = Object.freeze({
         ..._flowDirectEditSession,
@@ -601,7 +652,7 @@ function updateFlowDirectSelectionFromProxy(proxy, options = {}) {
         selectionDirection,
         sourcePoint: focusPoint,
     });
-    selectFlowDirectEditing(_flowDirectEditSession.groupId, focusPoint);
+    rememberFlowDirectSelection();
     renderFlowDirectEditIndicators(proxy);
 
     if (options.navigate === false || _flowAuthoringComposing) return;
@@ -617,9 +668,9 @@ function updateFlowDirectSelectionFromProxy(proxy, options = {}) {
     } catch (_) {
         return;
     }
-    if (!location || location.pageIndex === getSelectedFlowRuntimePageIndex(activeBlock.id)) return;
+    if (!location) return;
     setSelectedFlowRuntimePageIndex(activeBlock.id, location.pageIndex, groupPages.length);
-    renderEditorFlowGeneratedPage(activeBlock, projection);
+    moveFlowDirectProxyToPage(location.pageIndex);
     syncThumbSelectionDom();
 }
 
@@ -636,6 +687,7 @@ function recoverFlowDirectEditProxy(proxy, message) {
 }
 
 function commitFlowDirectEdit(proxy) {
+    _flowDirectPreferredInlinePosition = null;
     if (proxy !== _flowDirectEditProxy || !_flowDirectEditSession || _flowDirectEditApplying) return;
     const group = getFlowGroupById(_flowDirectEditSession.groupId);
     if (!group) return;
@@ -660,7 +712,7 @@ function commitFlowDirectEdit(proxy) {
 
     const changed = transaction.operation.text !== _flowDirectEditSession.expectedText;
     _flowDirectEditSession = transaction.nextSession;
-    selectFlowDirectEditing(transaction.operation.groupId, transaction.selection.focusPoint);
+    rememberFlowDirectSelection();
     if (!changed) {
         if (proxy.dataset.flowReflowPending !== 'true') renderFlowDirectEditIndicators(proxy);
         return;
@@ -771,6 +823,7 @@ function insertFlowDirectParagraphAfterHeading(proxy) {
 }
 
 function applyFlowDirectEnter(proxy) {
+    _flowDirectPreferredInlinePosition = null;
     if (_flowDirectEditSession?.blockType === 'heading') {
         return insertFlowDirectParagraphAfterHeading(proxy);
     }
@@ -835,6 +888,7 @@ function isFlowDirectParagraphImmediatelyAfterHeading(group, session) {
 }
 
 function applyFlowDirectBackspace(proxy) {
+    _flowDirectPreferredInlinePosition = null;
     const group = _flowDirectEditSession
         ? getFlowGroupById(_flowDirectEditSession.groupId)
         : null;
@@ -897,6 +951,7 @@ function mergeFlowDirectParagraphBackward(proxy) {
 }
 
 function mergeFlowDirectParagraphForward(proxy) {
+    _flowDirectPreferredInlinePosition = null;
     if (proxy !== _flowDirectEditProxy || !_flowDirectEditSession || _flowDirectEditApplying) return false;
     const group = getFlowGroupById(_flowDirectEditSession.groupId);
     if (!group) return false;
@@ -948,27 +1003,9 @@ function mergeFlowDirectParagraphForward(proxy) {
     return true;
 }
 
-function rejectFlowDirectVerticalBoundaryMerge() {
-    if (_flowDirectEditSession?.writingMode !== 'vertical-rl') return false;
-    setFlowDirectEditNote('縦書きの段落結合は次の実装単位で対応します。Enterによる段落追加と通常の文字入力は続けられます。');
-    return true;
-}
-
-function flowDirectSelectionTouchesLineBreak(proxy, inputType) {
-    const value = String(proxy?.value || '');
-    const selectionStart = Number(proxy?.selectionStart);
-    const selectionEnd = Number(proxy?.selectionEnd);
-    if (!Number.isInteger(selectionStart) || !Number.isInteger(selectionEnd)) return false;
-    if (selectionStart !== selectionEnd) {
-        return /[\r\n\u2028\u2029]/u.test(value.slice(selectionStart, selectionEnd));
-    }
-    if (inputType === 'deleteContentBackward' && selectionStart > 0) {
-        return /[\r\n\u2028\u2029]/u.test(value.slice(selectionStart - 1, selectionStart));
-    }
-    if (inputType === 'deleteContentForward' && selectionEnd < value.length) {
-        return /[\r\n\u2028\u2029]/u.test(value.slice(selectionEnd, selectionEnd + 1));
-    }
-    return false;
+function insertFlowDirectLineBreak(proxy) {
+    proxy.setRangeText('\n', proxy.selectionStart, proxy.selectionEnd, 'end');
+    commitFlowDirectEdit(proxy);
 }
 
 function handleFlowDirectBeforeInput(event) {
@@ -978,11 +1015,6 @@ function handleFlowDirectBeforeInput(event) {
         event.preventDefault();
         if (event.inputType === 'historyUndo') performProjectUndo();
         else performProjectRedo();
-        return;
-    }
-    if (flowDirectSelectionTouchesLineBreak(event.target, event.inputType)) {
-        event.preventDefault();
-        setFlowDirectEditNote('既存の改行をまたぐ編集は未対応です。通常の文字編集は続けられます。');
         return;
     }
     if (event.inputType === 'insertParagraph' || event.inputType === 'insertLineBreak') {
@@ -996,7 +1028,7 @@ function handleFlowDirectBeforeInput(event) {
         && event.target.selectionEnd === 0
     ) {
         event.preventDefault();
-        if (!rejectFlowDirectVerticalBoundaryMerge()) applyFlowDirectBackspace(event.target);
+        applyFlowDirectBackspace(event.target);
         return;
     }
     if (
@@ -1005,14 +1037,14 @@ function handleFlowDirectBeforeInput(event) {
         && event.target.selectionEnd === String(event.target.value || '').length
     ) {
         event.preventDefault();
-        if (!rejectFlowDirectVerticalBoundaryMerge()) mergeFlowDirectParagraphForward(event.target);
+        mergeFlowDirectParagraphForward(event.target);
         return;
     }
     if (
-        /[\r\n\u2028\u2029]/u.test(String(event.data || ''))
+        /[\r\u2028\u2029]/u.test(String(event.data || ''))
     ) {
         event.preventDefault();
-        setFlowDirectEditNote('段落内改行は未対応です。現在はFlow原稿画面で編集してください。');
+        setFlowDirectEditNote('この改行文字は対応していません。通常の改行を使ってください。');
     }
 }
 
@@ -1117,6 +1149,7 @@ function mountFlowDirectEditProxy(activeBlock, page, pageElement, session) {
     });
     proxy.addEventListener('keydown', (event) => {
         if (event.isComposing || event.keyCode === 229 || _flowAuthoringComposing) return;
+        if (handleFlowDirectNavigation(event, proxy)) return;
         if (event.key === 'Escape') {
             event.preventDefault();
             exitFlowDirectEdit(activeBlock.id);
@@ -1124,7 +1157,11 @@ function mountFlowDirectEditProxy(activeBlock, page, pageElement, session) {
         }
         if (event.key === 'Enter') {
             event.preventDefault();
-            if (event.shiftKey || event.ctrlKey || event.metaKey || event.altKey) {
+            if (event.shiftKey && !event.ctrlKey && !event.metaKey && !event.altKey) {
+                insertFlowDirectLineBreak(proxy);
+                return;
+            }
+            if (event.ctrlKey || event.metaKey || event.altKey) {
                 setFlowDirectEditNote('修飾キー付きEnterは未対応です。現在はFlow原稿画面で編集してください。');
                 return;
             }
@@ -1141,7 +1178,7 @@ function mountFlowDirectEditProxy(activeBlock, page, pageElement, session) {
             && proxy.selectionEnd === 0
         ) {
             event.preventDefault();
-            if (!rejectFlowDirectVerticalBoundaryMerge()) applyFlowDirectBackspace(proxy);
+            applyFlowDirectBackspace(proxy);
             return;
         }
         if (
@@ -1154,14 +1191,16 @@ function mountFlowDirectEditProxy(activeBlock, page, pageElement, session) {
             && proxy.selectionEnd === String(proxy.value || '').length
         ) {
             event.preventDefault();
-            if (!rejectFlowDirectVerticalBoundaryMerge()) mergeFlowDirectParagraphForward(proxy);
+            mergeFlowDirectParagraphForward(proxy);
         }
     });
     proxy.addEventListener('paste', (event) => {
         const text = event.clipboardData?.getData?.('text/plain') || '';
         if (/[\r\n\u2028\u2029]/u.test(text)) {
             event.preventDefault();
-            setFlowDirectEditNote('複数行の貼り付けはFlow原稿画面で行ってください。');
+            proxy.setRangeText(text.replace(/\r\n?|[\u2028\u2029]/gu, '\n'),
+                proxy.selectionStart, proxy.selectionEnd, 'end');
+            commitFlowDirectEdit(proxy);
         }
     });
 
@@ -1176,12 +1215,13 @@ function mountFlowDirectEditProxy(activeBlock, page, pageElement, session) {
 
 function tryCreateFlowDirectEditSession(activeBlock, page, sourcePoint) {
     try {
-        return createFlowDirectEditSession(activeBlock, {
+        const session = createFlowDirectEditSession(activeBlock, {
             pageLanguageKey: page.languageKey,
             writingMode: page.writingMode,
             isSourceFallback: page.isSourceFallback,
             sourcePoint,
         });
+        return restoreFlowDirectSelection(session, sourcePoint);
     } catch (error) {
         if (error instanceof FlowDirectEditError) {
             return null;
@@ -1261,13 +1301,216 @@ function handleFlowGeneratedPageSourceClick(event, activeBlock, page, pageElemen
     refresh();
 }
 
+function moveFlowDirectProxyToPage(pageIndex, reveal = true) {
+    const proxy = _flowDirectEditProxy;
+    if (!proxy || !_flowCanvasView) return;
+    _flowCanvasView.ensurePage(pageIndex, reveal);
+    const pages = getEditorPageProjection()?.pages.filter(entry => entry.kind === 'flow'
+        && entry.groupId === _flowDirectEditSession.groupId) || [];
+    let inputPageIndex = pageIndex;
+    if (proxy.selectionStart !== proxy.selectionEnd) {
+        const startPoint = createFlowDirectSourcePoint(_flowDirectEditSession, proxy.value, proxy.selectionStart, 'forward');
+        inputPageIndex = findFlowSourcePointInPages(pages, startPoint)?.pageIndex ?? pageIndex;
+    }
+    const pageElement = _flowCanvasView.ensurePage(inputPageIndex, false);
+    setSelectedFlowRuntimePageIndex(_flowDirectEditSession.groupId, pageIndex, pages.length);
+    if (!pageElement || pageElement === proxy._flowDirectPageElement) {
+        renderFlowDirectEditIndicators(proxy);
+        return;
+    }
+    const start = proxy.selectionStart;
+    const end = proxy.selectionEnd;
+    const direction = proxy.selectionDirection;
+    proxy._flowDirectPageElement?.classList.remove('flow-direct-edit-active');
+    proxy._flowDirectPageElement = pageElement;
+    proxy._flowDirectPageEntry = pageElement._flowPageEntry;
+    pageElement.classList.add('flow-direct-edit-active');
+    pageElement.appendChild(proxy);
+    proxy.focus({ preventScroll: true });
+    proxy.setSelectionRange(start, end, direction);
+    _flowCanvasView.ensurePage(pageIndex, false);
+    renderFlowDirectEditIndicators(proxy);
+}
+
+function handleFlowDirectNavigation(event, proxy) {
+    if (!['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Home', 'End'].includes(event.key)
+        || event.altKey || ((event.ctrlKey || event.metaKey) && !['Home', 'End'].includes(event.key))) return false;
+    event.preventDefault();
+    if (proxy.dataset.flowReflowPending === 'true' || !_flowDirectEditSession || !_flowCanvasView) return true;
+    updateFlowDirectSelectionFromProxy(proxy, { navigate: false });
+    const session = _flowDirectEditSession;
+    const vertical = session.writingMode === 'vertical-rl';
+    const backward = vertical ? ['ArrowUp', 'ArrowRight'].includes(event.key)
+        : ['ArrowLeft', 'ArrowUp'].includes(event.key);
+    let point;
+    let pageIndex = getSelectedFlowRuntimePageIndex(session.groupId);
+    if (!event.shiftKey && proxy.selectionStart !== proxy.selectionEnd && event.key.startsWith('Arrow')) {
+        point = createFlowDirectSourcePoint(session, session.expectedText,
+            backward ? proxy.selectionStart : proxy.selectionEnd, backward ? 'backward' : 'forward');
+        _flowDirectPreferredInlinePosition = null;
+    } else if (event.ctrlKey || event.metaKey) {
+        const group = getFlowGroupById(session.groupId);
+        const blocks = group.flow.document.sections.flatMap(section => section.blocks
+            .filter(block => ['heading', 'paragraph'].includes(block.type)).map(block => ({ section, block })));
+        const target = event.key === 'Home' ? blocks[0] : blocks.at(-1);
+        if (!target) return true;
+        const text = target.block.texts[session.languageKey] || '';
+        point = createFlowDirectSourcePoint({ ...session, sectionId: target.section.id,
+            blockId: target.block.id, blockType: target.block.type }, text,
+            event.key === 'Home' ? 0 : text.length, event.key === 'Home' ? 'forward' : 'backward');
+        _flowDirectPreferredInlinePosition = null;
+    } else {
+        const resolve = () => resolveFlowDirectNavigation({
+            stops: measureFlowDirectNavigationStops(_flowCanvasView.getMountedPages().map(entry => ({
+                pageElement: entry.pageElement, page: entry.page.page, pageIndex: entry.pageIndex,
+            })), { writingMode: session.writingMode }),
+            sourcePoint: session.sourcePoint, pageIndex, key: event.key, writingMode: session.writingMode,
+            preferredInlinePosition: _flowDirectPreferredInlinePosition,
+        });
+        let result = resolve();
+        if (result?.edge && !result.moved) {
+            _flowCanvasView.ensurePage(pageIndex + (result.edge === 'end' ? 1 : -1), false);
+            result = resolve();
+        }
+        if (!result?.moved) return true;
+        point = result.sourcePoint;
+        pageIndex = result.pageIndex;
+        _flowDirectPreferredInlinePosition = result.preferredInlinePosition;
+    }
+    if (event.shiftKey && (point.blockId !== session.blockId || point.sectionId !== session.sectionId)) {
+        setFlowDirectEditNote('現在の選択範囲は同じ段落・見出し内です。段落をまたぐ範囲編集は原稿画面で行ってください。');
+        return true;
+    }
+    const projection = getEditorPageProjection();
+    const pages = projection.pages.filter(page => page.kind === 'flow' && page.groupId === session.groupId);
+    const location = findFlowSourcePointInPages(pages, point);
+    if (!location) return true;
+    pageIndex = location.pageIndex;
+    if (point.blockId !== session.blockId || point.sectionId !== session.sectionId) {
+        const nextSession = tryCreateFlowDirectEditSession(getFlowGroupById(session.groupId), pages[pageIndex], point);
+        if (!nextSession) return true;
+        selectFlowDirectEditing(session.groupId, point);
+        const surface = _flowCanvasView.ensurePage(pageIndex);
+        mountFlowDirectEditProxy(getActiveBlock(), pages[pageIndex], surface, nextSession);
+    } else {
+        const anchor = event.shiftKey ? (proxy.selectionDirection === 'backward'
+            ? proxy.selectionEnd : proxy.selectionStart) : point.utf16Offset;
+        _flowDirectEditSession = Object.freeze({ ...session, sourcePoint: point });
+        proxy.setSelectionRange(Math.min(anchor, point.utf16Offset), Math.max(anchor, point.utf16Offset),
+            point.utf16Offset < anchor ? 'backward' : 'none');
+        updateFlowDirectSelectionFromProxy(proxy, { navigate: false });
+        moveFlowDirectProxyToPage(pageIndex);
+    }
+    setSelectedFlowRuntimePageIndex(session.groupId, pageIndex, pages.length);
+    syncThumbSelectionDom();
+    syncPageNavigationSlider();
+    return true;
+}
+
+function handleFlowPagePointerDown(event, activeBlock, page, pageElement) {
+    if (event.button !== 0 || event.pointerType === 'touch' || _flowAuthoringComposing) return;
+    const previous = _flowDirectEditSession;
+    const previousAnchor = _flowDirectEditProxy?.selectionDirection === 'backward'
+        ? _flowDirectEditProxy.selectionEnd : _flowDirectEditProxy?.selectionStart;
+    handleFlowGeneratedPageSourceClick(event, activeBlock, page, pageElement);
+    const proxy = _flowDirectEditProxy;
+    const session = _flowDirectEditSession;
+    if (!proxy || !session) return;
+    _flowDirectPreferredInlinePosition = null;
+    const anchor = event.shiftKey && previous?.blockId === session.blockId
+        && previous.sectionId === session.sectionId ? previousAnchor : proxy.selectionStart;
+    if (event.shiftKey) {
+        proxy.setSelectionRange(Math.min(anchor, proxy.selectionStart), Math.max(anchor, proxy.selectionEnd),
+            session.sourcePoint.utf16Offset < anchor ? 'backward' : 'none');
+        updateFlowDirectSelectionFromProxy(proxy, { navigate: false });
+    }
+    const onMove = move => {
+        if (_flowDirectEditProxy !== proxy || !(move.buttons & 1)) return;
+        const surface = document.elementFromPoint(move.clientX, move.clientY)?.closest('.flow-editor-page-surface');
+        const entry = surface?._flowPageEntry;
+        if (!entry) return;
+        const point = mapFlowClientPointToSource(surface, entry.page, move.clientX, move.clientY,
+            { writingMode: session.writingMode });
+        if (!point || point.blockId !== session.blockId || point.sectionId !== session.sectionId) return;
+        move.preventDefault();
+        _flowDirectEditSession = Object.freeze({ ..._flowDirectEditSession, sourcePoint: point });
+        proxy.setSelectionRange(Math.min(anchor, point.utf16Offset), Math.max(anchor, point.utf16Offset),
+            point.utf16Offset < anchor ? 'backward' : 'none');
+        updateFlowDirectSelectionFromProxy(proxy, { navigate: false });
+        moveFlowDirectProxyToPage(entry.flowPageIndex, false);
+    };
+    const cleanup = () => {
+        document.removeEventListener('pointermove', onMove);
+        document.removeEventListener('pointerup', cleanup);
+        document.removeEventListener('pointercancel', cleanup);
+        _flowDirectPointerCleanup = null;
+    };
+    _flowDirectPointerCleanup = cleanup;
+    document.addEventListener('pointermove', onMove);
+    document.addEventListener('pointerup', cleanup);
+    document.addEventListener('pointercancel', cleanup);
+}
+
+function ensureFlowCanvasView() {
+    if (_flowCanvasView) return _flowCanvasView;
+    _flowCanvasView = createFlowCanvasView({
+        container: document.getElementById('canvas-view'),
+        getPinnedPageIndex: () => _flowDirectEditProxy?._flowDirectPageEntry?.flowPageIndex ?? null,
+        getPageLabel: page => getPageDisplayLabel(page.index, getEditorPageProjection()?.totalPageCount || 1,
+            state.book, state.bookMode),
+        onGeometryChange: () => renderFlowDirectEditIndicators(),
+        onScrollPage: index => {
+            const active = getActiveBlock();
+            if (active?.kind !== 'flow') return;
+            setSelectedFlowRuntimePageIndex(active.id, index);
+            syncThumbSelectionDom();
+            syncPageNavigationSlider();
+            syncEditorPageCounters();
+        },
+        onPageCreate: ({ pageElement, page }) => {
+            const activeBlock = getActiveBlock();
+            pageElement.dataset.flowSourceMapping = page.isSourceFallback ? 'source-fallback' : 'ready';
+            const editable = !page.isSourceFallback && page.languageKey === activeBlock?.flow?.document?.sourceLanguage;
+            pageElement.dataset.flowDirectCapability = editable ? 'editable' : 'unavailable';
+            pageElement.setAttribute('aria-label', `Flow生成ページ ${page.flowPageIndex + 1}。本文をクリックして編集`);
+            pageElement.addEventListener('pointerdown', event => {
+                handleFlowPagePointerDown(event, getActiveBlock(), page, pageElement);
+            });
+            // Touch remains available for horizontal scrolling; a tap opens editing.
+            pageElement.addEventListener('click', event => {
+                if (event.pointerType === 'touch') handleFlowGeneratedPageSourceClick(event, getActiveBlock(), page, pageElement);
+                event.stopPropagation();
+            });
+            pageElement.addEventListener('dblclick', event => {
+                event.preventDefault();
+                const proxy = _flowDirectEditProxy;
+                const session = _flowDirectEditSession;
+                if (!proxy || !session || _flowAuthoringComposing) return;
+                const offset = proxy.selectionStart;
+                const words = [...new Intl.Segmenter(session.languageKey, { granularity: 'word' }).segment(proxy.value)];
+                const word = words.find(item => offset >= item.index && offset < item.index + item.segment.length);
+                if (word) {
+                    proxy.setSelectionRange(word.index, word.index + word.segment.length);
+                    updateFlowDirectSelectionFromProxy(proxy);
+                }
+            });
+        },
+    });
+    return _flowCanvasView;
+}
+
 function renderEditorFlowGeneratedPage(activeBlock, projection) {
     const render = document.getElementById('content-render');
     if (!render || activeBlock?.kind !== 'flow') return;
+    if (_flowDirectEditProxy && _flowDirectEditSession?.groupId === activeBlock.id) {
+        updateFlowDirectSelectionFromProxy(_flowDirectEditProxy, { allowPending: true, navigate: false });
+    }
     const groupPages = projection.pages.filter((page) => (
         page.kind === 'flow' && page.groupId === activeBlock.id
     ));
     if (!groupPages.length) {
+        clearFlowDirectEditRuntime();
+        hideFlowCanvas();
         render.innerHTML = `
             <div id="flow-readonly-placeholder" data-flow-preview-state="error">
                 <span class="material-icons">error_outline</span>
@@ -1307,20 +1550,15 @@ function renderEditorFlowGeneratedPage(activeBlock, projection) {
     );
     render.classList.add('flow-editor-preview-active');
     clearFlowDirectEditRuntime({ resetComposition: false });
-    render.innerHTML = `
-        <div class="flow-editor-page-surface"
-            data-testid="flow-editor-generated-page"
-            data-flow-runtime-key="${escapeStudioHtml(page.runtimeKey)}"
-            data-publication-index="${page.index}"></div>`;
-    const pageElement = render.querySelector('.flow-editor-page-surface');
-    renderFlowGeneratedPage(pageElement, {
-        page: page.page,
-        pageBox: page.pageBox,
-        languageKey: page.languageKey,
-        writingMode: page.writingMode,
-        typography: page.typography,
-    });
-    pageElement.dataset.flowSourceMapping = page.isSourceFallback ? 'source-fallback' : 'ready';
+    render.replaceChildren();
+    const canvas = ensureFlowCanvasView();
+    document.getElementById('canvas-stage').hidden = true;
+    document.getElementById('canvas-view').classList.add('flow-canvas-active');
+    _flowCanvasContextKey = `${activeBlock.id}:${page.languageKey}`;
+    canvas.update(groupPages, selectedIndex, `${activeBlock.id}:${page.languageKey}`);
+    canvasScale = canvas.getScale();
+    syncCanvasZoomUI();
+    const pageElement = canvas.getPageElement(selectedIndex);
     const sourceLanguage = String(activeBlock.flow?.document?.sourceLanguage || '');
     const supportedDirectWritingMode = page.writingMode === 'horizontal-tb'
         || page.writingMode === 'vertical-rl';
@@ -1335,9 +1573,6 @@ function renderEditorFlowGeneratedPage(activeBlock, projection) {
             ? '本文をクリックすると直接編集を開始します'
             : '本文をクリックすると対応する原稿位置へ移動します';
         pageElement.setAttribute('aria-label', `Flow生成ページ。${pageActionLabel}`);
-        pageElement.addEventListener('click', (event) => {
-            handleFlowGeneratedPageSourceClick(event, activeBlock, page, pageElement);
-        });
     }
     if (isFlowDirectEditing(activeBlock.id)) {
         const directSession = tryCreateFlowDirectEditSession(
@@ -1345,7 +1580,10 @@ function renderEditorFlowGeneratedPage(activeBlock, projection) {
             page,
             getFlowEditorSelection(activeBlock.id),
         );
-        if (directSession) mountFlowDirectEditProxy(activeBlock, page, pageElement, directSession);
+        if (directSession) {
+            mountFlowDirectEditProxy(activeBlock, page, pageElement, directSession);
+            moveFlowDirectProxyToPage(selectedIndex, false);
+        }
         else selectFlowGeneratedPage(activeBlock.id);
     }
     render.dataset.flowPreviewState = 'ready';
@@ -1377,7 +1615,8 @@ function setFlowAuthoringSurfaceVisible(visible) {
     const surface = getFlowAuthoringSurface();
     const stage = document.getElementById('canvas-stage');
     if (surface) surface.hidden = !visible;
-    if (stage) stage.hidden = !!visible;
+    if (visible) _flowCanvasView?.setVisible(false);
+    if (stage) stage.hidden = !!visible || !!(_flowCanvasView && !_flowCanvasView.viewport.hidden);
     document.getElementById('canvas-view')?.classList.toggle('flow-authoring-active', !!visible);
     syncMobileCanvasZoomBar();
 }
@@ -1977,6 +2216,7 @@ function captureFlowDirectEditFocusSnapshot() {
 }
 
 function restoreFlowDirectEditFocusSnapshot(snapshot) {
+    _flowDirectPreferredInlinePosition = null;
     if (snapshot?.mode !== 'direct') return false;
     const group = getFlowGroupById(snapshot.groupId);
     const sourceLanguage = String(group?.flow?.document?.sourceLanguage || '');
@@ -2008,6 +2248,9 @@ function restoreFlowDirectEditFocusSnapshot(snapshot) {
         graphemeOffset: mapped.graphemeOffset,
         utf16Offset: mapped.utf16Offset,
         affinity: direction === 'backward' ? 'backward' : 'forward',
+        selectionStart: start,
+        selectionEnd: end,
+        selectionDirection: direction,
     });
     return true;
 }
@@ -2350,6 +2593,7 @@ function requestEditorFlowProjection(activeBlock) {
             return;
         }
         clearFlowDirectEditRuntime();
+        hideFlowCanvas();
         selectFlowGeneratedPage(currentBlock.id);
         const currentRender = document.getElementById('content-render');
         if (!currentRender) return;
@@ -3603,7 +3847,16 @@ function refresh(options = {}) {
     const isFlowReadOnly = activeBlock?.kind === 'flow'
         || (!s && state.version === 6 && (state.blocks || []).some((block) => block?.kind === 'flow'));
     const isFlowAuthoring = activeBlock?.kind === 'flow' && isFlowSourceSelected(activeBlock.id);
+    const nextFlowContext = `${activeBlock?.id}:${getEditorFlowProjectionLanguage(activeBlock)}`;
+    if (_flowCanvasContextKey && _flowCanvasContextKey !== nextFlowContext) {
+        clearFlowDirectEditRuntime();
+        hideFlowCanvas();
+    }
     if (_flowDirectEditProxy && (!isFlowReadOnly || isFlowAuthoring)) clearFlowDirectEditRuntime();
+    if (!isFlowReadOnly || isFlowAuthoring) {
+        _flowCanvasView?.setVisible(false);
+        document.getElementById('canvas-view')?.classList.remove('flow-canvas-active');
+    }
     setFlowAuthoringSurfaceVisible(isFlowAuthoring);
     render.classList.toggle('flow-editor-preview-active', isFlowReadOnly && !isFlowAuthoring);
     const flowAuthoringProps = document.getElementById('flow-authoring-props');
@@ -7481,6 +7734,12 @@ window.setCanvasZoomPercent = (value) => {
 
 window.fitCanvasView = () => {
     canvasTranslate = { x: 0, y: 0 };
+    if (_flowCanvasView && !_flowCanvasView.viewport.hidden) {
+        _flowCanvasView.resize();
+        canvasScale = _flowCanvasView.getScale();
+        syncCanvasZoomUI();
+        return;
+    }
 
     const container = document.getElementById('canvas-view');
     if (container) {
@@ -7503,6 +7762,11 @@ window.fitCanvasView = () => {
 };
 
 function updateCanvasTransform() {
+    if (_flowCanvasView && !_flowCanvasView.viewport.hidden) {
+        _flowCanvasView.resize({ scale: canvasScale });
+        syncCanvasZoomUI();
+        return;
+    }
     // #canvas-stage を transform する（旧: #canvas-transform-layer）
     const stage = document.getElementById('canvas-stage');
     if (stage) {
@@ -7607,6 +7871,7 @@ function initCanvasZoom() {
 
     // Wheel Zoom
     view.addEventListener('wheel', (e) => {
+        if (e.target.closest?.('#flow-canvas-viewport')) return;
         if (isImageAdjusting) return; // 画像調整中はCanvasズーム無効
 
         e.preventDefault();

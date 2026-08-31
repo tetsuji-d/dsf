@@ -7,10 +7,12 @@ import {
     isFlowDirectEditing,
     isFlowSourceSelected,
     resetFlowEditorSelections,
+    restoreFlowDirectSelection,
     selectFlowDirectEditing,
     selectFlowGeneratedPage,
     selectFlowSource,
 } from '../js/flow-editor-session.js';
+import { createFlowDirectEditSession } from '../js/flow-direct-edit.js';
 import { createFlowGroupBlock } from '../js/flow-project-model.js';
 import { deriveFlowTranslationStatus } from '../js/flow-translation-state.js';
 import { clearHistory, getHistoryInfo, pushState, redo, undo } from '../js/history.js';
@@ -622,7 +624,75 @@ assert.deepEqual(getFlowEditorSelection('flow_group_authoring'), {
     graphemeOffset: 5,
     utf16Offset: 5,
     affinity: 'forward',
+    selectionStart: 5,
+    selectionEnd: 5,
+    selectionDirection: 'none',
 });
+
+const rangeGroup = createFixture()[1];
+const rangeSourcePoint = {
+    sectionId: 'flow_section_authoring', blockId: 'flow_paragraph_authoring',
+    languageKey: 'ja', graphemeOffset: 5, utf16Offset: 5, affinity: 'forward',
+};
+for (const writingMode of ['horizontal-tb', 'vertical-rl']) {
+    const rangeSession = createFlowDirectEditSession(rangeGroup, {
+        pageLanguageKey: 'ja', writingMode, sourcePoint: rangeSourcePoint,
+    });
+    const sessionBefore = JSON.stringify(rangeSession);
+    for (const selectionDirection of ['none', 'backward']) {
+        const savedRange = selectFlowDirectEditing(rangeGroup.id, {
+            ...rangeSourcePoint, selectionStart: 2, selectionEnd: 8, selectionDirection,
+        });
+        const savedBefore = JSON.stringify(savedRange);
+        const reflowed = restoreFlowDirectSelection(rangeSession, getFlowEditorSelection(rangeGroup.id));
+        assert.equal(reflowed.selectionStart, 2);
+        assert.equal(reflowed.selectionEnd, 8);
+        assert.equal(reflowed.selectionDirection, selectionDirection,
+            `${writingMode}: Reflow must preserve the semantic range and its direction`);
+        assert.equal(Object.isFrozen(reflowed), true);
+        assert.deepEqual(restoreFlowDirectSelection(reflowed, savedRange), reflowed,
+            'Repeated reflow must not collapse or move the saved range');
+        assert.equal(JSON.stringify(savedRange), savedBefore, 'Range restore must not mutate saved runtime selection');
+        assert.equal(JSON.stringify(rangeSession), sessionBefore, 'Range restore must not mutate the new session');
+
+        for (const changedIdentity of [
+            { groupId: 'another-group' }, { sectionId: 'another-section' },
+            { blockId: 'another-block' }, { languageKey: 'en' }, { mode: 'source' }, { mode: 'page' },
+        ]) {
+            assert.equal(restoreFlowDirectSelection(rangeSession, { ...savedRange, ...changedIdentity }), rangeSession,
+                'A saved range from another target or editor mode must not alter the new session');
+        }
+        const shorter = { ...rangeSession, expectedText: '短い本文' };
+        const shorterRestored = restoreFlowDirectSelection(shorter, savedRange);
+        assert.equal(shorterRestored.selectionStart, 2);
+        assert.equal(shorterRestored.selectionEnd, shorter.expectedText.length,
+            'When text becomes shorter, only the out-of-bounds end must clamp');
+        const beyondEnd = restoreFlowDirectSelection(shorter, { ...savedRange, selectionStart: 20, selectionEnd: 30 });
+        assert.equal(beyondEnd.selectionStart, shorter.expectedText.length);
+        assert.equal(beyondEnd.selectionEnd, shorter.expectedText.length,
+            'A completely out-of-bounds range must collapse at the new source end');
+        const emptied = restoreFlowDirectSelection({ ...rangeSession, expectedText: '' }, savedRange);
+        assert.equal(emptied.selectionStart, 0);
+        assert.equal(emptied.selectionEnd, 0, 'Empty source must clamp both endpoints to zero');
+        const reversedOffsets = restoreFlowDirectSelection(rangeSession,
+            { ...savedRange, selectionStart: 8, selectionEnd: 2 });
+        assert.equal(reversedOffsets.selectionEnd, reversedOffsets.selectionStart,
+            'Restored range end must never precede its start');
+    }
+    for (const selectionStart of [null, undefined]) {
+        assert.equal(restoreFlowDirectSelection(rangeSession, {
+            ...getFlowEditorSelection(rangeGroup.id), selectionStart,
+        }), rangeSession, 'A missing saved range must leave the fresh session intact');
+    }
+    const clicked = selectFlowDirectEditing(rangeGroup.id, { ...rangeSourcePoint, utf16Offset: 3, graphemeOffset: 3 });
+    assert.equal(clicked.selectionStart, 3);
+    assert.equal(clicked.selectionEnd, 3,
+        'An explicit new point must collapse the old range rather than inherit it');
+    assert.equal(clicked.selectionDirection, 'none');
+    selectFlowGeneratedPage(rangeGroup.id);
+    assert.equal(restoreFlowDirectSelection(rangeSession, getFlowEditorSelection(rangeGroup.id)), rangeSession,
+        'Leaving direct edit must not restore the previous range on a page selection');
+}
 
 const persisted = {
     version: 6,

@@ -20,6 +20,7 @@ import {
 } from '../js/flow-pagination.js';
 import { createFlowGroupBlock } from '../js/flow-project-model.js';
 import { findFlowSourcePointInPages } from '../js/flow-source-mapping.js';
+import { deriveFlowTranslationStatus } from '../js/flow-translation-state.js';
 import { getWritingModeFromConfigs } from '../js/layout.js';
 
 function createFixture(overrides = {}) {
@@ -292,68 +293,80 @@ assert.equal(
     'flow_direct_multiline_heading_paragraph',
 );
 
-for (const [createStructuralTransaction, input] of [
-    [createFlowDirectEmptyParagraphAfterHeadingRemovalTransaction, {
-        selectionStart: 0,
-        selectionEnd: 0,
-    }],
-    [createFlowDirectParagraphMergeBackwardTransaction, {
-        selectionStart: 0,
-        selectionEnd: 0,
-    }],
-    [createFlowDirectParagraphMergeForwardTransaction, {
-        selectionStart: verticalSession.expectedText.length,
-        selectionEnd: verticalSession.expectedText.length,
-    }],
-]) {
-    assert.throws(
-        () => createStructuralTransaction(group, verticalSession, input),
-        (error) => error instanceof FlowDirectEditError
-            && error.code === 'FLOW_DIRECT_VERTICAL_STRUCTURE_UNSUPPORTED',
-    );
+const verticalRejoined = createFlowDirectParagraphMergeBackwardTransaction(
+    verticalSplitGroup,
+    verticalSplit.nextSession,
+    { selectionStart: 0, selectionEnd: 0 },
+);
+assert.deepEqual(applyFlowAuthoringOperation([verticalSplitGroup], verticalRejoined.operation)[0], group,
+    'Vertical Enter then Backspace must restore the exact source group');
+assert.equal(verticalRejoined.nextSession.writingMode, 'vertical-rl');
+assert.equal(verticalRejoined.selection.focusPoint.utf16Offset, 1);
+const verticalEmptyRemoved = createFlowDirectEmptyParagraphAfterHeadingRemovalTransaction(
+    multilineHeadingParagraphGroup,
+    multilineHeadingParagraph.nextSession,
+    { selectionStart: 0, selectionEnd: 0 },
+);
+assert.deepEqual(applyFlowAuthoringOperation([multilineHeadingParagraphGroup], verticalEmptyRemoved.operation)[0],
+    multilineHeadingGroup, 'Vertical Backspace must remove the source-only empty Paragraph after a multiline Heading');
+assert.equal(verticalEmptyRemoved.nextSession.expectedText, multilineHeadingText);
+assert.equal(verticalEmptyRemoved.nextSession.selectionStart, multilineHeadingText.length);
+
+for (const writingMode of ['horizontal-tb', 'vertical-rl']) {
+    const multilineMergeGroup = createFixture();
+    const first = multilineMergeGroup.flow.document.sections[0].blocks[1];
+    const next = multilineMergeGroup.flow.document.sections[0].blocks[2];
+    first.texts = { ja: '雪\nの日', en: 'Snowy day' };
+    first.futureParagraph = { keep: true };
+    next.texts.ja = '足音\n続き';
+    const beforeMerge = JSON.stringify(multilineMergeGroup);
+    const backwardSession = createSession(multilineMergeGroup, {
+        writingMode,
+        sourcePoint: { ...createMergeSession(multilineMergeGroup).sourcePoint },
+    });
+    const forwardSession = createSession(multilineMergeGroup, {
+        writingMode,
+        sourcePoint: { ...createForwardMergeSession(multilineMergeGroup).sourcePoint },
+    });
+    const backward = createFlowDirectParagraphMergeBackwardTransaction(multilineMergeGroup, backwardSession,
+        { selectionStart: 0, selectionEnd: 0 });
+    const forward = createFlowDirectParagraphMergeForwardTransaction(multilineMergeGroup, forwardSession,
+        { selectionStart: first.texts.ja.length, selectionEnd: first.texts.ja.length });
+    assert.deepEqual(forward.operation, backward.operation,
+        `${writingMode}: Delete and Backspace must remove the same Paragraph boundary`);
+    assert.equal(JSON.stringify(multilineMergeGroup), beforeMerge, 'Merge planning must not mutate source');
+    for (const transaction of [backward, forward]) {
+        const merged = applyFlowAuthoringOperation([multilineMergeGroup], transaction.operation)[0];
+        const surviving = merged.flow.document.sections[0].blocks[1];
+        assert.equal(surviving.id, first.id);
+        assert.equal(surviving.texts.ja, '雪\nの日足音\n続き', 'Merging must preserve embedded LF exactly');
+        assert.equal(surviving.texts.en, 'Snowy day');
+        assert.deepEqual(surviving.futureParagraph, { keep: true });
+        assert.deepEqual(deriveFlowTranslationStatus(merged, 'en').body.ids.stale, [first.id]);
+        assert.equal(transaction.nextSession.writingMode, writingMode);
+        assert.equal(transaction.selection.focusPoint.utf16Offset, first.texts.ja.length);
+        assert.equal(transaction.selection.focusPoint.graphemeOffset, countGraphemes(first.texts.ja, 'ja'));
+    }
+    const protectedMergeGroup = structuredClone(multilineMergeGroup);
+    protectedMergeGroup.flow.document.sections[0].blocks[2].texts.en = '';
+    for (const [createTransaction, targetSession, selection] of [
+        [createFlowDirectParagraphMergeBackwardTransaction, backwardSession, { selectionStart: 0, selectionEnd: 0 }],
+        [createFlowDirectParagraphMergeForwardTransaction, forwardSession,
+            { selectionStart: first.texts.ja.length, selectionEnd: first.texts.ja.length }],
+    ]) {
+        assert.throws(() => createTransaction(protectedMergeGroup, targetSession, selection),
+            { code: 'FLOW_DIRECT_MERGE_TRANSLATION_DATA_PRESENT' },
+            `${writingMode}: Even empty saved translation keys must protect a removed Paragraph`);
+    }
+    const protectedEmptyGroup = structuredClone(multilineHeadingParagraphGroup);
+    protectedEmptyGroup.flow.document.sections[0].blocks[1].futureData = { keep: true };
+    assert.throws(() => createFlowDirectEmptyParagraphAfterHeadingRemovalTransaction(
+        protectedEmptyGroup,
+        { ...multilineHeadingParagraph.nextSession, writingMode },
+        { selectionStart: 0, selectionEnd: 0 },
+    ), { code: 'FLOW_DIRECT_EMPTY_PARAGRAPH_DATA_PRESENT' },
+    `${writingMode}: Empty Paragraph unknown fields must still prevent removal`);
 }
-
-const multilineCurrentBackwardGroup = createFixture();
-multilineCurrentBackwardGroup.flow.document.sections[0].blocks[2].texts.ja = '足音\n続き';
-const multilineCurrentBackwardSession = createMergeSession(multilineCurrentBackwardGroup);
-assert.throws(
-    () => createFlowDirectParagraphMergeBackwardTransaction(
-        multilineCurrentBackwardGroup,
-        multilineCurrentBackwardSession,
-        { selectionStart: 0, selectionEnd: 0 },
-    ),
-    (error) => error instanceof FlowDirectEditError
-        && error.code === 'FLOW_DIRECT_MULTILINE_UNSUPPORTED',
-);
-
-const multilinePreviousBackwardGroup = createFixture();
-multilinePreviousBackwardGroup.flow.document.sections[0].blocks[1].texts.ja = '雪\nの日';
-const multilinePreviousBackwardSession = createMergeSession(multilinePreviousBackwardGroup);
-assert.throws(
-    () => createFlowDirectParagraphMergeBackwardTransaction(
-        multilinePreviousBackwardGroup,
-        multilinePreviousBackwardSession,
-        { selectionStart: 0, selectionEnd: 0 },
-    ),
-    (error) => error instanceof FlowDirectEditError
-        && error.code === 'FLOW_DIRECT_MULTILINE_UNSUPPORTED',
-);
-
-const multilineNextForwardGroup = createFixture();
-multilineNextForwardGroup.flow.document.sections[0].blocks[2].texts.ja = '足音\n続き';
-const multilineNextForwardSession = createForwardMergeSession(multilineNextForwardGroup);
-assert.throws(
-    () => createFlowDirectParagraphMergeForwardTransaction(
-        multilineNextForwardGroup,
-        multilineNextForwardSession,
-        {
-            selectionStart: multilineNextForwardSession.expectedText.length,
-            selectionEnd: multilineNextForwardSession.expectedText.length,
-        },
-    ),
-    (error) => error instanceof FlowDirectEditError
-        && error.code === 'FLOW_DIRECT_MULTILINE_UNSUPPORTED',
-);
 
 const verticalBoundaryPageBox = createCanonicalFlowPageBox();
 const verticalBoundaryMeasurePage = createPageBoundaryMeasurer(5);
@@ -1095,6 +1108,40 @@ assert.equal(
     'Delete must keep the join caret on the surviving Paragraph continuation page',
 );
 
+// The same page-spanning Paragraph boundary is removable in vertical writing.
+const verticalPageBoundarySession = createFlowDirectEditSession(boundaryGroup, {
+    pageLanguageKey: 'ja', writingMode: 'vertical-rl', sourcePoint: boundarySourcePoint,
+});
+const verticalPageBoundarySplit = createFlowDirectParagraphSplitTransaction(boundaryGroup,
+    verticalPageBoundarySession, {
+        selectionStart: splitUtf16Offset, selectionEnd: splitUtf16Offset,
+        newBlockId: 'flow_direct_vertical_boundary_after',
+    });
+const verticalPageBoundarySplitGroup = applyFlowAuthoringOperation([boundaryGroup], verticalPageBoundarySplit.operation)[0];
+for (const direction of ['backward', 'forward']) {
+    const paginator = createPageBoundaryPaginator(boundaryPageBox, boundaryMeasurePage, 'vertical-rl');
+    const original = paginatePageBoundary(paginator, boundaryGroup, boundaryPageBox, boundaryMeasurePage, 'vertical-rl');
+    const split = paginatePageBoundary(paginator, verticalPageBoundarySplitGroup, boundaryPageBox, boundaryMeasurePage, 'vertical-rl');
+    assert.equal(original.pagination.pages.length, 2);
+    assert.equal(split.pagination.pages.length, 3);
+    const forwardSession = createFlowDirectEditSession(verticalPageBoundarySplitGroup, {
+        pageLanguageKey: 'ja', writingMode: 'vertical-rl', sourcePoint: boundarySourcePoint,
+    });
+    const transaction = direction === 'backward'
+        ? createFlowDirectParagraphMergeBackwardTransaction(verticalPageBoundarySplitGroup,
+            verticalPageBoundarySplit.nextSession, { selectionStart: 0, selectionEnd: 0 })
+        : createFlowDirectParagraphMergeForwardTransaction(verticalPageBoundarySplitGroup,
+            forwardSession, { selectionStart: splitUtf16Offset, selectionEnd: splitUtf16Offset });
+    const joined = applyFlowAuthoringOperation([verticalPageBoundarySplitGroup], transaction.operation)[0];
+    const reflowed = paginatePageBoundary(paginator, joined, boundaryPageBox, boundaryMeasurePage, 'vertical-rl');
+    assert.equal(reflowed.changeSet.mode, 'incremental');
+    assert.deepEqual(reflowed.pagination, original.pagination,
+        `Vertical ${direction} merge must remove the extra generated page and match cold pagination`);
+    assert.deepEqual(joined, boundaryGroup, 'Vertical boundary edits must restore all original source text');
+    assert.equal(findFlowSourcePointInPages(reflowed.pagination.pages, transaction.selection.focusPoint).pageIndex, 1,
+        'Vertical merge caret must remain on the surviving continuation page');
+}
+
 const staleGroup = structuredClone(group);
 staleGroup.flow.document.sections[0].blocks[1].texts.ja = '別の編集';
 assert.throws(
@@ -1105,15 +1152,23 @@ assert.throws(
     }),
     (error) => error instanceof FlowDirectEditError && error.code === 'FLOW_DIRECT_SOURCE_STALE',
 );
-assert.throws(
-    () => createFlowDirectEditTransaction(group, session, {
-        text: '段落\n追加',
-        selectionStart: 5,
-        selectionEnd: 5,
-    }),
-    (error) => error instanceof FlowDirectEditError
-        && error.code === 'FLOW_DIRECT_LINE_BREAK_STRUCTURE_UNSUPPORTED',
-);
+const softLineBreak = createFlowDirectEditTransaction(group, session, {
+    text: '段落\n追加',
+    selectionStart: 3,
+    selectionEnd: 3,
+});
+assert.equal(softLineBreak.operation.type, 'setText');
+assert.equal(softLineBreak.operation.blockId, session.blockId);
+assert.equal(softLineBreak.nextSession.expectedText, '段落\n追加');
+assert.equal(softLineBreak.selection.focusPoint.utf16Offset, 3);
+for (const unsupportedBreak of ['\r', '\r\n', '\u2028', '\u2029']) {
+    assert.throws(() => createFlowDirectEditTransaction(group, session, {
+        text: `段落${unsupportedBreak}追加`,
+        selectionStart: 2,
+        selectionEnd: 2,
+    }), { code: 'FLOW_DIRECT_NON_LF_LINE_BREAK_UNSUPPORTED' },
+    'Only LF is accepted; non-LF separators must not be silently normalized');
+}
 assert.throws(
     () => createSession(group, { pageLanguageKey: 'en' }),
     (error) => error instanceof FlowDirectEditError
@@ -1172,42 +1227,47 @@ assert.equal(
 assert.equal(multilineAfterBreakEdited.selection.focusPoint.utf16Offset, 5);
 assert.equal(Object.hasOwn(multilineAppliedGroup.flow.document, 'pages'), false);
 assert.equal(Object.hasOwn(multilineAppliedGroup.flow.document, 'fragments'), false);
-assert.throws(
-    () => createFlowDirectEditTransaction(multilineGroup, multilineSession, {
-        text: '既存改行',
-        selectionStart: 4,
-        selectionEnd: 4,
-    }),
-    (error) => error instanceof FlowDirectEditError
-        && error.code === 'FLOW_DIRECT_LINE_BREAK_STRUCTURE_UNSUPPORTED',
-);
-assert.throws(
-    () => createFlowDirectEditTransaction(multilineGroup, multilineSession, {
-        text: '既\n存改行',
-        selectionStart: 2,
-        selectionEnd: 2,
-    }),
-    (error) => error instanceof FlowDirectEditError
-        && error.code === 'FLOW_DIRECT_LINE_BREAK_STRUCTURE_UNSUPPORTED',
-);
-assert.throws(
-    () => createFlowDirectEditTransaction(multilineGroup, multilineSession, {
-        text: '既X\nY行',
-        selectionStart: 4,
-        selectionEnd: 4,
-    }),
-    (error) => error instanceof FlowDirectEditError
-        && error.code === 'FLOW_DIRECT_LINE_BREAK_STRUCTURE_UNSUPPORTED',
-);
-assert.throws(
-    () => createFlowDirectEditTransaction(multilineGroup, multilineSession, {
-        text: '既存\n\n改行',
-        selectionStart: 4,
-        selectionEnd: 4,
-    }),
-    (error) => error instanceof FlowDirectEditError
-        && error.code === 'FLOW_DIRECT_LINE_BREAK_STRUCTURE_UNSUPPORTED',
-);
+for (const writingMode of ['horizontal-tb', 'vertical-rl']) {
+    for (const blockType of ['heading', 'paragraph']) {
+        const editableGroup = createFixture();
+        const target = editableGroup.flow.document.sections[0].blocks.find(entry => entry.type === blockType);
+        target.texts = { ja: '既存\n改行', en: 'Existing line break' };
+        target.futureField = { keep: true };
+        const targetSource = JSON.stringify(editableGroup);
+        for (const [action, caretBefore, text, caretAfter] of [
+            ['Backspace after LF', 3, '既存改行', 2],
+            ['Delete before LF', 2, '既存改行', 2],
+            ['replacement across LF', 1, '既X行', 2],
+            ['replacement containing LF', 1, '既X\nY行', 4],
+            ['Shift+Enter adds LF', 3, '既存\n\n改行', 4],
+            ['Shift+Enter at start', 0, '\n既存\n改行', 1],
+            ['Shift+Enter at end', 5, '既存\n改行\n', 6],
+            ['clear whole block including LF', 0, '', 0],
+        ]) {
+            const editableSession = createSession(editableGroup, {
+                writingMode,
+                sourcePoint: { sectionId: 'flow_direct_section', blockId: target.id, blockType,
+                    languageKey: 'ja', utf16Offset: caretBefore, affinity: 'forward' },
+            });
+            const edited = createFlowDirectEditTransaction(editableGroup, editableSession, {
+                text, selectionStart: caretAfter, selectionEnd: caretAfter,
+            });
+            const applied = applyFlowAuthoringOperation([editableGroup], edited.operation)[0];
+            const resulting = applied.flow.document.sections[0].blocks.find(entry => entry.id === target.id);
+            assert.equal(resulting.type, blockType);
+            assert.equal(resulting.texts.ja, text, `${writingMode}/${blockType}: ${action}`);
+            assert.equal(resulting.texts.en, 'Existing line break', 'Text editing must preserve saved translations');
+            assert.deepEqual(resulting.futureField, { keep: true });
+            assert.equal(applied.flow.document.sections[0].blocks.length, 3,
+                'LF editing must not create or remove semantic Paragraphs');
+            assert.equal(edited.nextSession.writingMode, writingMode);
+            assert.equal(edited.selection.focusPoint.utf16Offset, caretAfter);
+            assert.equal(edited.selection.focusPoint.graphemeOffset, countGraphemes(text.slice(0, caretAfter), 'ja'));
+            assert.deepEqual(deriveFlowTranslationStatus(applied, 'en').body.ids.stale, [target.id]);
+        }
+        assert.equal(JSON.stringify(editableGroup), targetSource, 'LF transactions must not mutate source input');
+    }
+}
 const trailingLineBreakGroup = createFixture();
 const trailingLineBreakText = 'おはようございます\n\n';
 const trailingLineBreakSplitOffset = 'おはようございます\n'.length;
@@ -1306,10 +1366,8 @@ assert.match(appSource, /addEventListener\('beforeinput', handleFlowDirectBefore
 assert.match(appSource, /addEventListener\('compositionstart', handleFlowDirectCompositionStart\)/);
 assert.match(appSource, /addEventListener\('compositionend', handleFlowDirectCompositionEnd\)/);
 assert.match(appSource, /event\.isComposing \|\| event\.keyCode === 229 \|\| _flowAuthoringComposing/);
-assert.match(appSource, /function rejectFlowDirectVerticalBoundaryMerge\(\)/);
-assert.match(appSource, /event\.inputType === 'insertParagraph' \|\| event\.inputType === 'insertLineBreak'/);
-assert.match(appSource, /function flowDirectSelectionTouchesLineBreak\(proxy, inputType\)/);
-assert.match(appSource, /FLOW_DIRECT_LINE_BREAK_STRUCTURE_UNSUPPORTED/);
+assert.match(appSource, /event\.inputType === 'insertParagraph'/);
+assert.match(appSource, /event\.inputType === 'insertLineBreak'/);
 assert.match(appSource, /dataset\.flowCompositionResumeReflow/);
 assert.match(appSource, /_editorFlowProjectionController\?\.abort\(\)/);
 assert.match(appSource, /proxy\.dataset\.flowWritingMode = session\.writingMode/);
@@ -1324,7 +1382,8 @@ assert.match(studioCss, /\.flow-direct-input-proxy\[data-flow-writing-mode="vert
 assert.match(studioCss, /\.flow-direct-caret/);
 assert.match(studioCss, /\.flow-direct-composition\[data-flow-writing-mode="vertical-rl"\]/);
 assert.match(directEditSource, /DIRECT_TEXT_WRITING_MODES = new Set\(\['horizontal-tb', 'vertical-rl'\]\)/);
-assert.match(directEditSource, /FLOW_DIRECT_VERTICAL_STRUCTURE_UNSUPPORTED/);
+assert.doesNotMatch(directEditSource, /FLOW_DIRECT_VERTICAL_STRUCTURE_UNSUPPORTED/);
+assert.doesNotMatch(directEditSource, /FLOW_DIRECT_LINE_BREAK_STRUCTURE_UNSUPPORTED/);
 assert.doesNotMatch(appSource, /geometry-only/);
 assert.doesNotMatch(appSource, /renderFlowDirectCaretPreview/);
 assert.doesNotMatch(appSource, /pageElement\.contentEditable\s*=/);
