@@ -322,8 +322,9 @@ function resolveCaptureContext(options) {
     const fontId = exactString(options.fontId, 'fontId');
     const pageBox = createCanonicalFlowPageBox({ padding: flowGroup.flow.layout?.padding });
     let authorTypography;
+    const typographyOptions = { languageConfigs: options.languageConfigs };
     try {
-        authorTypography = resolveFlowDomTypography(language, profile, writingMode);
+        authorTypography = resolveFlowDomTypography(language, profile, writingMode, typographyOptions);
     } catch (cause) {
         fail('FLOW_PUBLICATION_CAPTURE_TYPOGRAPHY_INVALID', cause.message, { cause });
     }
@@ -363,6 +364,7 @@ function resolveCaptureContext(options) {
         profile,
         writingMode,
         certifiedFamily,
+        typographyOptions,
     );
     const runtimeFontFamily = options.runtimeFontFamily === undefined
         ? certifiedFamily

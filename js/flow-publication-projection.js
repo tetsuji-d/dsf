@@ -50,6 +50,7 @@ const HEADING_SCALES = Object.freeze({
 const INPUT_KEYS = new Set([
     'flowGroup',
     'language',
+    'languageConfigs',
     'revision',
     'pagination',
     'compositionSnapshot',
@@ -213,8 +214,9 @@ export function resolveFlowPublicationTypography(
     profile,
     writingMode,
     certifiedFontFamily,
+    options = {},
 ) {
-    const typography = resolveFlowDomTypography(language, profile, writingMode);
+    const typography = resolveFlowDomTypography(language, profile, writingMode, options);
     if (primaryFontFamily(typography.fontFamily) !== certifiedFontFamily) {
         throw new RangeError('Certified font family does not match Flow composition.');
     }
@@ -583,8 +585,9 @@ function prepareContext(input) {
     const writingMode = String(profile.writingMode || 'horizontal-tb');
     let authorTypography;
     let pageBox;
+    const typographyOptions = { languageConfigs: input.languageConfigs };
     try {
-        authorTypography = resolveFlowDomTypography(language, profile, writingMode);
+        authorTypography = resolveFlowDomTypography(language, profile, writingMode, typographyOptions);
         pageBox = createCanonicalFlowPageBox({ padding: flowGroup.flow.layout?.padding });
     } catch (error) {
         fail('FLOW_PUBLICATION_LAYOUT_INVALID', 'flowGroup.flow.layout', error.message, { code: error?.code });
@@ -621,6 +624,7 @@ function prepareContext(input) {
         profile,
         writingMode,
         fontDeclaration.family,
+        typographyOptions,
     );
     const pagination = input.pagination;
     const context = {

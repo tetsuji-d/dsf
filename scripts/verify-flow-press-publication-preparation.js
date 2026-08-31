@@ -194,6 +194,55 @@ assert.deepEqual(captureCalls, [{
 assert.deepEqual(disposed, ['synthetic-ja-sans-v1']);
 assert.deepEqual(leaseDisposed, ['synthetic-ja-sans-v1']);
 
+for (const explicitFamily of [undefined, "'Noto Sans JP',sans-serif"]) {
+    const inheritedProject = structuredClone(project);
+    inheritedProject.languageConfigs = { ja: { fontPreset: 'mincho' } };
+    if (explicitFamily !== undefined) {
+        inheritedProject.blocks[0].flow.layout.typographyByLanguage.ja.fontFamily = explicitFamily;
+    }
+    const inheritedBefore = structuredClone(inheritedProject);
+    const expectedFamily = explicitFamily ? 'Noto Sans JP' : 'Noto Serif JP';
+    const expectedFontId = explicitFamily ? 'noto-sans-jp-2.004-h2' : 'noto-serif-jp-2.003-h1';
+    const inherited = await prepareFlowPressPublication({
+        project: inheritedProject,
+        revision: 9,
+        documentRef: {},
+        dependencies: {
+            deriveTranslationStatus() {
+                return { isSourceLanguage: true, requiresSourceFallback: false };
+            },
+            async prepareProductionFont(context) {
+                assert.equal(context.fontResolution.fontId, expectedFontId);
+                assert.ok(context.typography.fontFamily.includes(expectedFamily));
+                return { runtimeFontFamily: `Verified ${expectedFamily}`, dispose() {} };
+            },
+            async createCaptureSession(options) {
+                assert.equal(options.fontId, expectedFontId);
+                assert.deepEqual(options.languageConfigs, inheritedBefore.languageConfigs,
+                    'production capture must receive project typography settings');
+                return {
+                    paginate() { return { pages: [{}] }; },
+                    capture() { return { status: 'complete' }; },
+                    dispose() {},
+                };
+            },
+            projectFlow(options) {
+                assert.equal(options.fontId, expectedFontId);
+                assert.deepEqual(options.languageConfigs, inheritedBefore.languageConfigs,
+                    'production projection must certify against the same project settings');
+                return { ok: true, summary: { pageCount: 1, lineCount: 1 }, manifest: { pages: [{}] } };
+            },
+            createPreflight() {
+                return { publishable: true, issues: [], summary: { flowPageCount: 1, deliveryPageCount: 1 } };
+            },
+        },
+    });
+    assert.equal(inherited.ok, true);
+    assert.equal(inherited.languages[0].groupResults[0].fontId, expectedFontId,
+        'project font inheritance must preserve an explicit Flow font override');
+    assert.deepEqual(inheritedProject, inheritedBefore, 'production preparation cannot persist resolved defaults');
+}
+
 assert.deepEqual(Object.keys(DSF_PRODUCTION_FONT_REGISTRY.fonts), [
     'noto-sans-jp-2.004-h2',
     'noto-serif-jp-2.003-h1',

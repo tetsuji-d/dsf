@@ -21,7 +21,7 @@ const item = (text, startGrapheme, rects) => ({
 
 assert.equal(FLOW_PUBLICATION_COMPOSITION_CAPTURE_VERSION, 1);
 assert.equal(FLOW_PUBLICATION_COMPOSITION_HYPHENATION, 'none');
-assert.equal(FLOW_DOM_RENDERER_VERSION, 4);
+assert.equal(FLOW_DOM_RENDERER_VERSION, 5);
 assert.equal(resolveFlowDomHyphenation(undefined, 'horizontal-tb'), 'auto');
 assert.equal(resolveFlowDomHyphenation(undefined, 'vertical-rl'), 'none');
 assert.equal(resolveFlowDomHyphenation('none', 'horizontal-tb'), 'none');
@@ -105,6 +105,11 @@ const captureSource = readFileSync(
 );
 assert.match(captureSource, /createFlowDomPageMeasurer\(\{[\s\S]*hyphenation:\s*FLOW_PUBLICATION_COMPOSITION_HYPHENATION/);
 assert.match(captureSource, /primaryFontFamily\(authorTypography\.fontFamily\)/);
+assert.match(captureSource, /typographyOptions = \{ languageConfigs: options\.languageConfigs \}/);
+assert.match(captureSource, /resolveFlowDomTypography\(language, profile, writingMode, typographyOptions\)/,
+    'capture font certification must resolve inherited project typography');
+assert.match(captureSource, /resolveFlowPublicationTypography\([\s\S]*?certifiedFamily,\s*typographyOptions,/,
+    'snapshot typography must use the same inherited font as capture');
 assert.match(captureSource, /runtimeFontFamily/);
 assert.match(captureSource, /typography:\s*context\.measurementTypography/);
 assert.match(captureSource, /typography:\s*context\.typography,[\s\S]*evidence:/, 'runtime alias cannot leak into publication snapshot');

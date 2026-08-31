@@ -102,8 +102,8 @@ assert.equal(pages.pages[1].manualBreakBefore?.blockId, 'flow_preview_page_break
 
 const typography = resolveFlowDomTypography('ja');
 assert.equal(typography.fontSize, 16);
-assert.equal(typography.lineHeight, 1.8);
-assert.equal(typography.paragraphSpacing, 12);
+assert.equal(typography.lineHeight, 1.875);
+assert.equal(typography.paragraphSpacing, 0);
 assert.equal(assertFlowDomWritingMode(), 'horizontal-tb');
 assert.equal(assertFlowDomWritingMode('vertical-rl', 'ja'), 'vertical-rl');
 assert.equal(assertFlowDomWritingMode('vertical-rl', 'zh-Hant'), 'vertical-rl');

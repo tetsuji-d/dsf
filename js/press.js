@@ -691,6 +691,7 @@ function _createPressFlowPreflightPreviewSignature() {
         state.version,
         state.defaultLang,
         state.languages || [],
+        state.languageConfigs || {},
         _getSelectedPressLangs(),
         state.blocks || [],
     ]);

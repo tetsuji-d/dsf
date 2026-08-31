@@ -160,6 +160,7 @@ function getGroupCacheKey(group, language, ownerDocument, options = {}) {
         String(options.sessionScope || 'default'),
         language.requestedLanguageKey,
         language.languageKey,
+        options.languageConfigs || {},
         group.id,
         group.flow,
     ]);
@@ -174,6 +175,7 @@ function getGroupSessionKey(group, language, ownerDocument, options = {}) {
         options.maxPagesPerGroup || DEFAULT_MAX_PAGES_PER_GROUP,
         language.requestedLanguageKey,
         language.languageKey,
+        options.languageConfigs || {},
         group.id,
         group.flow?.document?.sourceLanguage,
         group.flow?.layout,
@@ -271,7 +273,7 @@ async function paginateFlowGroup(group, options) {
     }
     const writingMode = String(profile.writingMode || 'horizontal-tb');
     const pageBox = createCanonicalFlowPageBox({ padding: group.flow.layout.padding });
-    const typography = resolveFlowDomTypography(languageKey, profile, writingMode);
+    const typography = resolveFlowDomTypography(languageKey, profile, writingMode, options);
     await waitForPromiseOrAbort(
         waitForFlowFonts(ownerDocument, typography, writingMode, languageKey),
         signal,
@@ -373,6 +375,7 @@ export function createFlowRuntimeProjectionSignature(
         getDocumentCacheIdentity(ownerDocument),
         String(sessionScope || 'default'),
         String(languageKey || ''),
+        project?.languageConfigs || {},
         Array.isArray(project?.blocks) ? project.blocks : [],
         Array.isArray(fixedPages) ? fixedPages : [],
     ]);
@@ -390,6 +393,7 @@ export async function createFlowRuntimePageProjection(project, options = {}) {
     const projectSnapshot = Object.freeze({
         version: project.version,
         defaultLang: project.defaultLang,
+        languageConfigs: deepClone(project.languageConfigs || {}),
         blocks,
     });
     assertValidFlowProjectData(projectSnapshot);
@@ -416,6 +420,7 @@ export async function createFlowRuntimePageProjection(project, options = {}) {
         const result = await paginateFlowGroup(group, {
             ...options,
             ownerDocument,
+            languageConfigs: projectSnapshot.languageConfigs,
             requestedLanguageKey,
             signal,
             revision: options.revision ?? 0,

@@ -72,11 +72,10 @@ function resolveFontFamily(lang, fontPreset) {
     return isJa ? FONT_PRESETS[key].ja : FONT_PRESETS[key].en;
 }
 
-function getLangPreset(lang, writingMode, fontPreset = DEFAULT_FONT_PRESET) {
-    const isJa = (lang || '').toLowerCase().startsWith('ja');
+function getTextPagePreset(lang, writingMode, fontPreset = DEFAULT_FONT_PRESET) {
     const vertical = writingMode === 'vertical-rl';
     const family = resolveFontFamily(lang, fontPreset);
-    if (isJa || vertical) {
+    if (vertical) {
         return {
             writingMode: 'vertical-rl',
             frame: { ...DEFAULT_FRAME },
@@ -112,6 +111,39 @@ function getLangPreset(lang, writingMode, fontPreset = DEFAULT_FONT_PRESET) {
             kinsoku: false
         }
     };
+}
+
+function getLangPreset(lang, writingMode, fontPreset = DEFAULT_FONT_PRESET) {
+    // Preserve the existing fixed-page Japanese mode selection. Flow has an
+    // explicit writing mode and must not inherit this legacy implicit switch.
+    const isJa = (lang || '').toLowerCase().startsWith('ja');
+    return getTextPagePreset(lang, isJa ? 'vertical-rl' : writingMode, fontPreset);
+}
+
+/**
+ * Effective body typography of the existing text-page renderer, in canonical
+ * pixels. Its vertical columns use a rounded-down width and a 33-character
+ * pitch; the preset's nominal lineHeight/letterSpacing are not the rendered
+ * values. Share these defaults with Flow without composing or trimming source.
+ */
+export function getTextPageTypographyDefaults(
+    lang = 'ja',
+    writingMode = 'vertical-rl',
+    fontPreset = DEFAULT_FONT_PRESET,
+) {
+    const preset = getTextPagePreset(lang, writingMode, fontPreset);
+    const { frame, font, rules } = preset;
+    const vertical = preset.writingMode === 'vertical-rl';
+    const linePitch = vertical ? Math.floor(frame.w / rules.maxLines) : frame.h / rules.maxLines;
+    return Object.freeze({
+        fontFamily: font.family,
+        fontSize: font.size,
+        lineHeight: Number((linePitch / font.size).toFixed(3)),
+        letterSpacing: vertical
+            ? Number((frame.h / rules.charsPerLine - font.size).toFixed(3))
+            : font.letterSpacing,
+        paragraphSpacing: 0,
+    });
 }
 
 function wrapCjkParagraph(paragraph, charsPerLine, kinsoku) {

@@ -152,10 +152,12 @@ function runForRange(group, blockId, startGrapheme, endGrapheme) {
     };
 }
 
-function createCompositionSnapshot(group, pagination, revision = 7) {
+function createCompositionSnapshot(group, pagination, revision = 7, options = {}) {
     const profile = group.flow.layout.typographyByLanguage.ja;
     const writingMode = profile.writingMode;
-    const typography = resolveFlowPublicationTypography('ja', profile, writingMode, 'Noto Sans JP');
+    const typography = resolveFlowPublicationTypography(
+        'ja', profile, writingMode, options.certifiedFontFamily || 'Noto Sans JP', options,
+    );
     return {
         schemaVersion: FLOW_PUBLICATION_SNAPSHOT_SCHEMA_VERSION,
         status: 'complete',
@@ -299,6 +301,47 @@ assert.equal(vertical.manifest.styles['heading-2'].fontSize, 21.6);
 assert.equal(vertical.manifest.pages.flatMap((page) => page.lines)
     .flatMap((line) => line.runs).some((run) => run.text.includes('。')), true,
 'vertical source punctuation must remain semantic text for CSS vertical shaping');
+
+const inheritedFontGroup = createFlowGroup({ id: 'flow_inherited_font', writingMode: 'vertical-rl' });
+delete inheritedFontGroup.flow.layout.typographyByLanguage.ja.fontFamily;
+const inheritedFontBefore = clone(inheritedFontGroup);
+const inheritedPagination = paginateGroup(inheritedFontGroup, 12);
+const gothicConfigs = { ja: { fontPreset: 'gothic' } };
+const minchoConfigs = { ja: { fontPreset: 'mincho' } };
+const gothicSnapshot = createCompositionSnapshot(inheritedFontGroup, inheritedPagination, 7, {
+    languageConfigs: gothicConfigs,
+});
+const minchoSnapshot = createCompositionSnapshot(inheritedFontGroup, inheritedPagination, 7, {
+    languageConfigs: minchoConfigs,
+    certifiedFontFamily: 'Noto Serif JP',
+});
+const serifRegistry = createFontRegistry();
+serifRegistry.fonts[FONT_ID].declaration.family = 'Noto Serif JP';
+assert.equal(gothicSnapshot.typography.fontFamily, '"Noto Sans JP"');
+assert.equal(minchoSnapshot.typography.fontFamily, '"Noto Serif JP"');
+assert.equal(projectFlowPaginationToDsfV2(createInput(
+    inheritedFontGroup, inheritedPagination, gothicSnapshot, { languageConfigs: gothicConfigs },
+)).ok, true, 'unconfigured Flow font must inherit the project gothic preset');
+const minchoInput = createInput(inheritedFontGroup, inheritedPagination, minchoSnapshot, {
+    languageConfigs: minchoConfigs,
+    fontRegistry: serifRegistry,
+});
+const minchoInputBefore = clone(minchoInput);
+const minchoProjection = projectFlowPaginationToDsfV2(minchoInput);
+assert.equal(minchoProjection.ok, true, 'project mincho preset must survive strict publication projection');
+assert.equal(minchoProjection.font.declaration.family, 'Noto Serif JP');
+assert.deepEqual(minchoInput, minchoInputBefore, 'inherited typography cannot rewrite source, settings or snapshot');
+assert.deepEqual(inheritedFontGroup, inheritedFontBefore, 'resolved font is not persisted into the source profile');
+expectBlocked(createInput(inheritedFontGroup, inheritedPagination, gothicSnapshot, {
+    languageConfigs: minchoConfigs,
+    fontRegistry: serifRegistry,
+}), 'FLOW_PUBLICATION_SNAPSHOT_CONTEXT_MISMATCH', 'snapshot captured before a project font change');
+expectBlocked(createInput(inheritedFontGroup, inheritedPagination, minchoSnapshot, {
+    languageConfigs: minchoConfigs,
+}), 'FLOW_PUBLICATION_FONT_FAMILY_MISMATCH', 'old registry font selected after a project font change');
+assert.equal(projectFlowPaginationToDsfV2(createInput(
+    verticalGroup, verticalPagination, verticalSnapshot, { languageConfigs: minchoConfigs },
+)).ok, true, 'explicit Flow font must take precedence over the project font preset');
 
 const breakOnlyGroup = createFlowGroup({
     id: 'flow_break_start',

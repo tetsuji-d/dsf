@@ -18,7 +18,14 @@ assert.equal(resolveFlowPressPreflightFixtureFont("'Noto Sans',sans-serif", 'ja'
 const flowA = { id: 'flow-a', kind: 'flow', flow: { layout: { typographyByLanguage: { ja: {}, en: {} } } } };
 const flowB = { id: 'flow-b', kind: 'flow', flow: { layout: { typographyByLanguage: { ja: {}, en: {} } } } };
 const fixed = { id: 'fixed-a', kind: 'page', content: { pageKind: 'graphic' } };
-const project = { version: 6, defaultLang: 'ja', languages: ['ja', 'en'], blocks: [fixed, flowA, flowB] };
+const project = {
+    version: 6,
+    defaultLang: 'ja',
+    languages: ['ja', 'en'],
+    languageConfigs: { ja: { fontPreset: 'mincho' }, en: { fontPreset: 'gothic' } },
+    blocks: [fixed, flowA, flowB],
+};
+const projectBefore = structuredClone(project);
 const disposed = [];
 const captureCalls = [];
 const preflightCalls = [];
@@ -35,13 +42,18 @@ const result = await prepareFlowPressPreflightPreview({
                 requiresSourceFallback: language === 'en' && group.id === 'flow-b',
             };
         },
-        resolveTypography(language) {
+        resolveTypography(language, profile, writingMode, options) {
+            assert.deepEqual(options.languageConfigs, projectBefore.languageConfigs);
+            assert.notEqual(options.languageConfigs, project.languageConfigs,
+                'preparation must capture settings before asynchronous font work');
             return { fontFamily: language === 'ja' ? "'Noto Sans JP',sans-serif" : "'Noto Sans',sans-serif" };
         },
         resolveFixtureFont(fontFamily, language) {
             return { fontId: `fixture-${language}-${fontFamily.includes(' JP') ? 'jp' : 'latin'}` };
         },
         async createCaptureSession(options) {
+            assert.deepEqual(options.languageConfigs, projectBefore.languageConfigs,
+                'capture must use the same project font settings as font resolution');
             captureCalls.push({ groupId: options.flowGroup.id, language: options.language, revision: options.revision });
             return {
                 paginate() {
@@ -56,6 +68,8 @@ const result = await prepareFlowPressPreflightPreview({
             };
         },
         projectFlow(options) {
+            assert.deepEqual(options.languageConfigs, projectBefore.languageConfigs,
+                'strict publication projection must use the capture font settings');
             const pageCount = options.pagination.pages.length;
             return {
                 ok: true,
@@ -99,6 +113,7 @@ assert.deepEqual(captureCalls, [
 assert.deepEqual(disposed, ['ja:flow-a', 'ja:flow-b', 'en:flow-a']);
 assert.deepEqual(preflightCalls[0].flowPublicationRevisions, { 'flow-a': 42, 'flow-b': 42 });
 assert.deepEqual(Object.keys(preflightCalls[1].flowPublicationProjections), ['flow-a']);
+assert.deepEqual(project, projectBefore, 'font inheritance cannot rewrite source groups or project settings');
 
 await assert.rejects(
     () => prepareFlowPressPreflightPreview({ project, revision: -1 }),
@@ -111,6 +126,14 @@ for (const forbidden of ['./firebase', './export', './dsf-release-assembly', 'up
 }
 
 const pressSource = readFileSync(new URL('../js/press.js', import.meta.url), 'utf8');
+const signatureBody = pressSource.match(/function _createPressFlowPreflightPreviewSignature\(\) \{([\s\S]*?)\n\}/)?.[1];
+assert.ok(signatureBody, 'Press Flow signature must remain inspectable');
+const makePressSignature = new Function('state', '_getSelectedPressLangs', signatureBody);
+const originalSignature = makePressSignature(project, () => ['ja']);
+const changedFontProject = structuredClone(project);
+changedFontProject.languageConfigs.ja.fontPreset = 'gothic';
+assert.notEqual(makePressSignature(changedFontProject, () => ['ja']), originalSignature,
+    'font setting changes must invalidate prepared Flow pages and portable ZIP readiness');
 const studioCssSource = readFileSync(new URL('../css/studio.css', import.meta.url), 'utf8');
 assert.match(pressSource, /import\.meta\.env\.DEV[\s\S]*import\('\.\/flow-press-preflight-preview\.js'\)/);
 assert.match(pressSource, /summary\.dataset\.testid = 'press-flow-preflight-dev-summary'/);

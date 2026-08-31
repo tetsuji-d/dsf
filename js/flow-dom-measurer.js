@@ -7,6 +7,7 @@
  */
 
 import { normalizeFlowPageBox } from './flow-pagination.js';
+import { getFontPresetFromConfigs, getTextPageTypographyDefaults } from './layout.js';
 import {
     getFlowTypographyProfile,
     isFlowWritingModeSupported,
@@ -14,16 +15,11 @@ import {
 
 export const FLOW_DOM_SUPPORTED_WRITING_MODE = 'horizontal-tb';
 export const FLOW_DOM_SUPPORTED_WRITING_MODES = Object.freeze(['horizontal-tb', 'vertical-rl']);
-export const FLOW_DOM_RENDERER_VERSION = 4;
+export const FLOW_DOM_RENDERER_VERSION = 5;
 export const FLOW_DOM_HYPHENATION_MODES = Object.freeze(['auto', 'none']);
 
 const DEFAULT_MEASUREMENT_CACHE_SIZE = 2048;
 const FLOW_DOM_BOUNDS_EPSILON_PX = 0.5;
-
-const DEFAULT_FONT_FAMILIES = Object.freeze({
-    cjk: "'Noto Sans JP','Noto Sans CJK JP','Hiragino Sans','Yu Gothic UI',sans-serif",
-    latin: "'Noto Sans',Arial,'Helvetica Neue','Segoe UI',sans-serif",
-});
 
 const HEADING_SCALES = Object.freeze({
     1: 1.5,
@@ -86,10 +82,15 @@ export function resolveFlowDomTypography(
     languageKey = 'ja',
     overrides = {},
     writingMode = FLOW_DOM_SUPPORTED_WRITING_MODE,
+    options = {},
 ) {
     const mode = assertFlowDomWritingMode(writingMode, languageKey);
     const profile = getFlowTypographyProfile(languageKey, mode);
     const cjk = ['jpan', 'hans', 'hant', 'kore'].includes(profile.script);
+    const fontPreset = getFontPresetFromConfigs(languageKey, options.languageConfigs);
+    // Keep Flow's CJK font routing while sharing the text-page font presets and
+    // body grid. Project settings are runtime inputs, not copied into source.
+    const defaults = getTextPageTypographyDefaults(cjk ? 'ja' : languageKey, mode, fontPreset);
     const textAlign = String(overrides.textAlign || 'start');
     if (!['start', 'center', 'end', 'justify'].includes(textAlign)) {
         throw new FlowDomMeasurementError('INVALID_TYPOGRAPHY', 'textAlign is unsupported.', {
@@ -99,13 +100,13 @@ export function resolveFlowDomTypography(
     }
     return Object.freeze({
         writingMode: mode,
-        fontFamily: String(overrides.fontFamily || (cjk ? DEFAULT_FONT_FAMILIES.cjk : DEFAULT_FONT_FAMILIES.latin)),
-        fontSize: requireFiniteNumber(overrides.fontSize, 16, 'fontSize', { positive: true }),
+        fontFamily: String(overrides.fontFamily || defaults.fontFamily),
+        fontSize: requireFiniteNumber(overrides.fontSize, defaults.fontSize, 'fontSize', { positive: true }),
         fontWeight: String(overrides.fontWeight ?? '400'),
-        lineHeight: requireFiniteNumber(overrides.lineHeight, 1.8, 'lineHeight', { positive: true }),
-        letterSpacing: requireFiniteNumber(overrides.letterSpacing, 0, 'letterSpacing'),
+        lineHeight: requireFiniteNumber(overrides.lineHeight, defaults.lineHeight, 'lineHeight', { positive: true }),
+        letterSpacing: requireFiniteNumber(overrides.letterSpacing, defaults.letterSpacing, 'letterSpacing'),
         textAlign,
-        paragraphSpacing: requireFiniteNumber(overrides.paragraphSpacing, 12, 'paragraphSpacing', { minimum: 0 }),
+        paragraphSpacing: requireFiniteNumber(overrides.paragraphSpacing, defaults.paragraphSpacing, 'paragraphSpacing', { minimum: 0 }),
         headingSpacing: requireFiniteNumber(overrides.headingSpacing, 18, 'headingSpacing', { minimum: 0 }),
         textColor: String(overrides.textColor || '#1f1b16'),
         paperColor: String(overrides.paperColor || '#f7f1df'),

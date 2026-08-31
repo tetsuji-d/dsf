@@ -223,6 +223,30 @@ const signatureAfter = createFlowRuntimeProjectionSignature({
 }, 'ja');
 assert.notEqual(signatureBefore, signatureAfter, 'Fixed edits must invalidate only the combined projection');
 
+assert.notEqual(
+    createFlowRuntimeProjectionSignature({
+        blocks: [completeTranslation],
+        languageConfigs: { ja: { fontPreset: 'gothic' } },
+    }, 'ja'),
+    createFlowRuntimeProjectionSignature({
+        blocks: [completeTranslation],
+        languageConfigs: { ja: { fontPreset: 'mincho' } },
+    }, 'ja'),
+    'Inherited text-page font changes must invalidate Flow projection caches',
+);
+
+assert.notEqual(
+    createFlowRuntimeProjectionSignature({
+        blocks: [missingTranslation],
+        languageConfigs: { ja: { fontPreset: 'gothic' } },
+    }, 'en'),
+    createFlowRuntimeProjectionSignature({
+        blocks: [missingTranslation],
+        languageConfigs: { ja: { fontPreset: 'mincho' } },
+    }, 'en'),
+    'A source-language font change must also invalidate a translation fallback preview',
+);
+
 const fixedCompatibilityBefore = createFlowRuntimeProjectionSignature(
     { blocks: [{ id: 'fixed_signature', kind: 'page' }, completeTranslation] },
     'ja',

@@ -13,6 +13,7 @@ import {
 } from './flow-publication-composition-capture.js';
 import { projectFlowPaginationToDsfV2 } from './flow-publication-projection.js';
 import { deriveFlowTranslationStatus } from './flow-translation-state.js';
+import { deepClone } from './utils.js';
 
 export const FLOW_PRESS_PREFLIGHT_PREPARATION_VERSION = 1;
 
@@ -93,6 +94,8 @@ export async function prepareFlowPressPreflight(options = {}) {
         || deriveFlowTranslationStatus;
     const resolveTypography = dependencies.resolveTypography || resolveFlowDomTypography;
     const flowGroups = project.blocks.filter((block) => block?.kind === 'flow');
+    // Keep font resolution, capture and strict projection on one settings snapshot.
+    const languageConfigs = deepClone(project.languageConfigs || {});
     const languages = normalizeLanguages(project, options.languages);
     const languageResults = [];
 
@@ -127,12 +130,12 @@ export async function prepareFlowPressPreflight(options = {}) {
                 }
                 const profile = group.flow?.layout?.typographyByLanguage?.[language];
                 const writingMode = String(profile?.writingMode || 'horizontal-tb');
-                const typography = resolveTypography(language, profile || {}, writingMode);
+                const typography = resolveTypography(language, profile || {}, writingMode, { languageConfigs });
                 const fontResolution = await options.resolveFont(
                     typography.fontFamily,
                     language,
                     writingMode,
-                    { typography, group, fontRegistry: options.fontRegistry },
+                    { typography, group, languageConfigs, fontRegistry: options.fontRegistry },
                 );
                 if (!fontResolution?.fontId) {
                     throw getFontFailureIssue(
@@ -167,6 +170,7 @@ export async function prepareFlowPressPreflight(options = {}) {
                     ownerDocument,
                     flowGroup: group,
                     language,
+                    languageConfigs,
                     revision,
                     fontRegistry: options.fontRegistry,
                     fontId: fontResolution.fontId,
@@ -178,6 +182,7 @@ export async function prepareFlowPressPreflight(options = {}) {
                 const projection = projectFlow({
                     flowGroup: group,
                     language,
+                    languageConfigs,
                     revision,
                     pagination,
                     compositionSnapshot,

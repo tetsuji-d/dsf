@@ -26,6 +26,7 @@
     "verify:flow-project-model": "node scripts/verify-flow-project-model.js",
     "verify:project-persistence": "node scripts/verify-project-persistence.js",
     "verify:flow-preview": "node scripts/verify-flow-preview.js",
+    "verify:flow-text-page-typography": "node scripts/verify-flow-text-page-typography.js",
     "verify:flow-incremental": "node scripts/verify-flow-incremental.js",
     "verify:flow-page-projection": "node scripts/verify-flow-page-projection.js",
     "verify:flow-source-mapping": "node scripts/verify-flow-source-mapping.js",
