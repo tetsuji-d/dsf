@@ -8278,6 +8278,7 @@ textarea.ps-meta-input {
 }
 
 .flow-direct-input-proxy {
+    box-sizing: border-box;
     position: absolute;
     z-index: 12;
     width: 2px;
@@ -8331,7 +8332,7 @@ textarea.ps-meta-input {
     z-index: 11;
     width: max-content;
     max-width: min(260px, 70%);
-    padding: 0 1px 1px;
+    padding: 0;
     overflow: hidden;
     color: inherit;
     white-space: pre;
@@ -8360,6 +8361,17 @@ textarea.ps-meta-input {
     0%, 48% { opacity: 1; }
     49%, 100% { opacity: 0; }
 }
+
+.flow-direct-format-props {
+    display: grid;
+    gap: 8px;
+    margin: 16px 0;
+}
+
+.flow-direct-format-props[hidden] { display: none; }
+.flow-direct-format-props select { width: 100%; }
+.flow-direct-format-props p { margin: 0; font-size: 12px; color: var(--text-secondary); }
+#flow-direct-format-status:empty { display: none; }
 
 @media (prefers-reduced-motion: reduce) {
     .flow-direct-caret {

@@ -298,6 +298,32 @@ export function createFlowDirectEditSession(groupInput, options = {}) {
     });
 }
 
+/** Change the active semantic block's role without replacing text or identity. */
+export function createFlowDirectBlockFormatTransaction(groupInput, session, input = {}) {
+    const { group, block } = requireCurrentDirectSession(groupInput, session);
+    const blockType = input.blockType;
+    if (!DIRECT_TEXT_TYPES.has(blockType)) {
+        fail('FLOW_DIRECT_FORMAT_INVALID', 'Direct format must be heading or paragraph.');
+    }
+    const level = blockType === 'heading' ? Number(input.level ?? (block.type === 'heading' ? block.level : 1)) : null;
+    if ((blockType === 'heading' && (!Number.isInteger(level) || level < 1 || level > 6))
+        || (blockType === 'paragraph' && input.level !== undefined)) {
+        fail('FLOW_DIRECT_FORMAT_INVALID', 'Only heading levels 1 through 6 are supported.');
+    }
+    if (block.type === blockType && (blockType === 'paragraph' || block.level === level)) return null;
+    return Object.freeze({
+        operation: Object.freeze({
+            type: 'setBlockType', groupId: group.id, sectionId: session.sectionId,
+            blockId: session.blockId, blockType,
+            ...(blockType === 'heading' ? { level } : {}),
+        }),
+        nextSession: Object.freeze({
+            ...session, blockType,
+            sourcePoint: Object.freeze({ ...session.sourcePoint, blockType }),
+        }),
+    });
+}
+
 /**
  * Convert the current textarea value into one semantic setText transaction.
  * Stale source and structural line breaks are rejected before state mutation.

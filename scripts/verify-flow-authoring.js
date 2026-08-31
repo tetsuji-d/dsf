@@ -113,6 +113,141 @@ blocks = applyFlowAuthoringOperation(blocks, {
 });
 assert.equal(blocks[1].flow.document.sections[0].blocks[0].level, 2);
 
+const setBlockTypeOperation = {
+    type: 'setBlockType',
+    groupId: 'flow_group_authoring',
+    sectionId: 'flow_section_authoring',
+    blockId: 'flow_paragraph_authoring',
+    blockType: 'heading',
+    level: 3,
+};
+const blockTypeInput = createFixture();
+const blockTypeInputJson = JSON.stringify(blockTypeInput);
+const headingBlocks = applyFlowAuthoringOperation(blockTypeInput, setBlockTypeOperation);
+const convertedHeading = headingBlocks[1].flow.document.sections[0].blocks[1];
+assert.equal(JSON.stringify(blockTypeInput), blockTypeInputJson, 'Text block conversion must not mutate input');
+assert.deepEqual(headingBlocks[0], blockTypeInput[0], 'Text block conversion must preserve the Fixed prefix');
+assert.deepEqual(headingBlocks[2], blockTypeInput[2], 'Text block conversion must preserve the Fixed suffix');
+assert.deepEqual(convertedHeading, {
+    ...blockTypeInput[1].flow.document.sections[0].blocks[1],
+    type: 'heading',
+    level: 3,
+}, 'Converting to Heading must retain block identity, all localized texts, and unknown fields');
+assert.deepEqual(
+    deriveFlowTranslationStatus(headingBlocks[1], 'en').body.ids.stale,
+    ['flow_paragraph_authoring'],
+    'Changing a block semantic role must mark its retained translation stale',
+);
+const defaultHeadingBlocks = applyFlowAuthoringOperation(blockTypeInput, {
+    ...setBlockTypeOperation,
+    blockId: 'flow_paragraph_authoring',
+    level: 1,
+});
+const { level: _levelForDefault, ...defaultHeadingOperation } = setBlockTypeOperation;
+assert.deepEqual(
+    applyFlowAuthoringOperation(blockTypeInput, defaultHeadingOperation),
+    defaultHeadingBlocks,
+    'Paragraph to Heading conversion defaults to level 1',
+);
+assert.deepEqual(
+    applyFlowAuthoringOperation(headingBlocks, defaultHeadingOperation),
+    headingBlocks,
+    'An existing Heading keeps its level when no new level is supplied',
+);
+assert.deepEqual(
+    applyFlowAuthoringOperation(headingBlocks, setBlockTypeOperation),
+    headingBlocks,
+    'Selecting the current type and level must not change translation metadata or content',
+);
+const paragraphBlocks = applyFlowAuthoringOperation(headingBlocks, {
+    ...defaultHeadingOperation,
+    blockType: 'paragraph',
+});
+assert.deepEqual(
+    paragraphBlocks[1].flow.document.sections[0].blocks,
+    blockTypeInput[1].flow.document.sections[0].blocks,
+    'Heading to Paragraph conversion removes only the heading level and retains the original source',
+);
+assert.deepEqual(
+    deriveFlowTranslationStatus(paragraphBlocks[1], 'en').body.ids.stale,
+    [],
+    'Returning to the original role must match the preserved translation fingerprint again',
+);
+assert.deepEqual(
+    applyFlowAuthoringOperation(blockTypeInput, { ...defaultHeadingOperation, blockType: 'paragraph' }),
+    blockTypeInput,
+    'Selecting the existing Paragraph type must not add translation metadata',
+);
+const reviewedHeadingBlocks = applyFlowAuthoringOperation(headingBlocks, {
+    type: 'confirmTranslation',
+    groupId: 'flow_group_authoring',
+    languageKey: 'en',
+});
+const changedHeadingLevelBlocks = applyFlowAuthoringOperation(reviewedHeadingBlocks, {
+    ...setBlockTypeOperation,
+    level: 6,
+});
+assert.equal(changedHeadingLevelBlocks[1].flow.document.sections[0].blocks[1].level, 6);
+assert.deepEqual(
+    changedHeadingLevelBlocks[1].flow.translationState,
+    reviewedHeadingBlocks[1].flow.translationState,
+    'Heading level changes must retain translation state because they do not change the source unit',
+);
+assert.deepEqual(deriveFlowTranslationStatus(changedHeadingLevelBlocks[1], 'en').body.ids.stale, []);
+const paragraphWithFutureLevel = createFixture();
+paragraphWithFutureLevel[1].flow.document.sections[0].blocks[1].level = { future: 'keep' };
+assert.deepEqual(
+    applyFlowAuthoringOperation(paragraphWithFutureLevel, { ...defaultHeadingOperation, blockType: 'paragraph' }),
+    paragraphWithFutureLevel,
+    'A Paragraph no-op must not remove an unknown level field',
+);
+const missingSourceTypeInput = createFixture();
+delete missingSourceTypeInput[1].flow.document.sections[0].blocks[1].texts.ja;
+const missingSourceTypeBlocks = applyFlowAuthoringOperation(missingSourceTypeInput, setBlockTypeOperation);
+assert.deepEqual(
+    missingSourceTypeBlocks[1].flow.document.sections[0].blocks[1].texts,
+    missingSourceTypeInput[1].flow.document.sections[0].blocks[1].texts,
+    'A source-missing text block must not gain invented source or translated text during conversion',
+);
+const headingRoundTrip = deserializeProject(serializeProject({
+    version: 6,
+    languages: ['ja', 'en'],
+    defaultLang: 'ja',
+    blocks: headingBlocks,
+    sections: [
+        { type: 'image', backgrounds: {}, bubbles: [] },
+        { type: 'image', backgrounds: {}, bubbles: [] },
+    ],
+    pages: [],
+}));
+assert.deepEqual(headingRoundTrip.blocks[1], headingBlocks[1], 'Converted source and translation state must survive save/reload');
+for (const blockType of ['pageBreak', 'image', '', null, undefined]) {
+    assert.throws(() => applyFlowAuthoringOperation(blockTypeInput, {
+        ...defaultHeadingOperation,
+        blockType,
+    }), (error) => error instanceof FlowAuthoringError && error.code === 'UNSUPPORTED_FLOW_BLOCK_TYPE');
+}
+for (const level of [0, 7, 1.5, '2', null, undefined, NaN]) {
+    assert.throws(() => applyFlowAuthoringOperation(blockTypeInput, {
+        ...setBlockTypeOperation,
+        level,
+    }), (error) => error instanceof FlowAuthoringError && error.code === 'INVALID_HEADING_LEVEL');
+}
+assert.throws(() => applyFlowAuthoringOperation(blockTypeInput, {
+    ...setBlockTypeOperation,
+    blockType: 'paragraph',
+}), (error) => error instanceof FlowAuthoringError && error.code === 'INVALID_HEADING_LEVEL');
+assert.throws(() => applyFlowAuthoringOperation(blockTypeInput, {
+    ...setBlockTypeOperation,
+    blockId: 'missing',
+}), (error) => error instanceof FlowAuthoringError && error.code === 'FLOW_BLOCK_NOT_FOUND');
+const pageBreakTypeInput = createFixture();
+pageBreakTypeInput[1].flow.document.sections[0].blocks.push({ id: 'flow_page_break_type', type: 'pageBreak' });
+assert.throws(() => applyFlowAuthoringOperation(pageBreakTypeInput, {
+    ...setBlockTypeOperation,
+    blockId: 'flow_page_break_type',
+}), (error) => error instanceof FlowAuthoringError && error.code === 'FLOW_BLOCK_NOT_TEXT');
+
 const exactInsertInput = createFixture();
 const exactInsertInputJson = JSON.stringify(exactInsertInput);
 const exactInsertBlocks = applyFlowAuthoringOperation(exactInsertInput, {
@@ -559,6 +694,18 @@ try {
     assert.equal(state.blocks[1].flow.document.sections[0].blocks.some((block) => block.id === 'history_page_break'), false);
     assert.equal(redo(() => {}), true);
     assert.equal(state.blocks[1].flow.document.sections[0].blocks.at(-1).id, 'history_page_break');
+
+    clearHistory();
+    state.blocks = createFixture();
+    const beforeTypeChange = structuredClone(state.blocks);
+    pushState();
+    state.blocks = applyFlowAuthoringOperation(state.blocks, setBlockTypeOperation);
+    const afterTypeChange = structuredClone(state.blocks);
+    assert.equal(getHistoryInfo().undoCount, 1, 'Text block type change must create one project history snapshot');
+    assert.equal(undo(() => {}), true, 'Text block type change must undo as one project transaction');
+    assert.deepEqual(state.blocks, beforeTypeChange, 'Undo must restore original type, text, translations, and unknown fields');
+    assert.equal(redo(() => {}), true, 'Text block type change must redo as one project transaction');
+    assert.deepEqual(state.blocks, afterTypeChange, 'Redo must restore new type and the same translation staleness metadata');
 
     clearHistory();
     state.blocks = createFixture();

@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="ja">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width,initial-scale=1">
+    <title>Flow preedit geometry fixture (development only)</title>
+    <link rel="stylesheet" href="../../css/variables.css">
+    <link rel="stylesheet" href="../../css/studio.css">
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;700&family=Noto+Serif+JP:wght@400;700&display=swap">
+    <style>
+        body { display: block; height: auto; min-height: 100vh; overflow: auto; padding: 20px; background: #202530; color: #e6edf5; font: 14px system-ui; }
+        h1 { margin: 0 0 12px; font-size: 20px; }
+        .fixture-controls { display: flex; flex-wrap: wrap; gap: 14px; margin: 16px 0; }
+        .fixture-controls label { display: grid; gap: 5px; }
+        .fixture-controls select, .fixture-controls textarea, button { font: inherit; color: #1b2430; background: white; padding: 6px; }
+        .fixture-controls textarea { width: 260px; height: 58px; }
+        #fixture-report { white-space: pre-wrap; padding: 12px; border: 1px solid #6c7c94; font: 13px ui-monospace, monospace; }
+        #fixture-report[data-state="pass"] { border-color: #5ec49a; }
+        #fixture-report[data-state="fail"], #fixture-report[data-state="error"] { border-color: #ff8a83; }
+        .fixture-pages { display: flex; align-items: flex-start; flex-wrap: wrap; gap: 28px; margin-top: 18px; }
+        .fixture-pages figure { margin: 0; }
+        .fixture-pages figcaption { margin-bottom: 8px; }
+        .fixture-page { transform-origin: top left; }
+        .fixture-caret { position: absolute; background: #2563eb; pointer-events: none; z-index: 10; }
+    </style>
+</head>
+<body>
+    <h1>Flow変換中文字の位置確認（開発専用）</h1>
+    <p>本番のFlow描画・文字位置計測・補正を使用します。実IME入力やOSの変換候補ウィンドウを再現するテストではありません。</p>
+    <div class="fixture-controls">
+        <label>書字方向<select id="fixture-mode"><option value="vertical-rl">縦書き</option><option value="horizontal-tb">横書き</option></select></label>
+        <label>書体<select id="fixture-font"><option value="gothic">ゴシック</option><option value="mincho">明朝</option></select></label>
+        <label>ブロック<select id="fixture-block"><option value="paragraph">段落</option><option value="heading">見出し1</option></select></label>
+        <label>ページ倍率<select id="fixture-scale"><option value="0.5">0.5</option><option value="1" selected>1</option><option value="1.5">1.5</option></select></label>
+        <label>サンプル<select id="fixture-sample"><option value="japanese">日本語</option><option value="mixed">和欧混在</option><option value="decomposed">分解文字・絵文字</option></select></label>
+        <label>確定済み本文<textarea id="fixture-prefix">テクノロジーどうしよう</textarea></label>
+        <label>変換中文字<textarea id="fixture-text">おはよう</textarea></label>
+    </div>
+    <button id="fixture-render" type="button">再計測</button>
+    <pre id="fixture-report" data-state="loading" aria-live="polite">読み込み中…</pre>
+    <div class="fixture-pages">
+        <figure><figcaption>直接編集中：確定済み本文＋補正した変換中文字</figcaption><div id="fixture-live-shell"><div id="fixture-live" class="fixture-page"></div></div></figure>
+        <figure><figcaption>比較対象：同じ文字列を確定した通常Flow描画</figcaption><div id="fixture-expected-shell"><div id="fixture-expected" class="fixture-page"></div></div></figure>
+    </div>
+    <script type="module" src="./flow-direct-composition.js"></script>
+</body>
+</html>

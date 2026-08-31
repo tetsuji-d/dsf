@@ -168,3 +168,4 @@ main（常に安定・マージ済みコードのみ）
 | 2026-08-30 | 10A-4B-Fix: 既存LFを含む縦書きHeading／Paragraphでも生成ページ上の直接編集sessionを開始できるよう修正。LF前後の通常文字編集は許可し、改行の追加・削除・移動・跨ぎ置換と既存構造transactionはpure／UIの両方で拒否。schema／Press／Viewerは未変更 |
 | 2026-08-30 | 10A-4C-A: 原稿言語・縦書きParagraphのcollapsed caretでEnterを受け、既存LFを横書きと共通のsemantic splitで無損失に前後Paragraphへ分配。既存LF入りHeading末尾Enterと仮想キーボードのinsertLineBreakも既存insert/splitへ接続。縦書きLFのzero-height Range、末尾LF後の次列・揃え・本文境界を考慮したcaret geometryを修正。Block境界Backspace／Delete、soft line break、schema／Press／Viewerは未変更 |
 | 2026-08-31 | Flow本文基準統一: 既存テキストページの実効字間・行列送り・段落余白を共有既定値にし、言語別fontPresetをEditor／Pressへ継承。設定をruntime／Press cacheと厳密capture照合へ伝播。縦33字×12列・横20行、直接Enter／Undo／Redo、認定Sans／SerifのZIP round-tripを確認。Fixed描画・保存schema・本文・翻訳は未変更。詳細は`docs/flow-text-page-typography.md` |
+| 2026-08-31 | Flow直接編集設定・IME位置補正: 右パネルで段落／見出し1〜6を切り替え、ID・本文・翻訳を保って既存History／reflowへ接続。変換中文字の実Rangeを元の行列中心へ合わせ、proxy行高・範囲変換の開始位置も補正。OS変換候補は実機確認待ち。詳細は`docs/flow-direct-edit-format-ime.md` |

@@ -139,6 +139,7 @@ function validateGraphemeBoundary(text, utf16Offset, languageKey) {
  * - setText: update heading/paragraph localized text
  * - setSectionTitle: update outline-only section title
  * - setHeadingLevel: update heading level 1..6
+ * - setBlockType: convert a text block between paragraph and heading, retaining its identity and localized text
  * - insertBlock: insert heading/paragraph/pageBreak after afterBlockId, or append; optional newBlockId preserves caller identity
  * - splitParagraph: split one source Paragraph into two adjacent Paragraphs
  * - mergeParagraphBackward: merge one source Paragraph into its previous Paragraph
@@ -230,6 +231,49 @@ export function applyFlowAuthoringOperation(blocks, operation, options = {}) {
                 fail('INVALID_HEADING_LEVEL', 'Heading level must be an integer from 1 through 6.', { level });
             }
             block.level = level;
+            break;
+        }
+        case 'setBlockType': {
+            const blockIndex = findBlockIndex(section, operation.blockId);
+            const block = section.blocks[blockIndex];
+            if (!TEXT_BLOCK_TYPES.has(block.type)) {
+                fail('FLOW_BLOCK_NOT_TEXT', 'Only heading and paragraph blocks can change text block type.', {
+                    blockId: block.id,
+                    blockType: block.type,
+                });
+            }
+            const blockType = operation.blockType;
+            if (!TEXT_BLOCK_TYPES.has(blockType)) {
+                fail('UNSUPPORTED_FLOW_BLOCK_TYPE', 'Text block type must be heading or paragraph.', { blockType });
+            }
+            const hasLevel = Object.prototype.hasOwnProperty.call(operation, 'level');
+            if (hasLevel && (
+                blockType !== 'heading'
+                || !Number.isInteger(operation.level)
+                || operation.level < 1
+                || operation.level > 6
+            )) {
+                fail('INVALID_HEADING_LEVEL', 'A heading level must be an integer from 1 through 6 and requires a heading target.', {
+                    level: operation.level,
+                    blockType,
+                });
+            }
+            const level = hasLevel ? operation.level : block.type === 'heading' ? block.level : 1;
+            if (block.type === blockType) {
+                if (blockType === 'heading' && hasLevel) block.level = level;
+                break;
+            }
+
+            // Translation fingerprints include block type, but not heading level.
+            // Capture the old semantic unit before changing its role; never rewrite translations.
+            const captured = captureFlowTranslationUnitBeforeSourceEdit(context.group, {
+                unitMap: 'blocks',
+                unitId: block.id,
+            });
+            if (captured.changed) context.group.flow.translationState = captured.translationState;
+            block.type = blockType;
+            if (blockType === 'heading') block.level = level;
+            else delete block.level;
             break;
         }
         case 'insertBlock': {

@@ -34,9 +34,11 @@ import { composeText, paginateText, PAGE_BREAK_MARKER, getWritingModeFromConfigs
 import { formatPublicationDate, normalizePlanTier } from './publication.js';
 import { PROJECT_SCHEMA_VERSION, createFlowGroupBlock, hasFlowGroups } from './flow-project-model.js';
 import { applyFlowAuthoringOperation } from './flow-authoring.js';
+import { alignFlowDirectCompositionElement } from './flow-direct-composition.js';
 import {
     FlowDirectEditError,
     createFlowDirectEditSession,
+    createFlowDirectBlockFormatTransaction,
     createFlowDirectEditTransaction,
     createFlowDirectEmptyParagraphAfterHeadingRemovalTransaction,
     createFlowDirectHeadingParagraphTransaction,
@@ -148,6 +150,7 @@ let _flowPendingSourceCaret = null;
 let _flowDirectEditProxy = null;
 let _flowDirectEditSession = null;
 let _flowDirectCompositionText = '';
+let _flowDirectCompositionRange = null;
 let _flowDirectEditMounting = false;
 let _flowDirectEditApplying = false;
 
@@ -281,9 +284,73 @@ function clearFlowDirectEditRuntime(options = {}) {
     _flowDirectEditProxy = null;
     _flowDirectEditSession = null;
     _flowDirectCompositionText = '';
+    _flowDirectCompositionRange = null;
     _flowDirectEditMounting = false;
     _flowDirectEditApplying = false;
     if (options.resetComposition !== false) _flowAuthoringComposing = false;
+    syncFlowDirectFormatControls();
+}
+
+function syncFlowDirectFormatControls() {
+    const panel = document.getElementById('flow-direct-format-props');
+    if (!panel) return;
+    const session = _flowDirectEditSession;
+    const active = !!session && _flowDirectEditProxy?.isConnected
+        && getActiveBlock()?.id === session.groupId && isFlowDirectEditing(session.groupId);
+    panel.hidden = !active;
+    if (!active) return;
+    const group = getFlowGroupById(session.groupId);
+    const block = group?.flow?.document?.sections?.find(entry => entry.id === session.sectionId)
+        ?.blocks?.find(entry => entry.id === session.blockId);
+    const select = document.getElementById('flow-direct-block-format');
+    const pending = _flowDirectEditProxy.dataset.flowReflowPending === 'true';
+    const disabled = _flowAuthoringComposing || pending;
+    select.value = block?.type === 'heading' ? `heading-${block.level}` : 'paragraph';
+    select.disabled = disabled;
+    select.onchange = handleFlowDirectFormatChange;
+    const resume = document.getElementById('flow-direct-resume');
+    resume.disabled = disabled;
+    resume.onclick = () => _flowDirectEditProxy?.focus({ preventScroll: true });
+    document.getElementById('flow-direct-format-status').textContent = _flowAuthoringComposing
+        ? t('flow_direct_format_composing') : pending ? t('flow_direct_format_pending') : '';
+}
+
+function handleFlowDirectFormatChange(event) {
+    const proxy = _flowDirectEditProxy;
+    const session = _flowDirectEditSession;
+    if (!proxy?.isConnected || !session || getActiveBlock()?.id !== session.groupId
+        || !isFlowDirectEditing(session.groupId)
+        || getFlowAuthoringLanguage(getFlowGroupById(session.groupId)) !== session.languageKey
+        || _flowAuthoringComposing || _flowDirectEditApplying
+        || proxy.dataset.flowReflowPending === 'true') {
+        syncFlowDirectFormatControls();
+        return;
+    }
+    const value = String(event.target.value || '');
+    const input = value === 'paragraph' ? { blockType: 'paragraph' }
+        : { blockType: 'heading', level: Number(value.replace('heading-', '')) };
+    let transaction;
+    try {
+        transaction = createFlowDirectBlockFormatTransaction(getFlowGroupById(session.groupId), session, input);
+    } catch (error) {
+        if (!(error instanceof FlowDirectEditError)) throw error;
+        syncFlowDirectFormatControls();
+        setFlowDirectEditNote(t('flow_direct_format_stale'));
+        return;
+    }
+    if (!transaction) return;
+    endHistoryGroup();
+    _flowDirectEditApplying = true;
+    try {
+        applyFlowAuthoringEdit(transaction.operation, { immediate: true });
+        _flowDirectEditSession = transaction.nextSession;
+        selectFlowDirectEditing(session.groupId, transaction.nextSession.sourcePoint);
+        proxy.dataset.flowReflowPending = 'true';
+        proxy._flowDirectPageElement?.classList.add('flow-direct-edit-reflow-pending');
+    } finally {
+        _flowDirectEditApplying = false;
+        syncFlowDirectFormatControls();
+    }
 }
 
 function setFlowDirectEditNote(message) {
@@ -360,7 +427,8 @@ function renderFlowDirectEditIndicators(proxy = _flowDirectEditProxy) {
     if (!isComposing && String(proxy.value || '') !== session.expectedText) return;
 
     const text = session.expectedText;
-    const composedOffset = Math.max(0, Math.min(Number(session.sourcePoint?.utf16Offset) || 0, text.length));
+    const composedOffset = Math.max(0, Math.min(Number(_flowDirectCompositionRange?.start
+        ?? session.sourcePoint?.utf16Offset) || 0, text.length));
     const start = isComposing
         ? composedOffset
         : Math.max(0, Math.min(Number(proxy.selectionStart) || 0, text.length));
@@ -416,19 +484,24 @@ function renderFlowDirectEditIndicators(proxy = _flowDirectEditProxy) {
         session.writingMode,
     );
     if (!renderedCaret) return;
-    const { localCaret } = renderedCaret;
+    const { localCaret, caretRect } = renderedCaret;
     const verticalWriting = session.writingMode === 'vertical-rl';
     const sourceFragment = [...pageElement.querySelectorAll('.flow-dom-block')].find((element) => (
         element.dataset.flowSectionId === session.sectionId
         && element.dataset.flowBlockId === session.blockId
     ));
     const sourceStyle = sourceFragment ? getComputedStyle(sourceFragment) : null;
+    // The caret describes the font's glyph bounds, not the CSS line box.
+    // Match the native input line box to that glyph's center for the OS IME anchor.
+    const fontSize = parseFloat(sourceStyle?.fontSize) || page.typography?.fontSize || 16;
+    const lineHeight = parseFloat(sourceStyle?.lineHeight)
+        || fontSize * (page.typography?.lineHeight || 1.8);
     proxy.dataset.flowWritingMode = session.writingMode;
     Object.assign(proxy.style, verticalWriting ? {
-        left: `${Math.max(0, localCaret.left)}px`,
-        top: `${Math.max(0, localCaret.top - 1)}px`,
-        width: `${Math.max(16, localCaret.width)}px`,
-        minWidth: `${Math.max(16, localCaret.width)}px`,
+        left: `${localCaret.left + (localCaret.width - lineHeight) / 2}px`,
+        top: `${localCaret.top}px`,
+        width: `${lineHeight}px`,
+        minWidth: `${lineHeight}px`,
         maxWidth: 'none',
         height: '2px',
         minHeight: '2px',
@@ -437,12 +510,12 @@ function renderFlowDirectEditIndicators(proxy = _flowDirectEditProxy) {
         textOrientation: 'mixed',
         direction: 'ltr',
     } : {
-        left: `${Math.max(0, localCaret.left - 1)}px`,
-        top: `${Math.max(0, localCaret.top)}px`,
+        left: `${localCaret.left}px`,
+        top: `${localCaret.top + (localCaret.height - lineHeight) / 2}px`,
         width: '2px',
         minWidth: '2px',
         maxWidth: '2px',
-        height: `${Math.max(16, localCaret.height)}px`,
+        height: `${lineHeight}px`,
         minHeight: '0',
         maxHeight: 'none',
         writingMode: 'horizontal-tb',
@@ -493,6 +566,10 @@ function renderFlowDirectEditIndicators(proxy = _flowDirectEditProxy) {
                 || (verticalWriting ? '"vert" 1, "vkna" 1' : 'normal'),
         });
         pageElement.appendChild(composition);
+        alignFlowDirectCompositionElement({
+            pageElement, compositionElement: composition, caretRect,
+            writingMode: session.writingMode, languageKey: session.languageKey,
+        });
     }
 }
 
@@ -502,6 +579,7 @@ function updateFlowDirectSelectionFromProxy(proxy, options = {}) {
         || !_flowDirectEditSession
         || _flowDirectEditMounting
         || _flowDirectEditApplying
+        || _flowAuthoringComposing
         || proxy.dataset.flowReflowPending === 'true'
         || String(proxy.value || '') !== _flowDirectEditSession.expectedText
     ) return;
@@ -598,6 +676,7 @@ function commitFlowDirectEdit(proxy) {
         });
     } finally {
         _flowDirectEditApplying = false;
+        syncFlowDirectFormatControls();
     }
 }
 
@@ -951,6 +1030,10 @@ function handleFlowDirectCompositionStart(event) {
     event.target.dataset.flowCompositionResumeReflow = resumePendingReflow ? 'true' : 'false';
     _flowAuthoringComposing = true;
     _flowDirectCompositionText = '';
+    _flowDirectCompositionRange = Object.freeze({
+        start: event.target.selectionStart,
+        end: event.target.selectionEnd,
+    });
     event.target.dataset.composing = 'true';
     if (_flowAuthoringReflowTimer) clearTimeout(_flowAuthoringReflowTimer);
     _flowAuthoringReflowTimer = null;
@@ -959,6 +1042,7 @@ function handleFlowDirectCompositionStart(event) {
     _editorFlowProjectionRequestKey = '';
     _editorFlowProjectionRequestId += 1;
     renderFlowDirectEditIndicators(event.target);
+    syncFlowDirectFormatControls();
 }
 
 function handleFlowDirectCompositionUpdate(event) {
@@ -973,8 +1057,10 @@ function handleFlowDirectCompositionEnd(event) {
     delete event.target.dataset.flowCompositionResumeReflow;
     _flowAuthoringComposing = false;
     _flowDirectCompositionText = '';
+    _flowDirectCompositionRange = null;
     event.target.dataset.composing = 'false';
     commitFlowDirectEdit(event.target);
+    syncFlowDirectFormatControls();
     if (
         resumePendingReflow
         && event.target === _flowDirectEditProxy
@@ -1085,6 +1171,7 @@ function mountFlowDirectEditProxy(activeBlock, page, pageElement, session) {
     _flowDirectEditMounting = false;
     renderFlowDirectEditIndicators(proxy);
     setFlowDirectEditNote('Flow生成ページを直接編集中（原稿へ保存・Escで閲覧に戻る）');
+    syncFlowDirectFormatControls();
 }
 
 function tryCreateFlowDirectEditSession(activeBlock, page, sourcePoint) {
@@ -3516,6 +3603,7 @@ function refresh(options = {}) {
     const isFlowReadOnly = activeBlock?.kind === 'flow'
         || (!s && state.version === 6 && (state.blocks || []).some((block) => block?.kind === 'flow'));
     const isFlowAuthoring = activeBlock?.kind === 'flow' && isFlowSourceSelected(activeBlock.id);
+    if (_flowDirectEditProxy && (!isFlowReadOnly || isFlowAuthoring)) clearFlowDirectEditRuntime();
     setFlowAuthoringSurfaceVisible(isFlowAuthoring);
     render.classList.toggle('flow-editor-preview-active', isFlowReadOnly && !isFlowAuthoring);
     const flowAuthoringProps = document.getElementById('flow-authoring-props');
@@ -3561,6 +3649,7 @@ function refresh(options = {}) {
                 <span data-flow-progress>ページ生成中…</span>
                 <span>生成ページの確認画面です。編集するには親の「Flow原稿」を選択してください。</span>
             </div>`;
+        syncFlowDirectFormatControls();
         const pageLockNote = document.getElementById('page-lock-note');
         if (pageLockNote) {
             pageLockNote.textContent = 'Flow原稿のページを生成中…（読取専用）';

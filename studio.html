@@ -456,6 +456,22 @@
                     <div class="control-group">
                         <div id="page-lock-note" class="panel-lock-note" style="display:none;"></div>
 
+                    <div id="flow-direct-format-props" class="flow-direct-format-props" data-testid="flow-direct-format" hidden>
+                        <label for="flow-direct-block-format" data-i18n="flow_direct_format_label">見出し・段落</label>
+                        <select id="flow-direct-block-format" data-testid="flow-direct-block-format">
+                            <option value="paragraph" data-i18n="flow_direct_paragraph">段落（本文）</option>
+                            <option value="heading-1" data-i18n="flow_direct_heading_1">見出し1</option>
+                            <option value="heading-2" data-i18n="flow_direct_heading_2">見出し2</option>
+                            <option value="heading-3" data-i18n="flow_direct_heading_3">見出し3</option>
+                            <option value="heading-4" data-i18n="flow_direct_heading_4">見出し4</option>
+                            <option value="heading-5" data-i18n="flow_direct_heading_5">見出し5</option>
+                            <option value="heading-6" data-i18n="flow_direct_heading_6">見出し6</option>
+                        </select>
+                        <p data-i18n="flow_direct_format_scope">カーソルのある段落全体に適用します。本文・翻訳は保持されます。</p>
+                        <p id="flow-direct-format-status" role="status"></p>
+                        <button type="button" id="flow-direct-resume" class="btn-sm" data-i18n="flow_direct_resume">本文の編集に戻る</button>
+                    </div>
+
                     <div id="flow-authoring-props" class="flow-authoring-props" hidden>
                         <span class="flow-authoring-props-kicker">FLOW AUTHORING</span>
                         <strong>連続原稿を編集</strong>

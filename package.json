@@ -31,6 +31,8 @@
     "verify:flow-page-projection": "node scripts/verify-flow-page-projection.js",
     "verify:flow-source-mapping": "node scripts/verify-flow-source-mapping.js",
     "verify:flow-direct-edit": "node scripts/verify-flow-direct-edit.js",
+    "verify:flow-direct-composition": "node scripts/verify-flow-direct-composition.js",
+    "verify:flow-direct-format": "node scripts/verify-flow-direct-format.js",
     "verify:flow-authoring": "node scripts/verify-flow-authoring.js",
     "verify:flow-multilingual-authoring": "node scripts/verify-flow-multilingual-authoring.js",
     "verify:flow-translation-state": "node scripts/verify-flow-translation-state.js",
