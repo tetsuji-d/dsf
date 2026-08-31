@@ -13,7 +13,7 @@ function clone(value, fallback) {
     return JSON.parse(JSON.stringify(value ?? fallback));
 }
 
-export function createHistorySnapshot(source = state) {
+export function createHistorySnapshot(source = state, options = {}) {
     return {
         version: source.version,
         blocks: clone(source.blocks, []),
@@ -22,7 +22,9 @@ export function createHistorySnapshot(source = state) {
         activeIdx: source.activeIdx,
         activePageIdx: source.activePageIdx,
         activeBlockIdx: source.activeBlockIdx,
-        activeBubbleIdx: source.activeBubbleIdx
+        activeBubbleIdx: source.activeBubbleIdx,
+        // Optional editor focus belongs to the runtime history, never the saved project.
+        ...(options.editorFocus !== undefined ? { editorFocus: clone(options.editorFocus, null) } : {}),
     };
 }
 
@@ -57,7 +59,7 @@ export function pushState(options = {}) {
         return false;
     }
 
-    const snapshot = createHistorySnapshot(state);
+    const snapshot = createHistorySnapshot(state, options);
     undoStack.push(snapshot);
     if (undoStack.length > MAX_HISTORY) {
         undoStack.shift();
@@ -76,41 +78,43 @@ export function endHistoryGroup(groupKey = '') {
 
 /**
  * Undo — 前の状態に戻す
- * @param {function} refresh - 画面更新コールバック
+ * @param {function} refresh - 画面更新コールバック（保存済みeditorFocusを受け取る）
+ * @param {object} options - 現在のeditorFocusを渡すと、Redo時に復元できる
  * @returns {boolean} undoが実行されたか
  */
-export function undo(refresh) {
+export function undo(refresh, options = {}) {
     if (undoStack.length === 0) return false;
     activeHistoryGroup = null;
 
     // 現在の状態をredoスタックに保存
-    redoStack.push(createHistorySnapshot(state));
+    redoStack.push(createHistorySnapshot(state, options));
 
     // undoスタックから復元
     const snapshot = undoStack.pop();
     restoreHistorySnapshot(snapshot);
 
-    refresh();
+    refresh(snapshot.editorFocus);
     return true;
 }
 
 /**
  * Redo — undoした操作をやり直す
- * @param {function} refresh - 画面更新コールバック
+ * @param {function} refresh - 画面更新コールバック（保存済みeditorFocusを受け取る）
+ * @param {object} options - 現在のeditorFocusを渡すと、Undo時に復元できる
  * @returns {boolean} redoが実行されたか
  */
-export function redo(refresh) {
+export function redo(refresh, options = {}) {
     if (redoStack.length === 0) return false;
     activeHistoryGroup = null;
 
     // 現在の状態をundoスタックに保存
-    undoStack.push(createHistorySnapshot(state));
+    undoStack.push(createHistorySnapshot(state, options));
 
     // redoスタックから復元
     const snapshot = redoStack.pop();
     restoreHistorySnapshot(snapshot);
 
-    refresh();
+    refresh(snapshot.editorFocus);
     return true;
 }
 

@@ -403,6 +403,80 @@ export function createFlowDirectParagraphSplitTransaction(groupInput, session, i
     });
 }
 
+/** Insert a semantic PageBreak at a collapsed source caret in one transaction. */
+export function createFlowDirectPageBreakTransaction(groupInput, session, input = {}) {
+    const { group, sourceLanguage, block, currentText } = requireCurrentDirectSession(groupInput, session);
+    const selectionStart = requireSelectionOffset(input.selectionStart, currentText.length, 'selectionStart');
+    const selectionEnd = requireSelectionOffset(input.selectionEnd, currentText.length, 'selectionEnd');
+    if (selectionStart !== selectionEnd) {
+        fail('FLOW_DIRECT_COLLAPSED_CARET_REQUIRED', 'A manual page break requires a collapsed caret.', {
+            selectionStart,
+            selectionEnd,
+        });
+    }
+    const splitPoint = createSourcePoint({
+        sectionId: session.sectionId,
+        blockId: session.blockId,
+        blockType: block.type,
+        languageKey: sourceLanguage,
+    }, currentText, selectionStart, 'nearest');
+    if (splitPoint.utf16Offset !== selectionStart) {
+        fail('FLOW_DIRECT_GRAPHEME_BOUNDARY_REQUIRED', 'Page breaks can only be inserted between complete graphemes.', {
+            utf16Offset: selectionStart,
+            snappedUtf16Offset: splitPoint.utf16Offset,
+        });
+    }
+    const newBlockId = requireNewBlockId(input.newBlockId);
+    const pageBreakId = requireNewBlockId(input.pageBreakId);
+    const document = group.flow.document;
+    const usedIds = new Set([document.id, ...document.sections.flatMap((section) => (
+        [section.id, ...section.blocks.map((entry) => entry.id)]
+    ))]);
+    if (newBlockId === pageBreakId || usedIds.has(newBlockId) || usedIds.has(pageBreakId)) {
+        fail('FLOW_DIRECT_BLOCK_ID_CONFLICT', 'A manual page break requires two unused distinct block IDs.', {
+            newBlockId,
+            pageBreakId,
+        });
+    }
+    const nextText = currentText.slice(selectionStart);
+    const nextType = block.type === 'heading' && nextText.length > 0 ? 'heading' : 'paragraph';
+    const nextSourcePoint = createSourcePoint({
+        sectionId: session.sectionId,
+        blockId: newBlockId,
+        blockType: nextType,
+        languageKey: sourceLanguage,
+    }, nextText, 0, 'forward');
+    return Object.freeze({
+        operation: Object.freeze({
+            type: 'insertPageBreakAtCaret',
+            groupId: group.id,
+            sectionId: session.sectionId,
+            blockId: block.id,
+            languageKey: sourceLanguage,
+            utf16Offset: selectionStart,
+            newBlockId,
+            pageBreakId,
+        }),
+        nextSession: Object.freeze({
+            ...session,
+            blockId: newBlockId,
+            blockType: nextType,
+            expectedText: nextText,
+            selectionStart: 0,
+            selectionEnd: 0,
+            selectionDirection: 'none',
+            sourcePoint: nextSourcePoint,
+        }),
+        selection: Object.freeze({
+            splitPoint,
+            focusPoint: nextSourcePoint,
+            selectionStart: 0,
+            selectionEnd: 0,
+            selectionDirection: 'none',
+        }),
+    });
+}
+
 /**
  * Convert Enter at a source Heading end into one empty source Paragraph.
  * The Heading text, identity, level, translations, and unknown fields remain untouched.

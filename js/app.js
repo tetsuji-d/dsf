@@ -44,6 +44,7 @@ import {
     createFlowDirectEditTransaction,
     createFlowDirectEmptyParagraphAfterHeadingRemovalTransaction,
     createFlowDirectHeadingParagraphTransaction,
+    createFlowDirectPageBreakTransaction,
     createFlowDirectParagraphMergeBackwardTransaction,
     createFlowDirectParagraphMergeForwardTransaction,
     createFlowDirectParagraphSplitTransaction,
@@ -340,8 +341,14 @@ function syncFlowDirectFormatControls() {
     const resume = document.getElementById('flow-direct-resume');
     resume.disabled = disabled;
     resume.onclick = () => _flowDirectEditProxy?.focus({ preventScroll: true });
+    const pageBreak = document.getElementById('flow-direct-page-break');
+    const hasRange = _flowDirectEditProxy.selectionStart !== _flowDirectEditProxy.selectionEnd;
+    // Pagination may be pending: the transaction validates the current semantic source.
+    pageBreak.disabled = _flowAuthoringComposing || _flowDirectEditApplying || hasRange;
+    pageBreak.onclick = () => insertFlowDirectPageBreak(_flowDirectEditProxy);
     document.getElementById('flow-direct-format-status').textContent = _flowAuthoringComposing
-        ? t('flow_direct_format_composing') : pending ? t('flow_direct_format_pending') : '';
+        ? t('flow_direct_format_composing') : pending ? t('flow_direct_format_pending')
+            : hasRange ? t('flow_direct_page_break_selection') : '';
 }
 
 function handleFlowDirectFormatChange(event) {
@@ -654,6 +661,7 @@ function updateFlowDirectSelectionFromProxy(proxy, options = {}) {
     });
     rememberFlowDirectSelection();
     renderFlowDirectEditIndicators(proxy);
+    syncFlowDirectFormatControls();
 
     if (options.navigate === false || _flowAuthoringComposing) return;
     const activeBlock = getActiveBlock();
@@ -730,6 +738,63 @@ function commitFlowDirectEdit(proxy) {
         _flowDirectEditApplying = false;
         syncFlowDirectFormatControls();
     }
+}
+
+function insertFlowDirectPageBreak(proxy) {
+    const session = _flowDirectEditSession;
+    if (proxy !== _flowDirectEditProxy || !proxy?.isConnected || !session
+        || getActiveBlock()?.id !== session.groupId || !isFlowDirectEditing(session.groupId)
+        || _flowDirectEditApplying) return false;
+    if (_flowAuthoringComposing) {
+        setFlowDirectEditNote(t('flow_direct_format_composing'));
+        return false;
+    }
+    const group = getFlowGroupById(session.groupId);
+    if (getFlowAuthoringLanguage(group) !== session.languageKey || proxy.value !== session.expectedText) {
+        setFlowDirectEditNote(t('flow_direct_page_break_stale'));
+        return false;
+    }
+    let transaction;
+    try {
+        transaction = createFlowDirectPageBreakTransaction(group, session, {
+            selectionStart: proxy.selectionStart,
+            selectionEnd: proxy.selectionEnd,
+            newBlockId: createId('flow_text'),
+            pageBreakId: createId('flow_break'),
+        });
+    } catch (error) {
+        if (!(error instanceof FlowDirectEditError)) throw error;
+        setFlowDirectEditNote(t(error.code === 'FLOW_DIRECT_COLLAPSED_CARET_REQUIRED'
+            ? 'flow_direct_page_break_selection' : 'flow_direct_page_break_stale'));
+        return false;
+    }
+
+    const editorFocus = captureFlowDirectEditFocusSnapshot();
+    endHistoryGroup();
+    _flowDirectEditApplying = true;
+    try {
+        // Apply all three blocks atomically before moving the input to the new tail.
+        applyFlowAuthoringEdit(transaction.operation, { immediate: true, editorFocus });
+        _flowDirectPreferredInlinePosition = null;
+        _flowDirectEditSession = transaction.nextSession;
+        rememberFlowDirectSelection();
+        _flowDirectEditMounting = true;
+        try {
+            proxy.value = transaction.nextSession.expectedText;
+            proxy.dataset.flowBlockId = transaction.nextSession.blockId;
+            proxy.setSelectionRange(0, 0, 'none');
+            proxy.focus({ preventScroll: true });
+        } finally {
+            _flowDirectEditMounting = false;
+        }
+        proxy.dataset.flowReflowPending = 'true';
+        proxy._flowDirectPageElement?.classList.add('flow-direct-edit-reflow-pending');
+    } finally {
+        _flowDirectEditApplying = false;
+        syncFlowDirectFormatControls();
+    }
+    setFlowDirectEditNote(t('flow_direct_page_break_inserted'));
+    return true;
 }
 
 function splitFlowDirectParagraph(proxy) {
@@ -1017,6 +1082,11 @@ function handleFlowDirectBeforeInput(event) {
         else performProjectRedo();
         return;
     }
+    if (event.inputType === 'insertPageBreak') {
+        event.preventDefault();
+        insertFlowDirectPageBreak(event.target);
+        return;
+    }
     if (event.inputType === 'insertParagraph' || event.inputType === 'insertLineBreak') {
         event.preventDefault();
         applyFlowDirectEnter(event.target);
@@ -1157,6 +1227,10 @@ function mountFlowDirectEditProxy(activeBlock, page, pageElement, session) {
         }
         if (event.key === 'Enter') {
             event.preventDefault();
+            if ((event.ctrlKey || event.metaKey) && !event.shiftKey && !event.altKey) {
+                insertFlowDirectPageBreak(proxy);
+                return;
+            }
             if (event.shiftKey && !event.ctrlKey && !event.metaKey && !event.altKey) {
                 insertFlowDirectLineBreak(proxy);
                 return;
@@ -2147,11 +2221,14 @@ function applyFlowAuthoringEdit(operation, options = {}) {
                 || getWritingModeFromConfigs(languageKey, state.languageConfigs),
         }).blocks;
     }
+    const nextBlocks = applyFlowAuthoringOperation(authoringBlocks, operation);
     if (options.recordHistory !== false) {
-        pushState(historyKey ? { groupKey: historyKey, mergeWindowMs: 900 } : {});
+        pushState({
+            ...(historyKey ? { groupKey: historyKey, mergeWindowMs: 900 } : {}),
+            ...(options.editorFocus !== undefined ? { editorFocus: options.editorFocus } : {}),
+        });
         updateHistoryButtons();
     }
-    const nextBlocks = applyFlowAuthoringOperation(authoringBlocks, operation);
     dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'blocks', value: nextBlocks } });
     _flowAuthoringSourceRevision += 1;
     if (options.rerender === true) {
@@ -6477,7 +6554,8 @@ function performProjectUndo() {
     _flowTranslationJob = null;
     endHistoryGroup();
     const focusSnapshot = captureFlowEditorFocusSnapshot();
-    if (undo(() => refreshAfterHistoryRestore(focusSnapshot))) triggerAutoSave();
+    if (undo((restoredFocus) => refreshAfterHistoryRestore(restoredFocus === undefined ? focusSnapshot : restoredFocus),
+        { editorFocus: focusSnapshot })) triggerAutoSave();
 }
 
 function performProjectRedo() {
@@ -6487,7 +6565,8 @@ function performProjectRedo() {
     _flowTranslationJob = null;
     endHistoryGroup();
     const focusSnapshot = captureFlowEditorFocusSnapshot();
-    if (redo(() => refreshAfterHistoryRestore(focusSnapshot))) triggerAutoSave();
+    if (redo((restoredFocus) => refreshAfterHistoryRestore(restoredFocus === undefined ? focusSnapshot : restoredFocus),
+        { editorFocus: focusSnapshot })) triggerAutoSave();
 }
 
 // --- グローバル関数の登録 ---

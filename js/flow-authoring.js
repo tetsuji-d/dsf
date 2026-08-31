@@ -142,6 +142,7 @@ function validateGraphemeBoundary(text, utf16Offset, languageKey) {
  * - setBlockType: convert a text block between paragraph and heading, retaining its identity and localized text
  * - insertBlock: insert heading/paragraph/pageBreak after afterBlockId, or append; optional newBlockId preserves caller identity
  * - splitParagraph: split one source Paragraph into two adjacent Paragraphs
+ * - insertPageBreakAtCaret: atomically split one source text block around a manual pageBreak
  * - mergeParagraphBackward: merge one source Paragraph into its previous Paragraph
  * - removeBlock: remove one semantic block
  * - moveBlock: move one semantic block by delta (-1 or +1)
@@ -343,6 +344,62 @@ export function applyFlowAuthoringOperation(blocks, operation, options = {}) {
                 texts: { [sourceLanguage]: afterText },
             });
             section.blocks.splice(blockIndex + 1, 0, inserted);
+            break;
+        }
+        case 'insertPageBreakAtCaret': {
+            const blockIndex = findBlockIndex(section, operation.blockId);
+            const block = section.blocks[blockIndex];
+            if (!TEXT_BLOCK_TYPES.has(block.type)) {
+                fail('FLOW_BLOCK_NOT_TEXT', 'A caret page break requires a heading or paragraph block.', {
+                    blockId: block.id,
+                    blockType: block.type,
+                });
+            }
+            const sourceLanguage = context.group.flow.document.sourceLanguage;
+            const languageKey = validateLanguageKey(operation.languageKey);
+            if (languageKey !== sourceLanguage) {
+                fail('FLOW_PAGE_BREAK_SOURCE_LANGUAGE_ONLY', 'Caret page breaks currently support the source language only.', {
+                    sourceLanguage,
+                    languageKey,
+                });
+            }
+            const sourceValue = block.texts?.[sourceLanguage];
+            const text = sourceValue === undefined ? '' : sourceValue;
+            if (typeof text !== 'string') fail('INVALID_FLOW_TEXT', 'Page break source text must be a string.');
+            const utf16Offset = validateGraphemeBoundary(text, operation.utf16Offset, sourceLanguage);
+            const newBlockId = validateBlockId(operation.newBlockId, 'New text block ID');
+            const pageBreakId = validateBlockId(operation.pageBreakId, 'New page break ID');
+            if (newBlockId === pageBreakId) {
+                fail('FLOW_BLOCK_ID_CONFLICT', 'The new text block and page break must have different IDs.', {
+                    blockId: newBlockId,
+                });
+            }
+            for (const requestedId of [newBlockId, pageBreakId]) {
+                if (flowDocumentHasId(context.group.flow.document, requestedId)) {
+                    fail('FLOW_BLOCK_ID_CONFLICT', `Flow ID is already in use: ${requestedId}`, {
+                        blockId: requestedId,
+                    });
+                }
+            }
+
+            const beforeText = text.slice(0, utf16Offset);
+            const afterText = text.slice(utf16Offset);
+            // At the end (including a source-missing empty block), the original
+            // text/translation unit is unchanged. Do not create new metadata.
+            if (beforeText !== text) {
+                const captured = captureFlowTranslationUnitBeforeSourceEdit(context.group, {
+                    unitMap: 'blocks',
+                    unitId: block.id,
+                });
+                if (captured.changed) context.group.flow.translationState = captured.translationState;
+                block.texts = { ...(block.texts || {}), [sourceLanguage]: beforeText };
+            }
+            const trailingOptions = { id: newBlockId, idFactory, texts: { [sourceLanguage]: afterText } };
+            const trailingBlock = block.type === 'heading' && afterText.length > 0
+                ? createFlowHeading({ ...trailingOptions, level: block.level })
+                : createFlowParagraph(trailingOptions);
+            section.blocks.splice(blockIndex + 1, 0,
+                createFlowPageBreak({ id: pageBreakId, idFactory }), trailingBlock);
             break;
         }
         case 'mergeParagraphBackward': {

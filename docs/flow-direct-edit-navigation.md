@@ -9,6 +9,9 @@
 - Enterは既存semantic Paragraph分割。Shift+Enterは同じBlock内のLF改行。
   LFの前後でBackspace／Delete、選択置換、複数行貼り付けを受け付ける。
   貼り付けのCRLF／CR／Unicode行区切りはLFに正規化する。
+- Ctrl+Enter（Mac: Cmd+Enter）、または右パネル「カーソル位置で改ページ」で、
+  source言語のHeading／Paragraphに手動改ページを挿入する。選択範囲は解除して使用する。
+  縦書き・横書きとも、続きの本文は次ページ先頭へ移り、その位置で編集を続ける。
 - 縦書きの左右は隣列、上下は文字移動。横書きの上下は隣行、左右は文字移動。
   DOM Rangeの実測位置から次の位置を決める。隣列・行では移動元の行内位置を保つ。
 - Home／Endは視覚上の行・列の先頭／末尾、Ctrl+Home／Endは現在のFlow原稿の先頭／末尾。
@@ -34,12 +37,36 @@
 ページ跨ぎの選択では、inputを置換開始側に置き、focus caret／選択表示は各ページへ描く。
 IME開始後にinputを別ページへ移すことを避ける。OSの候補ウィンドウそのものは自動テストしない。
 
+## 直接編集の手動改ページ
+
+- `insertPageBreakAtCaret`の1操作で、元Blockの前半・既存型の`pageBreak`・新Blockの後半へ分ける。
+  UTF-16 offsetはgrapheme境界で検証し、本文のLFを含む全文字を保持する。
+- 元ID・翻訳・未知フィールドは前半に保持する。翻訳の分割位置は推測しない。
+  前半の原文が変わる場合だけ既存の翻訳stale管理を使用し、後半は未翻訳として扱う。
+- Heading途中は同じlevelのHeadingを後半に作り、Heading末尾は空Paragraphを次ページに作る。
+  先頭・末尾・空本文でも前後の空Blockを維持し、空ページと次ページの編集位置を確保する。
+- 既存のpagination／incremental reflowを使用する。ページ数が増えるかだけでなく、
+  後半の開始ページに`manualBreakBefore`が存在することで意図した区切りを確認する。
+- IME変換中の操作は行わない。再ページ化待ちでも、sourceと入力値が一致する場合は挿入できる。
+  新しいsourceを基に再計算するため、古いページ境界に依存しない。
+- 改ページは1回のUndoで取り消す。既存Historyにruntime-onlyの`editorFocus`を添え、
+  Undoでは改ページ前、Redoでは後半の編集位置を復元する。保存schemaへは加えない。
+- 改ページをまたぐBackspace／Delete結合は未対応。取り消しはUndo、後からの削除は原稿画面で行う。
+
 ## 検証
 
 - `verify:flow-direct-navigation`：縦横の実測座標、行列端、grapheme、affinity、ページ境界、非連続window。
 - `verify:flow-canvas-layout`：幅別表示数、RTL、倍率、100ページの限定window、編集中ページpin。
 - `verify:flow-authoring`：範囲の方向・再生成復元、対象不一致、文字数縮小時のclamp。
 - `verify:flow-direct-edit`：縦横LF編集、縦書き段落結合、翻訳保護、ページ増減とcold pagination一致。
+- `verify:flow-direct-page-break`：縦横の先頭／途中／末尾／空本文、Heading、文字境界、
+  翻訳保護、原子適用、次ページcaret、incremental reflow、保存再読込、Undo／Redo。
+- `verify:history-editor-focus`：既存Historyの任意focus復元、複製の隔離、保存データへの非混入。
+- 直接改ページの実操作：横書き見出し225文字を8／217文字へ分割し、後半先頭への移動・継続入力・
+  Undoで元IDのoffset 8へ復元・Redoで後半へ復元を確認。選択付き操作は範囲を維持して拒否する。
+  見出し末尾のボタン操作、空本文でのCmd+Enter、縦書き5004文字のoffset 17での分割、
+  入力直後の再改ページ、先頭での空ページ追加、原稿構造の保存再読込を確認。
+  縦書き後半の本文は既存設定の396文字／ページを維持する。
 - 通常Studioのローカルguest原稿で縦横の矢印／Enter／Backspace、Shift+Enter→Backspace、
   選択後の書式変更→Undo、ドラッグ・ページ跨ぎ選択、横スクロールを確認。
   900文字の縦書きで396／396／108文字、3ページの選択表示と置換開始側inputを確認。

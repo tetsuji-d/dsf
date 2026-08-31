@@ -213,6 +213,11 @@ export const STRINGS = {
         flow_direct_format_composing: '日本語変換を確定すると設定を変更できます。',
         flow_direct_format_pending: 'ページを再計算中…',
         flow_direct_format_stale: '本文の状態が変わりました。本文をクリックして設定し直してください。',
+        flow_direct_page_break: 'カーソル位置で改ページ',
+        flow_direct_page_break_hint: 'Ctrl+Enter（Mac: ⌘+Enter）で、続きの本文を次ページへ送ります。',
+        flow_direct_page_break_selection: '改ページを入れるには、文字選択を解除してカーソル位置を指定してください。',
+        flow_direct_page_break_stale: 'この位置では安全に改ページできません。本文をクリックして位置を指定し直してください。',
+        flow_direct_page_break_inserted: '改ページを挿入しました。次ページの先頭から編集を続けられます。',
         flow_delete_generated_title: '生成ページは個別削除できません。親のFlow原稿を選択してください',
         confirm_delete_flow:  'このFlow原稿を削除しますか？\n\n原稿本文、翻訳、生成ページがすべて削除されます。\n「元に戻す」で復元できます。',
 
@@ -555,6 +560,11 @@ export const STRINGS = {
         flow_direct_format_composing: 'Finish IME composition before changing the format.',
         flow_direct_format_pending: 'Recalculating pages…',
         flow_direct_format_stale: 'The text has changed. Click the text to select its format again.',
+        flow_direct_page_break: 'Page break at cursor',
+        flow_direct_page_break_hint: 'Ctrl+Enter (Mac: ⌘+Enter) moves the following text to the next page.',
+        flow_direct_page_break_selection: 'Clear the text selection and place the cursor where you want a page break.',
+        flow_direct_page_break_stale: 'A page break cannot be inserted safely here. Click the text to choose the position again.',
+        flow_direct_page_break_inserted: 'Page break inserted. Continue editing at the start of the next page.',
         flow_delete_generated_title: 'Generated pages cannot be deleted individually. Select the parent Flow manuscript.',
         confirm_delete_flow:  'Delete this Flow manuscript?\n\nIts source text, translations, and generated pages will all be removed.\nYou can restore it with Undo.',
 
