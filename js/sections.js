@@ -14,6 +14,7 @@ import {
     getSelectedFlowRuntimePageIndex,
 } from './flow-runtime-pages.js';
 import { isFlowSourceSelected } from './flow-editor-session.js';
+import { removeFixedPageRangeFromSpine } from './fixed-page-spine.js';
 
 // ──────────────────────────────────────────────────────────────
 //  画像 URL 最適化（将来の Cloudflare CDN 配信に対応）
@@ -434,6 +435,34 @@ function syncModelsFromLegacy() {
     }
 }
 
+function fixedSectionsFromBlocks(blocks) {
+    return (Array.isArray(blocks) ? blocks : [])
+        .filter((block) => block?.kind === 'page')
+        .map(createSectionFromPageBlock);
+}
+
+function applyFixedPageRemoval(pageIndex, refresh) {
+    const result = removeFixedPageRangeFromSpine(state.blocks || [], {
+        sourcePageIndex: pageIndex,
+        minimumRemainingPages: 1,
+    });
+    if (!result.changed) {
+        refresh();
+        return false;
+    }
+    dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'blocks', value: result.blocks } });
+    dispatch({ type: actionTypes.SET_STATE_FIELD, payload: {
+        key: 'sections',
+        value: fixedSectionsFromBlocks(result.blocks),
+    } });
+    dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'pages', value: blocksToPages(result.blocks) } });
+    dispatch({ type: actionTypes.SET_ACTIVE_BLOCK_INDEX, payload: result.activeBlockIndex });
+    dispatch({ type: actionTypes.SET_ACTIVE_INDEX, payload: result.activePageIndex });
+    dispatch({ type: actionTypes.SET_ACTIVE_BUBBLE_INDEX, payload: null });
+    refresh();
+    return true;
+}
+
 /**
  * 新しいセクションを追加する
  * @param {function} refresh - 画面更新コールバック
@@ -519,6 +548,7 @@ export function deleteSectionAt(sectionIndex, refresh) {
     const idx = Number(sectionIndex);
     if (!Number.isInteger(idx) || idx < 0 || idx >= state.sections.length) return;
     if (state.sections.length <= 1) return;
+    if (state.version === 6) return applyFixedPageRemoval(idx, refresh);
 
     const nextSections = [...state.sections];
     nextSections.splice(idx, 1);
@@ -536,6 +566,7 @@ export function deleteSectionAt(sectionIndex, refresh) {
     dispatch({ type: actionTypes.SET_ACTIVE_BUBBLE_INDEX, payload: null });
     syncModelsFromLegacy();
     refresh();
+    return true;
 }
 
 /**
@@ -842,13 +873,16 @@ export function renderThumbs() {
             if (activeSpreadGroupId && spreadGroupId === activeSpreadGroupId) selected = true;
             const spreadAttrs = spreadGroupId ? ` data-spread-group="${escapeAttr(spreadGroupId)}"` : '';
             const dataAttrs = `data-block-index="${blockIdx}" data-section-index="${pageIdx}" data-tree-depth="${depth}"${spreadAttrs}`;
-            const dragHandlers = strictAuthoring ? 'draggable="false"' : `
+            // v6 desktop DnD is routed through the canonical mixed-spine
+            // operation. Touch stays off until its delete/drop UI is migrated.
+            const canDragV6FixedPage = isDesktop && !spreadGroupId;
+            const dragHandlers = strictAuthoring && !canDragV6FixedPage ? 'draggable="false"' : `
                 ondragstart="startThumbDrag(event, ${pageIdx})"
                 ondragover="onThumbDragOver(event, ${pageIdx})"
                 ondragleave="onThumbDragLeave(event, ${pageIdx})"
                 ondrop="onThumbDrop(event, ${pageIdx})"
                 ondragend="endThumbDrag()"
-                ontouchstart="startThumbTouchDrag(event, ${pageIdx})"
+                ${strictAuthoring ? '' : `ontouchstart="startThumbTouchDrag(event, ${pageIdx})"`}
                 draggable="true"
             `;
             const insertBeforeAction = strictAuthoring
@@ -1040,51 +1074,58 @@ export function renderThumbs() {
  * アクティブな要素（吹き出し or セクション/ブロック）を削除する
  * @param {function} refresh - 画面更新コールバック
  */
+export function canDeleteActive() {
+    const activeBlock = (state.blocks || [])[state.activeBlockIdx];
+    if (state.activeBubbleIdx !== null) {
+        return !!state.sections?.[state.activeIdx]?.bubbles?.[state.activeBubbleIdx];
+    }
+    if (activeBlock?.kind === 'flow' || isLockedBlock(activeBlock)) return false;
+    if (state.version === 6 && activeBlock?.kind === 'page') {
+        const pageIndex = getPageIndexFromBlockIndex(state.blocks || [], state.activeBlockIdx);
+        if (state.sections?.[pageIndex]?.spreadImage?.groupId) return false;
+        return removeFixedPageRangeFromSpine(state.blocks || [], {
+            sourcePageIndex: pageIndex,
+            minimumRemainingPages: 1,
+        }).changed;
+    }
+    if (activeBlock && activeBlock.kind !== 'page') return true;
+    return (state.sections || []).length > 1;
+}
+
 export function deleteActive(refresh) {
     const activeBlock = (state.blocks || [])[state.activeBlockIdx];
     if (state.activeBubbleIdx !== null) {
+        if (!canDeleteActive()) {
+            refresh();
+            return false;
+        }
         const newSections = [...state.sections];
         newSections[state.activeIdx].bubbles.splice(state.activeBubbleIdx, 1);
         dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'sections', value: newSections } });
         dispatch({ type: actionTypes.SET_ACTIVE_BUBBLE_INDEX, payload: null });
+        syncModelsFromLegacy();
         refresh();
-        return;
+        return true;
     }
 
-    if (activeBlock?.kind === 'flow') {
+    if (!canDeleteActive()) {
         refresh();
-        return;
+        return false;
     }
 
     if (state.version === 6 && activeBlock?.kind === 'page') {
-        const newBlocks = [...state.blocks];
-        newBlocks.splice(state.activeBlockIdx, 1);
-        const newSections = newBlocks
-            .filter((block) => block?.kind === 'page')
-            .map(createSectionFromPageBlock);
-        dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'blocks', value: newBlocks } });
-        dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'sections', value: newSections } });
-        const nextBlockIdx = Math.max(0, Math.min(state.activeBlockIdx, newBlocks.length - 1));
-        dispatch({ type: actionTypes.SET_ACTIVE_BLOCK_INDEX, payload: nextBlockIdx });
-        const nextPageIdx = getPageIndexFromBlockIndex(newBlocks, nextBlockIdx);
-        dispatch({ type: actionTypes.SET_ACTIVE_INDEX, payload: Math.max(0, nextPageIdx) });
-        syncModelsFromLegacy();
-        refresh();
-        return;
+        const pageIndex = getPageIndexFromBlockIndex(state.blocks || [], state.activeBlockIdx);
+        return applyFixedPageRemoval(pageIndex, refresh);
     }
 
     if (activeBlock && activeBlock.kind !== 'page') {
-        if (isLockedBlock(activeBlock)) {
-            refresh();
-            return;
-        }
         const newBlocks = [...state.blocks];
         newBlocks.splice(state.activeBlockIdx, 1);
         dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'blocks', value: newBlocks } });
         dispatch({ type: actionTypes.SET_ACTIVE_BLOCK_INDEX, payload: Math.max(0, state.activeBlockIdx - 1) });
         syncModelsFromLegacy();
         refresh();
-        return;
+        return true;
     }
 
     if (state.sections.length > 1) {
@@ -1095,4 +1136,5 @@ export function deleteActive(refresh) {
     }
     syncModelsFromLegacy();
     refresh();
+    return true;
 }

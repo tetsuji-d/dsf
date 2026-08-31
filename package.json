@@ -39,6 +39,7 @@
     "verify:flow-direct-composition": "node scripts/verify-flow-direct-composition.js",
     "verify:flow-direct-format": "node scripts/verify-flow-direct-format.js",
     "verify:flow-authoring": "node scripts/verify-flow-authoring.js",
+    "verify:fixed-page-spine": "node scripts/verify-fixed-page-spine.js",
     "verify:flow-multilingual-authoring": "node scripts/verify-flow-multilingual-authoring.js",
     "verify:flow-translation-state": "node scripts/verify-flow-translation-state.js",
     "verify:flow-translation-ui": "node scripts/verify-flow-translation-ui.js",

@@ -14,15 +14,16 @@ import { state, dispatch, actionTypes } from './state.js';
 import { saveProject as persistProject, loadProject, uploadToStorage, uploadCoverToStorage, uploadStructureToStorage, triggerAutoSave, flushSave, flushPendingSave, generateCroppedThumbnail, listLocalRecentProjects, loadLocalRecentProject, cacheLocalRecentProject, ensureUserBootstrap, auth as firebaseAuth, authReady, db } from './firebase.js';
 import { initGIS, renderGISButton, signInWithGoogle, signOutUser, onAuthChanged, handleRedirectResult } from './gis-auth.js';
 import { handleCanvasClick, selectBubble, renderBubbleHTML, getBubbleText, setBubbleText, addBubbleAtCenter, startDrag, startTailDrag, startSpikeDrag } from './bubbles.js';
-import { addSection, addTextSection, changeSection, changeBlock, insertStructureBlock, renderThumbs, deleteActive, deleteSectionAt, insertSectionAt, insertSpreadImageAt, duplicateSectionAt, moveSection, moveSectionRange, insertPageNearBlock, duplicateBlockAt, moveBlockAt, getOptimizedImageUrl } from './sections.js';
+import { addSection, addTextSection, changeSection, changeBlock, insertStructureBlock, renderThumbs, canDeleteActive, deleteActive, deleteSectionAt, insertSectionAt, insertSpreadImageAt, duplicateSectionAt, moveSection, moveSectionRange, insertPageNearBlock, duplicateBlockAt, moveBlockAt, getOptimizedImageUrl } from './sections.js';
 import { pushState, endHistoryGroup, undo, redo, getHistoryInfo, clearHistory } from './history.js';
 import { openProjectModal, closeProjectModal, fetchCloudProjects, getCoverImage, getPageCount, deleteCloudProject } from './projects.js';
 import { openWorksRoom, closeWorksRoom } from './works.js';
 import { enterPressRoom, leavePressRoom, refreshFlowHorizonDryRunReadiness } from './press.js';
 import { getLangProps, getAllLangs } from './lang.js';
 import { t, applyI18n, setUILang, getUILang } from './i18n-studio.js';
-import { getBlockIndexFromPageIndex, getPageIndexFromBlockIndex, migrateSectionsToBlocks, syncBlocksWithSections, extractSectionsFromBlocks } from './blocks.js';
+import { createSectionFromPageBlock, getBlockIndexFromPageIndex, getPageIndexFromBlockIndex, migrateSectionsToBlocks, syncBlocksWithSections, extractSectionsFromBlocks } from './blocks.js';
 import { blocksToPages } from './pages.js';
+import { moveFixedPageRangeInSpine } from './fixed-page-spine.js';
 import { buildDSP, buildDSF, parseAndLoadDSP } from './export.js';
 import { hydrateProjectFromPersistence } from './project-persistence.js';
 import { applyTheme, bindThemePreferenceListener, getThemeMode, setThemeMode } from './theme.js';
@@ -4111,15 +4112,18 @@ function refresh(options = {}) {
     const deleteBtn = document.getElementById('btn-delete-active');
     if (deleteBtn) {
         const canDeleteFlowSource = isFlowAuthoring;
+        const canDeleteSelection = canDeleteFlowSource || (!isFlowReadOnly && canDeleteActive());
         const deleteLabelKey = canDeleteFlowSource ? 'btn_delete_flow' : 'btn_delete';
-        deleteBtn.disabled = isFlowReadOnly && !canDeleteFlowSource;
+        deleteBtn.disabled = !canDeleteSelection;
         deleteBtn.dataset.i18n = deleteLabelKey;
         deleteBtn.textContent = t(deleteLabelKey);
         deleteBtn.title = canDeleteFlowSource
             ? t('flow_delete_source_title')
             : isFlowReadOnly
                 ? t('flow_delete_generated_title')
-                : '';
+                : canDeleteSelection
+                    ? ''
+                    : '削除できない項目です';
     }
     if (!isFlowReadOnly) {
         const pageLockNote = document.getElementById('page-lock-note');
@@ -4639,11 +4643,42 @@ function getDropPositionByPoint(el, clientX, clientY) {
 }
 
 function moveSectionWithHistory(fromIndex, targetIndex, position) {
+    if (state.version === 6) {
+        const sourcePageIndex = Number(fromIndex);
+        const targetPageIndex = position === 'before'
+            ? getSpreadPairStart(targetIndex)
+            : getSpreadPairEnd(targetIndex);
+        const result = moveFixedPageRangeInSpine(state.blocks || [], {
+            sourcePageIndex,
+            targetPageIndex,
+            position,
+        });
+        if (!result.changed) return false;
+
+        const nextSections = result.blocks
+            .filter((block) => block?.kind === 'page')
+            .map(createSectionFromPageBlock);
+        if (!validateSpreadImageCompositionForSections(nextSections)) return false;
+
+        endHistoryGroup();
+        pushState();
+        dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'blocks', value: result.blocks } });
+        dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'sections', value: nextSections } });
+        dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'pages', value: blocksToPages(result.blocks) } });
+        dispatch({ type: actionTypes.SET_ACTIVE_BLOCK_INDEX, payload: result.activeBlockIndex });
+        dispatch({ type: actionTypes.SET_ACTIVE_INDEX, payload: result.activePageIndex });
+        dispatch({ type: actionTypes.SET_ACTIVE_BUBBLE_INDEX, payload: null });
+        invalidateFlowRuntimePages({ preserveSelection: true });
+        refreshForThumbSelection();
+        triggerAutoSave();
+        return true;
+    }
     const insertIndex = position === 'before' ? getSpreadPairStart(targetIndex) : getSpreadPairEnd(targetIndex) + 1;
     return moveSectionToInsertIndexWithHistory(fromIndex, insertIndex);
 }
 
 function moveSectionToInsertIndexWithHistory(fromIndex, insertIndex) {
+    if (state.version === 6) return false;
     const from = Number(fromIndex);
     const pair = getSpreadPairIndices(from);
     if (pair.length > 1) {
@@ -7626,7 +7661,14 @@ window.moveBlockByIndex = (blockIdx, direction, e) => {
     const moved = moveBlockAt(blockIdx, direction, refresh);
     if (moved) triggerAutoSave();
 };
+function isPersistedFixedPageIndex(pageIndex) {
+    const blockIndex = getBlockIndexFromPageIndex(state.blocks || [], Number(pageIndex));
+    return blockIndex >= 0
+        && state.blocks?.[blockIndex]?.kind === 'page'
+        && !state.sections?.[Number(pageIndex)]?.spreadImage?.groupId;
+}
 window.startThumbDrag = (e, idx) => {
+    if (state.version === 6 && !isPersistedFixedPageIndex(idx)) return;
     thumbDragSourceIdx = idx;
     addThumbClassToSpreadPair(idx, 'drag-source');
     if (e.dataTransfer) {
@@ -7636,6 +7678,7 @@ window.startThumbDrag = (e, idx) => {
 };
 window.onThumbDragOver = (e, idx) => {
     if (!Number.isInteger(thumbDragSourceIdx)) return;
+    if (state.version === 6 && !isPersistedFixedPageIndex(idx)) return;
     e.preventDefault();
     const el = getThumbElement(idx);
     if (!el) return;
@@ -7647,12 +7690,13 @@ window.onThumbDragLeave = () => {
 };
 window.onThumbDrop = (e, idx) => {
     if (!Number.isInteger(thumbDragSourceIdx)) return;
+    if (state.version === 6 && !isPersistedFixedPageIndex(idx)) return;
     e.preventDefault();
     const el = getThumbElement(idx);
     if (!el) return;
     const position = getDropPositionByPoint(el, e.clientX, e.clientY);
-    moveSectionWithHistory(thumbDragSourceIdx, idx, position);
-    suppressThumbClickUntil = Date.now() + 250;
+    const changed = moveSectionWithHistory(thumbDragSourceIdx, idx, position);
+    if (changed) suppressThumbClickUntil = Date.now() + 250;
     thumbDragSourceIdx = null;
     clearThumbDropHints();
 };
@@ -7716,9 +7760,14 @@ window.deleteActive = () => {
         deleteActiveFlowGroup(activeBlock);
         return;
     }
+    if (!canDeleteActive()) return;
+    endHistoryGroup();
     pushState();
-    deleteActive(refresh);
-    triggerAutoSave();
+    const changed = deleteActive(refresh);
+    if (changed) {
+        if (state.version === 6) invalidateFlowRuntimePages({ preserveSelection: true });
+        triggerAutoSave();
+    }
 };
 window.update = update;
 window.updateActiveText = updateActiveText;
