@@ -26,6 +26,12 @@ import {
     resolveFlowPublicationTypography,
 } from './flow-publication-projection.js';
 import { segmentGraphemes } from './grapheme.js';
+import {
+    FIXED_TEXT_WHITE_SPACE_MODE,
+    FIXED_TEXT_TAB_SIZE,
+    applyFixedTextWhiteSpaceStyle,
+    renderFixedTextRunText,
+} from './fixed-text-whitespace.js';
 
 export const FLOW_PUBLICATION_COMPOSITION_CAPTURE_VERSION = 1;
 export const FLOW_PUBLICATION_COMPOSITION_HYPHENATION = 'none';
@@ -33,6 +39,7 @@ export const FLOW_PUBLICATION_COMPOSITION_HYPHENATION = 'none';
 const RECT_EPSILON_PX = 0.5;
 const LINE_AXIS_EPSILON_PX = 1;
 const GEOMETRY_DECIMALS = 3;
+const NEWLINE_PATTERN = /^[\r\n]+$/;
 
 export class FlowPublicationCompositionCaptureError extends Error {
     constructor(code, message, context = {}) {
@@ -156,7 +163,9 @@ function createLineGroup(blockId, items, rects, writingMode) {
         });
     }
     const geometry = unionRects(rects);
-    if (geometry.width <= 0 || geometry.height <= 0) {
+    const emptyVisualLine = items.every((item) => NEWLINE_PATTERN.test(item.text))
+        && (writingMode === 'vertical-rl' ? geometry.width > 0 : geometry.height > 0);
+    if ((geometry.width <= 0 || geometry.height <= 0) && !emptyVisualLine) {
         fail('FLOW_PUBLICATION_CAPTURE_LINE_UNMEASURED', 'Measured DOM line has no two-dimensional bounds.', {
             blockId,
             geometry,
@@ -275,6 +284,149 @@ export function groupFlowPublicationGraphemeRects(items, options = {}) {
         last.rects.push(...pending.flatMap((entry) => entry.rects));
     }
     return groups.map((group) => createLineGroup(blockId, group.items, group.rects, writingMode));
+}
+
+function itemRect(item) {
+    const rects = Array.isArray(item?.rects)
+        ? item.rects.map((rect, index) => finiteRect(rect, `grapheme.rects[${index}]`))
+            .filter((rect) => rect.width > 0 || rect.height > 0)
+        : [];
+    return rects.length > 0 ? unionRects(rects) : null;
+}
+
+function zeroAdvanceNewline(item, rect, writingMode) {
+    if (!NEWLINE_PATTERN.test(String(item?.text || ''))) return false;
+    return !rect || (writingMode === 'vertical-rl' ? rect.height : rect.width) <= RECT_EPSILON_PX;
+}
+
+function isHangingWhitespace(items, index) {
+    // pre-wrap allows end-of-line whitespace to hang beyond the body box.
+    // They retain their advance and must still match the probe exactly, but
+    // clipping their inkless overflow does not clip a visible glyph.
+    return /^[ \t\u00a0\u3000]+$/.test(items[index]?.text || '')
+        && items.slice(index).every((item) => /^[ \t\u00a0\u3000\r\n]+$/.test(item.text));
+}
+
+function closeGeometry(left, right) {
+    return Math.abs(left - right) <= RECT_EPSILON_PX;
+}
+
+/**
+ * Resolve the Viewer line/column box which places its measured glyph ranges on
+ * top of the original Flow glyph ranges. Newline ranges without inline advance
+ * are semantic separators and do not provide a placement anchor.
+ *
+ * This helper is pure so the geometry contract can be checked without a DOM.
+ */
+export function resolveFlowPublicationLineBox(input = {}) {
+    const writingMode = String(input.writingMode || 'horizontal-tb');
+    if (!['horizontal-tb', 'vertical-rl'].includes(writingMode)) {
+        fail('FLOW_PUBLICATION_CAPTURE_LINEBOX_INVALID', 'A supported line-box writing mode is required.', {
+            writingMode,
+        });
+    }
+    const width = Number(input.width);
+    const height = Number(input.height);
+    if (![width, height].every(Number.isFinite) || width <= 0 || height <= 0) {
+        fail('FLOW_PUBLICATION_CAPTURE_LINEBOX_INVALID', 'The measured Viewer line box must have a positive finite size.', {
+            width: input.width,
+            height: input.height,
+        });
+    }
+    const sourceItems = input.sourceItems;
+    const probeItems = input.probeItems;
+    if (!Array.isArray(sourceItems)
+        || !Array.isArray(probeItems)
+        || sourceItems.length < 1
+        || sourceItems.length !== probeItems.length) {
+        fail('FLOW_PUBLICATION_CAPTURE_LINEBOX_SOURCE_MISMATCH', 'Source and Viewer probe graphemes must be complete and equal in count.', {
+            sourceCount: Array.isArray(sourceItems) ? sourceItems.length : null,
+            probeCount: Array.isArray(probeItems) ? probeItems.length : null,
+        });
+    }
+
+    const pairs = sourceItems.map((sourceItem, index) => {
+        const probeItem = probeItems[index];
+        if (typeof sourceItem?.text !== 'string'
+            || !Number.isInteger(sourceItem.startGrapheme)
+            || sourceItem.startGrapheme < 0
+            || sourceItem.endGrapheme !== sourceItem.startGrapheme + 1
+            || (index > 0 && sourceItem.startGrapheme !== sourceItems[index - 1].endGrapheme)
+            || probeItem?.text !== sourceItem.text
+            || probeItem?.startGrapheme !== sourceItem.startGrapheme
+            || probeItem?.endGrapheme !== sourceItem.endGrapheme) {
+            fail('FLOW_PUBLICATION_CAPTURE_LINEBOX_SOURCE_MISMATCH', 'Viewer probe graphemes do not match the Flow source range.', {
+                index,
+                sourceItem,
+                probeItem,
+            });
+        }
+        const sourceRect = itemRect(sourceItem);
+        const probeRect = itemRect(probeItem);
+        const ignore = zeroAdvanceNewline(sourceItem, sourceRect, writingMode);
+        if (!ignore && (!sourceRect || !probeRect)) {
+            fail('FLOW_PUBLICATION_CAPTURE_GLYPH_UNMEASURED', 'A visible source grapheme has no corresponding Viewer range.', {
+                index,
+                text: sourceItem.text,
+                startGrapheme: sourceItem.startGrapheme,
+                sourceRect,
+                probeRect,
+            });
+        }
+        return { sourceItem, sourceRect, probeRect, ignore };
+    });
+
+    const anchor = pairs.find((pair) => !pair.ignore);
+    if (!anchor) {
+        fail('FLOW_PUBLICATION_CAPTURE_LINEBOX_UNMEASURED', 'A line box requires at least one measurable non-newline grapheme.');
+    }
+    const x = anchor.sourceRect.x - anchor.probeRect.x;
+    const y = anchor.sourceRect.y - anchor.probeRect.y;
+
+    for (const [index, pair] of pairs.entries()) {
+        if (pair.ignore) continue;
+        const { sourceRect, probeRect, sourceItem } = pair;
+        const expected = {
+            x: x + probeRect.x,
+            y: y + probeRect.y,
+            width: probeRect.width,
+            height: probeRect.height,
+        };
+        if (!closeGeometry(sourceRect.x, expected.x)
+            || !closeGeometry(sourceRect.y, expected.y)
+            || !closeGeometry(sourceRect.width, expected.width)
+            || !closeGeometry(sourceRect.height, expected.height)) {
+            fail('FLOW_PUBLICATION_CAPTURE_GLYPH_MISMATCH', 'Viewer line-box composition does not reproduce every Flow glyph range.', {
+                index,
+                text: sourceItem.text,
+                startGrapheme: sourceItem.startGrapheme,
+                sourceRect,
+                expected,
+            });
+        }
+        const horizontalOverflow = probeRect.x < -RECT_EPSILON_PX
+            || probeRect.x + probeRect.width > width + RECT_EPSILON_PX;
+        const verticalOverflow = probeRect.y < -RECT_EPSILON_PX
+            || probeRect.y + probeRect.height > height + RECT_EPSILON_PX;
+        const crossOverflow = writingMode === 'vertical-rl' ? horizontalOverflow : verticalOverflow;
+        const inlineOverflow = writingMode === 'vertical-rl' ? verticalOverflow : horizontalOverflow;
+        if (crossOverflow || (inlineOverflow && !isHangingWhitespace(sourceItems, index))) {
+            fail('FLOW_PUBLICATION_CAPTURE_GLYPH_OUTSIDE_LINEBOX', 'A Viewer glyph range exceeds its fixed line box.', {
+                index,
+                text: sourceItem.text,
+                startGrapheme: sourceItem.startGrapheme,
+                probeRect,
+                lineBox: { width, height },
+            });
+        }
+    }
+
+    return {
+        x: roundGeometry(x),
+        y: roundGeometry(y),
+        width: roundGeometry(width),
+        height: roundGeometry(height),
+    };
 }
 
 function resolveCaptureContext(options) {
@@ -428,6 +580,8 @@ function createCaptureSurface(context) {
     const { ownerDocument, pageBox } = context;
     const host = ownerDocument.createElement('div');
     const pageElement = ownerDocument.createElement('div');
+    const lineBoxProbe = ownerDocument.createElement('div');
+    const lineBoxProbeRun = ownerDocument.createElement('span');
     host.className = 'flow-publication-composition-capture-host';
     host.setAttribute('aria-hidden', 'true');
     Object.assign(host.style, {
@@ -442,8 +596,35 @@ function createCaptureSurface(context) {
         contain: 'strict',
     });
     host.appendChild(pageElement);
+    // Share the opt-in whitespace DOM with Viewer, without loading its runtime.
+    Object.assign(lineBoxProbe.style, {
+        position: 'absolute',
+        left: '0px',
+        top: '0px',
+        display: 'block',
+        boxSizing: 'border-box',
+        margin: '0px',
+        border: '0px',
+        padding: '0px',
+        overflow: 'hidden',
+        whiteSpace: 'nowrap',
+        wordBreak: 'normal',
+        overflowWrap: 'normal',
+        textWrap: 'nowrap',
+        textOrientation: 'mixed',
+        fontStyle: 'normal',
+        fontFeatureSettings: 'normal',
+        fontSynthesis: 'none',
+        textRendering: 'optimizeLegibility',
+        textDecoration: 'none',
+        hyphens: 'manual',
+    });
+    lineBoxProbeRun.style.whiteSpace = 'inherit';
+    applyFixedTextWhiteSpaceStyle(lineBoxProbe, FIXED_TEXT_WHITE_SPACE_MODE);
+    lineBoxProbe.appendChild(lineBoxProbeRun);
+    host.appendChild(lineBoxProbe);
     ownerDocument.body.appendChild(host);
-    return { host, pageElement };
+    return { host, pageElement, lineBoxProbe, lineBoxProbeRun };
 }
 
 function pageRelativeRect(rect, pageRect) {
@@ -509,7 +690,127 @@ function captureEmptyFragmentLine(element, fragment, context, pageRect) {
     return geometry;
 }
 
-function captureFragmentLines(element, fragment, context, pageRect) {
+function captureViewerLineBox(element, line, sourceItems, context, surface) {
+    const computed = context.ownerDocument.defaultView?.getComputedStyle(element);
+    const lineHeight = Number.parseFloat(computed?.lineHeight);
+    const elementRect = element.getBoundingClientRect();
+    const vertical = context.writingMode === 'vertical-rl';
+    const width = vertical ? lineHeight : elementRect.width;
+    const height = vertical ? elementRect.height : lineHeight;
+    if (!computed || !Number.isFinite(lineHeight) || lineHeight <= 0) {
+        fail('FLOW_PUBLICATION_CAPTURE_LINEBOX_INVALID', 'Flow fragment has no measurable computed line height.', {
+            blockId: line.runs[0].source.blockId,
+            lineHeight: computed?.lineHeight,
+        });
+    }
+    if (computed.tabSize !== String(FIXED_TEXT_TAB_SIZE)) {
+        fail('FLOW_PUBLICATION_CAPTURE_TAB_SIZE_UNSUPPORTED', 'Flow TAB stops must match the fixed whitespace contract.', {
+            blockId: line.runs[0].source.blockId,
+            tabSize: computed.tabSize,
+        });
+    }
+    if (computed.direction !== 'ltr') {
+        fail('FLOW_PUBLICATION_CAPTURE_DIRECTION_UNSUPPORTED', 'preserve-v1 requires LTR inline progression.', {
+            blockId: line.runs[0].source.blockId,
+            direction: computed.direction,
+        });
+    }
+
+    const probe = surface.lineBoxProbe;
+    Object.assign(probe.style, {
+        width: `${width}px`,
+        height: `${height}px`,
+        writingMode: context.writingMode,
+        direction: computed.direction,
+        fontFamily: computed.fontFamily,
+        fontSize: computed.fontSize,
+        fontWeight: computed.fontWeight,
+        // Keep the original unitless value, as the delivery style does. Its
+        // computed pixel value above is only used for the physical box size.
+        lineHeight: element.style.lineHeight || computed.lineHeight,
+        letterSpacing: computed.letterSpacing,
+        // Author alignment is captured in x/y. Fixed delivery uses start so
+        // hanging whitespace cannot realign an already-positioned line.
+        textAlign: 'start',
+    });
+    probe.lang = context.language;
+    const text = line.runs.map((run) => run.text).join('');
+    const parts = renderFixedTextRunText(surface.lineBoxProbeRun, text, FIXED_TEXT_WHITE_SPACE_MODE);
+    if (surface.lineBoxProbeRun.textContent !== text) {
+        fail('FLOW_PUBLICATION_CAPTURE_LINEBOX_SOURCE_MISMATCH', 'Viewer probe did not retain the exact source text.');
+    }
+    const probeRect = probe.getBoundingClientRect();
+    if (sourceItems.every((item) => NEWLINE_PATTERN.test(item.text))) {
+        // A blank visual line has no ink but still owns its LF source range.
+        // Measure the same zero-width placeholder used by empty Flow paragraphs
+        // to obtain this font's leading, then restore the original probe text.
+        probe.style.textAlign = computed.textAlign;
+        const [marker] = renderFixedTextRunText(surface.lineBoxProbeRun, '\u200b', FIXED_TEXT_WHITE_SPACE_MODE);
+        const range = context.ownerDocument.createRange();
+        range.setStart(marker.node, 0);
+        range.setEnd(marker.node, 1);
+        const markerRect = pageRelativeRect(range.getBoundingClientRect(), probeRect);
+        range.detach?.();
+        renderFixedTextRunText(surface.lineBoxProbeRun, text, FIXED_TEXT_WHITE_SPACE_MODE);
+        probe.style.textAlign = 'start';
+        const sourceRect = sourceItems.map(itemRect).find(Boolean);
+        if (!sourceRect || (vertical ? markerRect.width <= 0 : markerRect.height <= 0)) {
+            fail('FLOW_PUBLICATION_CAPTURE_LINEBOX_UNMEASURED', 'Blank line has no measured font metrics.');
+        }
+        return normalizeCapturedGeometry({
+            ...line,
+            x: sourceRect.x - markerRect.x,
+            y: sourceRect.y - markerRect.y,
+            width: probeRect.width,
+            height: probeRect.height,
+        }, context.pageBox.contentBox, { blockId: line.runs[0].source.blockId });
+    }
+    const startGrapheme = line.runs[0].source.startGrapheme;
+    const probeItems = segmentGraphemes(text, context.language).map((segment, localIndex) => {
+        const part = parts.find((entry) => entry.start <= segment.index && entry.end >= segment.end);
+        if (!part) fail('FLOW_PUBLICATION_CAPTURE_LINEBOX_SOURCE_MISMATCH', 'Viewer probe lost a semantic text range.');
+        const range = context.ownerDocument.createRange();
+        range.setStart(part.node, segment.index - part.start);
+        range.setEnd(part.node, segment.end - part.start);
+        const rects = Array.from(range.getClientRects(), (rect) => pageRelativeRect(rect, probeRect));
+        range.detach?.();
+        return {
+            text: segment.segment,
+            startGrapheme: startGrapheme + localIndex,
+            endGrapheme: startGrapheme + localIndex + 1,
+            rects,
+        };
+    });
+    const geometryInput = {
+        writingMode: context.writingMode,
+        // Use the actual CSS box dimensions, including browser subpixel rounding.
+        width: probeRect.width,
+        height: probeRect.height,
+        sourceItems,
+        probeItems,
+    };
+    let geometry = resolveFlowPublicationLineBox(geometryInput);
+    // Keep the fixed box inside the body. With start + pre/nowrap, reducing
+    // only its inline extent cannot reflow/re-align any of the measured text.
+    const contentBox = context.pageBox.contentBox;
+    const availableInline = vertical
+        ? contentBox.y + contentBox.height - geometry.y
+        : contentBox.x + contentBox.width - geometry.x;
+    const inlineSize = vertical ? geometry.height : geometry.width;
+    if (availableInline < inlineSize) {
+        geometry = resolveFlowPublicationLineBox({
+            ...geometryInput,
+            ...(vertical ? { height: availableInline } : { width: availableInline }),
+        });
+    }
+    return normalizeCapturedGeometry(
+        { ...line, ...geometry },
+        context.pageBox.contentBox,
+        { blockId: line.runs[0].source.blockId },
+    );
+}
+
+function captureFragmentLines(element, fragment, context, pageRect, surface) {
     const expectedCount = fragment.sourceRange.endGrapheme - fragment.sourceRange.startGrapheme;
     if (fragment.text === '') {
         if (expectedCount !== 0) {
@@ -550,11 +851,12 @@ function captureFragmentLines(element, fragment, context, pageRect) {
         blockId: fragment.blockId,
         writingMode: context.writingMode,
     });
-    return lines.map((line) => normalizeCapturedGeometry(
-        line,
-        context.pageBox.contentBox,
-        { blockId: fragment.blockId },
-    ));
+    return lines.map((line) => {
+        const range = line.runs[0].source;
+        const start = range.startGrapheme - fragment.sourceRange.startGrapheme;
+        const end = range.endGrapheme - fragment.sourceRange.startGrapheme;
+        return captureViewerLineBox(element, line, items.slice(start, end), context, surface);
+    });
 }
 
 function cloneManualBreak(value) {
@@ -632,6 +934,7 @@ function capturePage(page, context, surface) {
         page.fragments[fragmentIndex],
         context,
         pageRect,
+        surface,
     ));
     return {
         index: page.index,

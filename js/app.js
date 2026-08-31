@@ -584,8 +584,7 @@ function renderFlowDirectEditIndicators(proxy = _flowDirectEditProxy) {
         fontWeight: sourceStyle?.fontWeight || page.typography?.fontWeight || '400',
         lineHeight: sourceStyle?.lineHeight || String(page.typography?.lineHeight || 1.8),
         letterSpacing: sourceStyle?.letterSpacing || `${page.typography?.letterSpacing || 0}px`,
-        fontFeatureSettings: sourceStyle?.fontFeatureSettings
-            || (verticalWriting ? '"vert" 1, "vkna" 1' : 'normal'),
+        fontFeatureSettings: sourceStyle?.fontFeatureSettings || 'normal',
     });
 
     if (_flowDirectCompositionText) {
@@ -618,8 +617,7 @@ function renderFlowDirectEditIndicators(proxy = _flowDirectEditProxy) {
             lineHeight: sourceStyle?.lineHeight || String(page.typography?.lineHeight || 1.8),
             letterSpacing: sourceStyle?.letterSpacing || `${page.typography?.letterSpacing || 0}px`,
             color: sourceStyle?.color || page.typography?.textColor || 'inherit',
-            fontFeatureSettings: sourceStyle?.fontFeatureSettings
-                || (verticalWriting ? '"vert" 1, "vkna" 1' : 'normal'),
+            fontFeatureSettings: sourceStyle?.fontFeatureSettings || 'normal',
         });
         pageElement.appendChild(composition);
         alignFlowDirectCompositionElement({
@@ -1410,7 +1408,17 @@ function handleFlowDirectNavigation(event, proxy) {
     if (!['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Home', 'End'].includes(event.key)
         || event.altKey || ((event.ctrlKey || event.metaKey) && !['Home', 'End'].includes(event.key))) return false;
     event.preventDefault();
-    if (proxy.dataset.flowReflowPending === 'true' || !_flowDirectEditSession || !_flowCanvasView) return true;
+    if (proxy !== _flowDirectEditProxy || !_flowDirectEditSession || !_flowCanvasView) return true;
+    const group = getFlowGroupById(_flowDirectEditSession.groupId);
+    if (!group) return true;
+    // Fonts and fixed-page autosave can invalidate the projection without a text edit.
+    // Recover through the deduplicated request, even if an older request left us pending.
+    const projection = getEditorPageProjection();
+    if (!projection) {
+        requestEditorFlowProjection(group);
+        return true;
+    }
+    if (proxy.dataset.flowReflowPending === 'true') return true;
     updateFlowDirectSelectionFromProxy(proxy, { navigate: false });
     const session = _flowDirectEditSession;
     const vertical = session.writingMode === 'vertical-rl';
@@ -1423,7 +1431,6 @@ function handleFlowDirectNavigation(event, proxy) {
             backward ? proxy.selectionStart : proxy.selectionEnd, backward ? 'backward' : 'forward');
         _flowDirectPreferredInlinePosition = null;
     } else if (event.ctrlKey || event.metaKey) {
-        const group = getFlowGroupById(session.groupId);
         const blocks = group.flow.document.sections.flatMap(section => section.blocks
             .filter(block => ['heading', 'paragraph'].includes(block.type)).map(block => ({ section, block })));
         const target = event.key === 'Home' ? blocks[0] : blocks.at(-1);
@@ -1455,7 +1462,6 @@ function handleFlowDirectNavigation(event, proxy) {
         setFlowDirectEditNote('現在の選択範囲は同じ段落・見出し内です。段落をまたぐ範囲編集は原稿画面で行ってください。');
         return true;
     }
-    const projection = getEditorPageProjection();
     const pages = projection.pages.filter(page => page.kind === 'flow' && page.groupId === session.groupId);
     const location = findFlowSourcePointInPages(pages, point);
     if (!location) return true;
@@ -2577,8 +2583,23 @@ function getEditorFlowProjectionLanguage(projectionTarget) {
         : state.activeLang || state.defaultLang || sourceLanguage;
 }
 
+function pauseFlowDirectEditForProjection(activeBlock) {
+    const proxy = _flowDirectEditProxy;
+    if (!proxy || _flowDirectEditSession?.groupId !== activeBlock?.id || _flowAuthoringComposing) return;
+    updateFlowDirectSelectionFromProxy(proxy, { allowPending: true, navigate: false });
+    proxy.dataset.flowReflowPending = 'true';
+    proxy._flowDirectPageElement?.classList.add('flow-direct-edit-reflow-pending');
+    syncFlowDirectFormatControls();
+}
+
 function requestEditorFlowProjection(activeBlock) {
     if (activeBlock?.kind !== 'flow') return;
+    if (_flowAuthoringComposing) {
+        if (_flowDirectEditSession?.groupId === activeBlock.id && _flowDirectEditProxy) {
+            _flowDirectEditProxy.dataset.flowCompositionResumeReflow = 'true';
+        }
+        return;
+    }
     const languageKey = getEditorFlowProjectionLanguage(activeBlock);
     const requestKey = createFlowRuntimeProjectionSignature(state, languageKey, state.sections || [], document, 'editor');
     const cached = getCachedFlowRuntimePageProjection(state, languageKey, state.sections || [], document, 'editor');
@@ -2604,6 +2625,7 @@ function requestEditorFlowProjection(activeBlock) {
         }
         return;
     }
+    pauseFlowDirectEditForProjection(activeBlock);
     if (_editorFlowProjectionRequestKey === requestKey && _editorFlowProjectionController) return;
 
     _editorFlowProjectionController?.abort();
@@ -2689,20 +2711,25 @@ function requestEditorFlowProjection(activeBlock) {
     });
 }
 
-document.addEventListener(FLOW_RUNTIME_INVALIDATED_EVENT, () => {
+function handleEditorFlowRuntimeInvalidated() {
     if (getCurrentRoom() !== 'editor' || !hasFlowGroups(state)) return;
     _editorFlowProjectionController?.abort();
     _editorFlowProjectionController = null;
     _editorFlowProjectionRequestKey = '';
     _editorFlowProjectionRequestId += 1;
     const activeBlock = getActiveBlock();
+    if (_flowAuthoringComposing) {
+        if (_flowDirectEditProxy) _flowDirectEditProxy.dataset.flowCompositionResumeReflow = 'true';
+        return;
+    }
     if (activeBlock?.kind === 'flow' && isFlowSourceSelected(activeBlock.id)) {
         updateActiveFlowAuthoringStatus(null, { state: 'working' });
         if (!_flowAuthoringComposing) requestEditorFlowProjection(activeBlock);
         return;
     }
     refresh();
-});
+}
+document.addEventListener(FLOW_RUNTIME_INVALIDATED_EVENT, handleEditorFlowRuntimeInvalidated);
 
 function getEditorPresentationState() {
     const projection = getEditorPageProjection();

@@ -3,7 +3,7 @@
 ステータス: 9A-6C-C-C-1C-Bでnetwork-idle Horizon handoffをPressの既存ローカル配信設計表示へread-only接続した。Horizonは共有CDN、ダウンロード`.dsf`は使用font必須同梱とするartifact分離を維持する。実token／endpoint／R2、Firestore、公開Viewer runtimeは未接続で、Flow発行ボタンも無効のままである。
 active branchのslider previewは対応済み。別branchの未統合full minimapへの接続は行っていない。
 
-最終更新: 2026-08-26
+最終更新: 2026-09-01（空白保持capability契約追記。上記ステータスは既存9A工程の記録）
 
 ## 1. プロダクト原則
 
@@ -50,6 +50,9 @@ hybrid配信契約はDSF delivery schema v2とする。
 - DSF v1: 既存`dsfPages[]`によるWebP-only release。Viewer supportを維持する。
 - DSF v2: `image`と`fixedText`を含む言語別固定ページ列。
 - v2を解釈できない古いViewerはunsupportedとして停止し、テキストページを黙って欠落させない。
+- 数値versionの一致だけでは互換性を保証しない。使用する必須style capabilityも解釈できることを要求する。
+  2026-09-01承認の`whiteSpaceMode:'preserve-v1'`はdelivery v2／言語manifest v1内の任意指定だが、
+  指定されたデータでは対応が必須となる。非対応Viewerは未知styleとして拒否し、指定を無視して描画しない。
 - 全テキストページのfull-page WebP fallbackは必須にしない。必須にすると容量削減の目的を失う。
 - 使用フォント、効果、組版が固定テキスト検証を満たさない特定ページは、Press判断を明示して`image` WebPとして発行できる。
 
@@ -246,6 +249,30 @@ type DeliveryPageBase = {
 - `fixedText`は共有背景WebPを1つ参照できる。自由配置graphic layerと未対応効果は`image`へflattenする。
 
 初期精度は行／列単位の固定座標とする。将来glyph位置、ruby等を追加してもno-reflow原則を変えない。
+
+### 空白保持style capability（2026-09-01承認）
+
+言語manifestの`styles[styleId]`に任意の`whiteSpaceMode: 'preserve-v1'`を追加する。
+DSF delivery schema v2、言語manifest schema v1、archive schemaは据え置く。これは描画に影響しないmetadataではなく、
+使用時には必須の描画capabilityである。未知のmode値・未知style propertyはvalidationで拒否する。
+
+- 指定なしの既存Fixed／公開済みFlowは従来の`white-space: nowrap`相当を維持し、読込時に新指定を補完しない。
+- 本拡張に対応する新しいFlow publicationは行／列styleへ`preserve-v1`を明示する。原稿や旧配信データを暗黙変換しない。
+- 行頭・途中・行末のASCII spaceを保持し、TABは固定`tab-size: 8`（8-space基準のtab stop）で扱う。
+  NBSP・全角空白を含め、元の文字を削除・置換・追加して見た目を合わせない。
+- `runs[].text`内のLF／CRとsource rangeはそのまま保存する。ViewerではLF／CRだけを非表示のDOM textとして保持し、
+  既に確定した行／列の内部に余分な改行・列を作らない。行／列境界は`lines[]`の固定座標だけが決める。
+  連結したDOM `textContent`は配信runの元文字列と一致し、raw HTMLは使用しない。
+- runに別`styleRef`がある場合、そのstyleのmode省略は行styleのmodeを継承する。
+  run側がmodeを明示する場合は行側と同じ値でなければ拒否し、1行内で空白処理を切り替えない。
+- Viewerは固定行／列を折り返さず、再計測・再組版・リフローを行わない。Press側が同じ描画契約で座標一致を検証する。
+- `preserve-v1`のinline進行は`direction:ltr`に固定する（縦書きの列は従来どおり右から左）。RTL組版の拡張ではない。
+  新Flow出力は作者の中央／後端揃えを実測`x/y`へ反映し、配信styleの`textAlign`は`start`へ正規化する。
+  原稿側の揃えは変更しない。行末の空白が本文外へhangする場合もadvanceを照合し、可視文字を切らない範囲でclipする。
+- portable ZIPは指定・本文・source rangeを保持し、使用fontを従来どおり同梱するがViewerコードは同梱しない。
+  読み手はこのcapability対応Viewerを使用する。旧Viewerは未知style検証で描画前に停止する。
+
+この節は承認済み契約であり、全入力・全環境での実装検証完了を表すものではない。
 
 ## 7. レイアウト一致とfont契約
 

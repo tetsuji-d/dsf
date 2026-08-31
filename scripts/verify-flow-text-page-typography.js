@@ -1,10 +1,14 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import {
     composeText,
     getTextPageTypographyDefaults,
 } from '../js/layout.js';
 import {
     FlowDomMeasurementError,
+    FLOW_DOM_RENDERER_VERSION,
+    renderFlowFragments,
+    renderFlowGeneratedPage,
     resolveFlowDomTypography,
 } from '../js/flow-dom-measurer.js';
 import { createCanonicalFlowPageBox } from '../js/flow-pagination.js';
@@ -179,5 +183,57 @@ for (const overrides of [{ fontSize: 0 }, { lineHeight: 0 }, { paragraphSpacing:
         (error) => error instanceof FlowDomMeasurementError && error.code === 'INVALID_TYPOGRAPHY',
     );
 }
+
+// Contract-only DOM: glyph rotation/ink centers still need the browser fixture.
+// Exercise the actual shared renderer, including a reused vertical/horizontal
+// content node. No character conversion or extra per-character spans is allowed:
+// direct editing and Press source ranges must still point into the original text.
+const ownerDocument = {
+    createElement(tagName) {
+        return {
+            ownerDocument, tagName, style: {}, dataset: {}, children: [],
+            replaceChildren() { this.children = []; },
+            appendChild(child) { this.children.push(child); },
+        };
+    },
+};
+const punctuation = '前…後\n前……後\n前...後\n「あいう」ー、。！？';
+const punctuationFragment = {
+    sectionId: 'section-ellipsis', blockId: 'paragraph-ellipsis', blockType: 'paragraph',
+    languageKey: 'ja', text: punctuation,
+    sourceRange: { start: 0, end: punctuation.length, startGrapheme: 0, endGrapheme: [...punctuation].length },
+    isBlockStart: true, isBlockEnd: true,
+};
+deepFreeze(punctuationFragment);
+assert.equal(FLOW_DOM_RENDERER_VERSION, 8, 'invalidate pre-whitespace-contract measurement and publication evidence');
+const reusedContent = ownerDocument.createElement('div');
+reusedContent.style.fontFeatureSettings = '"vert" 1, "vkna" 1';
+for (const mode of ['vertical-rl', 'horizontal-tb', 'vertical-rl']) {
+    for (const fontPreset of ['gothic', 'mincho']) {
+        for (const blockType of ['paragraph', 'heading']) {
+            const typography = resolveFlowDomTypography('ja', {}, mode, {
+                languageConfigs: { ja: { fontPreset } },
+            });
+            const fragments = [{ ...punctuationFragment, blockType, headingLevel: 1 }];
+            const options = { fragments, pageBox, typography, writingMode: mode, languageKey: 'ja', hyphenation: 'none' };
+            renderFlowFragments(reusedContent, options);
+            const visibleContent = renderFlowGeneratedPage(ownerDocument.createElement('div'), {
+                ...options, page: { fragments },
+            });
+            for (const content of [reusedContent, visibleContent]) {
+                assert.equal(content.style.fontFeatureSettings, 'normal', 'browser controls vertical substitution per orientation');
+                assert.equal(content.style.textOrientation, mode === 'vertical-rl' ? 'mixed' : '');
+                assert.equal(content.style.writingMode, mode);
+                assert.equal(content.children.length, 1);
+                assert.equal(content.children[0].textContent, punctuation);
+                assert.equal(content.children[0].dataset.sourceEnd, String(punctuation.length));
+                assert.equal(content.children[0].style.fontWeight, blockType === 'heading' ? '700' : '400');
+            }
+        }
+    }
+}
+const appSource = readFileSync(new URL('../js/app.js', import.meta.url), 'utf8');
+assert.equal((appSource.match(/fontFeatureSettings: sourceStyle\?\.fontFeatureSettings \|\| 'normal'/g) || []).length, 2,
+    'IME proxy and visible composition must inherit the source feature settings with a normal fallback');
 
 console.log('Flow/text-page typography defaults, language settings, and source preservation verification passed.');

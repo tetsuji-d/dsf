@@ -99,7 +99,7 @@ exactly oneに結び付け、実bytesの構造、寸法、byteLength、SHA-256�
 
 ## 2. ZIPコンテナ構造とポータビリティ
 このフォーマットは**特定のサーバーシステム（FirebaseやAWS等）には一切依存しません。**
-画像などのメディアは`assets/`、固定テキストが使うfontは`fonts/`として、**ダウンロード用ZIP内に必要な実体をすべて含みます。** これにより、ネットワーク接続がないオフライン環境であっても、ファイル単体さえあればリーダーで完全に描画できる「ポータブル」なフォーマットとなります。エクスポート時に画像またはfontの実bytesを確定できない場合は、URLだけを残して続行せず、書き出し全体を失敗として扱います。
+画像などのメディアは`assets/`、固定テキストが使うfontは`fonts/`として、**ダウンロード用ZIP内に必要な実体をすべて含みます。** これにより、ネットワーク接続がないオフライン環境であっても、使用された描画capabilityに対応するリーダーがあればファイル単体で完全に描画できる「ポータブル」なフォーマットとなります。Viewerコード自体はZIPに同梱しません。エクスポート時に画像またはfontの実bytesを確定できない場合は、URLだけを残して続行せず、書き出し全体を失敗として扱います。
 
 どちらのファイルも、ZIP展開すると以下のようなファイル・ディレクトリ構造を持ちます。
 
@@ -399,11 +399,30 @@ v2の`content.json`は言語別固定ページ列への小さなindexとする�
 Viewerはwhitelist済みstyleだけをDOMへ適用し、本文は`textContent`で設定する。フォント、座標、overflow、
 未知の必須機能をPressとViewerの両方で検証する。
 
+#### 固定テキストの空白保持（2026-09-01承認）
+
+言語manifestの`styles[styleId]`は任意の`whiteSpaceMode: 'preserve-v1'`を持てる。
+DSF delivery v2／言語manifest v1／archive v1の数値versionは変えないが、指定された場合は必須の描画capabilityとする。
+旧Viewerは未知style propertyとして描画前に拒否する。無視可能なmetadataではなく、未知mode値も拒否する。
+
+- 指定なしは既存の`nowrap`相当を維持する。本拡張対応の新Flow publicationは明示指定し、旧Fixed／公開済みFlowへ補完しない。
+- ASCII space（先頭・連続・末尾）、NBSP、全角空白、TABを元のまま保持する。TABは固定`tab-size: 8`のtab stopを使う。
+- LF／CRも`runs[].text`とsource rangeに保持するが、Viewerでは非表示DOM textとして扱い、余計な行／列を生成しない。
+  本文を別文字へ変換せず、連結DOM `textContent`と保存文字列を一致させる。
+- run参照styleでmodeを省略した場合は行styleのmodeを継承し、明示したmodeが行と不一致なら拒否する。
+- 座標と行／列境界はPressが確定し、Viewerで再計測・折返し・リフローしない。
+- 新modeのinline進行は`direction:ltr`固定（縦の列送りは右→左）。RTL対応は別の拡張とする。
+  新Flowの中央／後端揃えは実測座標に含め、配信styleは`textAlign:start`で二重の整列を防ぐ。
+- ZIP保存・再読込でmode、本文、source rangeを維持する。必要なのは対応Viewerであり、font同梱だけで旧Viewer対応にはならない。
+
+詳細は[固定テキスト配信契約](fixed-text-delivery-contract.md#空白保持style-capability2026-09-01承認)を参照する。
+ここでは保存・描画契約を定義し、全ケースの実装検証完了を宣言しない。
+
 ---
 
 ## 4. 将来拡張（上位・下位互換性）の考え方
 Excel（`.xlsx`）が Ooxml ベースで新機能（新しいグラフ、新しい関数のセルなど）を追加し続けても、極端に古いExcelで開くと「未定義の要素」として単に無視（またはフォールバック）されるように、以下のアプローチをとります。
 
-1.  **未知データの扱い**: 表示に影響しない未知metadataは無視できる。一方、authoring内容や順序に影響する未知Blockはround-tripのため保持し、対応できないEditorは編集保存を停止する。未知のFlow semantic Blockも保持したうえでvalidation／paginationを停止し、本文を黙って欠落させない。
+1.  **未知データの扱い**: 表示に影響しない未知metadataは無視できる。一方、配信の未知style／必須描画capabilityは数値schemaVersionが既知でも拒否し、誤描画を避ける。authoring内容や順序に影響する未知Blockはround-tripのため保持し、対応できないEditorは編集保存を停止する。未知のFlow semantic Blockも保持したうえでvalidation／paginationを停止し、本文を黙って欠落させない。
 2.  **`fallback` プロパティの推奨**: 新しい機能（例：動画背景 `type: "video"`）を追加した場合、ビューアが非対応なら代替表示ができるよう、`fallback_image` のようなプロパティを標準化する。
 3.  **`schemaVersion` によるマイグレーション**: スキーマが根本的に変わる場合（例：旧来は配列だったものがオブジェクトのMapになる等）は、`schemaVersion` をインクリメントし、アプリ側で旧データを新データ構造にオンザフライで変換するマイグレーション関数を通してから読み込む (`syncModelsFromLegacy` 関数などの拡張)。

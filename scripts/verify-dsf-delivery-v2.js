@@ -199,6 +199,63 @@ function assertInvalidBundle(mutate, code, path) {
     return invalid;
 }
 
+// Whitespace preservation is an opt-in style extension. Legacy manifests must
+// not acquire a mode through either validation or normalization.
+for (const style of Object.values(normalizeDsfLanguageManifest(jaManifest).styles)) {
+    assert.equal(Object.hasOwn(style, 'whiteSpaceMode'), false);
+}
+const preserved = clone(bundle);
+preserved.manifests.ja.styles.preserved = { ...preserved.manifests.ja.styles.body, whiteSpaceMode: 'preserve-v1' };
+const preservedPage = preserved.manifests.ja.pages[1];
+preservedPage.lines.forEach(line => { line.styleRef = 'preserved'; });
+preservedPage.lines[0].runs[0].text = '  雪\t  朝\u3000\u00a0\n ';
+// The second line's explicit emphasis style has no mode: it inherits preserve.
+assert.equal(Object.hasOwn(preserved.manifests.ja.styles.emphasis, 'whiteSpaceMode'), false);
+const preservedBefore = JSON.stringify(preserved);
+assert.equal(validateDsfDeliveryBundle(preserved).valid, true);
+assert.equal(assertValidDsfDeliveryBundle(preserved), preserved);
+assert.equal(JSON.stringify(preserved), preservedBefore, 'validation must preserve spaces, TAB, LF and source offsets exactly');
+assert.deepEqual(normalizeDsfDeliveryBundle(preserved), preserved);
+assert.deepEqual(JSON.parse(JSON.stringify(normalizeDsfDeliveryBundle(preserved))), preserved);
+assert.equal(preserved.index.schemaVersion, 2);
+assert.equal(preserved.manifests.ja.schemaVersion, 1);
+assert.equal(Object.hasOwn(preserved.manifests.ja.styles.body, 'whiteSpaceMode'), false,
+    'legacy and preserving lines must coexist in one manifest');
+assert.equal(Object.hasOwn(preservedPage.lines[0], 'whiteSpaceMode'), false,
+    'the extension belongs to styles, not line fields');
+
+const explicitPreservedRun = clone(preserved);
+explicitPreservedRun.manifests.ja.styles.preservedEmphasis = {
+    ...explicitPreservedRun.manifests.ja.styles.emphasis, whiteSpaceMode: 'preserve-v1',
+};
+explicitPreservedRun.manifests.ja.pages[1].lines[1].runs[0].styleRef = 'preservedEmphasis';
+assert.equal(validateDsfDeliveryBundle(explicitPreservedRun).valid, true,
+    'an explicit matching run mode is valid');
+
+for (const mode of ['normal', 'nowrap', 'pre', 'preserve-v2', 'PRESERVE-V1', '', null, undefined, 1, true, {}, []]) {
+    assertInvalidBundle(value => { value.manifests.ja.styles.body.whiteSpaceMode = mode; },
+        'invalid_text_style', 'manifests.ja.styles.body.whiteSpaceMode');
+}
+assertInvalidBundle(value => { value.manifests.ja.styles.emphasis.whiteSpaceMode = 'preserve-v1'; },
+    'incompatible_white_space_mode', 'manifests.ja.pages[1].lines[1].runs[0].styleRef');
+assertInvalidBundle(value => {
+    value.manifests.ja.styles.body.whiteSpace = 'pre';
+}, 'unsupported_text_style_property', 'manifests.ja.styles.body.whiteSpace');
+
+// Invalid style-map entries and unresolved references must remain validation
+// issues, never exceptions from the new run/line compatibility lookup.
+for (const invalidStyle of [null, false, 7, 'preserve-v1', []]) {
+    assertInvalidBundle(value => { value.manifests.ja.styles.emphasis = invalidStyle; }, 'invalid_text_style');
+}
+assertInvalidBundle(value => {
+    value.manifests.ja.styles.emphasis.whiteSpaceMode = 'preserve-v1';
+    value.manifests.ja.pages[1].lines[1].styleRef = 'missing';
+}, 'unknown_style_ref', 'manifests.ja.pages[1].lines[1].styleRef');
+assertInvalidBundle(value => {
+    value.manifests.ja.styles.body.whiteSpaceMode = 'preserve-v1';
+    value.manifests.ja.pages[1].lines[1].runs[0].styleRef = 'missing';
+}, 'unknown_style_ref', 'manifests.ja.pages[1].lines[1].runs[0].styleRef');
+
 assertInvalidBundle((value) => { value.index.schemaVersion = 3; }, 'unsupported_delivery_schema_version', 'index.schemaVersion');
 assertInvalidBundle((value) => { value.index.layoutModel = 'responsive'; }, 'unsupported_layout_model', 'index.layoutModel');
 assertInvalidBundle((value) => { value.index.canonicalPage.width = 375; }, 'unsupported_canonical_page', 'index.canonicalPage.width');

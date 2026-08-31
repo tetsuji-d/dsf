@@ -2,6 +2,12 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { DsfDeliveryValidationError } from '../js/dsf-delivery-v2.js';
 import {
+    FIXED_TEXT_WHITE_SPACE_MODE,
+    FIXED_TEXT_TAB_SIZE,
+    applyFixedTextWhiteSpaceStyle,
+    renderFixedTextRunText,
+} from '../js/fixed-text-whitespace.js';
+import {
     DsfViewerFixedTextError,
     createDsfFixedTextPageElement,
     createDsfViewerPageContentElement,
@@ -13,10 +19,22 @@ import {
     createDsfDeliveryV2ViewerFixture,
 } from '../js/fixtures/dsf-delivery-v2-viewer-fixture.js';
 
+class FakeText {
+    constructor(data, ownerDocument) {
+        this.nodeType = 3;
+        this.data = data;
+        this.ownerDocument = ownerDocument;
+    }
+
+    get textContent() { return this.data; }
+}
+
 class FakeElement {
-    constructor(tagName) {
+    constructor(tagName, ownerDocument) {
         this.tagName = String(tagName).toUpperCase();
-        this.children = [];
+        this.nodeType = 1;
+        this.ownerDocument = ownerDocument;
+        this.childNodes = [];
         this.style = {};
         this.dataset = {};
         this.attributes = new Map();
@@ -28,8 +46,22 @@ class FakeElement {
         this.draggable = true;
     }
 
+    get children() { return this.childNodes.filter((node) => node.nodeType === 1); }
+
+    get firstChild() { return this.childNodes[0] || null; }
+
+    get textContent() { return this.childNodes.map((node) => node.textContent).join(''); }
+
+    set textContent(text) {
+        this.childNodes = [];
+        if (text) this.append(new FakeText(String(text), this.ownerDocument));
+    }
+
     append(...children) {
-        this.children.push(...children);
+        for (const child of children) {
+            child.parentNode = this;
+            this.childNodes.push(child);
+        }
     }
 
     setAttribute(name, value) {
@@ -47,10 +79,12 @@ class FakeDocument {
     }
 
     createElement(tagName) {
-        const element = new FakeElement(tagName);
+        const element = new FakeElement(tagName, this);
         this.created.push(element);
         return element;
     }
+
+    createTextNode(text) { return new FakeText(text, this); }
 }
 
 class FakeFontFaceSet {
@@ -120,6 +154,85 @@ const literalRun = literal.children[2].children[0];
 assert.equal(literalRun.textContent, '<script>alert("実行されない")</script>');
 assert.equal(literalRun.children.length, 0, 'DSF strings must never create child elements');
 assert.equal(documentRef.created.some((element) => element.tagName === 'SCRIPT'), false);
+assert.equal(Object.hasOwn(horizontal.children[0].style, 'whiteSpace'), false, 'legacy styles must not opt in implicitly');
+assert.equal(Object.hasOwn(horizontal.children[0].style, 'tabSize'), false);
+
+assert.equal(FIXED_TEXT_WHITE_SPACE_MODE, 'preserve-v1');
+assert.equal(FIXED_TEXT_TAB_SIZE, 8);
+const sharedRun = documentRef.createElement('span');
+const sharedSource = '  A\t😀\r\n \nB\rC　\u00a0 <script>x</script>  ';
+applyFixedTextWhiteSpaceStyle(sharedRun, undefined);
+assert.deepEqual(sharedRun.style, {}, 'omitted mode must not mutate styles');
+const legacyRanges = renderFixedTextRunText(sharedRun, sharedSource, undefined);
+assert.equal(sharedRun.textContent, sharedSource);
+assert.equal(sharedRun.children.length, 0);
+assert.equal(legacyRanges.length, 1);
+assert.equal(legacyRanges[0].node, sharedRun.firstChild);
+assert.equal(legacyRanges[0].end, sharedSource.length);
+assert.equal(legacyRanges[0].lineBreak, false);
+applyFixedTextWhiteSpaceStyle(sharedRun, FIXED_TEXT_WHITE_SPACE_MODE);
+assert.deepEqual(sharedRun.style, { whiteSpace: 'pre', tabSize: '8', textWrap: 'nowrap', direction: 'ltr' });
+const mapped = renderFixedTextRunText(sharedRun, sharedSource, FIXED_TEXT_WHITE_SPACE_MODE);
+assert.equal(sharedRun.textContent, sharedSource, 'spaces, TAB, CR/LF, surrogate pairs and literal markup stay unchanged');
+assert.equal(mapped.map((part) => part.node.data).join(''), sharedSource);
+let nextOffset = 0;
+for (const part of mapped) {
+    assert.equal(part.start, nextOffset);
+    assert.equal(part.node.nodeType, 3);
+    assert.equal(part.node.data, sharedSource.slice(part.start, part.end));
+    if (part.lineBreak) {
+        assert.match(part.node.data, /^[\r\n]+$/);
+        assert.equal(part.node.parentNode.tagName, 'SPAN');
+        assert.equal(part.node.parentNode.style.display, 'none');
+    } else {
+        assert.equal(part.node.parentNode, sharedRun);
+    }
+    nextOffset = part.end;
+}
+assert.equal(nextOffset, sharedSource.length, 'mapping offsets use UTF-16 and cover the complete original run');
+assert.equal(sharedRun.children.length, 3, 'only CR/LF groups create hidden spans');
+assert.equal(documentRef.created.some((element) => element.tagName === 'SCRIPT'), false);
+const simple = ' 文字\t😀  ';
+const simpleRanges = renderFixedTextRunText(sharedRun, simple, FIXED_TEXT_WHITE_SPACE_MODE);
+assert.equal(sharedRun.children.length, 0, 'a run without line breaks stays a single Text node');
+assert.equal(sharedRun.childNodes.length, 1);
+assert.equal(simpleRanges[0].node.data, simple);
+assert.deepEqual(renderFixedTextRunText(sharedRun, '', FIXED_TEXT_WHITE_SPACE_MODE), []);
+assert.equal(sharedRun.childNodes.length, 0);
+for (const mode of [null, '', 'pre', 'preserve-v2']) {
+    sharedRun.textContent = 'unchanged';
+    const styleBefore = JSON.stringify(sharedRun.style);
+    assert.throws(() => applyFixedTextWhiteSpaceStyle(sharedRun, mode),
+        (error) => error.code === 'UNSUPPORTED_FIXED_TEXT_WHITE_SPACE_MODE');
+    assert.throws(() => renderFixedTextRunText(sharedRun, 'replacement', mode),
+        (error) => error.code === 'UNSUPPORTED_FIXED_TEXT_WHITE_SPACE_MODE');
+    assert.equal(sharedRun.textContent, 'unchanged');
+    assert.equal(JSON.stringify(sharedRun.style), styleBefore);
+}
+
+const preserveBundle = clone(bundle);
+const preserveManifest = preserveBundle.manifests.ja;
+const preservePage = preserveManifest.pages.find((page) => page.id === 'fixture-horizontal');
+const preserveLine = preservePage.lines[0];
+preserveManifest.styles['inherited-whitespace-run'] = { ...preserveManifest.styles[preserveLine.styleRef] };
+preserveManifest.styles[preserveLine.styleRef].whiteSpaceMode = FIXED_TEXT_WHITE_SPACE_MODE;
+preserveLine.runs = [{ text: sharedSource, styleRef: 'inherited-whitespace-run' }];
+const preserveBefore = JSON.stringify(preserveBundle);
+const preserveContext = await prepareDsfViewerFixedTextContext({
+    bundle: preserveBundle, language: 'ja',
+    certifiedFonts: DSF_DELIVERY_V2_FIXTURE_FONT_CERTIFICATES,
+    fontFaceSet: new FakeFontFaceSet(),
+});
+const preserveElement = createDsfFixedTextPageElement({ documentRef, page: preservePage, context: preserveContext });
+assert.equal(preserveElement.children[0].style.whiteSpace, 'pre');
+assert.equal(preserveElement.children[0].style.tabSize, '8');
+assert.equal(preserveElement.children[0].style.textWrap, 'nowrap');
+assert.equal(preserveElement.children[0].style.direction, 'ltr');
+const preserveRun = preserveElement.children[0].children[0];
+assert.equal(preserveRun.textContent, sharedSource);
+assert.equal(preserveRun.children.length, 3);
+assert.equal(Object.hasOwn(preserveRun.style, 'whiteSpace'), false, 'run style without mode inherits its fixed line mode');
+assert.equal(JSON.stringify(preserveBundle), preserveBefore);
 
 assert.equal(getDsfViewerPageRenderKind({}), 'legacyImage');
 assert.equal(getDsfViewerPageRenderKind({ deliveryV2: { renderKind: 'image' } }), 'image');
@@ -226,7 +339,11 @@ assert.equal(rendererSource.includes('insertAdjacentHTML'), false);
 assert.equal(rendererSource.includes('eval('), false);
 assert.equal(rendererSource.includes('./press'), false);
 assert.equal(rendererSource.includes('./firebase'), false);
-assert.match(rendererSource, /runElement\.textContent = run\.text/);
+assert.match(rendererSource, /renderFixedTextRunText\(runElement, run\.text, lineStyle\.whiteSpaceMode, documentRef\)/);
+const whitespaceSource = readFileSync(new URL('../js/fixed-text-whitespace.js', import.meta.url), 'utf8');
+assert.match(whitespaceSource, /element\.textContent = text/);
+assert.equal(whitespaceSource.includes('.innerHTML'), false);
+assert.equal(whitespaceSource.includes('insertAdjacentHTML'), false);
 
 const viewerSource = readFileSync(new URL('../js/viewer.js', import.meta.url), 'utf8');
 assert.match(viewerSource, /if \(!import\.meta\.env\.DEV\)/, 'fixture must be development-only');

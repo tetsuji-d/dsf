@@ -29,6 +29,7 @@ import {
     createCanonicalFlowPageBox,
 } from './flow-pagination.js';
 import { segmentGraphemes } from './grapheme.js';
+import { FIXED_TEXT_WHITE_SPACE_MODE } from './fixed-text-whitespace.js';
 import {
     CANONICAL_PAGE_HEIGHT,
     CANONICAL_PAGE_WIDTH,
@@ -537,7 +538,9 @@ function buildStyles(typography, fontId, source) {
             letterSpacing: typography.letterSpacing,
             color: typography.textColor,
             textDecoration: 'none',
-            textAlign: typography.textAlign,
+            // Author alignment is already encoded in each measured line x/y.
+            textAlign: 'start',
+            whiteSpaceMode: FIXED_TEXT_WHITE_SPACE_MODE,
         },
     };
     const levels = [...new Set(source.textEntries

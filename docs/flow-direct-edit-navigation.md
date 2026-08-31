@@ -37,6 +37,17 @@
 ページ跨ぎの選択では、inputを置換開始側に置き、focus caret／選択表示は各ページへ描く。
 IME開始後にinputを別ページへ移すことを避ける。OSの候補ウィンドウそのものは自動テストしない。
 
+## ページ計算キャッシュの失効からの復旧
+
+フォント読み込み完了や固定ページの自動保存で、Flow本文を変えなくてもページ計算の署名が変わる。
+直接編集の矢印／Home／Endは、計算結果がない場合に古い座標を参照せず、既存の重複抑止付き再計算へ戻す。
+再計算待ちの表示を出し、選択の両端・方向を保持してページ描画後に編集を再開する。
+待機中の移動キーは予約・再生しない。再計算後に押したキーから通常の移動を受け付ける。
+キー連打で同じ計算を中断・再開始せず、本文・翻訳・Undo履歴・保存形式も変更しない。
+
+IME中のフォント失効では編集DOMを作り直さない。変換確定／取消の後に再計算する。
+本文が変わらない変換取消でも再開し、古いinputだけが画面に残る状態を避ける。
+
 ## 直接編集の手動改ページ
 
 - `insertPageBreakAtCaret`の1操作で、元Blockの前半・既存型の`pageBreak`・新Blockの後半へ分ける。
@@ -56,6 +67,8 @@ IME開始後にinputを別ページへ移すことを避ける。OSの候補ウ�
 ## 検証
 
 - `verify:flow-direct-navigation`：縦横の実測座標、行列端、grapheme、affinity、ページ境界、非連続window。
+- `verify:flow-direct-projection-recovery`：実appのprivate handlerを実行し、計算結果の欠落からの復旧、
+  連打時の重複抑止、選択・source・履歴の維持、IME中の再描画延期と取消後の再開を検証。
 - `verify:flow-canvas-layout`：幅別表示数、RTL、倍率、100ページの限定window、編集中ページpin。
 - `verify:flow-authoring`：範囲の方向・再生成復元、対象不一致、文字数縮小時のclamp。
 - `verify:flow-direct-edit`：縦横LF編集、縦書き段落結合、翻訳保護、ページ増減とcold pagination一致。

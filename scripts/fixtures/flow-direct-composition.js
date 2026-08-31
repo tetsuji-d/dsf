@@ -133,7 +133,7 @@ async function render() {
         report.textContent = `${pass ? 'PASS' : 'FAIL'}: 通常描画との先頭位置差 ${inlineDelta.toFixed(4)}px / 行・列中心差 ${crossDelta.toFixed(4)}px（許容各0.5論理px）\n`
             + `mode=${writingMode}, block=${blockType}, scale=${scale}\n`
             + `font=${fontSpec}, loadedFaces=${faces.length}, status=${document.fonts.status}\n`
-            + `source fontSize=${sourceStyle.fontSize}, lineHeight=${sourceStyle.lineHeight}, letterSpacing=${sourceStyle.letterSpacing}\n`
+            + `source fontSize=${sourceStyle.fontSize}, lineHeight=${sourceStyle.lineHeight}, letterSpacing=${sourceStyle.letterSpacing}, features=${sourceStyle.fontFeatureSettings}\n`
             + `actual=${JSON.stringify(actualRect)}\nexpected=${JSON.stringify(expectedRect)}\ncorrection=${JSON.stringify(correction)}\n`
             + 'これはDOM位置の確認です。OS変換候補の確認結果ではありません。';
     } catch (error) {
@@ -148,9 +148,11 @@ if (development) {
     for (const name of ['prefix', 'text']) input(name).addEventListener('input', render);
     input('render').addEventListener('click', render);
     input('sample').addEventListener('change', () => {
-        input('prefix').value = 'テクノロジーどうしよう';
+        input('prefix').value = input('sample').value === 'punctuation'
+            ? '前…後\n前……後\n「あいう」ー、。！？\n前'
+            : 'テクノロジーどうしよう';
         input('text').value = {
-            japanese: 'おはよう', mixed: 'ABCおはよう12', decomposed: 'か\u3099e\u0301👨‍👩‍👧‍👦',
+            japanese: 'おはよう', mixed: 'ABCおはよう12', decomposed: 'か\u3099e\u0301👨‍👩‍👧‍👦', punctuation: '……',
         }[input('sample').value];
         render();
     });

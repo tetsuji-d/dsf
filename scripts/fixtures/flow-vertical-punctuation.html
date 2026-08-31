@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="ja">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width,initial-scale=1">
+    <title>Flow vertical punctuation fixture (development only)</title>
+    <link rel="stylesheet" href="../../css/variables.css">
+    <link rel="stylesheet" href="../../css/viewer.css">
+    <style>
+        body { display: block; height: auto; min-height: 100vh; overflow: auto; margin: 0; padding: 20px; background: #202530; color: #e6edf5; font: 14px system-ui; }
+        h1 { margin: 0 0 12px; font-size: 21px; }
+        h2 { font-size: 17px; }
+        p { max-width: 1000px; line-height: 1.6; }
+        .fixture-controls { display: flex; align-items: end; flex-wrap: wrap; gap: 14px; margin: 16px 0; }
+        .fixture-controls label { display: grid; gap: 5px; }
+        select, textarea, button { font: inherit; color: #1b2430; background: white; padding: 7px; }
+        textarea { width: 330px; height: 88px; }
+        button:disabled { opacity: .55; }
+        pre { white-space: pre-wrap; overflow-wrap: anywhere; padding: 12px; border: 1px solid #6c7c94; font: 12px ui-monospace, monospace; }
+        [data-state="pass"] { border-color: #5ec49a; }
+        [data-state="fail"], [data-state="error"] { border-color: #ff8a83; }
+        .fixture-case { padding: 16px 0; border-top: 1px solid #6c7c94; }
+        .fixture-pages { display: flex; flex-wrap: wrap; align-items: start; gap: 24px; }
+        figure { margin: 0; }
+        figcaption { margin-bottom: 8px; }
+        .fixture-page-list { display: grid; gap: 12px; }
+        .fixture-page { transform-origin: top left; }
+        details { margin-top: 16px; }
+        summary { cursor: pointer; margin-bottom: 10px; }
+        .fixture-forced-shell { overflow: hidden; }
+    </style>
+</head>
+<body>
+    <h1>Flow三点リーダー・約物の表示比較（開発専用）</h1>
+    <p>認定済みNotoの実WOFF2をSHA-256照合して読み込み、通常Flowと実測済み固定テキストViewerを比較します。
+        原文の「…」を別の文字に置換しません。PASSは無損失・capture・projection・保存再読込の結果で、字形の向きは目視確認してください。
+        フォントの読み取り以外に公開・保存・アップロードは行いません。</p>
+    <div class="fixture-controls">
+        <label>書体<select id="fixture-font"><option value="Noto Sans JP">Noto Sans JP</option><option value="Noto Serif JP">Noto Serif JP</option></select></label>
+        <label>太さ<select id="fixture-weight"><option value="400">400</option><option value="700">700</option></select></label>
+        <label>書字方向<select id="fixture-mode"><option value="vertical-rl">縦書き</option><option value="horizontal-tb">横書き</option></select></label>
+        <label>揃え<select id="fixture-align"><option value="start">先頭</option><option value="center">中央</option><option value="end">後端</option><option value="justify">均等</option></select></label>
+        <label>Block構造<select id="fixture-structure"><option value="paragraph">Paragraph</option><option value="heading">Heading level 2</option><option value="structure">Heading＋本文＋改ページ＋空段落＋本文</option></select></label>
+        <label>原文<textarea id="fixture-source">前…後
+前……後
+「あいう」ー、。！？</textarea></label>
+        <button id="fixture-render" type="button">選択条件を比較</button>
+        <button id="fixture-all" type="button">全8条件を比較</button>
+    </div>
+    <pre id="fixture-report" data-state="loading" aria-live="polite">読み込み中…</pre>
+    <main id="fixture-results"></main>
+    <script type="module" src="./flow-vertical-punctuation.js"></script>
+</body>
+</html>

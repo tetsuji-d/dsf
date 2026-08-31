@@ -3,6 +3,7 @@ import {
     normalizeDsfDeliveryBundle,
     validateDsfDeliveryBundle,
 } from './dsf-delivery-v2.js';
+import { applyFixedTextWhiteSpaceStyle, renderFixedTextRunText } from './fixed-text-whitespace.js';
 
 export const DSF_VIEWER_FIXED_TEXT_CONTEXT_VERSION = 1;
 
@@ -209,13 +210,15 @@ export function createDsfFixedTextPageElement({
         lineElement.style.height = `${line.height}px`;
         lineElement.style.writingMode = line.writingMode;
         lineElement.style.textOrientation = line.textOrientation;
-        applyTextStyle(lineElement, getStyle(context, line.styleRef), context);
+        const lineStyle = getStyle(context, line.styleRef);
+        applyTextStyle(lineElement, lineStyle, context);
+        applyFixedTextWhiteSpaceStyle(lineElement, lineStyle.whiteSpaceMode);
 
         line.runs.forEach((run) => {
             const runElement = documentRef.createElement('span');
             runElement.className = 'viewer-fixed-text-run';
             if (run.styleRef) applyTextStyle(runElement, getStyle(context, run.styleRef), context);
-            runElement.textContent = run.text;
+            renderFixedTextRunText(runElement, run.text, lineStyle.whiteSpaceMode, documentRef);
             lineElement.append(runElement);
         });
         root.append(lineElement);

@@ -62,6 +62,7 @@ const ALLOWED_STYLE_KEYS = new Set([
     'color',
     'textDecoration',
     'textAlign',
+    'whiteSpaceMode',
 ]);
 
 function isRecord(value) {
@@ -379,6 +380,9 @@ function validateStyle(style, path, issues, fontIds) {
     if (hasOwn(style, 'textAlign') && !TEXT_ALIGN_SET.has(style.textAlign)) {
         addIssue(issues, 'invalid_text_style', `${path}.textAlign`, 'textAlign is unsupported.');
     }
+    if (hasOwn(style, 'whiteSpaceMode') && style.whiteSpaceMode !== 'preserve-v1') {
+        addIssue(issues, 'invalid_text_style', `${path}.whiteSpaceMode`, 'whiteSpaceMode must be preserve-v1 when specified.');
+    }
 }
 
 function validateSourceAnchor(anchor, path, issues) {
@@ -462,7 +466,7 @@ function validateRunSource(source, path, issues) {
     }
 }
 
-function validateTextRun(run, path, issues, styleIds) {
+function validateTextRun(run, path, issues, stylesById, lineStyle) {
     if (!isRecord(run)) {
         addIssue(issues, 'invalid_text_run', path, 'Text run must be an object.');
         return 0;
@@ -476,15 +480,23 @@ function validateTextRun(run, path, issues, styleIds) {
     });
     if (hasOwn(run, 'styleRef')) {
         const validStyleRef = validateStrictId(run.styleRef, `${path}.styleRef`, issues, 'Run styleRef');
-        if (validStyleRef && !styleIds.has(run.styleRef)) {
+        if (validStyleRef && !stylesById.has(run.styleRef)) {
             addIssue(issues, 'unknown_style_ref', `${path}.styleRef`, 'Run styleRef is not declared by the language manifest.');
+        }
+        const runStyle = validStyleRef ? stylesById.get(run.styleRef) : undefined;
+        const lineMode = isRecord(lineStyle) && hasOwn(lineStyle, 'whiteSpaceMode')
+            ? lineStyle.whiteSpaceMode : undefined;
+        // An omitted run mode inherits its fixed line's mode. An explicit mode
+        // cannot change whitespace handling within a single composed line.
+        if (isRecord(runStyle) && hasOwn(runStyle, 'whiteSpaceMode') && runStyle.whiteSpaceMode !== lineMode) {
+            addIssue(issues, 'incompatible_white_space_mode', `${path}.styleRef`, 'Run whiteSpaceMode must match its line style.');
         }
     }
     if (hasOwn(run, 'source')) validateRunSource(run.source, `${path}.source`, issues);
     return validText ? run.text.length : 0;
 }
 
-function validateTextLine(line, path, issues, styleIds, pageWidth, pageHeight) {
+function validateTextLine(line, path, issues, stylesById, pageWidth, pageHeight) {
     if (!isRecord(line)) {
         addIssue(issues, 'invalid_text_line', path, 'Text line must be an object.');
         return 0;
@@ -506,7 +518,7 @@ function validateTextLine(line, path, issues, styleIds, pageWidth, pageHeight) {
         addIssue(issues, 'unsupported_text_orientation', `${path}.textOrientation`, 'textOrientation must be mixed or upright.');
     }
     const validStyleRef = validateStrictId(line.styleRef, `${path}.styleRef`, issues, 'Line styleRef');
-    if (validStyleRef && !styleIds.has(line.styleRef)) {
+    if (validStyleRef && !stylesById.has(line.styleRef)) {
         addIssue(issues, 'unknown_style_ref', `${path}.styleRef`, 'Line styleRef is not declared by the language manifest.');
     }
     if (!Array.isArray(line.runs) || line.runs.length < 1 || line.runs.length > DSF_DELIVERY_LIMITS.maxRunsPerLine) {
@@ -514,11 +526,12 @@ function validateTextLine(line, path, issues, styleIds, pageWidth, pageHeight) {
         return 0;
     }
     return line.runs.reduce((total, run, runIndex) => (
-        total + validateTextRun(run, `${path}.runs[${runIndex}]`, issues, styleIds)
+        total + validateTextRun(run, `${path}.runs[${runIndex}]`, issues, stylesById,
+            validStyleRef ? stylesById.get(line.styleRef) : undefined)
     ), 0);
 }
 
-function validateFixedTextPage(page, path, issues, styleIds, pageWidth, pageHeight) {
+function validateFixedTextPage(page, path, issues, stylesById, pageWidth, pageHeight) {
     if (hasOwn(page, 'background')) {
         if (!isRecord(page.background)) {
             addIssue(issues, 'invalid_text_background', `${path}.background`, 'Text page background must be an object.');
@@ -537,7 +550,7 @@ function validateFixedTextPage(page, path, issues, styleIds, pageWidth, pageHeig
             line,
             `${path}.lines[${lineIndex}]`,
             issues,
-            styleIds,
+            stylesById,
             pageWidth,
             pageHeight,
         );
@@ -574,7 +587,7 @@ export function validateDsfLanguageManifest(manifest, options = {}) {
     const fontIds = options.fontIds instanceof Set
         ? options.fontIds
         : new Set(Array.isArray(options.fontIds) ? options.fontIds : []);
-    const styleIds = new Set();
+    const stylesById = new Map();
     if (!isRecord(manifest.styles)) {
         addIssue(issues, 'invalid_style_map', 'styles', 'styles must be an object map.');
     } else {
@@ -584,7 +597,7 @@ export function validateDsfLanguageManifest(manifest, options = {}) {
         }
         for (const [styleId, style] of styles) {
             const path = `styles.${styleId}`;
-            if (validateMapKey(styleId, path, issues, 'Style ID')) styleIds.add(styleId);
+            if (validateMapKey(styleId, path, issues, 'Style ID')) stylesById.set(styleId, style);
             validateStyle(style, path, issues, validateFontRefs ? fontIds : null);
         }
     }
@@ -629,7 +642,7 @@ export function validateDsfLanguageManifest(manifest, options = {}) {
             }
         }
         if (page.renderKind === 'fixedText') {
-            validateFixedTextPage(page, path, issues, styleIds, pageWidth, pageHeight);
+            validateFixedTextPage(page, path, issues, stylesById, pageWidth, pageHeight);
             if (hasOwn(page, 'image')) {
                 addIssue(issues, 'ambiguous_page_payload', `${path}.image`, 'Fixed-text pages cannot contain an image page descriptor.');
             }

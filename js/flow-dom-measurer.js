@@ -15,7 +15,7 @@ import {
 
 export const FLOW_DOM_SUPPORTED_WRITING_MODE = 'horizontal-tb';
 export const FLOW_DOM_SUPPORTED_WRITING_MODES = Object.freeze(['horizontal-tb', 'vertical-rl']);
-export const FLOW_DOM_RENDERER_VERSION = 5;
+export const FLOW_DOM_RENDERER_VERSION = 8;
 export const FLOW_DOM_HYPHENATION_MODES = Object.freeze(['auto', 'none']);
 
 const DEFAULT_MEASUREMENT_CACHE_SIZE = 2048;
@@ -139,7 +139,11 @@ function setContentStyles(contentElement, pageBox, typography, languageKey, writ
         writingMode,
         textOrientation: writingMode === 'vertical-rl' ? 'mixed' : '',
         direction: writingMode === 'vertical-rl' ? 'ltr' : '',
-        fontFeatureSettings: writingMode === 'vertical-rl' ? '"vert" 1, "vkna" 1' : 'normal',
+        // Let CSS Writing Modes select vertical features per character. Forcing
+        // `vert` also substitutes sideways characters such as U+2026 before
+        // the browser rotates them, turning a vertical ellipsis horizontal.
+        // `normal` keeps automatic vertical punctuation, as in fixedText Viewer.
+        fontFeatureSettings: 'normal',
         fontFamily: typography.fontFamily,
         fontSize: `${typography.fontSize}px`,
         fontWeight: typography.fontWeight,

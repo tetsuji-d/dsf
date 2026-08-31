@@ -302,6 +302,79 @@ assert.equal(await loadDsfLocalViewerPackage({ file: legacyBlob, cryptoRef: webc
     'legacy DSF must remain on the existing parser path');
 
 const moduleSource = readFileSync(new URL('../js/dsf-local-viewer-package.js', import.meta.url), 'utf8');
+// Transport-only synthetic Flow projection: glyph geometry is covered by the
+// real-font Browser fixture, not by this structurally valid synthetic font.
+const preservedText = '  前  中\t後\u00a0次\u3000終  \n';
+const flowBlock = { id: 'flow_spacing', kind: 'flow', flow: { document: { id: 'spacing_document' } } };
+const spacingProjection = structuredClone(preflight.decisions[0].projection);
+Object.assign(spacingProjection, {
+    flowGroupId: flowBlock.id,
+    documentId: flowBlock.flow.document.id,
+    language: 'ja', revision: 0, writingMode: 'horizontal-tb',
+    summary: { pageCount: 1 },
+});
+for (const style of Object.values(spacingProjection.manifest.styles)) {
+    style.whiteSpaceMode = 'preserve-v1';
+}
+const spacingPage = spacingProjection.manifest.pages[0];
+spacingPage.id = 'flow-spacing-ja';
+spacingPage.sourceAnchor = {
+    kind: 'flow', flowGroupId: flowBlock.id,
+    firstBlockId: 'spacing_paragraph', blockProgress: 0,
+};
+spacingPage.lines[0].runs = [{
+    text: preservedText,
+    source: { blockId: 'spacing_paragraph', startGrapheme: 0, endGrapheme: [...preservedText].length },
+}];
+const spacingPreflight = createDsfPressPreflight({
+    blocks: [textBlock, graphicBlock, flowBlock], language: 'ja',
+    compositionSnapshots: { [textBlock.id]: snapshot },
+    flowPublicationProjections: { [flowBlock.id]: spacingProjection },
+    flowPublicationRevisions: { [flowBlock.id]: 0 }, fontRegistry: registry,
+});
+assert.equal(spacingPreflight.publishable, true, JSON.stringify(spacingPreflight.issues));
+const spacingAssembly = await assembleDsfV2Release({
+    defaultLang: 'ja', hashBytes,
+    languages: [{ language: 'ja', pageDirection: 'rtl', preflight: spacingPreflight,
+        imageAssets: { [graphicBlock.id]: sealedImage.descriptor } }],
+});
+const spacingPortable = await createDsfPortableReleasePlan({
+    assembly: spacingAssembly, fontRegistry: registry,
+    fontAssets: { 'synthetic-ja-variable-v1': fontBytes }, hashBytes, cryptoRef: webcrypto,
+});
+const spacingInventory = await createDsfReleaseFileInventory({
+    assembly: spacingPortable.assembly,
+    sealedAssets: [{ language: 'ja', blockId: graphicBlock.id, pageIndex: 1, sealed: sealedImage }],
+    portableFontAssets: spacingPortable.fontAssets,
+    metadata: { workId: 'work_spacing', releaseId: 'release_spacing', title: 'Whitespace roundtrip',
+        author: 'DSF Author', created: '2026-08-25T00:00:00.000Z', modified: '2026-08-25T01:00:00.000Z', spread: 'none' },
+    hashBytes,
+});
+const spacingZip = await createDsfReleaseZipPackage({ inventory: spacingInventory, hashBytes });
+const spacingFonts = new FakeFontFaceSet();
+const spacingSession = await loadDsfLocalViewerPackage({
+    file: spacingZip.blob, fontRegistry: registry, fontFaceSet: spacingFonts,
+    FontFaceCtor: FakeFontFace, urlRef, cryptoRef: webcrypto,
+});
+const roundtripManifest = spacingSession.contextsByLanguage.get('ja').manifest;
+assert.deepEqual(spacingSession.project.pages.map((page) => page.deliveryV2.renderKind),
+    ['fixedText', 'image', 'fixedText']);
+assert.deepEqual(roundtripManifest.pages.slice(0, 2), session.contextsByLanguage.get('ja').manifest.pages,
+    'adding whitespace-preserving Flow must not alter existing Fixed/image pages');
+const roundtripLine = roundtripManifest.pages[2].lines[0];
+assert.equal(roundtripManifest.styles[roundtripLine.styleRef].whiteSpaceMode, 'preserve-v1');
+assert.equal(roundtripLine.runs.map((run) => run.text).join(''), preservedText,
+    'ZIP and local Viewer must preserve leading/internal/trailing space, TAB, NBSP, fullwidth space and LF exactly');
+assert.deepEqual(roundtripLine.runs[0].source, spacingPage.lines[0].runs[0].source);
+assert.deepEqual(roundtripManifest.pages[2].sourceAnchor, spacingPage.sourceAnchor);
+const legacyLine = roundtripManifest.pages[0].lines[0];
+assert.equal(Object.hasOwn(roundtripManifest.styles[legacyLine.styleRef], 'whiteSpaceMode'), false,
+    'legacy Fixed text must not silently opt into new whitespace semantics');
+assert.equal(spacingInventory.files.some((file) => /\.(?:js|html)$/i.test(file.path)), false,
+    'portable DSF is data/fonts/images; compatibility depends on the consuming Viewer');
+spacingSession.dispose();
+assert.equal(spacingFonts.faces.length, 0);
+
 const viewerSource = readFileSync(new URL('../js/viewer.js', import.meta.url), 'utf8');
 const viewerHtml = readFileSync(new URL('../viewer.html', import.meta.url), 'utf8');
 for (const forbidden of ['firebase', 'firestore', 'public_projects', 'upload', 'saveAs(']) {

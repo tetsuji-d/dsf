@@ -302,6 +302,45 @@ assert.equal(vertical.manifest.pages.flatMap((page) => page.lines)
     .flatMap((line) => line.runs).some((run) => run.text.includes('。')), true,
 'vertical source punctuation must remain semantic text for CSS vertical shaping');
 
+// Author alignment remains in the semantic profile/snapshot. Delivery lines
+// use start alignment because capture has already fixed their aligned x/y.
+for (const writingMode of ['horizontal-tb', 'vertical-rl']) {
+    for (const textAlign of ['start', 'center', 'end']) {
+        const group = createFlowGroup({ writingMode });
+        group.flow.layout.typographyByLanguage.ja.textAlign = textAlign;
+        const pagination = paginateGroup(group, 10);
+        const snapshot = createCompositionSnapshot(group, pagination);
+        // Synthetic already-aligned capture geometry makes accidental recentering
+        // observable without claiming this pure fixture measured browser text.
+        const offset = textAlign === 'center' ? 8 : textAlign === 'end' ? 16 : 0;
+        for (const page of snapshot.pages) for (const line of page.lines) {
+            line[writingMode === 'vertical-rl' ? 'y' : 'x'] += offset;
+            line[writingMode === 'vertical-rl' ? 'height' : 'width'] -= offset;
+        }
+        const input = createInput(group, pagination, snapshot);
+        const before = clone(input);
+        const result = projectFlowPaginationToDsfV2(input);
+        assert.equal(result.ok, true, `${writingMode}/${textAlign} projection`);
+        for (const style of Object.values(result.manifest.styles)) {
+            assert.equal(style.whiteSpaceMode, 'preserve-v1');
+            assert.equal(style.textAlign, 'start', 'Viewer must not apply author alignment a second time');
+        }
+        assert.equal(snapshot.typography.textAlign, textAlign);
+        assert.equal(group.flow.layout.typographyByLanguage.ja.textAlign, textAlign);
+        assert.deepEqual(input, before, 'normalizing delivery alignment must not rewrite source or snapshot');
+        for (const [pageIndex, page] of result.manifest.pages.entries()) {
+            for (const [lineIndex, line] of page.lines.entries()) {
+                const captured = snapshot.pages[pageIndex].lines[lineIndex];
+                for (const key of ['x', 'y', 'width', 'height']) assert.equal(line[key], captured[key],
+                    `captured author geometry ${key} must remain fixed`);
+                assert.deepEqual(line.runs.map(run => ({ text: run.text, source: run.source })), captured.runs,
+                    'alignment normalization preserves all text and source offsets');
+            }
+        }
+        assert.equal(validateDsfLanguageManifest(result.manifest, { fontIds: new Set([FONT_ID]) }).valid, true);
+    }
+}
+
 const inheritedFontGroup = createFlowGroup({ id: 'flow_inherited_font', writingMode: 'vertical-rl' });
 delete inheritedFontGroup.flow.layout.typographyByLanguage.ja.fontFamily;
 const inheritedFontBefore = clone(inheritedFontGroup);
@@ -390,6 +429,16 @@ expectBlocked(
     'FLOW_PUBLICATION_SNAPSHOT_CONTEXT_MISMATCH',
     'partial composition snapshot',
 );
+
+for (const rendererVersion of [5, 6, 7]) {
+    const oldRendererSnapshot = clone(horizontalSnapshot);
+    oldRendererSnapshot.rendererVersion = rendererVersion;
+    expectBlocked(
+        createInput(horizontalGroup, horizontalPagination, oldRendererSnapshot),
+        'FLOW_PUBLICATION_SNAPSHOT_CONTEXT_MISMATCH',
+        `composition v${rendererVersion} captured before punctuation/line-box correction must be regenerated`,
+    );
+}
 
 const wrongFontEvidence = clone(horizontalSnapshot);
 wrongFontEvidence.evidence.fontSha256 = 'b'.repeat(64);
