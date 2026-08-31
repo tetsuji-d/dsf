@@ -214,17 +214,85 @@ const verticalHeadingEdited = createFlowDirectEditTransaction(group, verticalHea
 const verticalHeadingGroup = applyFlowAuthoringOperation([group], verticalHeadingEdited.operation)[0];
 assert.equal(verticalHeadingGroup.flow.document.sections[0].blocks[0].texts.ja, '縦書き見出し');
 
-for (const [createStructuralTransaction, input] of [
-    [createFlowDirectParagraphSplitTransaction, {
-        selectionStart: 1,
-        selectionEnd: 1,
-        newBlockId: 'flow_direct_vertical_split',
-    }],
-    [createFlowDirectHeadingParagraphTransaction, {
-        selectionStart: 1,
-        selectionEnd: 1,
+const verticalSplit = createFlowDirectParagraphSplitTransaction(group, verticalSession, {
+    selectionStart: 1,
+    selectionEnd: 1,
+    newBlockId: 'flow_direct_vertical_split',
+});
+const verticalSplitGroup = applyFlowAuthoringOperation([group], verticalSplit.operation)[0];
+assert.deepEqual(
+    verticalSplitGroup.flow.document.sections[0].blocks.slice(1, 3).map((block) => block.texts.ja),
+    ['雪', '👩‍💻の日'],
+    'vertical Enter must split one semantic Paragraph without changing text order',
+);
+assert.equal(verticalSplit.nextSession.writingMode, 'vertical-rl');
+assert.equal(verticalSplit.nextSession.blockId, 'flow_direct_vertical_split');
+assert.equal(verticalSplit.nextSession.selectionStart, 0);
+assert.equal(Object.hasOwn(verticalSplitGroup.flow.document, 'pages'), false);
+assert.equal(Object.hasOwn(verticalSplitGroup.flow.document, 'fragments'), false);
+
+const verticalHeadingParagraph = createFlowDirectHeadingParagraphTransaction(
+    group,
+    verticalHeadingSession,
+    {
+        selectionStart: verticalHeadingSession.expectedText.length,
+        selectionEnd: verticalHeadingSession.expectedText.length,
         newBlockId: 'flow_direct_vertical_after_heading',
-    }],
+    },
+);
+const verticalHeadingParagraphGroup = applyFlowAuthoringOperation(
+    [group],
+    verticalHeadingParagraph.operation,
+)[0];
+assert.deepEqual(
+    verticalHeadingParagraphGroup.flow.document.sections[0].blocks.slice(0, 2).map((block) => block.type),
+    ['heading', 'paragraph'],
+);
+assert.equal(
+    verticalHeadingParagraphGroup.flow.document.sections[0].blocks[1].id,
+    'flow_direct_vertical_after_heading',
+);
+assert.equal(verticalHeadingParagraph.nextSession.writingMode, 'vertical-rl');
+
+const multilineHeadingGroup = createFixture();
+const multilineHeadingText = '見出し\n続き';
+multilineHeadingGroup.flow.document.sections[0].blocks[0].texts.ja = multilineHeadingText;
+const multilineHeadingSession = createSession(multilineHeadingGroup, {
+    writingMode: 'vertical-rl',
+    sourcePoint: {
+        sectionId: 'flow_direct_section',
+        blockId: 'flow_direct_heading',
+        blockType: 'heading',
+        languageKey: 'ja',
+        utf16Offset: multilineHeadingText.length,
+        graphemeOffset: countGraphemes(multilineHeadingText, 'ja'),
+        affinity: 'nearest',
+    },
+});
+const multilineHeadingParagraph = createFlowDirectHeadingParagraphTransaction(
+    multilineHeadingGroup,
+    multilineHeadingSession,
+    {
+        selectionStart: multilineHeadingText.length,
+        selectionEnd: multilineHeadingText.length,
+        newBlockId: 'flow_direct_multiline_heading_paragraph',
+    },
+);
+const multilineHeadingParagraphGroup = applyFlowAuthoringOperation(
+    [multilineHeadingGroup],
+    multilineHeadingParagraph.operation,
+)[0];
+assert.equal(
+    multilineHeadingParagraphGroup.flow.document.sections[0].blocks[0].texts.ja,
+    multilineHeadingText,
+    'Heading end Enter must preserve existing line breaks exactly',
+);
+assert.equal(
+    multilineHeadingParagraphGroup.flow.document.sections[0].blocks[1].id,
+    'flow_direct_multiline_heading_paragraph',
+);
+
+for (const [createStructuralTransaction, input] of [
     [createFlowDirectEmptyParagraphAfterHeadingRemovalTransaction, {
         selectionStart: 0,
         selectionEnd: 0,
@@ -244,6 +312,48 @@ for (const [createStructuralTransaction, input] of [
             && error.code === 'FLOW_DIRECT_VERTICAL_STRUCTURE_UNSUPPORTED',
     );
 }
+
+const multilineCurrentBackwardGroup = createFixture();
+multilineCurrentBackwardGroup.flow.document.sections[0].blocks[2].texts.ja = '足音\n続き';
+const multilineCurrentBackwardSession = createMergeSession(multilineCurrentBackwardGroup);
+assert.throws(
+    () => createFlowDirectParagraphMergeBackwardTransaction(
+        multilineCurrentBackwardGroup,
+        multilineCurrentBackwardSession,
+        { selectionStart: 0, selectionEnd: 0 },
+    ),
+    (error) => error instanceof FlowDirectEditError
+        && error.code === 'FLOW_DIRECT_MULTILINE_UNSUPPORTED',
+);
+
+const multilinePreviousBackwardGroup = createFixture();
+multilinePreviousBackwardGroup.flow.document.sections[0].blocks[1].texts.ja = '雪\nの日';
+const multilinePreviousBackwardSession = createMergeSession(multilinePreviousBackwardGroup);
+assert.throws(
+    () => createFlowDirectParagraphMergeBackwardTransaction(
+        multilinePreviousBackwardGroup,
+        multilinePreviousBackwardSession,
+        { selectionStart: 0, selectionEnd: 0 },
+    ),
+    (error) => error instanceof FlowDirectEditError
+        && error.code === 'FLOW_DIRECT_MULTILINE_UNSUPPORTED',
+);
+
+const multilineNextForwardGroup = createFixture();
+multilineNextForwardGroup.flow.document.sections[0].blocks[2].texts.ja = '足音\n続き';
+const multilineNextForwardSession = createForwardMergeSession(multilineNextForwardGroup);
+assert.throws(
+    () => createFlowDirectParagraphMergeForwardTransaction(
+        multilineNextForwardGroup,
+        multilineNextForwardSession,
+        {
+            selectionStart: multilineNextForwardSession.expectedText.length,
+            selectionEnd: multilineNextForwardSession.expectedText.length,
+        },
+    ),
+    (error) => error instanceof FlowDirectEditError
+        && error.code === 'FLOW_DIRECT_MULTILINE_UNSUPPORTED',
+);
 
 const verticalBoundaryPageBox = createCanonicalFlowPageBox();
 const verticalBoundaryMeasurePage = createPageBoundaryMeasurer(5);
@@ -1098,17 +1208,79 @@ assert.throws(
     (error) => error instanceof FlowDirectEditError
         && error.code === 'FLOW_DIRECT_LINE_BREAK_STRUCTURE_UNSUPPORTED',
 );
-assert.throws(
-    () => createFlowDirectParagraphSplitTransaction(multilineGroup, {
-        ...multilineSession,
-        writingMode: 'horizontal-tb',
-    }, {
-        selectionStart: 2,
-        selectionEnd: 2,
-        newBlockId: 'paragraph_multiline_split',
-    }),
-    (error) => error instanceof FlowDirectEditError
-        && error.code === 'FLOW_DIRECT_MULTILINE_UNSUPPORTED',
+const trailingLineBreakGroup = createFixture();
+const trailingLineBreakText = 'おはようございます\n\n';
+const trailingLineBreakSplitOffset = 'おはようございます\n'.length;
+trailingLineBreakGroup.flow.document.sections[0].blocks[1].texts.ja = trailingLineBreakText;
+const trailingLineBreakSession = createSession(trailingLineBreakGroup, {
+    writingMode: 'vertical-rl',
+    sourcePoint: {
+        sectionId: 'flow_direct_section',
+        blockId: 'flow_direct_paragraph',
+        blockType: 'paragraph',
+        languageKey: 'ja',
+        utf16Offset: trailingLineBreakSplitOffset,
+        graphemeOffset: countGraphemes(
+            trailingLineBreakText.slice(0, trailingLineBreakSplitOffset),
+            'ja',
+        ),
+        affinity: 'forward',
+    },
+});
+const trailingLineBreakSplit = createFlowDirectParagraphSplitTransaction(
+    trailingLineBreakGroup,
+    trailingLineBreakSession,
+    {
+        selectionStart: trailingLineBreakSplitOffset,
+        selectionEnd: trailingLineBreakSplitOffset,
+        newBlockId: 'paragraph_multiline_vertical_split',
+    },
+);
+const trailingLineBreakSplitGroup = applyFlowAuthoringOperation(
+    [trailingLineBreakGroup],
+    trailingLineBreakSplit.operation,
+)[0];
+const trailingLineBreakParagraphs = trailingLineBreakSplitGroup.flow.document.sections[0].blocks
+    .filter((block) => block.type === 'paragraph')
+    .slice(0, 2);
+assert.deepEqual(
+    trailingLineBreakParagraphs.map((block) => block.texts.ja),
+    ['おはようございます\n', '\n'],
+    'vertical Enter must distribute existing line breaks across semantic Paragraphs without loss',
+);
+assert.equal(
+    trailingLineBreakParagraphs.map((block) => block.texts.ja).join(''),
+    trailingLineBreakText,
+);
+assert.equal(trailingLineBreakSplit.nextSession.blockId, 'paragraph_multiline_vertical_split');
+assert.equal(trailingLineBreakSplit.nextSession.expectedText, '\n');
+assert.equal(trailingLineBreakSplit.nextSession.selectionStart, 0);
+assert.equal(Object.hasOwn(trailingLineBreakSplitGroup.flow.document, 'pages'), false);
+assert.equal(Object.hasOwn(trailingLineBreakSplitGroup.flow.document, 'fragments'), false);
+
+const horizontalTrailingLineBreakSession = createSession(trailingLineBreakGroup, {
+    sourcePoint: trailingLineBreakSession.sourcePoint,
+});
+const horizontalTrailingLineBreakSplit = createFlowDirectParagraphSplitTransaction(
+    trailingLineBreakGroup,
+    horizontalTrailingLineBreakSession,
+    {
+        selectionStart: trailingLineBreakSplitOffset,
+        selectionEnd: trailingLineBreakSplitOffset,
+        newBlockId: 'paragraph_multiline_horizontal_split',
+    },
+);
+const horizontalTrailingLineBreakSplitGroup = applyFlowAuthoringOperation(
+    [trailingLineBreakGroup],
+    horizontalTrailingLineBreakSplit.operation,
+)[0];
+assert.deepEqual(
+    horizontalTrailingLineBreakSplitGroup.flow.document.sections[0].blocks
+        .filter((block) => block.type === 'paragraph')
+        .slice(0, 2)
+        .map((block) => block.texts.ja),
+    ['おはようございます\n', '\n'],
+    'the shared semantic Enter operation must remain lossless in horizontal writing too',
 );
 
 const appSource = await readFile(new URL('../js/app.js', import.meta.url), 'utf8');
@@ -1134,7 +1306,8 @@ assert.match(appSource, /addEventListener\('beforeinput', handleFlowDirectBefore
 assert.match(appSource, /addEventListener\('compositionstart', handleFlowDirectCompositionStart\)/);
 assert.match(appSource, /addEventListener\('compositionend', handleFlowDirectCompositionEnd\)/);
 assert.match(appSource, /event\.isComposing \|\| event\.keyCode === 229 \|\| _flowAuthoringComposing/);
-assert.match(appSource, /function rejectFlowDirectVerticalStructuralEdit\(\)/);
+assert.match(appSource, /function rejectFlowDirectVerticalBoundaryMerge\(\)/);
+assert.match(appSource, /event\.inputType === 'insertParagraph' \|\| event\.inputType === 'insertLineBreak'/);
 assert.match(appSource, /function flowDirectSelectionTouchesLineBreak\(proxy, inputType\)/);
 assert.match(appSource, /FLOW_DIRECT_LINE_BREAK_STRUCTURE_UNSUPPORTED/);
 assert.match(appSource, /dataset\.flowCompositionResumeReflow/);

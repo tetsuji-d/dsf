@@ -9,6 +9,7 @@
 import { segmentGraphemes } from './grapheme.js';
 
 export const FLOW_SOURCE_MAPPING_VERSION = 1;
+const LINE_BREAK_GRAPHEME = /^(?:\r\n|[\r\n\u2028\u2029])$/u;
 
 export class FlowSourceMappingError extends Error {
     constructor(code, message, context = {}) {
@@ -352,10 +353,59 @@ function requireCaretWritingMode(value) {
     return writingMode;
 }
 
-function hasInlineExtent(rect, writingMode) {
-    return writingMode === 'vertical-rl'
+export function isFlowCaretMeasurementRect(rect, writingMode) {
+    const mode = requireCaretWritingMode(writingMode);
+    return mode === 'vertical-rl'
         ? Number(rect?.width) > 0
         : Number(rect?.height) > 0;
+}
+
+function resolveFlowVerticalEmptyLineTop(fragmentRect, textAlign, direction) {
+    const alignment = String(textAlign || 'start').toLowerCase();
+    const isRtl = String(direction || 'ltr').toLowerCase() === 'rtl';
+    if (alignment.includes('center')) {
+        return fragmentRect.top + (fragmentRect.height / 2);
+    }
+    if (alignment === 'end' || alignment === 'right') {
+        return isRtl ? fragmentRect.top : fragmentRect.bottom;
+    }
+    if (alignment === 'start') {
+        return isRtl ? fragmentRect.bottom : fragmentRect.top;
+    }
+    return fragmentRect.top;
+}
+
+/** Move the caret from a vertical line-break glyph to the next visible column start. */
+export function advanceFlowVerticalLineBreakClientRect(options = {}) {
+    const lineBreakRect = options.lineBreakRect ? snapshotRect(options.lineBreakRect) : null;
+    const fragmentRect = options.fragmentRect ? snapshotRect(options.fragmentRect) : null;
+    const contentRect = options.contentRect ? snapshotRect(options.contentRect) : null;
+    const lineAdvance = Number(options.lineAdvance);
+    if (
+        !lineBreakRect
+        || !fragmentRect
+        || lineBreakRect.width <= 0
+        || !Number.isFinite(lineAdvance)
+        || lineAdvance <= 0
+    ) return null;
+    let left = lineBreakRect.left - lineAdvance;
+    if (contentRect?.width > 0) {
+        const maxLeft = Math.max(contentRect.left, contentRect.right - lineBreakRect.width);
+        left = Math.min(Math.max(left, contentRect.left), maxLeft);
+    }
+    const top = resolveFlowVerticalEmptyLineTop(
+        fragmentRect,
+        options.textAlign,
+        options.direction,
+    );
+    return snapshotRect({
+        left,
+        top,
+        right: left + lineBreakRect.width,
+        bottom: top,
+        width: lineBreakRect.width,
+        height: 0,
+    });
 }
 
 function normalizeCaretRect(rect, writingMode, edge, basis) {
@@ -426,7 +476,7 @@ export function resolveFlowCaretClientGeometry(options = {}) {
     }
 
     const collapsedRect = options.collapsedRect ? snapshotRect(options.collapsedRect) : null;
-    if (collapsedRect && hasInlineExtent(collapsedRect, writingMode)) {
+    if (collapsedRect && isFlowCaretMeasurementRect(collapsedRect, writingMode)) {
         const collapsed = normalizeCaretRect(collapsedRect, writingMode, 'before', 'collapsed');
         if (collapsed) return collapsed;
     }
@@ -481,7 +531,10 @@ export function getFlowSourcePointClientRect(pageElement, page, sourcePoint, opt
     const range = ownerDocument.createRange();
     range.setStart(position.node, position.offset);
     range.collapse(true);
-    const collapsedRect = firstRangeRect(range, (rect) => hasInlineExtent(rect, writingMode));
+    const collapsedRect = firstRangeRect(
+        range,
+        (rect) => isFlowCaretMeasurementRect(rect, writingMode),
+    );
 
     const fragment = getPageFragments(page)[position.fragmentIndex];
     const text = String(fragment?.text || '');
@@ -493,12 +546,40 @@ export function getFlowSourcePointClientRect(pageElement, page, sourcePoint, opt
     if (next) {
         range.setStart(position.node, next.index);
         range.setEnd(position.node, next.end);
-        nextRect = firstRangeRect(range, (rect) => rect.width > 0 && rect.height > 0);
+        nextRect = firstRangeRect(
+            range,
+            (rect) => isFlowCaretMeasurementRect(rect, writingMode),
+        );
     }
     if (previous) {
         range.setStart(position.node, previous.index);
         range.setEnd(position.node, previous.end);
-        previousRect = firstRangeRect(range, (rect) => rect.width > 0 && rect.height > 0);
+        previousRect = firstRangeRect(
+            range,
+            (rect) => isFlowCaretMeasurementRect(rect, writingMode),
+        );
+        if (
+            writingMode === 'vertical-rl'
+            && LINE_BREAK_GRAPHEME.test(previous.segment)
+            && previousRect
+        ) {
+            const pageRect = pageElement.getBoundingClientRect?.();
+            const pageScaleX = Number(pageElement.offsetWidth) > 0 && Number(pageRect?.width) > 0
+                ? Number(pageRect.width) / Number(pageElement.offsetWidth)
+                : 1;
+            const view = ownerDocument.defaultView;
+            const fragmentStyle = view?.getComputedStyle?.(position.fragmentElement);
+            const lineHeight = Number.parseFloat(fragmentStyle?.lineHeight || '');
+            const advanced = advanceFlowVerticalLineBreakClientRect({
+                lineBreakRect: previousRect,
+                fragmentRect: position.fragmentElement?.getBoundingClientRect?.(),
+                contentRect: position.fragmentElement?.parentElement?.getBoundingClientRect?.(),
+                lineAdvance: lineHeight * pageScaleX,
+                textAlign: fragmentStyle?.textAlign,
+                direction: fragmentStyle?.direction,
+            });
+            if (advanced) previousRect = advanced;
+        }
     }
     return resolveFlowCaretClientGeometry({
         writingMode,

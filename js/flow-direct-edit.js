@@ -362,8 +362,6 @@ export function createFlowDirectParagraphSplitTransaction(groupInput, session, i
         block,
         currentText,
     } = requireCurrentDirectSession(groupInput, session);
-    requireHorizontalStructuralSession(session);
-    requireSingleLineText(currentText);
     if (block.type !== 'paragraph') {
         fail('FLOW_DIRECT_PARAGRAPH_REQUIRED', 'Enter directly splits Paragraph blocks only.', {
             blockId: block.id,
@@ -440,8 +438,6 @@ export function createFlowDirectHeadingParagraphTransaction(groupInput, session,
         block,
         currentText,
     } = requireCurrentDirectSession(groupInput, session);
-    requireHorizontalStructuralSession(session);
-    requireSingleLineText(currentText);
     if (block.type !== 'heading') {
         fail('FLOW_DIRECT_HEADING_REQUIRED', 'Heading Paragraph insertion requires a Heading block.', {
             blockId: block.id,

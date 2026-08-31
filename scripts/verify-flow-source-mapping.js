@@ -2,7 +2,9 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import {
     FlowSourceMappingError,
+    advanceFlowVerticalLineBreakClientRect,
     findFlowSourcePointInPages,
+    isFlowCaretMeasurementRect,
     mapFlowFragmentDomOffsetToSource,
     mapFlowSourcePointToFragmentDomOffset,
     resolveFlowCaretAffinityFromClientPoint,
@@ -165,6 +167,84 @@ const verticalAfterCaret = resolveFlowCaretClientGeometry({
 assert.equal(verticalAfterCaret.top, 66);
 assert.equal(verticalAfterCaret.bottom, 66);
 assert.equal(verticalAfterCaret.basis, 'previous');
+
+const verticalLineBreakRect = {
+    left: 769.15,
+    top: 156.81,
+    right: 786.12,
+    bottom: 156.81,
+    width: 16.97,
+    height: 0,
+};
+assert.equal(
+    isFlowCaretMeasurementRect(verticalLineBreakRect, 'vertical-rl'),
+    true,
+    'a zero-height vertical line-break Range still carries the horizontal caret width',
+);
+assert.equal(
+    isFlowCaretMeasurementRect({
+        left: 20,
+        top: 48,
+        right: 20,
+        bottom: 76,
+        width: 0,
+        height: 28,
+    }, 'horizontal-tb'),
+    true,
+    'a zero-width horizontal line-break Range still carries the vertical caret height',
+);
+const verticalLineBreakCaret = resolveFlowCaretClientGeometry({
+    writingMode: 'vertical-rl',
+    affinity: 'forward',
+    nextRect: verticalLineBreakRect,
+    fragmentRect: { left: 747.66, top: 156.81, right: 807.61, bottom: 604, width: 59.95, height: 447.19 },
+});
+assert.equal(verticalLineBreakCaret.left, verticalLineBreakRect.left);
+assert.equal(verticalLineBreakCaret.right, verticalLineBreakRect.right);
+assert.equal(verticalLineBreakCaret.top, verticalLineBreakRect.top);
+assert.equal(verticalLineBreakCaret.width, verticalLineBreakRect.width);
+assert.equal(verticalLineBreakCaret.basis, 'next');
+
+const advancedTrailingLineBreak = advanceFlowVerticalLineBreakClientRect({
+    lineBreakRect: verticalLineBreakRect,
+    fragmentRect: { left: 747.66, top: 156.81, right: 807.61, bottom: 604, width: 59.95, height: 447.19 },
+    lineAdvance: 21.49,
+});
+assert.deepEqual(advancedTrailingLineBreak, {
+    left: 747.66,
+    top: 156.81,
+    right: 764.63,
+    bottom: 156.81,
+    width: 16.97,
+    height: 0,
+});
+
+const centeredTrailingLineBreak = advanceFlowVerticalLineBreakClientRect({
+    lineBreakRect: verticalLineBreakRect,
+    fragmentRect: { left: 747.66, top: 156.81, right: 807.61, bottom: 604, width: 59.95, height: 447.19 },
+    lineAdvance: 21.49,
+    textAlign: 'center',
+});
+assert.equal(centeredTrailingLineBreak.top, 380.405);
+assert.equal(centeredTrailingLineBreak.bottom, 380.405);
+
+const endAlignedTrailingLineBreak = advanceFlowVerticalLineBreakClientRect({
+    lineBreakRect: verticalLineBreakRect,
+    fragmentRect: { left: 747.66, top: 156.81, right: 807.61, bottom: 604, width: 59.95, height: 447.19 },
+    lineAdvance: 21.49,
+    textAlign: 'end',
+    direction: 'ltr',
+});
+assert.equal(endAlignedTrailingLineBreak.top, 604);
+
+const clampedTrailingLineBreak = advanceFlowVerticalLineBreakClientRect({
+    lineBreakRect: { ...verticalLineBreakRect, left: 760, right: 776.97 },
+    fragmentRect: { left: 750, top: 156.81, right: 807.61, bottom: 604, width: 57.61, height: 447.19 },
+    contentRect: { left: 750, top: 140, right: 900, bottom: 620, width: 150, height: 480 },
+    lineAdvance: 21.49,
+});
+assert.equal(clampedTrailingLineBreak.left, 750);
+assert.equal(clampedTrailingLineBreak.right, 766.97);
 
 const verticalEmptyCaret = resolveFlowCaretClientGeometry({
     writingMode: 'vertical-rl',

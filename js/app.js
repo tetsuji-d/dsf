@@ -869,9 +869,9 @@ function mergeFlowDirectParagraphForward(proxy) {
     return true;
 }
 
-function rejectFlowDirectVerticalStructuralEdit() {
+function rejectFlowDirectVerticalBoundaryMerge() {
     if (_flowDirectEditSession?.writingMode !== 'vertical-rl') return false;
-    setFlowDirectEditNote('縦書きの段落追加・結合は次の実装単位で対応します。通常の文字入力は続けられます。');
+    setFlowDirectEditNote('縦書きの段落結合は次の実装単位で対応します。Enterによる段落追加と通常の文字入力は続けられます。');
     return true;
 }
 
@@ -906,9 +906,9 @@ function handleFlowDirectBeforeInput(event) {
         setFlowDirectEditNote('既存の改行をまたぐ編集は未対応です。通常の文字編集は続けられます。');
         return;
     }
-    if (event.inputType === 'insertParagraph') {
+    if (event.inputType === 'insertParagraph' || event.inputType === 'insertLineBreak') {
         event.preventDefault();
-        if (!rejectFlowDirectVerticalStructuralEdit()) applyFlowDirectEnter(event.target);
+        applyFlowDirectEnter(event.target);
         return;
     }
     if (
@@ -917,7 +917,7 @@ function handleFlowDirectBeforeInput(event) {
         && event.target.selectionEnd === 0
     ) {
         event.preventDefault();
-        if (!rejectFlowDirectVerticalStructuralEdit()) applyFlowDirectBackspace(event.target);
+        if (!rejectFlowDirectVerticalBoundaryMerge()) applyFlowDirectBackspace(event.target);
         return;
     }
     if (
@@ -926,12 +926,11 @@ function handleFlowDirectBeforeInput(event) {
         && event.target.selectionEnd === String(event.target.value || '').length
     ) {
         event.preventDefault();
-        if (!rejectFlowDirectVerticalStructuralEdit()) mergeFlowDirectParagraphForward(event.target);
+        if (!rejectFlowDirectVerticalBoundaryMerge()) mergeFlowDirectParagraphForward(event.target);
         return;
     }
     if (
-        event.inputType === 'insertLineBreak'
-        || /[\r\n\u2028\u2029]/u.test(String(event.data || ''))
+        /[\r\n\u2028\u2029]/u.test(String(event.data || ''))
     ) {
         event.preventDefault();
         setFlowDirectEditNote('段落内改行は未対応です。現在はFlow原稿画面で編集してください。');
@@ -1043,7 +1042,7 @@ function mountFlowDirectEditProxy(activeBlock, page, pageElement, session) {
                 setFlowDirectEditNote('修飾キー付きEnterは未対応です。現在はFlow原稿画面で編集してください。');
                 return;
             }
-            if (!rejectFlowDirectVerticalStructuralEdit()) applyFlowDirectEnter(proxy);
+            applyFlowDirectEnter(proxy);
             return;
         }
         if (
@@ -1056,7 +1055,7 @@ function mountFlowDirectEditProxy(activeBlock, page, pageElement, session) {
             && proxy.selectionEnd === 0
         ) {
             event.preventDefault();
-            if (!rejectFlowDirectVerticalStructuralEdit()) applyFlowDirectBackspace(proxy);
+            if (!rejectFlowDirectVerticalBoundaryMerge()) applyFlowDirectBackspace(proxy);
             return;
         }
         if (
@@ -1069,7 +1068,7 @@ function mountFlowDirectEditProxy(activeBlock, page, pageElement, session) {
             && proxy.selectionEnd === String(proxy.value || '').length
         ) {
             event.preventDefault();
-            if (!rejectFlowDirectVerticalStructuralEdit()) mergeFlowDirectParagraphForward(proxy);
+            if (!rejectFlowDirectVerticalBoundaryMerge()) mergeFlowDirectParagraphForward(proxy);
         }
     });
     proxy.addEventListener('paste', (event) => {

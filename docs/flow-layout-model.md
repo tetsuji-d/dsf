@@ -688,6 +688,22 @@ WYSIWYGでも保存正本はFlowDocumentであり、生成ページやページ�
   翻訳ページ、原文fallback、縦中横、ルビ、圏点、割注は変更しない。
   Flow schema、DSP／Firestore、Press、Viewer、Horizon publication contractも変更しない。
 
+## Paginated WYSIWYG vertical Paragraph Enter and line-break caret（10A-4C-A）
+
+- 原稿言語・`vertical-rl`のParagraph内collapsed caretでEnterを押すと、既存10A-3Aと同じsemantic
+  `splitParagraph` transactionで前後2つのParagraphへ分割する。このsemantic分割は横書きと共通で、既存LFを
+  含むParagraphでも文字を失わない。Heading末尾のEnterも、Heading内の既存LFを保持したまま10A-3D-Aと同じ
+  原稿のみ空Paragraph追加へ接続する。生成DOMやtextarea valueを保存正本にしない。
+- Paragraph内に既存LFがある場合も、caretのUTF-16／grapheme境界で前後文字列へそのまま分配し、LFを追加・削除
+  しない。翻訳は推測分割せず、既存のstale／missing契約へ渡す。
+- 物理Enterのほか、仮想キーボードが送る`beforeinput: insertParagraph`／`insertLineBreak`を同じParagraph分割へ
+  接続する。IME composition中のEnter、修飾キー付きEnter、選択付きEnterは構造操作として扱わない。
+- 縦書きLFが返す`width > 0 / height = 0`のRangeを有効な横caretとして扱う。LF直後はline-heightと
+  page scaleから次列先頭を求め、Paragraph全幅へのfallbackを避ける。次列のinline位置はstart／center／endの
+  text alignmentに合わせ、ページ左端を越える場合は本文領域内へ収めてcaretと入力proxyの位置を一致させる。
+- 縦書きBlock境界のBackspace／Delete結合とShift+Enter相当のsoft line breakは次単位へ分離する。
+  Flow schema、DSP／Firestore、Press、Viewer、Horizon publication contractは変更しない。
+
 ## DOM preview boundary（Commit 3）
 
 `flow-preview.html`は、FlowDocumentと生成ページの関係を実ブラウザで確認するための独立画面である。
