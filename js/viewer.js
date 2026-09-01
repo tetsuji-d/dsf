@@ -15,6 +15,7 @@ import { applyTheme, bindThemePreferenceListener, getThemeMode, setThemeMode } f
 import { doc, getDoc, getDocs, setDoc, deleteDoc, addDoc, collection, query, where, limit, serverTimestamp, runTransaction } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
 import { parseAndLoadDSF } from './export.js';
 import { CANONICAL_PAGE_WIDTH, CANONICAL_PAGE_HEIGHT, CANONICAL_PAGE_ASPECT } from './page-geometry.js';
+import { createViewerMinimapController } from './viewer-minimap.js';
 import { formatPublicationDate, getPublicationInactiveReason, isPublicationActive } from './publication.js';
 import {
     createDsfViewerPageContentElement,
@@ -38,6 +39,8 @@ let reviewUiState = createReviewUiState();
 let viewerFixedTextContext = null;
 let viewerLocalFixtureAssetUrls = new Map();
 let viewerLocalPortableSession = null;
+let viewerMinimap = null;
+let viewerDocumentRevision = 0;
 
 function replaceViewerLocalPortableSession(nextSession = null) {
     if (viewerLocalPortableSession && viewerLocalPortableSession !== nextSession) {
@@ -151,6 +154,7 @@ const VIEWER_UI = {
         prevPage: '前のページ',
         nextPage: '次のページ',
         toggleUi: 'メニュー表示/非表示',
+        minimapLabel: '表示位置マップ',
         account: 'アカウント',
         guest: 'ゲスト',
         themeLabel: '表示モード',
@@ -235,6 +239,7 @@ const VIEWER_UI = {
         prevPage: 'Previous page',
         nextPage: 'Next page',
         toggleUi: 'Show/hide menu',
+        minimapLabel: 'Position map',
         account: 'Account',
         guest: 'Guest',
         themeLabel: 'Theme',
@@ -332,6 +337,7 @@ async function init() {
         layer.addEventListener('pointercancel', onPointerCancel);
         layer.addEventListener('click', suppressClickAfterSwipe, true);
     }
+    initializeViewerMinimap();
 
     document.addEventListener('keydown', onKeydown);
     document.addEventListener('wheel', onWheel, { passive: false });
@@ -784,6 +790,7 @@ window.loadDsf = async (input) => {
 // ── Project Data ──────────────────────────────────────────────
 function loadProjectData(raw, options = {}) {
     const source = options.source || 'file';
+    viewerDocumentRevision += 1;
     replaceViewerLocalPortableSession(options.localPortableSession || null);
     viewerFixedTextContext = options.fixedTextContext || null;
     const deliveryAssetUrls = options.assetUrls instanceof Map
@@ -2653,6 +2660,7 @@ function applyViewerUiLanguage() {
     applyViewerInfoPanelLabels();
     renderViewerInfoPanel();
     renderViewerAuthSlot(state.user || null);
+    viewerMinimap?.update();
     if (viewerDevMode) renderViewerDevMetrics();
 }
 
@@ -3573,6 +3581,7 @@ function refresh() {
         renderCurrentBookUnit();
         refreshChrome();
         preloadNearbyViewerImages();
+        viewerMinimap?.update();
         return;
     }
 
@@ -3586,6 +3595,7 @@ function refresh() {
     renderDisplayIndexIntoDom(index, lang);
     refreshChrome();
     preloadNearbyViewerImages();
+    viewerMinimap?.update();
 }
 
 function isViewerCoverRole(role) {
@@ -4201,6 +4211,70 @@ window.toggleViewerSpread = () => {
     refresh();
 };
 
+function getViewerMinimapSurfaces() {
+    const pages = getPages();
+    const index = getIndex();
+    const current = getViewerSurfaceForDisplayIndex(index) || pages[index] || null;
+
+    if (spreadMode && hasBookModel()) {
+        const unit = getCurrentBookUnit();
+        if (!unit) return [];
+        return unit.type === 'spread'
+            ? [unit.left, unit.right].filter(Boolean)
+            : [unit.center].filter(Boolean);
+    }
+
+    const spreadStage = document.getElementById('viewer-spread-stage');
+    const hasVisibleSecondPage = spreadMode
+        && !!spreadStage
+        && getComputedStyle(spreadStage).display !== 'none';
+    if (!hasVisibleSecondPage) return current ? [current] : [];
+
+    const adjacentIndex = getPageDirection() === 'rtl' ? index - 1 : index + 1;
+    const adjacent = adjacentIndex >= 0 && adjacentIndex < pages.length
+        ? (getViewerSurfaceForDisplayIndex(adjacentIndex) || pages[adjacentIndex])
+        : null;
+    return [current, adjacent].filter(Boolean);
+}
+
+function getViewerMinimapSnapshot() {
+    const lang = state.activeLang;
+    const surfaces = getViewerMinimapSurfaces().map((surface) => ({
+        key: [
+            viewerDocumentRevision,
+            surface?.id || surface?.pageId || surface?.label || '',
+            surface?.bookRole || surface?.role || '',
+            surface?.virtualBlank ? 'virtual' : '',
+            getPageAssetUrl(surface, lang)
+        ].join(':'),
+        getHtml: () => renderSurfaceContentHTML(surface, lang),
+        blank: !!surface?.virtualBlank
+    }));
+    return {
+        canvas: document.getElementById('viewer-canvas'),
+        scale: viewScale,
+        viewX,
+        viewY,
+        lang,
+        surfaceMode: surfaces.length > 1 ? 'spread' : 'single',
+        surfaces
+    };
+}
+
+function initializeViewerMinimap() {
+    if (viewerMinimap) return;
+    viewerMinimap = createViewerMinimapController({
+        getSnapshot: getViewerMinimapSnapshot,
+        getLabel: () => vt('minimapLabel'),
+        onMove: ({ x, y }) => {
+            viewX = x;
+            viewY = y;
+            applyTransform(true);
+        }
+    });
+    viewerMinimap.bind();
+}
+
 // ── Zoom / Pan ────────────────────────────────────────────────
 function resetZoom() {
     viewScale = 1; viewX = 0; viewY = 0;
@@ -4232,10 +4306,11 @@ function clampViewPan() {
     viewY = Math.max(-limY, Math.min(limY, viewY));
 }
 
-function applyTransform() {
+function applyTransform(fromInteraction = false) {
     clampViewPan();
     const stage = document.getElementById('viewer-stage');
     if (stage) stage.style.transform = `translate(${viewX}px,${viewY}px) scale(${viewScale})`;
+    viewerMinimap?.update({ fromInteraction });
 }
 
 function resetSingleSpreadSwipe() {
@@ -4434,7 +4509,7 @@ function onPointerMove(e) {
         const dist = getPinchDist(pointerCache[0], pointerCache[1]);
         if (pinchStartDist > 0) {
             viewScale = Math.min(5, Math.max(1, pinchStartScale * (dist / pinchStartDist)));
-            applyTransform();
+            applyTransform(true);
         }
     } else if (updateSingleSpreadSwipe(e)) {
         return;
@@ -4444,7 +4519,7 @@ function onPointerMove(e) {
         viewY += e.clientY - lastPanY;
         lastPanX = e.clientX;
         lastPanY = e.clientY;
-        applyTransform();
+        applyTransform(true);
     }
 }
 
@@ -4457,7 +4532,7 @@ function onPointerUp(e) {
     if (isPinching && pointerCache.length < 2) {
         isPinching = false;
         if (viewScale < 1.05) resetZoom();
-        else applyTransform();
+        else applyTransform(true);
         if (pointerCache.length === 0) activeGesturePointerId = null;
         return;
     }
@@ -4466,7 +4541,7 @@ function onPointerUp(e) {
         try { e.currentTarget?.releasePointerCapture?.(e.pointerId); } catch (_) { /* ignore */ }
         if (isPanning) {
             isPanning = false;
-            applyTransform();
+            applyTransform(true);
             activeGesturePointerId = null;
             return;
         }
@@ -4490,7 +4565,7 @@ function onPointerUp(e) {
                     if (gap < 300 && gap > 0) {
                         viewScale = viewScale > 1.05 ? 1 : 2;
                         if (viewScale === 1) { viewX = 0; viewY = 0; }
-                        applyTransform();
+                        applyTransform(true);
                         e.preventDefault();
                     }
                 }
@@ -4570,7 +4645,7 @@ function onWheel(e) {
             return;
         }
     }
-    applyTransform();
+    applyTransform(true);
 }
 
 function onKeydown(e) {

@@ -49,6 +49,18 @@
                     <span class="material-icons" aria-hidden="true">chevron_right</span>
                 </button>
             </div>
+            <div id="viewer-minimap" class="viewer-minimap" data-corner="bottom-right" hidden
+                role="region" aria-label="表示位置マップ">
+                <div class="viewer-minimap-head">
+                    <span class="material-icons" aria-hidden="true">map</span>
+                    <output id="viewer-minimap-zoom">100%</output>
+                </div>
+                <div id="viewer-minimap-surface" class="viewer-minimap-surface">
+                    <div id="viewer-minimap-thumbnail" class="viewer-minimap-thumbnail" aria-hidden="true"></div>
+                    <span id="viewer-minimap-divider" class="viewer-minimap-divider" hidden aria-hidden="true"></span>
+                    <span id="viewer-minimap-viewport" class="viewer-minimap-viewport" aria-hidden="true"></span>
+                </div>
+            </div>
         </div>
         <aside id="viewer-info-panel" class="viewer-info-panel" data-state="closed" data-layout="sheet" hidden>
             <div class="viewer-info-panel-shell">

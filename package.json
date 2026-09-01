@@ -51,6 +51,7 @@
     "verify:flow-translation-provider": "node scripts/verify-flow-translation-provider.js",
     "verify:flow-translation-apply": "node scripts/verify-flow-translation-apply.js",
     "verify:dsf-delivery-v2": "node scripts/verify-dsf-delivery-v2.js",
+    "verify:viewer-minimap": "node scripts/verify-viewer-minimap.js",
     "verify:viewer-fixed-text": "node scripts/verify-viewer-fixed-text.js",
     "verify:dsf-local-viewer-package": "node scripts/verify-dsf-local-viewer-package.js",
     "verify:dsf-horizon-release-contract": "node scripts/verify-dsf-horizon-release-contract.js",

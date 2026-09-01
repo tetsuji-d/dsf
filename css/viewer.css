@@ -133,6 +133,174 @@ body.viewer-ui-visible .viewer-side-nav-btn {
     /* Crucial for custom PointerEvent pinch/pan logic */
 }
 
+.viewer-minimap {
+    position: absolute;
+    right: max(12px, calc(env(safe-area-inset-right, 0px) + 8px));
+    bottom: max(12px, calc(env(safe-area-inset-bottom, 0px) + 8px));
+    z-index: 190;
+    display: grid;
+    gap: 5px;
+    padding: 6px;
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    border-radius: 10px;
+    background: rgba(3, 7, 18, 0.52);
+    color: #f8fafc;
+    box-shadow: 0 5px 20px rgba(0, 0, 0, 0.24);
+    user-select: none;
+    touch-action: none;
+    cursor: crosshair;
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    transition: top 180ms ease, right 180ms ease, bottom 180ms ease, left 180ms ease, opacity 160ms ease;
+}
+
+.viewer-minimap[data-corner="top-left"] {
+    top: max(12px, calc(env(safe-area-inset-top, 0px) + 8px));
+    left: max(12px, calc(env(safe-area-inset-left, 0px) + 8px));
+    right: auto;
+    bottom: auto;
+}
+
+.viewer-minimap[data-corner="top-right"] {
+    top: max(12px, calc(env(safe-area-inset-top, 0px) + 8px));
+    right: max(12px, calc(env(safe-area-inset-right, 0px) + 8px));
+    bottom: auto;
+    left: auto;
+}
+
+.viewer-minimap[data-corner="bottom-left"] {
+    bottom: max(12px, calc(env(safe-area-inset-bottom, 0px) + 8px));
+    left: max(12px, calc(env(safe-area-inset-left, 0px) + 8px));
+    top: auto;
+    right: auto;
+}
+
+.viewer-minimap[data-corner="bottom-right"] {
+    right: max(12px, calc(env(safe-area-inset-right, 0px) + 8px));
+    bottom: max(12px, calc(env(safe-area-inset-bottom, 0px) + 8px));
+    top: auto;
+    left: auto;
+}
+
+body.viewer-ui-visible .viewer-minimap[data-corner="top-left"],
+body.viewer-ui-visible .viewer-minimap[data-corner="top-right"] {
+    top: max(58px, calc(env(safe-area-inset-top, 0px) + 50px));
+}
+
+body.viewer-ui-visible .viewer-minimap[data-corner="bottom-left"],
+body.viewer-ui-visible .viewer-minimap[data-corner="bottom-right"] {
+    bottom: max(74px, calc(env(safe-area-inset-bottom, 0px) + 66px));
+}
+
+.viewer-minimap[hidden] {
+    display: none;
+}
+
+.viewer-minimap-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    min-width: 54px;
+    font-size: 10px;
+    line-height: 1;
+    font-variant-numeric: tabular-nums;
+}
+
+.viewer-minimap-head .material-icons {
+    font-size: 13px;
+    opacity: 0.82;
+}
+
+.viewer-minimap-head output {
+    color: inherit;
+    font: inherit;
+}
+
+.viewer-minimap-surface {
+    position: relative;
+    box-sizing: content-box;
+    overflow: hidden;
+    border: 1px solid rgba(255, 255, 255, 0.72);
+    border-radius: 3px;
+    background: #f8f3df;
+    box-shadow: inset 0 0 0 1px rgba(15, 23, 42, 0.1);
+}
+
+.viewer-minimap-thumbnail {
+    position: absolute;
+    inset: 0;
+    z-index: 0;
+    display: flex;
+    overflow: hidden;
+    background: #f8f3df;
+    pointer-events: none;
+}
+
+.viewer-minimap-page {
+    position: relative;
+    flex: 1 1 100%;
+    width: 100%;
+    height: 100%;
+    min-width: 0;
+    overflow: hidden;
+    background: #fff;
+}
+
+.viewer-minimap-thumbnail.is-spread .viewer-minimap-page {
+    flex-basis: 50%;
+    width: 50%;
+}
+
+.viewer-minimap-page-content {
+    position: absolute;
+    top: var(--viewer-minimap-page-offset-y, 0px);
+    left: var(--viewer-minimap-page-offset-x, 0px);
+    width: var(--viewer-minimap-page-width, var(--dsf-canonical-page-width, 360px));
+    height: var(--viewer-minimap-page-height, var(--dsf-canonical-page-height, 640px));
+    overflow: hidden;
+    transform: scale(var(--viewer-minimap-page-scale, 1));
+    transform-origin: top left;
+    pointer-events: none;
+}
+
+.viewer-minimap-page-content > img {
+    display: block;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+
+.viewer-minimap-divider {
+    position: absolute;
+    z-index: 1;
+    top: 0;
+    bottom: 0;
+    left: 50%;
+    width: 1px;
+    background: rgba(15, 23, 42, 0.38);
+    transform: translateX(-0.5px);
+}
+
+.viewer-minimap-viewport {
+    position: absolute;
+    z-index: 2;
+    box-sizing: border-box;
+    min-width: 5px;
+    min-height: 5px;
+    border: 2px solid #3b82f6;
+    border-radius: 2px;
+    background: rgba(59, 130, 246, 0.22);
+    box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.92);
+    pointer-events: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .viewer-minimap {
+        transition: none;
+    }
+}
+
 #content-stage {
     position: absolute;
     top: 0;
