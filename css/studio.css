@@ -9092,6 +9092,38 @@ textarea.ps-meta-input {
     font-weight: 800;
 }
 
+.flow-authoring-setting {
+    display: grid;
+    gap: 6px;
+    padding-top: 9px;
+    border-top: 1px solid #c7d2fe;
+}
+
+.flow-authoring-setting[hidden] {
+    display: none;
+}
+
+.flow-authoring-setting label {
+    color: #475569;
+    font-size: 11px;
+    font-weight: 800;
+}
+
+.flow-authoring-setting select {
+    width: 100%;
+    min-height: 34px;
+    padding: 6px 8px;
+    border: 1px solid #a5b4fc;
+    border-radius: 7px;
+    color: #1e293b;
+    background: #ffffff;
+}
+
+.flow-authoring-setting select:disabled {
+    cursor: not-allowed;
+    opacity: 0.7;
+}
+
 body[data-theme="dark"] #flow-authoring-surface,
 body[data-theme="dark"] #canvas-view.flow-authoring-active {
     color: #e5e7eb;
@@ -9127,6 +9159,20 @@ body[data-theme="dark"] .flow-authoring-props dt {
 
 body[data-theme="dark"] .flow-authoring-props dl div {
     border-top-color: #4f5b75;
+}
+
+body[data-theme="dark"] .flow-authoring-setting {
+    border-top-color: #4f5b75;
+}
+
+body[data-theme="dark"] .flow-authoring-setting label {
+    color: #cbd5e1;
+}
+
+body[data-theme="dark"] .flow-authoring-setting select {
+    border-color: #4b5563;
+    color: #f8fafc;
+    background: #2d3442;
 }
 
 body[data-theme="dark"] .flow-authoring-summary > span,

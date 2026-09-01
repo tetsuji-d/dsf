@@ -37,6 +37,7 @@
     "verify:flow-direct-projection-recovery": "node scripts/verify-flow-direct-projection-recovery.js",
     "verify:flow-canvas-layout": "node scripts/verify-flow-canvas-layout.js",
     "verify:flow-page-guides": "node scripts/verify-flow-page-guides.js",
+    "verify:flow-writing-mode-switch": "node scripts/verify-flow-writing-mode-switch.js",
     "verify:flow-direct-composition": "node scripts/verify-flow-direct-composition.js",
     "verify:flow-direct-format": "node scripts/verify-flow-direct-format.js",
     "verify:flow-authoring": "node scripts/verify-flow-authoring.js",

@@ -57,6 +57,7 @@ import {
     getFlowSourceLanguageGroupIds,
     resolveFlowAuthoringLanguage,
 } from './flow-multilingual-authoring.js';
+import { isFlowWritingModeSupported } from './flow-typography.js';
 import { deriveFlowTranslationStatus } from './flow-translation-state.js';
 import {
     createFlowTranslationApplyPlan,
@@ -152,6 +153,7 @@ let _flowAuthoringSourceRevision = 0;
 let _flowAuthoringRenderedRevision = 0;
 let _flowAuthoringComposing = false;
 let _flowAuthoringLanguageFeedback = null;
+const FLOW_AUTHORING_WRITING_MODES = Object.freeze(['horizontal-tb', 'vertical-rl']);
 let _flowPendingSourceCaret = null;
 let _flowDirectEditProxy = null;
 let _flowDirectEditSession = null;
@@ -1738,6 +1740,110 @@ function getFlowAuthoringLanguage(group) {
     );
 }
 
+function getFlowAuthoringWritingMode(group, languageKey) {
+    const savedMode = group?.flow?.layout?.typographyByLanguage?.[languageKey]?.writingMode;
+    if (typeof savedMode === 'string' && isFlowWritingModeSupported(languageKey, savedMode)) return savedMode;
+    const configuredMode = getWritingModeFromConfigs(languageKey, state.languageConfigs);
+    if (isFlowWritingModeSupported(languageKey, configuredMode)) return configuredMode;
+    return 'horizontal-tb';
+}
+
+function syncFlowAuthoringWritingModeControl(activeBlock, isFlowAuthoring = true) {
+    const field = document.getElementById('flow-authoring-writing-mode-field');
+    const select = document.getElementById('flow-authoring-writing-mode');
+    const hint = document.getElementById('flow-authoring-writing-mode-hint');
+    if (!field || !select || !hint) return;
+
+    const sourceLanguage = String(activeBlock?.flow?.document?.sourceLanguage || '');
+    const languageKey = activeBlock?.kind === 'flow' ? getFlowAuthoringLanguage(activeBlock) : '';
+    const sourceAuthoring = !!isFlowAuthoring
+        && activeBlock?.kind === 'flow'
+        && isFlowSourceSelected(activeBlock.id)
+        && !!sourceLanguage
+        && languageKey === sourceLanguage;
+    field.hidden = !sourceAuthoring;
+    if (!sourceAuthoring) {
+        select.onchange = null;
+        delete select.dataset.flowGroupId;
+        delete select.dataset.flowLanguageKey;
+        return;
+    }
+
+    const supportedModes = FLOW_AUTHORING_WRITING_MODES.filter((mode) => (
+        isFlowWritingModeSupported(languageKey, mode)
+    ));
+    [...select.options].forEach((option) => {
+        option.disabled = !supportedModes.includes(option.value);
+    });
+    const currentMode = getFlowAuthoringWritingMode(activeBlock, languageKey);
+    select.value = supportedModes.includes(currentMode) ? currentMode : (supportedModes[0] || 'horizontal-tb');
+    select.disabled = _flowAuthoringComposing || supportedModes.length <= 1;
+    select.dataset.flowGroupId = activeBlock.id;
+    select.dataset.flowLanguageKey = languageKey;
+    select.onchange = handleFlowAuthoringWritingModeChange;
+
+    const hintKey = supportedModes.length <= 1
+        ? 'flow_writing_mode_horizontal_only'
+        : 'flow_writing_mode_hint';
+    hint.dataset.i18n = hintKey;
+    hint.textContent = t(hintKey);
+}
+
+function handleFlowAuthoringWritingModeChange(event) {
+    const select = event?.target;
+    if (!select) return;
+    const groupId = String(select.dataset.flowGroupId || '');
+    const languageKey = String(select.dataset.flowLanguageKey || '');
+    const group = getFlowGroupById(groupId);
+    const activeBlock = getActiveBlock();
+    const sourceLanguage = String(group?.flow?.document?.sourceLanguage || '');
+    const validSourceContext = group
+        && activeBlock?.id === groupId
+        && isFlowSourceSelected(groupId)
+        && languageKey === sourceLanguage
+        && getFlowAuthoringLanguage(group) === sourceLanguage;
+    if (!validSourceContext || _flowAuthoringComposing) {
+        syncFlowAuthoringWritingModeControl(
+            activeBlock,
+            activeBlock?.kind === 'flow' && isFlowSourceSelected(activeBlock.id),
+        );
+        return;
+    }
+
+    const writingMode = String(select.value || '');
+    if (!isFlowWritingModeSupported(languageKey, writingMode)) {
+        syncFlowAuthoringWritingModeControl(group, true);
+        const hint = document.getElementById('flow-authoring-writing-mode-hint');
+        if (hint) {
+            hint.dataset.i18n = 'flow_writing_mode_unsupported';
+            hint.textContent = t('flow_writing_mode_unsupported');
+        }
+        return;
+    }
+    if (getFlowAuthoringWritingMode(group, languageKey) === writingMode) return;
+
+    const result = ensureFlowLanguageTypography(state.blocks || [], {
+        groupId,
+        languageKey,
+        writingMode,
+    });
+    if (!result.changed) return;
+
+    endHistoryGroup();
+    pushState();
+    updateHistoryButtons();
+    clearFlowDirectEditRuntime();
+    dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'blocks', value: result.blocks } });
+    _flowAuthoringSourceRevision += 1;
+    const updatedGroup = getFlowGroupById(groupId);
+    if (updatedGroup) {
+        renderFlowAuthoringSurface(updatedGroup, null);
+        syncFlowAuthoringWritingModeControl(updatedGroup, true);
+    }
+    scheduleFlowAuthoringReflow(groupId, { immediate: true });
+    triggerAutoSave();
+}
+
 function getFlowAuthoringGroupProjection(projection, groupId) {
     return projection?.flowGroups?.find((entry) => entry.groupId === groupId) || null;
 }
@@ -2566,6 +2672,8 @@ function handleFlowAuthoringCompositionStart() {
     _flowAuthoringComposing = true;
     const root = getFlowAuthoringSurface();
     if (root) root.dataset.composing = 'true';
+    const activeBlock = getActiveBlock();
+    syncFlowAuthoringWritingModeControl(activeBlock, activeBlock?.kind === 'flow' && isFlowSourceSelected(activeBlock.id));
     if (_flowAuthoringReflowTimer) clearTimeout(_flowAuthoringReflowTimer);
     _flowAuthoringReflowTimer = null;
 }
@@ -2575,6 +2683,8 @@ function handleFlowAuthoringCompositionEnd(event) {
     const root = getFlowAuthoringSurface();
     if (root) root.dataset.composing = 'false';
     const target = getFlowAuthoringTarget(event.target);
+    const activeBlock = getActiveBlock();
+    syncFlowAuthoringWritingModeControl(activeBlock, activeBlock?.kind === 'flow' && isFlowSourceSelected(activeBlock.id));
     if (target.groupId) scheduleFlowAuthoringReflow(target.groupId, { immediate: true });
     triggerAutoSave();
 }
@@ -3994,6 +4104,7 @@ function refresh(options = {}) {
     if (flowAuthoringLanguage && isFlowAuthoring) {
         flowAuthoringLanguage.textContent = getFlowAuthoringLanguage(activeBlock).toUpperCase();
     }
+    syncFlowAuthoringWritingModeControl(activeBlock, isFlowAuthoring);
 
     // Normalize stale bubble selection
     if (state.activeBubbleIdx !== null && (!s?.bubbles || !s.bubbles[state.activeBubbleIdx])) {

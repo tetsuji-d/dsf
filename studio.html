@@ -493,6 +493,14 @@
                             <div><dt>編集言語</dt><dd id="flow-authoring-language">—</dd></div>
                             <div><dt>生成ページ</dt><dd id="flow-authoring-page-count">—</dd></div>
                         </dl>
+                        <div id="flow-authoring-writing-mode-field" class="flow-authoring-setting" hidden>
+                            <label for="flow-authoring-writing-mode" data-i18n="flow_writing_mode_label">文字方向</label>
+                            <select id="flow-authoring-writing-mode" data-testid="flow-authoring-writing-mode">
+                                <option value="horizontal-tb" data-i18n="flow_writing_mode_horizontal">横書き</option>
+                                <option value="vertical-rl" data-i18n="flow_writing_mode_vertical">縦書き（右から左）</option>
+                            </select>
+                            <p id="flow-authoring-writing-mode-hint" data-i18n="flow_writing_mode_hint">原稿言語のFlow全体に適用し、ページ数を再計算します。本文は変更されません。</p>
+                        </div>
                     </div>
 
                     <div id="image-only-props">

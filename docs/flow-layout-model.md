@@ -756,3 +756,31 @@ Flow DOM previewは、日本語原稿について`horizontal-tb`と`vertical-rl`
 - FlowDocument、生成fragment、source range、manual pageBreakの意味は横書きと共通である。
 
 この単位も独立preview内のruntime検証に限る。Studio state、DSP／DSF保存、Fixed Layout、翻訳provider、Press、Viewerの表示方向には接続しない。
+
+## Flow原稿の文字方向切替（2026-09-01）
+
+Flow原稿カードを選択した連続原稿画面で、原稿言語の`horizontal-tb`／`vertical-rl`を明示的に
+切り替えられるようにする。新しいschemaは追加せず、既存の
+`flow.layout.typographyByLanguage[languageKey].writingMode`だけを1回のHistory transactionで更新する。
+
+- 対象は原稿言語だけとする。翻訳言語と生成ページ上の直接編集中の切替は、原文fallbackと
+  旧caret／IME geometryの復元が必要なため別単位へ分ける。
+- 日本語と繁体字中国語は横書き／縦書きを選択できる。英語、簡体字中国語、韓国語など
+  現在縦書き非対応の言語は横書き表示のままcontrolを無効化する。
+- 切替時は本文、Section／Block ID、Heading level、PageBreak、翻訳本文、翻訳状態、padding、font、
+  未知のTypography field、Projectの`pageDirection`を変更しない。
+- 同じ方向の再選択はHistory、再計算、自動保存を発生させない。不正・未対応方向もstateを変更しない。
+- 有効な切替では進行中projectionを中止し、runtime pagination cache／incremental checkpointを
+  既存のauthoring invalidate経路で失効させ、全文を即時再ページ化する。生成ページは引き続き保存しない。
+- 既存Undo／Redo、IndexedDB、DSP、owner専用Firestore保存、Press signature失効を再利用する。
+  Fixed Layout、FlowDocument／FlowLayout version、DSF／Viewer contractは変更しない。
+
+### 検証
+
+- 専用`verify:flow-writing-mode-switch`で、source profileの縦横往復、同値no-op、未対応言語拒否、
+  本文・翻訳・未知field保持、runtime signature失効、Undo／Redo、保存往復を確認する。
+- Flow project／authoring／multilingual／incremental／page projection／canvas／direct edit／navigation／
+  composition／page guide／project persistenceと、Flow publication／Press／portable package／local Viewerの
+  既存検証を通す。
+- ローカルのguest Studioで2,760文字・8ページの日本語Flowを縦書きから横書きへ切り替え、全生成ページの
+  writing mode、本文長、Undo／Redo、直接編集時の設定非表示、横罫axis追従を実操作確認した。
