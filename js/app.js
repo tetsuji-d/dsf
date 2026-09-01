@@ -37,6 +37,7 @@ import { PROJECT_SCHEMA_VERSION, createFlowGroupBlock, hasFlowGroups } from './f
 import { applyFlowAuthoringOperation } from './flow-authoring.js';
 import { alignFlowDirectCompositionElement } from './flow-direct-composition.js';
 import { createFlowCanvasView } from './flow-canvas-view.js';
+import { normalizeFlowPageGuideMode } from './flow-page-guides.js';
 import { measureFlowDirectNavigationStops, resolveFlowDirectNavigation } from './flow-direct-navigation.js';
 import {
     FlowDirectEditError,
@@ -162,8 +163,10 @@ let _flowDirectPreferredInlinePosition = null;
 let _flowDirectPointerCleanup = null;
 let _flowCanvasView = null;
 let _flowCanvasContextKey = '';
+let _flowPageGuideMode = 'off';
 
 function hideFlowCanvas() {
+    _flowCanvasView?.setGuideMode('off');
     _flowCanvasView?.setVisible(false);
     _flowCanvasContextKey = '';
     document.getElementById('canvas-view')?.classList.remove('flow-canvas-active');
@@ -329,6 +332,7 @@ function syncFlowDirectFormatControls() {
     const active = !!session && _flowDirectEditProxy?.isConnected
         && getActiveBlock()?.id === session.groupId && isFlowDirectEditing(session.groupId);
     panel.hidden = !active;
+    syncFlowPageGuideControls(active);
     if (!active) return;
     const group = getFlowGroupById(session.groupId);
     const block = group?.flow?.document?.sections?.find(entry => entry.id === session.sectionId)
@@ -350,6 +354,26 @@ function syncFlowDirectFormatControls() {
     document.getElementById('flow-direct-format-status').textContent = _flowAuthoringComposing
         ? t('flow_direct_format_composing') : pending ? t('flow_direct_format_pending')
             : hasRange ? t('flow_direct_page_break_selection') : '';
+}
+
+function syncFlowPageGuideControls(active) {
+    const select = document.getElementById('flow-direct-guide-mode');
+    if (!select) return;
+    select.value = _flowPageGuideMode;
+    select.onchange = handleFlowPageGuideModeChange;
+    _flowCanvasView?.setGuideMode(active ? _flowPageGuideMode : 'off');
+}
+
+function handleFlowPageGuideModeChange(event) {
+    const session = _flowDirectEditSession;
+    const active = !!session && _flowDirectEditProxy?.isConnected
+        && getActiveBlock()?.id === session.groupId && isFlowDirectEditing(session.groupId);
+    if (!active) {
+        syncFlowPageGuideControls(false);
+        return;
+    }
+    _flowPageGuideMode = normalizeFlowPageGuideMode(event.target.value);
+    syncFlowPageGuideControls(true);
 }
 
 function handleFlowDirectFormatChange(event) {

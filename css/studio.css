@@ -8348,6 +8348,34 @@ textarea.ps-meta-input {
     cursor: text;
 }
 
+/* Editor-only body rules. They paint on the existing canonical content box,
+   so they scale with the page without changing layout or hit testing. */
+.flow-editor-page-surface > .flow-dom-content[data-flow-page-guide="ruled"] {
+    --flow-page-guide-color: rgba(37, 99, 235, 0.2);
+}
+
+.flow-editor-page-surface > .flow-dom-content[data-flow-page-guide="ruled"][data-flow-page-guide-axis="horizontal"] {
+    background-image: repeating-linear-gradient(
+        to bottom,
+        transparent 0,
+        transparent calc(var(--flow-page-rule-pitch) - 1px),
+        var(--flow-page-guide-color) calc(var(--flow-page-rule-pitch) - 1px),
+        var(--flow-page-guide-color) var(--flow-page-rule-pitch)
+    );
+    background-position: left top;
+}
+
+.flow-editor-page-surface > .flow-dom-content[data-flow-page-guide="ruled"][data-flow-page-guide-axis="vertical"] {
+    background-image: repeating-linear-gradient(
+        to left,
+        transparent 0,
+        transparent calc(var(--flow-page-rule-pitch) - 1px),
+        var(--flow-page-guide-color) calc(var(--flow-page-rule-pitch) - 1px),
+        var(--flow-page-guide-color) var(--flow-page-rule-pitch)
+    );
+    background-position: right top;
+}
+
 .flow-direct-input-proxy {
     box-sizing: border-box;
     position: absolute;
@@ -8443,6 +8471,26 @@ textarea.ps-meta-input {
 .flow-direct-format-props select { width: 100%; }
 .flow-direct-format-props p { margin: 0; font-size: 12px; color: var(--text-secondary); }
 #flow-direct-format-status:empty { display: none; }
+
+.flow-direct-display-assist {
+    padding: 8px;
+    border: 1px solid var(--border, #334155);
+    border-radius: 6px;
+}
+
+.flow-direct-display-assist summary {
+    cursor: pointer;
+    font-weight: 600;
+}
+
+.flow-direct-display-assist[open] {
+    display: grid;
+    gap: 8px;
+}
+
+.flow-direct-display-assist[open] summary {
+    margin-bottom: 2px;
+}
 
 @media (prefers-reduced-motion: reduce) {
     .flow-direct-caret {

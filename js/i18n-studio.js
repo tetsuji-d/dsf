@@ -218,6 +218,11 @@ export const STRINGS = {
         flow_direct_page_break_selection: '改ページを入れるには、文字選択を解除してカーソル位置を指定してください。',
         flow_direct_page_break_stale: 'この位置では安全に改ページできません。本文をクリックして位置を指定し直してください。',
         flow_direct_page_break_inserted: '改ページを挿入しました。次ページの先頭から編集を続けられます。',
+        flow_direct_display_assist: '表示補助',
+        flow_direct_guide_label: '本文ガイド',
+        flow_direct_guide_off: 'なし',
+        flow_direct_guide_ruled: '罫線',
+        flow_direct_guide_hint: '本文の行・列送りを編集画面だけに表示します。保存・書き出しには含まれません。',
         flow_delete_generated_title: '生成ページは個別削除できません。親のFlow原稿を選択してください',
         confirm_delete_flow:  'このFlow原稿を削除しますか？\n\n原稿本文、翻訳、生成ページがすべて削除されます。\n「元に戻す」で復元できます。',
 
@@ -565,6 +570,11 @@ export const STRINGS = {
         flow_direct_page_break_selection: 'Clear the text selection and place the cursor where you want a page break.',
         flow_direct_page_break_stale: 'A page break cannot be inserted safely here. Click the text to choose the position again.',
         flow_direct_page_break_inserted: 'Page break inserted. Continue editing at the start of the next page.',
+        flow_direct_display_assist: 'Display aids',
+        flow_direct_guide_label: 'Body guide',
+        flow_direct_guide_off: 'None',
+        flow_direct_guide_ruled: 'Ruled lines',
+        flow_direct_guide_hint: 'Shows body line or column spacing only in the editor. It is not saved or exported.',
         flow_delete_generated_title: 'Generated pages cannot be deleted individually. Select the parent Flow manuscript.',
         confirm_delete_flow:  'Delete this Flow manuscript?\n\nIts source text, translations, and generated pages will all be removed.\nYou can restore it with Undo.',
 
