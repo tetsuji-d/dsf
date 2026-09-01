@@ -15,7 +15,7 @@ import { applyTheme, bindThemePreferenceListener, getThemeMode, setThemeMode } f
 import { doc, getDoc, getDocs, setDoc, deleteDoc, addDoc, collection, query, where, limit, serverTimestamp, runTransaction } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
 import { parseAndLoadDSF } from './export.js';
 import { CANONICAL_PAGE_WIDTH, CANONICAL_PAGE_HEIGHT, CANONICAL_PAGE_ASPECT } from './page-geometry.js';
-import { createViewerMinimapController } from './viewer-minimap.js';
+import { clampViewerPanAxis, createViewerMinimapController } from './viewer-minimap.js';
 import { formatPublicationDate, getPublicationInactiveReason, isPublicationActive } from './publication.js';
 import {
     createDsfViewerPageContentElement,
@@ -41,6 +41,7 @@ let viewerLocalFixtureAssetUrls = new Map();
 let viewerLocalPortableSession = null;
 let viewerMinimap = null;
 let viewerDocumentRevision = 0;
+let viewerResizeFrame = null;
 
 function replaceViewerLocalPortableSession(nextSession = null) {
     if (viewerLocalPortableSession && viewerLocalPortableSession !== nextSession) {
@@ -329,19 +330,22 @@ async function init() {
         applyTheme();
     });
 
-    const layer = document.getElementById('click-layer');
-    if (layer) {
+    ['click-layer', 'viewer-zoom-layer'].forEach((id) => {
+        const layer = document.getElementById(id);
+        if (!layer) return;
         layer.addEventListener('pointerdown', onPointerDown);
         layer.addEventListener('pointermove', onPointerMove);
         layer.addEventListener('pointerup', onPointerUp);
         layer.addEventListener('pointercancel', onPointerCancel);
         layer.addEventListener('click', suppressClickAfterSwipe, true);
-    }
+    });
     initializeViewerMinimap();
 
     document.addEventListener('keydown', onKeydown);
     document.addEventListener('wheel', onWheel, { passive: false });
-    window.addEventListener('resize', handleViewerResize);
+    window.addEventListener('resize', scheduleViewerResize);
+    window.visualViewport?.addEventListener('resize', scheduleViewerResize);
+    window.visualViewport?.addEventListener('scroll', scheduleViewerResize);
     window.addEventListener('beforeunload', () => replaceViewerLocalPortableSession(null), { once: true });
     setupStandaloneFileDrop();
 
@@ -4019,9 +4023,10 @@ document.addEventListener('click', (e) => {
 
 // ── Canvas Resize ─────────────────────────────────────────────
 function canUseViewerAutoSpread() {
+    const viewport = getViewerViewportMetrics();
     return hasBookModel()
-        && window.innerWidth >= VIEWER_AUTO_SPREAD_MIN_WIDTH
-        && window.innerWidth > window.innerHeight;
+        && viewport.width >= VIEWER_AUTO_SPREAD_MIN_WIDTH
+        && viewport.width > viewport.height;
 }
 
 function syncViewerAutoSpreadMode() {
@@ -4042,7 +4047,47 @@ function syncViewerAutoSpreadMode() {
     return true;
 }
 
+function readViewerSafeArea(name) {
+    const value = getComputedStyle(document.documentElement).getPropertyValue(name);
+    return Math.max(0, Number.parseFloat(value) || 0);
+}
+
+function getViewerViewportMetrics() {
+    const visualViewport = window.visualViewport;
+    const width = Math.max(1, visualViewport?.width || document.documentElement.clientWidth || window.innerWidth || 1);
+    const height = Math.max(1, visualViewport?.height || document.documentElement.clientHeight || window.innerHeight || 1);
+    return {
+        left: Math.max(0, Number(visualViewport?.offsetLeft) || 0),
+        top: Math.max(0, Number(visualViewport?.offsetTop) || 0),
+        width,
+        height,
+        safeTop: readViewerSafeArea('--viewer-safe-top'),
+        safeRight: readViewerSafeArea('--viewer-safe-right'),
+        safeBottom: readViewerSafeArea('--viewer-safe-bottom'),
+        safeLeft: readViewerSafeArea('--viewer-safe-left')
+    };
+}
+
+function syncViewerViewportMetrics() {
+    const viewport = getViewerViewportMetrics();
+    const root = document.documentElement;
+    root.style.setProperty('--viewer-viewport-left', `${viewport.left.toFixed(2)}px`);
+    root.style.setProperty('--viewer-viewport-top', `${viewport.top.toFixed(2)}px`);
+    root.style.setProperty('--viewer-viewport-width', `${viewport.width.toFixed(2)}px`);
+    root.style.setProperty('--viewer-viewport-height', `${viewport.height.toFixed(2)}px`);
+    return viewport;
+}
+
+function scheduleViewerResize() {
+    if (viewerResizeFrame !== null) cancelAnimationFrame(viewerResizeFrame);
+    viewerResizeFrame = requestAnimationFrame(() => {
+        viewerResizeFrame = null;
+        handleViewerResize();
+    });
+}
+
 function handleViewerResize() {
+    syncViewerViewportMetrics();
     if (syncViewerAutoSpreadMode()) {
         refresh();
     } else {
@@ -4053,15 +4098,18 @@ function handleViewerResize() {
 /**
  * 外枠 `#viewer-canvas` をウィンドウ内に収めた 9:16 の箱にし、内側 `#content-stage` を
  * 論理ページ（CANONICAL_PAGE_*）へ等倍スケールでセンタリングする。
- * 高さは `innerHeight` 基準（`100dvh` は body 側で扱い、将来 visualViewport に差し替え可能）。
+ * visual viewport と safe-area を基準に、単ページ／見開きを物理画面の中央へ収める。
  */
 function resizeCanvas() {
+    const viewport = syncViewerViewportMetrics();
     updateViewerInfoPanelLayout();
     const canvas = document.getElementById('viewer-canvas');
     if (!canvas) return;
     const drawerOpen = viewerInfoLayoutMode === 'drawer' && viewerInfoPanelState !== 'closed';
-    const W = Math.max(280, window.innerWidth - (drawerOpen ? VIEWER_DRAWER_WIDTH + VIEWER_DRAWER_GAP : 0));
-    const H = window.innerHeight;
+    const safeX = Math.max(viewport.safeLeft, viewport.safeRight);
+    const safeY = Math.max(viewport.safeTop, viewport.safeBottom);
+    const W = Math.max(280, viewport.width - (drawerOpen ? VIEWER_DRAWER_WIDTH + VIEWER_DRAWER_GAP : 0) - (safeX * 2));
+    const H = Math.max(1, viewport.height - (safeY * 2));
     const aspect = CANONICAL_PAGE_ASPECT;
     const bookSingle = spreadMode && hasBookModel() && getCurrentBookUnit()?.type === 'single';
     const showSpread = spreadMode && !bookSingle;
@@ -4115,7 +4163,8 @@ function resizeCanvas() {
 function updateViewerSliderPlacement(canvas, canvasWidth) {
     if (!canvas) return;
     const rect = canvas.getBoundingClientRect();
-    const sliderWidth = Math.max(220, Math.min(720, window.innerWidth * 0.46));
+    const viewportWidth = getViewerViewportMetrics().width;
+    const sliderWidth = Math.max(220, Math.min(720, viewportWidth * 0.46));
     document.documentElement.style.setProperty('--viewer-slider-center-x', `${Math.round(rect.left + rect.width / 2)}px`);
     document.documentElement.style.setProperty('--viewer-slider-width', `${Math.round(sliderWidth)}px`);
 }
@@ -4123,16 +4172,17 @@ function updateViewerSliderPlacement(canvas, canvasWidth) {
 function updateViewerSideNavPlacement(canvas, canvasWidth) {
     if (!canvas) return;
     const rect = canvas.getBoundingClientRect();
+    const viewportWidth = getViewerViewportMetrics().width;
     const buttonWidth = 44;
     const edgeGap = 14;
     const marginGap = 18;
     const leftMargin = rect.left;
-    const rightMargin = window.innerWidth - rect.right;
+    const rightMargin = viewportWidth - rect.right;
     const leftX = leftMargin >= buttonWidth + marginGap * 2
         ? Math.max(edgeGap, rect.left - marginGap - buttonWidth)
         : rect.left + edgeGap;
     const rightX = rightMargin >= buttonWidth + marginGap * 2
-        ? Math.min(window.innerWidth - edgeGap - buttonWidth, rect.right + marginGap)
+        ? Math.min(viewportWidth - edgeGap - buttonWidth, rect.right + marginGap)
         : rect.left + canvasWidth - edgeGap - buttonWidth;
     document.documentElement.style.setProperty('--viewer-nav-left-x', `${Math.round(leftX)}px`);
     document.documentElement.style.setProperty('--viewer-nav-right-x', `${Math.round(rightX)}px`);
@@ -4289,9 +4339,8 @@ function resetZoom() {
 function clampViewPan() {
     const canvas = document.getElementById('viewer-canvas');
     if (!canvas) return;
-    const vw = canvas.clientWidth;
-    const vh = canvas.clientHeight;
-    if (!vw || !vh) return;
+    const rect = canvas.getBoundingClientRect();
+    if (!rect.width || !rect.height) return;
 
     if (viewScale <= 1.001) {
         viewScale = 1;
@@ -4300,13 +4349,33 @@ function clampViewPan() {
         return;
     }
 
-    const limX = 0.5 * vw * Math.min(viewScale - 1, 4);
-    const limY = 0.5 * vh * Math.min(viewScale - 1, 4);
-    viewX = Math.max(-limX, Math.min(limX, viewX));
-    viewY = Math.max(-limY, Math.min(limY, viewY));
+    const viewport = getViewerViewportMetrics();
+    viewX = clampViewerPanAxis({
+        value: viewX,
+        contentStart: rect.left,
+        contentSize: rect.width,
+        scale: viewScale,
+        viewportStart: viewport.left,
+        viewportSize: viewport.width
+    });
+    viewY = clampViewerPanAxis({
+        value: viewY,
+        contentStart: rect.top,
+        contentSize: rect.height,
+        scale: viewScale,
+        viewportStart: viewport.top,
+        viewportSize: viewport.height
+    });
+}
+
+function syncViewerZoomMode() {
+    const active = viewScale > 1.05;
+    document.body.classList.toggle('viewer-zoom-active', active);
+    document.getElementById('viewer-zoom-layer')?.setAttribute('aria-hidden', String(!active));
 }
 
 function applyTransform(fromInteraction = false) {
+    syncViewerZoomMode();
     clampViewPan();
     const stage = document.getElementById('viewer-stage');
     if (stage) stage.style.transform = `translate(${viewX}px,${viewY}px) scale(${viewScale})`;
