@@ -15,7 +15,11 @@ import { applyTheme, bindThemePreferenceListener, getThemeMode, setThemeMode } f
 import { doc, getDoc, getDocs, setDoc, deleteDoc, addDoc, collection, query, where, limit, serverTimestamp, runTransaction } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
 import { parseAndLoadDSF } from './export.js';
 import { CANONICAL_PAGE_WIDTH, CANONICAL_PAGE_HEIGHT, CANONICAL_PAGE_ASPECT } from './page-geometry.js';
-import { clampViewerPanAxis, createViewerMinimapController } from './viewer-minimap.js';
+import {
+    calculateViewerSideNavPlacement,
+    clampViewerPanAxis,
+    createViewerMinimapController
+} from './viewer-minimap.js';
 import { formatPublicationDate, getPublicationInactiveReason, isPublicationActive } from './publication.js';
 import {
     createDsfViewerPageContentElement,
@@ -42,6 +46,8 @@ let viewerLocalPortableSession = null;
 let viewerMinimap = null;
 let viewerDocumentRevision = 0;
 let viewerResizeFrame = null;
+let viewerInfoPanelResizeObserver = null;
+let viewerChromePlacementFrame = null;
 
 function replaceViewerLocalPortableSession(nextSession = null) {
     if (viewerLocalPortableSession && viewerLocalPortableSession !== nextSession) {
@@ -353,6 +359,7 @@ async function init() {
     updateViewerInfoPanelLayout();
     renderViewerInfoPanel();
     bindViewerInfoHandle();
+    bindViewerInfoPanelLayoutSync();
     bindViewerSliderPreview();
     bindViewerHoverChrome();
     applyViewerDevSmoothingClass();
@@ -1750,6 +1757,39 @@ function bindViewerInfoHandle() {
 
 function getViewerInfoPanelShell() {
     return document.querySelector('#viewer-info-panel .viewer-info-panel-shell');
+}
+
+function syncViewerCanvasChromePlacement(canvas = document.getElementById('viewer-canvas'), canvasWidth = null) {
+    if (!canvas) return;
+    const width = Number.isFinite(canvasWidth) ? canvasWidth : canvas.getBoundingClientRect().width;
+    updateViewerSliderPlacement(canvas, width);
+    updateViewerSideNavPlacement(canvas, width);
+}
+
+function scheduleViewerCanvasChromePlacement() {
+    if (viewerChromePlacementFrame !== null) cancelAnimationFrame(viewerChromePlacementFrame);
+    viewerChromePlacementFrame = requestAnimationFrame(() => {
+        viewerChromePlacementFrame = null;
+        syncViewerCanvasChromePlacement();
+    });
+}
+
+function bindViewerInfoPanelLayoutSync() {
+    const panel = document.getElementById('viewer-info-panel');
+    if (!panel || panel.dataset.layoutSyncBound === '1') return;
+    panel.dataset.layoutSyncBound = '1';
+
+    // ResizeObserver follows the drawer while its width animates. The transitionend
+    // fallback also guarantees one final alignment in browsers that defer observer work.
+    panel.addEventListener('transitionend', (event) => {
+        if (event.target !== panel || event.propertyName !== 'width' || panel.dataset.layout !== 'drawer') return;
+        scheduleViewerCanvasChromePlacement();
+    });
+
+    if (typeof ResizeObserver === 'undefined') return;
+    viewerInfoPanelResizeObserver?.disconnect();
+    viewerInfoPanelResizeObserver = new ResizeObserver(() => syncViewerCanvasChromePlacement());
+    viewerInfoPanelResizeObserver.observe(panel);
 }
 
 function getViewerInfoSheetHeights() {
@@ -4155,8 +4195,7 @@ function resizeCanvas() {
         }
     }
 
-    updateViewerSliderPlacement(canvas, w);
-    updateViewerSideNavPlacement(canvas, w);
+    syncViewerCanvasChromePlacement(canvas, w);
     applyTransform();
 }
 
@@ -4172,18 +4211,20 @@ function updateViewerSliderPlacement(canvas, canvasWidth) {
 function updateViewerSideNavPlacement(canvas, canvasWidth) {
     if (!canvas) return;
     const rect = canvas.getBoundingClientRect();
-    const viewportWidth = getViewerViewportMetrics().width;
-    const buttonWidth = 44;
-    const edgeGap = 14;
-    const marginGap = 18;
-    const leftMargin = rect.left;
-    const rightMargin = viewportWidth - rect.right;
-    const leftX = leftMargin >= buttonWidth + marginGap * 2
-        ? Math.max(edgeGap, rect.left - marginGap - buttonWidth)
-        : rect.left + edgeGap;
-    const rightX = rightMargin >= buttonWidth + marginGap * 2
-        ? Math.min(viewportWidth - edgeGap - buttonWidth, rect.right + marginGap)
-        : rect.left + canvasWidth - edgeGap - buttonWidth;
+    const viewport = getViewerViewportMetrics();
+    const viewportEnd = viewport.left + viewport.width;
+    const panel = document.getElementById('viewer-info-panel');
+    const panelRect = panel?.getBoundingClientRect();
+    const readingEnd = panel?.dataset.layout === 'drawer' && panelRect?.width > 0
+        ? Math.min(viewportEnd, panelRect.left)
+        : viewportEnd;
+    const { leftX, rightX } = calculateViewerSideNavPlacement({
+        canvasLeft: rect.left,
+        canvasWidth: rect.width || canvasWidth,
+        viewportStart: viewport.left,
+        viewportSize: viewport.width,
+        readingEnd
+    });
     document.documentElement.style.setProperty('--viewer-nav-left-x', `${Math.round(leftX)}px`);
     document.documentElement.style.setProperty('--viewer-nav-right-x', `${Math.round(rightX)}px`);
 }

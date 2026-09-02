@@ -4,6 +4,7 @@ import {
     calculateViewerMinimapGeometry,
     calculateViewerMinimapPagePreviewGeometry,
     calculateViewerPanFromMinimapPoint,
+    calculateViewerSideNavPlacement,
     clampViewerPanAxis
 } from '../js/viewer-minimap.js';
 
@@ -81,6 +82,25 @@ const topEdgePan = clampViewerPanAxis({
 });
 nearlyEqual(100 + 300 + topEdgePan - 600, 47);
 
+const closedDrawerNav = calculateViewerSideNavPlacement({
+    canvasLeft: 320,
+    canvasWidth: 1106,
+    viewportSize: 1746,
+    readingEnd: 1746
+});
+nearlyEqual(closedDrawerNav.leftX, 258);
+nearlyEqual(closedDrawerNav.rightX, 1444);
+
+const openDrawerNav = calculateViewerSideNavPlacement({
+    canvasLeft: 5,
+    canvasWidth: 1106,
+    viewportSize: 1746,
+    readingEnd: 1116
+});
+nearlyEqual(openDrawerNav.leftX, 19);
+nearlyEqual(openDrawerNav.rightX, 1053);
+assert.ok(openDrawerNav.rightX + 44 <= openDrawerNav.readingEnd, 'Right navigation must stay outside the info drawer');
+
 const [html, viewerJs, css] = await Promise.all([
     readFile(new URL('../viewer.html', import.meta.url), 'utf8'),
     readFile(new URL('../js/viewer.js', import.meta.url), 'utf8'),
@@ -105,6 +125,11 @@ assert.match(viewerJs, /initializeViewerMinimap\(\)/, 'Viewer init must bind the
 assert.match(viewerJs, /\['click-layer', 'viewer-zoom-layer'\]/, 'Zoomed pages must retain full-viewport pointer handling');
 assert.match(viewerJs, /window\.visualViewport/, 'Viewer centering must use the visual viewport when available');
 assert.match(viewerJs, /document\.body\.classList\.toggle\('viewer-zoom-active', active\)/, 'Viewer must switch to full-viewport zoom mode');
+assert.match(viewerJs, /bindViewerInfoPanelLayoutSync\(\)/, 'Viewer must bind info drawer geometry updates');
+assert.match(viewerJs, /new ResizeObserver\(\(\) => syncViewerCanvasChromePlacement\(\)\)/, 'Viewer controls must follow the animated info drawer width');
+assert.match(viewerJs, /event\.propertyName !== 'width'/, 'Viewer must realign controls when the drawer width transition ends');
+assert.match(viewerJs, /syncViewerCanvasChromePlacement\(canvas, w\)/, 'Canvas resize must align slider and side navigation together');
+assert.match(viewerJs, /calculateViewerSideNavPlacement/, 'Side navigation must use the current reading-region boundary');
 assert.match(viewerJs, /getHtml:\s*\(\)\s*=>\s*renderSurfaceContentHTML\(surface, lang\)/, 'Minimap must lazily reuse current image/fixed-text rendering');
 assert.match(viewerJs, /viewerDocumentRevision\s*\+=\s*1/, 'Loading another document must invalidate the minimap thumbnail cache');
 assert.match(viewerJs, /key:\s*\[\s*viewerDocumentRevision,/, 'Minimap thumbnail keys must include the loaded document revision');

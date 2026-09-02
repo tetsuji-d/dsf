@@ -40,6 +40,52 @@ export function clampViewerPanAxis({
 }
 
 /**
+ * Place fixed Viewer navigation buttons around the current page without letting
+ * the right button enter an open information drawer.
+ */
+export function calculateViewerSideNavPlacement({
+    canvasLeft,
+    canvasWidth,
+    viewportStart = 0,
+    viewportSize,
+    readingEnd,
+    buttonWidth = 44,
+    edgeGap = 14,
+    marginGap = 18
+}) {
+    const visibleStart = Number(viewportStart) || 0;
+    const visibleSize = Math.max(1, Number(viewportSize) || 1);
+    const visibleEnd = visibleStart + visibleSize;
+    const pageLeft = Number(canvasLeft) || 0;
+    const pageWidth = Math.max(0, Number(canvasWidth) || 0);
+    const pageRight = pageLeft + pageWidth;
+    const safeButtonWidth = Math.max(1, Number(buttonWidth) || 44);
+    const safeEdgeGap = Math.max(0, Number(edgeGap) || 0);
+    const safeMarginGap = Math.max(0, Number(marginGap) || 0);
+    const requestedReadingEnd = Number(readingEnd);
+    const safeReadingEnd = clamp(
+        Number.isFinite(requestedReadingEnd) ? requestedReadingEnd : visibleEnd,
+        visibleStart + safeEdgeGap + safeButtonWidth,
+        visibleEnd
+    );
+    const minButtonX = visibleStart + safeEdgeGap;
+    const maxButtonX = Math.max(minButtonX, safeReadingEnd - safeEdgeGap - safeButtonWidth);
+    const outsideThreshold = safeButtonWidth + safeMarginGap * 2;
+    const leftCandidate = pageLeft - visibleStart >= outsideThreshold
+        ? pageLeft - safeMarginGap - safeButtonWidth
+        : pageLeft + safeEdgeGap;
+    const rightCandidate = safeReadingEnd - pageRight >= outsideThreshold
+        ? pageRight + safeMarginGap
+        : pageRight - safeEdgeGap - safeButtonWidth;
+
+    return {
+        leftX: clamp(leftCandidate, minButtonX, maxButtonX),
+        rightX: clamp(rightCandidate, minButtonX, maxButtonX),
+        readingEnd: safeReadingEnd
+    };
+}
+
+/**
  * Convert the Viewer zoom/pan transform into minimap geometry.
  * Kept pure so the viewport math can be regression-tested without a browser.
  */
