@@ -103,6 +103,144 @@ service cloud.firestore {
         && getAfter(/databases/$(database)/documents/users/$(uid)/projects/$(pid)).data.authoringSchemaVersion == 6;
     }
 
+    function projectSummaryHasValidShape() {
+      return request.resource.data.keys().hasOnly([
+          'schemaVersion',
+          'sourceProjectVersion',
+          'projectId',
+          'workId',
+          'projectName',
+          'title',
+          'languages',
+          'listThumbnail',
+          'pageCount',
+          'projectBytes',
+          'lastUpdated',
+          'hasPublishedDsf',
+          'releaseId',
+          'dsfStatus',
+          'visibility',
+          'dsfPublishedAt',
+          'dsfLangs',
+          'dsfPageCount',
+          'dsfTotalBytes',
+          'dsfResolution',
+          'dsfQuality',
+          'publication'
+        ])
+        && request.resource.data.keys().hasAll([
+          'schemaVersion',
+          'sourceProjectVersion',
+          'projectId',
+          'workId',
+          'projectName',
+          'title',
+          'languages',
+          'listThumbnail',
+          'pageCount',
+          'projectBytes',
+          'lastUpdated',
+          'hasPublishedDsf',
+          'releaseId',
+          'dsfStatus',
+          'visibility',
+          'dsfPublishedAt',
+          'dsfLangs',
+          'dsfPageCount',
+          'dsfTotalBytes',
+          'dsfResolution',
+          'dsfQuality',
+          'publication'
+        ]);
+    }
+
+    function projectSummaryPublicationIsValid() {
+      return request.resource.data.publication == null
+        || (request.resource.data.publication is map
+          && request.resource.data.publication.keys().hasOnly([
+            'listedFrom',
+            'listedUntil',
+            'publicFrom',
+            'publicUntil',
+            'expiredAt',
+            'expireReason'
+          ])
+          && request.resource.data.publication.keys().hasAll([
+            'listedFrom',
+            'listedUntil',
+            'publicFrom',
+            'publicUntil',
+            'expiredAt',
+            'expireReason'
+          ])
+          && (request.resource.data.publication.listedFrom == null
+            || request.resource.data.publication.listedFrom is timestamp)
+          && (request.resource.data.publication.listedUntil == null
+            || request.resource.data.publication.listedUntil is timestamp)
+          && (request.resource.data.publication.publicFrom == null
+            || request.resource.data.publication.publicFrom is timestamp)
+          && (request.resource.data.publication.publicUntil == null
+            || request.resource.data.publication.publicUntil is timestamp)
+          && (request.resource.data.publication.expiredAt == null
+            || request.resource.data.publication.expiredAt is timestamp)
+          && (request.resource.data.publication.expireReason == null
+            || (request.resource.data.publication.expireReason is string
+              && request.resource.data.publication.expireReason.size() <= 64)));
+    }
+
+    function projectSummaryHasValidValues(pid) {
+      return request.resource.data.schemaVersion == 1
+        && request.resource.data.sourceProjectVersion is int
+        && request.resource.data.sourceProjectVersion >= 0
+        && request.resource.data.sourceProjectVersion <= 6
+        && request.resource.data.projectId == pid
+        && request.resource.data.projectId is string
+        && request.resource.data.projectId.size() > 0
+        && request.resource.data.projectId.size() <= 512
+        && request.resource.data.workId is string
+        && request.resource.data.workId.size() <= 512
+        && request.resource.data.projectName is string
+        && request.resource.data.projectName.size() <= 512
+        && request.resource.data.title is string
+        && request.resource.data.title.size() <= 512
+        && request.resource.data.languages is list
+        && request.resource.data.languages.size() <= 16
+        && request.resource.data.listThumbnail is string
+        && request.resource.data.listThumbnail.size() <= 4096
+        && (request.resource.data.listThumbnail == ''
+          || request.resource.data.listThumbnail.matches('https://.*'))
+        && request.resource.data.pageCount is int
+        && request.resource.data.pageCount >= 0
+        && request.resource.data.projectBytes is int
+        && request.resource.data.projectBytes >= 0
+        && (request.resource.data.lastUpdated == null
+          || request.resource.data.lastUpdated is timestamp)
+        && request.resource.data.hasPublishedDsf is bool
+        && request.resource.data.releaseId is string
+        && request.resource.data.releaseId.size() <= 512
+        && request.resource.data.dsfStatus in ['draft', 'public', 'unlisted', 'private']
+        && request.resource.data.visibility in ['public', 'unlisted', 'private']
+        && (request.resource.data.dsfPublishedAt == null
+          || request.resource.data.dsfPublishedAt is timestamp)
+        && request.resource.data.dsfLangs is list
+        && request.resource.data.dsfLangs.size() <= 16
+        && request.resource.data.dsfPageCount is int
+        && request.resource.data.dsfPageCount >= 0
+        && request.resource.data.dsfTotalBytes is int
+        && request.resource.data.dsfTotalBytes >= 0
+        && request.resource.data.dsfResolution is string
+        && request.resource.data.dsfResolution.size() <= 64
+        && request.resource.data.dsfQuality is number
+        && request.resource.data.dsfQuality >= 0
+        && request.resource.data.dsfQuality <= 100
+        && projectSummaryPublicationIsValid();
+    }
+
+    function projectSummaryWriteIsValid(pid) {
+      return projectSummaryHasValidShape()
+        && projectSummaryHasValidValues(pid);
+    }
+
     function planIsActive(uid) {
       return userRecordExists(uid)
         && userRecord(uid).plan.status in ['active', 'trialing']
@@ -708,6 +846,14 @@ service cloud.firestore {
                         && authoringId == 'current'
                         && !existsAfter(/databases/$(database)/documents/users/$(uid)/projects/$(pid));
         }
+      }
+
+      // Dashboard用の軽量投影。公開データではなくowner専用。
+      match /project_summaries/{pid} {
+        allow read: if isOwner(uid);
+        allow create, update: if accountCanEdit(uid)
+                              && projectSummaryWriteIsValid(pid);
+        allow delete: if accountCanEdit(uid);
       }
 
       // 読者向けの恒久作品IDと発行履歴

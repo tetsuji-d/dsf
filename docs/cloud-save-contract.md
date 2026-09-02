@@ -107,6 +107,25 @@ client. After the root plus `authoring/current` atomic-write contract is
 verified, the Studio client can be deployed. Commit 6B itself does not deploy
 Rules or application code.
 
+### Dashboard project summary rollout
+
+`users/{uid}/project_summaries/{pid}` is an owner-only, maximum 32 KiB list
+projection. It never replaces the project root or `authoring/current` and must
+not contain `blocks`, `sections`, `pages`, `dsfPages`, `meta`, or
+`authoringRef`.
+
+Roll it out in this order:
+
+1. Define and verify the pure projection without Firestore writes.
+2. Deploy owner-only Firestore Rules for the summary path.
+3. Add atomic summary writes to every root-metadata writer and project delete.
+4. Read summaries first in Dashboard, retaining root fallback for old projects.
+5. Backfill existing projects, then remove fallback only after coverage is measured.
+
+The current phase performs step 1 and defines the step 2 Rules locally. The
+Rules have not been deployed, and runtime reads, writes, backfill, and deletion
+behavior remain unchanged.
+
 ## Local and DSP boundaries
 
 IndexedDB autosave, local recent projects, Firestore load, and DSP import all use

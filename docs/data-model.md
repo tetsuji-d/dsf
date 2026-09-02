@@ -19,6 +19,7 @@
 |------------|------|------|
 | ユーザー正本 | `users/{uid}` | DSF アカウントの正本。Google 初回ログイン時にブートストラップ |
 | ユーザープロジェクト | `users/{uid}/projects/{pid}` | 編集可能なプロジェクト本体 |
+| プロジェクト一覧サマリー | `users/{uid}/project_summaries/{pid}` | Dashboard用のowner専用軽量投影。authoring本文やページ配列を含めない |
 | 作品正本 | `users/{uid}/works/{workId}` | 読者に対して継続する作品IDと最新発行情報 |
 | 発行履歴 | `users/{uid}/works/{workId}/releases/{releaseId}` | 発行ごとの DSF メタデータ |
 | 読者しおり | `users/{uid}/bookmarks/{workId}` | 読者ごとの閲覧位置 |
@@ -235,6 +236,60 @@ Storage/R2 側に空フォルダを作るのではなく、namespace をここ�
 Project v6のrootにはさらに`authoringRef: "authoring/current"`と
 `authoringSchemaVersion: 6`を保存する。公開可能なrootの`blocks[]`はFixed互換投影だけであり、
 完全なmixed spineの正本ではない。
+
+#### `users/{uid}/project_summaries/{pid}` — Dashboard軽量投影 v1
+
+Dashboardが`users/{uid}/projects`の重いroot文書を全件取得しないためのowner専用投影。
+document IDはproject rootと同じ`pid`とし、`projectId`も同じ値を保存する。
+
+```json
+{
+  "schemaVersion": 1,
+  "sourceProjectVersion": 5,
+  "projectId": "project_...",
+  "workId": "work_...",
+  "projectName": "編集用プロジェクト名",
+  "title": "作品タイトル",
+  "languages": ["ja", "en"],
+  "listThumbnail": "https://.../thumb.webp",
+  "pageCount": 128,
+  "projectBytes": 2000000,
+  "lastUpdated": "Timestamp",
+  "hasPublishedDsf": true,
+  "releaseId": "release_...",
+  "dsfStatus": "public",
+  "visibility": "public",
+  "dsfPublishedAt": "Timestamp",
+  "dsfLangs": ["ja", "en"],
+  "dsfPageCount": 128,
+  "dsfTotalBytes": 8000000,
+  "dsfResolution": "1080x1920",
+  "dsfQuality": 0.86,
+  "publication": {
+    "listedFrom": "Timestamp",
+    "listedUntil": "Timestamp",
+    "publicFrom": "Timestamp",
+    "publicUntil": null,
+    "expiredAt": null,
+    "expireReason": null
+  }
+}
+```
+
+- 最大サイズは32 KiB。`js/project-summary.js`のpure projectionで検証する。
+- `blocks`、`sections`、`pages`、`dsfPages`、`meta`、`authoringRef`を保存しない。
+- `listThumbnail`は永続的なHTTPS URLだけを許可し、`blob:`／`data:` URLを保存しない。
+- `publication.planSnapshot`はDashboard表示に不要なため複製しない。
+- owner専用であり、Portal／Viewerの公開インデックスとして使用しない。
+- Project root／authoring正本は引き続き既存pathが所有し、この投影からプロジェクトを復元しない。
+
+contractとpure projectionに加えてowner専用Firestore Rulesを定義する。Rulesは厳密なフィールド許可リスト、
+document IDと`projectId`の一致、型・件数・文字列長を検証する。Firestore RulesではJSONの正確なbyte数を
+計測できないため、32 KiB上限は`js/project-summary.js`でも必ず検証する。
+
+この段階ではRulesはローカル定義・静的検証までとし、Rules deploy、保存時のdual-write、Dashboard read、
+既存projectのbackfillは未接続とする。接続順はRules deploy → 全writerのdual-write →
+summary優先read＋root fallback → backfill → fallback廃止とする。
 
 #### Block Object（`state.blocks` の各要素）
 
