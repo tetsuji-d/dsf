@@ -44,6 +44,31 @@ assert.match(
 );
 assert.match(
     appSource,
+    /const HOME_REVIEW_CACHE_TTL_MS = 30_000;/,
+    'Dashboard review summaries must use a short-lived cache'
+);
+assert.match(
+    appSource,
+    /const homeReviewSummaryRequests = new Map\(\);/,
+    'Dashboard review summaries must track in-flight requests'
+);
+assert.match(
+    appSource,
+    /const inFlight = homeReviewSummaryRequests\.get\(workId\);\s*if \(inFlight\) return inFlight;/,
+    'Dashboard must reuse an in-flight review request'
+);
+assert.match(
+    appSource,
+    /if \(!summary\.unavailable\) \{\s*homeReviewSummaryCache\.set\(/,
+    'Dashboard must only cache successful review summaries'
+);
+assert.match(
+    appSource,
+    /loading="lazy" decoding="async"/,
+    'Dashboard thumbnails must not block initial rendering'
+);
+assert.match(
+    appSource,
     /function fetchHomeCloudProjects\(\)/,
     'Dashboard must centralize cloud project requests'
 );

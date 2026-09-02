@@ -3269,7 +3269,7 @@ function renderHomeCard(project, source) {
             ${source === 'cloud' ? `<span class="home-project-delete material-icons" data-delete-cloud="${project.id}" title="${t('btn_delete')}">delete</span>` : ''}
             <div class="home-project-thumb">
                 ${thumb
-                    ? `<img src="${thumb}" alt="${displayName}">`
+                    ? `<img src="${thumb}" alt="${displayName}" loading="lazy" decoding="async">`
                     : `<div class="home-project-thumb-fallback"><span class="material-icons">folder</span></div>`}
             </div>
             <div class="home-project-info">
@@ -3324,7 +3324,11 @@ function renderHomePublicationMeta(publication) {
     `;
 }
 
-async function loadHomeReviewSummary(workId) {
+const HOME_REVIEW_CACHE_TTL_MS = 30_000;
+const homeReviewSummaryCache = new Map();
+const homeReviewSummaryRequests = new Map();
+
+async function fetchHomeReviewSummary(workId) {
     if (!workId) return { reviewCount: 0, goodCount: 0, badCount: 0, unavailable: false };
     try {
         const reviewQuery = query(
@@ -3346,6 +3350,36 @@ async function loadHomeReviewSummary(workId) {
     } catch (e) {
         console.warn('[Home] Failed to load review summary:', workId, e);
         return { reviewCount: 0, goodCount: 0, badCount: 0, unavailable: true };
+    }
+}
+
+async function loadHomeReviewSummary(workId) {
+    if (!workId) return { reviewCount: 0, goodCount: 0, badCount: 0, unavailable: false };
+
+    const now = Date.now();
+    const cached = homeReviewSummaryCache.get(workId);
+    if (cached && cached.expiresAt > now) return cached.summary;
+
+    const inFlight = homeReviewSummaryRequests.get(workId);
+    if (inFlight) return inFlight;
+
+    const request = fetchHomeReviewSummary(workId).then((summary) => {
+        if (!summary.unavailable) {
+            homeReviewSummaryCache.set(workId, {
+                summary,
+                expiresAt: Date.now() + HOME_REVIEW_CACHE_TTL_MS
+            });
+        }
+        return summary;
+    });
+    homeReviewSummaryRequests.set(workId, request);
+
+    try {
+        return await request;
+    } finally {
+        if (homeReviewSummaryRequests.get(workId) === request) {
+            homeReviewSummaryRequests.delete(workId);
+        }
     }
 }
 
@@ -3417,7 +3451,7 @@ function renderHomeWorkCard(work, reviewSummary) {
         <article class="home-work-card" data-work-id="${escapeStudioHtml(workId)}" data-project-id="${escapeStudioHtml(work.id)}">
             <div class="home-work-thumb">
                 ${thumb
-                    ? `<img src="${escapeStudioHtml(thumb)}" alt="${escapeStudioHtml(title)}" loading="lazy">`
+                    ? `<img src="${escapeStudioHtml(thumb)}" alt="${escapeStudioHtml(title)}" loading="lazy" decoding="async">`
                     : `<div class="home-work-thumb-fallback"><span class="material-icons">auto_stories</span></div>`}
             </div>
             <div class="home-work-main">
