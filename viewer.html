@@ -135,15 +135,18 @@
 
     <div id="viewer-ui">
         <div id="viewer-header" class="ui-bar">
-            <!-- Left: Close Button -->
-            <button id="viewer-close-btn" class="btn-icon header-btn" onclick="toggleUi()" title="閉じる">
-                <span class="material-icons" aria-hidden="true">close</span>
-            </button>
+            <!-- Left: Horizon home link (YouTube-style brand navigation) -->
+            <a id="viewer-horizon-link" class="viewer-horizon-link" href="/" title="Horizonへ戻る" aria-label="Horizonへ戻る">
+                <span class="viewer-horizon-mark" aria-hidden="true">
+                    <span class="material-icons">play_arrow</span>
+                </span>
+                <span class="viewer-horizon-name">Horizon</span>
+            </a>
 
             <!-- Center: Title -->
             <div class="ui-title" id="ui-title"></div>
 
-            <!-- Right: Controls & Branding -->
+            <!-- Right: Controls -->
             <div class="ui-controls">
                 <div class="viewer-ui-lang-switcher">
                     <button class="viewer-ui-lang-btn" data-ui-lang="ja" onclick="setViewerUiLang('ja')">JA</button>
@@ -169,16 +172,6 @@
 
         <div id="viewer-footer" class="ui-bar">
             <div class="ui-controls footer-controls">
-                <!-- Branding Link back to portal (Moved to footer for less distraction) -->
-                <a href="/" title="DSF Portal" class="viewer-footer-brand"
-                    style="text-decoration:none; display:flex; align-items:baseline; pointer-events:auto;">
-                    <span
-                        style="font-family:'Inter',sans-serif; font-size:10px; color:#64748b; margin-right:4px;">Powered
-                        by</span>
-                    <span
-                        style="font-family:'Outfit',sans-serif; font-size:14px; font-weight:800; letter-spacing:-0.5px; background:linear-gradient(135deg, #60a5fa, #818cf8); -webkit-background-clip:text; background-clip:text; -webkit-text-fill-color:transparent;">DSF</span>
-                </a>
-
                 <div class="slider-wrapper">
                     <div id="page-slider-preview" class="page-slider-preview" hidden>
                         <div class="page-slider-preview-frame">

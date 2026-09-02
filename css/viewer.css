@@ -666,7 +666,63 @@ body[data-theme="dark"] .viewer-ui-lang-switcher {
 
 #viewer-header {
     justify-content: space-between;
+    gap: 12px;
     border-bottom: 0;
+}
+
+.viewer-horizon-link {
+    pointer-events: auto;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    flex: 0 0 auto;
+    min-height: 40px;
+    padding: 4px 10px 4px 5px;
+    border-radius: 12px;
+    color: #f8fafc;
+    background: rgba(2, 6, 23, 0.76);
+    box-shadow: 0 5px 18px rgba(2, 6, 23, 0.2);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    text-decoration: none;
+    transition: background 160ms ease, transform 160ms ease;
+}
+
+.viewer-horizon-link:hover {
+    color: #fff;
+    background: rgba(15, 23, 42, 0.9);
+}
+
+.viewer-horizon-link:active {
+    transform: scale(0.98);
+}
+
+.viewer-horizon-link:focus-visible {
+    outline: 2px solid #60a5fa;
+    outline-offset: 2px;
+}
+
+.viewer-horizon-mark {
+    display: grid;
+    place-items: center;
+    width: 31px;
+    height: 24px;
+    border-radius: 8px;
+    color: #fff;
+    background: linear-gradient(135deg, #2563eb, #7c3aed);
+    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.18);
+}
+
+.viewer-horizon-mark .material-icons {
+    font-size: 19px;
+}
+
+.viewer-horizon-name {
+    font-family: 'Outfit', 'Inter', sans-serif;
+    font-size: 15px;
+    font-weight: 800;
+    letter-spacing: -0.2px;
+    line-height: 1;
 }
 
 #viewer-footer {
@@ -2169,13 +2225,6 @@ body[data-theme="dark"] .viewer-dev-morph-status-err {
     gap: 14px;
 }
 
-.viewer-footer-brand {
-    position: fixed;
-    left: 22px;
-    bottom: 20px;
-    flex: 0 0 auto;
-}
-
 .header-btn {
     min-width: 44px;
     min-height: 44px;
@@ -2232,7 +2281,6 @@ body[data-theme="dark"] .nav-btn:disabled {
 }
 
 body[data-theme="dark"] .page-count,
-body[data-theme="dark"] .viewer-footer-brand span,
 body[data-theme="dark"] .viewer-ui-lang-btn,
 body[data-theme="dark"] .ui-title {
     color: #e7eef8;
@@ -2707,6 +2755,22 @@ body[data-theme="dark"] .viewer-empty-open-btn {
         gap: 6px;
     }
 
+    .viewer-horizon-link {
+        min-height: 34px;
+        padding: 3px 8px 3px 4px;
+        border-radius: 10px;
+    }
+
+    .viewer-horizon-mark {
+        width: 28px;
+        height: 22px;
+        border-radius: 7px;
+    }
+
+    .viewer-horizon-name {
+        font-size: 14px;
+    }
+
     .ui-title {
         display: none;
     }
@@ -2866,5 +2930,15 @@ body[data-theme="dark"] .viewer-empty-open-btn {
         width: 22px;
         height: 22px;
         flex-shrink: 0;
+    }
+}
+
+@media (max-width: 520px) {
+    .viewer-horizon-link {
+        padding-right: 4px;
+    }
+
+    .viewer-horizon-name {
+        display: none;
     }
 }

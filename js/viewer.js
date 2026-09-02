@@ -160,6 +160,7 @@ let metricDeliveryState = createMetricDeliveryState();
 const VIEWER_UI = {
     ja: {
         close: '閉じる',
+        horizonHome: 'Horizonへ戻る',
         openFile: 'ファイルを開く',
         prevPage: '前のページ',
         nextPage: '次のページ',
@@ -245,6 +246,7 @@ const VIEWER_UI = {
     },
     en: {
         close: 'Close',
+        horizonHome: 'Back to Horizon',
         openFile: 'Open file',
         prevPage: 'Previous page',
         nextPage: 'Next page',
@@ -2693,8 +2695,11 @@ function applyViewerUiLanguage() {
     document.querySelectorAll('.viewer-ui-lang-btn').forEach((btn) => {
         btn.classList.toggle('active', btn.dataset.uiLang === viewerUiLang);
     });
-    const closeBtn = document.getElementById('viewer-close-btn');
-    if (closeBtn) closeBtn.title = vt('close');
+    const horizonLink = document.getElementById('viewer-horizon-link');
+    if (horizonLink) {
+        horizonLink.title = vt('horizonHome');
+        horizonLink.setAttribute('aria-label', vt('horizonHome'));
+    }
     const fileBtn = document.getElementById('viewer-file-btn');
     if (fileBtn) fileBtn.title = vt('openFile');
     const zonePrev = document.getElementById('zone-prev');

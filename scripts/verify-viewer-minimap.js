@@ -155,6 +155,11 @@ for (const id of [
 ]) {
     assert.match(html, new RegExp(`id=["']${id}["']`), `Missing Viewer minimap DOM: ${id}`);
 }
+assert.match(html, /<a[^>]+id=["']viewer-horizon-link["'][^>]+href=["']\/["']/, 'Viewer header must link the Horizon brand to the portal');
+assert.doesNotMatch(html, /viewer-footer-brand|Powered\s+by\s*<\/span>/, 'Viewer footer branding must be removed');
+assert.match(css, /\.viewer-horizon-link\s*\{/, 'Viewer Horizon link styling must exist');
+assert.match(viewerJs, /horizonHome:\s*'Horizonへ戻る'/, 'Viewer Horizon link must have a Japanese accessible label');
+assert.match(viewerJs, /horizonHome:\s*'Back to Horizon'/, 'Viewer Horizon link must have an English accessible label');
 
 assert.match(viewerJs, /createViewerMinimapController/, 'Viewer must initialize the minimap controller');
 assert.match(viewerJs, /clampViewerPanAxis/, 'Viewer zoom pan must be clamped against the visual viewport');
