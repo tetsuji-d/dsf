@@ -40,6 +40,47 @@ export function clampViewerPanAxis({
 }
 
 /**
+ * Keep one logical point under the same client-space focus while zooming.
+ * `focusX` / `focusY` are measured from the untransformed canvas center.
+ */
+export function calculateViewerAnchoredZoom({
+    currentScale = 1,
+    viewX = 0,
+    viewY = 0,
+    nextScale,
+    focusX = 0,
+    focusY = 0,
+    anchorX,
+    anchorY,
+    minScale = 1,
+    maxScale = 5,
+    resetThreshold = 1.01
+}) {
+    const safeMinScale = Math.max(0.001, Number(minScale) || 1);
+    const safeMaxScale = Math.max(safeMinScale, Number(maxScale) || 5);
+    const scale = clamp(Number(nextScale) || safeMinScale, safeMinScale, safeMaxScale);
+    if (scale <= Math.max(safeMinScale, Number(resetThreshold) || safeMinScale)) {
+        return { scale: safeMinScale, x: 0, y: 0 };
+    }
+
+    const oldScale = Math.max(0.001, Number(currentScale) || safeMinScale);
+    const safeFocusX = Number(focusX) || 0;
+    const safeFocusY = Number(focusY) || 0;
+    const resolvedAnchorX = Number.isFinite(Number(anchorX))
+        ? Number(anchorX)
+        : (safeFocusX - (Number(viewX) || 0)) / oldScale;
+    const resolvedAnchorY = Number.isFinite(Number(anchorY))
+        ? Number(anchorY)
+        : (safeFocusY - (Number(viewY) || 0)) / oldScale;
+
+    return {
+        scale,
+        x: safeFocusX - resolvedAnchorX * scale,
+        y: safeFocusY - resolvedAnchorY * scale
+    };
+}
+
+/**
  * Place fixed Viewer navigation buttons around the current page without letting
  * the right button enter an open information drawer.
  */

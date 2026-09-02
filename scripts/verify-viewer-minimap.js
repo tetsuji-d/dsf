@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import {
+    calculateViewerAnchoredZoom,
     calculateViewerMinimapGeometry,
     calculateViewerMinimapPagePreviewGeometry,
     calculateViewerPanFromMinimapPoint,
@@ -82,6 +83,42 @@ const topEdgePan = clampViewerPanAxis({
 });
 nearlyEqual(100 + 300 + topEdgePan - 600, 47);
 
+const focusedZoom = calculateViewerAnchoredZoom({
+    currentScale: 1,
+    viewX: 0,
+    viewY: 0,
+    nextScale: 2,
+    focusX: -100,
+    focusY: -200
+});
+nearlyEqual(focusedZoom.scale, 2);
+nearlyEqual(focusedZoom.x, 100);
+nearlyEqual(focusedZoom.y, 200);
+nearlyEqual(focusedZoom.x + (-100 * focusedZoom.scale), -100);
+nearlyEqual(focusedZoom.y + (-200 * focusedZoom.scale), -200);
+
+const movingPinchZoom = calculateViewerAnchoredZoom({
+    currentScale: 2,
+    nextScale: 3,
+    focusX: -80,
+    focusY: -170,
+    anchorX: -100,
+    anchorY: -200
+});
+nearlyEqual(movingPinchZoom.x, 220);
+nearlyEqual(movingPinchZoom.y, 430);
+nearlyEqual(movingPinchZoom.x + (-100 * movingPinchZoom.scale), -80);
+nearlyEqual(movingPinchZoom.y + (-200 * movingPinchZoom.scale), -170);
+
+assert.deepEqual(calculateViewerAnchoredZoom({
+    currentScale: 2,
+    viewX: 80,
+    viewY: 120,
+    nextScale: 1,
+    focusX: 40,
+    focusY: 60
+}), { scale: 1, x: 0, y: 0 });
+
 const closedDrawerNav = calculateViewerSideNavPlacement({
     canvasLeft: 320,
     canvasWidth: 1106,
@@ -130,6 +167,9 @@ assert.match(viewerJs, /new ResizeObserver\(\(\) => syncViewerCanvasChromePlacem
 assert.match(viewerJs, /event\.propertyName !== 'width'/, 'Viewer must realign controls when the drawer width transition ends');
 assert.match(viewerJs, /syncViewerCanvasChromePlacement\(canvas, w\)/, 'Canvas resize must align slider and side navigation together');
 assert.match(viewerJs, /calculateViewerSideNavPlacement/, 'Side navigation must use the current reading-region boundary');
+assert.match(viewerJs, /pinchAnchorX\s*=\s*\(focus\.x\s*-\s*viewX\)\s*\/\s*safeScale/, 'Pinch must capture the logical point under its midpoint');
+assert.match(viewerJs, /setViewScaleAtClientPoint\(2,\s*e\.clientX,\s*e\.clientY\)/, 'Double tap must zoom around the tapped point');
+assert.match(viewerJs, /setViewScaleAtClientPoint\(viewScale\s*\*\s*factor,\s*e\.clientX,\s*e\.clientY\)/, 'Ctrl-wheel zoom must retain the pointer focus');
 assert.match(viewerJs, /getHtml:\s*\(\)\s*=>\s*renderSurfaceContentHTML\(surface, lang\)/, 'Minimap must lazily reuse current image/fixed-text rendering');
 assert.match(viewerJs, /viewerDocumentRevision\s*\+=\s*1/, 'Loading another document must invalidate the minimap thumbnail cache');
 assert.match(viewerJs, /key:\s*\[\s*viewerDocumentRevision,/, 'Minimap thumbnail keys must include the loaded document revision');

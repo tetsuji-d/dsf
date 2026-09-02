@@ -16,6 +16,7 @@ import { doc, getDoc, getDocs, setDoc, deleteDoc, addDoc, collection, query, whe
 import { parseAndLoadDSF } from './export.js';
 import { CANONICAL_PAGE_WIDTH, CANONICAL_PAGE_HEIGHT, CANONICAL_PAGE_ASPECT } from './page-geometry.js';
 import {
+    calculateViewerAnchoredZoom,
     calculateViewerSideNavPlacement,
     clampViewerPanAxis,
     createViewerMinimapController
@@ -71,6 +72,8 @@ let isPinching = false;
 let isPanning = false;
 let pinchStartDist = 0;
 let pinchStartScale = 1;
+let pinchAnchorX = 0;
+let pinchAnchorY = 0;
 let pointerCache = [];
 let pointerStartX = 0;
 let pointerStartY = 0;
@@ -4584,6 +4587,40 @@ function getPinchDist(a, b) {
     return Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY);
 }
 
+function getPinchMidpoint(a, b) {
+    return {
+        x: (a.clientX + b.clientX) / 2,
+        y: (a.clientY + b.clientY) / 2
+    };
+}
+
+function getZoomFocusPoint(clientX, clientY) {
+    const canvas = document.getElementById('viewer-canvas');
+    if (!canvas) return { x: 0, y: 0 };
+    const rect = canvas.getBoundingClientRect();
+    // The transformed rectangle already includes viewX/viewY. Remove that
+    // translation to recover the stable transform origin used by the stage.
+    return {
+        x: clientX - (rect.left + rect.width / 2 - viewX),
+        y: clientY - (rect.top + rect.height / 2 - viewY)
+    };
+}
+
+function setViewScaleAtClientPoint(nextScale, clientX, clientY) {
+    const focus = getZoomFocusPoint(clientX, clientY);
+    const next = calculateViewerAnchoredZoom({
+        currentScale: viewScale,
+        viewX,
+        viewY,
+        nextScale,
+        focusX: focus.x,
+        focusY: focus.y
+    });
+    viewScale = next.scale;
+    viewX = next.x;
+    viewY = next.y;
+}
+
 function onPointerDown(e) {
     if (!pointerCache.some(p => p.pointerId === e.pointerId)) {
         pointerCache.push(e);
@@ -4594,6 +4631,11 @@ function onPointerDown(e) {
         isPanning = false;
         pinchStartDist = getPinchDist(pointerCache[0], pointerCache[1]);
         pinchStartScale = viewScale;
+        const midpoint = getPinchMidpoint(pointerCache[0], pointerCache[1]);
+        const focus = getZoomFocusPoint(midpoint.x, midpoint.y);
+        const safeScale = Math.max(pinchStartScale, 0.001);
+        pinchAnchorX = (focus.x - viewX) / safeScale;
+        pinchAnchorY = (focus.y - viewY) / safeScale;
     } else {
         activeGesturePointerId = e.pointerId;
         pointerGestureConsumed = false;
@@ -4618,7 +4660,19 @@ function onPointerMove(e) {
         e.preventDefault();
         const dist = getPinchDist(pointerCache[0], pointerCache[1]);
         if (pinchStartDist > 0) {
-            viewScale = Math.min(5, Math.max(1, pinchStartScale * (dist / pinchStartDist)));
+            const midpoint = getPinchMidpoint(pointerCache[0], pointerCache[1]);
+            const focus = getZoomFocusPoint(midpoint.x, midpoint.y);
+            const next = calculateViewerAnchoredZoom({
+                currentScale: pinchStartScale,
+                nextScale: pinchStartScale * (dist / pinchStartDist),
+                focusX: focus.x,
+                focusY: focus.y,
+                anchorX: pinchAnchorX,
+                anchorY: pinchAnchorY
+            });
+            viewScale = next.scale;
+            viewX = next.x;
+            viewY = next.y;
             applyTransform(true);
         }
     } else if (updateSingleSpreadSwipe(e)) {
@@ -4673,8 +4727,7 @@ function onPointerUp(e) {
                     const gap = now - lastTapTime;
                     lastTapTime = now;
                     if (gap < 300 && gap > 0) {
-                        viewScale = viewScale > 1.05 ? 1 : 2;
-                        if (viewScale === 1) { viewX = 0; viewY = 0; }
+                        setViewScaleAtClientPoint(2, e.clientX, e.clientY);
                         applyTransform(true);
                         e.preventDefault();
                     }
@@ -4734,12 +4787,7 @@ function onWheel(e) {
     e.preventDefault();
     if (e.ctrlKey) {
         const factor = Math.exp(-e.deltaY * 0.01);
-        viewScale = Math.min(5, Math.max(1, viewScale * factor));
-        if (viewScale <= 1.01) {
-            viewScale = 1;
-            viewX = 0;
-            viewY = 0;
-        }
+        setViewScaleAtClientPoint(viewScale * factor, e.clientX, e.clientY);
     } else if (viewScale > 1.05) {
         viewX -= e.deltaX;
         viewY -= e.deltaY;
