@@ -3372,7 +3372,7 @@ function renderHomeStatCard(icon, label, value, hint = '') {
     `;
 }
 
-function renderHomeDashboardStats({ cloudProjects, localProjects, works, reviewTotals }) {
+function renderHomeDashboardStats({ cloudProjects, localProjects, works, reviewTotals, reviewsLoading = false }) {
     const cloudCount = Array.isArray(cloudProjects) ? cloudProjects.length : 0;
     const publicCount = works.filter((work) => getHomeWorkStatus(work) === 'public').length;
     const visibleCount = works.filter((work) => ['public', 'unlisted'].includes(getHomeWorkStatus(work))).length;
@@ -3380,7 +3380,12 @@ function renderHomeDashboardStats({ cloudProjects, localProjects, works, reviewT
     return [
         renderHomeStatCard('library_books', t('home_stat_works'), String(works.length), t('home_stat_works_hint', { count: visibleCount })),
         renderHomeStatCard('public', t('home_stat_public'), String(publicCount), t('home_stat_public_hint', { count: draftCount })),
-        renderHomeStatCard('rate_review', t('home_stat_reviews'), String(reviewTotals.reviewCount), t('home_stat_reviews_hint', { count: reviewTotals.goodCount })),
+        renderHomeStatCard(
+            'rate_review',
+            t('home_stat_reviews'),
+            reviewsLoading ? '…' : String(reviewTotals.reviewCount),
+            reviewsLoading ? t('home_loading') : t('home_stat_reviews_hint', { count: reviewTotals.goodCount })
+        ),
         renderHomeStatCard('folder', t('home_stat_projects'), String(cloudCount), t('home_stat_projects_hint', { count: localProjects.length }))
     ].join('');
 }
@@ -3397,7 +3402,10 @@ function renderHomeWorkCard(work, reviewSummary) {
     const languageBadges = renderLanguageBadges(langs);
     const date = getHomeWorkDate(work);
     const publicationMeta = renderHomePublicationMeta(work.publication);
-    const reviewText = reviewSummary?.unavailable
+    const reviewsLoading = reviewSummary?.loading === true;
+    const reviewText = reviewsLoading
+        ? t('home_loading')
+        : reviewSummary?.unavailable
         ? t('home_reviews_unavailable')
         : t('home_work_reviews', {
             reviews: reviewSummary?.reviewCount || 0,
@@ -3421,9 +3429,9 @@ function renderHomeWorkCard(work, reviewSummary) {
                 <p>${escapeStudioHtml(t('home_work_meta', { pages: pageCount, date: date || '—' }))}</p>
                 ${publicationMeta}
                 <div class="home-work-metrics">
-                    <span><strong>${escapeStudioHtml(String(reviewSummary?.reviewCount || 0))}</strong>${escapeStudioHtml(t('home_metric_reviews'))}</span>
-                    <span><strong>${escapeStudioHtml(String(reviewSummary?.goodCount || 0))}</strong>${escapeStudioHtml(t('home_metric_good'))}</span>
-                    <span><strong>${escapeStudioHtml(String(reviewSummary?.badCount || 0))}</strong>${escapeStudioHtml(t('home_metric_bad'))}</span>
+                    <span><strong>${reviewsLoading ? '…' : escapeStudioHtml(String(reviewSummary?.reviewCount || 0))}</strong>${escapeStudioHtml(t('home_metric_reviews'))}</span>
+                    <span><strong>${reviewsLoading ? '…' : escapeStudioHtml(String(reviewSummary?.goodCount || 0))}</strong>${escapeStudioHtml(t('home_metric_good'))}</span>
+                    <span><strong>${reviewsLoading ? '…' : escapeStudioHtml(String(reviewSummary?.badCount || 0))}</strong>${escapeStudioHtml(t('home_metric_bad'))}</span>
                 </div>
                 <div class="home-work-review-note">${escapeStudioHtml(reviewText)}</div>
                 <div class="home-work-actions">
@@ -3442,7 +3450,92 @@ function renderHomeWorkCard(work, reviewSummary) {
     `;
 }
 
+function bindHomeWorkActions(workGrid, cloudProjects) {
+    workGrid?.querySelectorAll('[data-home-open-project]').forEach((btn) => {
+        btn.addEventListener('click', async () => {
+            const pid = btn.dataset.homeOpenProject;
+            const project = (cloudProjects || []).find((item) => item.id === pid);
+            if (!project) return;
+            if (!await onLoadProject(pid)) return;
+            await cacheLocalRecentProject(JSON.parse(JSON.stringify(state)), window.localImageMap);
+            refresh();
+            window.switchRoom('editor');
+        });
+    });
+
+    workGrid?.querySelectorAll('[data-home-copy-work]').forEach((btn) => {
+        btn.addEventListener('click', async () => {
+            const workId = btn.dataset.homeCopyWork;
+            if (!workId) return;
+            const url = `${window.location.origin}/viewer?work=${encodeURIComponent(workId)}`;
+            try {
+                await navigator.clipboard.writeText(url);
+                alert(t('home_copied_viewer_url', { url }));
+            } catch (_) {
+                prompt(t('home_copy_viewer_prompt'), url);
+            }
+        });
+    });
+}
+
+function renderHomeLocalProjects(localGrid, localCount, localProjects) {
+    if (localProjects.length === 0) {
+        localGrid.innerHTML = `<div class="home-empty-state"><span class="material-icons">folder_open</span><p>${t('home_local_empty')}</p></div>`;
+        if (localCount) localCount.textContent = '0';
+    } else {
+        localGrid.innerHTML = localProjects.map((project) => renderHomeCard(project, 'local')).join('');
+        if (localCount) localCount.textContent = String(localProjects.length);
+    }
+
+    localGrid.querySelectorAll('.home-project-card').forEach((card) => {
+        card.addEventListener('click', async () => {
+            const snapshotId = card.dataset.id;
+            try {
+                await flushPendingSave();
+                const loadedState = hydrateProjectFromPersistence(await loadLocalRecentProject(snapshotId));
+                resetFlowRuntimeForProjectChange();
+                clearHistory();
+                dispatch({ type: actionTypes.LOAD_PROJECT, payload: loadedState });
+                refresh();
+                window.switchRoom('editor');
+            } catch (e) {
+                console.error('[Home] Local project restore failed:', e);
+                alert(t('home_local_open_error', { message: e.message }));
+            }
+        });
+    });
+}
+
+let homeDashboardRenderRevision = 0;
+let homeCloudProjectsRequest = null;
+let homeCloudProjectsRequestUid = '';
+let homeCloudProjectsRequestToken = 0;
+
+function fetchHomeCloudProjects() {
+    const requestUid = state.uid || '';
+    if (!requestUid) return Promise.resolve([]);
+    if (homeCloudProjectsRequest && homeCloudProjectsRequestUid === requestUid) {
+        return homeCloudProjectsRequest;
+    }
+
+    homeCloudProjectsRequestUid = requestUid;
+    const request = fetchCloudProjects().catch((e) => {
+        console.warn('[Home] Failed to load cloud projects:', e);
+        return null;
+    });
+    const requestToken = ++homeCloudProjectsRequestToken;
+    const requestWithCleanup = request.finally(() => {
+        if (homeCloudProjectsRequestToken === requestToken) {
+            homeCloudProjectsRequest = null;
+            homeCloudProjectsRequestUid = '';
+        }
+    });
+    homeCloudProjectsRequest = requestWithCleanup;
+    return requestWithCleanup;
+}
+
 async function renderHomeDashboard() {
+    const renderRevision = ++homeDashboardRenderRevision;
     const cloudGrid = document.getElementById('home-cloud-grid');
     const localGrid = document.getElementById('home-local-grid');
     const cloudCount = document.getElementById('home-cloud-count');
@@ -3460,16 +3553,16 @@ async function renderHomeDashboard() {
     if (cloudCount) cloudCount.textContent = '...';
     if (localCount) localCount.textContent = '...';
 
-    const [cloudProjects, localProjects] = await Promise.all([
-        fetchCloudProjects().catch((e) => {
-            console.warn('[Home] Failed to load cloud projects:', e);
-            return null;
-        }),
-        listLocalRecentProjects().catch((e) => {
-            console.warn('[Home] Failed to load local recent projects:', e);
-            return [];
-        })
-    ]);
+    const cloudProjectsPromise = fetchHomeCloudProjects();
+    const localProjects = await listLocalRecentProjects().catch((e) => {
+        console.warn('[Home] Failed to load local recent projects:', e);
+        return [];
+    });
+    if (renderRevision !== homeDashboardRenderRevision) return;
+    renderHomeLocalProjects(localGrid, localCount, localProjects);
+
+    const cloudProjects = await cloudProjectsPromise;
+    if (renderRevision !== homeDashboardRenderRevision) return;
 
     const works = Array.isArray(cloudProjects)
         ? cloudProjects.filter(isPublishedHomeWork).sort((a, b) => {
@@ -3478,21 +3571,18 @@ async function renderHomeDashboard() {
             return bTime - aTime;
         })
         : [];
-    const reviewSummaries = await loadHomeReviewSummaries(works);
-    const reviewTotals = works.reduce((acc, work) => {
-        const summary = reviewSummaries.get(work.workId || work.id) || {};
-        acc.reviewCount += Number(summary.reviewCount) || 0;
-        acc.goodCount += Number(summary.goodCount) || 0;
-        acc.badCount += Number(summary.badCount) || 0;
-        return acc;
-    }, { reviewCount: 0, goodCount: 0, badCount: 0 });
+    const pendingReviewSummaries = new Map(
+        works.slice(0, 6).map((work) => [work.workId || work.id, { loading: true }])
+    );
+    const emptyReviewTotals = { reviewCount: 0, goodCount: 0, badCount: 0 };
 
     if (statsEl) {
         statsEl.innerHTML = renderHomeDashboardStats({
             cloudProjects: Array.isArray(cloudProjects) ? cloudProjects : [],
             localProjects,
             works,
-            reviewTotals
+            reviewTotals: emptyReviewTotals,
+            reviewsLoading: works.length > 0
         });
     }
     if (workCount) workCount.textContent = String(works.length);
@@ -3509,7 +3599,7 @@ async function renderHomeDashboard() {
                     <button class="home-action-btn" onclick="switchRoom('press')"><span class="material-icons">publish</span>${t('btn_press_room')}</button>
                 </div>`;
         } else {
-            workGrid.innerHTML = works.slice(0, 6).map((work) => renderHomeWorkCard(work, reviewSummaries.get(work.workId || work.id))).join('');
+            workGrid.innerHTML = works.slice(0, 6).map((work) => renderHomeWorkCard(work, pendingReviewSummaries.get(work.workId || work.id))).join('');
         }
     }
 
@@ -3525,14 +3615,6 @@ async function renderHomeDashboard() {
     } else {
         cloudGrid.innerHTML = cloudProjects.map((project) => renderHomeCard(project, 'cloud')).join('');
         if (cloudCount) cloudCount.textContent = String(cloudProjects.length);
-    }
-
-    if (localProjects.length === 0) {
-        localGrid.innerHTML = `<div class="home-empty-state"><span class="material-icons">folder_open</span><p>${t('home_local_empty')}</p></div>`;
-        if (localCount) localCount.textContent = '0';
-    } else {
-        localGrid.innerHTML = localProjects.map((project) => renderHomeCard(project, 'local')).join('');
-        if (localCount) localCount.textContent = String(localProjects.length);
     }
 
     cloudGrid.querySelectorAll('.home-project-card').forEach((card) => {
@@ -3563,51 +3645,36 @@ async function renderHomeDashboard() {
         });
     });
 
-    localGrid.querySelectorAll('.home-project-card').forEach((card) => {
-        card.addEventListener('click', async () => {
-            const snapshotId = card.dataset.id;
-            try {
-                await flushPendingSave();
-                const loadedState = hydrateProjectFromPersistence(await loadLocalRecentProject(snapshotId));
-                resetFlowRuntimeForProjectChange();
-                clearHistory();
-                dispatch({ type: actionTypes.LOAD_PROJECT, payload: loadedState });
-                refresh();
-                window.switchRoom('editor');
-            } catch (e) {
-                console.error('[Home] Local project restore failed:', e);
-                alert(t('home_local_open_error', { message: e.message }));
-            }
-        });
-    });
-
-    workGrid?.querySelectorAll('[data-home-open-project]').forEach((btn) => {
-        btn.addEventListener('click', async () => {
-            const pid = btn.dataset.homeOpenProject;
-            const project = (cloudProjects || []).find((item) => item.id === pid);
-            if (!project) return;
-            if (!await onLoadProject(pid)) return;
-            await cacheLocalRecentProject(JSON.parse(JSON.stringify(state)), window.localImageMap);
-            refresh();
-            window.switchRoom('editor');
-        });
-    });
-
-    workGrid?.querySelectorAll('[data-home-copy-work]').forEach((btn) => {
-        btn.addEventListener('click', async () => {
-            const workId = btn.dataset.homeCopyWork;
-            if (!workId) return;
-            const url = `${window.location.origin}/viewer?work=${encodeURIComponent(workId)}`;
-            try {
-                await navigator.clipboard.writeText(url);
-                alert(t('home_copied_viewer_url', { url }));
-            } catch (_) {
-                prompt(t('home_copy_viewer_prompt'), url);
-            }
-        });
-    });
-
+    bindHomeWorkActions(workGrid, cloudProjects);
     syncStudioShell();
+
+    if (!works.length) return;
+
+    const reviewSummaries = await loadHomeReviewSummaries(works);
+    if (renderRevision !== homeDashboardRenderRevision) return;
+
+    const reviewTotals = works.reduce((acc, work) => {
+        const summary = reviewSummaries.get(work.workId || work.id) || {};
+        acc.reviewCount += Number(summary.reviewCount) || 0;
+        acc.goodCount += Number(summary.goodCount) || 0;
+        acc.badCount += Number(summary.badCount) || 0;
+        return acc;
+    }, { reviewCount: 0, goodCount: 0, badCount: 0 });
+
+    if (statsEl) {
+        statsEl.innerHTML = renderHomeDashboardStats({
+            cloudProjects: Array.isArray(cloudProjects) ? cloudProjects : [],
+            localProjects,
+            works,
+            reviewTotals
+        });
+    }
+    if (workGrid) {
+        workGrid.innerHTML = works.slice(0, 6).map((work) => (
+            renderHomeWorkCard(work, reviewSummaries.get(work.workId || work.id))
+        )).join('');
+        bindHomeWorkActions(workGrid, cloudProjects);
+    }
 }
 
 // ── Studio 認証 UI — GIS ボタン + フォールバック Google ──

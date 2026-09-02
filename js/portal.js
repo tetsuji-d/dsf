@@ -639,6 +639,11 @@ document.addEventListener("DOMContentLoaded", () => {
         bindLangSwitcher();
         updateThemeSwitcher();
         bindEvents();
+
+        // The public feed does not require authentication. Start it before the
+        // redirect/bootstrap/GIS sequence so readers can see works immediately.
+        void loadPublicProjects();
+
         const redirectOutcome = await handleRedirectResult(auth);
         if (redirectOutcome?.error) {
             showFeedback("error", t("authError"), redirectOutcome.error?.message || String(redirectOutcome.error), true);
@@ -662,6 +667,5 @@ document.addEventListener("DOMContentLoaded", () => {
             }
             renderAuthArea(user);
         });
-        loadPublicProjects();
     })().catch((e) => console.warn('[Portal] bootstrap failed:', e));
 });

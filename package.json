@@ -54,6 +54,8 @@
     "verify:viewer-minimap": "node scripts/verify-viewer-minimap.js",
     "verify:viewer-fixed-text": "node scripts/verify-viewer-fixed-text.js",
     "verify:dsf-local-viewer-package": "node scripts/verify-dsf-local-viewer-package.js",
+    "verify:portal-public-feed": "node scripts/verify-portal-public-feed.js",
+    "verify:home-dashboard-progressive": "node scripts/verify-home-dashboard-progressive.js",
     "verify:dsf-horizon-release-contract": "node scripts/verify-dsf-horizon-release-contract.js",
     "verify:dsf-release-upload-endpoint": "node scripts/verify-dsf-release-upload-endpoint.js",
     "verify:dsf-horizon-release-upload": "node scripts/verify-dsf-horizon-release-upload.js",
