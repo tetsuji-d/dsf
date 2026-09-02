@@ -3,7 +3,7 @@
  * DSP → DSF レンダリング・R2アップロード・Firestore発行
  */
 import {
-    doc, setDoc, deleteDoc, serverTimestamp
+    doc, setDoc, getDoc, deleteDoc, serverTimestamp, writeBatch
 } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
 import { state, dispatch, actionTypes } from './state.js';
 import { hasFlowGroups } from './flow-project-model.js';
@@ -27,6 +27,7 @@ import { verticalGlyphText, composeTextPreviewModel } from './text-press-html.js
 import { encodeCanvasToWebP } from './canvas-encoding.js';
 import { getLangProps } from './lang.js';
 import { createId } from './utils.js';
+import { stageProjectSummaryWrite } from './project-summary-firestore.js';
 import { getBookCompositionIssues, getPageCoverKey, getPageDisplayLabel, normalizeBookSettings } from './page-labels.js';
 import { renderFlowGeneratedPage } from './flow-dom-measurer.js';
 import {
@@ -2517,9 +2518,11 @@ window.publishToCloud = async () => {
 
         // Firestoreに DSF メタデータを保存
         const qualityProfile = getPressQualityProfile(resStr);
-        await setDoc(
-            doc(db, 'users', uid, 'projects', state.projectId),
-            {
+        const projectRef = doc(db, 'users', uid, 'projects', state.projectId);
+        const existingProjectSnap = await getDoc(projectRef);
+        const existingProject = existingProjectSnap.exists() ? existingProjectSnap.data() : {};
+        const publishedAt = new Date();
+        const projectPatch = {
                 dsfPages,
                 ...getPressBookConfigForExport(dsfPages.length),
                 workId,
@@ -2542,9 +2545,19 @@ window.publishToCloud = async () => {
                 dsfLangs:       langs,
                 dsfTotalBytes:  totalBytes,
                 visibility:     'private',
-            },
-            { merge: true }
+            };
+        const projectBatch = writeBatch(db);
+        projectBatch.set(projectRef, projectPatch, { merge: true });
+        stageProjectSummaryWrite(
+            projectBatch,
+            db,
+            uid,
+            state.projectId,
+            { ...state, ...existingProject },
+            projectPatch,
+            { summaryOverrides: { dsfPublishedAt: publishedAt } },
         );
+        await projectBatch.commit();
 
         await setDoc(
             doc(db, 'users', uid, 'works', workId),

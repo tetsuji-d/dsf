@@ -3,10 +3,11 @@
  * 発行済み作品の DSF ステータス管理
  */
 import {
-    collection, getDocs, doc, updateDoc, setDoc, deleteDoc, serverTimestamp, writeBatch
+    collection, getDocs, doc, setDoc, deleteDoc, serverTimestamp, writeBatch
 } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
 import { state } from './state.js';
 import { assertAccountCanEdit, assertAccountCanPublish, db } from './firebase.js';
+import { stageProjectSummaryDelete, stageProjectSummaryWrite } from './project-summary-firestore.js';
 import {
     formatPublicationDate,
     getPublicationExpireReason,
@@ -142,6 +143,7 @@ export async function openWorksRoom(roomMode = false) {
                     const batch = writeBatch(db);
                     batch.delete(doc(db, 'users', state.uid, 'projects', pid, 'authoring', 'current'));
                     batch.delete(doc(db, 'users', state.uid, 'projects', pid));
+                    stageProjectSummaryDelete(batch, db, state.uid, pid);
                     await batch.commit();
                     if (proj?.workId) {
                         await deleteDoc(doc(db, 'public_projects', proj.workId)).catch(() => {});
@@ -275,11 +277,15 @@ async function _reconcileProjectPublication(pid, data, account) {
     // old project on room load can trip stricter rules and should not block read.
     if (shouldDowngrade || (publicationChanged && isVisibleStatus)) {
         try {
-            await updateDoc(doc(db, 'users', state.uid, 'projects', pid), {
+            const projectPatch = {
                 dsfStatus: nextStatus,
                 visibility: nextVisibility,
                 publication
-            });
+            };
+            const projectBatch = writeBatch(db);
+            projectBatch.update(doc(db, 'users', state.uid, 'projects', pid), projectPatch);
+            stageProjectSummaryWrite(projectBatch, db, state.uid, pid, data, projectPatch);
+            await projectBatch.commit();
             const workId = data.workId || pid;
             if (shouldDowngrade) {
                 await deleteDoc(doc(db, 'public_projects', workId)).catch(() => {});
@@ -408,11 +414,15 @@ async function _updateDsfStatus(pid, newStatus, proj, row) {
                 throw new Error(t('works_publication_cannot_publish_expired'));
             }
         }
-        await updateDoc(doc(db, 'users', state.uid, 'projects', pid), {
+        const projectPatch = {
             dsfStatus: newStatus,
             visibility: newStatus === 'draft' ? 'private' : newStatus,
             publication,
-        });
+        };
+        const projectBatch = writeBatch(db);
+        projectBatch.update(doc(db, 'users', state.uid, 'projects', pid), projectPatch);
+        stageProjectSummaryWrite(projectBatch, db, state.uid, pid, proj, projectPatch);
+        await projectBatch.commit();
 
         const publicRef = doc(db, 'public_projects', workId);
         if ((newStatus === 'public' || newStatus === 'unlisted') && proj) {
@@ -449,7 +459,11 @@ async function _updatePublicationWindow(pid, proj, row) {
         const publication = _publicationFromRow(row, proj.publication || {}, status, account);
         const expiredReason = getPublicationExpireReason(publication, status, new Date());
         if (expiredReason) throw new Error(t('works_publication_cannot_publish_expired'));
-        await updateDoc(doc(db, 'users', state.uid, 'projects', pid), { publication });
+        const projectPatch = { publication };
+        const projectBatch = writeBatch(db);
+        projectBatch.update(doc(db, 'users', state.uid, 'projects', pid), projectPatch);
+        stageProjectSummaryWrite(projectBatch, db, state.uid, pid, proj, projectPatch);
+        await projectBatch.commit();
         await setDoc(doc(db, 'public_projects', workId), _buildPublicProjectPayload(pid, workId, proj, status, publication, account), { merge: true });
         alert(t('works_publication_saved'));
         return publication;

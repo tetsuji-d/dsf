@@ -59,6 +59,7 @@
     "verify:project-summary": "node scripts/verify-project-summary.js",
     "verify:project-summary-rules": "node scripts/verify-project-summary-rules.js",
     "verify:project-summary-rules:emulator": "firebase emulators:exec --only firestore --project staging \"node scripts/verify-project-summary-rules-emulator.js\"",
+    "verify:project-summary-dual-write": "node scripts/verify-project-summary-dual-write.js",
     "verify:dsf-horizon-release-contract": "node scripts/verify-dsf-horizon-release-contract.js",
     "verify:dsf-release-upload-endpoint": "node scripts/verify-dsf-release-upload-endpoint.js",
     "verify:dsf-horizon-release-upload": "node scripts/verify-dsf-horizon-release-upload.js",

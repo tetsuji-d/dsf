@@ -27,6 +27,7 @@ import {
     prepareProjectForSave,
     prepareFirestoreProjectIngress,
 } from './project-persistence.js';
+import { stageProjectSummaryWrite } from './project-summary-firestore.js';
 
 export { db, storage, auth, authReady } from './firebase-core.js';
 
@@ -967,6 +968,7 @@ async function performSaveOnce() {
                 lastUpdated: new Date()
             };
 
+            const batch = writeBatch(db);
             if (persistedProject.version === 6) {
                 const authoringDocument = {
                     ...persistedProject,
@@ -974,15 +976,20 @@ async function performSaveOnce() {
                     lastUpdated: new Date(),
                 };
                 assertFirestoreAuthoringSize(authoringDocument);
-                const batch = writeBatch(db);
                 batch.set(projectAuthoringDocRef(saveIdentity.projectId, saveIdentity.uid), authoringDocument);
-                batch.set(rootRef, rootProjection, { merge: true });
-                await batch.commit();
-            } else {
-                // Fixed v5 keeps the existing root contract. merge preserves all
-                // Press fields instead of manually copying a fragile allowlist.
-                await setDoc(rootRef, rootProjection, { merge: true });
             }
+            // Fixed v5 keeps the existing root contract. merge preserves all
+            // Press fields instead of manually copying a fragile allowlist.
+            batch.set(rootRef, rootProjection, { merge: true });
+            stageProjectSummaryWrite(
+                batch,
+                db,
+                saveIdentity.uid,
+                saveIdentity.projectId,
+                existingData,
+                rootProjection,
+            );
+            await batch.commit();
 
             if (saveIdentity.workId) {
                 await setDoc(doc(db, "users", saveIdentity.uid, "works", saveIdentity.workId), {

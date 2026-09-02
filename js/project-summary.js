@@ -42,6 +42,11 @@ function normalizeNonNegativeInteger(value) {
     return Math.floor(normalizeNonNegativeNumber(value));
 }
 
+function normalizeEnum(value, allowed, fallback) {
+    const normalized = normalizeString(value, 32);
+    return allowed.includes(normalized) ? normalized : fallback;
+}
+
 function normalizeLanguages(value) {
     if (!Array.isArray(value)) return [];
     return [...new Set(value
@@ -79,7 +84,21 @@ function getPublishedPageCount(project) {
         ? Object.values(project.dsfPageCounts).map(normalizeNonNegativeInteger)
         : [];
     if (languageCounts.length) return Math.max(...languageCounts);
-    return Array.isArray(project?.dsfPages) ? project.dsfPages.length : 0;
+    if (Array.isArray(project?.dsfPages)) return project.dsfPages.length;
+    return normalizeNonNegativeInteger(project?.dsfPageCount);
+}
+
+export function createProjectSummaryForPatch(currentProject, projectPatch, options = {}) {
+    const current = currentProject && typeof currentProject === 'object' ? currentProject : {};
+    const patch = projectPatch && typeof projectPatch === 'object' ? projectPatch : {};
+    const summaryOverrides = options.summaryOverrides && typeof options.summaryOverrides === 'object'
+        ? options.summaryOverrides
+        : {};
+    return createProjectSummary({
+        ...current,
+        ...patch,
+        ...summaryOverrides,
+    }, options);
 }
 
 export function measureProjectSummaryBytes(summary) {
@@ -135,14 +154,14 @@ export function createProjectSummary(project, options = {}) {
         lastUpdated: normalizeTimestamp(project.lastUpdated || project.updatedAt),
         hasPublishedDsf: dsfPageCount > 0,
         releaseId: normalizeString(project.releaseId),
-        dsfStatus: normalizeString(project.dsfStatus || 'draft', 32) || 'draft',
-        visibility: normalizeString(project.visibility || 'private', 32) || 'private',
+        dsfStatus: normalizeEnum(project.dsfStatus, ['draft', 'public', 'unlisted', 'private'], 'draft'),
+        visibility: normalizeEnum(project.visibility, ['public', 'unlisted', 'private'], 'private'),
         dsfPublishedAt: normalizeTimestamp(project.dsfPublishedAt),
         dsfLangs: normalizeLanguages(project.dsfLangs),
         dsfPageCount,
         dsfTotalBytes: normalizeNonNegativeInteger(project.dsfTotalBytes),
         dsfResolution: normalizeString(project.dsfResolution, 64),
-        dsfQuality: normalizeNonNegativeNumber(project.dsfQuality),
+        dsfQuality: Math.min(100, normalizeNonNegativeNumber(project.dsfQuality)),
         publication: normalizePublication(project.publication),
     };
 

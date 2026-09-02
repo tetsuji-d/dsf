@@ -4,6 +4,7 @@
 import { collection, getDocs, deleteDoc, doc, getDoc, writeBatch } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
 import { state } from './state.js';
 import { db } from './firebase.js';
+import { stageProjectSummaryDelete } from './project-summary-firestore.js';
 
 /**
  * クラウドプロジェクト一覧を取得する（サマリーフィールドのみ）。
@@ -52,6 +53,7 @@ export async function deleteCloudProject(projectId) {
     const batch = writeBatch(db);
     batch.delete(doc(db, 'users', state.uid, 'projects', projectId, 'authoring', 'current'));
     batch.delete(projectRef);
+    stageProjectSummaryDelete(batch, db, state.uid, projectId);
     await batch.commit();
     if (workId) await deleteDoc(doc(db, 'public_projects', workId)).catch(() => {});
     await deleteDoc(doc(db, 'public_projects', projectId)).catch(() => {});

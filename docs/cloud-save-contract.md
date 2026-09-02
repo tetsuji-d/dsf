@@ -122,9 +122,10 @@ Roll it out in this order:
 4. Read summaries first in Dashboard, retaining root fallback for old projects.
 5. Backfill existing projects, then remove fallback only after coverage is measured.
 
-The current phase performs step 1 and defines the step 2 Rules locally. The
-Rules have not been deployed, and runtime reads, writes, backfill, and deletion
-behavior remain unchanged.
+Steps 1 and 2 are complete in staging. Step 3 is implemented by adding the
+summary to the same Firestore batch as every project-root metadata write and
+project deletion. The dual-write client has not been deployed to Cloudflare
+Pages yet; Dashboard reads and backfill remain unchanged.
 
 ## Local and DSP boundaries
 

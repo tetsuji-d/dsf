@@ -287,9 +287,13 @@ contractとpure projectionに加えてowner専用Firestore Rulesを定義する�
 document IDと`projectId`の一致、型・件数・文字列長を検証する。Firestore RulesではJSONの正確なbyte数を
 計測できないため、32 KiB上限は`js/project-summary.js`でも必ず検証する。
 
-この段階ではRulesはローカル定義・静的検証までとし、Rules deploy、保存時のdual-write、Dashboard read、
-既存projectのbackfillは未接続とする。接続順はRules deploy → 全writerのdual-write →
-summary優先read＋root fallback → backfill → fallback廃止とする。
+staging Rulesは2026-09-02に反映済み。通常保存、Press発行、Worksの公開状態／公開期間更新、
+Home／Worksの削除では、project rootとsummaryを同一Firestore batchで更新・削除する。
+summaryの作成に失敗した場合はrootだけを更新せず、両方を失敗させる。
+
+この段階ではdual-write clientはローカル実装までとし、Cloudflare Pagesへのdeploy、Dashboard read、
+既存projectのbackfillは未接続とする。次はsummary優先read＋root fallback → backfill →
+fallback廃止の順に進める。
 
 #### Block Object（`state.blocks` の各要素）
 

@@ -4,6 +4,7 @@ import {
     PROJECT_SUMMARY_SCHEMA_VERSION,
     assertProjectSummary,
     createProjectSummary,
+    createProjectSummaryForPatch,
     measureProjectSummaryBytes,
 } from '../js/project-summary.js';
 
@@ -73,6 +74,34 @@ const canonicalUrlSummary = createProjectSummary({
     listThumbnail: 'HTTPS://media.dsf.ink/thumb.webp',
 });
 assert.equal(canonicalUrlSummary.listThumbnail, 'https://media.dsf.ink/thumb.webp');
+
+const patchedSummary = createProjectSummaryForPatch({
+    version: 6,
+    projectId: 'patched',
+    title: 'Preserved title',
+    listThumbnail: 'https://media.dsf.ink/preserved.webp',
+    lastUpdated: now,
+    dsfPageCount: 42,
+}, {
+    dsfStatus: 'public',
+    visibility: 'public',
+});
+assert.equal(patchedSummary.title, 'Preserved title');
+assert.equal(patchedSummary.listThumbnail, 'https://media.dsf.ink/preserved.webp');
+assert.equal(patchedSummary.dsfPageCount, 42);
+assert.equal(patchedSummary.hasPublishedDsf, true);
+assert.equal(patchedSummary.dsfStatus, 'public');
+
+const normalizedLegacyFields = createProjectSummary({
+    version: 5,
+    projectId: 'legacy_fields',
+    dsfStatus: 'published',
+    visibility: 'draft',
+    dsfQuality: 150,
+});
+assert.equal(normalizedLegacyFields.dsfStatus, 'draft');
+assert.equal(normalizedLegacyFields.visibility, 'private');
+assert.equal(normalizedLegacyFields.dsfQuality, 100);
 
 assert.throws(
     () => assertProjectSummary({ ...summary, blocks: [] }),
