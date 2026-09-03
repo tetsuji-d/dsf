@@ -136,6 +136,7 @@ export async function openWorksRoom(roomMode = false) {
                     proj.dsfStatus = newStatus;
                     proj.publication = updated;
                     sel.dataset.prev = newStatus;
+                    _refreshViewerAction(row, proj);
                     _refreshRowPublication(row, proj, account);
                 } else {
                     sel.value = prevStatus;
@@ -228,9 +229,7 @@ function _renderRow(p, account = {}) {
                     <option value="public"   ${p.dsfStatus === 'public'   ? 'selected' : ''} ${v2PublishDisabled}>公開</option>
                     <option value="private"  ${p.dsfStatus === 'private'  ? 'selected' : ''}>非公開</option>
                 </select>
-                <button class="works-btn-copy"
-                    onclick="window.copyViewerUrl('${_esc(p.id)}')"
-                    title="ビューワーURLをコピー"><span class="material-icons" aria-hidden="true">link</span><span>URLコピー</span></button>
+                ${_renderViewerAction(p)}
                 <button class="works-btn-edit"
                     onclick="window.loadAndOpenProject('${_esc(p.id)}')"
                     title="エディターで開く"><span class="material-icons" aria-hidden="true">edit</span><span>編集</span></button>
@@ -242,6 +241,25 @@ function _renderRow(p, account = {}) {
                     title="プロジェクトを削除"><span class="material-icons" aria-hidden="true">delete</span><span>削除</span></button>
             </div>
         </div>`;
+}
+
+function _renderViewerAction(p) {
+    const ownerOnly = p.dsfStatus === 'draft' || p.dsfStatus === 'private';
+    if (ownerOnly) {
+        const label = p.dsfStatus === 'draft' ? '下書きプレビュー' : '非公開プレビュー';
+        return `<button class="works-btn-copy works-btn-preview" data-works-viewer-action
+            onclick="window.openDraftViewer('${_esc(p.id)}')"
+            title="所有者として${label}を開く"><span class="material-icons" aria-hidden="true">preview</span><span>${label}</span></button>`;
+    }
+    return `<button class="works-btn-copy" data-works-viewer-action
+        onclick="window.copyViewerUrl('${_esc(p.id)}')"
+        title="ビューワーURLをコピー"><span class="material-icons" aria-hidden="true">link</span><span>URLコピー</span></button>`;
+}
+
+function _refreshViewerAction(row, project) {
+    const current = row?.querySelector('[data-works-viewer-action]');
+    if (!current) return;
+    current.outerHTML = _renderViewerAction(project);
 }
 
 function _formatWorksPublicationDate(value) {

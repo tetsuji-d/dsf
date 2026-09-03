@@ -33,6 +33,7 @@ import { CANONICAL_PAGE_WIDTH, CANONICAL_PAGE_HEIGHT } from './page-geometry.js'
 import { canInsertSpreadImageAt, getBookCompositionIssues, getPageDisplayLabel, getReadablePageCount, normalizeBookSettings, getPageCoverKey } from './page-labels.js';
 import { composeText, paginateText, PAGE_BREAK_MARKER, getWritingModeFromConfigs, getFontPresetFromConfigs, getFontPresetOptions, parseRubyTokens, tokensToPlainText, alignRubyToLines } from './layout.js';
 import { formatPublicationDate, normalizePlanTier } from './publication.js';
+import { buildOwnerDraftViewerUrl } from './viewer-owner-preview.js';
 import { PROJECT_SCHEMA_VERSION, createFlowGroupBlock, hasFlowGroups } from './flow-project-model.js';
 import { applyFlowAuthoringOperation } from './flow-authoring.js';
 import { alignFlowDirectCompositionElement } from './flow-direct-composition.js';
@@ -8565,6 +8566,10 @@ window.copyViewerUrl = async (pid) => {
     } catch {
         prompt('ビューワーURL:', url);
     }
+};
+window.openDraftViewer = (pid) => {
+    const url = buildOwnerDraftViewerUrl(window.location.origin, pid);
+    window.open(url, '_blank', 'noopener,noreferrer');
 };
 window.loadAndRepress = async (pid) => {
     closeWorksRoom();

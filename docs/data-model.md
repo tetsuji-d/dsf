@@ -67,6 +67,15 @@ DSF の公開系IDは、名前や作者名ではなく不変IDで解決する。
 /viewer.html?project=proj_abc123&author={uid}
 ```
 
+所有者が `draft` / `private` Releaseを確認する場合は、共有URLとは分離した所有者プレビューURLを使う。
+
+```text
+/viewer?draft=proj_abc123
+```
+
+このURLは所有者UIDを含めない。Viewerでログイン中のFirebase Auth UID配下からProject、Work、Releaseを解決し、
+Firestore Rulesのowner readを通過した場合だけ表示する。しおり、レビュー、閲覧指標は公開閲覧として記録しない。
+
 `/viewer.html?work=` は `public_projects/{workId}` を読み、v1は公開`dsfPages`、v2は公開locatorが指すimmutable `content.json`を表示する。公開Viewerはowner専用Project／Release本文を正本として読まない。Hosting rewrite がある環境では `/viewer?work=` も互換URLとして扱う。版指定URLは後続で `r={releaseId}` を解決対象に加える。
 
 ---
@@ -786,6 +795,7 @@ Viewer の閲覧行動を append-only の raw event として保存する。日�
 ```
 
 `public` は Portal に表示する。`unlisted` は Portal には表示しないが、`/viewer.html?work={workId}` の解決には使う。`draft` / `private` では削除する。
+Worksは`draft` / `private`に公開URLコピーを表示せず、所有者専用の下書きプレビューを表示する。
 
 ---
 

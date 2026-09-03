@@ -28,6 +28,12 @@ import {
     prepareDsfViewerFixedTextContext,
 } from './viewer-fixed-text.js';
 import { mapDsfLanguagePage } from './dsf-delivery-v2.js';
+import {
+    assertOwnerDraftReleaseMetadata,
+    normalizeOwnerDraftProjectId,
+    resolveOwnerDraftReleaseIdentity,
+    resolveOwnerDraftWorkIdentity,
+} from './viewer-owner-preview.js';
 
 // ── Module State ──────────────────────────────────────────────
 let sharedProjectRef = null;
@@ -377,6 +383,7 @@ async function init() {
     applyViewerDevSmoothingClass();
 
     const params = new URLSearchParams(window.location.search);
+    const ownerDraftPid = String(params.get('draft') || '').trim();
     const workId = params.get('work') || params.get('w');
     const pid = params.get('project') || params.get('id');
     const uid = params.get('author') || params.get('uid');
@@ -399,7 +406,10 @@ async function init() {
     }
 
     await initAuth().catch((e) => console.warn('[Viewer] initAuth failed:', e));
-    if (workId) {
+    if (ownerDraftPid) {
+        sharedProjectRef = { ownerDraftPid };
+        attemptLoad();
+    } else if (workId) {
         sharedProjectRef = { workId };
         attemptLoad();
     } else if (pid) {
@@ -572,9 +582,11 @@ async function attemptLoad() {
     if (!sharedProjectRef || isProjectLoading) return;
     isProjectLoading = true;
     try {
-        const ok = sharedProjectRef.workId
-            ? await loadWorkFromPublicIndex(sharedProjectRef.workId)
-            : await loadFromFirestore(sharedProjectRef.pid, sharedProjectRef.uid);
+        const ok = sharedProjectRef.ownerDraftPid
+            ? await loadOwnerDraft(sharedProjectRef.ownerDraftPid)
+            : sharedProjectRef.workId
+                ? await loadWorkFromPublicIndex(sharedProjectRef.workId)
+                : await loadFromFirestore(sharedProjectRef.pid, sharedProjectRef.uid);
         if (ok) { projectLoaded = true; lastLoadErrorCode = ''; }
     } finally {
         isProjectLoading = false;
@@ -582,6 +594,70 @@ async function attemptLoad() {
 }
 
 // ── Firestore ─────────────────────────────────────────────────
+async function loadOwnerDraft(pid) {
+    if (!state.uid) {
+        lastLoadErrorCode = 'permission-denied';
+        showPrivateLoginModal();
+        return false;
+    }
+    const uid = state.uid;
+    try {
+        const projectId = normalizeOwnerDraftProjectId(pid);
+        const projectSnap = await getDoc(doc(db, 'users', uid, 'projects', projectId));
+        if (!projectSnap.exists()) {
+            alert(vt('projectNotFound', { pid: projectId }));
+            return false;
+        }
+        const projectData = projectSnap.data() || {};
+        const workIdentity = resolveOwnerDraftWorkIdentity({ uid, projectId, project: projectData });
+        const workSnap = await getDoc(doc(db, 'users', uid, 'works', workIdentity.workId));
+        const workData = workSnap.exists() ? workSnap.data() || {} : {};
+        const identity = resolveOwnerDraftReleaseIdentity({
+            ...workIdentity,
+            releaseId: projectData.releaseId || '',
+        }, workData);
+        const releaseSnap = await getDoc(doc(db, 'users', uid, 'works', identity.workId, 'releases', identity.releaseId));
+        if (!releaseSnap.exists()) {
+            throw new Error('下書きのReleaseが見つかりません。Pressから下書きを再作成してください。');
+        }
+        const releaseData = releaseSnap.data() || {};
+        assertOwnerDraftReleaseMetadata(releaseData, identity);
+        sharedProjectRef = { ownerDraftPid: projectId, pid: projectId, workId: identity.workId, uid };
+        const projectMetadata = {
+            ...workData,
+            ...projectData,
+            ...releaseData,
+            projectId,
+            workId: identity.workId,
+            releaseId: identity.releaseId,
+            authorUid: uid,
+        };
+        if (isDsfHorizonV2MetadataDeclared(projectData) || isDsfHorizonV2MetadataDeclared(releaseData)) {
+            if (!isDsfHorizonV2MetadataDeclared(releaseData)) {
+                throw new Error('下書きのDSF v2 Release metadataが不完全です。');
+            }
+            return loadHorizonProjection(uid, identity.workId, identity.releaseId, releaseData, {
+                releaseMetadata: releaseData,
+                projectMetadata,
+                source: 'owner-draft',
+            });
+        }
+        if (!Array.isArray(releaseData.dsfPages) || releaseData.dsfPages.length === 0) {
+            throw new Error(vt('unpublishedProject'));
+        }
+        loadProjectData(projectMetadata, { source: 'owner-draft' });
+        return true;
+    } catch (e) {
+        lastLoadErrorCode = e?.code || '';
+        if (lastLoadErrorCode === 'permission-denied') {
+            showPrivateLoginModal();
+        } else {
+            alert(vt('loadError', { message: e?.message || String(e) }));
+        }
+        return false;
+    }
+}
+
 async function loadWorkFromPublicIndex(workId) {
     try {
         const indexSnap = await getDoc(doc(db, 'public_projects', workId));
@@ -605,7 +681,7 @@ async function loadWorkFromPublicIndex(workId) {
             if (!indexData.releaseId) {
                 throw new Error('DSF v2 public index is missing its immutable Release ID.');
             }
-            return loadPublicHorizonProjection(uid, workId, indexData.releaseId, {
+            return loadHorizonProjection(uid, workId, indexData.releaseId, {
                 ...indexData,
                 projectId: pid,
                 authorUid: uid,
@@ -647,22 +723,23 @@ async function loadWorkFromPublicIndex(workId) {
     }
 }
 
-async function loadPublicHorizonProjection(uid, workId, releaseId, indexData) {
+async function loadHorizonProjection(uid, workId, releaseId, locatorMetadata, options = {}) {
     const { loadDsfHorizonViewerRelease } = await import('./dsf-horizon-viewer-load.js');
     const configuredOrigin = getViewerDsfContentOrigin();
     const portableSession = await loadDsfHorizonViewerRelease({
         uid,
         workId,
         releaseId,
-        publicMetadata: indexData,
-        projectMetadata: indexData,
+        publicMetadata: locatorMetadata,
+        releaseMetadata: options.releaseMetadata,
+        projectMetadata: options.projectMetadata || locatorMetadata,
         allowedContentOrigins: [configuredOrigin],
         documentRef: document,
     });
     try {
         const defaultContext = portableSession.contextsByLanguage.get(portableSession.project.defaultLang);
         loadProjectData(portableSession.project, {
-            source: 'shared',
+            source: options.source || 'shared',
             fixedTextContext: defaultContext,
             localPortableSession: portableSession,
             assetUrls: portableSession.assetUrls,

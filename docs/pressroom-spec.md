@@ -23,6 +23,9 @@ Studio (Editor)          Press Room                     Portal
 | `private`    | 非公開。作者が一度公開したものを取り下げ | ✗ | ✗ |
 | `rejected`   | リジェクト。運営による強制非公開。作者は再公開不可 | ✗ | ✗ |
 
+`draft` / `private`の作者確認は通常の`?work=`共有URLではなく、`/viewer?draft={projectId}`の所有者プレビューを使う。
+ViewerはURLからUIDを受け取らず、ログイン中のFirebase Auth UID配下にあるProject／Work／Releaseだけを読む。
+
 ## 掲載可能期間 / 公開期限
 
 `dsfStatus` は公開状態、`publication` は時間境界を表す。

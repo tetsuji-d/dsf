@@ -65,6 +65,7 @@
     "verify:dsf-release-upload-endpoint": "node scripts/verify-dsf-release-upload-endpoint.js",
     "verify:dsf-horizon-release-upload": "node scripts/verify-dsf-horizon-release-upload.js",
     "verify:dsf-horizon-viewer-load": "node scripts/verify-dsf-horizon-viewer-load.js",
+    "verify:owner-draft-viewer": "node scripts/verify-owner-draft-viewer.js",
     "verify:flow-press-horizon-release-handoff": "node scripts/verify-flow-press-horizon-release-handoff.js",
     "verify:flow-press-horizon-release-upload": "node scripts/verify-flow-press-horizon-release-upload.js",
     "verify:flow-press-horizon-draft-write": "node scripts/verify-flow-press-horizon-draft-write.js",

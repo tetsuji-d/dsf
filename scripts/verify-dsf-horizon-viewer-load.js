@@ -281,7 +281,7 @@ await assert.rejects(
 
 const viewerSource = readFileSync(new URL('../js/viewer.js', import.meta.url), 'utf8');
 assert.match(viewerSource, /isDsfHorizonV2MetadataDeclared\(indexData\)/);
-assert.match(viewerSource, /loadPublicHorizonProjection\(uid, workId, indexData\.releaseId/);
+assert.match(viewerSource, /loadHorizonProjection\(uid, workId, indexData\.releaseId/);
 assert.match(viewerSource, /loadDsfHorizonViewerRelease\(\{/);
 assert.match(viewerSource, /source === 'shared' && !hasDsfPages && !options\.fixedTextContext/);
 assert.match(viewerSource, /if \(v2Declared\) throw e;/,
