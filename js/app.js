@@ -4399,16 +4399,19 @@ function refresh(options = {}) {
     document.querySelectorAll('[data-flow-publication-required]').forEach((control) => {
         const needsAuth = control.hasAttribute('data-auth-required');
         const flowPortableReady = isVerifiedFlowPortableDownloadControl(control);
-        const flowHorizonControl = isFlowHorizonDryRunControl(control);
-        const blocked = hasFlowGroups(state) && !flowPortableReady;
+        const flowHorizonControl = isFlowHorizonPublishControl(control);
+        const flowHorizonReady = isReadyFlowHorizonPublishControl(control);
+        const blocked = hasFlowGroups(state) && !flowPortableReady && !flowHorizonReady;
         control.disabled = blocked || (needsAuth && !state.uid);
         control.title = needsAuth && !state.uid
             ? t('login_required')
             : (blocked
                 ? (flowHorizonControl
-                    ? getFlowHorizonDryRunControlTitle(control)
+                    ? getFlowHorizonPublishControlTitle(control)
                     : 'FlowのローカルZIP検証完了後に有効になります')
-                : (flowPortableReady ? '検証済みFlow portable .dsfをローカルへ保存します' : ''));
+                : (flowHorizonControl
+                    ? getFlowHorizonPublishControlTitle(control)
+                    : (flowPortableReady ? '検証済みFlow portable .dsfをローカルへ保存します' : '')));
     });
 
     const isTextSection = editableFixedSection?.type === 'text';

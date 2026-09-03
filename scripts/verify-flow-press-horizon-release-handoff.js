@@ -353,5 +353,7 @@ assert.match(appSource, /refreshFlowHorizonDryRunReadiness/);
 assert.match(appSource, /getFlowHorizonPublishControlTitle/);
 assert.match(appSource, /flowHorizonState === 'ready'/);
 assert.match(appSource, /検証済み配信ファイルをアップロードし、非公開draftとして保存します/);
+assert.doesNotMatch(appSource, /isFlowHorizonDryRunControl|getFlowHorizonDryRunControlTitle/,
+    'all auth and editor UI guards must use the connected Flow Horizon control state');
 
 console.log('Flow Press Horizon dry-run handoff and read-only readiness verification passed.');
