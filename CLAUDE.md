@@ -28,6 +28,7 @@ AI エージェント、人間の開発者ともに、まずこの文書を読�
 
 ### 4. 最近の重要テーマ
 
+- **[docs/flow-remaining-implementation-plan.md](docs/flow-remaining-implementation-plan.md)** — Flow／DSF delivery v2の現在地、残作業、安全な実装単位、初期公開の完了条件
 - **[docs/environment-topology.md](docs/environment-topology.md)**  
   Cloudflare Pages / Firebase / R2 の役割分担
 - **[docs/user-account-audit.md](docs/user-account-audit.md)**  
@@ -141,7 +142,7 @@ npx wrangler pages deploy dist --project-name dsf-studio --branch staging # stag
 | ホスティング | Cloudflare Pages (`dsf.ink`) | ローカル開発: Vite / staging: Cloudflare Pages preview |
 | 画像ストレージ | Cloudflare R2 (`dsf-media` バケット) | ローカル開発: Firebase Storage / staging: Cloudflare R2 (`dsf-media-staging`) |
 | 画像アップロード API | Cloudflare Pages Function (`/upload`) | ローカル開発: Firebase Storage SDK / staging: Cloudflare Pages Function (`/upload`) |
-| DSF v2 release API | Cloudflare Pages Function (`/upload-release`) | mock検証済み・Press未接続 / staging実通信未確認 |
+| DSF v2 release API | Cloudflare Pages Function (`/upload-release`) | staging実通信・owner draft保存・atomic公開・匿名Viewer確認済み / 混在・多言語等の継続確認あり |
 | 認証 | Firebase Auth | Firebase Auth |
 | データベース | Firestore | Firestore |
 
@@ -257,8 +258,9 @@ Firestore、Works、公開Viewer、deployには接続していない。
 公開可能なpreflight結果からhash済みcontent index／言語manifestとasset planをpure assemblyできるが、
 WebP実bytes、R2、Firestore、Press UI、公開Viewerには未接続である。
 active production font registryとpure Press preflightにより、Fixed／Flow pageをfixedText候補または理由付きWebPへ分類できる。
-portable v2 `.dsf`のローカル書き出し／Viewer読込は接続済みだが、Horizon発行／公開runtimeはまだWebP-onlyである。
-9Aの段階実装が完了するまでFlow作品の発行停止を維持する。
+portable v2 `.dsf`のローカル書き出し／Viewer読込、Horizon v2 remote loader、Flowのowner-only draft保存／preview、
+Worksのatomicな`public`／`unlisted`切替と匿名共有URLの基本確認は接続済みである。継続確認と安全な実装順は
+`docs/flow-remaining-implementation-plan.md`を参照する。
 
 #### 高度な和欧文組版エンジン（実装済み / 2026-04）
 
