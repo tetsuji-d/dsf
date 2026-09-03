@@ -1504,6 +1504,14 @@ body[data-room="works"] #works-room {
     color: rgba(255, 255, 255, 0.7);
 }
 
+.press-release-language-hint {
+    display: block;
+    margin-top: 7px;
+    color: #64748b;
+    font-size: 11px;
+    line-height: 1.45;
+}
+
 .press-publish-btn:disabled {
     cursor: not-allowed;
     filter: grayscale(0.25);
@@ -1639,9 +1647,14 @@ body[data-room="works"] #works-room {
     transition: background 0.15s, border-color 0.15s;
 }
 
-.press-publish-modal-cancel:hover {
+.press-publish-modal-cancel:hover:not(:disabled) {
     background: #f8fafc;
     border-color: #94a3b8;
+}
+
+.press-publish-modal-cancel:disabled {
+    cursor: wait;
+    opacity: 0.55;
 }
 
 .press-publish-modal-cancel .material-icons {
@@ -5199,6 +5212,7 @@ body[data-theme="dark"] .thumb-card-subtitle,
 body[data-theme="dark"] .home-project-meta,
 body[data-theme="dark"] .press-room-subtitle,
 body[data-theme="dark"] .press-field label,
+body[data-theme="dark"] .press-release-language-hint,
 body[data-theme="dark"] .press-size-estimate,
 body[data-theme="dark"] .press-slider-row span,
 body[data-theme="dark"] .works-meta,

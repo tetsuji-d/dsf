@@ -3,7 +3,7 @@
  * DSP → DSF レンダリング・R2アップロード・Firestore発行
  */
 import {
-    doc, setDoc, getDoc, deleteDoc, serverTimestamp, writeBatch
+    doc, setDoc, getDoc, deleteDoc, serverTimestamp, writeBatch, runTransaction
 } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
 import { state, dispatch, actionTypes } from './state.js';
 import { hasFlowGroups } from './flow-project-model.js';
@@ -37,11 +37,18 @@ import {
     getCachedFlowRuntimePageProjection,
 } from './flow-runtime-pages.js';
 import { createFlowPressPortableDownloadArtifact } from './flow-press-portable-download.js';
+import {
+    createInitialPressReleaseLanguages,
+    reconcilePressReleaseLanguages,
+    togglePressReleaseLanguage,
+} from './press-release-languages.js';
 
 let _estimateTimer = null;
 let _estimateRunId = 0;
 let _pressListenersBound = false;
 let _pressThumbLang = '';
+let _pressReleaseLanguageScope = '';
+let _pressReleaseLanguages = [];
 let _pressFlowPreviewState = 'idle';
 let _pressFlowPreviewError = null;
 let _pressFlowPreviewController = null;
@@ -91,6 +98,20 @@ let _pressFlowHorizonHandoffModule = null;
 let _pressFlowHorizonHandoffResult = null;
 let _pressFlowHorizonHandoffSignature = '';
 let _pressFlowHorizonHandoffReleaseId = '';
+let _pressFlowHorizonUploadState = 'idle';
+let _pressFlowHorizonUploadError = null;
+let _pressFlowHorizonUploadRequestId = 0;
+let _pressFlowHorizonUploadController = null;
+let _pressFlowHorizonUploadModule = null;
+let _pressFlowHorizonUploadResult = null;
+let _pressFlowHorizonUploadSignature = '';
+let _pressFlowHorizonUploadProgress = null;
+let _pressFlowHorizonDraftState = 'idle';
+let _pressFlowHorizonDraftError = null;
+let _pressFlowHorizonDraftRequestId = 0;
+let _pressFlowHorizonDraftModule = null;
+let _pressFlowHorizonDraftResult = null;
+let _pressFlowHorizonDraftSignature = '';
 const PRESS_IMAGE_WEBP_QUALITY_BY_SCALE = Object.freeze({
     1: 0.84,
     2: 0.86,
@@ -204,6 +225,57 @@ export function resetPressRenderCancel() {
 
 export function requestPressRenderCancel() {
     _pressRenderCancelled = true;
+    _pressFlowHorizonUploadController?.abort();
+}
+
+function _openFlowHorizonPublishModal() {
+    const el = document.getElementById('press-publish-modal');
+    if (el) {
+        el.style.display = 'flex';
+        el.setAttribute('aria-hidden', 'false');
+    }
+    const bar = document.getElementById('press-publish-modal-bar');
+    if (bar) {
+        bar.max = 100;
+        bar.value = 0;
+    }
+    const cancelBtn = document.getElementById('press-publish-cancel-btn');
+    if (cancelBtn) cancelBtn.disabled = false;
+    requestAnimationFrame(() => cancelBtn?.focus());
+}
+
+function _closeFlowHorizonPublishModal() {
+    const el = document.getElementById('press-publish-modal');
+    if (el) {
+        el.style.display = 'none';
+        el.setAttribute('aria-hidden', 'true');
+    }
+    const bar = document.getElementById('press-publish-modal-bar');
+    if (bar) {
+        bar.max = 100;
+        bar.value = 0;
+    }
+    const cancelBtn = document.getElementById('press-publish-cancel-btn');
+    if (cancelBtn) cancelBtn.disabled = false;
+}
+
+/** @param {string} message @param {number | null} fraction 0..1、null は不定 */
+function _setFlowHorizonPublishProgress(message, fraction) {
+    const statusEl = document.getElementById('press-publish-modal-status');
+    const bar = document.getElementById('press-publish-modal-bar');
+    if (statusEl) statusEl.textContent = message;
+    if (!bar) return;
+    if (fraction == null) {
+        bar.removeAttribute('value');
+        return;
+    }
+    bar.max = 100;
+    bar.value = Math.round(Math.min(100, Math.max(0, fraction * 100)));
+}
+
+function _setFlowHorizonPublishCancelable(cancelable) {
+    const cancelBtn = document.getElementById('press-publish-cancel-btn');
+    if (cancelBtn) cancelBtn.disabled = !cancelable;
 }
 
 export function throwIfPressRenderCancelled() {
@@ -332,6 +404,30 @@ function _bindPressTrialTextBinaryOnce() {
     });
 }
 
+function _getPressReleaseLanguageScope() {
+    return JSON.stringify([
+        state.projectId || '',
+        state.defaultLang || 'ja',
+        state.languages || ['ja'],
+    ]);
+}
+
+function _ensurePressReleaseLanguages() {
+    const available = state.languages || ['ja'];
+    const scope = _getPressReleaseLanguageScope();
+    if (_pressReleaseLanguageScope !== scope) {
+        _pressReleaseLanguageScope = scope;
+        _pressReleaseLanguages = [...createInitialPressReleaseLanguages(available, state.defaultLang || 'ja')];
+    } else {
+        _pressReleaseLanguages = [...reconcilePressReleaseLanguages(
+            available,
+            _pressReleaseLanguages,
+            state.defaultLang || 'ja',
+        )];
+    }
+    return [..._pressReleaseLanguages];
+}
+
 function _resetPressFlowLocalReleasePackage(nextState = 'idle', error = null) {
     _pressFlowLocalReleasePackageController?.abort();
     _pressFlowLocalReleasePackageController = null;
@@ -344,6 +440,29 @@ function _resetPressFlowLocalReleasePackage(nextState = 'idle', error = null) {
     _updatePublishBtn();
 }
 
+function _resetPressFlowHorizonDraft(nextState = 'idle', error = null) {
+    _pressFlowHorizonDraftRequestId += 1;
+    _pressFlowHorizonDraftState = nextState;
+    _pressFlowHorizonDraftError = error;
+    _pressFlowHorizonDraftResult = null;
+    _pressFlowHorizonDraftSignature = '';
+}
+
+function _resetPressFlowHorizonUpload(nextState = 'idle', error = null) {
+    _pressFlowHorizonUploadController?.abort();
+    _pressFlowHorizonUploadController = null;
+    _pressFlowHorizonUploadRequestId += 1;
+    _pressFlowHorizonUploadState = nextState;
+    _pressFlowHorizonUploadError = error;
+    _pressFlowHorizonUploadResult = null;
+    _pressFlowHorizonUploadSignature = '';
+    _pressFlowHorizonUploadProgress = null;
+    _resetPressFlowHorizonDraft(
+        nextState === 'blocked' || nextState === 'error' ? nextState : 'idle',
+        error,
+    );
+}
+
 function _resetPressFlowHorizonHandoff(nextState = 'idle', error = null) {
     _pressFlowHorizonHandoffController?.abort();
     _pressFlowHorizonHandoffController = null;
@@ -353,6 +472,10 @@ function _resetPressFlowHorizonHandoff(nextState = 'idle', error = null) {
     _pressFlowHorizonHandoffResult = null;
     _pressFlowHorizonHandoffSignature = '';
     _pressFlowHorizonHandoffReleaseId = '';
+    _resetPressFlowHorizonUpload(
+        nextState === 'blocked' || nextState === 'error' ? nextState : 'idle',
+        error,
+    );
     _updatePublishBtn();
 }
 
@@ -991,6 +1114,8 @@ function _renderPressFlowLocalReleaseSummary() {
     }
     summary.dataset.state = _pressFlowLocalReleasePlanningState;
     summary.dataset.horizonState = _pressFlowHorizonHandoffState;
+    summary.dataset.horizonUploadState = _pressFlowHorizonUploadState;
+    summary.dataset.horizonDraftState = _pressFlowHorizonDraftState;
     summary.dataset.horizonReady = _pressFlowHorizonHandoffState === 'ready'
         && _pressFlowHorizonHandoffResult?.readyForUpload === true
         ? 'true'
@@ -1032,7 +1157,10 @@ function _renderPressFlowLocalReleaseSummary() {
 }
 
 function _renderPressFlowHorizonHandoffStatus() {
-    const attributes = `class="press-flow-horizon-readiness" data-testid="press-flow-horizon-handoff-readiness" data-state="${_esc(_pressFlowHorizonHandoffState)}" aria-live="polite"`;
+    const activeState = _pressFlowHorizonDraftState !== 'idle'
+        ? _pressFlowHorizonDraftState
+        : (_pressFlowHorizonUploadState !== 'idle' ? _pressFlowHorizonUploadState : _pressFlowHorizonHandoffState);
+    const attributes = `class="press-flow-horizon-readiness" data-testid="press-flow-horizon-handoff-readiness" data-state="${_esc(activeState)}" aria-live="polite"`;
     if (_pressFlowHorizonHandoffState === 'working') {
         return `<span ${attributes}><b>Horizon配信準備</b> exact WebPと配信pathを検証中…</span>`;
     }
@@ -1050,6 +1178,30 @@ function _renderPressFlowHorizonHandoffStatus() {
     }
     const result = _pressFlowHorizonHandoffResult;
     if (_pressFlowHorizonHandoffState === 'ready' && result?.readyForUpload) {
+        if (_pressFlowHorizonDraftState === 'ready' && _pressFlowHorizonDraftResult?.readyForFirestoreWrite) {
+            return `<span ${attributes}><b>Horizon非公開draft</b> 保存済み: ${_pressFlowHorizonDraftResult.summary.pageCount}ページ。Worksで公開状態を設定できます。</span>`;
+        }
+        if (_pressFlowHorizonDraftState === 'working') {
+            return `<span ${attributes}><b>Horizon非公開draft</b> 配信metadataを保存中…</span>`;
+        }
+        if (_pressFlowHorizonDraftState === 'error') {
+            const code = _pressFlowHorizonDraftError?.code || 'FLOW_HORIZON_DRAFT_FAILED';
+            const message = _pressFlowHorizonDraftError?.message || '非公開draftを保存できませんでした。';
+            return `<span ${attributes} role="alert"><b>Horizon非公開draft</b> 保存失敗: ${_esc(message)} <code>${_esc(code)}</code>。同じ配信物で再試行できます。</span>`;
+        }
+        if (_pressFlowHorizonUploadState === 'working') {
+            const completed = Number(_pressFlowHorizonUploadProgress?.completedFileCount || 0);
+            const total = Number(_pressFlowHorizonUploadProgress?.fileCount || result.summary.fileCount || 0);
+            return `<span ${attributes}><b>Horizonアップロード</b> ${completed}/${total}ファイルを確認中…</span>`;
+        }
+        if (_pressFlowHorizonUploadState === 'error') {
+            const code = _pressFlowHorizonUploadError?.code || 'FLOW_HORIZON_UPLOAD_FAILED';
+            const message = _pressFlowHorizonUploadError?.message || '配信ファイルをアップロードできませんでした。';
+            return `<span ${attributes} role="alert"><b>Horizonアップロード</b> 失敗: ${_esc(message)} <code>${_esc(code)}</code>。再試行できます。</span>`;
+        }
+        if (_pressFlowHorizonUploadState === 'ready' && _pressFlowHorizonUploadResult?.readyForMetadataWrite) {
+            return `<span ${attributes}><b>Horizonアップロード</b> ${_pressFlowHorizonUploadResult.summary.fileCount}ファイルを検証済み。非公開draftの保存待ちです。</span>`;
+        }
         return `<span ${attributes}><b>Horizon配信準備</b> dry-run合格: ${result.summary.fileCount}ファイル／${_formatPressPayloadBytes(result.summary.totalBytes)}（WebP ${result.summary.imageFileCount}件をexact照合）。アップロード未実行。</span>`;
     }
     return `<span ${attributes}><b>Horizon配信準備</b> ローカル配信設計の完了を待っています。</span>`;
@@ -1648,6 +1800,275 @@ export function refreshFlowHorizonDryRunReadiness() {
     );
 }
 
+function _throwIfPressFlowHorizonUploadCancelled(signal, requestId) {
+    if (!signal?.aborted && requestId === _pressFlowHorizonUploadRequestId) return;
+    const error = new Error('Flow Horizon release upload was cancelled.');
+    error.name = 'AbortError';
+    throw error;
+}
+
+async function _executePressFlowHorizonUpload() {
+    if (!_isPressFlowHorizonHandoffReady()) {
+        const error = new Error('Flow Horizon upload handoff is not ready.');
+        error.code = 'FLOW_HORIZON_UPLOAD_HANDOFF_NOT_READY';
+        throw error;
+    }
+    const handoff = _pressFlowHorizonHandoffResult;
+    const signature = _pressFlowHorizonHandoffSignature;
+    if (_pressFlowHorizonUploadState === 'ready'
+        && _pressFlowHorizonUploadResult?.readyForMetadataWrite
+        && _pressFlowHorizonUploadSignature === signature) {
+        return _pressFlowHorizonUploadResult;
+    }
+
+    const requestId = _pressFlowHorizonUploadRequestId + 1;
+    _pressFlowHorizonUploadRequestId = requestId;
+    _pressFlowHorizonUploadController?.abort();
+    const controller = new AbortController();
+    _pressFlowHorizonUploadController = controller;
+    _pressFlowHorizonUploadState = 'working';
+    _pressFlowHorizonUploadError = null;
+    _pressFlowHorizonUploadResult = null;
+    _pressFlowHorizonUploadSignature = '';
+    _pressFlowHorizonUploadProgress = null;
+    _renderPressFlowLocalReleaseSummary();
+    _updatePublishBtn();
+
+    try {
+        _pressFlowHorizonUploadModule ||= await import('./flow-press-horizon-release-upload.js');
+        _throwIfPressFlowHorizonUploadCancelled(controller.signal, requestId);
+        const result = await _pressFlowHorizonUploadModule.executeFlowPressHorizonReleaseUpload({
+            handoff,
+            getCurrentUser: () => auth.currentUser,
+            signal: controller.signal,
+            onProgress(progress) {
+                if (controller.signal.aborted || requestId !== _pressFlowHorizonUploadRequestId) return;
+                _pressFlowHorizonUploadProgress = progress;
+                const completed = Number(progress?.completedFileCount || 0);
+                const total = Number(progress?.fileCount || handoff.summary?.fileCount || 0);
+                _setFlowHorizonPublishProgress(
+                    t('press_flow_horizon_uploading', { done: completed, total }),
+                    total > 0 ? completed / total : null,
+                );
+                _renderPressFlowLocalReleaseSummary();
+            },
+        });
+        _throwIfPressFlowHorizonUploadCancelled(controller.signal, requestId);
+        if (handoff !== _pressFlowHorizonHandoffResult
+            || signature !== _pressFlowHorizonHandoffSignature
+            || !_isPressFlowHorizonHandoffReady()) {
+            const stale = new Error('Flow Horizon upload inputs changed while uploading.');
+            stale.code = 'FLOW_HORIZON_UPLOAD_INPUT_STALE';
+            throw stale;
+        }
+        _pressFlowHorizonUploadController = null;
+        _pressFlowHorizonUploadState = 'ready';
+        _pressFlowHorizonUploadError = null;
+        _pressFlowHorizonUploadResult = result;
+        _pressFlowHorizonUploadSignature = signature;
+        _pressFlowHorizonUploadProgress = null;
+        _renderPressFlowLocalReleaseSummary();
+        _updatePublishBtn();
+        return result;
+    } catch (error) {
+        if (error?.name === 'AbortError' || controller.signal.aborted) {
+            if (requestId === _pressFlowHorizonUploadRequestId) {
+                _pressFlowHorizonUploadController = null;
+                _pressFlowHorizonUploadState = 'idle';
+                _pressFlowHorizonUploadError = null;
+                _pressFlowHorizonUploadResult = null;
+                _pressFlowHorizonUploadSignature = '';
+                _pressFlowHorizonUploadProgress = null;
+                _renderPressFlowLocalReleaseSummary();
+                _updatePublishBtn();
+            }
+            throw error;
+        }
+        if (requestId === _pressFlowHorizonUploadRequestId) {
+            _pressFlowHorizonUploadController = null;
+            _pressFlowHorizonUploadState = 'error';
+            _pressFlowHorizonUploadError = error;
+            _pressFlowHorizonUploadResult = null;
+            _pressFlowHorizonUploadSignature = '';
+            _pressFlowHorizonUploadProgress = null;
+            _renderPressFlowLocalReleaseSummary();
+            _updatePublishBtn();
+        }
+        throw error;
+    }
+}
+
+/**
+ * Upload verified Flow release files only. Firestore metadata remains a
+ * separate, owner-only draft write boundary.
+ */
+export function uploadFlowHorizonReleaseFiles() {
+    return _executePressFlowHorizonUpload();
+}
+
+export function getFlowHorizonReleaseUploadState() {
+    return Object.freeze({
+        state: _pressFlowHorizonUploadState,
+        error: _pressFlowHorizonUploadError,
+        result: _pressFlowHorizonUploadResult,
+        progress: _pressFlowHorizonUploadProgress,
+    });
+}
+
+function _assertCurrentFlowHorizonDraftIdentity(upload) {
+    const user = auth.currentUser;
+    if (!user || user.uid !== upload?.identity?.uid) {
+        const error = new Error('Current user does not own the Flow Horizon release.');
+        error.code = 'FLOW_HORIZON_DRAFT_USER_MISMATCH';
+        throw error;
+    }
+    if (state.workId !== upload.identity.workId
+        || _pressFlowHorizonHandoffReleaseId !== upload.identity.releaseId
+        || _pressFlowHorizonUploadResult !== upload
+        || _pressFlowHorizonUploadSignature !== _pressFlowHorizonHandoffSignature
+        || !_isPressFlowHorizonHandoffReady()) {
+        const error = new Error('Flow Horizon release inputs changed before draft creation.');
+        error.code = 'FLOW_HORIZON_DRAFT_INPUT_STALE';
+        throw error;
+    }
+    return user;
+}
+
+async function _writePressFlowHorizonDraftMetadata(upload, account) {
+    const user = _assertCurrentFlowHorizonDraftIdentity(upload);
+    if (!state.projectId) {
+        const error = new Error('Project must be saved to the cloud before draft creation.');
+        error.code = 'FLOW_HORIZON_DRAFT_PROJECT_REQUIRED';
+        throw error;
+    }
+    const signature = _pressFlowHorizonUploadSignature;
+    if (_pressFlowHorizonDraftState === 'ready'
+        && _pressFlowHorizonDraftSignature === signature
+        && _pressFlowHorizonDraftResult?.readyForFirestoreWrite) {
+        return _pressFlowHorizonDraftResult;
+    }
+
+    const requestId = _pressFlowHorizonDraftRequestId + 1;
+    _pressFlowHorizonDraftRequestId = requestId;
+    _pressFlowHorizonDraftState = 'working';
+    _pressFlowHorizonDraftError = null;
+    _pressFlowHorizonDraftResult = null;
+    _pressFlowHorizonDraftSignature = '';
+    _renderPressFlowLocalReleaseSummary();
+    _updatePublishBtn();
+    try {
+        _pressFlowHorizonDraftModule ||= await import('./flow-press-horizon-draft-write.js');
+        _assertCurrentFlowHorizonDraftIdentity(upload);
+        const publishedAt = new Date();
+        const publication = createDefaultPublication(account, publishedAt);
+        const pageCount = upload.seal.publicLocator.pageCount;
+        const draft = _pressFlowHorizonDraftModule.createFlowPressHorizonDraftWrite({
+            upload,
+            projectId: state.projectId,
+            project: state,
+            publication,
+            bookConfig: getPressBookConfigForExport(pageCount),
+            renderStamp: publishedAt.getTime(),
+        });
+        const projectId = state.projectId;
+        const projectRef = doc(db, 'users', user.uid, 'projects', projectId);
+        const releaseRef = doc(db, 'users', user.uid, 'works', upload.identity.workId, 'releases', upload.identity.releaseId);
+        const workRef = doc(db, 'users', user.uid, 'works', upload.identity.workId);
+        const publicRefs = draft.publicIndexDocumentIds.map((documentId) => (
+            doc(db, 'public_projects', documentId)
+        ));
+        await runTransaction(db, async (transaction) => {
+            _assertCurrentFlowHorizonDraftIdentity(upload);
+            if (state.projectId !== projectId) {
+                const stale = new Error('Flow Horizon project changed before draft transaction.');
+                stale.code = 'FLOW_HORIZON_DRAFT_PROJECT_STALE';
+                throw stale;
+            }
+            const [projectSnap, releaseSnap, ...publicSnaps] = await Promise.all([
+                transaction.get(projectRef),
+                transaction.get(releaseRef),
+                ...publicRefs.map((publicRef) => transaction.get(publicRef)),
+            ]);
+            _assertCurrentFlowHorizonDraftIdentity(upload);
+            const existingProject = projectSnap.exists() ? projectSnap.data() : {};
+            const existingRelease = releaseSnap.exists() ? releaseSnap.data() : null;
+            _pressFlowHorizonDraftModule.assertCompatibleFlowPressHorizonRelease(existingRelease, draft);
+            publicSnaps.forEach((publicSnap) => {
+                if (!publicSnap.exists()) return;
+                if (publicSnap.data()?.authorUid !== user.uid) {
+                    const conflict = new Error('A stale public index is not owned by the current user.');
+                    conflict.code = 'FLOW_HORIZON_DRAFT_PUBLIC_INDEX_OWNER_MISMATCH';
+                    throw conflict;
+                }
+            });
+
+            const timestamp = serverTimestamp();
+            transaction.set(projectRef, {
+                ...draft.projectPatch,
+                dsfPublishedAt: timestamp,
+            }, { merge: true });
+            stageProjectSummaryWrite(
+                transaction,
+                db,
+                user.uid,
+                projectId,
+                { ...state, ...existingProject },
+                draft.projectPatch,
+                { summaryOverrides: { dsfPublishedAt: publishedAt } },
+            );
+            transaction.set(workRef, { ...draft.workPatch, updatedAt: timestamp }, { merge: true });
+            transaction.set(releaseRef, {
+                ...draft.releaseDocument,
+                dsfPublishedAt: timestamp,
+                ...(existingRelease ? {} : { createdAt: timestamp }),
+            }, { merge: true });
+            publicSnaps.forEach((publicSnap, index) => {
+                if (publicSnap.exists()) transaction.delete(publicRefs[index]);
+            });
+        });
+        if (requestId !== _pressFlowHorizonDraftRequestId
+            || signature !== _pressFlowHorizonUploadSignature
+            || _pressFlowHorizonUploadResult !== upload) {
+            const stale = new Error('Flow Horizon draft was saved, but the editor inputs changed before completion.');
+            stale.code = 'FLOW_HORIZON_DRAFT_COMMITTED_INPUT_STALE';
+            throw stale;
+        }
+
+        dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'releaseId', value: upload.identity.releaseId } });
+        dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'publication', value: publication } });
+        _pressFlowHorizonDraftState = 'ready';
+        _pressFlowHorizonDraftError = null;
+        _pressFlowHorizonDraftResult = draft;
+        _pressFlowHorizonDraftSignature = signature;
+        _renderPressFlowLocalReleaseSummary();
+        _updatePublishBtn();
+        return draft;
+    } catch (error) {
+        if (requestId === _pressFlowHorizonDraftRequestId) {
+            _pressFlowHorizonDraftState = 'error';
+            _pressFlowHorizonDraftError = error;
+            _pressFlowHorizonDraftResult = null;
+            _pressFlowHorizonDraftSignature = '';
+            _renderPressFlowLocalReleaseSummary();
+            _updatePublishBtn();
+        }
+        throw error;
+    }
+}
+
+/** Persist only owner-visible draft metadata; public_projects is deleted atomically. */
+export function writeFlowHorizonDraftMetadata(account) {
+    return _writePressFlowHorizonDraftMetadata(_pressFlowHorizonUploadResult, account);
+}
+
+export function getFlowHorizonDraftMetadataState() {
+    return Object.freeze({
+        state: _pressFlowHorizonDraftState,
+        error: _pressFlowHorizonDraftError,
+        result: _pressFlowHorizonDraftResult,
+    });
+}
+
 function _throwIfPressFlowLocalPackageCancelled(signal, requestId) {
     if (!signal?.aborted && requestId === _pressFlowLocalReleasePackageRequestId) return;
     const error = new Error('Flow local release package verification was cancelled.');
@@ -2019,9 +2440,11 @@ function _renderLangTabs() {
     const container = document.getElementById('press-lang-tabs');
     if (!container) return;
     const langs = state.languages || ['ja'];
+    const selected = new Set(_ensurePressReleaseLanguages());
     container.innerHTML = langs.map(code =>
-        `<button class="lang-tab press-lang-tab active"
+        `<button class="lang-tab press-lang-tab ${selected.has(code) ? 'active' : ''}"
             data-lang="${code}"
+            aria-pressed="${selected.has(code) ? 'true' : 'false'}"
             onclick="togglePressLang('${code}')"
             title="${_esc(`${getLangProps(code).label} ${String(code).toUpperCase()} ${_getLangDirection(code) === 'rtl' ? '<<' : '>>'}`)}">${_renderPressLangTabContent(code)}</button>`
     ).join('');
@@ -2120,10 +2543,7 @@ function _queueSizeEstimate() {
 }
 
 function _getSelectedPressLangs() {
-    const selectedLangs = Array.from(
-        document.querySelectorAll('.press-lang-tab.active')
-    ).map(el => el.dataset.lang).filter(Boolean);
-    return selectedLangs.length ? selectedLangs : (state.languages || ['ja']);
+    return _ensurePressReleaseLanguages();
 }
 
 async function _updateSizeEstimate() {
@@ -2222,11 +2642,22 @@ function _updatePublishBtn() {
         }
         delete btn.dataset.flowPortableState;
         if (hasFlow && isHorizonPublish) {
-            btn.dataset.flowHorizonState = flowHorizonReady ? 'ready' : 'waiting';
-            btn.disabled = true;
-            btn.title = flowHorizonReady
-                ? 'Horizon upload入力のdry-runは合格しています。実upload・発行はまだ無効です'
-                : 'Horizon upload入力のdry-run完了後も、実upload・発行はこの段階では無効です';
+            const working = _pressFlowHorizonUploadState === 'working'
+                || _pressFlowHorizonDraftState === 'working';
+            const saved = _pressFlowHorizonDraftState === 'ready'
+                && _pressFlowHorizonDraftResult?.readyForFirestoreWrite
+                && _pressFlowHorizonDraftSignature === _pressFlowHorizonHandoffSignature;
+            btn.dataset.flowHorizonState = saved
+                ? 'saved'
+                : (working ? 'working' : (flowHorizonReady ? 'ready' : 'waiting'));
+            btn.disabled = !flowHorizonReady || working || saved;
+            btn.title = saved
+                ? 'この配信内容はHorizonへ非公開draftとして保存済みです'
+                : (working
+                    ? 'Horizonへ配信ファイルと非公開draftを保存しています'
+                    : (flowHorizonReady
+                        ? '検証済み配信ファイルをアップロードし、非公開draftとして保存します'
+                        : 'Horizon配信準備の検証完了後に有効になります'));
             return;
         }
         delete btn.dataset.flowHorizonState;
@@ -2239,8 +2670,15 @@ function _updatePublishBtn() {
 
 /** Press Room の言語タブをトグル（複数選択可） */
 window.togglePressLang = (code) => {
-    const tab = document.querySelector(`.press-lang-tab[data-lang="${code}"]`);
-    if (tab) tab.classList.toggle('active');
+    const result = togglePressReleaseLanguage(
+        state.languages || ['ja'],
+        _pressReleaseLanguages,
+        code,
+        state.defaultLang || 'ja',
+    );
+    _pressReleaseLanguages = [...result.languages];
+    _renderLangTabs();
+    if (!result.changed) return;
     _handlePressLocalReleaseSettingChange();
 };
 
@@ -2315,10 +2753,58 @@ window.updatePressBookCover = (key, value) => {
 
 // ─── レンダリング & 発行 ─────────────────────────────────────────────────────
 
-/** Press Room の「Horizonに発行」ボタンから呼ばれる */
+/** Press Room の「Horizonへ下書き保存」ボタンから呼ばれる */
 window.publishToCloud = async () => {
     if (hasFlowGroups(state)) {
-        alert('Flow作品のupload・発行はまだ有効化されていないため、このプロジェクトは発行できません。ローカル配信設計と容量だけ確認できます。');
+        if (!_isPressFlowHorizonHandoffReady()) {
+            alert('Flow作品のHorizon配信準備が完了していません。発行言語、翻訳、フォント、クラウド保存状態を確認してください。');
+            return;
+        }
+        let account;
+        try {
+            account = await assertAccountCanPublish(auth.currentUser);
+        } catch (error) {
+            alert(error?.message || String(error));
+            return;
+        }
+        if (!confirm(t('press_flow_horizon_confirm'))) return;
+
+        resetPressRenderCancel();
+        let cancelable = true;
+        const onEscKey = (event) => {
+            if (event.key !== 'Escape' || !cancelable) return;
+            event.preventDefault();
+            requestPressRenderCancel();
+        };
+        window.addEventListener('keydown', onEscKey, true);
+        _openFlowHorizonPublishModal();
+        _setFlowHorizonPublishProgress(t('press_preparing'), null);
+        try {
+            const upload = await uploadFlowHorizonReleaseFiles();
+            cancelable = false;
+            _setFlowHorizonPublishCancelable(false);
+            _setFlowHorizonPublishProgress(t('press_flow_horizon_saving'), null);
+            const draft = await writeFlowHorizonDraftMetadata(account);
+            _closeFlowHorizonPublishModal();
+            alert(t('press_flow_horizon_success', {
+                files: upload.summary.fileCount,
+                pages: draft.summary.pageCount,
+            }));
+            window.switchRoom('works');
+        } catch (error) {
+            if (error?.name === 'AbortError') {
+                alert(t('press_render_cancelled'));
+            } else {
+                console.error('[Press Flow Horizon upload] failed:', error);
+                alert(`${t('press_flow_horizon_failed')}\n${error?.message || String(error)}`);
+            }
+        } finally {
+            window.removeEventListener('keydown', onEscKey, true);
+            _closeFlowHorizonPublishModal();
+            resetPressRenderCancel();
+            _renderPressFlowLocalReleaseSummary();
+            _updatePublishBtn();
+        }
         return;
     }
     const uid = auth.currentUser?.uid;
@@ -2363,11 +2849,8 @@ window.publishToCloud = async () => {
     const { width: targetW, height: targetH } = getPressResolutionDims(publishResKey);
     const resStr = publishResKey;
 
-    // 選択言語取得（アクティブなタブ）
-    const selectedLangs = Array.from(
-        document.querySelectorAll('.press-lang-tab.active')
-    ).map(el => el.dataset.lang).filter(Boolean);
-    const langs = selectedLangs.length ? selectedLangs : (state.languages || ['ja']);
+    // 制作言語とは別に、Pressで明示選択した発行言語だけを対象にする。
+    const langs = _getSelectedPressLangs();
 
     let totalOps = 0;
     for (const section of pages) {

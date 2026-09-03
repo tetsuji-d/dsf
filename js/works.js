@@ -18,6 +18,7 @@ import {
     updatePublicationForStatus
 } from './publication.js';
 import { t, getUILang } from './i18n-studio.js';
+import { resolveWorksDsfRelease } from './works-dsf-release.js';
 
 const DSF_STATUS_LABELS = {
     draft:    { label: '下書き',   icon: 'edit_note', cls: 'dsf-draft'    },
@@ -25,6 +26,26 @@ const DSF_STATUS_LABELS = {
     public:   { label: '公開',     icon: 'public', cls: 'dsf-public'   },
     private:  { label: '非公開',   icon: 'lock', cls: 'dsf-private'  },
 };
+
+function _getWorksAllowedContentOrigins() {
+    const configured = String(import.meta.env.VITE_R2_PUBLIC_URL || '').trim();
+    if (!configured) return [];
+    try {
+        const url = new URL(configured);
+        return url.protocol === 'https:' ? [url.origin] : [];
+    } catch (_) {
+        return [];
+    }
+}
+
+function _resolveWorksRelease(data, pid) {
+    return resolveWorksDsfRelease(data, {
+        uid: state.uid,
+        workId: data.workId || pid,
+        releaseId: data.releaseId || '',
+        allowedContentOrigins: _getWorksAllowedContentOrigins(),
+    });
+}
 
 /**
  * Works Room を開く。
@@ -52,18 +73,25 @@ export async function openWorksRoom(roomMode = false) {
         const projects = [];
         for (const docSnap of snap.docs) {
             const d = docSnap.data() || {};
-            // DSF 発行済みのもの（dsfPages あり）のみ Works Room に表示
-            if (!d.dsfPages?.length) continue;
+            let release;
+            try {
+                release = _resolveWorksRelease(d, docSnap.id);
+            } catch (error) {
+                console.warn('[Works] invalid DSF release metadata skipped:', docSnap.id, error?.message || error);
+                continue;
+            }
             const reconciled = await _reconcileProjectPublication(docSnap.id, d, account);
             projects.push({
                 ...d,
+                ...release.deliveryFields,
                 id:             docSnap.id,
                 workId:         d.workId || docSnap.id,
                 releaseId:      d.releaseId || null,
+                releaseKind:    release.releaseKind,
                 title:          d.title || '無題のプロジェクト',
                 dsfStatus:      reconciled.dsfStatus || 'draft',
                 thumbnail:      _getThumbnail(d),
-                pageCount:      d.dsfPages?.length || 0,
+                pageCount:      release.pageCount,
                 dsfPublishedAt: d.dsfPublishedAt?.toDate?.() || new Date(0),
                 dsfResolution:  d.dsfResolution || '—',
                 dsfQuality:     d.dsfQuality || '—',
@@ -180,6 +208,7 @@ function _renderRow(p, account = {}) {
     const langs = p.dsfLangs.length ? p.dsfLangs.map(l => l.toUpperCase()).join(' / ') : '—';
     const publicationMeta = _renderPublicationMeta(p.publication, p.dsfStatus);
     const publicationEditor = _renderPublicationEditor(p, account);
+    const v2PublishDisabled = p.releaseKind === 'horizon-v2' ? 'disabled' : '';
 
     return `
         <div class="works-row" data-pid="${_esc(p.id)}" data-work-id="${_esc(p.workId || p.id)}">
@@ -195,8 +224,8 @@ function _renderRow(p, account = {}) {
                 <span class="works-dsf-badge ${dsf.cls}">${_statusIcon(dsf.icon)}<span>${dsf.label}</span></span>
                 <select class="works-dsf-select" data-pid="${_esc(p.id)}" data-prev="${_esc(p.dsfStatus)}">
                     <option value="draft"    ${p.dsfStatus === 'draft'    ? 'selected' : ''}>下書き</option>
-                    <option value="unlisted" ${p.dsfStatus === 'unlisted' ? 'selected' : ''}>限定公開</option>
-                    <option value="public"   ${p.dsfStatus === 'public'   ? 'selected' : ''}>公開</option>
+                    <option value="unlisted" ${p.dsfStatus === 'unlisted' ? 'selected' : ''} ${v2PublishDisabled}>限定公開</option>
+                    <option value="public"   ${p.dsfStatus === 'public'   ? 'selected' : ''} ${v2PublishDisabled}>公開</option>
                     <option value="private"  ${p.dsfStatus === 'private'  ? 'selected' : ''}>非公開</option>
                 </select>
                 <button class="works-btn-copy"
@@ -401,6 +430,9 @@ async function _updateDsfStatus(pid, newStatus, proj, row) {
     if (!state.uid || !pid) return;
     const workId = proj?.workId || pid;
     try {
+        if (proj?.releaseKind === 'horizon-v2' && (newStatus === 'public' || newStatus === 'unlisted')) {
+            throw new Error('DSF v2の公開Viewer読込を接続するまで、Flow作品の公開切替は使用できません。');
+        }
         let account = null;
         if (newStatus === 'public' || newStatus === 'unlisted') {
             account = await assertAccountCanPublish();
@@ -475,7 +507,7 @@ async function _updatePublicationWindow(pid, proj, row) {
 }
 
 function _buildPublicProjectPayload(pid, workId, data, status, publication, account = {}) {
-    const dsfPages = Array.isArray(data.dsfPages) ? data.dsfPages : [];
+    const release = _resolveWorksRelease(data, pid);
     const authorProfile = account?.publicProfile || {};
     const authorName = authorProfile.displayName || state.user?.displayName || state.user?.email || '';
     const authorHandle = authorProfile.handle || account?.handle || null;
@@ -499,17 +531,13 @@ function _buildPublicProjectPayload(pid, workId, data, status, publication, acco
         updatedAt: serverTimestamp(),
         dsfStatus: status,
         publication,
-        dsfPages,
-        dsfLangs: Array.isArray(data.dsfLangs) ? data.dsfLangs : [],
-        pageCount: dsfPages.length,
-        dsfPageCount: data.dsfPageCount || dsfPages.length,
         dsfPublishedAt: data.dsfPublishedAt || null,
         dsfRenderStamp: data.dsfRenderStamp || null,
         dsfResolution: data.dsfResolution || '',
         dsfQuality: data.dsfQuality || null,
         dsfQualityMode: data.dsfQualityMode || '',
         dsfQualityProfile: data.dsfQualityProfile || null,
-        dsfTotalBytes: data.dsfTotalBytes || 0,
+        dsfTotalBytes: release.deliveryFields.dsfTotalBytes || data.dsfTotalBytes || 0,
         book: data.book || null,
         bookMode: data.bookMode || data.book?.mode || 'simple',
         languageConfigs: data.languageConfigs || {},
@@ -518,7 +546,8 @@ function _buildPublicProjectPayload(pid, workId, data, status, publication, acco
         labelName: data.labelName || '',
         rating: data.rating || 'all',
         license: data.license || 'all-rights-reserved',
-        meta: data.meta || {}
+        meta: data.meta || {},
+        ...release.deliveryFields,
     };
 }
 

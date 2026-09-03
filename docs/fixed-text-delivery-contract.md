@@ -1,9 +1,9 @@
 # DSF 固定テキスト配信契約
 
-ステータス: 9A-6C-C-C-1C-Bでnetwork-idle Horizon handoffをPressの既存ローカル配信設計表示へread-only接続した。Horizonは共有CDN、ダウンロード`.dsf`は使用font必須同梱とするartifact分離を維持する。実token／endpoint／R2、Firestore、公開Viewer runtimeは未接続で、Flow発行ボタンも無効のままである。
+ステータス: 9A-6C-C-C-1C-GでFlowの明示操作をverified R2 uploadとowner-only非公開draft保存へ接続した。Horizonは共有CDN、ダウンロード`.dsf`は使用font必須同梱とするartifact分離を維持する。公開Viewer remote loaderは接続済みだが、Worksのv2公開／限定公開操作と実共有URL確認は未実施である。
 active branchのslider previewは対応済み。別branchの未統合full minimapへの接続は行っていない。
 
-最終更新: 2026-09-01（空白保持capability契約追記。上記ステータスは既存9A工程の記録）
+最終更新: 2026-09-03（Flow Horizon非公開draft保存UI接続）
 
 ## 1. プロダクト原則
 
@@ -710,6 +710,31 @@ originを1C-Aへ渡す。release IDはruntimeだけに確保し、state、DSP、
 Horizon発行buttonはdry-run合格後も常にdisabledで、titleだけが合格状態を説明する。Pressはclient upload transport、`/upload-release`、
 Firebase token取得、R2、Firestore writeを呼ばない。portable `.dsf` downloadは既存の独立したround-trip gateを維持する。
 
+### Public Viewer remote loader（9A-6C-C-C-1C-F）
+
+`js/dsf-horizon-viewer-load.js`は、公開読者が読める`public_projects`の完全なv2 locatorだけを起点に、環境別に許可されたR2 originから
+`content.json`と言語manifestをcredentialなしで取得する。owner専用Release文書は公開Viewerから読まない。owner側検証でRelease snapshotも
+渡された場合だけpublic locatorとの完全一致を追加確認する。各JSONはresponse size、UTF-8、
+canonical JSON、SHA-256を検証し、manifest／画像hrefが同じ`users/{uid}/dsf/{workId}/{releaseId}/`配下から外れる場合は停止する。
+
+使用fontはactive production registryのdeclarationと完全一致させ、既存のexact-byte WOFF2 verifier／session専用FontFace leaseを
+再利用する。合格したWebP／`fixedText`混在ページ列だけを既存Viewerへ渡し、言語切替時も検証済みmanifest間のanchor mappingを使う。
+別作品読込またはunload時はFontFace leaseを破棄する。schema未指定のv1 `dsfPages`は従来経路を維持するが、v2宣言済みまたは
+部分locatorの検証失敗をv1／owner Projectへfallbackしない。
+
+この単位では公開ローダーとViewer接続だけを実装する。Flow Horizon発行buttonとWorks v2公開／限定公開操作は無効のままで、
+新しいR2 object、Release、`public_projects`を作らないため、実共有URLのbrowser acceptanceは発行操作を有効化した後に行う。
+
+### Press Flow Horizon非公開draft保存（9A-6C-C-C-1C-G）
+
+PressのFlow操作は「Horizonへ下書き保存」と表示し、dry-run handoffが`readyForUpload:true`のときだけ有効にする。利用者の確認後、
+認証ownerを照合しながらverified planを`/upload-release`へ送り、全fileのexact receiptが揃った場合だけowner領域のProject／Work／Releaseを
+単一Firestore transactionで更新する。Projectは`dsfStatus:'draft'`、`visibility:'private'`となり、公開用`public_projects`は作成しない。
+
+upload中は進捗とCancel／Escによるabortを許可する。metadata transaction開始後はキャンセルを無効にし、完了を待つ。upload成功後に
+draft保存だけ失敗した場合、同一session・同一signatureでは検証済みupload resultを再利用してdraft保存を再試行できる。保存成功後は
+Worksへ移動するが、v2の公開／限定公開操作は別単位まで無効とする。
+
 ## 11. Securityとresource limit
 
 - DSF text payloadからHTML、script、event handler、外部CSS、CSS `url()`、任意style propertyを受け付けない。
@@ -772,6 +797,9 @@ SHA-256、実byteLength、MIME、形式、安全path、immutable cache metadata�
 Viewer、deployには接続しない。
 9A-6C-C-C-1C-BはそのhandoffをPress既存summaryへread-only接続し、認証／作品identity、working／blocked／error／ready、file数と
 exact bytesを表示する。Flow Horizon発行buttonは合格後もdisabledで、実transport／token／R2／Firestore／Viewer／deployには接続しない。
+9A-6C-C-C-1C-Fは`public_projects`のexact v2 locator、content index／言語manifestのcanonical JSONとhash、release配下href、
+active registry font実bytesをfail closed検証し、合格した混在固定ページ列を既存Viewerへ渡す。v1 Viewerを維持し、v2失敗はfallbackしない。
+Flow Horizon発行buttonとWorks v2公開操作は無効のため、新しい公開dataは作成しない。
 いずれも発行を有効化せず、本番dataを変更しない。
 
 承認後の推奨実装単位:
@@ -873,6 +901,12 @@ exact bytesを表示する。Flow Horizon発行buttonは合格後もdisabledで�
 28. **9A-6C-C-C-1C-C以降: Press upload／public Viewer integration**
    - 明示的な発行操作から実uploadを開始し、全receipt seal後のFirestore metadata、公開Viewer remote loaderを段階的に実装する。
    - staging device／browser test、partial failure、orphan cleanup、rollbackを実接続前に確認する。
+29. **9A-6C-C-C-1C-F: public Viewer remote loader（実装済み、発行UI未接続）**
+   - public index locator、content／manifest hash、release配下resource、active registry fontを検証して既存Viewerへ渡す。owner専用Releaseは公開読込しない。
+   - v1経路を維持し、v2失敗時のfallbackを禁止する。Press／Worksの発行操作は有効化しない。
+30. **9A-6C-C-C-1C-G: Press Flow Horizon非公開draft保存（実装済み、公開操作未接続）**
+   - 明示確認後にverified uploadを実行し、全receipt seal後だけowner用Project／Work／Releaseを`draft`／`private`保存する。
+   - upload中の進捗／abort／再試行を提供し、`public_projects`は作成しない。Worksのv2公開／限定公開と実共有URL確認は次単位とする。
 
-各単位を別commitとしてreviewする。9A-6C-C-C-1C-BはPress内のread-only readinessまで完了したが、network transportからはまだ呼ばない。
+各単位を別commitとしてreviewする。9A-6C-C-C-1C-Gは非公開draft保存までで、読者公開操作は許可しない。
 production publication migrationはまだ許可しない。

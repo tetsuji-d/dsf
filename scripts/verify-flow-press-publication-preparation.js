@@ -265,7 +265,8 @@ assert.match(pressSource, /_pressFlowProductionPreparationResult\.ok \? 'ready' 
 assert.match(pressSource, /void _requestPressFlowProductionPreparation\(\);[\s\S]*if \(import\.meta\.env\.DEV\)/);
 assert.match(pressSource, /const flowPortableReady = hasFlow && _isPressFlowPortableDownloadReady\(\)/);
 assert.match(pressSource, /isPortableDownload[\s\S]*btn\.disabled = !flowPortableReady/);
-assert.match(pressSource, /if \(hasFlowGroups\(state\)\)[\s\S]*このプロジェクトは発行できません/);
+assert.match(pressSource, /if \(hasFlowGroups\(state\)\)[\s\S]*await uploadFlowHorizonReleaseFiles\(\)/);
+assert.match(pressSource, /if \(hasFlow && isHorizonPublish\)[\s\S]*btn\.disabled = !flowHorizonReady \|\| working \|\| saved/);
 assert.match(exportSource, /if \(hasFlowGroups\(state\)\)[\s\S]*getFlowPortableDsfDownloadArtifact/);
 assert.match(exportSource, /saveAs\(currentArtifact\.blob, currentArtifact\.filename\)/);
 

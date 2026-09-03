@@ -57,6 +57,13 @@ function replaceViewerLocalPortableSession(nextSession = null) {
     viewerLocalPortableSession = nextSession;
 }
 
+function isDsfHorizonV2MetadataDeclared(metadata) {
+    if (!metadata || typeof metadata !== 'object' || Array.isArray(metadata)) return false;
+    const hasOwn = (field) => Object.prototype.hasOwnProperty.call(metadata, field);
+    return metadata.dsfSchemaVersion === 2
+        || ['dsfContentUrl', 'dsfContentHash', 'dsfPageCounts'].some(hasOwn);
+}
+
 // 見開き表示フラグ
 let spreadMode = false;
 let requestedBookMode = '';
@@ -594,6 +601,17 @@ async function loadWorkFromPublicIndex(workId) {
             return false;
         }
         sharedProjectRef = { workId, pid, uid };
+        if (isDsfHorizonV2MetadataDeclared(indexData)) {
+            if (!indexData.releaseId) {
+                throw new Error('DSF v2 public index is missing its immutable Release ID.');
+            }
+            return loadPublicHorizonProjection(uid, workId, indexData.releaseId, {
+                ...indexData,
+                projectId: pid,
+                authorUid: uid,
+                workId,
+            });
+        }
         if (Array.isArray(indexData.dsfPages) && indexData.dsfPages.length > 0) {
             loadProjectData({
                 ...indexData,
@@ -629,11 +647,43 @@ async function loadWorkFromPublicIndex(workId) {
     }
 }
 
+async function loadPublicHorizonProjection(uid, workId, releaseId, indexData) {
+    const { loadDsfHorizonViewerRelease } = await import('./dsf-horizon-viewer-load.js');
+    const configuredOrigin = getViewerDsfContentOrigin();
+    const portableSession = await loadDsfHorizonViewerRelease({
+        uid,
+        workId,
+        releaseId,
+        publicMetadata: indexData,
+        projectMetadata: indexData,
+        allowedContentOrigins: [configuredOrigin],
+        documentRef: document,
+    });
+    try {
+        const defaultContext = portableSession.contextsByLanguage.get(portableSession.project.defaultLang);
+        loadProjectData(portableSession.project, {
+            source: 'shared',
+            fixedTextContext: defaultContext,
+            localPortableSession: portableSession,
+            assetUrls: portableSession.assetUrls,
+        });
+    } catch (error) {
+        portableSession.dispose();
+        throw error;
+    }
+    return true;
+}
+
 async function loadPublicReleaseSnapshot(uid, workId, releaseId, indexData = {}) {
+    let v2Declared = isDsfHorizonV2MetadataDeclared(indexData);
     try {
         const releaseSnap = await getDoc(doc(db, 'users', uid, 'works', workId, 'releases', releaseId));
         if (!releaseSnap.exists()) return false;
         const releaseData = releaseSnap.data() || {};
+        v2Declared = v2Declared || isDsfHorizonV2MetadataDeclared(releaseData);
+        if (v2Declared) {
+            throw new Error('Public DSF v2 requires a complete public index projection.');
+        }
         if (!Array.isArray(releaseData.dsfPages) || releaseData.dsfPages.length === 0) return false;
         loadProjectData({
             ...releaseData,
@@ -648,9 +698,24 @@ async function loadPublicReleaseSnapshot(uid, workId, releaseId, indexData = {})
         }, { source: 'shared' });
         return true;
     } catch (e) {
+        if (v2Declared) throw e;
         console.warn('[Viewer] public release snapshot load failed:', e);
         return false;
     }
+}
+
+function getViewerDsfContentOrigin() {
+    const configured = String(import.meta.env.VITE_R2_PUBLIC_URL || '').trim();
+    let url;
+    try {
+        url = new URL(configured);
+    } catch {
+        throw new Error('Viewer DSF content origin is not configured.');
+    }
+    if (url.protocol !== 'https:' || url.origin !== configured || url.pathname !== '/' || url.search || url.hash) {
+        throw new Error('Viewer DSF content origin must be an exact HTTPS origin.');
+    }
+    return url.origin;
 }
 
 async function loadFromFirestore(pid, uid, resolved = {}) {
@@ -816,7 +881,7 @@ function loadProjectData(raw, options = {}) {
         ? new Map(deliveryAssetUrls)
         : new Map();
     const hasDsfPages = Array.isArray(raw.dsfPages) && raw.dsfPages.length > 0;
-    if (source === 'shared' && !hasDsfPages) {
+    if (source === 'shared' && !hasDsfPages && !options.fixedTextContext) {
         throw new Error(vt('unpublishedProject'));
     }
     const pages = hasDsfPages

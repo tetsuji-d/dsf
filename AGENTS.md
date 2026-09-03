@@ -63,7 +63,7 @@ Claude はスコープ制限なく全ファイルを編集可。
 | Gen 1 | Webテキスト組版 + 画像の混在 | 廃止 |
 | Gen 2 | WebGL によるフォント・画像統合レンダリング | **廃止**（複雑・重い・端末差） |
 | Gen 3 | **WebP 画像のみ（固定レイアウトのマスター）** | 既存runtime／DSF v1として後方互換維持 |
-| DSF delivery v2 | **WebP + 組版済み固定テキスト** | 9A-6C-C-C-1C-B Press read-only Horizon readinessまで実装、実upload・R2・Firestore・公開／共有URL runtime未接続 |
+| DSF delivery v2 | **WebP + 組版済み固定テキスト** | 9A-6C-C-C-1C-G Flow非公開draft保存まで実装、Works v2公開操作・実共有URL確認は未接続 |
 
 - 組版・タイポグラフィ・ページ分割はStudio／Press側で完結し、Viewerは公開済み固定projectionの描画に専念する
 - EPUB的リフローではなく、**作者意図のレイアウトをそのまま配信**する
@@ -154,6 +154,8 @@ main（常に安定・マージ済みコードのみ）
 | 2026-08-26 | 9A-6C-C-C-1B: verified Horizon planのcanonical JSON／exact WebP Blobをclientで再hashし、requestごとにtokenを取得して全fileを逐次送信するtransportを追加。全response／receipt一致後だけpure sealを返し、partial failure、通信失敗、token欠落、abort、改ざん時は後続停止。mock fetchのみで検証し、Press、実token／R2、Firestore、Works、公開Viewer、deployは未接続 |
 | 2026-08-26 | 9A-6C-C-C-1C-A: Pressの成功planningとsealed WebP集合をimmutable Horizon planへ再照合し、画像ごとの実Blob構造、寸法、byteLength、SHA-256を検証したnetwork-idle handoffを追加。mock transport統合のみ確認し、Press UI、fetch／token、実R2、Firestore、Works、公開Viewer、deployは未接続 |
 | 2026-08-26 | 9A-6C-C-C-1C-B: network-idle Horizon handoffをPress既存ローカル配信設計summaryへread-only接続。認証／cloud作品identity、working／blocked／error／ready、file数、exact bytes、WebP照合数、upload未実行を表示し、Flow発行buttonはready後もdisabled。実transport／token／R2、Firestore、Works、公開Viewer、deployは未接続 |
+| 2026-09-02 | 9A-6C-C-C-1C-F: 匿名read可能なpublic indexのexact v2 locator、content／manifest canonical JSON・SHA-256、release配下resource、active registry font実bytesをfail closed検証する公開Viewer remote loaderを接続。owner専用Releaseは公開読込せず、v1経路を維持しv2失敗はfallbackしない。Flow発行UI、Works v2公開操作、実共有URL確認、deployは未実施 |
+| 2026-09-03 | 9A-6C-C-C-1C-G: FlowのPress操作を「Horizonへ下書き保存」としてverified uploadとowner-only draft transactionへ接続。確認後だけR2へ送信し、進捗／abort／再試行を提供。Project／Work／Releaseは`draft`／`private`保存し、`public_projects`は作成しない。Works v2公開操作、実共有URL確認、commit、deployは未実施 |
 | 2026-08-26 | 10A-0: Flow原稿source選択時だけ既存削除操作を有効化。確認後に原稿・翻訳を含むFlow Group全体を1 transactionで削除し、生成ページ個別削除は禁止。対象runtimeを中止・破棄し、既存Undo／Redoとautosaveで復元・保存する。schema／Press／Viewerは未変更 |
 | 2026-08-26 | 10A-1: 生成Flow fragment DOMとsemantic Block／grapheme caretを双方向に対応付け、生成ページ本文クリックから同じ言語の連続原稿textareaへno-lossで移動するread-only source mappingを追加。原文fallback page、直接入力、schema／Press／Viewerは未変更 |
 | 2026-08-27 | 10A-2: 原稿言語・横書きHeading／Paragraphの生成ページへruntime caretと不可視input proxyを追加。通常入力とIME確定をsemantic `setText`、既存Undo／Redo・autosave・増分reflowへ接続。日本語の新規Flowは明示writingMode未設定時だけ既存の縦／横設定を継承。Enter／構造編集、縦書き、翻訳直接編集、schema／Press／Viewerは未変更 |

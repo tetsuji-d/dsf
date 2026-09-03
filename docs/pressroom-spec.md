@@ -44,7 +44,10 @@ Studio (Editor)          Press Room                     Portal
 
 - `.dsp` はプレスルームを経由せずポータルに公開できない
 - エディター内プレビューは `.dsp` のまま表示（ローカルレンダリング）
+- 制作言語一覧と発行言語は分離する。Press入室時は`defaultLang`だけを選び、翻訳済み言語は作者が追加選択する
+- 発行言語の選択はPress内の一時状態であり、DSPへ保存しない。未選択言語のmissing／stale翻訳や未対応fontは発行判定へ含めない
 - 発行処理 = ページ単位の配信方式判定（グラフィックWebP／組版済み固定テキスト）→ 言語別固定ページ列をCloudflare R2へ保存
+- 選択言語に1ページ以上の`fixedText`があれば、画像assetが0件の作品も有効とする。明示的な画像ページのasset欠落は従来どおり停止する
 - Viewer の共有URLは **発行済みDSF projectionだけ**を読む。v1は`dsfPages`、v2は`dsfContentUrl`から読み、未発行の`.dsp`本体を直接表示しない
 - Viewerは固定テキストをDOM文字として描画するが、再組版、端末幅リフロー、本文文字サイズ変更は行わない
 
@@ -208,6 +211,34 @@ mock transport統合後もhandoffは`readyForMetadataWrite:false`であり、Pre
 project／work、環境別HTTPS public originが揃う場合だけruntime release IDでexact pathを検証し、file数／bytes／WebP照合数と
 「アップロード未実行」を表示する。Flow Horizon発行buttonはready後もdisabledで、client transport、token、R2、Firestore、Works、
 公開Viewerは呼ばない。
+
+9A-6C-C-C-1C-Cでは、検証済みhandoffを`/upload-release` client transportへ渡すPress runtime executorを追加した。
+実行開始時と各fileのtoken取得時にcurrent userとhandoff ownerを照合し、進捗、abort、入力変更、result identityを監視する。
+全receiptが揃った場合だけ後続のdraft保存へ渡せるsealを保持し、Firestore／Works／公開状態は変更しない。この段階では
+Flow Horizon発行buttonからexecutorを呼ばないため、通常UI操作によるR2 uploadとHorizon発行はまだ発生しない。
+
+9A-6C-C-C-1C-Dでは、upload sealからowner用Project／Work／ReleaseのDSF v2 draft metadataを作るpure contractと
+Press runtime writerを追加した。Projectの旧`dsfPages`は空配列へ明示更新し、v2 locator不整合時にViewerが旧v1へfallback
+しないようにする。同じrelease IDのretryはimmutable locatorが完全一致する場合だけ許可する。Project、Dashboard summary、
+Work、Releaseの更新と、存在確認・owner照合済み`public_projects/{workId|projectId}`削除は単一transactionにまとめ、成功後も状態は`draft`／`private`とする。
+Worksのv2 draft一覧／公開切替は次の単位で対応するため、Flow Horizon発行buttonは引き続きdisabledとする。
+
+9A-6C-C-C-1C-Eでは、Worksのrelease判定をv1 `dsfPages`専用からv1／v2共通のpure projectionへ移した。
+v2 draftは既定配信言語の`dsfPageCounts`でページ数を表示し、制作中の`pageCount`や空の`dsfPages`へ依存しない。
+公開payload候補はconfigured R2 HTTPS origin、owner、work、releaseを含むimmutable `content.json` pathとhashを再検証し、
+部分的なv2 locatorを旧v1へfallbackしない。公開Viewerのv2読込は次単位であるため、Worksのv2「公開／限定公開」と
+PressのFlow Horizon発行buttonはまだdisabledを維持する。
+
+9A-6C-C-C-1C-Fでは、公開Viewerが匿名read可能な`public_projects`のexact v2 locatorを起点に、許可R2 origin上の`content.json`／
+言語manifestをcanonical JSON・SHA-256・release配下hrefで検証する。active registry fontは既存のexact-byte runtime leaseで読み込み、
+owner専用Release文書は公開Viewerから読まない。
+合格したWebP／`fixedText`混在ページ列だけを既存Viewerへ渡す。v1公開作品は従来どおり表示し、v2検証失敗はv1やProjectへfallbackしない。
+Flow Horizon発行buttonとWorks v2公開／限定公開操作はまだ無効のため、実共有URL確認は次の発行UI接続後に行う。
+
+9A-6C-C-C-1C-Gでは、FlowのPress操作を「Horizonへ下書き保存」として明示し、ready済みhandoffに限って既存のverified upload executorと
+owner-only draft writerへ接続した。操作前に読者非公開であることを確認し、upload中はfile進捗とabortを提供する。全receipt seal後だけ
+Project／Dashboard summary／Work／Releaseを単一transactionで`draft`／`private`保存し、owner確認済みの古い`public_projects`は削除する。
+保存成功後はWorksへ移動するが、Worksのv2公開／限定公開操作は引き続き無効であり、読者公開と実共有URL確認は行わない。
 
 ## Studio ナビゲーション構造
 

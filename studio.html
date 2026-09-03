@@ -691,8 +691,9 @@
                         <section class="press-panel press-settings-panel">
                             <h3 data-i18n="press_settings">レンダリング設定</h3>
                             <div class="press-field">
-                                <label data-i18n="press_target_lang">対象言語</label>
+                                <label data-i18n="press_target_lang">発行言語</label>
                                 <div id="press-lang-tabs" class="lang-tabs"></div>
+                                <small class="press-release-language-hint" data-i18n="press_target_lang_hint">初期状態は原文のみです。翻訳済みの言語を追加選択できます。</small>
                             </div>
                             <div class="press-field">
                                 <label data-i18n="press_output_size">出力サイズ</label>
@@ -729,7 +730,7 @@
                                 </button>
                                 <button id="press-publish-cloud-btn" class="press-publish-btn" onclick="publishToCloud()" data-auth-required data-flow-publication-required>
                                     <span class="material-icons">cloud_upload</span>
-                                    <span><span data-i18n="btn_publish_cloud">Horizonに発行</span><small data-i18n="btn_publish_cloud_sub">Horizon で作品を公開します</small></span>
+                                    <span><span data-i18n="btn_publish_cloud">Horizonへ下書き保存</span><small data-i18n="btn_publish_cloud_sub">読者にはまだ公開されません</small></span>
                                 </button>
                                 <button class="press-publish-btn" onclick="switchRoom('works')" data-auth-required>
                                     <span class="material-icons">library_books</span>
@@ -762,7 +763,7 @@
     <div id="press-publish-modal" class="press-publish-modal-overlay" style="display:none;" aria-hidden="true">
         <div class="press-publish-modal-dialog" role="dialog" aria-modal="true" aria-labelledby="press-publish-modal-title" onclick="event.stopPropagation()">
             <div class="press-publish-modal-header">
-                <h2 id="press-publish-modal-title" data-i18n="press_publish_modal_title">Horizonに発行</h2>
+                <h2 id="press-publish-modal-title" data-i18n="press_publish_modal_title">Horizonへ下書き保存</h2>
             </div>
             <div class="press-publish-modal-body">
                 <div class="press-publish-modal-draft">

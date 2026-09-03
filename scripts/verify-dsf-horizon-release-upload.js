@@ -213,7 +213,10 @@ const planSnapshot = structuredClone(plan);
             ? Response.json({ receipt: exactReceipt(call.file), reused: true })
             : null
     ));
-    const { input, counts } = createInput(plan, transport);
+    const progress = [];
+    const { input, counts } = createInput(plan, transport, {
+        onProgress(value) { progress.push(value); },
+    });
     const result = await uploadDsfHorizonReleasePlan(input);
 
     assert.equal(result.uploadVersion, DSF_HORIZON_RELEASE_UPLOAD_VERSION);
@@ -232,6 +235,12 @@ const planSnapshot = structuredClone(plan);
     assert.equal(counts.imageResolutionCalls, 1, 'JSON bytes come from the plan and only WebP uses the resolver');
     assert.equal(transport.calls[0].options.headers.Authorization, 'Bearer token-1');
     assert.equal(transport.calls[2].options.headers.Authorization, 'Bearer token-3');
+    assert.equal(progress.length, plan.files.length * 2);
+    assert.deepEqual(progress.map((value) => value.phase), [
+        'uploading', 'uploaded', 'uploading', 'uploaded', 'uploading', 'uploaded',
+    ]);
+    assert.equal(progress.at(-1).completedFileCount, plan.files.length);
+    assert.equal(Object.isFrozen(progress.at(-1)), true);
     assert.equal(Object.isFrozen(result), true);
     assert.equal(Object.isFrozen(result.receipts), true);
     assert.deepEqual(structuredClone(plan), planSnapshot, 'upload transport cannot mutate the immutable plan');

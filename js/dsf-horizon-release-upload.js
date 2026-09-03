@@ -37,6 +37,7 @@ const INPUT_KEYS = new Set([
     'fetchImpl',
     'hashBytes',
     'signal',
+    'onProgress',
 ]);
 const RESPONSE_KEYS = new Set(['receipt', 'reused']);
 const RECEIPT_KEYS = new Set([
@@ -227,6 +228,18 @@ function validateInput(input) {
         && (!isRecord(input.signal) || typeof input.signal.aborted !== 'boolean')) {
         fail('HORIZON_UPLOAD_SIGNAL_INVALID', 'signal', 'signal must be an AbortSignal when supplied.');
     }
+    if (input.onProgress !== undefined && typeof input.onProgress !== 'function') {
+        fail('HORIZON_UPLOAD_PROGRESS_INVALID', 'onProgress', 'onProgress must be a function when supplied.');
+    }
+}
+
+function emitProgress(input, progress) {
+    if (typeof input.onProgress !== 'function') return;
+    try {
+        input.onProgress(Object.freeze({ ...progress }));
+    } catch (_) {
+        // Progress reporting must never alter upload correctness.
+    }
 }
 
 function isBlob(value) {
@@ -393,6 +406,13 @@ export async function uploadDsfHorizonReleasePlan(input = {}) {
 
     for (const [index, file] of input.plan.files.entries()) {
         throwIfAborted(input.signal, receipts, file, index);
+        emitProgress(input, {
+            phase: 'uploading',
+            fileIndex: index,
+            fileCount: input.plan.files.length,
+            completedFileCount: receipts.length,
+            storagePath: file.storagePath,
+        });
         const blob = await createPlannedBlob(file, index, input, receipts);
         throwIfAborted(input.signal, receipts, file, index);
         const token = await getToken(input, receipts, file, index);
@@ -444,6 +464,14 @@ export async function uploadDsfHorizonReleasePlan(input = {}) {
         const validated = validateReceiptResponse(body, file, index, receipts);
         receipts.push(validated.receipt);
         if (validated.reused) reusedObjectCount += 1;
+        emitProgress(input, {
+            phase: 'uploaded',
+            fileIndex: index,
+            fileCount: input.plan.files.length,
+            completedFileCount: receipts.length,
+            storagePath: file.storagePath,
+            reused: validated.reused,
+        });
         throwIfAborted(input.signal, receipts, file, index);
     }
 

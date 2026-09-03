@@ -138,7 +138,9 @@ const studioCssSource = readFileSync(new URL('../css/studio.css', import.meta.ur
 assert.match(pressSource, /import\.meta\.env\.DEV[\s\S]*import\('\.\/flow-press-preflight-preview\.js'\)/);
 assert.match(pressSource, /summary\.dataset\.testid = 'press-flow-preflight-dev-summary'/);
 assert.match(pressSource, /btn\.disabled = hasFlow/);
-assert.match(pressSource, /Flow作品のupload・発行はまだ有効化されていないため、このプロジェクトは発行できません/);
+assert.match(pressSource, /if \(hasFlowGroups\(state\)\)[\s\S]*await uploadFlowHorizonReleaseFiles\(\)/);
+assert.match(pressSource, /if \(hasFlow && isHorizonPublish\)[\s\S]*btn\.disabled = !flowHorizonReady \|\| working \|\| saved/,
+    'Flow Horizon draft save must remain gated by verified handoff readiness');
 assert.match(studioCssSource, /\.press-publish-btn:disabled\s*\{/);
 
 console.log('Flow Press preflight local preview verification passed.');

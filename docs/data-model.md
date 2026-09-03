@@ -67,7 +67,7 @@ DSF の公開系IDは、名前や作者名ではなく不変IDで解決する。
 /viewer.html?project=proj_abc123&author={uid}
 ```
 
-`/viewer.html?work=` は `public_projects/{workId}` を読んで `authorUid` と `projectId` を解決し、最新の発行済み `users/{authorUid}/projects/{projectId}` を表示する。Hosting rewrite がある環境では `/viewer?work=` も互換URLとして扱う。版指定URLは後続で `r={releaseId}` を解決対象に加える。
+`/viewer.html?work=` は `public_projects/{workId}` を読み、v1は公開`dsfPages`、v2は公開locatorが指すimmutable `content.json`を表示する。公開Viewerはowner専用Project／Release本文を正本として読まない。Hosting rewrite がある環境では `/viewer?work=` も互換URLとして扱う。版指定URLは後続で `r={releaseId}` を解決対象に加える。
 
 ---
 
@@ -570,9 +570,22 @@ network requestもFirestore importも行わない。結果の`readyForUpload:tru
 release IDやhandoff resultを保存しない。Press表示が`ready`でもupload receiptがないためRelease／`public_projects` writeは許可せず、
 document schemaとsecurity rulesを変更しない。
 
-現行公開runtimeのViewerはプロジェクトドキュメント上の最新`dsfPages`を読む。v2 public transportの選択契約は
-9A-6C-C-C-0でpure実装済みだが、Viewer fetchには未接続である。`releases`は公開履歴、ロールバック、監査、版指定URLのための
-土台として保持する。
+9A-6C-C-C-1C-Dは全upload receipt合格後のsealだけを入力に、既存Project／Work／Release schemaへv2 draft locatorを保存する。
+Projectの`dsfPages`は空配列にして旧v1 projectionを無効化し、Project、project summary、Work、Release、およびstaleな
+`public_projects/{workId|projectId}`の存在・owner確認と削除を単一Firestore transactionで確定する。Release IDのretryはURL、hash、言語別ページ数、総byte数が
+完全一致する場合だけ許可する。新しいcollection／security ruleは追加せず、Flow発行buttonとWorks v2公開操作はまだ有効化しない。
+
+9A-6C-C-C-1C-EではWorksがv1 `dsfPages`とv2 locatorを共通の検証済みrelease projectionとして扱う。v2の一覧ページ数と
+`public_projects`候補の`pageCount`／`dsfPageCount`はreleaseの既定言語に対応する`dsfPageCounts`から求める。v2はconfigured R2 originと
+`users/{uid}/dsf/{workId}/{releaseId}/content.json`を再検証し、partial locatorをv1へfallbackしない。公開Viewer接続前なので、Works UIの
+v2 `public`／`unlisted`切替とFlow発行buttonはまだ無効とする。
+
+9A-6C-C-C-1C-Fでは、公開Viewerが匿名read可能な`public_projects/{workId}`のexact v2 locatorを起点に、R2/CDN上の
+`content.json`と言語manifestをcanonical JSON／SHA-256／release配下URLで検証してから、WebP／`fixedText`混在ページ列を読む。
+owner専用の`users/{uid}/works/{workId}/releases/{releaseId}`は公開Viewerから読まない。
+active registry fontも実bytes検証後のsession専用FontFaceとして読み込み、別作品読込時に破棄する。v1 `dsfPages`は従来経路を維持し、
+宣言済み／部分v2の失敗は旧ページやowner Projectへfallbackしない。Flow発行buttonとWorks v2公開操作はまだ無効であり、
+この接続だけでは新しい公開dataを作らない。`releases`は公開履歴、ロールバック、監査、版指定URLの土台として保持する。
 
 #### `publication` — 掲載可能期間 / 公開期限
 

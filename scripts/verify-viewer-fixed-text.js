@@ -348,8 +348,10 @@ assert.equal(whitespaceSource.includes('insertAdjacentHTML'), false);
 const viewerSource = readFileSync(new URL('../js/viewer.js', import.meta.url), 'utf8');
 assert.match(viewerSource, /if \(!import\.meta\.env\.DEV\)/, 'fixture must be development-only');
 assert.match(viewerSource, /createDsfViewerPageContentElement/);
-assert.match(viewerSource, /preserveDeliveryV2: source === 'local-fixture'/, 'v2 pages must remain fixture-only in 9A-2');
-assert.equal(viewerSource.includes('dsfContentUrl'), false, '9A-2 cannot connect the public v2 loader');
+assert.match(viewerSource, /preserveDeliveryV2: source === 'local-fixture' \|\| !!options\.fixedTextContext/,
+    'validated local or public v2 pages must preserve their delivery projection');
+assert.match(viewerSource, /await import\('\.\/dsf-horizon-viewer-load\.js'\)/,
+    'public v2 validation must stay lazy so legacy Viewer startup does not load the remote contract');
 
 const viewerHtml = readFileSync(new URL('../viewer.html', import.meta.url), 'utf8');
 assert.equal((viewerHtml.match(/page-slider-preview-fixed-text/g) || []).length, 3);

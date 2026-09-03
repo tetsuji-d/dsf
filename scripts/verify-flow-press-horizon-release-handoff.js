@@ -322,15 +322,17 @@ assert.match(pressSource, /import\('\.\/flow-press-horizon-release-handoff\.js'\
 assert.match(pressSource, /createFlowPressHorizonReleaseHandoff\(\{/);
 assert.match(pressSource, /press-flow-horizon-handoff-readiness/);
 assert.match(pressSource, /dataset\.flowHorizonState/);
-assert.match(pressSource, /btn\.disabled = true/);
+assert.match(pressSource, /btn\.disabled = !flowHorizonReady \|\| working \|\| saved/);
 assert.match(pressSource, /アップロード未実行/);
-assert.match(pressSource, /実upload・発行はまだ無効/);
+assert.match(pressSource, /Horizonへ下書き保存/);
 assert.match(pressSource, /export function getFlowHorizonDryRunHandoff/);
 assert.match(pressSource, /export function refreshFlowHorizonDryRunReadiness/);
 assert.match(pressSource, /function _createPressFlowPreflightPreviewSignature\(\)[\s\S]*?_getSelectedPressLangs\(\)/);
 assert.match(pressSource, /prepareFlowPressPublication\(\{[\s\S]*?languages: _getSelectedPressLangs\(\)/);
 assert.match(pressSource, /function _handlePressLocalReleaseSettingChange\(\)[\s\S]*?_requestPressFlowProductionPreparation\(\)/);
-assert.match(pressSource, /if \(hasFlowGroups\(state\)\) \{\s*alert\('Flow作品のupload・発行はまだ有効化されていない/);
+assert.match(pressSource, /if \(hasFlowGroups\(state\)\)[\s\S]*await uploadFlowHorizonReleaseFiles\(\)/);
+assert.match(pressSource, /if \(hasFlow && isHorizonPublish\)[\s\S]*flowHorizonReady \? 'ready' : 'waiting'/,
+    'Flow Horizon draft save must become available only after the verified handoff is ready');
 assert.doesNotMatch(pressSource, /import\('\.\/dsf-horizon-release-upload\.js'\)/,
     'Press readiness must not connect the real client transport');
 
@@ -348,8 +350,8 @@ assert.match(studioCss, /\.press-flow-horizon-readiness\[data-state="ready"\]/);
 
 const appSource = readFileSync(new URL('../js/app.js', import.meta.url), 'utf8');
 assert.match(appSource, /refreshFlowHorizonDryRunReadiness/);
-assert.match(appSource, /getFlowHorizonDryRunControlTitle/);
+assert.match(appSource, /getFlowHorizonPublishControlTitle/);
 assert.match(appSource, /flowHorizonState === 'ready'/);
-assert.match(appSource, /実upload・発行はまだ無効/);
+assert.match(appSource, /検証済み配信ファイルをアップロードし、非公開draftとして保存します/);
 
 console.log('Flow Press Horizon dry-run handoff and read-only readiness verification passed.');

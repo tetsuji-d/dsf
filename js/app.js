@@ -3721,16 +3721,23 @@ function isVerifiedFlowPortableDownloadControl(control) {
         && document.body?.dataset?.room === 'press';
 }
 
-function isFlowHorizonDryRunControl(control) {
+function isFlowHorizonPublishControl(control) {
     return hasFlowGroups(state)
         && control?.id === 'press-publish-cloud-btn'
         && document.body?.dataset?.room === 'press';
 }
 
-function getFlowHorizonDryRunControlTitle(control) {
-    return control?.dataset?.flowHorizonState === 'ready'
-        ? 'Horizon upload入力のdry-runは合格しています。実upload・発行はまだ無効です'
-        : 'Horizon upload入力をdry-runで検証中です。実upload・発行はまだ無効です';
+function isReadyFlowHorizonPublishControl(control) {
+    return isFlowHorizonPublishControl(control)
+        && control?.dataset?.flowHorizonState === 'ready';
+}
+
+function getFlowHorizonPublishControlTitle(control) {
+    const stateName = control?.dataset?.flowHorizonState;
+    if (stateName === 'saved') return 'この配信内容はHorizonへ非公開draftとして保存済みです';
+    if (stateName === 'working') return 'Horizonへ配信ファイルと非公開draftを保存しています';
+    if (stateName === 'ready') return '検証済み配信ファイルをアップロードし、非公開draftとして保存します';
+    return 'Horizon配信準備の検証完了後に有効になります';
 }
 
 function updateAuthUI() {
@@ -3754,18 +3761,22 @@ function updateAuthUI() {
     document.body.classList.toggle('auth-guest', !signedIn);
     document.querySelectorAll('[data-auth-required]').forEach((el) => {
         const flowPortableReady = isVerifiedFlowPortableDownloadControl(el);
-        const flowHorizonControl = isFlowHorizonDryRunControl(el);
+        const flowHorizonControl = isFlowHorizonPublishControl(el);
+        const flowHorizonReady = isReadyFlowHorizonPublishControl(el);
         const flowPublicationBlocked = el.hasAttribute('data-flow-publication-required')
             && hasFlowGroups(state)
-            && !flowPortableReady;
+            && !flowPortableReady
+            && !flowHorizonReady;
         el.disabled = !signedIn || flowPublicationBlocked;
         el.title = !signedIn
             ? t('login_required')
             : (flowPublicationBlocked
                 ? (flowHorizonControl
-                    ? getFlowHorizonDryRunControlTitle(el)
+                    ? getFlowHorizonPublishControlTitle(el)
                     : 'FlowのローカルZIP検証完了後に有効になります')
-                : (flowPortableReady ? '検証済みFlow portable .dsfをローカルへ保存します' : ''));
+                : (flowHorizonControl
+                    ? getFlowHorizonPublishControlTitle(el)
+                    : (flowPortableReady ? '検証済みFlow portable .dsfをローカルへ保存します' : '')));
     });
     document.querySelectorAll('[data-flow-publication-required]:not([data-auth-required])').forEach((el) => {
         const flowPortableReady = isVerifiedFlowPortableDownloadControl(el);

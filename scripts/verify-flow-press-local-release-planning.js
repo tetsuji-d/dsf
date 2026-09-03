@@ -162,6 +162,35 @@ assert.equal(
 assert.equal(planning.portableEstimate.contentIndex.json.includes('https://media.dsf.ink/fonts/'), false);
 assert.deepEqual(planning.portableEstimate.fontFiles.map((file) => file.fontIds[0]), [SANS_ID, SERIF_ID]);
 
+const textOnlyPreflight = createDsfPressPreflight({
+    blocks: [sansFlow],
+    language: 'ja',
+    flowPublicationProjections: {
+        [sansFlow.id]: createFlowProjection(sansFlow, SANS_ID, 2, revision),
+    },
+    flowPublicationRevisions: { [sansFlow.id]: revision },
+    fontRegistry: DSF_PRODUCTION_FONT_REGISTRY,
+});
+const textOnlyPlanning = await createFlowPressLocalReleasePlanning({
+    preparation: {
+        preparationKind: 'production',
+        publicationPreparationVersion: 1,
+        ok: true,
+        languages: [{ language: 'ja', state: 'ready', preparationIssues: [], preflight: textOnlyPreflight }],
+    },
+    defaultLang: 'ja',
+    languages: ['ja'],
+    pageDirections: { ja: 'rtl' },
+    imageAssets: { ja: {} },
+    fontRegistry: DSF_PRODUCTION_FONT_REGISTRY,
+    hashBytes,
+});
+assert.equal(textOnlyPlanning.ready, true, 'Flow fixedText-only releases must not require an image asset');
+assert.equal(textOnlyPlanning.summary.pageCount, 2);
+assert.equal(textOnlyPlanning.summary.fixedTextPageCount, 2);
+assert.equal(textOnlyPlanning.summary.imagePageCount, 0);
+assert.equal(textOnlyPlanning.assembly.files.assets.length, 0);
+
 const inconsistentAssembly = clone(planning.assembly);
 inconsistentAssembly.releaseMetadata.dsfTotalBytes += 1;
 assert.throws(
@@ -208,6 +237,8 @@ const pressSource = readFileSync(new URL('../js/press.js', import.meta.url), 'ut
 assert.match(pressSource, /import\('\.\/flow-press-local-release-planning\.js'\)/);
 assert.match(pressSource, /press-flow-local-release-summary/);
 assert.match(pressSource, /btn\.disabled = hasFlow/);
-assert.match(pressSource, /if \(hasFlowGroups\(state\)\)[\s\S]*このプロジェクトは発行できません/);
+assert.match(pressSource, /if \(hasFlowGroups\(state\)\)[\s\S]*await uploadFlowHorizonReleaseFiles\(\)/);
+assert.match(pressSource, /if \(hasFlow && isHorizonPublish\)[\s\S]*btn\.disabled = !flowHorizonReady \|\| working \|\| saved/,
+    'Flow Horizon draft save must remain gated by verified handoff readiness');
 
 console.log('Flow Press local release assembly and payload estimate verification passed.');
