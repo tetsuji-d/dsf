@@ -3,7 +3,7 @@
  * 発行済み作品の DSF ステータス管理
  */
 import {
-    collection, getDocs, doc, setDoc, deleteDoc, serverTimestamp, writeBatch
+    collection, getDocs, doc, deleteDoc, serverTimestamp, writeBatch, runTransaction
 } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
 import { state } from './state.js';
 import { assertAccountCanEdit, assertAccountCanPublish, db } from './firebase.js';
@@ -19,6 +19,7 @@ import {
 } from './publication.js';
 import { t, getUILang } from './i18n-studio.js';
 import { resolveWorksDsfRelease } from './works-dsf-release.js';
+import { createWorksPublicationTransition } from './works-publication-transition.js';
 
 const DSF_STATUS_LABELS = {
     draft:    { label: '下書き',   icon: 'edit_note', cls: 'dsf-draft'    },
@@ -209,8 +210,6 @@ function _renderRow(p, account = {}) {
     const langs = p.dsfLangs.length ? p.dsfLangs.map(l => l.toUpperCase()).join(' / ') : '—';
     const publicationMeta = _renderPublicationMeta(p.publication, p.dsfStatus);
     const publicationEditor = _renderPublicationEditor(p, account);
-    const v2PublishDisabled = p.releaseKind === 'horizon-v2' ? 'disabled' : '';
-
     return `
         <div class="works-row" data-pid="${_esc(p.id)}" data-work-id="${_esc(p.workId || p.id)}">
             <div class="works-thumb">${thumb}</div>
@@ -225,8 +224,8 @@ function _renderRow(p, account = {}) {
                 <span class="works-dsf-badge ${dsf.cls}">${_statusIcon(dsf.icon)}<span>${dsf.label}</span></span>
                 <select class="works-dsf-select" data-pid="${_esc(p.id)}" data-prev="${_esc(p.dsfStatus)}">
                     <option value="draft"    ${p.dsfStatus === 'draft'    ? 'selected' : ''}>下書き</option>
-                    <option value="unlisted" ${p.dsfStatus === 'unlisted' ? 'selected' : ''} ${v2PublishDisabled}>限定公開</option>
-                    <option value="public"   ${p.dsfStatus === 'public'   ? 'selected' : ''} ${v2PublishDisabled}>公開</option>
+                    <option value="unlisted" ${p.dsfStatus === 'unlisted' ? 'selected' : ''}>限定公開</option>
+                    <option value="public"   ${p.dsfStatus === 'public'   ? 'selected' : ''}>公開</option>
                     <option value="private"  ${p.dsfStatus === 'private'  ? 'selected' : ''}>非公開</option>
                 </select>
                 ${_renderViewerAction(p)}
@@ -307,6 +306,71 @@ function _renderPublicationEditor(p, account = {}) {
     `;
 }
 
+async function _commitWorksPublicationTransition(pid, status, publication, account, options = {}) {
+    const uid = state.uid;
+    if (!uid || !pid) throw new Error('Publication transition requires an authenticated owner and project.');
+    const expectedStatus = options.expectedStatus || null;
+    const fallbackAuthorName = state.user?.displayName || state.user?.email || '';
+
+    return runTransaction(db, async (transaction) => {
+        const projectRef = doc(db, 'users', uid, 'projects', pid);
+        const projectSnapshot = await transaction.get(projectRef);
+        if (!projectSnapshot.exists()) throw new Error('公開元のProjectが見つかりません。');
+        const project = projectSnapshot.data() || {};
+        const currentStatus = project.dsfStatus || 'draft';
+        if (expectedStatus && currentStatus !== expectedStatus) {
+            throw new Error('作品の公開状態が別の操作で変更されました。Worksを開き直して再試行してください。');
+        }
+
+        const workId = String(project.workId || pid).trim();
+        const releaseId = String(project.releaseId || '').trim();
+        let work = null;
+        let release = null;
+        if (releaseId) {
+            const workSnapshot = await transaction.get(doc(db, 'users', uid, 'works', workId));
+            const releaseSnapshot = await transaction.get(doc(db, 'users', uid, 'works', workId, 'releases', releaseId));
+            work = workSnapshot.exists() ? workSnapshot.data() : null;
+            release = releaseSnapshot.exists() ? releaseSnapshot.data() : null;
+        }
+
+        const publicIndexes = {};
+        const publicRef = doc(db, 'public_projects', workId);
+        const publicSnapshot = await transaction.get(publicRef);
+        publicIndexes[workId] = publicSnapshot.exists() ? publicSnapshot.data() : null;
+        if (workId !== pid) {
+            const legacyPublicSnapshot = await transaction.get(doc(db, 'public_projects', pid));
+            publicIndexes[pid] = legacyPublicSnapshot.exists() ? legacyPublicSnapshot.data() : null;
+        }
+
+        const plan = createWorksPublicationTransition({
+            uid,
+            projectId: pid,
+            project,
+            work,
+            release,
+            status,
+            publication,
+            account,
+            fallbackAuthorName,
+            allowedContentOrigins: _getWorksAllowedContentOrigins(),
+            publicIndexes,
+        });
+
+        transaction.update(projectRef, plan.projectPatch);
+        stageProjectSummaryWrite(transaction, db, uid, pid, project, plan.projectPatch);
+        plan.deleteDocumentIds.forEach((documentId) => {
+            transaction.delete(doc(db, 'public_projects', documentId));
+        });
+        if (plan.publicIndex) {
+            transaction.set(
+                doc(db, 'public_projects', plan.publicIndex.documentId),
+                { ...plan.publicIndex.payload, updatedAt: serverTimestamp() },
+            );
+        }
+        return plan;
+    });
+}
+
 async function _reconcileProjectPublication(pid, data, account) {
     const status = data.dsfStatus || 'draft';
     const publication = reconcilePublicationForPlan(data.publication || {}, status, account, new Date());
@@ -314,35 +378,22 @@ async function _reconcileProjectPublication(pid, data, account) {
     const isVisibleStatus = status === 'public' || status === 'unlisted';
     const shouldDowngrade = isVisibleStatus && !!expireReason;
     const nextStatus = shouldDowngrade ? 'draft' : status;
-    const nextVisibility = shouldDowngrade ? 'private' : (data.visibility || status);
     const publicationChanged = JSON.stringify(_serializePublication(data.publication || null)) !== JSON.stringify(_serializePublication(publication));
     let appliedStatus = status;
-    let appliedPublication = publication;
+    let appliedPublication = shouldDowngrade || (publicationChanged && isVisibleStatus)
+        ? (data.publication || null)
+        : publication;
     let syncError = null;
 
     // Draft/private legacy works are normalized in-memory only. Persisting every
     // old project on room load can trip stricter rules and should not block read.
     if (shouldDowngrade || (publicationChanged && isVisibleStatus)) {
         try {
-            const projectPatch = {
-                dsfStatus: nextStatus,
-                visibility: nextVisibility,
-                publication
-            };
-            const projectBatch = writeBatch(db);
-            projectBatch.update(doc(db, 'users', state.uid, 'projects', pid), projectPatch);
-            stageProjectSummaryWrite(projectBatch, db, state.uid, pid, data, projectPatch);
-            await projectBatch.commit();
-            const workId = data.workId || pid;
-            if (shouldDowngrade) {
-                await deleteDoc(doc(db, 'public_projects', workId)).catch(() => {});
-                if (workId !== pid) await deleteDoc(doc(db, 'public_projects', pid)).catch(() => {});
-            } else if (nextStatus === 'public' || nextStatus === 'unlisted') {
-                await setDoc(doc(db, 'public_projects', workId), _buildPublicProjectPayload(pid, workId, data, nextStatus, publication, account), { merge: true }).catch((e) => {
-                    console.warn('[Works] public publication reconcile skipped:', e?.message || e);
-                });
-            }
-            appliedStatus = nextStatus;
+            const plan = await _commitWorksPublicationTransition(pid, nextStatus, publication, account, {
+                expectedStatus: status,
+            });
+            appliedStatus = plan.projectPatch.dsfStatus;
+            appliedPublication = plan.projectPatch.publication;
         } catch (err) {
             syncError = err;
             console.warn('[Works] publication reconcile skipped:', err?.message || err);
@@ -446,11 +497,7 @@ function _refreshRowPublication(row, proj, account = {}) {
 
 async function _updateDsfStatus(pid, newStatus, proj, row) {
     if (!state.uid || !pid) return;
-    const workId = proj?.workId || pid;
     try {
-        if (proj?.releaseKind === 'horizon-v2' && (newStatus === 'public' || newStatus === 'unlisted')) {
-            throw new Error('DSF v2の公開Viewer読込を接続するまで、Flow作品の公開切替は使用できません。');
-        }
         let account = null;
         if (newStatus === 'public' || newStatus === 'unlisted') {
             account = await assertAccountCanPublish();
@@ -464,31 +511,10 @@ async function _updateDsfStatus(pid, newStatus, proj, row) {
                 throw new Error(t('works_publication_cannot_publish_expired'));
             }
         }
-        const projectPatch = {
-            dsfStatus: newStatus,
-            visibility: newStatus === 'draft' ? 'private' : newStatus,
-            publication,
-        };
-        const projectBatch = writeBatch(db);
-        projectBatch.update(doc(db, 'users', state.uid, 'projects', pid), projectPatch);
-        stageProjectSummaryWrite(projectBatch, db, state.uid, pid, proj, projectPatch);
-        await projectBatch.commit();
-
-        const publicRef = doc(db, 'public_projects', workId);
-        if ((newStatus === 'public' || newStatus === 'unlisted') && proj) {
-            await setDoc(publicRef, _buildPublicProjectPayload(pid, workId, proj, newStatus, publication, account), { merge: true });
-            if (workId !== pid) {
-                await deleteDoc(doc(db, 'public_projects', pid)).catch(() => {});
-            }
-        } else {
-            // ステータスを更新してからドキュメント削除を試みる
-            await setDoc(publicRef, { dsfStatus: newStatus }, { merge: true }).catch(() => {});
-            await deleteDoc(publicRef).catch((e) => console.warn('[Works] public_projects delete:', e.message));
-            if (workId !== pid) {
-                await deleteDoc(doc(db, 'public_projects', pid)).catch(() => {});
-            }
-        }
-        return publication;
+        const plan = await _commitWorksPublicationTransition(pid, newStatus, publication, account, {
+            expectedStatus: proj?.dsfStatus || 'draft',
+        });
+        return plan.projectPatch.publication;
     } catch (err) {
         console.error('[Works] dsfStatus update error:', err);
         alert('ステータスの更新に失敗しました: ' + err.message);
@@ -503,70 +529,21 @@ async function _updatePublicationWindow(pid, proj, row) {
         alert(t('works_publication_visible_only'));
         return null;
     }
-    const workId = proj.workId || pid;
     try {
         const account = await assertAccountCanPublish();
         const publication = _publicationFromRow(row, proj.publication || {}, status, account);
         const expiredReason = getPublicationExpireReason(publication, status, new Date());
         if (expiredReason) throw new Error(t('works_publication_cannot_publish_expired'));
-        const projectPatch = { publication };
-        const projectBatch = writeBatch(db);
-        projectBatch.update(doc(db, 'users', state.uid, 'projects', pid), projectPatch);
-        stageProjectSummaryWrite(projectBatch, db, state.uid, pid, proj, projectPatch);
-        await projectBatch.commit();
-        await setDoc(doc(db, 'public_projects', workId), _buildPublicProjectPayload(pid, workId, proj, status, publication, account), { merge: true });
+        const plan = await _commitWorksPublicationTransition(pid, status, publication, account, {
+            expectedStatus: status,
+        });
         alert(t('works_publication_saved'));
-        return publication;
+        return plan.projectPatch.publication;
     } catch (err) {
         console.error('[Works] publication update error:', err);
         alert('公開期間の更新に失敗しました: ' + err.message);
         return null;
     }
-}
-
-function _buildPublicProjectPayload(pid, workId, data, status, publication, account = {}) {
-    const release = _resolveWorksRelease(data, pid);
-    const authorProfile = account?.publicProfile || {};
-    const authorName = authorProfile.displayName || state.user?.displayName || state.user?.email || '';
-    const authorHandle = authorProfile.handle || account?.handle || null;
-    return {
-        title: data.title || '無題のプロジェクト',
-        projectId: pid,
-        workId,
-        releaseId: data.releaseId || null,
-        authorUid: state.uid,
-        authorName,
-        authorHandle,
-        authorAvatarUrl: authorProfile.avatarUrl || '',
-        authorProfile: {
-            displayName: authorName,
-            handle: authorHandle,
-            avatarUrl: authorProfile.avatarUrl || '',
-            backgroundUrl: authorProfile.backgroundUrl || '',
-            bio: authorProfile.bio || ''
-        },
-        thumbnail: data.thumbnail || _getThumbnail(data) || null,
-        updatedAt: serverTimestamp(),
-        dsfStatus: status,
-        publication,
-        dsfPublishedAt: data.dsfPublishedAt || null,
-        dsfRenderStamp: data.dsfRenderStamp || null,
-        dsfResolution: data.dsfResolution || '',
-        dsfQuality: data.dsfQuality || null,
-        dsfQualityMode: data.dsfQualityMode || '',
-        dsfQualityProfile: data.dsfQualityProfile || null,
-        dsfTotalBytes: release.deliveryFields.dsfTotalBytes || data.dsfTotalBytes || 0,
-        book: data.book || null,
-        bookMode: data.bookMode || data.book?.mode || 'simple',
-        languageConfigs: data.languageConfigs || {},
-        languages: Array.isArray(data.languages) ? data.languages : (Array.isArray(data.dsfLangs) ? data.dsfLangs : ['ja']),
-        defaultLang: data.defaultLang || data.languages?.[0] || data.dsfLangs?.[0] || 'ja',
-        labelName: data.labelName || '',
-        rating: data.rating || 'all',
-        license: data.license || 'all-rights-reserved',
-        meta: data.meta || {},
-        ...release.deliveryFields,
-    };
 }
 
 function _getThumbnail(data) {
