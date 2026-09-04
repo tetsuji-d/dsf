@@ -104,6 +104,32 @@ assert.equal(dashboardSummary.hasPublishedDsf, true, 'v2 page counts must make t
 assert.equal(dashboardSummary.dsfPageCount, 2);
 assert.equal(dashboardSummary.releaseId, 'release-1');
 
+const legacyProjectIdDraft = createFlowPressHorizonDraftWrite({
+    upload,
+    projectId: '20290901FLOWテスト',
+    project: {},
+    publication,
+    bookConfig: { bookMode: 'none', book: { mode: 'none', covers: {} } },
+    renderStamp: 1,
+});
+assert.equal(legacyProjectIdDraft.projectId, '20290901FLOWテスト',
+    'valid legacy Firestore project IDs must be preserved because they are not R2 path segments');
+
+for (const invalidProjectId of ['', ' project-1', 'project/child', '__reserved__', 'bad\u0000id']) {
+    assert.throws(
+        () => createFlowPressHorizonDraftWrite({
+            upload,
+            projectId: invalidProjectId,
+            project: {},
+            publication,
+            bookConfig: { bookMode: 'none', book: { mode: 'none', covers: {} } },
+            renderStamp: 1,
+        }),
+        (error) => error instanceof FlowPressHorizonDraftWriteError
+            && error.issues[0].code === 'FLOW_HORIZON_DRAFT_PROJECT_ID_INVALID',
+    );
+}
+
 assert.equal(assertCompatibleFlowPressHorizonRelease({ ...draft.releaseDocument }, draft), true);
 assert.throws(
     () => assertCompatibleFlowPressHorizonRelease({

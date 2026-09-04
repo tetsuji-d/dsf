@@ -31,6 +31,8 @@ const INPUT_KEYS = new Set([
 ]);
 const SAFE_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/;
 const HASH_PATTERN = /^[a-f0-9]{64}$/;
+const FIRESTORE_DOCUMENT_ID_MAX_BYTES = 1_500;
+const FIRESTORE_RESERVED_ID_PATTERN = /^__.*__$/;
 
 function isRecord(value) {
     return !!value && typeof value === 'object' && !Array.isArray(value);
@@ -57,6 +59,19 @@ function fail(code, path, message) {
 function assertSafeId(value, path) {
     if (typeof value !== 'string' || !SAFE_ID_PATTERN.test(value)) {
         fail('FLOW_HORIZON_DRAFT_ID_INVALID', path, `${path} must be a safe non-empty identifier.`);
+    }
+}
+
+function assertFirestoreDocumentId(value, path) {
+    if (typeof value !== 'string'
+        || !value
+        || value !== value.trim()
+        || value !== value.normalize('NFC')
+        || value.includes('/')
+        || /[\u0000-\u001f\u007f]/.test(value)
+        || FIRESTORE_RESERVED_ID_PATTERN.test(value)
+        || new TextEncoder().encode(value).byteLength > FIRESTORE_DOCUMENT_ID_MAX_BYTES) {
+        fail('FLOW_HORIZON_DRAFT_PROJECT_ID_INVALID', path, `${path} must be a valid Firestore document identifier.`);
     }
 }
 
@@ -154,7 +169,10 @@ export function createFlowPressHorizonDraftWrite(input = {}) {
         if (!INPUT_KEYS.has(key)) fail('FLOW_HORIZON_DRAFT_PROPERTY_UNSUPPORTED', key, 'Flow Horizon draft input contains an unsupported property.');
     }
     const { metadata, locator } = assertUpload(input.upload);
-    assertSafeId(input.projectId, 'projectId');
+    // projectId identifies the existing owner Firestore document and is not
+    // interpolated into the immutable R2 release path. Preserve valid legacy
+    // Firestore IDs instead of applying the narrower public delivery ID rule.
+    assertFirestoreDocumentId(input.projectId, 'projectId');
     if (!isRecord(input.project)) fail('FLOW_HORIZON_DRAFT_PROJECT_INVALID', 'project', 'Project metadata is required.');
     if (!isRecord(input.publication)) fail('FLOW_HORIZON_DRAFT_PUBLICATION_INVALID', 'publication', 'Draft publication limits are required.');
     if (!Number.isSafeInteger(input.renderStamp) || input.renderStamp < 1) {
