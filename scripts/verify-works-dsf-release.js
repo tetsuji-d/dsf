@@ -244,9 +244,37 @@ assert.match(i18nSource, /works_republish:\s+'Republish'/);
 assert.match(i18nSource, /works_delete:\s+'Delete'/);
 assert.match(
     appSource,
-    /if \(getCurrentRoom\(\) === 'works'\) \{\s*void openWorksRoom\(true\);\s*\}/,
-    'Changing the Studio UI language must rerender dynamic Works rows without a browser reload.',
+    /if \(currentRoom === 'works'\) \{\s*void refreshWorksRoomLanguage\(true\);\s*\}/,
+    'Changing the Studio UI language must rerender Works rows from the language refresh path.',
 );
+assert.match(
+    appSource,
+    /if \(currentRoom === 'home'\) \{\s*renderHomeDashboard\(\)\.catch/,
+    'A Works language switch must not refresh the hidden Home dashboard.',
+);
+assert.match(worksSource, /_worksViewCache\?\.uid === ownerUid/,
+    'Works cache reuse must be restricted to the authenticated owner.');
+assert.match(worksSource, /openWorksRoom\(roomMode, \{ useCache: true \}\)/,
+    'The language refresh path must request an in-memory repaint.');
+assert.match(worksSource, /title:\s+d\.title \|\| ''/,
+    'The Works cache must retain the raw title so untitled fallback text can be retranslated.');
+assert.match(worksSource, /projects\.splice\(projectIndex, 1\)/,
+    'Deleting a work must also remove it from the language repaint cache.');
+assert.match(worksSource, /_worksLoadGeneration === generation/,
+    'Stale Works loads must not replace the current owner cache or UI.');
+assert.match(worksSource, /_isWorksProjectPending\(ownerUid, project\.id\)/,
+    'Language repaint must preserve disabled controls while a project mutation is pending.');
+assert.match(worksSource, /_updateDsfStatus\(pid, newStatus, proj, row, ownerUid\)/,
+    'Status mutations must remain bound to the owner that rendered the Works row.');
+assert.match(worksSource, /_updatePublicationWindow\(pid, proj, row, ownerUid\)/,
+    'Publication mutations must remain bound to the owner that rendered the Works row.');
+const worksLanguageRefreshStart = worksSource.indexOf('export async function refreshWorksRoomLanguage');
+const worksLanguageRefreshEnd = worksSource.indexOf('function _renderViewerAction');
+assert.ok(worksLanguageRefreshStart >= 0 && worksLanguageRefreshEnd > worksLanguageRefreshStart,
+    'The Works language refresh verification must inspect the actual refresh function.');
+const worksLanguageRefreshSource = worksSource.slice(worksLanguageRefreshStart, worksLanguageRefreshEnd);
+assert.doesNotMatch(worksLanguageRefreshSource, /getDocs\(|assertAccountCan(?:Edit|Publish)\(/,
+    'Changing language must not directly fetch Works or account data.');
 assert.match(worksSource, /p\.releaseKind === 'horizon-v2'/);
 assert.match(worksSource, /t\('works_meta_v2'/);
 assert.match(i18nSource, /works_meta_v2:\s+'\{pages\} pages · \{langs\} · DSF v2 \(fixed text \+ WebP\)\{size\}'/);

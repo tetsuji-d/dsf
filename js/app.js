@@ -17,7 +17,7 @@ import { handleCanvasClick, selectBubble, renderBubbleHTML, getBubbleText, setBu
 import { addSection, addTextSection, changeSection, changeBlock, insertStructureBlock, renderThumbs, canDeleteActive, deleteActive, deleteSectionAt, insertSectionAt, insertSpreadImageAt, duplicateSectionAt, moveSection, moveSectionRange, insertPageNearBlock, duplicateBlockAt, moveBlockAt, getOptimizedImageUrl } from './sections.js';
 import { pushState, endHistoryGroup, undo, redo, getHistoryInfo, clearHistory } from './history.js';
 import { openProjectModal, closeProjectModal, fetchCloudProjects, getCoverImage, getPageCount, deleteCloudProject } from './projects.js';
-import { openWorksRoom, closeWorksRoom } from './works.js';
+import { openWorksRoom, closeWorksRoom, refreshWorksRoomLanguage } from './works.js';
 import { enterPressRoom, leavePressRoom, refreshFlowHorizonDryRunReadiness } from './press.js';
 import { getLangProps, getAllLangs } from './lang.js';
 import { t, applyI18n, setUILang, getUILang } from './i18n-studio.js';
@@ -9490,10 +9490,13 @@ onAuthChanged((user) => {
 // ── UI言語スイッチャー（windowに公開） ──────────────────────────
 window.setStudioUILang = (lang) => {
     setUILang(lang);
+    const currentRoom = getCurrentRoom();
     // 動的レンダリング済みコンポーネントを再描画
     renderLangTabs();
     updateAuthUI();
-    renderHomeDashboard().catch((e) => console.warn('[Home] render failed after language switch:', e));
+    if (currentRoom === 'home') {
+        renderHomeDashboard().catch((e) => console.warn('[Home] render failed after language switch:', e));
+    }
     if (document.getElementById('project-settings-modal')?.style.display !== 'none') {
         _capturePsInputsToDraft();
         renderProjectSettingsTable();
@@ -9501,11 +9504,11 @@ window.setStudioUILang = (lang) => {
         renderLangAddSelect();
         renderProjectBookSettings();
     }
-    if (getCurrentRoom() === 'press') {
+    if (currentRoom === 'press') {
         enterPressRoom();
     }
-    if (getCurrentRoom() === 'works') {
-        void openWorksRoom(true);
+    if (currentRoom === 'works') {
+        void refreshWorksRoomLanguage(true);
     }
     syncStudioShell();
 };
