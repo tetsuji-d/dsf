@@ -49,7 +49,8 @@ const registry = {
     },
 };
 
-const graphicBlock = { id: 'cover', kind: 'page', content: { pageKind: 'image', layers: [] } };
+const graphicBlock = { id: 'graphic-a', kind: 'page', content: { pageKind: 'image', layers: [] } };
+const secondGraphicBlock = { id: 'graphic-b', kind: 'page', content: { pageKind: 'image', layers: [] } };
 const textBlock = {
     id: 'story',
     kind: 'page',
@@ -84,7 +85,7 @@ const compositionSnapshots = {
     },
 };
 const preflight = createDsfPressPreflight({
-    blocks: [graphicBlock, textBlock],
+    blocks: [textBlock, graphicBlock, secondGraphicBlock],
     language: 'ja',
     compositionSnapshots,
     fontRegistry: registry,
@@ -97,11 +98,20 @@ const assembly = await assembleDsfV2Release({
         pageDirection: 'rtl',
         preflight,
         imageAssets: {
-            cover: {
-                pageId: 'cover-ja',
-                pageLabel: '1',
+            [graphicBlock.id]: {
+                pageId: 'graphic-a-ja',
+                pageLabel: '2',
                 sha256: 'b'.repeat(64),
                 byteLength: 42000,
+                width: 1080,
+                height: 1920,
+                mimeType: 'image/webp',
+            },
+            [secondGraphicBlock.id]: {
+                pageId: 'graphic-b-ja',
+                pageLabel: '3',
+                sha256: 'c'.repeat(64),
+                byteLength: 43000,
                 width: 1080,
                 height: 1920,
                 mimeType: 'image/webp',
@@ -121,10 +131,10 @@ const locator = {
     dsfContentUrl: contentUrl,
     dsfContentHash: assembly.files.index.sha256,
     dsfLangs: ['ja'],
-    dsfPageCounts: { ja: 2 },
+    dsfPageCounts: { ja: 3 },
     dsfTotalBytes: assembly.releaseMetadata.dsfTotalBytes,
     defaultLang: 'ja',
-    pageCount: 2,
+    pageCount: 3,
 };
 const publicMetadata = {
     ...locator,
@@ -202,12 +212,16 @@ assert.equal(remote.calls[0].url, contentUrl,
 assert.equal(session.project.title, '公開DSF v2');
 assert.equal(session.project.dsfSchemaVersion, 2);
 assert.deepEqual(session.project.languages, ['ja']);
-assert.equal(session.pagesByLanguage.get('ja').length, 2);
-assert.equal(session.pagesByLanguage.get('ja')[0].deliveryV2.renderKind, 'image');
-assert.equal(session.pagesByLanguage.get('ja')[1].deliveryV2.renderKind, 'fixedText');
+assert.equal(session.pagesByLanguage.get('ja').length, 3);
+assert.equal(session.pagesByLanguage.get('ja')[0].deliveryV2.renderKind, 'fixedText');
+assert.equal(session.pagesByLanguage.get('ja')[1].deliveryV2.renderKind, 'image');
+assert.equal(session.pagesByLanguage.get('ja')[2].deliveryV2.renderKind, 'image');
 assert.equal(session.contextsByLanguage.get('ja').certifiedFontRefs[0], 'synthetic-global-sans-v1');
-const imageHref = session.pagesByLanguage.get('ja')[0].deliveryV2.image.href;
-assert.equal(session.assetUrls.get(imageHref), new URL(imageHref, new URL(assembly.files.manifests.ja.path, contentUrl)).href);
+const firstImageHref = session.pagesByLanguage.get('ja')[1].deliveryV2.image.href;
+const secondImageHref = session.pagesByLanguage.get('ja')[2].deliveryV2.image.href;
+assert.notEqual(firstImageHref, secondImageHref, 'Consecutive image pages after fixed text must keep distinct release hrefs.');
+assert.equal(session.assetUrls.get(firstImageHref), new URL(firstImageHref, new URL(assembly.files.manifests.ja.path, contentUrl)).href);
+assert.equal(session.assetUrls.get(secondImageHref), new URL(secondImageHref, new URL(assembly.files.manifests.ja.path, contentUrl)).href);
 assert.equal(remote.calls.length, 2, 'Only content.json and the selected release manifests are fetched by the JSON loader.');
 for (const call of remote.calls) {
     assert.equal(call.options.credentials, 'omit');

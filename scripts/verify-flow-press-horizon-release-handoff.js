@@ -17,6 +17,8 @@ import { createFlowPressLocalReleasePlanning } from '../js/flow-press-local-rele
 
 const REAL_ONE_PIXEL_VP8_BASE64 = 'UklGRiIAAABXRUJQVlA4IBYAAAAwAQCdASoBAAEADsD+JaQAA3AAAAAA';
 const webpBytes = new Uint8Array(Buffer.from(REAL_ONE_PIXEL_VP8_BASE64, 'base64'));
+const secondWebpBytes = new Uint8Array(webpBytes);
+secondWebpBytes[secondWebpBytes.length - 1] ^= 0x01;
 const UID = 'reader_owner_1';
 const WORK_ID = 'work_horizon_v2';
 const RELEASE_ID = 'rel_horizon_v2_1';
@@ -79,7 +81,8 @@ const fontRegistry = {
     },
 };
 
-const graphic = { id: 'graphic-cover', kind: 'page', content: { pageKind: 'image', layers: [] } };
+const graphic = { id: 'graphic-a', kind: 'page', content: { pageKind: 'image', layers: [] } };
+const secondGraphic = { id: 'graphic-b', kind: 'page', content: { pageKind: 'image', layers: [] } };
 const flow = {
     id: 'flow-body',
     kind: 'flow',
@@ -142,7 +145,7 @@ const projection = {
     summary: { pageCount: 1, lineCount: 1, runCount: 1 },
 };
 const preflight = createDsfPressPreflight({
-    blocks: [graphic, flow],
+    blocks: [flow, graphic, secondGraphic],
     language: 'ja',
     flowPublicationProjections: { [flow.id]: projection },
     flowPublicationRevisions: { [flow.id]: 7 },
@@ -154,8 +157,15 @@ const sealed = await sealDsfWebPAsset({
     bytes: webpBytes,
     expectedWidth: 1,
     expectedHeight: 1,
-    pageId: 'graphic-cover-ja',
-    pageLabel: '1',
+    pageId: 'graphic-a-ja',
+    pageLabel: '2',
+}, { cryptoRef: webcrypto });
+const secondSealed = await sealDsfWebPAsset({
+    bytes: secondWebpBytes,
+    expectedWidth: 1,
+    expectedHeight: 1,
+    pageId: 'graphic-b-ja',
+    pageLabel: '3',
 }, { cryptoRef: webcrypto });
 const planning = await createFlowPressLocalReleasePlanning({
     preparation: {
@@ -166,11 +176,17 @@ const planning = await createFlowPressLocalReleasePlanning({
     defaultLang: 'ja',
     languages: ['ja'],
     pageDirections: { ja: 'rtl' },
-    imageAssets: { ja: { [graphic.id]: sealed.descriptor } },
+    imageAssets: { ja: {
+        [graphic.id]: sealed.descriptor,
+        [secondGraphic.id]: secondSealed.descriptor,
+    } },
     fontRegistry,
     hashBytes,
 });
-const sealedAssets = [{ language: 'ja', blockId: graphic.id, pageIndex: 0, sealed }];
+const sealedAssets = [
+    { language: 'ja', blockId: graphic.id, pageIndex: 1, sealed },
+    { language: 'ja', blockId: secondGraphic.id, pageIndex: 2, sealed: secondSealed },
+];
 
 function createHandoff(overrides = {}) {
     return createFlowPressHorizonReleaseHandoff({
@@ -204,22 +220,27 @@ assert.equal(handoff.readyForUpload, true);
 assert.equal(handoff.readyForMetadataWrite, false);
 assert.deepEqual(handoff.identity, { uid: UID, workId: WORK_ID, releaseId: RELEASE_ID });
 assert.equal(handoff.plan.releaseRootPath, ROOT_PATH);
-assert.equal(handoff.imageFiles.length, 1);
+assert.equal(handoff.imageFiles.length, 2);
 assert.equal(handoff.imageFiles[0].blob, sealed.blob, 'handoff must retain the exact sealed Blob identity');
+assert.equal(handoff.imageFiles[1].blob, secondSealed.blob, 'handoff must retain each consecutive image Blob identity');
+assert.notEqual(handoff.imageFiles[0].sha256, handoff.imageFiles[1].sha256,
+    'Consecutive image pages after Flow text must retain distinct hashes.');
 assert.equal(handoff.imageFiles[0].sha256, sealed.descriptor.sha256);
 assert.equal(handoff.imageFiles[0].byteLength, sealed.blob.size);
 assert.equal(handoff.imageFiles[0].storagePath.startsWith(`${ROOT_PATH}/`), true);
 assert.equal(handoff.imageFiles[0].publicUrl, `${PUBLIC_ORIGIN}/${handoff.imageFiles[0].storagePath}`);
-assert.equal(handoff.summary.imageFileCount, 1);
-assert.equal(handoff.summary.boundImageBytes, sealed.blob.size);
+assert.equal(handoff.summary.imageFileCount, 2);
+assert.equal(handoff.summary.boundImageBytes, sealed.blob.size + secondSealed.blob.size);
 assert.equal(Object.isFrozen(handoff), true);
 assert.equal(Object.isFrozen(handoff.plan), true);
 assert.equal(Object.isFrozen(handoff.imageFiles), true);
 assert.equal(JSON.stringify(planning), planningSnapshot, 'handoff cannot mutate the Press planning result');
 
-const imagePlanFile = handoff.plan.files.find((file) => file.mimeType === 'image/webp');
+const imagePlanFiles = handoff.plan.files.filter((file) => file.mimeType === 'image/webp');
+const imagePlanFile = imagePlanFiles[0];
 const jsonPlanFile = handoff.plan.files.find((file) => file.mimeType === 'application/json');
 assert.equal(resolveFlowPressHorizonImageBlob(handoff, imagePlanFile), sealed.blob);
+assert.equal(resolveFlowPressHorizonImageBlob(handoff, imagePlanFiles[1]), secondSealed.blob);
 assert.throws(
     () => resolveFlowPressHorizonImageBlob(handoff, jsonPlanFile),
     (error) => assertHandoffError(error, 'FLOW_HORIZON_HANDOFF_IMAGE_NOT_FOUND'),
@@ -279,7 +300,7 @@ await assert.rejects(
         sealedAssets: [{
             ...sealedAssets[0],
             sealed: { ...sealed, descriptor: { ...sealed.descriptor, width: 2 } },
-        }],
+        }, ...sealedAssets.slice(1)],
     }),
     (error) => assertHandoffError(error, 'FLOW_HORIZON_HANDOFF_DESCRIPTOR_MISMATCH'),
 );
@@ -291,7 +312,7 @@ await assert.rejects(
         sealedAssets: [{
             ...sealedAssets[0],
             sealed: { ...sealed, blob: new Blob([changedBytes], { type: 'image/webp' }) },
-        }],
+        }, ...sealedAssets.slice(1)],
     }),
     (error) => assertHandoffError(error, 'FLOW_HORIZON_HANDOFF_HASH_MISMATCH'),
 );
