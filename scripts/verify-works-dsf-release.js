@@ -189,6 +189,49 @@ assert.equal(v1Transition.identityMode, 'canonical-release');
 assert.deepEqual(v1Transition.publicIndex.payload.dsfPages, v1Pages);
 assert.equal(v1Transition.publicIndex.payload.dsfSchemaVersion, 1);
 
+const reorderedV1Pages = [{
+    urls: { ja: 'https://media.example.test/page-1.webp' },
+    pageNum: 1,
+}];
+const reorderedV1Transition = createWorksPublicationTransition({
+    ...transitionInput,
+    projectId: 'project-v1',
+    project: v1Project,
+    work: {
+        workId: 'work-v1',
+        projectId: 'project-v1',
+        latestProjectId: 'project-v1',
+        latestReleaseId: 'release-v1',
+        ownerUid: identity.uid,
+        title: 'v1 title',
+    },
+    release: { ...v1Project, dsfPages: reorderedV1Pages },
+    publicIndexes: {},
+});
+assert.deepEqual(
+    reorderedV1Transition.publicIndex.payload.dsfPages,
+    reorderedV1Pages,
+    'Firestore map key ordering must not make identical v1 pages fail publication',
+);
+assert.throws(() => createWorksPublicationTransition({
+    ...transitionInput,
+    projectId: 'project-v1',
+    project: v1Project,
+    work: {
+        workId: 'work-v1',
+        projectId: 'project-v1',
+        latestProjectId: 'project-v1',
+        latestReleaseId: 'release-v1',
+        ownerUid: identity.uid,
+        title: 'v1 title',
+    },
+    release: {
+        ...v1Project,
+        dsfPages: [{ pageNum: 1, urls: { ja: 'https://media.example.test/changed.webp' } }],
+    },
+    publicIndexes: {},
+}), /disagree on dsfPages/i, 'a real v1 page URL mismatch must still fail closed');
+
 const legacyV1Transition = createWorksPublicationTransition({
     ...transitionInput,
     projectId: 'legacy-project',

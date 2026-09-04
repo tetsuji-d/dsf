@@ -54,7 +54,18 @@ function assertOptionalExactId(value, expected, path) {
 }
 
 function sameValue(left, right) {
-    return JSON.stringify(left) === JSON.stringify(right);
+    if (Object.is(left, right)) return true;
+    if (Array.isArray(left) || Array.isArray(right)) {
+        return Array.isArray(left)
+            && Array.isArray(right)
+            && left.length === right.length
+            && left.every((value, index) => sameValue(value, right[index]));
+    }
+    if (!isPlainRecord(left) || !isPlainRecord(right)) return false;
+    const leftKeys = Object.keys(left).sort();
+    const rightKeys = Object.keys(right).sort();
+    return leftKeys.length === rightKeys.length
+        && leftKeys.every((key, index) => key === rightKeys[index] && sameValue(left[key], right[key]));
 }
 
 function assertSameDelivery(projectRelease, canonicalRelease) {

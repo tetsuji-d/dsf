@@ -19,7 +19,11 @@ assert.match(firebaseSource, /batch\.set\(rootRef, rootProjection, \{ merge: tru
 assert.match(pressSource, /projectBatch\.set\(projectRef, projectPatch, \{ merge: true \}\);[\s\S]*stageProjectSummaryWrite\([\s\S]*await projectBatch\.commit\(\);/);
 
 assert.match(projectsSource, /batch\.delete\(projectRef\);[\s\S]*stageProjectSummaryDelete\([\s\S]*await batch\.commit\(\);/);
-assert.match(worksSource, /batch\.delete\(doc\(db, 'users', state\.uid, 'projects', pid\)\);[\s\S]*stageProjectSummaryDelete\([\s\S]*await batch\.commit\(\);/);
+assert.match(
+    worksSource,
+    /batch\.delete\(doc\(db, 'users', ownerUid, 'projects', pid\)\);[\s\S]*stageProjectSummaryDelete\(batch, db, ownerUid, pid\);[\s\S]*await batch\.commit\(\);/,
+    'Works project and summary deletion must stay bound to the owner that rendered the row',
+);
 
 const worksSummaryWrites = worksSource.match(/stageProjectSummaryWrite\(/g) || [];
 assert.equal(worksSummaryWrites.length, 1, 'Works publication paths must share one summary write boundary');
