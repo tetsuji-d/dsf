@@ -9504,6 +9504,9 @@ window.setStudioUILang = (lang) => {
     if (getCurrentRoom() === 'press') {
         enterPressRoom();
     }
+    if (getCurrentRoom() === 'works') {
+        void openWorksRoom(true);
+    }
     syncStudioShell();
 };
 

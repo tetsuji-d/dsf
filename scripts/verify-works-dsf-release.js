@@ -215,6 +215,7 @@ assert.throws(() => resolveWorksDsfRelease(v2Project, {
 }), /location|URL|origin/i, 'v2 content URL must remain inside the configured release origin');
 
 const worksSource = readFileSync(new URL('../js/works.js', import.meta.url), 'utf8');
+const appSource = readFileSync(new URL('../js/app.js', import.meta.url), 'utf8');
 assert.match(worksSource, /resolveWorksDsfRelease\(/);
 assert.match(worksSource, /\.\.\.release\.deliveryFields/);
 assert.doesNotMatch(worksSource, /v2PublishDisabled/,
@@ -241,6 +242,11 @@ const i18nSource = readFileSync(new URL('../js/i18n-studio.js', import.meta.url)
 assert.match(i18nSource, /works_status_draft:\s+'Draft'/);
 assert.match(i18nSource, /works_republish:\s+'Republish'/);
 assert.match(i18nSource, /works_delete:\s+'Delete'/);
+assert.match(
+    appSource,
+    /if \(getCurrentRoom\(\) === 'works'\) \{\s*void openWorksRoom\(true\);\s*\}/,
+    'Changing the Studio UI language must rerender dynamic Works rows without a browser reload.',
+);
 assert.match(worksSource, /p\.releaseKind === 'horizon-v2'/);
 assert.match(worksSource, /t\('works_meta_v2'/);
 assert.match(i18nSource, /works_meta_v2:\s+'\{pages\} pages · \{langs\} · DSF v2 \(fixed text \+ WebP\)\{size\}'/);
