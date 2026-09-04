@@ -895,9 +895,9 @@ function _renderPressFlowProductionPreparationSummary() {
         summary.id = 'press-flow-production-preparation-summary';
         summary.className = 'press-flow-production-preparation-summary';
         summary.dataset.testid = 'press-flow-production-preparation-summary';
-        const devSummary = document.getElementById('press-flow-preflight-dev-summary');
-        const fixedSummary = document.getElementById('press-fixed-text-dev-summary');
-        (devSummary || fixedSummary || thumbs).insertAdjacentElement('afterend', summary);
+        const results = document.querySelector('.press-readiness-results');
+        if (results) results.append(summary);
+        else thumbs.insertAdjacentElement('afterend', summary);
     }
     summary.dataset.state = _pressFlowProductionPreparationState === 'ready' && _pressFlowProductionPreparationResult
         ? (_pressFlowProductionPreparationResult.ok ? 'ready' : 'blocked')
@@ -952,6 +952,22 @@ function _formatPressPayloadBytes(byteLength) {
     if (bytes < 1024) return `${Math.round(bytes)} B`;
     if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
     return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function _getPressFlowHorizonDisplayIssue(error) {
+    let issue = error?.issues?.[0] || null;
+    const visited = new Set();
+    while (issue && !visited.has(issue)) {
+        visited.add(issue);
+        const nested = Array.isArray(issue.validationIssues) ? issue.validationIssues[0] : null;
+        if (!nested) break;
+        issue = nested;
+    }
+    return issue || (error ? {
+        code: error.code,
+        message: error.message,
+        path: '',
+    } : null);
 }
 
 function _createPressFlowLocalReleasePlanningSignature() {
@@ -1109,8 +1125,12 @@ function _renderPressFlowLocalReleaseSummary() {
         summary.id = 'press-flow-local-release-summary';
         summary.className = 'press-flow-production-preparation-summary press-flow-local-release-summary';
         summary.dataset.testid = 'press-flow-local-release-summary';
-        const productionSummary = document.getElementById('press-flow-production-preparation-summary');
-        (productionSummary || thumbs).insertAdjacentElement('afterend', summary);
+        const results = document.querySelector('.press-readiness-results');
+        if (results) results.append(summary);
+        else {
+            const productionSummary = document.getElementById('press-flow-production-preparation-summary');
+            (productionSummary || thumbs).insertAdjacentElement('afterend', summary);
+        }
     }
     summary.dataset.state = _pressFlowLocalReleasePlanningState;
     summary.dataset.horizonState = _pressFlowHorizonHandoffState;
@@ -1165,16 +1185,18 @@ function _renderPressFlowHorizonHandoffStatus() {
         return `<span ${attributes}><b>Horizon配信準備</b> exact WebPと配信pathを検証中…</span>`;
     }
     if (_pressFlowHorizonHandoffState === 'blocked') {
-        const issue = _pressFlowHorizonHandoffError?.issues?.[0];
+        const issue = _getPressFlowHorizonDisplayIssue(_pressFlowHorizonHandoffError);
         const code = issue?.code || _pressFlowHorizonHandoffError?.code || 'FLOW_HORIZON_HANDOFF_BLOCKED';
         const message = issue?.message || _pressFlowHorizonHandoffError?.message || 'Horizon dry-runの前提が揃っていません。';
-        return `<span ${attributes}><b>Horizon配信準備</b> ${_esc(message)} <code>${_esc(code)}</code></span>`;
+        const path = issue?.path ? ` <small>${_esc(issue.path)}</small>` : '';
+        return `<span ${attributes}><b>Horizon配信準備</b> ${_esc(message)} <code>${_esc(code)}</code>${path}</span>`;
     }
     if (_pressFlowHorizonHandoffState === 'error') {
-        const issue = _pressFlowHorizonHandoffError?.issues?.[0];
+        const issue = _getPressFlowHorizonDisplayIssue(_pressFlowHorizonHandoffError);
         const code = issue?.code || _pressFlowHorizonHandoffError?.code || 'FLOW_HORIZON_HANDOFF_FAILED';
         const message = issue?.message || _pressFlowHorizonHandoffError?.message || 'Horizon dry-runを完了できませんでした。';
-        return `<span ${attributes} role="alert"><b>Horizon配信準備</b> 検証失敗: ${_esc(message)} <code>${_esc(code)}</code></span>`;
+        const path = issue?.path ? ` <small>${_esc(issue.path)}</small>` : '';
+        return `<span ${attributes} role="alert"><b>Horizon配信準備</b> 検証失敗: ${_esc(message)} <code>${_esc(code)}</code>${path}</span>`;
     }
     const result = _pressFlowHorizonHandoffResult;
     if (_pressFlowHorizonHandoffState === 'ready' && result?.readyForUpload) {
@@ -1220,8 +1242,12 @@ function _renderPressFlowLocalReleasePackageSummary() {
         summary.id = 'press-flow-local-release-package-summary';
         summary.className = 'press-flow-production-preparation-summary press-flow-local-release-package-summary';
         summary.dataset.testid = 'press-flow-local-release-package-summary';
-        const planningSummary = document.getElementById('press-flow-local-release-summary');
-        (planningSummary || thumbs).insertAdjacentElement('afterend', summary);
+        const results = document.querySelector('.press-readiness-results');
+        if (results) results.append(summary);
+        else {
+            const planningSummary = document.getElementById('press-flow-local-release-summary');
+            (planningSummary || thumbs).insertAdjacentElement('afterend', summary);
+        }
     }
     summary.dataset.state = _pressFlowLocalReleasePackageState;
     if (_pressFlowLocalReleasePackageState === 'working') {
