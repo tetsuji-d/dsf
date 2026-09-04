@@ -220,7 +220,9 @@ function resolveReleaseResourceUrl(baseFileUrl, href, releaseRoot, path) {
 
 function validateIndexAgainstTransport(index, transport) {
     const indexLanguages = Object.keys(index.languages || {});
-    if (serializeDsfReleaseJson(indexLanguages) !== serializeDsfReleaseJson(transport.languages)
+    const canonicalIndexLanguages = [...indexLanguages].sort();
+    const canonicalTransportLanguages = [...transport.languages].sort();
+    if (serializeDsfReleaseJson(canonicalIndexLanguages) !== serializeDsfReleaseJson(canonicalTransportLanguages)
         || index.defaultLang !== transport.defaultLang) {
         fail('HORIZON_VIEWER_INDEX_LANGUAGE_MISMATCH', 'content.json.languages', 'Content index languages differ from the public locator.');
     }

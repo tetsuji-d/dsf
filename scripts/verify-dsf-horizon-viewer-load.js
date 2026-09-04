@@ -120,6 +120,55 @@ const assembly = await assembleDsfV2Release({
     }],
 });
 
+const multilingualRegistry = clone(registry);
+multilingualRegistry.fonts['synthetic-global-sans-v1'].capabilities.languages = ['ja', 'en-us'];
+const englishText = 'Winter in Kanazawa was quiet.';
+const englishTextBlock = clone(textBlock);
+englishTextBlock.content.texts = { 'en-us': englishText };
+const englishCompositionSnapshots = clone(compositionSnapshots);
+englishCompositionSnapshots.story.composition.lines = [englishText];
+englishCompositionSnapshots.story.evidence.sourceText = englishText;
+const englishPreflight = createDsfPressPreflight({
+    blocks: [englishTextBlock, graphicBlock, secondGraphicBlock],
+    language: 'en-us',
+    compositionSnapshots: englishCompositionSnapshots,
+    fontRegistry: multilingualRegistry,
+});
+assert.equal(englishPreflight.publishable, true);
+const multilingualAssembly = await assembleDsfV2Release({
+    defaultLang: 'ja',
+    hashBytes: sha256,
+    languages: [{
+        language: 'ja',
+        pageDirection: 'rtl',
+        preflight,
+        imageAssets: {
+            [graphicBlock.id]: {
+                pageId: 'graphic-a-ja', pageLabel: '2', sha256: 'b'.repeat(64),
+                byteLength: 42000, width: 1080, height: 1920, mimeType: 'image/webp',
+            },
+            [secondGraphicBlock.id]: {
+                pageId: 'graphic-b-ja', pageLabel: '3', sha256: 'c'.repeat(64),
+                byteLength: 43000, width: 1080, height: 1920, mimeType: 'image/webp',
+            },
+        },
+    }, {
+        language: 'en-us',
+        pageDirection: 'ltr',
+        preflight: englishPreflight,
+        imageAssets: {
+            [graphicBlock.id]: {
+                pageId: 'graphic-a-en-us', pageLabel: '2', sha256: 'd'.repeat(64),
+                byteLength: 42000, width: 1080, height: 1920, mimeType: 'image/webp',
+            },
+            [secondGraphicBlock.id]: {
+                pageId: 'graphic-b-en-us', pageLabel: '3', sha256: 'e'.repeat(64),
+                byteLength: 43000, width: 1080, height: 1920, mimeType: 'image/webp',
+            },
+        },
+    }],
+});
+
 const origin = 'https://media-test.dsf.ink';
 const uid = 'reader_owner_1';
 const workId = 'work_public_v2';
@@ -146,6 +195,28 @@ const publicMetadata = {
     dsfStatus: 'public',
 };
 const releaseMetadata = { ...locator, authorUid: uid, workId, releaseId };
+const multilingualReleaseId = 'release_public_v2_multilingual_1';
+const multilingualReleaseRoot = `${origin}/users/${uid}/dsf/${workId}/${multilingualReleaseId}/`;
+const multilingualContentUrl = `${multilingualReleaseRoot}content.json`;
+const multilingualLocator = {
+    dsfSchemaVersion: 2,
+    dsfContentUrl: multilingualContentUrl,
+    dsfContentHash: multilingualAssembly.files.index.sha256,
+    dsfLangs: ['ja', 'en-us'],
+    dsfPageCounts: { ja: 3, 'en-us': 3 },
+    dsfTotalBytes: multilingualAssembly.releaseMetadata.dsfTotalBytes,
+    defaultLang: 'ja',
+    pageCount: 3,
+};
+const multilingualPublicMetadata = {
+    ...multilingualLocator,
+    authorUid: uid,
+    workId,
+    releaseId: multilingualReleaseId,
+    projectId: 'project_public_v2_multilingual',
+    title: 'Multilingual DSF v2',
+    dsfStatus: 'public',
+};
 
 function createJsonResponse(text, overrides = {}) {
     const bytes = encoder.encode(text);
@@ -161,10 +232,10 @@ function createJsonResponse(text, overrides = {}) {
     };
 }
 
-function createFetch(overrides = new Map()) {
-    const files = new Map([[contentUrl, assembly.files.index.json]]);
-    for (const file of Object.values(assembly.files.manifests)) {
-        files.set(new URL(file.path, contentUrl).href, file.json);
+function createAssemblyFetch(releaseAssembly, releaseContentUrl, overrides = new Map()) {
+    const files = new Map([[releaseContentUrl, releaseAssembly.files.index.json]]);
+    for (const file of Object.values(releaseAssembly.files.manifests)) {
+        files.set(new URL(file.path, releaseContentUrl).href, file.json);
     }
     for (const [url, text] of overrides) files.set(url, text);
     const calls = [];
@@ -174,6 +245,10 @@ function createFetch(overrides = new Map()) {
         return createJsonResponse(files.get(url));
     };
     return { fetchImpl, calls };
+}
+
+function createFetch(overrides = new Map()) {
+    return createAssemblyFetch(assembly, contentUrl, overrides);
 }
 
 function createRuntime() {
@@ -230,6 +305,79 @@ for (const call of remote.calls) {
 session.dispose();
 session.dispose();
 assert.deepEqual(runtime.disposed, ['synthetic-global-sans-v1']);
+
+assert.deepEqual(multilingualAssembly.releaseMetadata.dsfLangs, ['ja', 'en-us']);
+assert.deepEqual(
+    Object.keys(JSON.parse(multilingualAssembly.files.index.json).languages),
+    ['en-us', 'ja'],
+    'Canonical content JSON sorts language object keys independently of the selected publication order.',
+);
+const multilingualRemote = createAssemblyFetch(multilingualAssembly, multilingualContentUrl);
+const multilingualRuntime = createRuntime();
+const multilingualSession = await loadDsfHorizonViewerRelease({
+    uid,
+    workId,
+    releaseId: multilingualReleaseId,
+    publicMetadata: multilingualPublicMetadata,
+    allowedContentOrigins: [origin],
+    fetchImpl: multilingualRemote.fetchImpl,
+    hashBytes: sha256,
+    fontRegistry: multilingualRegistry,
+    documentRef: multilingualRuntime.documentRef,
+    fontRuntimeLoader: multilingualRuntime.fontRuntimeLoader,
+});
+assert.deepEqual(multilingualSession.project.languages, ['ja', 'en-us'],
+    'Viewer language order must continue to follow the public locator.');
+assert.equal(multilingualSession.pagesByLanguage.get('ja').length, 3);
+assert.equal(multilingualSession.pagesByLanguage.get('en-us').length, 3);
+multilingualSession.dispose();
+
+const multilingualMismatchCases = [{
+    metadata: {
+        ...multilingualPublicMetadata,
+        dsfLangs: ['ja'],
+        dsfPageCounts: { ja: 3 },
+    },
+    code: 'HORIZON_VIEWER_INDEX_LANGUAGE_MISMATCH',
+}, {
+    metadata: {
+        ...multilingualPublicMetadata,
+        dsfLangs: ['ja', 'en-us', 'fr'],
+        dsfPageCounts: { ja: 3, 'en-us': 3, fr: 3 },
+    },
+    code: 'HORIZON_VIEWER_INDEX_LANGUAGE_MISMATCH',
+}, {
+    metadata: {
+        ...multilingualPublicMetadata,
+        defaultLang: 'en-us',
+    },
+    code: 'HORIZON_VIEWER_INDEX_LANGUAGE_MISMATCH',
+}, {
+    metadata: {
+        ...multilingualPublicMetadata,
+        dsfPageCounts: { ja: 3, 'en-us': 2 },
+    },
+    code: 'HORIZON_VIEWER_INDEX_PAGE_COUNT_MISMATCH',
+}];
+for (const { metadata, code } of multilingualMismatchCases) {
+    const mismatchRuntime = createRuntime();
+    await assert.rejects(
+        () => loadDsfHorizonViewerRelease({
+            uid,
+            workId,
+            releaseId: multilingualReleaseId,
+            publicMetadata: metadata,
+            allowedContentOrigins: [origin],
+            fetchImpl: createAssemblyFetch(multilingualAssembly, multilingualContentUrl).fetchImpl,
+            hashBytes: sha256,
+            fontRegistry: multilingualRegistry,
+            documentRef: mismatchRuntime.documentRef,
+            fontRuntimeLoader: mismatchRuntime.fontRuntimeLoader,
+        }),
+        (error) => error instanceof DsfHorizonViewerLoadError
+            && error.issues.some((issue) => issue.code === code),
+    );
+}
 
 assert.equal(isDsfHorizonV2MetadataDeclared({ dsfPages: [], dsfLangs: ['ja'], dsfTotalBytes: 1 }), false,
     'Legacy v1 metadata must not be treated as partial v2 because it contains language/size fields.');
