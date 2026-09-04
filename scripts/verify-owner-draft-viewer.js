@@ -62,9 +62,20 @@ assert.throws(() => buildOwnerDraftViewerUrl('javascript:alert(1)', 'project-1')
 
 const appSource = readFileSync(new URL('../js/app.js', import.meta.url), 'utf8');
 const worksSource = readFileSync(new URL('../js/works.js', import.meta.url), 'utf8');
+const i18nSource = readFileSync(new URL('../js/i18n-studio.js', import.meta.url), 'utf8');
 const viewerSource = readFileSync(new URL('../js/viewer.js', import.meta.url), 'utf8');
 assert.match(appSource, /window\.openDraftViewer/);
-assert.match(worksSource, /下書きプレビュー/);
+assert.match(
+    worksSource,
+    /const label = p\.dsfStatus === 'draft'\s*\?\s*t\('works_draft_preview'\)\s*:\s*t\('works_private_preview'\);/,
+);
+assert.match(worksSource, /t\('works_open_owner_preview', \{ label \}\)/);
+assert.match(i18nSource, /works_draft_preview:\s*'下書きプレビュー'/);
+assert.match(i18nSource, /works_draft_preview:\s*'Draft preview'/);
+assert.match(i18nSource, /works_private_preview:\s*'非公開プレビュー'/);
+assert.match(i18nSource, /works_private_preview:\s*'Private preview'/);
+assert.match(i18nSource, /works_open_owner_preview:\s*'所有者として\{label\}を開く'/);
+assert.match(i18nSource, /works_open_owner_preview:\s*'Open \{label\} as owner'/);
 assert.match(worksSource, /p\.dsfStatus === 'draft' \|\| p\.dsfStatus === 'private'/);
 assert.match(viewerSource, /params\.get\('draft'\)/);
 assert.match(viewerSource, /source: 'owner-draft'/);
