@@ -348,6 +348,12 @@ assert.match(pressSource, /アップロード未実行/);
 assert.match(pressSource, /Horizonへ下書き保存/);
 assert.match(pressSource, /export function getFlowHorizonDryRunHandoff/);
 assert.match(pressSource, /export function refreshFlowHorizonDryRunReadiness/);
+assert.match(pressSource, /function _isUnsafePressFlowWorkIdIssue\(issue\)[\s\S]*?HORIZON_RELEASE_ID_INVALID[\s\S]*?issue\?\.path === 'workId'/,
+    'legacy workId repair must be offered only for the exact Horizon workId validation failure');
+assert.match(pressSource, /window\.repairFlowHorizonWorkId = async \(\) => \{[\s\S]*?confirm\([\s\S]*?createId\('work'\)[\s\S]*?await window\.saveProject\(\)/,
+    'legacy workId repair must require confirmation and persist the new safe identity');
+assert.match(pressSource, /catch \(error\) \{[\s\S]*?key: 'workId', value: previousWorkId[\s\S]*?key: 'releaseId', value: previousReleaseId/,
+    'legacy workId repair must restore the prior in-memory identity when persistence fails');
 assert.match(pressSource, /function _createPressFlowPreflightPreviewSignature\(\)[\s\S]*?_getSelectedPressLangs\(\)/);
 assert.match(pressSource, /prepareFlowPressPublication\(\{[\s\S]*?languages: _getSelectedPressLangs\(\)/);
 assert.match(pressSource, /function _handlePressLocalReleaseSettingChange\(\)[\s\S]*?_requestPressFlowProductionPreparation\(\)/);
@@ -368,6 +374,7 @@ for (const forbidden of ['fetch(', 'uploadDsfHorizonReleasePlan', '/upload-relea
 const studioCss = readFileSync(new URL('../css/studio.css', import.meta.url), 'utf8');
 assert.match(studioCss, /\.press-flow-horizon-readiness/);
 assert.match(studioCss, /\.press-flow-horizon-readiness\[data-state="ready"\]/);
+assert.match(studioCss, /\.press-flow-identity-repair/);
 
 const appSource = readFileSync(new URL('../js/app.js', import.meta.url), 'utf8');
 assert.match(appSource, /refreshFlowHorizonDryRunReadiness/);

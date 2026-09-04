@@ -970,6 +970,20 @@ function _getPressFlowHorizonDisplayIssue(error) {
     } : null);
 }
 
+function _isUnsafePressFlowWorkIdIssue(issue) {
+    return issue?.code === 'HORIZON_RELEASE_ID_INVALID' && issue?.path === 'workId';
+}
+
+function _renderPressFlowWorkIdRepair(issue) {
+    if (!_isUnsafePressFlowWorkIdIssue(issue)) return '';
+    return `
+        <span class="press-flow-identity-repair">
+            <span>この作品は旧形式の配信用IDを使用しています。</span>
+            <button type="button" onclick="repairFlowHorizonWorkId()" data-testid="press-flow-repair-work-id">配信用IDを修復</button>
+        </span>
+    `;
+}
+
 function _createPressFlowLocalReleasePlanningSignature() {
     const selectedLanguages = _getSelectedPressLangs();
     return JSON.stringify([
@@ -1196,7 +1210,8 @@ function _renderPressFlowHorizonHandoffStatus() {
         const code = issue?.code || _pressFlowHorizonHandoffError?.code || 'FLOW_HORIZON_HANDOFF_FAILED';
         const message = issue?.message || _pressFlowHorizonHandoffError?.message || 'Horizon dry-runを完了できませんでした。';
         const path = issue?.path ? ` <small>${_esc(issue.path)}</small>` : '';
-        return `<span ${attributes} role="alert"><b>Horizon配信準備</b> 検証失敗: ${_esc(message)} <code>${_esc(code)}</code>${path}</span>`;
+        const repair = _renderPressFlowWorkIdRepair(issue);
+        return `<span ${attributes} role="alert"><b>Horizon配信準備</b> 検証失敗: ${_esc(message)} <code>${_esc(code)}</code>${path}${repair}</span>`;
     }
     const result = _pressFlowHorizonHandoffResult;
     if (_pressFlowHorizonHandoffState === 'ready' && result?.readyForUpload) {
@@ -1228,6 +1243,42 @@ function _renderPressFlowHorizonHandoffStatus() {
     }
     return `<span ${attributes}><b>Horizon配信準備</b> ローカル配信設計の完了を待っています。</span>`;
 }
+
+window.repairFlowHorizonWorkId = async () => {
+    const issue = _getPressFlowHorizonDisplayIssue(_pressFlowHorizonHandoffError);
+    if (!_isUnsafePressFlowWorkIdIssue(issue)) return;
+    if (!state.projectId) {
+        alert('配信用IDを修復する前に、作品をクラウドへ保存してください。');
+        return;
+    }
+    const confirmed = confirm([
+        'この作品の配信用IDを現在の安全な形式へ更新します。',
+        '原稿やページ内容は変更されません。',
+        '過去に同じ作品を公開している場合、以前の共有URLとは別の作品として扱われます。',
+        '',
+        '続行しますか？',
+    ].join('\n'));
+    if (!confirmed) return;
+
+    const previousWorkId = state.workId;
+    const previousReleaseId = state.releaseId;
+    const nextWorkId = createId('work');
+    try {
+        dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'workId', value: nextWorkId } });
+        dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'releaseId', value: null } });
+        _resetPressFlowHorizonHandoff();
+        await window.saveProject();
+        _invalidatePressFlowLocalReleaseForSettingsChange();
+        _queueSizeEstimate();
+    } catch (error) {
+        dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'workId', value: previousWorkId } });
+        dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'releaseId', value: previousReleaseId } });
+        console.error('[Press Flow Horizon identity repair] failed:', error);
+        alert(`配信用IDを修復できませんでした。\n${error?.message || String(error)}`);
+        _invalidatePressFlowLocalReleaseForSettingsChange();
+        _queueSizeEstimate();
+    }
+};
 
 function _renderPressFlowLocalReleasePackageSummary() {
     const thumbs = document.getElementById('press-page-thumbs');
