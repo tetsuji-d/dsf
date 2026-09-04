@@ -81,9 +81,9 @@ assert.equal(horizontalDefaults.lineHeight, fixedHorizontal.frame.h / fixedHoriz
 assert.equal(horizontalDefaults.lineHeight, 1.875);
 assert.equal(horizontalDefaults.letterSpacing, 0);
 assert.equal(horizontalDefaults.paragraphSpacing, 0);
-for (const languageKey of ['en', 'en-US', 'en-GB', 'fr', 'de']) {
+for (const languageKey of ['en', 'en-US', 'en-GB', 'fr', 'es', 'de', 'pt']) {
     const typography = resolveFlowDomTypography(languageKey, {}, 'horizontal-tb');
-    assert.equal(typography.fontFamily, horizontalDefaults.fontFamily, languageKey);
+    assert.match(typography.fontFamily, /^'Noto Sans JP',/, languageKey);
     assert.equal(typography.lineHeight, 1.875, languageKey);
     assert.equal(typography.letterSpacing, 0, languageKey);
     assert.equal(typography.paragraphSpacing, 0, languageKey);
@@ -104,8 +104,9 @@ for (const [key, value] of Object.entries(japaneseHorizontal)) {
 }
 assert.equal(resolveFlowDomTypography('ja').writingMode, 'horizontal-tb');
 
-// Keep the pre-existing CJK-vs-Latin font routing when the shared text-page
-// preset is selected. Each persisted language key still owns its settings.
+// CJK routes through the Japanese preset. Latin Flow defaults use the exact
+// JP family names certified for portable delivery, without changing the
+// legacy text-page default returned above.
 for (const languageKey of ['ja', 'zh-Hans', 'zh-Hant', 'ko']) {
     for (const fontPreset of ['gothic', 'mincho']) {
         const typography = resolveFlowDomTypography(languageKey, {}, 'horizontal-tb', {
@@ -121,8 +122,12 @@ const languageConfigs = {
     'en-US': { fontPreset: 'gothic' },
     'en-GB': { fontPreset: 'mincho' },
 };
-assert.match(resolveFlowDomTypography('en-US', {}, 'horizontal-tb', { languageConfigs }).fontFamily, /^'Noto Sans',/);
-assert.match(resolveFlowDomTypography('en-GB', {}, 'horizontal-tb', { languageConfigs }).fontFamily, /^'Noto Serif',/);
+assert.match(resolveFlowDomTypography('en-US', {}, 'horizontal-tb', { languageConfigs }).fontFamily, /^'Noto Sans JP',/);
+assert.match(resolveFlowDomTypography('en-GB', {}, 'horizontal-tb', { languageConfigs }).fontFamily, /^'Noto Serif JP',/);
+assert.match(resolveFlowDomTypography('en-US', {
+    fontFamily: "'Noto Sans',Arial,sans-serif",
+}, 'horizontal-tb', { languageConfigs }).fontFamily, /^'Noto Sans',/,
+    'an explicit author font must not be silently rewritten');
 assert.equal(
     resolveFlowDomTypography('ja', {}, 'vertical-rl', { languageConfigs: { ja: { fontPreset: 'unknown' } } }).fontFamily,
     verticalDefaults.fontFamily,

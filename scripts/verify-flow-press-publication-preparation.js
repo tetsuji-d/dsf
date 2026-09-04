@@ -243,6 +243,85 @@ for (const explicitFamily of [undefined, "'Noto Sans JP',sans-serif"]) {
     assert.deepEqual(inheritedProject, inheritedBefore, 'production preparation cannot persist resolved defaults');
 }
 
+for (const [fontPreset, expectedFamily, expectedFontId] of [
+    ['gothic', 'Noto Sans JP', 'noto-sans-jp-2.004-h2'],
+    ['mincho', 'Noto Serif JP', 'noto-serif-jp-2.003-h1'],
+]) {
+    const latinProject = structuredClone(project);
+    latinProject.defaultLang = 'en-us';
+    latinProject.languages = ['en-us'];
+    latinProject.languageConfigs = { 'en-us': { fontPreset } };
+    latinProject.blocks[0].flow.layout.typographyByLanguage = {
+        'en-us': { writingMode: 'horizontal-tb' },
+    };
+    const latinBefore = structuredClone(latinProject);
+    const latinReady = await prepareFlowPressPublication({
+        project: latinProject,
+        revision: 10,
+        documentRef: {},
+        dependencies: {
+            deriveTranslationStatus() {
+                return { isSourceLanguage: true, requiresSourceFallback: false };
+            },
+            async prepareProductionFont(context) {
+                assert.equal(context.fontResolution.fontId, expectedFontId);
+                assert.match(context.typography.fontFamily, new RegExp(expectedFamily));
+                return { runtimeFontFamily: `Verified ${expectedFamily}`, dispose() {} };
+            },
+            async createCaptureSession(options) {
+                assert.equal(options.fontId, expectedFontId);
+                assert.equal(options.language, 'en-us');
+                return {
+                    paginate() { return { pages: [{}] }; },
+                    capture() { return { status: 'complete' }; },
+                    dispose() {},
+                };
+            },
+            projectFlow(options) {
+                assert.equal(options.fontId, expectedFontId);
+                return { ok: true, summary: { pageCount: 1, lineCount: 1 }, manifest: { pages: [{}] } };
+            },
+            createPreflight() {
+                return { publishable: true, issues: [], summary: { flowPageCount: 1, deliveryPageCount: 1 } };
+            },
+        },
+    });
+    assert.equal(latinReady.ok, true);
+    assert.equal(latinReady.languages[0].groupResults[0].fontId, expectedFontId);
+    assert.deepEqual(latinProject, latinBefore, 'Latin Flow default resolution cannot mutate author data');
+}
+
+const uncertifiedLatinProject = structuredClone(project);
+uncertifiedLatinProject.defaultLang = 'en-us';
+uncertifiedLatinProject.languages = ['en-us'];
+uncertifiedLatinProject.blocks[0].flow.layout.typographyByLanguage = {
+    'en-us': {
+        writingMode: 'horizontal-tb',
+        fontFamily: "'Noto Sans',Arial,sans-serif",
+    },
+};
+let uncertifiedLatinCaptureCount = 0;
+const uncertifiedLatin = await prepareFlowPressPublication({
+    project: uncertifiedLatinProject,
+    revision: 11,
+    documentRef: {},
+    dependencies: {
+        deriveTranslationStatus() {
+            return { isSourceLanguage: true, requiresSourceFallback: false };
+        },
+        async createCaptureSession() {
+            uncertifiedLatinCaptureCount += 1;
+            throw new Error('an explicit uncertified font must stop before capture');
+        },
+        createPreflight() {
+            return { publishable: false, issues: [], summary: { flowPageCount: 0, deliveryPageCount: 0 } };
+        },
+    },
+});
+assert.equal(uncertifiedLatin.ok, false);
+assert.equal(uncertifiedLatin.languages[0].preparationIssues[0].code, 'FONT_NOT_CERTIFIED');
+assert.equal(uncertifiedLatinCaptureCount, 0);
+
 assert.deepEqual(Object.keys(DSF_PRODUCTION_FONT_REGISTRY.fonts), [
     'noto-sans-jp-2.004-h2',
     'noto-serif-jp-2.003-h1',
