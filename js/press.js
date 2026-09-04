@@ -43,6 +43,7 @@ import {
     reconcilePressReleaseLanguages,
     togglePressReleaseLanguage,
 } from './press-release-languages.js';
+import { createDsfReleaseOperationDiagnostic } from './dsf-release-operation-diagnostic.js';
 
 let _estimateTimer = null;
 let _estimateRunId = 0;
@@ -1100,6 +1101,71 @@ function _renderPressFlowWorkIdRepair(issue) {
     `;
 }
 
+function _getPressFlowReleaseDiagnosticCopy(classification) {
+    const isEnglish = getUILang() === 'en';
+    if (classification === 'retry-safe') {
+        return isEnglish
+            ? {
+                heading: 'Safe to retry',
+                guidance: 'This appears to be temporary. Run “Save draft to Horizon” again with the same release.',
+            }
+            : {
+                heading: 'そのまま再試行できます',
+                guidance: '一時的な失敗です。同じ配信内容のまま、もう一度「Horizonへ下書き保存」を実行してください。',
+            };
+    }
+    if (classification === 'refresh-required') {
+        return isEnglish
+            ? {
+                heading: 'Refresh before retrying',
+                guidance: 'The verified release state has changed or expired. Refresh Press, verify it again, then retry.',
+            }
+            : {
+                heading: '更新してから再試行してください',
+                guidance: '検証済みの配信状態が変更または失効しています。プレス画面を更新し、再検証してから実行してください。',
+            };
+    }
+    return isEnglish
+        ? {
+            heading: 'Action required',
+            guidance: 'Resolve the reported code before retrying. Repeating the same operation will not bypass this issue.',
+        }
+        : {
+            heading: '問題の解消が必要です',
+            guidance: '表示されたコードの問題を解消してから再実行してください。同じ操作の繰り返しでは解消しません。',
+        };
+}
+
+function _renderPressFlowReleaseOperationDiagnostic(error, fileCount) {
+    const diagnostic = createDsfReleaseOperationDiagnostic(error, { fileCount });
+    const copy = _getPressFlowReleaseDiagnosticCopy(diagnostic.classification);
+    const isEnglish = getUILang() === 'en';
+    const details = [
+        `${isEnglish ? 'Classification' : '診断'}: ${diagnostic.classification}`,
+        `${isEnglish ? 'Code' : 'コード'}: ${diagnostic.code}`,
+    ];
+    if (diagnostic.path) {
+        details.push(`${isEnglish ? 'Location' : '場所'}: ${diagnostic.path}`);
+    }
+    if (diagnostic.fileCount !== null) {
+        details.push(`${isEnglish ? 'Files' : 'ファイル'}: ${diagnostic.completedFileCount}/${diagnostic.fileCount}`);
+    }
+    if (diagnostic.storagePath) {
+        details.push(`${isEnglish ? 'Storage path' : '保存先'}: ${diagnostic.storagePath}`);
+    }
+    if (diagnostic.remoteCode) {
+        details.push(`${isEnglish ? 'Remote code' : '接続先コード'}: ${diagnostic.remoteCode}`);
+    }
+    return `
+        <span class="press-flow-identity-repair"
+              data-testid="press-flow-release-operation-diagnostic"
+              data-classification="${_esc(diagnostic.classification)}">
+            <span><b>${_esc(copy.heading)}</b> ${_esc(copy.guidance)}</span>
+            <small>${details.map((detail) => _esc(detail)).join(' · ')}</small>
+        </span>
+    `;
+}
+
 function _createPressFlowLocalReleasePlanningSignature() {
     const selectedLanguages = _getSelectedPressLangs();
     return JSON.stringify([
@@ -1339,9 +1405,13 @@ function _renderPressFlowHorizonHandoffStatus() {
             return `<span ${attributes}><b>${_esc(t('press_horizon_draft_title'))}</b> ${_esc(t('press_horizon_draft_saving'))}</span>`;
         }
         if (_pressFlowHorizonDraftState === 'error') {
-            const code = _pressFlowHorizonDraftError?.code || 'FLOW_HORIZON_DRAFT_FAILED';
-            const message = _pressFlowHorizonDraftError?.message || t('press_horizon_dry_run_failed');
-            return `<span ${attributes} role="alert"><b>${_esc(t('press_horizon_draft_title'))}</b> ${_esc(t('press_horizon_draft_failed', { message }))} <code>${_esc(code)}</code></span>`;
+            const failed = getUILang() === 'en' ? 'Draft save failed.' : '下書き保存に失敗しました。';
+            const fileCount = _pressFlowHorizonUploadResult?.summary?.fileCount ?? result.summary?.fileCount;
+            const diagnostic = _renderPressFlowReleaseOperationDiagnostic(
+                _pressFlowHorizonDraftError,
+                fileCount,
+            );
+            return `<span ${attributes} role="alert"><b>${_esc(t('press_horizon_draft_title'))}</b> ${_esc(failed)}${diagnostic}</span>`;
         }
         if (_pressFlowHorizonUploadState === 'working') {
             const completed = Number(_pressFlowHorizonUploadProgress?.completedFileCount || 0);
@@ -1349,9 +1419,12 @@ function _renderPressFlowHorizonHandoffStatus() {
             return `<span ${attributes}><b>${_esc(t('press_horizon_upload_title'))}</b> ${_esc(t('press_horizon_upload_working', { done: completed, total }))}</span>`;
         }
         if (_pressFlowHorizonUploadState === 'error') {
-            const code = _pressFlowHorizonUploadError?.code || 'FLOW_HORIZON_UPLOAD_FAILED';
-            const message = _pressFlowHorizonUploadError?.message || t('press_horizon_dry_run_failed');
-            return `<span ${attributes} role="alert"><b>${_esc(t('press_horizon_upload_title'))}</b> ${_esc(t('press_horizon_upload_failed', { message }))} <code>${_esc(code)}</code></span>`;
+            const failed = getUILang() === 'en' ? 'Upload failed.' : 'アップロードに失敗しました。';
+            const diagnostic = _renderPressFlowReleaseOperationDiagnostic(
+                _pressFlowHorizonUploadError,
+                result.summary?.fileCount,
+            );
+            return `<span ${attributes} role="alert"><b>${_esc(t('press_horizon_upload_title'))}</b> ${_esc(failed)}${diagnostic}</span>`;
         }
         if (_pressFlowHorizonUploadState === 'ready' && _pressFlowHorizonUploadResult?.readyForMetadataWrite) {
             return `<span ${attributes}><b>${_esc(t('press_horizon_upload_title'))}</b> ${_esc(t('press_horizon_upload_ready', { count: _pressFlowHorizonUploadResult.summary.fileCount }))}</span>`;
@@ -2838,20 +2911,32 @@ function _updatePublishBtn() {
         if (hasFlow && isHorizonPublish) {
             const working = _pressFlowHorizonUploadState === 'working'
                 || _pressFlowHorizonDraftState === 'working';
+            const operationError = _pressFlowHorizonDraftState === 'error'
+                ? _pressFlowHorizonDraftError
+                : (_pressFlowHorizonUploadState === 'error' ? _pressFlowHorizonUploadError : null);
+            const operationDiagnostic = operationError
+                ? createDsfReleaseOperationDiagnostic(operationError)
+                : null;
+            const retryBlocked = !!operationDiagnostic
+                && operationDiagnostic.classification !== 'retry-safe';
             const saved = _pressFlowHorizonDraftState === 'ready'
                 && _pressFlowHorizonDraftResult?.readyForFirestoreWrite
                 && _pressFlowHorizonDraftSignature === _pressFlowHorizonHandoffSignature;
-            btn.dataset.flowHorizonState = saved
+            btn.dataset.flowHorizonState = retryBlocked
+                ? operationDiagnostic.classification
+                : (saved
                 ? 'saved'
-                : (working ? 'working' : (flowHorizonReady ? 'ready' : 'waiting'));
-            btn.disabled = !flowHorizonReady || working || saved;
-            btn.title = saved
+                : (working ? 'working' : (flowHorizonReady ? 'ready' : 'waiting')));
+            btn.disabled = !flowHorizonReady || working || saved || retryBlocked;
+            btn.title = retryBlocked
+                ? _getPressFlowReleaseDiagnosticCopy(operationDiagnostic.classification).guidance
+                : (saved
                 ? 'この配信内容はHorizonへ非公開draftとして保存済みです'
                 : (working
                     ? 'Horizonへ配信ファイルと非公開draftを保存しています'
                     : (flowHorizonReady
                         ? '検証済み配信ファイルをアップロードし、非公開draftとして保存します'
-                        : 'Horizon配信準備の検証完了後に有効になります'));
+                        : 'Horizon配信準備の検証完了後に有効になります')));
             return;
         }
         delete btn.dataset.flowHorizonState;
@@ -2958,7 +3043,9 @@ window.publishToCloud = async () => {
         try {
             account = await assertAccountCanPublish(auth.currentUser);
         } catch (error) {
-            alert(error?.message || String(error));
+            const diagnostic = createDsfReleaseOperationDiagnostic(error);
+            console.warn('[Press Flow Horizon authorization] blocked:', diagnostic.code, diagnostic.classification);
+            alert(`${t('press_flow_horizon_failed')}\n${diagnostic.code}`);
             return;
         }
         if (!confirm(t('press_flow_horizon_confirm'))) return;
@@ -2989,8 +3076,11 @@ window.publishToCloud = async () => {
             if (error?.name === 'AbortError') {
                 alert(t('press_render_cancelled'));
             } else {
-                console.error('[Press Flow Horizon upload] failed:', error);
-                alert(`${t('press_flow_horizon_failed')}\n${error?.message || String(error)}`);
+                const fileCount = _pressFlowHorizonUploadResult?.summary?.fileCount
+                    ?? _pressFlowLocalReleasePlanningResult?.summary?.fileCount;
+                const diagnostic = createDsfReleaseOperationDiagnostic(error, { fileCount });
+                console.warn('[Press Flow Horizon] failed:', diagnostic.code, diagnostic.classification);
+                alert(`${t('press_flow_horizon_failed')}\n${diagnostic.code}`);
             }
         } finally {
             window.removeEventListener('keydown', onEscKey, true);

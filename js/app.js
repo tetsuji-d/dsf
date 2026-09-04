@@ -34,6 +34,7 @@ import { canInsertSpreadImageAt, getBookCompositionIssues, getPageDisplayLabel, 
 import { composeText, paginateText, PAGE_BREAK_MARKER, getWritingModeFromConfigs, getFontPresetFromConfigs, getFontPresetOptions, parseRubyTokens, tokensToPlainText, alignRubyToLines } from './layout.js';
 import { formatPublicationDate, normalizePlanTier } from './publication.js';
 import { buildOwnerDraftViewerUrl } from './viewer-owner-preview.js';
+import { buildPublicViewerUrl } from './viewer-release-route.js';
 import { PROJECT_SCHEMA_VERSION, createFlowGroupBlock, hasFlowGroups } from './flow-project-model.js';
 import { applyFlowAuthoringOperation } from './flow-authoring.js';
 import { alignFlowDirectCompositionElement } from './flow-direct-composition.js';
@@ -3449,7 +3450,7 @@ function renderHomeWorkCard(work, reviewSummary) {
         });
 
     return `
-        <article class="home-work-card" data-work-id="${escapeStudioHtml(workId)}" data-project-id="${escapeStudioHtml(work.id)}">
+        <article class="home-work-card" data-work-id="${escapeStudioHtml(workId)}" data-release-id="${escapeStudioHtml(work.releaseId || '')}" data-project-id="${escapeStudioHtml(work.id)}">
             <div class="home-work-thumb">
                 ${thumb
                     ? `<img src="${escapeStudioHtml(thumb)}" alt="${escapeStudioHtml(title)}" loading="lazy" decoding="async">`
@@ -3502,7 +3503,15 @@ function bindHomeWorkActions(workGrid, cloudProjects) {
         btn.addEventListener('click', async () => {
             const workId = btn.dataset.homeCopyWork;
             if (!workId) return;
-            const url = `${window.location.origin}/viewer?work=${encodeURIComponent(workId)}`;
+            const releaseId = btn.closest('.home-work-card')?.dataset.releaseId || '';
+            let url = '';
+            try {
+                url = buildPublicViewerUrl(window.location.origin, workId, releaseId);
+            } catch (error) {
+                console.warn('[Home] Viewer URL could not be created:', error?.code || error?.name || 'unknown');
+                alert(t('home_copy_viewer_failed'));
+                return;
+            }
             try {
                 await navigator.clipboard.writeText(url);
                 alert(t('home_copied_viewer_url', { url }));
@@ -8423,13 +8432,19 @@ window.shareProject = async () => {
 
     await flushSave();
 
-    const host = window.location.host;
     const visibility = state.visibility || 'private';
     if (visibility === 'private') {
         alert('現在の状態は「非公開」です。\nこのままでは作品を共有できません。上部メニューから「限定公開」か「公開」に変更してください。');
         return;
     }
-    const url = `${window.location.protocol}//${host}/viewer?work=${encodeURIComponent(state.workId)}`;
+    let url = '';
+    try {
+        url = buildPublicViewerUrl(window.location.origin, state.workId, state.releaseId || '');
+    } catch (error) {
+        console.warn('[Studio] Viewer URL could not be created:', error?.code || error?.name || 'unknown');
+        alert('ビューワーURLを作成できませんでした。作品を保存し直してから再試行してください。');
+        return;
+    }
 
     try {
         await navigator.clipboard.writeText(url);
@@ -8555,8 +8570,17 @@ window.loadAndOpenProject = async (pid) => {
     window.switchRoom('editor');
 };
 window.copyViewerUrl = async (pid) => {
-    const projectWorkId = document.querySelector(`.works-row[data-pid="${CSS.escape(pid)}"]`)?.dataset.workId || pid;
-    const url = `${window.location.origin}/viewer?work=${encodeURIComponent(projectWorkId)}`;
+    const row = document.querySelector(`.works-row[data-pid="${CSS.escape(pid)}"]`);
+    const projectWorkId = row?.dataset.workId || pid;
+    const releaseId = row?.dataset.releaseId || '';
+    let url = '';
+    try {
+        url = buildPublicViewerUrl(window.location.origin, projectWorkId, releaseId);
+    } catch (error) {
+        console.warn('[Works] Viewer URL could not be created:', error?.code || error?.name || 'unknown');
+        alert(t('works_copy_url_failed'));
+        return;
+    }
     try {
         await navigator.clipboard.writeText(url);
         alert('URLをコピーしました:\n' + url);

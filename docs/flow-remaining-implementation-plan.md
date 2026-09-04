@@ -176,6 +176,20 @@ Firestore Rulesを変更する場合だけ、staging emulator検証とRulesの�
 - private metadataとR2実体の保護境界の再確認。現在はopaque URLを知る者に対する物理遮断を保証しないため、必要ならsigned URL／proxy／削除jobを別設計する
 - production migrationはstaging acceptanceと人間の別承認後に行う
 
+2026-09-05 実装済み（staging実ブラウザー確認前）:
+
+- 所有者が明示実行する読み取り専用R2棚卸し、参照照合、7日保持を含むorphan候補分類を追加した。分類結果はすべて`safeToDelete:false`で、自動削除は行わない。
+- Press／Worksの失敗表示をredacted診断へ統一し、`retry-safe`だけ再試行可能にした。生のError message、stack、token、payloadは表示しない。
+- 新規共有URLを`r={releaseId}`で現在公開中のReleaseへ固定した。`r`不一致はfail closed、`r`なしの既存v1/v2 URLは維持する。
+- 詳細契約は[docs/dsf-release-operations-hardening.md](dsf-release-operations-hardening.md)に記録した。
+
+この時点で意図的に残す範囲:
+
+- R2 objectの実削除、自動cleanup、物理失効
+- rollback／過去release再公開と、それに必要なactive Release／監査契約
+- Firestore schema／Rules変更、production migration
+- commit／staging deploy後の実ブラウザーacceptance
+
 ## 6. Flow編集の残作業
 
 公開経路の完成後、次の順を推奨する。

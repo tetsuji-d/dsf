@@ -339,12 +339,16 @@ for (const relativePath of ['../js/firebase.js', '../js/viewer.js']) {
 }
 
 const pressSource = readFileSync(new URL('../js/press.js', import.meta.url), 'utf8');
+const studioI18nSource = readFileSync(new URL('../js/i18n-studio.js', import.meta.url), 'utf8');
 assert.match(pressSource, /import\('\.\/flow-press-horizon-release-handoff\.js'\)/);
 assert.match(pressSource, /createFlowPressHorizonReleaseHandoff\(\{/);
 assert.match(pressSource, /press-flow-horizon-handoff-readiness/);
 assert.match(pressSource, /dataset\.flowHorizonState/);
 assert.match(pressSource, /btn\.disabled = !flowHorizonReady \|\| working \|\| saved/);
-assert.match(pressSource, /アップロード未実行/);
+assert.match(pressSource, /t\('press_horizon_dry_run_ready'/,
+    'Press must render the localized dry-run state through the Studio dictionary.');
+assert.match(studioI18nSource, /press_horizon_dry_run_ready:\s*'[^']*アップロード未実行/,
+    'The Japanese dry-run copy must still make clear that upload has not run.');
 assert.match(pressSource, /Horizonへ下書き保存/);
 assert.match(pressSource, /export function getFlowHorizonDryRunHandoff/);
 assert.match(pressSource, /export function refreshFlowHorizonDryRunReadiness/);
@@ -358,6 +362,17 @@ assert.match(pressSource, /function _createPressFlowPreflightPreviewSignature\(\
 assert.match(pressSource, /prepareFlowPressPublication\(\{[\s\S]*?languages: _getSelectedPressLangs\(\)/);
 assert.match(pressSource, /function _handlePressLocalReleaseSettingChange\(\)[\s\S]*?_requestPressFlowProductionPreparation\(\)/);
 assert.match(pressSource, /if \(hasFlowGroups\(state\)\)[\s\S]*await uploadFlowHorizonReleaseFiles\(\)/);
+const publishStart = pressSource.indexOf('window.publishToCloud = async () => {');
+const legacyPublishStart = pressSource.indexOf('    const uid = auth.currentUser?.uid;', publishStart);
+assert.ok(publishStart >= 0 && legacyPublishStart > publishStart,
+    'Flow Horizon publish boundary must remain auditable.');
+const flowPublishSource = pressSource.slice(publishStart, legacyPublishStart);
+assert.doesNotMatch(flowPublishSource, /error\?\.message|String\(error\)|console\.error\([^\n]*error/,
+    'Flow Horizon publish UI must not expose raw operation errors.');
+assert.match(pressSource, /const retryBlocked = !!operationDiagnostic[\s\S]*operationDiagnostic\.classification !== 'retry-safe'/,
+    'Press must allow direct same-operation retry only for retry-safe diagnostics.');
+assert.match(pressSource, /btn\.disabled = !flowHorizonReady \|\| working \|\| saved \|\| retryBlocked/,
+    'Press must disable unchanged retry for refresh-required and blocked failures.');
 assert.match(pressSource, /if \(hasFlow && isHorizonPublish\)[\s\S]*flowHorizonReady \? 'ready' : 'waiting'/,
     'Flow Horizon draft save must become available only after the verified handoff is ready');
 assert.doesNotMatch(pressSource, /import\('\.\/dsf-horizon-release-upload\.js'\)/,

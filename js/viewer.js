@@ -38,6 +38,7 @@ import {
     resolveOwnerDraftReleaseIdentity,
     resolveOwnerDraftWorkIdentity,
 } from './viewer-owner-preview.js';
+import { assertRequestedViewerReleaseIsCurrent } from './viewer-release-route.js';
 
 // ── Module State ──────────────────────────────────────────────
 let sharedProjectRef = null;
@@ -389,6 +390,7 @@ async function init() {
     const params = new URLSearchParams(window.location.search);
     const ownerDraftPid = String(params.get('draft') || '').trim();
     const workId = params.get('work') || params.get('w');
+    const requestedReleaseId = params.get('r') || '';
     const pid = params.get('project') || params.get('id');
     const uid = params.get('author') || params.get('uid');
     const src = params.get('src') || params.get('file') || params.get('url');
@@ -414,7 +416,7 @@ async function init() {
         sharedProjectRef = { ownerDraftPid };
         attemptLoad();
     } else if (workId) {
-        sharedProjectRef = { workId };
+        sharedProjectRef = { workId, requestedReleaseId };
         attemptLoad();
     } else if (pid) {
         sharedProjectRef = { pid, uid };
@@ -589,7 +591,7 @@ async function attemptLoad() {
         const ok = sharedProjectRef.ownerDraftPid
             ? await loadOwnerDraft(sharedProjectRef.ownerDraftPid)
             : sharedProjectRef.workId
-                ? await loadWorkFromPublicIndex(sharedProjectRef.workId)
+                ? await loadWorkFromPublicIndex(sharedProjectRef.workId, sharedProjectRef.requestedReleaseId)
                 : await loadFromFirestore(sharedProjectRef.pid, sharedProjectRef.uid);
         if (ok) { projectLoaded = true; lastLoadErrorCode = ''; }
     } finally {
@@ -662,7 +664,7 @@ async function loadOwnerDraft(pid) {
     }
 }
 
-async function loadWorkFromPublicIndex(workId) {
+async function loadWorkFromPublicIndex(workId, requestedReleaseId = '') {
     try {
         const indexSnap = await getDoc(doc(db, 'public_projects', workId));
         if (!indexSnap.exists()) {
@@ -674,13 +676,14 @@ async function loadWorkFromPublicIndex(workId) {
             alert(_publicationUnavailableMessage(indexData.publication || {}, indexData.dsfStatus || 'public'));
             return false;
         }
+        assertRequestedViewerReleaseIsCurrent(requestedReleaseId, indexData.releaseId);
         const pid = indexData.projectId || indexData.pid || workId;
         const uid = indexData.authorUid || indexData.uid || '';
         if (!uid) {
             alert(vt('uidRequired'));
             return false;
         }
-        sharedProjectRef = { workId, pid, uid };
+        sharedProjectRef = { workId, requestedReleaseId, pid, uid };
         if (isDsfHorizonV2MetadataDeclared(indexData)) {
             if (!indexData.releaseId) {
                 throw new Error('DSF v2 public index is missing its immutable Release ID.');
