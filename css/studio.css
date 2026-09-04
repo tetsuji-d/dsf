@@ -8057,6 +8057,19 @@ textarea.ps-meta-input {
 .press-flow-local-release-summary code {
     color: #b45309;
 }
+.press-image-quality-summary[data-state="ready"],
+.press-image-quality-summary[data-state="empty"] {
+    border-color: #34d399;
+    background: #ecfdf5;
+}
+.press-image-quality-summary[data-state="ready"] > strong,
+.press-image-quality-summary[data-state="empty"] > strong {
+    color: #047857;
+}
+.press-image-quality-summary[data-state="warning"] {
+    border-color: #f59e0b;
+    background: #fffbeb;
+}
 .press-flow-horizon-readiness {
     display: flex;
     flex: 1 0 100%;

@@ -188,9 +188,6 @@
                         <button class="btn-tool btn-tool-icon" onclick="insertFlowGroupBeforeActive()" title="ページ境界を意識せず編集するFlow原稿を追加">
                             <span class="material-icons" aria-hidden="true">subject</span><span>Flow原稿</span>
                         </button>
-                        <button class="btn-tool btn-tool-icon" onclick="insertTextSectionBeforeActive()">
-                            <span class="material-icons" aria-hidden="true">article</span><span data-i18n="btn_add_text_section">テキストページ</span>
-                        </button>
                         <button class="btn-tool btn-tool-icon" onclick="insertSectionBeforeActive()">
                             <span class="material-icons" aria-hidden="true">add_photo_alternate</span><span data-i18n="btn_add_section">画像ページ</span>
                         </button>
@@ -690,12 +687,13 @@
                     <section class="press-panel press-readiness-panel" aria-labelledby="press-readiness-title">
                         <div class="press-readiness-heading">
                             <div>
-                                <h3 id="press-readiness-title">書き出し準備</h3>
-                                <p>原稿、配信データ、ダウンロードファイルを順番に確認します。</p>
+                                <h3 id="press-readiness-title" data-i18n="press_readiness_title">書き出し準備</h3>
+                                <p data-i18n="press_readiness_description">原稿、配信データ、ダウンロードファイルを順番に確認します。</p>
                             </div>
-                            <span class="press-readiness-order" aria-label="確認順序">1 原稿 → 2 配信 → 3 ZIP</span>
+                            <span class="press-readiness-order" data-i18n="press_readiness_order" data-i18n-aria-label="press_readiness_order_label" aria-label="確認順序">1 原稿 → 2 配信 → 3 ZIP</span>
                         </div>
                         <div class="press-readiness-results">
+                            <div id="press-image-quality-summary" class="press-flow-production-preparation-summary press-image-quality-summary" aria-live="polite"></div>
                             <div id="press-flow-production-preparation-summary" class="press-flow-production-preparation-summary" aria-live="polite"></div>
                             <div id="press-flow-local-release-summary" class="press-flow-production-preparation-summary press-flow-local-release-summary" aria-live="polite"></div>
                             <div id="press-flow-local-release-package-summary" class="press-flow-production-preparation-summary press-flow-local-release-package-summary" aria-live="polite"></div>

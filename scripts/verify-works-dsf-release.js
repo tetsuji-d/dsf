@@ -221,5 +221,28 @@ assert.doesNotMatch(worksSource, /v2PublishDisabled/,
     'v2 public status controls must be enabled only after the atomic transition is connected');
 assert.match(worksSource, /runTransaction\(db/);
 assert.match(worksSource, /createWorksPublicationTransition\(/);
+for (const key of [
+    'works_status_draft',
+    'works_status_unlisted',
+    'works_status_public',
+    'works_status_private',
+    'works_meta',
+    'works_published_on',
+    'works_draft_preview',
+    'works_republish',
+    'works_delete',
+]) {
+    assert.match(worksSource, new RegExp(`t\\('${key}'`), `Works UI must translate ${key}`);
+}
+assert.doesNotMatch(worksSource, /<option[^>]+value="draft"[^>]*>下書き<\/option>/,
+    'Works status options must not embed Japanese labels');
+
+const i18nSource = readFileSync(new URL('../js/i18n-studio.js', import.meta.url), 'utf8');
+assert.match(i18nSource, /works_status_draft:\s+'Draft'/);
+assert.match(i18nSource, /works_republish:\s+'Republish'/);
+assert.match(i18nSource, /works_delete:\s+'Delete'/);
+assert.match(worksSource, /p\.releaseKind === 'horizon-v2'/);
+assert.match(worksSource, /t\('works_meta_v2'/);
+assert.match(i18nSource, /works_meta_v2:\s+'\{pages\} pages · \{langs\} · DSF v2 \(fixed text \+ WebP\)\{size\}'/);
 
 console.log('Works DSF v1/v2 release projection and publication transition verification passed.');

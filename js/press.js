@@ -25,6 +25,7 @@ import {
 } from './layout.js';
 import { verticalGlyphText, composeTextPreviewModel } from './text-press-html.js';
 import { encodeCanvasToWebP } from './canvas-encoding.js';
+import { assessPressImageSourceResolution } from './press-image-quality.js';
 import { getLangProps } from './lang.js';
 import { createId } from './utils.js';
 import { stageProjectSummaryWrite } from './project-summary-firestore.js';
@@ -121,6 +122,8 @@ const PRESS_IMAGE_WEBP_QUALITY_BY_SCALE = Object.freeze({
 });
 const PRESS_TEXT_WEBP_QUALITY = 0.90;
 const _spreadRenderBlobCache = new Map();
+const _pressImageDimensionCache = new Map();
+let _pressImageQualityRequestId = 0;
 
 function _isSpreadImageSection(section) {
     return section?.type === 'image'
@@ -499,6 +502,7 @@ function _invalidatePressFlowLocalReleaseForSettingsChange() {
 function _handlePressLocalReleaseSettingChange() {
     _invalidatePressFlowLocalReleaseForSettingsChange();
     _queueSizeEstimate();
+    void _requestPressImageQualityDiagnostics();
     if (document.body?.dataset?.room === 'press' && hasFlowGroups(state)) {
         void _requestPressFlowProductionPreparation();
         if (import.meta.env.DEV) void _requestPressFlowPreflightPreview();
@@ -553,6 +557,7 @@ export function enterPressRoom() {
     _bindPressTrialTextBinaryOnce();
     _bindPressPublishCancelOnce();
     _queueSizeEstimate();
+    void _requestPressImageQualityDiagnostics();
     if (!_pressListenersBound) {
         _pressListenersBound = true;
         document.getElementById('press-resolution')?.addEventListener('change', _handlePressLocalReleaseSettingChange);
@@ -562,6 +567,117 @@ export function enterPressRoom() {
     } else if (import.meta.env.DEV) {
         void _requestPressFixedTextPreview();
     }
+}
+
+async function _loadPressImageDimensions(url) {
+    if (!_pressImageDimensionCache.has(url)) {
+        _pressImageDimensionCache.set(url, (async () => {
+            const { img, revoke } = await loadImageForCanvas(url, 'Press Room 画質診断');
+            try {
+                return { width: img.naturalWidth || img.width, height: img.naturalHeight || img.height };
+            } finally {
+                revoke();
+            }
+        })());
+    }
+    return _pressImageDimensionCache.get(url);
+}
+
+function _renderPressImageQualitySummary(stateName, details = {}) {
+    const summary = document.getElementById('press-image-quality-summary');
+    if (!summary) return;
+    summary.dataset.state = stateName;
+    const title = `<strong>${_esc(t('press_image_quality_title'))}</strong>`;
+    if (stateName === 'working') {
+        summary.innerHTML = `${title}<span>${_esc(t('press_image_quality_checking'))}</span>`;
+        return;
+    }
+    if (stateName === 'empty') {
+        summary.innerHTML = `${title}<span>${_esc(t('press_image_quality_none'))}</span>`;
+        return;
+    }
+    const warnings = Array.isArray(details.warnings) ? details.warnings : [];
+    const unavailable = Number(details.unavailable || 0);
+    const checked = Number(details.checked || 0);
+    const status = warnings.length
+        ? t('press_image_quality_warning', { count: warnings.length })
+        : t('press_image_quality_ok', { count: checked });
+    const warningItems = warnings.slice(0, 4).map((entry) => `
+        <li>${_esc(t('press_image_quality_detail', {
+            page: entry.page,
+            width: entry.width,
+            height: entry.height,
+            ratio: entry.ratio.toFixed(2),
+        }))}</li>`).join('');
+    const unavailableText = unavailable
+        ? `<small>${_esc(t('press_image_quality_unavailable', { count: unavailable }))}</small>`
+        : '';
+    summary.innerHTML = `${title}<span>${_esc(status)}</span>${warningItems ? `<ul>${warningItems}</ul>` : ''}${unavailableText}`;
+}
+
+async function _requestPressImageQualityDiagnostics() {
+    const requestId = ++_pressImageQualityRequestId;
+    const pages = _getRenderablePages();
+    const imagePages = pages.filter((section) => section?.type === 'image');
+    if (!imagePages.length) {
+        _renderPressImageQualitySummary('empty');
+        return;
+    }
+    _renderPressImageQualitySummary('working');
+    const resolutionKey = resolvePressResolutionKey(document.getElementById('press-resolution')?.value);
+    const { width: targetWidth, height: targetHeight } = getPressResolutionDims(resolutionKey);
+    const languages = _getSelectedPressLangs();
+    const seenSpreads = new Set();
+    const warnings = [];
+    let checked = 0;
+    let unavailable = 0;
+
+    for (let pageIndex = 0; pageIndex < pages.length; pageIndex += 1) {
+        const section = pages[pageIndex];
+        if (section?.type !== 'image') continue;
+        for (const language of languages) {
+            const groupId = section.spreadImage?.groupId || '';
+            const spreadKey = groupId ? `${groupId}:${language}` : '';
+            if (spreadKey && seenSpreads.has(spreadKey)) continue;
+            if (spreadKey) seenSpreads.add(spreadKey);
+            const indices = groupId ? _getSpreadImageGroupIndices(pages, groupId) : [pageIndex];
+            const url = groupId
+                ? _getSpreadImageSharedBackground(pages, indices, language)
+                : (section.backgrounds?.[language] || section.backgrounds?.[state.defaultLang] || section.background || '');
+            if (!url) continue;
+            const position = groupId
+                ? _getSpreadImageSharedPosition(pages, indices, language)
+                : _normalizeImageTransform(section.imagePositions?.[language]
+                    || section.imagePositions?.[state.defaultLang]
+                    || section.imagePosition
+                    || section.imageBasePosition);
+            try {
+                const dimensions = await _loadPressImageDimensions(url);
+                if (requestId !== _pressImageQualityRequestId) return;
+                const result = assessPressImageSourceResolution({
+                    sourceWidth: dimensions.width,
+                    sourceHeight: dimensions.height,
+                    frameWidth: targetWidth * (groupId ? 2 : 1),
+                    frameHeight: targetHeight,
+                    scale: position.scale,
+                });
+                checked += 1;
+                if (result.status === 'upscaled') {
+                    warnings.push({
+                        page: getPageDisplayLabel(pageIndex, pages.length, state.book, state.bookMode),
+                        width: dimensions.width,
+                        height: dimensions.height,
+                        ratio: result.upscaleRatio,
+                    });
+                }
+            } catch (error) {
+                unavailable += 1;
+                console.warn('[Press image quality] source dimensions unavailable:', error?.message || error);
+            }
+        }
+    }
+    if (requestId !== _pressImageQualityRequestId) return;
+    _renderPressImageQualitySummary(warnings.length ? 'warning' : 'ready', { warnings, checked, unavailable });
 }
 
 export function leavePressRoom() {
@@ -906,17 +1022,17 @@ function _renderPressFlowProductionPreparationSummary() {
         const progress = _pressFlowProductionPreparationProgress;
         const progressText = progress
             ? `${String(progress.language || '').toUpperCase()} / Flow ${progress.groupIndex + 1} of ${progress.groupCount}`
-            : '本番フォント登録と固定テキスト配信条件を確認中…';
-        summary.innerHTML = `<strong>9A-6B Flow配信準備</strong><span aria-live="polite">${_esc(progressText)}</span>`;
+            : t('press_flow_production_checking');
+        summary.innerHTML = `<strong>${_esc(t('press_flow_production_title'))}</strong><span aria-live="polite">${_esc(progressText)}</span>`;
         return;
     }
     if (_pressFlowProductionPreparationState === 'error') {
-        summary.innerHTML = `<strong>9A-6B Flow配信準備</strong><span role="alert">${_esc(_pressFlowProductionPreparationError?.message || '準備判定に失敗しました。')}</span>`;
+        summary.innerHTML = `<strong>${_esc(t('press_flow_production_title'))}</strong><span role="alert">${_esc(_pressFlowProductionPreparationError?.message || t('press_flow_production_failed'))}</span>`;
         return;
     }
     const languageResults = _pressFlowProductionPreparationResult?.languages || [];
     if (!languageResults.length) {
-        summary.innerHTML = '<strong>9A-6B Flow配信準備</strong><span>本番準備の判定結果はありません。</span>';
+        summary.innerHTML = `<strong>${_esc(t('press_flow_production_title'))}</strong><span>${_esc(t('press_flow_production_no_result'))}</span>`;
         return;
     }
     const rows = languageResults.map((result) => {
@@ -924,12 +1040,12 @@ function _renderPressFlowProductionPreparationSummary() {
         const issueMessage = firstIssue
             ? (_pressFlowProductionPreparationModule?.getFlowPressPublicationPreparationIssueMessage(firstIssue)
                 || firstIssue.message
-                || '本番準備を完了できませんでした。')
+                || t('press_flow_production_failed'))
             : '';
         const flowPages = result.preflight?.summary?.flowPageCount ?? 0;
         const stateLabel = result.state === 'ready'
-            ? `<b>${flowPages}</b>ページ 本番preflight合格`
-            : '発行準備を停止';
+            ? `<b>${_esc(t('press_flow_production_language_ready', { count: flowPages }))}</b>`
+            : _esc(t('press_flow_production_language_blocked'));
         return `<li data-testid="press-flow-production-language" data-language="${_esc(result.language)}" data-state="${_esc(result.state)}">
             <strong>${_esc(String(result.language).toUpperCase())}</strong>
             <span>${stateLabel}</span>
@@ -938,11 +1054,11 @@ function _renderPressFlowProductionPreparationSummary() {
     }).join('');
     const fontCount = _pressFlowProductionPreparationResult.productionFontCount ?? 0;
     summary.innerHTML = `
-        <strong>9A-6B Flow配信準備</strong>
-        <span>${_pressFlowProductionPreparationResult.ok ? '本番preflightに合格しました' : '本番発行の準備が完了していません'}</span>
-        <small>本番認定フォント ${fontCount}件</small>
+        <strong>${_esc(t('press_flow_production_title'))}</strong>
+        <span>${_esc(t(_pressFlowProductionPreparationResult.ok ? 'press_flow_production_passed' : 'press_flow_production_not_ready'))}</span>
+        <small>${_esc(t('press_flow_production_font_count', { count: fontCount }))}</small>
         <ul>${rows}</ul>
-        <small>これは発行直前の準備判定です。合格後はローカル配信設計と容量見積りへ進みますが、DSF書き出し・upload・発行は行いません。</small>
+        <small>${_esc(t('press_flow_production_note'))}</small>
     `;
 }
 
@@ -1155,38 +1271,38 @@ function _renderPressFlowLocalReleaseSummary() {
         ? 'true'
         : 'false';
     if (_pressFlowLocalReleasePlanningState === 'working') {
-        summary.innerHTML = '<strong>9A-6C ローカル配信設計</strong><span aria-live="polite">WebP実bytesと固定テキストmanifestから容量を計算中…</span>';
+        summary.innerHTML = `<strong>${_esc(t('press_flow_release_title'))}</strong><span aria-live="polite">${_esc(t('press_flow_release_calculating'))}</span>`;
         return;
     }
     if (_pressFlowLocalReleasePlanningState === 'error') {
         const issue = _pressFlowLocalReleasePlanningError?.issues?.[0];
         const code = issue?.code || _pressFlowLocalReleasePlanningError?.code || 'FLOW_LOCAL_RELEASE_FAILED';
         summary.innerHTML = `
-            <strong>9A-6C ローカル配信設計</strong>
-            <span role="alert">容量計算を完了できませんでした</span>
+            <strong>${_esc(t('press_flow_release_title'))}</strong>
+            <span role="alert">${_esc(t('press_flow_release_failed'))}</span>
             <code>${_esc(code)}</code>
-            <small>${_esc(issue?.message || _pressFlowLocalReleasePlanningError?.message || '不明なエラー')}</small>
+            <small>${_esc(issue?.message || _pressFlowLocalReleasePlanningError?.message || t('press_unknown_error'))}</small>
         `;
         return;
     }
     if (_pressFlowLocalReleasePlanningState === 'blocked') {
-        summary.innerHTML = '<strong>9A-6C ローカル配信設計</strong><span>本番preflightが停止しているため容量計算を行いません。</span>';
+        summary.innerHTML = `<strong>${_esc(t('press_flow_release_title'))}</strong><span>${_esc(t('press_flow_release_blocked'))}</span>`;
         return;
     }
     const result = _pressFlowLocalReleasePlanningResult;
     if (_pressFlowLocalReleasePlanningState !== 'ready' || !result?.ready) {
-        summary.innerHTML = '<strong>9A-6C ローカル配信設計</strong><span>本番preflightの完了を待っています。</span>';
+        summary.innerHTML = `<strong>${_esc(t('press_flow_release_title'))}</strong><span>${_esc(t('press_flow_release_waiting'))}</span>`;
         return;
     }
     const value = result.summary;
     const horizonStatus = _renderPressFlowHorizonHandoffStatus();
     summary.innerHTML = `
-        <strong>9A-6C ローカル配信設計</strong>
-        <span><b>${value.fixedTextPageCount}</b> fixedText ／ <b>${value.imagePageCount}</b> WebP</span>
+        <strong>${_esc(t('press_flow_release_title'))}</strong>
+        <span>${_esc(t('press_flow_release_counts', { fixed: value.fixedTextPageCount, images: value.imagePageCount }))}</span>
         <span>Horizon ${_formatPressPayloadBytes(value.horizonPayloadBytes)}</span>
-        <span>ダウンロード ${_formatPressPayloadBytes(value.portablePayloadBytes)}</span>
+        <span>${_esc(t('press_flow_release_download', { size: _formatPressPayloadBytes(value.portablePayloadBytes) }))}</span>
         ${horizonStatus}
-        <small>同梱font ${_formatPressPayloadBytes(value.portableFontBytes)}（${value.portableFontFileCount}ファイル）。payload計算結果で、続くZIP検証もメモリ内だけで行います。</small>
+        <small>${_esc(t('press_flow_release_fonts', { size: _formatPressPayloadBytes(value.portableFontBytes), count: value.portableFontFileCount }))}</small>
     `;
 }
 
@@ -1195,53 +1311,54 @@ function _renderPressFlowHorizonHandoffStatus() {
         ? _pressFlowHorizonDraftState
         : (_pressFlowHorizonUploadState !== 'idle' ? _pressFlowHorizonUploadState : _pressFlowHorizonHandoffState);
     const attributes = `class="press-flow-horizon-readiness" data-testid="press-flow-horizon-handoff-readiness" data-state="${_esc(activeState)}" aria-live="polite"`;
+    const title = _esc(t('press_horizon_title'));
     if (_pressFlowHorizonHandoffState === 'working') {
-        return `<span ${attributes}><b>Horizon配信準備</b> exact WebPと配信pathを検証中…</span>`;
+        return `<span ${attributes}><b>${title}</b> ${_esc(t('press_horizon_checking'))}</span>`;
     }
     if (_pressFlowHorizonHandoffState === 'blocked') {
         const issue = _getPressFlowHorizonDisplayIssue(_pressFlowHorizonHandoffError);
         const code = issue?.code || _pressFlowHorizonHandoffError?.code || 'FLOW_HORIZON_HANDOFF_BLOCKED';
-        const message = issue?.message || _pressFlowHorizonHandoffError?.message || 'Horizon dry-runの前提が揃っていません。';
+        const message = issue?.message || _pressFlowHorizonHandoffError?.message || t('press_horizon_prerequisites_missing');
         const path = issue?.path ? ` <small>${_esc(issue.path)}</small>` : '';
-        return `<span ${attributes}><b>Horizon配信準備</b> ${_esc(message)} <code>${_esc(code)}</code>${path}</span>`;
+        return `<span ${attributes}><b>${title}</b> ${_esc(message)} <code>${_esc(code)}</code>${path}</span>`;
     }
     if (_pressFlowHorizonHandoffState === 'error') {
         const issue = _getPressFlowHorizonDisplayIssue(_pressFlowHorizonHandoffError);
         const code = issue?.code || _pressFlowHorizonHandoffError?.code || 'FLOW_HORIZON_HANDOFF_FAILED';
-        const message = issue?.message || _pressFlowHorizonHandoffError?.message || 'Horizon dry-runを完了できませんでした。';
+        const message = issue?.message || _pressFlowHorizonHandoffError?.message || t('press_horizon_dry_run_failed');
         const path = issue?.path ? ` <small>${_esc(issue.path)}</small>` : '';
         const repair = _renderPressFlowWorkIdRepair(issue);
-        return `<span ${attributes} role="alert"><b>Horizon配信準備</b> 検証失敗: ${_esc(message)} <code>${_esc(code)}</code>${path}${repair}</span>`;
+        return `<span ${attributes} role="alert"><b>${title}</b> ${_esc(t('press_horizon_validation_failed', { message }))} <code>${_esc(code)}</code>${path}${repair}</span>`;
     }
     const result = _pressFlowHorizonHandoffResult;
     if (_pressFlowHorizonHandoffState === 'ready' && result?.readyForUpload) {
         if (_pressFlowHorizonDraftState === 'ready' && _pressFlowHorizonDraftResult?.readyForFirestoreWrite) {
-            return `<span ${attributes}><b>Horizon非公開draft</b> 保存済み: ${_pressFlowHorizonDraftResult.summary.pageCount}ページ。Worksで公開状態を設定できます。</span>`;
+            return `<span ${attributes}><b>${_esc(t('press_horizon_draft_title'))}</b> ${_esc(t('press_horizon_draft_saved', { pages: _pressFlowHorizonDraftResult.summary.pageCount }))}</span>`;
         }
         if (_pressFlowHorizonDraftState === 'working') {
-            return `<span ${attributes}><b>Horizon非公開draft</b> 配信metadataを保存中…</span>`;
+            return `<span ${attributes}><b>${_esc(t('press_horizon_draft_title'))}</b> ${_esc(t('press_horizon_draft_saving'))}</span>`;
         }
         if (_pressFlowHorizonDraftState === 'error') {
             const code = _pressFlowHorizonDraftError?.code || 'FLOW_HORIZON_DRAFT_FAILED';
-            const message = _pressFlowHorizonDraftError?.message || '非公開draftを保存できませんでした。';
-            return `<span ${attributes} role="alert"><b>Horizon非公開draft</b> 保存失敗: ${_esc(message)} <code>${_esc(code)}</code>。同じ配信物で再試行できます。</span>`;
+            const message = _pressFlowHorizonDraftError?.message || t('press_horizon_dry_run_failed');
+            return `<span ${attributes} role="alert"><b>${_esc(t('press_horizon_draft_title'))}</b> ${_esc(t('press_horizon_draft_failed', { message }))} <code>${_esc(code)}</code></span>`;
         }
         if (_pressFlowHorizonUploadState === 'working') {
             const completed = Number(_pressFlowHorizonUploadProgress?.completedFileCount || 0);
             const total = Number(_pressFlowHorizonUploadProgress?.fileCount || result.summary.fileCount || 0);
-            return `<span ${attributes}><b>Horizonアップロード</b> ${completed}/${total}ファイルを確認中…</span>`;
+            return `<span ${attributes}><b>${_esc(t('press_horizon_upload_title'))}</b> ${_esc(t('press_horizon_upload_working', { done: completed, total }))}</span>`;
         }
         if (_pressFlowHorizonUploadState === 'error') {
             const code = _pressFlowHorizonUploadError?.code || 'FLOW_HORIZON_UPLOAD_FAILED';
-            const message = _pressFlowHorizonUploadError?.message || '配信ファイルをアップロードできませんでした。';
-            return `<span ${attributes} role="alert"><b>Horizonアップロード</b> 失敗: ${_esc(message)} <code>${_esc(code)}</code>。再試行できます。</span>`;
+            const message = _pressFlowHorizonUploadError?.message || t('press_horizon_dry_run_failed');
+            return `<span ${attributes} role="alert"><b>${_esc(t('press_horizon_upload_title'))}</b> ${_esc(t('press_horizon_upload_failed', { message }))} <code>${_esc(code)}</code></span>`;
         }
         if (_pressFlowHorizonUploadState === 'ready' && _pressFlowHorizonUploadResult?.readyForMetadataWrite) {
-            return `<span ${attributes}><b>Horizonアップロード</b> ${_pressFlowHorizonUploadResult.summary.fileCount}ファイルを検証済み。非公開draftの保存待ちです。</span>`;
+            return `<span ${attributes}><b>${_esc(t('press_horizon_upload_title'))}</b> ${_esc(t('press_horizon_upload_ready', { count: _pressFlowHorizonUploadResult.summary.fileCount }))}</span>`;
         }
-        return `<span ${attributes}><b>Horizon配信準備</b> dry-run合格: ${result.summary.fileCount}ファイル／${_formatPressPayloadBytes(result.summary.totalBytes)}（WebP ${result.summary.imageFileCount}件をexact照合）。アップロード未実行。</span>`;
+        return `<span ${attributes}><b>${title}</b> ${_esc(t('press_horizon_dry_run_ready', { files: result.summary.fileCount, size: _formatPressPayloadBytes(result.summary.totalBytes), images: result.summary.imageFileCount }))}</span>`;
     }
-    return `<span ${attributes}><b>Horizon配信準備</b> ローカル配信設計の完了を待っています。</span>`;
+    return `<span ${attributes}><b>${title}</b> ${_esc(t('press_horizon_waiting'))}</span>`;
 }
 
 window.repairFlowHorizonWorkId = async () => {
@@ -1302,31 +1419,31 @@ function _renderPressFlowLocalReleasePackageSummary() {
     }
     summary.dataset.state = _pressFlowLocalReleasePackageState;
     if (_pressFlowLocalReleasePackageState === 'working') {
-        summary.innerHTML = '<strong>9A-6C-B ローカルZIP検証</strong><span aria-live="polite">実WOFF2とsealed WebPからDSF ZIPを生成・再展開中…</span>';
+        summary.innerHTML = `<strong>${_esc(t('press_flow_zip_title'))}</strong><span aria-live="polite">${_esc(t('press_flow_zip_working'))}</span>`;
         return;
     }
     if (_pressFlowLocalReleasePackageState === 'error') {
         const issue = _pressFlowLocalReleasePackageError?.issues?.[0];
         const code = issue?.code || _pressFlowLocalReleasePackageError?.code || 'FLOW_LOCAL_PACKAGE_FAILED';
         summary.innerHTML = `
-            <strong>9A-6C-B ローカルZIP検証</strong>
-            <span role="alert">DSF ZIPの検証を完了できませんでした</span>
+            <strong>${_esc(t('press_flow_zip_title'))}</strong>
+            <span role="alert">${_esc(t('press_flow_zip_failed'))}</span>
             <code>${_esc(code)}</code>
-            <small>${_esc(issue?.message || _pressFlowLocalReleasePackageError?.message || '不明なエラー')}</small>
+            <small>${_esc(issue?.message || _pressFlowLocalReleasePackageError?.message || t('press_unknown_error'))}</small>
         `;
         return;
     }
     const result = _pressFlowLocalReleasePackageResult;
     if (_pressFlowLocalReleasePackageState !== 'ready' || !result?.ready) {
-        summary.innerHTML = '<strong>9A-6C-B ローカルZIP検証</strong><span>ローカル配信設計の完了を待っています。</span>';
+        summary.innerHTML = `<strong>${_esc(t('press_flow_zip_title'))}</strong><span>${_esc(t('press_flow_zip_waiting'))}</span>`;
         return;
     }
     const value = result.summary;
     summary.innerHTML = `
-        <strong>9A-6C-B ローカルZIP検証</strong>
-        <span><b>${value.entryCount}</b>ファイル round-trip合格</span>
-        <span>正確な.dsf ${_formatPressPayloadBytes(value.zipByteLength)}</span>
-        <span>展開時 ${_formatPressPayloadBytes(value.inventoryByteLength)}</span>
+        <strong>${_esc(t('press_flow_zip_title'))}</strong>
+        <span>${_esc(t('press_flow_zip_passed', { count: value.entryCount }))}</span>
+        <span>${_esc(t('press_flow_zip_exact', { size: _formatPressPayloadBytes(value.zipByteLength) }))}</span>
+        <span>${_esc(t('press_flow_zip_expanded', { size: _formatPressPayloadBytes(value.inventoryByteLength) }))}</span>
         <small>SHA-256 ${_esc(value.zipSha256.slice(0, 16))}… 。この検証済みBlobだけをDSF書き出しに使用できます。upload・Horizon発行は行いません。</small>
     `;
 }

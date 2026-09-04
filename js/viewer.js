@@ -28,6 +28,7 @@ import {
     prepareDsfViewerFixedTextContext,
 } from './viewer-fixed-text.js';
 import { mapDsfLanguagePage } from './dsf-delivery-v2.js';
+import { getViewerPageNavigationTarget } from './viewer-navigation.js';
 import {
     assertOwnerDraftReleaseMetadata,
     normalizeOwnerDraftProjectId,
@@ -3725,7 +3726,15 @@ function goNext() {
         return;
     }
     const i = getIndex();
-    if (i < getTotal() - 1) transitionToIndex(i + 1, 'next');
+    const total = getTotal();
+    const target = getViewerPageNavigationTarget({
+        currentIndex: i,
+        totalPages: total,
+        delta: 1,
+        spreadMode,
+        hasVisibleSecondPage: _hasFallbackSpreadSecondPage(i, total),
+    });
+    if (target !== i) transitionToIndex(target, 'next');
 }
 
 function goPrev() {
@@ -3734,7 +3743,21 @@ function goPrev() {
         return;
     }
     const i = getIndex();
-    if (i > 0) transitionToIndex(i - 1, 'prev');
+    const total = getTotal();
+    const target = getViewerPageNavigationTarget({
+        currentIndex: i,
+        totalPages: total,
+        delta: -1,
+        spreadMode,
+        hasVisibleSecondPage: _hasFallbackSpreadSecondPage(i, total),
+    });
+    if (target !== i) transitionToIndex(target, 'prev');
+}
+
+function _hasFallbackSpreadSecondPage(index = getIndex(), total = getTotal()) {
+    if (!spreadMode || hasBookModel()) return false;
+    const adjacentIndex = getPageDirection() === 'rtl' ? index - 1 : index + 1;
+    return adjacentIndex >= 0 && adjacentIndex < total;
 }
 
 function isZoneClickSuppressed() {

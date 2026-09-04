@@ -22,11 +22,16 @@ import { resolveWorksDsfRelease } from './works-dsf-release.js';
 import { createWorksPublicationTransition } from './works-publication-transition.js';
 
 const DSF_STATUS_LABELS = {
-    draft:    { label: '下書き',   icon: 'edit_note', cls: 'dsf-draft'    },
-    unlisted: { label: '限定公開', icon: 'link', cls: 'dsf-unlisted' },
-    public:   { label: '公開',     icon: 'public', cls: 'dsf-public'   },
-    private:  { label: '非公開',   icon: 'lock', cls: 'dsf-private'  },
+    draft:    { labelKey: 'works_status_draft',   icon: 'edit_note', cls: 'dsf-draft'    },
+    unlisted: { labelKey: 'works_status_unlisted', icon: 'link', cls: 'dsf-unlisted' },
+    public:   { labelKey: 'works_status_public',     icon: 'public', cls: 'dsf-public'   },
+    private:  { labelKey: 'works_status_private',   icon: 'lock', cls: 'dsf-private'  },
 };
+
+function _statusInfo(status) {
+    const info = DSF_STATUS_LABELS[status] || DSF_STATUS_LABELS.draft;
+    return { ...info, label: t(info.labelKey) };
+}
 
 function _getWorksAllowedContentOrigins() {
     const configured = String(import.meta.env.VITE_R2_PUBLIC_URL || '').trim();
@@ -61,10 +66,10 @@ export async function openWorksRoom(roomMode = false) {
     if (!roomMode && modalEl) modalEl.classList.add('visible');
     if (!listEl) return;
 
-    listEl.innerHTML = '<div class="works-loading">読み込み中...</div>';
+    listEl.innerHTML = `<div class="works-loading">${_esc(t('works_loading'))}</div>`;
 
     if (!state.uid) {
-        listEl.innerHTML = '<div class="works-loading">ログインが必要です</div>';
+        listEl.innerHTML = `<div class="works-loading">${_esc(t('works_login_required'))}</div>`;
         return;
     }
 
@@ -89,7 +94,7 @@ export async function openWorksRoom(roomMode = false) {
                 workId:         d.workId || docSnap.id,
                 releaseId:      d.releaseId || null,
                 releaseKind:    release.releaseKind,
-                title:          d.title || '無題のプロジェクト',
+                title:          d.title || t('works_untitled'),
                 dsfStatus:      reconciled.dsfStatus || 'draft',
                 thumbnail:      _getThumbnail(d),
                 pageCount:      release.pageCount,
@@ -107,10 +112,10 @@ export async function openWorksRoom(roomMode = false) {
             listEl.innerHTML = `
                 <div class="works-empty">
                     <span class="material-icons" style="font-size:48px;color:#555;display:block;margin-bottom:12px;">library_books</span>
-                    <p>発行済み作品がありません</p>
-                    <p class="works-empty-sub">Press Room でレンダリング・発行するとここに表示されます。</p>
+                    <p>${_esc(t('works_empty_title'))}</p>
+                    <p class="works-empty-sub">${_esc(t('works_empty_body'))}</p>
                     <button class="home-action-btn" onclick="window.switchRoom('press')" style="margin-top:16px;">
-                        <span class="material-icons">publish</span> Press Room へ
+                        <span class="material-icons">publish</span> ${_esc(t('works_open_press'))}
                     </button>
                 </div>`;
             return;
@@ -127,7 +132,7 @@ export async function openWorksRoom(roomMode = false) {
                 const badge     = row?.querySelector('.works-dsf-badge');
                 const prevStatus = sel.dataset.prev || 'draft';
                 if (badge) {
-                    const info = DSF_STATUS_LABELS[newStatus] || DSF_STATUS_LABELS.draft;
+                    const info = _statusInfo(newStatus);
                     badge.innerHTML = `${_statusIcon(info.icon)}<span>${info.label}</span>`;
                     badge.className   = `works-dsf-badge ${info.cls}`;
                 }
@@ -142,7 +147,7 @@ export async function openWorksRoom(roomMode = false) {
                 } else {
                     sel.value = prevStatus;
                     if (badge) {
-                        const info = DSF_STATUS_LABELS[prevStatus] || DSF_STATUS_LABELS.draft;
+                        const info = _statusInfo(prevStatus);
                         badge.innerHTML = `${_statusIcon(info.icon)}<span>${info.label}</span>`;
                         badge.className = `works-dsf-badge ${info.cls}`;
                     }
@@ -168,7 +173,7 @@ export async function openWorksRoom(roomMode = false) {
             btn.addEventListener('click', async () => {
                 const pid = btn.dataset.deletePid;
                 const proj = projects.find(x => x.id === pid);
-                if (!confirm(`「${pid}」を削除しますか？\nこの操作は取り消せません。`)) return;
+                if (!confirm(t('works_delete_confirm', { name: proj?.title || pid }))) return;
                 try {
                     const batch = writeBatch(db);
                     batch.delete(doc(db, 'users', state.uid, 'projects', pid, 'authoring', 'current'));
@@ -181,14 +186,14 @@ export async function openWorksRoom(roomMode = false) {
                     await deleteDoc(doc(db, 'public_projects', pid)).catch(() => {});
                     btn.closest('.works-row')?.remove();
                 } catch (err) {
-                    alert('削除に失敗しました: ' + err.message);
+                    alert(t('works_delete_failed', { message: err.message }));
                 }
             });
         });
 
     } catch (err) {
         console.error('[Works] load error:', err);
-        listEl.innerHTML = `<div class="works-loading">読み込みに失敗しました: ${err.message}</div>`;
+        listEl.innerHTML = `<div class="works-loading">${_esc(t('works_load_failed', { message: err.message }))}</div>`;
     }
 }
 
@@ -200,9 +205,9 @@ export function closeWorksRoom() {
 // ---- Private helpers -------------------------------------------------------
 
 function _renderRow(p, account = {}) {
-    const dsf  = DSF_STATUS_LABELS[p.dsfStatus] || DSF_STATUS_LABELS.draft;
+    const dsf  = _statusInfo(p.dsfStatus);
     const date = p.dsfPublishedAt.getFullYear() > 1970
-        ? p.dsfPublishedAt.toLocaleDateString('ja-JP')
+        ? p.dsfPublishedAt.toLocaleDateString(getUILang() === 'en' ? 'en-US' : 'ja-JP')
         : '—';
     const thumb = p.thumbnail
         ? `<img src="${_esc(p.thumbnail)}" alt="" loading="lazy">`
@@ -210,34 +215,44 @@ function _renderRow(p, account = {}) {
     const langs = p.dsfLangs.length ? p.dsfLangs.map(l => l.toUpperCase()).join(' / ') : '—';
     const publicationMeta = _renderPublicationMeta(p.publication, p.dsfStatus);
     const publicationEditor = _renderPublicationEditor(p, account);
+    const size = p.dsfTotalBytes ? ` · ${(p.dsfTotalBytes / (1024 * 1024)).toFixed(1)} MB` : '';
+    const releaseMeta = p.releaseKind === 'horizon-v2'
+        ? t('works_meta_v2', { pages: p.pageCount, langs, size })
+        : t('works_meta', {
+            pages: p.pageCount,
+            langs,
+            resolution: p.dsfResolution,
+            quality: p.dsfQuality,
+            size,
+        });
     return `
         <div class="works-row" data-pid="${_esc(p.id)}" data-work-id="${_esc(p.workId || p.id)}">
             <div class="works-thumb">${thumb}</div>
             <div class="works-info">
                 <div class="works-title">${_esc(p.title || p.id)}</div>
-                <div class="works-meta">${p.pageCount}ページ · ${langs} · ${p.dsfResolution} · 品質${p.dsfQuality}%${p.dsfTotalBytes ? ` · ${(p.dsfTotalBytes / (1024 * 1024)).toFixed(1)} MB` : ''}</div>
+                <div class="works-meta">${_esc(releaseMeta)}</div>
                 <div data-publication-meta>${publicationMeta}</div>
                 ${publicationEditor}
-                <div class="works-meta">${date} 発行</div>
+                <div class="works-meta">${_esc(t('works_published_on', { date }))}</div>
             </div>
             <div class="works-controls">
                 <span class="works-dsf-badge ${dsf.cls}">${_statusIcon(dsf.icon)}<span>${dsf.label}</span></span>
                 <select class="works-dsf-select" data-pid="${_esc(p.id)}" data-prev="${_esc(p.dsfStatus)}">
-                    <option value="draft"    ${p.dsfStatus === 'draft'    ? 'selected' : ''}>下書き</option>
-                    <option value="unlisted" ${p.dsfStatus === 'unlisted' ? 'selected' : ''}>限定公開</option>
-                    <option value="public"   ${p.dsfStatus === 'public'   ? 'selected' : ''}>公開</option>
-                    <option value="private"  ${p.dsfStatus === 'private'  ? 'selected' : ''}>非公開</option>
+                    <option value="draft"    ${p.dsfStatus === 'draft'    ? 'selected' : ''}>${_esc(t('works_status_draft'))}</option>
+                    <option value="unlisted" ${p.dsfStatus === 'unlisted' ? 'selected' : ''}>${_esc(t('works_status_unlisted'))}</option>
+                    <option value="public"   ${p.dsfStatus === 'public'   ? 'selected' : ''}>${_esc(t('works_status_public'))}</option>
+                    <option value="private"  ${p.dsfStatus === 'private'  ? 'selected' : ''}>${_esc(t('works_status_private'))}</option>
                 </select>
                 ${_renderViewerAction(p)}
                 <button class="works-btn-edit"
                     onclick="window.loadAndOpenProject('${_esc(p.id)}')"
-                    title="エディターで開く"><span class="material-icons" aria-hidden="true">edit</span><span>編集</span></button>
+                    title="${_esc(t('works_edit_title'))}"><span class="material-icons" aria-hidden="true">edit</span><span>${_esc(t('works_edit'))}</span></button>
                 <button class="works-btn-press"
                     onclick="window.loadAndRepress('${_esc(p.id)}')"
-                    title="再レンダリング"><span class="material-icons" aria-hidden="true">autorenew</span><span>再発行</span></button>
+                    title="${_esc(t('works_republish_title'))}"><span class="material-icons" aria-hidden="true">autorenew</span><span>${_esc(t('works_republish'))}</span></button>
                 <button class="works-btn-delete"
                     data-delete-pid="${_esc(p.id)}"
-                    title="プロジェクトを削除"><span class="material-icons" aria-hidden="true">delete</span><span>削除</span></button>
+                    title="${_esc(t('works_delete_title'))}"><span class="material-icons" aria-hidden="true">delete</span><span>${_esc(t('works_delete'))}</span></button>
             </div>
         </div>`;
 }
@@ -245,14 +260,14 @@ function _renderRow(p, account = {}) {
 function _renderViewerAction(p) {
     const ownerOnly = p.dsfStatus === 'draft' || p.dsfStatus === 'private';
     if (ownerOnly) {
-        const label = p.dsfStatus === 'draft' ? '下書きプレビュー' : '非公開プレビュー';
+        const label = p.dsfStatus === 'draft' ? t('works_draft_preview') : t('works_private_preview');
         return `<button class="works-btn-copy works-btn-preview" data-works-viewer-action
             onclick="window.openDraftViewer('${_esc(p.id)}')"
-            title="所有者として${label}を開く"><span class="material-icons" aria-hidden="true">preview</span><span>${label}</span></button>`;
+            title="${_esc(t('works_open_owner_preview', { label }))}"><span class="material-icons" aria-hidden="true">preview</span><span>${_esc(label)}</span></button>`;
     }
     return `<button class="works-btn-copy" data-works-viewer-action
         onclick="window.copyViewerUrl('${_esc(p.id)}')"
-        title="ビューワーURLをコピー"><span class="material-icons" aria-hidden="true">link</span><span>URLコピー</span></button>`;
+        title="${_esc(t('works_copy_url_title'))}"><span class="material-icons" aria-hidden="true">link</span><span>${_esc(t('works_copy_url'))}</span></button>`;
 }
 
 function _refreshViewerAction(row, project) {
@@ -517,7 +532,7 @@ async function _updateDsfStatus(pid, newStatus, proj, row) {
         return plan.projectPatch.publication;
     } catch (err) {
         console.error('[Works] dsfStatus update error:', err);
-        alert('ステータスの更新に失敗しました: ' + err.message);
+        alert(t('works_status_failed', { message: err.message }));
         return null;
     }
 }
@@ -541,7 +556,7 @@ async function _updatePublicationWindow(pid, proj, row) {
         return plan.projectPatch.publication;
     } catch (err) {
         console.error('[Works] publication update error:', err);
-        alert('公開期間の更新に失敗しました: ' + err.message);
+        alert(t('works_period_failed', { message: err.message }));
         return null;
     }
 }

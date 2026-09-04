@@ -7075,9 +7075,6 @@ window.showTailPageAddMenu = (e) => {
             <div class="context-menu-item" onclick="addSectionByType('spread-image', event)">
                 <span class="material-icons">view_week</span> ${t('btn_add_spread_image_section')}
             </div>
-            <div class="context-menu-item" onclick="addSectionByType('text', event)">
-                <span class="material-icons">article</span> ${t('btn_add_text_section')}
-            </div>
         `
     );
 };
