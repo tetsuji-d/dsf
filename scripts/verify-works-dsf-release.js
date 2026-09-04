@@ -295,6 +295,21 @@ assert.match(
     /if \(currentRoom === 'home'\) \{\s*renderHomeDashboard\(\)\.catch/,
     'A Works language switch must not refresh the hidden Home dashboard.',
 );
+const authListenerStart = appSource.indexOf('onAuthChanged((user) => {');
+const authListenerEnd = appSource.indexOf('}, firebaseAuth);', authListenerStart);
+assert.ok(authListenerStart >= 0 && authListenerEnd > authListenerStart,
+    'Works auth bootstrap verification must inspect the Firebase auth listener.');
+const authListenerSource = appSource.slice(authListenerStart, authListenerEnd);
+assert.match(
+    authListenerSource,
+    /applyStudioAuthUser\(user\);\s*if \(getCurrentRoom\(\) === 'works'\) \{\s*void openWorksRoom\(true\);\s*\}/,
+    'Restored or cleared Firebase auth must immediately rerender a directly opened Works room.',
+);
+const appliedAuthAt = authListenerSource.indexOf('applyStudioAuthUser(user);');
+const worksRefreshAt = authListenerSource.indexOf("if (getCurrentRoom() === 'works')");
+const userOnlyBranchAt = authListenerSource.indexOf('if (user)');
+assert.ok(appliedAuthAt >= 0 && worksRefreshAt > appliedAuthAt && userOnlyBranchAt > worksRefreshAt,
+    'Works must refresh after auth state is applied and before the signed-in-only branch so sign-out clears stale rows.');
 assert.match(worksSource, /_worksViewCache\?\.uid === ownerUid/,
     'Works cache reuse must be restricted to the authenticated owner.');
 assert.match(worksSource, /openWorksRoom\(roomMode, \{ useCache: true \}\)/,

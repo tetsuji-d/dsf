@@ -9477,6 +9477,9 @@ window.toggleAuth = async () => {
 // Firebase Auth → state.user / uid。ログイン後にだけ URL ?id= のクラウドプロジェクトを開く。
 onAuthChanged((user) => {
     applyStudioAuthUser(user);
+    if (getCurrentRoom() === 'works') {
+        void openWorksRoom(true);
+    }
     renderHomeDashboard().catch((e) => console.warn('[Home] render failed after auth:', e));
     if (user) {
         void hydrateStudioAccount(user);
