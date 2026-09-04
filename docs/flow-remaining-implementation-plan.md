@@ -1,7 +1,7 @@
 # Flow / DSF delivery v2 残実装計画・AI引き継ぎ
 
-最終更新: 2026-09-03
-確認済みcheckpoint: `feature/flow-layout-foundation` / `c6dd89b`
+最終更新: 2026-09-05
+確認済みcheckpoint: `feature/flow-layout-foundation` / `5cecb17`
 対象: DSF Studio、Press、Works、Horizon、ViewerのFlow原稿とDSF delivery v2
 
 ## 1. この文書の役割
@@ -85,7 +85,7 @@ FlowのHorizon releaseは、非公開draft保存、所有者preview、atomicな`
 stagingではJA fixedText 4ページのFlow作品を`draft -> unlisted -> public -> draft`と遷移させ、unlisted時のHorizon非掲載、
 public時のHorizon掲載と匿名Viewer表示、draft復帰後の一覧・匿名URL遮断、全工程のconsole errorなしを確認した。
 
-残る初期公開acceptanceは、WebP／fixedText混在、多言語切替、公開期間境界、v1の実ブラウザー回帰、人間による最終確認である。
+技術・人間双方のstaging初期公開acceptanceを完了した。production migrationは引き続き別承認とする。
 
 ## 5. 初期Flow公開までの安全な実装順
 
@@ -133,7 +133,7 @@ Firestore Rulesを変更する場合だけ、staging emulator検証とRulesの�
 
 結果: `c6dd89b`。Rules／schema変更なし。指定test、関連contract test、`build:staging`を通過し、staging実データの公開遷移も成功した。
 
-### Unit P2: staging匿名公開acceptance（基本境界確認済み・一部継続）
+### Unit P2: staging匿名公開acceptance（完了）
 
 目的: 実データ、実R2、Firestore Rules、匿名Viewerを通した公開経路を確認する。
 
@@ -155,14 +155,15 @@ Firestore Rulesを変更する場合だけ、staging emulator検証とRulesの�
 - `unlisted`はHorizon一覧へ出ず、`public`は一覧へ出て一覧リンクから開ける。
 - `draft`へ戻すとHorizon一覧と匿名Viewerの両方から閉じる。
 - status遷移中のconsole errorはない。
+- WebP／fixedText混在の2言語v2 fixtureを、JA／EN-USとも各2ページで匿名Viewer表示できる。言語切替と表示page数も一致する。
+- 同じ多言語v2 fixtureで`unlisted`非掲載、`public`掲載、`draft`復帰後の一覧・匿名URL閉鎖を確認した。canonical JSONの言語key順が異なる場合も言語集合を安全に照合する（`6cbc4de`）。
+- staging fixtureで公開期間の開始前／終了後に、Horizon一覧と匿名Viewerがともに閉じる境界を確認した。対応する境界test checkpointは`879666d`。
+- 使い捨てv1 fixtureで`draft -> unlisted -> public -> draft`を実操作し、匿名Viewer、Horizon掲載境界、2ページ表示、console errorなしを確認した。確認後にProjectを削除済みで、残るWork／Release／R2実体はUnit P3のorphan候補として扱う。v1 mapのkey順差修正checkpointは`00c8f41`。
+- ログイン済みWorks直リンクを再読み込みしても、再クリックなしで所有者の作品一覧へ復帰する。未ログインの独立ブラウザーでは作品を表示せずログイン要求になる（`5cecb17`）。
 
-継続確認:
+最終確認:
 
-- WebP／fixedText混在releaseの匿名Viewer表示
-- 複数言語の切替、font、言語別page数
-- 公開期間の開始前／終了後
-- v1作品の公開状態変更と匿名Viewer回帰
-- 人間によるstaging最終確認
+- 2026-09-05、人間が上記staging結果を最終確認した。Unit P2を完了とし、次はUnit P3へ進む。
 
 ### Unit P3: 公開運用のhardening
 
@@ -267,9 +268,9 @@ Spread Block
 - [x] WorksでDSF v2を`unlisted`／`public`へ安全に切り替えられる
 - [x] 匿名Viewerで実共有URLを閲覧できる
 - [x] `unlisted`／`public`／`private`／`draft`の一覧・URL境界が正しい
-- [ ] 公開期間開始前／終了後の境界が正しい
-- [ ] v1作品の公開・閲覧に回帰がない
-- [ ] staging実ブラウザーacceptanceを人間が確認する
+- [x] 公開期間開始前／終了後の境界が正しい
+- [x] v1作品の公開・閲覧に回帰がない
+- [x] staging実ブラウザーacceptanceを人間が確認する
 
 ## 11. 作業開始時の確認手順
 
@@ -283,4 +284,4 @@ Spread Block
 6. データ形式、Firestore Rules、公開境界を変更する場合は、人間の承認範囲を再確認する。
 7. commit／deployは明示指示があるまで行わない。
 
-現在の推奨開始点は **Unit P2の継続確認: v1回帰、WebP／fixedText混在、多言語、公開期間境界** である。
+現在の推奨開始点は **Unit P3の最初の安全単位: 削除を伴わないR2 orphan候補の棚卸しと保持方針の設計** である。自動削除、Rules変更、production migrationはこの単位に含めない。
