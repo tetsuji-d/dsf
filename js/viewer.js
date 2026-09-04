@@ -28,7 +28,10 @@ import {
     prepareDsfViewerFixedTextContext,
 } from './viewer-fixed-text.js';
 import { mapDsfLanguagePage } from './dsf-delivery-v2.js';
-import { getViewerPageNavigationTarget } from './viewer-navigation.js';
+import {
+    getViewerFallbackSpreadPageIndices,
+    getViewerPageNavigationTarget,
+} from './viewer-navigation.js';
 import {
     assertOwnerDraftReleaseMetadata,
     normalizeOwnerDraftProjectId,
@@ -3307,6 +3310,10 @@ function renderSingleModeSpreadPairIntoDom(pair, lang) {
 }
 
 function renderDisplayIndexIntoDom(displayIndex, lang) {
+    if (spreadMode && !hasBookModel()) {
+        renderSpreadPage(displayIndex, lang);
+        return;
+    }
     const pair = getSingleModeSpreadPair(displayIndex, lang);
     if (pair) {
         renderSingleModeSpreadPairIntoDom(pair, lang);
@@ -3674,20 +3681,34 @@ function transitionToIndex(nextIndex, kind = 'jump') {
     const pages = getPages();
     const currentIndex = getIndex();
     if (nextIndex < 0 || nextIndex >= pages.length || nextIndex === currentIndex) return;
+
+    dispatch({ type: actionTypes.SET_ACTIVE_INDEX, payload: nextIndex });
+    collapseViewerInfoPanelForNavigation();
+    resetZoom();
+
+    // The legacy fallback has no composite spread transition layer. Replacing
+    // one side and resizing the canvas while the other side animates causes a
+    // visible tear at cover/spread boundaries, so commit the whole unit once.
+    if (spreadMode && !hasBookModel()) {
+        pageAnimationToken += 1;
+        clearTransitionLayers();
+        renderSpreadPage(nextIndex, state.activeLang);
+        refreshChrome();
+        preloadNearbyViewerImages();
+        queueBookmarkSave();
+        trackPageView(kind === 'jump' ? 'jump' : 'navigation');
+        return;
+    }
+
     const dir = getPageDirection();
     const motionDir = kind === 'next'
         ? (dir === 'rtl' ? -1 : 1)
         : kind === 'prev'
             ? (dir === 'rtl' ? 1 : -1)
             : (nextIndex > currentIndex ? 1 : -1);
-
     const fromPage = pages[currentIndex];
     const toPage = pages[nextIndex];
     const animType = kind === 'jump' ? 'slide' : getTransitionAnimType(currentIndex, nextIndex);
-
-    dispatch({ type: actionTypes.SET_ACTIVE_INDEX, payload: nextIndex });
-    collapseViewerInfoPanelForNavigation();
-    resetZoom();
 
     if (animType === 'turn') {
         animatePageTurn(toPage, state.activeLang, motionDir);
@@ -3732,7 +3753,7 @@ function goNext() {
         totalPages: total,
         delta: 1,
         spreadMode,
-        hasVisibleSecondPage: _hasFallbackSpreadSecondPage(i, total),
+        pageDirection: getPageDirection(),
     });
     if (target !== i) transitionToIndex(target, 'next');
 }
@@ -3749,15 +3770,18 @@ function goPrev() {
         totalPages: total,
         delta: -1,
         spreadMode,
-        hasVisibleSecondPage: _hasFallbackSpreadSecondPage(i, total),
+        pageDirection: getPageDirection(),
     });
     if (target !== i) transitionToIndex(target, 'prev');
 }
 
 function _hasFallbackSpreadSecondPage(index = getIndex(), total = getTotal()) {
     if (!spreadMode || hasBookModel()) return false;
-    const adjacentIndex = getPageDirection() === 'rtl' ? index - 1 : index + 1;
-    return adjacentIndex >= 0 && adjacentIndex < total;
+    return getViewerFallbackSpreadPageIndices({
+        currentIndex: index,
+        totalPages: total,
+        pageDirection: getPageDirection(),
+    }).length > 1;
 }
 
 function isZoneClickSuppressed() {
@@ -3796,6 +3820,14 @@ function refresh() {
 
     if (spreadMode && hasBookModel()) {
         renderCurrentBookUnit();
+        refreshChrome();
+        preloadNearbyViewerImages();
+        viewerMinimap?.update();
+        return;
+    }
+
+    if (spreadMode) {
+        renderSpreadPage();
         refreshChrome();
         preloadNearbyViewerImages();
         viewerMinimap?.update();
@@ -4325,7 +4357,8 @@ function resizeCanvas() {
     const H = Math.max(1, viewport.height - (safeY * 2));
     const aspect = CANONICAL_PAGE_ASPECT;
     const bookSingle = spreadMode && hasBookModel() && getCurrentBookUnit()?.type === 'single';
-    const showSpread = spreadMode && !bookSingle;
+    const fallbackSingle = spreadMode && !hasBookModel() && !_hasFallbackSpreadSecondPage();
+    const showSpread = spreadMode && !bookSingle && !fallbackSingle;
     let w, h;
 
     if (showSpread) {
@@ -4425,7 +4458,7 @@ function renderCurrentBookUnit() {
     resizeCanvas();
 }
 
-function renderSpreadPage() {
+function renderSpreadPage(displayIndex = getIndex(), lang = state.activeLang) {
     const spreadStage = document.getElementById('viewer-spread-stage');
     const spreadContent = document.getElementById('viewer-spread-content');
     if (!spreadStage || !spreadContent || !spreadMode) return;
@@ -4436,22 +4469,30 @@ function renderSpreadPage() {
     }
 
     const pages = getPages();
-    const idx = getIndex();
-    const lang = state.activeLang;
-    const dir = getPageDirection();
+    const idx = displayIndex;
+    const pageIndices = getViewerFallbackSpreadPageIndices({
+        currentIndex: idx,
+        totalPages: pages.length,
+        pageDirection: getPageDirection(),
+    });
+    const leftIdx = pageIndices[0];
+    const rightIdx = pageIndices[1];
+    if (!Number.isInteger(leftIdx)) return;
 
-    // RTL（日本語等）: 右が現在、左が次 → spread は左に次ページ
-    // LTR（英語等）: 左が現在、右が次 → spread は右に次ページ
-    const adjIdx = dir === 'rtl' ? idx - 1 : idx + 1;
+    const leftPage = getViewerSurfaceForDisplayIndex(leftIdx) || pages[leftIdx];
+    renderPageIntoDom(leftPage, lang);
 
-    if (adjIdx < 0 || adjIdx >= pages.length) {
+    if (!Number.isInteger(rightIdx)) {
+        spreadContent.innerHTML = '';
         spreadStage.style.display = 'none';
+        resizeCanvas();
         return;
     }
 
     spreadStage.style.display = 'block';
-    const adjPage = pages[adjIdx];
-    spreadContent.innerHTML = renderPageContentHTML(adjPage, lang);
+    const rightPage = getViewerSurfaceForDisplayIndex(rightIdx) || pages[rightIdx];
+    spreadContent.innerHTML = renderPageContentHTML(rightPage, lang);
+    resizeCanvas();
     scheduleViewerDevMorphPipeline();
     if (viewerDevMode) renderViewerDevMetrics();
 }
@@ -4478,7 +4519,6 @@ window.toggleViewerSpread = () => {
 function getViewerMinimapSurfaces() {
     const pages = getPages();
     const index = getIndex();
-    const current = getViewerSurfaceForDisplayIndex(index) || pages[index] || null;
 
     if (spreadMode && hasBookModel()) {
         const unit = getCurrentBookUnit();
@@ -4488,17 +4528,21 @@ function getViewerMinimapSurfaces() {
             : [unit.center].filter(Boolean);
     }
 
+    const current = getViewerSurfaceForDisplayIndex(index) || pages[index] || null;
     const spreadStage = document.getElementById('viewer-spread-stage');
     const hasVisibleSecondPage = spreadMode
         && !!spreadStage
         && getComputedStyle(spreadStage).display !== 'none';
     if (!hasVisibleSecondPage) return current ? [current] : [];
 
-    const adjacentIndex = getPageDirection() === 'rtl' ? index - 1 : index + 1;
-    const adjacent = adjacentIndex >= 0 && adjacentIndex < pages.length
-        ? (getViewerSurfaceForDisplayIndex(adjacentIndex) || pages[adjacentIndex])
-        : null;
-    return [current, adjacent].filter(Boolean);
+    const pageIndices = getViewerFallbackSpreadPageIndices({
+        currentIndex: index,
+        totalPages: pages.length,
+        pageDirection: getPageDirection(),
+    });
+    return pageIndices.map((pageIndex) => (
+        getViewerSurfaceForDisplayIndex(pageIndex) || pages[pageIndex]
+    )).filter(Boolean);
 }
 
 function getViewerMinimapSnapshot() {
