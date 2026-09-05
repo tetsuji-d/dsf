@@ -28,6 +28,7 @@ const INPUT_KEYS = new Set([
     'publication',
     'bookConfig',
     'renderStamp',
+    'thumbnail',
 ]);
 const SAFE_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/;
 const HASH_PATTERN = /^[a-f0-9]{64}$/;
@@ -77,6 +78,18 @@ function assertFirestoreDocumentId(value, path) {
 
 function normalizeString(value, fallback = '') {
     return typeof value === 'string' ? value.trim() : fallback;
+}
+
+function normalizeHttpsUrl(value) {
+    const candidate = normalizeString(value);
+    if (!candidate) return '';
+    try {
+        const parsed = new URL(candidate);
+        if (parsed.protocol !== 'https:' || !parsed.hostname || parsed.username || parsed.password) return '';
+        return candidate;
+    } catch {
+        return '';
+    }
 }
 
 function assertUpload(upload) {
@@ -184,6 +197,10 @@ export function createFlowPressHorizonDraftWrite(input = {}) {
     const bookConfig = normalizeBookConfig(input.bookConfig, pageCount);
     const delivery = deepClone(metadata);
     const publication = deepClone(input.publication);
+    const thumbnail = normalizeHttpsUrl(input.thumbnail);
+    if (!thumbnail) {
+        fail('FLOW_HORIZON_DRAFT_THUMBNAIL_INVALID', 'thumbnail', 'A verified HTTPS release thumbnail is required.');
+    }
     const projectFields = {
         workId: identity.workId,
         releaseId: identity.releaseId,
@@ -191,6 +208,7 @@ export function createFlowPressHorizonDraftWrite(input = {}) {
         rating: normalizeString(input.project.rating, 'all') || 'all',
         license: normalizeString(input.project.license, 'all-rights-reserved') || 'all-rights-reserved',
         meta: isRecord(input.project.meta) ? deepClone(input.project.meta) : {},
+        thumbnail,
         dsfPages: [],
         ...bookConfig,
         ...delivery,
@@ -225,6 +243,7 @@ export function createFlowPressHorizonDraftWrite(input = {}) {
             rating: projectFields.rating,
             license: projectFields.license,
             meta: deepClone(projectFields.meta),
+            thumbnail,
             languages: authoringLanguages.length ? authoringLanguages : [...delivery.dsfLangs],
             defaultLang: projectDefaultLang,
             latestReleaseId: identity.releaseId,
@@ -235,6 +254,7 @@ export function createFlowPressHorizonDraftWrite(input = {}) {
             releaseId: identity.releaseId,
             workId: identity.workId,
             projectId: input.projectId,
+            thumbnail,
             dsfPages: [],
             ...bookConfig,
             ...delivery,
@@ -268,6 +288,7 @@ export function assertCompatibleFlowPressHorizonRelease(existing, draft) {
         'releaseId',
         'workId',
         'projectId',
+        'thumbnail',
         'dsfSchemaVersion',
         'dsfContentUrl',
         'dsfContentHash',

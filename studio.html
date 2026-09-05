@@ -132,6 +132,7 @@
         <header id="ribbon-bar">
             <div class="ribbon-row ribbon-top-row">
                 <div class="ribbon-top-left">
+                    <span class="ribbon-project-name-label" data-i18n="label_project_name">プロジェクト名</span>
                     <span id="project-title" class="project-title" contenteditable="true"
                         oninput="onProjectTitleInput()" onkeydown="onProjectTitleKeydown(event)"
                         onblur="onProjectTitleBlur()" aria-label="プロジェクト名" title="プロジェクト名を編集">新規プロジェクト</span>
@@ -177,10 +178,16 @@
                             <span class="material-icons" aria-hidden="true">settings</span><span data-i18n="btn_project_settings">プロジェクト設定</span>
                         </button>
                     </div>
-                    <div class="ribbon-group">
-                        <input type="text" id="prop-title" class="ribbon-title-input"
-                            data-i18n-placeholder="placeholder_work_title" placeholder="作品タイトル"
-                            oninput="updateTitle(this.value)" aria-label="作品タイトル" title="作品のタイトル">
+                    <div class="ribbon-group ribbon-work-title-group">
+                        <label class="ribbon-work-title-field" for="prop-title">
+                            <span class="ribbon-work-title-heading">
+                                <span data-i18n="label_work_title">作品タイトル</span>
+                                <span id="prop-title-lang-badge" class="ribbon-work-title-lang">日本語 JA</span>
+                            </span>
+                            <input type="text" id="prop-title" class="ribbon-title-input"
+                                data-i18n-placeholder="placeholder_work_title" placeholder="作品タイトル"
+                                oninput="updateTitle(this.value)" aria-label="作品タイトル" title="作品のタイトル">
+                        </label>
                     </div>
                 </div>
                 <div class="ribbon-panel" data-ribbon-panel="insert">
@@ -837,13 +844,47 @@
                     <div id="ps-meta-table"></div>
                 </section>
 
-                <!-- 4. 表紙構成 -->
+                <!-- 4. Horizon サムネイル -->
+                <section id="ps-publication-thumbnail-section" class="ps-section" aria-labelledby="ps-publication-thumbnail-heading">
+                    <h3 id="ps-publication-thumbnail-heading" data-i18n="ps_section_publication_thumbnail">Horizon サムネイル</h3>
+                    <p class="ps-publication-thumbnail-description" data-i18n="ps_publication_thumbnail_description">デフォルトでは表紙を使用します。必要な場合だけ、一覧表示用の画像を別に設定できます。</p>
+                    <div class="ps-publication-thumbnail-layout">
+                        <div id="ps-publication-thumbnail-preview" class="ps-publication-thumbnail-preview" role="img"
+                            data-i18n-aria-label="ps_publication_thumbnail_preview_aria" aria-label="Horizon サムネイルのプレビュー">
+                            <img id="ps-publication-thumbnail-image" src="" alt="" hidden>
+                            <div id="ps-publication-thumbnail-placeholder" class="ps-publication-thumbnail-placeholder">
+                                <span class="material-icons" aria-hidden="true">auto_stories</span>
+                                <strong data-i18n="ps_publication_thumbnail_cover_label">表紙を使用</strong>
+                                <span data-i18n="ps_publication_thumbnail_cover_hint">公開時の表紙がサムネイルになります</span>
+                            </div>
+                        </div>
+                        <div class="ps-publication-thumbnail-controls">
+                            <div class="ps-publication-thumbnail-actions">
+                                <button id="ps-publication-thumbnail-choose" class="btn-sm" type="button">
+                                    <span class="material-icons" aria-hidden="true">image</span>
+                                    <span data-i18n="ps_publication_thumbnail_choose">画像を選択</span>
+                                </button>
+                                <button id="ps-publication-thumbnail-reset" class="btn-sm" type="button" disabled>
+                                    <span class="material-icons" aria-hidden="true">restart_alt</span>
+                                    <span data-i18n="ps_publication_thumbnail_reset">表紙に戻す</span>
+                                </button>
+                            </div>
+                            <input id="ps-publication-thumbnail-input" type="file" accept="image/*" hidden
+                                data-i18n-aria-label="ps_publication_thumbnail_input_aria" aria-label="Horizon サムネイル画像を選択">
+                            <p id="ps-publication-thumbnail-status" class="ps-hint" role="status" aria-live="polite"
+                                data-i18n="ps_publication_thumbnail_default_status">現在は表紙を使用します。</p>
+                            <p class="ps-hint" data-i18n="ps_publication_thumbnail_recommendation">推奨: 9:16、720×1280以上。中央を基準に切り抜いて表示します。</p>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- 5. 表紙構成 -->
                 <section class="ps-section">
                     <h3 data-i18n="ps_section_book_structure">表紙構成</h3>
                     <div id="ps-book-settings" class="press-book-settings ps-book-settings"></div>
                 </section>
 
-                <!-- 5. 本文ページ設定 -->
+                <!-- 6. 本文ページ設定 -->
                 <section class="ps-section">
                     <h3 data-i18n="ps_section_text_pages">本文ページ設定</h3>
                     <div class="ps-field">
@@ -864,7 +905,7 @@
                     </div>
                 </section>
 
-                <!-- 4. グローバル設定 -->
+                <!-- 7. グローバル設定 -->
                 <section class="ps-section">
                     <h3 data-i18n="ps_section_global">グローバル設定</h3>
                     <div class="ps-field">

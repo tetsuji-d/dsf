@@ -20,6 +20,8 @@ import {
 import { t, getUILang } from './i18n-studio.js';
 import { resolveWorksDsfRelease } from './works-dsf-release.js';
 import { createWorksPublicationTransition } from './works-publication-transition.js';
+import { resolveProjectDisplayTitle, resolveProjectName } from './project-display-title.js';
+import { selectProjectListingThumbnail } from './project-listing-thumbnail.js';
 import { fetchDsfReleaseInventoryPages } from './dsf-release-inventory-client.js';
 import { createDsfReleaseStorageAudit } from './dsf-release-orphan-inventory.js';
 import {
@@ -251,7 +253,7 @@ export async function openWorksRoom(roomMode = false, options = {}) {
                 const proj = projects.find(x => x.id === pid);
                 const row = btn.closest('.works-row');
                 if (state.uid !== ownerUid) return;
-                if (!confirm(t('works_delete_confirm', { name: proj?.title || t('works_untitled') }))) return;
+                if (!confirm(t('works_delete_confirm', { name: _getWorksDisplayTitle(proj) }))) return;
                 if (!_beginWorksProjectMutation(listEl, ownerUid, pid)) return;
                 try {
                     const batch = writeBatch(db);
@@ -532,6 +534,9 @@ function _renderWorksOperationDiagnostic(row, error, requestedStatus) {
         [DSF_RELEASE_OPERATION_DIAGNOSTIC_CLASSIFICATIONS.BLOCKED]: 'works_operation_blocked',
     };
     const safeParts = [diagnostic.code, diagnostic.remoteCode, diagnostic.path].filter(Boolean);
+    const isTitleRequired = diagnostic.code === 'WORKS_PUBLICATION_TITLE_REQUIRED';
+    const isThumbnailRequired = diagnostic.code === 'WORKS_PUBLICATION_THUMBNAIL_REQUIRED'
+        || diagnostic.code === 'WORKS_PUBLICATION_THUMBNAIL_INVALID';
     let actionMarkup = '';
     if (diagnostic.classification === DSF_RELEASE_OPERATION_DIAGNOSTIC_CLASSIFICATIONS.RETRY_SAFE) {
         actionMarkup = `<button type="button" data-works-operation-retry>${_esc(t('works_operation_retry'))}</button>`;
@@ -543,7 +548,11 @@ function _renderWorksOperationDiagnostic(row, error, requestedStatus) {
     target.setAttribute('role', 'alert');
     target.innerHTML = `
         <div>
-            <strong>${_esc(t(classificationKeys[diagnostic.classification]))}</strong>
+            <strong>${_esc(isTitleRequired
+                ? t('works_publication_title_required')
+                : isThumbnailRequired
+                    ? t('works_publication_thumbnail_required')
+                    : t(classificationKeys[diagnostic.classification]))}</strong>
             <span>${_esc(t('works_operation_diagnostic_code', { code: safeParts.join(' · ') }))}</span>
         </div>
         ${actionMarkup}`;
@@ -581,11 +590,18 @@ function _renderRow(p, account = {}) {
             quality: p.dsfQuality,
             size,
         });
+    const explicitWorkTitle = resolveProjectDisplayTitle(p, { locale: getUILang() });
+    const projectName = resolveProjectName(p);
+    const displayTitle = explicitWorkTitle || projectName || t('works_untitled');
+    const nameContext = explicitWorkTitle && projectName
+        ? t('works_project_name', { name: projectName })
+        : (!explicitWorkTitle && projectName ? t('works_title_fallback') : '');
     return `
         <div class="works-row" data-pid="${_esc(p.id)}" data-work-id="${_esc(p.workId || p.id)}" data-release-id="${_esc(p.releaseId || '')}">
             <div class="works-thumb">${thumb}</div>
             <div class="works-info">
-                <div class="works-title">${_esc(p.title || t('works_untitled'))}</div>
+                <div class="works-title">${_esc(displayTitle)}</div>
+                ${nameContext ? `<div class="works-name-context">${_esc(nameContext)}</div>` : ''}
                 <div class="works-meta">${_esc(releaseMeta)}</div>
                 <div data-publication-meta>${publicationMeta}</div>
                 ${publicationEditor}
@@ -828,6 +844,8 @@ async function _commitWorksPublicationTransition(pid, status, publication, accou
             account,
             fallbackAuthorName,
             allowedContentOrigins: _getWorksAllowedContentOrigins(),
+            publicationThumbnailR2BaseUrl: import.meta.env.VITE_R2_PUBLIC_URL,
+            publicationThumbnailFirebaseStorageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET,
             publicIndexes,
         });
 
@@ -1047,19 +1065,14 @@ async function _updatePublicationWindow(pid, proj, row, ownerUid = state.uid) {
 }
 
 function _getThumbnail(data) {
-    // DSF ページの最初の URL をサムネイルとして使う
-    const dsfPages = Array.isArray(data.dsfPages) ? data.dsfPages : [];
-    const first = dsfPages[0];
-    if (first?.urls) {
-        const lang = Object.keys(first.urls)[0];
-        if (lang) return first.urls[lang];
-    }
-    // フォールバック: DSP のサムネイル
-    const pages = Array.isArray(data.pages) ? data.pages : [];
-    const pg = pages.find(p => p?.content?.thumbnail || p?.content?.background);
-    if (pg?.content?.thumbnail) return pg.content.thumbnail;
-    if (pg?.content?.background) return pg.content.background;
-    return null;
+    return selectProjectListingThumbnail(data) || null;
+}
+
+function _getWorksDisplayTitle(project) {
+    return resolveProjectDisplayTitle(project, {
+        locale: getUILang(),
+        includeProjectName: true,
+    }) || t('works_untitled');
 }
 
 function _esc(str) {

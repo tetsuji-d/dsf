@@ -9,6 +9,7 @@ import { ensureUserBootstrap } from './firebase.js';
 import { initGIS, renderGISButton, signInWithGoogle, handleRedirectResult, signOutUser } from './gis-auth.js';
 import { applyTheme, bindThemePreferenceListener, getThemeMode, setThemeMode as persistThemeMode } from './theme.js';
 import { isPublicationActive, normalizePlanTier } from './publication.js';
+import { resolveProjectDisplayTitle } from './project-display-title.js';
 
 const DEFAULT_THUMB_URL = "https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?q=80&w=400&auto=format&fit=crop";
 const FETCH_LIMIT = 20;
@@ -258,7 +259,7 @@ function renderLoadingSkeleton(count = 6) {
 
 function cardMarkup(project) {
     // コンテンツを現在の言語でローカライズ
-    const title      = escapeHtml(localize(project.titleRaw, t("untitled")));
+    const title      = escapeHtml(resolveProjectDisplayTitle(project, { locale: currentLang }) || t("untitled"));
     const authorName = escapeHtml(localize(project.authorNameRaw, t("anonymous")));
     const thumb      = escapeHtml(getOptimizedThumbUrl(project.thumbnail));
     const date       = escapeHtml(project.publishedDate);
@@ -300,7 +301,7 @@ function getFilteredProjects() {
     const q = portalState.query.trim().toLowerCase();
     if (!q) return portalState.projects;
     return portalState.projects.filter((p) => {
-        const title  = localize(p.titleRaw, "").toLowerCase();
+        const title  = resolveProjectDisplayTitle(p, { locale: currentLang }).toLowerCase();
         const author = localize(p.authorNameRaw, "").toLowerCase();
         return title.includes(q) || author.includes(q);
     });
@@ -342,7 +343,10 @@ function normalizeProject(docSnap) {
         id:            docSnap.id,
         projectId:     typeof data.projectId === "string" ? data.projectId : "",
         workId:        typeof data.workId === "string" ? data.workId : docSnap.id,
-        titleRaw:      data.title ?? "",        // 文字列 or { ja, en } オブジェクト
+        title:         data.title ?? "",        // 代表文字列または旧言語別オブジェクト
+        meta:          data.meta && typeof data.meta === "object" ? data.meta : {},
+        languages:     Array.isArray(data.languages) ? data.languages : [],
+        defaultLang:   typeof data.defaultLang === "string" ? data.defaultLang : "",
         authorNameRaw: data.authorName ?? "",   // 文字列 or { ja, en } オブジェクト
         authorUid,
         canOpen:       !!authorUid,

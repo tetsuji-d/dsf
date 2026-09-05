@@ -76,12 +76,14 @@ const v2Work = {
     languages: ['ja', 'en-us'],
     defaultLang: 'ja',
 };
+const releaseThumbnail = 'https://media-staging.dsf.ink/users/owner-1/dsf/publication-thumbnails/' + 'c'.repeat(64) + '.webp';
 const v2Release = {
     ...v2Project,
     projectId: 'project-1',
     releaseId: identity.releaseId,
     workId: identity.workId,
     pageCount: 120,
+    thumbnail: releaseThumbnail,
 };
 const transitionInput = {
     uid: identity.uid,
@@ -94,6 +96,8 @@ const transitionInput = {
     account: { publicProfile: { displayName: 'Owner', handle: 'owner' } },
     fallbackAuthorName: 'Fallback owner',
     allowedContentOrigins: ['https://media-staging.dsf.ink'],
+    publicationThumbnailR2BaseUrl: 'https://media-staging.dsf.ink',
+    publicationThumbnailFirebaseStorageBucket: 'dsf-studio-staging.appspot.com',
     publicIndexes: {},
 };
 const publicTransition = createWorksPublicationTransition(transitionInput);
@@ -106,7 +110,144 @@ assert.equal(publicTransition.publicIndex.payload.dsfContentHash, v2Project.dsfC
 assert.equal(publicTransition.publicIndex.payload.defaultLang, 'ja');
 assert.equal(publicTransition.publicIndex.payload.pageCount, 120);
 assert.deepEqual(publicTransition.publicIndex.payload.dsfPages, []);
+assert.equal(publicTransition.publicIndex.payload.thumbnail, releaseThumbnail);
 assert.equal(Object.isFrozen(publicTransition), true);
+
+const localizedListingTransition = createWorksPublicationTransition({
+    ...transitionInput,
+    project: {
+        ...transitionInput.project,
+        projectName: 'Internal project label',
+        title: '',
+        meta: { ja: { title: '公開用の作品名' } },
+        listThumbnail: 'data:image/webp;base64,low-resolution-preview',
+        pages: [{ content: { background: releaseThumbnail } }],
+    },
+    work: {
+        ...transitionInput.work,
+        title: '',
+        meta: { ja: { title: '公開用の作品名' } },
+    },
+});
+assert.equal(localizedListingTransition.publicIndex.payload.title, '公開用の作品名');
+assert.equal(
+    localizedListingTransition.publicIndex.payload.thumbnail,
+    releaseThumbnail,
+    'the immutable Release thumbnail must beat mutable Project backgrounds and authoring list previews',
+);
+
+const changedProjectThumbnailTransition = createWorksPublicationTransition({
+    ...transitionInput,
+    project: {
+        ...transitionInput.project,
+        thumbnail: 'https://media-staging.dsf.ink/users/owner-1/dsf/publication-thumbnails/' + 'd'.repeat(64) + '.webp',
+        publicationThumbnailUrl: 'https://media-staging.dsf.ink/users/owner-1/dsf/publication-thumbnails/' + 'e'.repeat(64) + '.webp',
+        pages: [{ content: { background: 'https://media.example.test/changed-project-cover.webp' } }],
+    },
+});
+assert.equal(
+    changedProjectThumbnailTransition.publicIndex.payload.thumbnail,
+    releaseThumbnail,
+    'changing Project thumbnail preferences must not rewrite an existing Release snapshot',
+);
+
+const missingV2ReleaseThumbnailInput = {
+    ...transitionInput,
+    project: {
+        ...transitionInput.project,
+        thumbnail: 'https://media.example.test/mutable-project-thumbnail.webp',
+        publicationThumbnailUrl: 'https://media.example.test/mutable-project-preference.webp',
+        pages: [{ content: { background: 'https://media.example.test/mutable-project-cover.webp' } }],
+    },
+    release: { ...transitionInput.release, thumbnail: undefined },
+};
+for (const status of ['public', 'unlisted']) {
+    assert.throws(
+        () => createWorksPublicationTransition({ ...missingV2ReleaseThumbnailInput, status }),
+        (error) => error?.code === 'WORKS_PUBLICATION_THUMBNAIL_REQUIRED'
+            && error?.path === 'thumbnail',
+        `${status} must reject a v2 Release without its immutable thumbnail snapshot`,
+    );
+}
+for (const status of ['draft', 'private']) {
+    const hiddenTransition = createWorksPublicationTransition({ ...missingV2ReleaseThumbnailInput, status });
+    assert.equal(hiddenTransition.publicIndex, null, `${status} must remain available without a Release thumbnail`);
+    assert.equal(hiddenTransition.projectPatch.dsfStatus, status);
+}
+
+for (const status of ['public', 'unlisted']) {
+    assert.throws(
+        () => createWorksPublicationTransition({
+            ...transitionInput,
+            status,
+            release: {
+                ...transitionInput.release,
+                thumbnail: 'https://tracking.example.test/publication-thumbnail.webp',
+            },
+        }),
+        (error) => error?.code === 'WORKS_PUBLICATION_THUMBNAIL_INVALID'
+            && error?.path === 'thumbnail',
+        `${status} must reject an externally hosted v2 Release thumbnail`,
+    );
+}
+
+const translatedListingTransition = createWorksPublicationTransition({
+    ...transitionInput,
+    work: {
+        ...transitionInput.work,
+        title: '',
+        defaultLang: 'ja',
+        meta: {
+            ja: { title: '日本語タイトル' },
+            'en-us': { title: 'Published English title' },
+        },
+    },
+    release: {
+        ...transitionInput.release,
+        dsfLangs: ['en-us'],
+        dsfPageCounts: { 'en-us': 98 },
+        defaultLang: 'en-us',
+        pageCount: 98,
+    },
+    project: {
+        ...transitionInput.project,
+        dsfLangs: ['en-us'],
+        dsfPageCounts: { 'en-us': 98 },
+        defaultLang: 'ja',
+        meta: {
+            ja: { title: '日本語タイトル' },
+            'en-us': { title: 'Published English title' },
+        },
+    },
+});
+assert.equal(
+    translatedListingTransition.publicIndex.payload.title,
+    'Published English title',
+    'the public release default language must select the canonical listing title',
+);
+
+const internalNameOnlyInput = {
+    ...transitionInput,
+    project: {
+        ...transitionInput.project,
+        projectName: 'Private production label',
+        title: '',
+        meta: {},
+    },
+    work: { ...transitionInput.work, title: '', meta: {} },
+};
+for (const status of ['public', 'unlisted']) {
+    assert.throws(
+        () => createWorksPublicationTransition({ ...internalNameOnlyInput, status }),
+        (error) => error?.code === 'WORKS_PUBLICATION_TITLE_REQUIRED' && error?.path === 'title',
+        `${status} must require a real work title instead of publishing the private project name`,
+    );
+}
+for (const status of ['draft', 'private']) {
+    const hiddenTransition = createWorksPublicationTransition({ ...internalNameOnlyInput, status });
+    assert.equal(hiddenTransition.publicIndex, null, `${status} must remain available without a work title`);
+    assert.equal(hiddenTransition.projectPatch.dsfStatus, status);
+}
 assert.deepEqual(
     createWorksPublicationTransition(transitionInput),
     publicTransition,
@@ -168,6 +309,7 @@ const v1Project = {
     dsfPages: v1Pages,
     dsfLangs: ['ja'],
     defaultLang: 'ja',
+    publicationThumbnailUrl: 'https://media.example.test/mutable-v1-project-preference.webp',
 };
 const v1Transition = createWorksPublicationTransition({
     ...transitionInput,
@@ -188,6 +330,34 @@ assert.equal(v1Transition.releaseKind, 'webp-v1');
 assert.equal(v1Transition.identityMode, 'canonical-release');
 assert.deepEqual(v1Transition.publicIndex.payload.dsfPages, v1Pages);
 assert.equal(v1Transition.publicIndex.payload.dsfSchemaVersion, 1);
+assert.equal(
+    v1Transition.publicIndex.payload.thumbnail,
+    v1Pages[0].urls.ja,
+    'a canonical v1 publication must derive its cover from the Release dsfPages C1',
+);
+const changedV1ProjectThumbnailTransition = createWorksPublicationTransition({
+    ...transitionInput,
+    projectId: 'project-v1',
+    project: {
+        ...v1Project,
+        publicationThumbnailUrl: 'https://media.example.test/changed-v1-project-preference.webp',
+    },
+    work: {
+        workId: 'work-v1',
+        projectId: 'project-v1',
+        latestProjectId: 'project-v1',
+        latestReleaseId: 'release-v1',
+        ownerUid: identity.uid,
+        title: 'v1 title',
+    },
+    release: { ...v1Project },
+    publicIndexes: {},
+});
+assert.equal(
+    changedV1ProjectThumbnailTransition.publicIndex.payload.thumbnail,
+    v1Pages[0].urls.ja,
+    'changing v1 Project preferences must not replace the existing Release C1 snapshot',
+);
 
 const reorderedV1Pages = [{
     urls: { ja: 'https://media.example.test/page-1.webp' },
@@ -235,7 +405,7 @@ assert.throws(() => createWorksPublicationTransition({
 const legacyV1Transition = createWorksPublicationTransition({
     ...transitionInput,
     projectId: 'legacy-project',
-    project: { dsfPages: v1Pages, dsfLangs: ['ja'], defaultLang: 'ja' },
+    project: { title: 'Legacy v1 title', dsfPages: v1Pages, dsfLangs: ['ja'], defaultLang: 'ja' },
     work: null,
     release: null,
     publicIndexes: {},
@@ -265,6 +435,10 @@ assert.doesNotMatch(worksSource, /v2PublishDisabled/,
     'v2 public status controls must be enabled only after the atomic transition is connected');
 assert.match(worksSource, /runTransaction\(db/);
 assert.match(worksSource, /createWorksPublicationTransition\(/);
+assert.match(worksSource, /resolveProjectDisplayTitle\(/);
+assert.match(worksSource, /selectProjectListingThumbnail\(/);
+assert.match(worksSource, /works_publication_title_required/);
+assert.match(worksSource, /works_publication_thumbnail_required/);
 for (const key of [
     'works_status_draft',
     'works_status_unlisted',
@@ -283,6 +457,8 @@ assert.doesNotMatch(worksSource, /<option[^>]+value="draft"[^>]*>下書き<\/opt
 
 const i18nSource = readFileSync(new URL('../js/i18n-studio.js', import.meta.url), 'utf8');
 assert.match(i18nSource, /works_status_draft:\s+'Draft'/);
+assert.equal((i18nSource.match(/works_publication_thumbnail_required:/g) || []).length, 2,
+    'missing publication-thumbnail guidance must be localized in JA and EN');
 assert.match(i18nSource, /works_republish:\s+'Republish'/);
 assert.match(i18nSource, /works_delete:\s+'Delete'/);
 assert.match(

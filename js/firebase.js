@@ -16,9 +16,10 @@ import { composeCanonicalLayoutsForSections } from './layout.js';
 import { set as idbSet, get as idbGet } from 'idb-keyval';
 import { createId } from './utils.js';
 import { loadImageForCanvas, fetchAssetBlob, shouldEmbedAsset } from './asset-fetch.js';
-import { db, storage, auth, authReady } from './firebase-core.js';
+import { db, storage, auth, authReady, firebaseConfig } from './firebase-core.js';
 import { encodeCanvasToWebP, isWebPBlob } from './canvas-encoding.js';
 import { normalizeBookSettings } from './page-labels.js';
+import { isManagedPublicationThumbnailUrl } from './project-listing-thumbnail.js';
 import {
     assertFirestoreAuthoringSize,
     createPublicProjectProjection,
@@ -50,6 +51,12 @@ const AUTHORING_IMAGE_MAX_LONG_EDGE = 2160;
 const AUTHORING_IMAGE_WEBP_QUALITY = 0.9;
 const THUMBNAIL_IMAGE_MAX_LONG_EDGE = 320;
 const THUMBNAIL_IMAGE_WEBP_QUALITY = 0.8;
+export const PUBLICATION_THUMBNAIL_WIDTH = 720;
+export const PUBLICATION_THUMBNAIL_HEIGHT = 1280;
+export const PUBLICATION_THUMBNAIL_MAX_SOURCE_BYTES = 25 * 1024 * 1024;
+export const PUBLICATION_THUMBNAIL_MAX_SOURCE_EDGE = 16_384;
+export const PUBLICATION_THUMBNAIL_MAX_SOURCE_PIXELS = 80_000_000;
+const PUBLICATION_THUMBNAIL_WEBP_QUALITY = 0.86;
 const userBootstrapPromiseCache = new Map();
 
 /**
@@ -117,6 +124,124 @@ function requireUid() {
 function projectDocRef(projectId, ownerUid = '') {
     const uid = ownerUid || requireUid();
     return doc(db, "users", uid, "projects", projectId);
+}
+
+async function _sha256Hex(blob) {
+    const cryptoRef = globalThis.crypto;
+    if (!cryptoRef?.subtle || typeof blob?.arrayBuffer !== 'function') {
+        throw new Error('サムネイルのSHA-256計算を利用できません。');
+    }
+    const digest = await cryptoRef.subtle.digest('SHA-256', await blob.arrayBuffer());
+    return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, '0')).join('');
+}
+
+async function _createPublicationThumbnailBlob(file) {
+    if (!(file instanceof Blob) || !String(file.type || '').startsWith('image/')) {
+        throw new Error('サムネイルには画像ファイルを選択してください。');
+    }
+    if (file.size < 1 || file.size > PUBLICATION_THUMBNAIL_MAX_SOURCE_BYTES) {
+        throw new Error('サムネイル画像は25 MB以下にしてください。');
+    }
+    const sourceUrl = URL.createObjectURL(file);
+    try {
+        const image = new Image();
+        image.decoding = 'async';
+        await new Promise((resolve, reject) => {
+            image.onload = resolve;
+            image.onerror = () => reject(new Error('サムネイル画像を読み込めませんでした。'));
+            image.src = sourceUrl;
+        });
+        if (!image.naturalWidth || !image.naturalHeight) {
+            throw new Error('サムネイル画像のサイズが無効です。');
+        }
+        if (image.naturalWidth > PUBLICATION_THUMBNAIL_MAX_SOURCE_EDGE
+            || image.naturalHeight > PUBLICATION_THUMBNAIL_MAX_SOURCE_EDGE
+            || image.naturalWidth * image.naturalHeight > PUBLICATION_THUMBNAIL_MAX_SOURCE_PIXELS) {
+            throw new Error('サムネイル画像の画素数が大きすぎます。');
+        }
+
+        const canvas = document.createElement('canvas');
+        canvas.width = PUBLICATION_THUMBNAIL_WIDTH;
+        canvas.height = PUBLICATION_THUMBNAIL_HEIGHT;
+        const context = canvas.getContext('2d');
+        if (!context) throw new Error('サムネイル用Canvasを作成できません。');
+
+        const scale = Math.max(
+            PUBLICATION_THUMBNAIL_WIDTH / image.naturalWidth,
+            PUBLICATION_THUMBNAIL_HEIGHT / image.naturalHeight,
+        );
+        const drawWidth = image.naturalWidth * scale;
+        const drawHeight = image.naturalHeight * scale;
+        context.fillStyle = '#ffffff';
+        context.fillRect(0, 0, canvas.width, canvas.height);
+        context.drawImage(
+            image,
+            (canvas.width - drawWidth) / 2,
+            (canvas.height - drawHeight) / 2,
+            drawWidth,
+            drawHeight,
+        );
+        return encodeCanvasToWebP(
+            canvas,
+            PUBLICATION_THUMBNAIL_WEBP_QUALITY,
+            '作品サムネイル',
+        );
+    } finally {
+        URL.revokeObjectURL(sourceUrl);
+    }
+}
+
+async function _storePublicationThumbnailBlob(blob) {
+    if (!(await isWebPBlob(blob))) throw new Error('作品サムネイルのWebP変換に失敗しました。');
+    const digest = await _sha256Hex(blob);
+    if (!state.uid) {
+        const localKey = `local_publication_thumbnail_${digest}`;
+        await idbSet(localKey, blob);
+        const localUrl = URL.createObjectURL(blob);
+        window.localImageMap[localUrl] = localKey;
+        return localUrl;
+    }
+    const uid = requireUid();
+    return _storeFile(blob, `users/${uid}/dsf/publication-thumbnails/${digest}.webp`);
+}
+
+/** Store an already-rendered 720x1280 WebP thumbnail by its content hash. */
+export async function storePublicationThumbnailBlob(blob) {
+    return _storePublicationThumbnailBlob(blob);
+}
+
+/** Convert an author-selected image to a centered 9:16 listing thumbnail. */
+export async function storePublicationThumbnailFile(file) {
+    return _storePublicationThumbnailBlob(await _createPublicationThumbnailBlob(file));
+}
+
+/** Resolve a guest-local publication thumbnail before its first cloud save. */
+export async function ensurePublicationThumbnailCloudUrl(value) {
+    const candidate = typeof value === 'string' ? value.trim() : '';
+    if (!candidate) return '';
+    if (/^https:\/\//i.test(candidate)) {
+        const isManaged = isManagedPublicationThumbnailUrl(candidate, {
+            ownerUid: state.uid,
+            r2PublicBaseUrl: import.meta.env.VITE_R2_PUBLIC_URL,
+            firebaseStorageBucket: firebaseConfig.storageBucket,
+        });
+        if (!isManaged) {
+            throw new Error('作品サムネイルは所有者用ストレージの画像である必要があります。プロジェクト設定で画像を選び直してください。');
+        }
+        return candidate;
+    }
+    if (!candidate.startsWith('blob:') || !state.uid) return '';
+    const localKey = window.localImageMap?.[candidate];
+    const blob = localKey
+        ? await idbGet(localKey)
+        : await fetchAssetBlob(candidate, '作品サムネイル');
+    if (!blob) return '';
+    const publicUrl = await _storePublicationThumbnailBlob(blob);
+    if (publicUrl && localKey) {
+        window.localImageMap[publicUrl] = localKey;
+        delete window.localImageMap[candidate];
+    }
+    return publicUrl;
 }
 
 function projectAuthoringDocRef(projectId, ownerUid = '') {
@@ -775,7 +900,10 @@ function stripBlobAssetUrls(obj, parentKey = '') {
     if (Array.isArray(obj)) return obj.map((entry) => stripBlobAssetUrls(entry, parentKey));
     const out = {};
     for (const [k, v] of Object.entries(obj)) {
-        const isAssetString = k === 'background' || k === 'thumbnail' || parentKey === 'backgrounds';
+        const isAssetString = k === 'background'
+            || k === 'thumbnail'
+            || k === 'publicationThumbnailUrl'
+            || parentKey === 'backgrounds';
         if (isAssetString && typeof v === 'string' && v.startsWith('blob:')) {
             console.warn(`[DSF] 破損した blob: URL を除去 (field: "${k}")`);
             out[k] = '';
@@ -934,11 +1062,18 @@ async function performSaveOnce() {
             // blob: URL が残っている場合は Storage にアップロードして実 URL に変換
             const cleanSections = await resolveBlobUrlsInSections(authoringProject.sections, saveIdentity.uid);
             const cleanBlocks   = await resolveBlobUrlsInBlocks(blocksToSave, saveIdentity.uid);
+            const cleanPublicationThumbnailUrl = await ensurePublicationThumbnailCloudUrl(
+                authoringProject.publicationThumbnailUrl || '',
+            );
             const persistedProject = prepareProjectForSave({
                 ...authoringProject,
                 blocks: cleanBlocks,
                 sections: cleanSections,
+                publicationThumbnailUrl: cleanPublicationThumbnailUrl,
             });
+            if (state.publicationThumbnailUrl !== cleanPublicationThumbnailUrl) {
+                state.publicationThumbnailUrl = cleanPublicationThumbnailUrl;
+            }
 
             let listThumbnail = '';
             try {
@@ -989,10 +1124,8 @@ async function performSaveOnce() {
                 existingData,
                 rootProjection,
             );
-            await batch.commit();
-
             if (saveIdentity.workId) {
-                await setDoc(doc(db, "users", saveIdentity.uid, "works", saveIdentity.workId), {
+                batch.set(doc(db, "users", saveIdentity.uid, "works", saveIdentity.workId), {
                     workId: saveIdentity.workId,
                     projectId: saveIdentity.projectId,
                     ownerUid: saveIdentity.uid,
@@ -1007,6 +1140,7 @@ async function performSaveOnce() {
                     updatedAt: serverTimestamp()
                 }, { merge: true });
             }
+            await batch.commit();
 
             // 公開インデックス（public_projects）は Press / Works が管理する。
             // 通常の編集保存では DSP 本体だけを更新し、公開状態は変えない。

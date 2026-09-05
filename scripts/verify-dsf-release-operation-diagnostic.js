@@ -117,6 +117,15 @@ const ownershipCollision = createDsfReleaseOperationDiagnostic({
 assert.equal(ownershipCollision.classification, DSF_RELEASE_OPERATION_DIAGNOSTIC_CLASSIFICATIONS.BLOCKED);
 assert.doesNotMatch(JSON.stringify(ownershipCollision), /must-not-leak/);
 
+const titleRequired = createDsfReleaseOperationDiagnostic({
+    code: 'WORKS_PUBLICATION_TITLE_REQUIRED',
+    path: 'title',
+    message: 'private title detail',
+});
+assert.equal(titleRequired.classification, DSF_RELEASE_OPERATION_DIAGNOSTIC_CLASSIFICATIONS.BLOCKED);
+assert.equal(titleRequired.path, 'title');
+assert.doesNotMatch(JSON.stringify(titleRequired), /private title detail/);
+
 const invalidMetadataRetry = createDsfReleaseOperationDiagnostic({
     code: 'DSF_FLOW_PRESS_HORIZON_DRAFT_WRITE_INVALID',
     issues: [{

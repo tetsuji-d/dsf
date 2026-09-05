@@ -1,5 +1,6 @@
 import JSZip from 'jszip';
 import { saveAs } from 'file-saver';
+import { set as idbSet } from 'idb-keyval';
 import { state } from './state.js';
 import { blocksToPages } from './pages.js';
 import { fetchAssetBlob, guessAssetExtension, shouldEmbedAsset } from './asset-fetch.js';
@@ -26,6 +27,8 @@ import {
 } from './page-geometry.js';
 import { normalizeBookSettings } from './page-labels.js';
 import { hasFlowGroups } from './flow-project-model.js';
+import { sha256DsfBytes } from './dsf-release-byte-sealing.js';
+import { validateDspPublicationThumbnailArchiveAsset } from './dsp-publication-thumbnail-import.js';
 import {
     DSP_FLOW_META_SCHEMA_VERSION,
     applyDspMetadataFallbacks,
@@ -110,6 +113,7 @@ export async function buildDSP() {
         releaseId: state.releaseId || null,
         projectName: state.projectName || '',
         title: state.title || '',
+        publicationThumbnailUrl: state.publicationThumbnailUrl || '',
         labelName: state.labelName || '',
         rating: state.rating || 'all',
         license: state.license || 'all-rights-reserved',
@@ -131,6 +135,15 @@ export async function buildDSP() {
     const assetsFolder = zip.folder("assets");
     const originalsFolder = assetsFolder.folder("originals");
     const thumbsFolder = assetsFolder.folder("thumbs");
+    let publicationThumbnailUrl = initialProject.publicationThumbnailUrl || '';
+
+    if (shouldEmbedAsset(publicationThumbnailUrl)) {
+        const blob = await fetchAssetBlob(publicationThumbnailUrl, '作品サムネイル');
+        const ext = guessAssetExtension(publicationThumbnailUrl);
+        const filename = `publication-thumbnail.${ext}`;
+        assetsFolder.file(filename, blob);
+        publicationThumbnailUrl = `assets/${filename}`;
+    }
 
     let imgIndex = 0;
 
@@ -157,6 +170,7 @@ export async function buildDSP() {
     const withArchiveAssets = prepareProjectForSave({
         ...initialProject,
         sections: exportSections,
+        publicationThumbnailUrl,
     });
     const book = buildFixedBookConfig(
         withArchiveAssets.bookMode || withArchiveAssets.book?.mode || 'simple',
@@ -374,11 +388,20 @@ export async function parseAndLoadDSP(file) {
     if (!projectFile) throw new Error("Invalid .dsp file: project.json missing");
     const projectStr = await projectFile.async("text");
     const projectData = JSON.parse(projectStr);
+    const hasAuthoringTitle = Object.prototype.hasOwnProperty.call(projectData, 'title');
     // DSP v1 stored language metadata only in meta.json. Apply those values
     // before normalization so the v5 default ['ja'] does not mask translations.
     const projectWithMetaFallbacks = applyDspMetadataFallbacks(projectData, meta);
     const normalizedProject = hydrateProjectFromPersistence(projectWithMetaFallbacks);
     assertSupportedDspEnvelope(meta, normalizedProject.version);
+
+    // A custom publication thumbnail is authoring metadata, but it must never
+    // retain an external/missing URL from an imported archive. Validate its
+    // exact archive asset before creating any Object URL used by the editor.
+    const publicationThumbnailAsset = await validateDspPublicationThumbnailArchiveAsset({
+        reference: normalizedProject.publicationThumbnailUrl,
+        getArchiveEntry: (relativePath) => zip.file(relativePath),
+    });
 
     // Reconstruct Object URLs for assets
     const assetMap = new Map();
@@ -392,9 +415,18 @@ export async function parseAndLoadDSP(file) {
             else if (ext === "gif") mime = "image/gif";
 
             // Generate Local Object URL
-            const blob = await zipEntry.async("blob");
-            const typedBlob = new Blob([blob], { type: mime });
+            const isPublicationThumbnail = publicationThumbnailAsset?.relativePath === relativePath;
+            const typedBlob = isPublicationThumbnail
+                ? new Blob([publicationThumbnailAsset.bytes], { type: publicationThumbnailAsset.mimeType })
+                : new Blob([await zipEntry.async("blob")], { type: mime });
             const url = URL.createObjectURL(typedBlob);
+            // Use content-addressed local keys so importing the same DSP again
+            // reuses the existing asset instead of accumulating duplicates.
+            const digest = await sha256DsfBytes(await typedBlob.arrayBuffer());
+            const localKey = `dsp_asset_${digest}`;
+            await idbSet(localKey, typedBlob);
+            window.localImageMap = window.localImageMap || {};
+            window.localImageMap[url] = localKey;
             assetMap.set(relativePath, url);
         }
     }
@@ -404,7 +436,9 @@ export async function parseAndLoadDSP(file) {
         if (!value || typeof value !== 'object') return value;
         const out = {};
         for (const [key, entry] of Object.entries(value)) {
-            if ((key === 'background' || key === 'thumbnail') && typeof entry === 'string') {
+            if (key === 'publicationThumbnailUrl' && typeof entry === 'string') {
+                out[key] = entry ? (assetMap.get(entry) || '') : '';
+            } else if ((key === 'background' || key === 'thumbnail') && typeof entry === 'string') {
                 out[key] = assetMap.get(entry) || entry;
             } else if (key === 'backgrounds' && entry && typeof entry === 'object' && !Array.isArray(entry)) {
                 out[key] = Object.fromEntries(Object.entries(entry).map(([lang, url]) => [
@@ -425,7 +459,14 @@ export async function parseAndLoadDSP(file) {
         workId: restoredProject.workId || meta.workId || null,
         releaseId: restoredProject.releaseId || meta.releaseId || null,
         projectName: restoredProject.projectName || '',
-        title: restoredProject.title || meta.title || 'Untitled',
+        publicationThumbnailUrl: publicationThumbnailAsset
+            ? (assetMap.get(publicationThumbnailAsset.relativePath) || '')
+            : '',
+        // A deliberately empty authoring title must stay empty. Falling back to
+        // the archive label "Untitled" would bypass the publication title gate.
+        title: hasAuthoringTitle
+            ? (typeof restoredProject.title === 'string' ? restoredProject.title : '')
+            : (typeof meta.title === 'string' && meta.title !== 'Untitled' ? meta.title : ''),
         labelName: restoredProject.labelName || meta.labelName || '',
         rating: restoredProject.rating || meta.rating || 'all',
         license: restoredProject.license || meta.license || 'all-rights-reserved',

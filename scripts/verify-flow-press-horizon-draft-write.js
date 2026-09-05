@@ -56,6 +56,7 @@ const publication = {
     expiredAt: null,
     expireReason: null,
 };
+const thumbnail = 'https://media.example.test/users/owner-1/dsf/publication-thumbnails/cover.webp';
 
 const draft = createFlowPressHorizonDraftWrite({
     upload,
@@ -75,6 +76,7 @@ const draft = createFlowPressHorizonDraftWrite({
         book: { mode: 'simple', covers: { c1: { pageIndex: 0 }, c4: { pageIndex: 1 } } },
     },
     renderStamp: 123456,
+    thumbnail,
 });
 
 assert.equal(draft.writeVersion, FLOW_PRESS_HORIZON_DRAFT_WRITE_VERSION);
@@ -87,6 +89,9 @@ assert.deepEqual(draft.projectPatch.dsfPages, [], 'v2 project draft must clear s
 assert.equal(draft.projectPatch.dsfStatus, 'draft');
 assert.equal(draft.projectPatch.visibility, 'private');
 assert.equal(draft.projectPatch.dsfResolution, '360x640');
+assert.equal(draft.projectPatch.thumbnail, thumbnail);
+assert.equal(draft.workPatch.thumbnail, thumbnail);
+assert.equal(draft.releaseDocument.thumbnail, thumbnail);
 assert.equal(draft.releaseDocument.defaultLang, 'ja');
 assert.equal(draft.releaseDocument.pageCount, 2);
 assert.deepEqual(draft.publicIndexDocumentIds, ['work-1', 'project-1']);
@@ -111,6 +116,7 @@ const legacyProjectIdDraft = createFlowPressHorizonDraftWrite({
     publication,
     bookConfig: { bookMode: 'none', book: { mode: 'none', covers: {} } },
     renderStamp: 1,
+    thumbnail,
 });
 assert.equal(legacyProjectIdDraft.projectId, '20290901FLOWテスト',
     'valid legacy Firestore project IDs must be preserved because they are not R2 path segments');
@@ -124,6 +130,7 @@ for (const invalidProjectId of ['', ' project-1', 'project/child', '__reserved__
             publication,
             bookConfig: { bookMode: 'none', book: { mode: 'none', covers: {} } },
             renderStamp: 1,
+            thumbnail,
         }),
         (error) => error instanceof FlowPressHorizonDraftWriteError
             && error.issues[0].code === 'FLOW_HORIZON_DRAFT_PROJECT_ID_INVALID',
@@ -131,6 +138,16 @@ for (const invalidProjectId of ['', ' project-1', 'project/child', '__reserved__
 }
 
 assert.equal(assertCompatibleFlowPressHorizonRelease({ ...draft.releaseDocument }, draft), true);
+assert.throws(
+    () => assertCompatibleFlowPressHorizonRelease({
+        ...draft.releaseDocument,
+        thumbnail: 'https://media.example.test/users/owner-1/dsf/publication-thumbnails/other.webp',
+    }, draft),
+    (error) => error instanceof FlowPressHorizonDraftWriteError
+        && error.issues[0].code === 'FLOW_HORIZON_DRAFT_RELEASE_COLLISION'
+        && error.issues[0].path === 'existingRelease.thumbnail',
+    'a Release retry must not replace its immutable thumbnail snapshot',
+);
 assert.throws(
     () => assertCompatibleFlowPressHorizonRelease({
         ...draft.releaseDocument,
@@ -148,6 +165,7 @@ assert.throws(
         publication,
         bookConfig: { bookMode: 'none', book: { mode: 'none', covers: {} } },
         renderStamp: 1,
+        thumbnail,
     }),
     (error) => error instanceof FlowPressHorizonDraftWriteError
         && error.issues[0].code === 'FLOW_HORIZON_DRAFT_UPLOAD_NOT_SEALED',
@@ -164,10 +182,34 @@ assert.throws(
         publication,
         bookConfig: { bookMode: 'none', book: { mode: 'none', covers: {} } },
         renderStamp: 1,
+        thumbnail,
     }),
     (error) => error instanceof FlowPressHorizonDraftWriteError
         && error.issues[0].code === 'FLOW_HORIZON_DRAFT_IDENTITY_MISMATCH',
 );
+
+for (const unsafeThumbnail of [
+    undefined,
+    '',
+    'http://media.example.test/cover.webp',
+    'not-a-url',
+    'https://user:password@media.example.test/cover.webp',
+]) {
+    assert.throws(
+        () => createFlowPressHorizonDraftWrite({
+            upload,
+            projectId: 'project-1',
+            project: {},
+            publication,
+            bookConfig: { bookMode: 'none', book: { mode: 'none', covers: {} } },
+            renderStamp: 1,
+            thumbnail: unsafeThumbnail,
+        }),
+        (error) => error instanceof FlowPressHorizonDraftWriteError
+            && error.issues[0].code === 'FLOW_HORIZON_DRAFT_THUMBNAIL_INVALID'
+            && error.issues[0].path === 'thumbnail',
+    );
+}
 
 const moduleSource = readFileSync(new URL('../js/flow-press-horizon-draft-write.js', import.meta.url), 'utf8');
 for (const forbidden of ['./firebase', './press', 'setDoc(', 'writeBatch(', 'deleteDoc(', 'serverTimestamp(', 'localStorage']) {
@@ -185,6 +227,11 @@ assert.match(pressSource, /confirm\(t\('press_flow_horizon_confirm'\)\)/,
     'Flow Horizon draft save requires an explicit in-app confirmation');
 assert.match(pressSource, /const upload = await uploadFlowHorizonReleaseFiles\(\);[\s\S]*const draft = await writeFlowHorizonDraftMetadata\(account\)/,
     'immutable upload must finish before the owner-only draft transaction');
+assert.match(
+    pressSource,
+    /async function _writePressFlowHorizonDraftMetadata\(upload, account\) \{[\s\S]*const thumbnail = await _resolveFlowReleaseThumbnail\(upload\);[\s\S]*createFlowPressHorizonDraftWrite\(\{[\s\S]*thumbnail,/,
+    'the release thumbnail must be resolved after upload and before draft metadata is created',
+);
 assert.match(pressSource, /window\.switchRoom\('works'\)/,
     'successful Flow draft save should move the owner to Works');
 

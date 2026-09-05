@@ -3,12 +3,23 @@
  * DSP → DSF レンダリング・R2アップロード・Firestore発行
  */
 import {
-    doc, setDoc, getDoc, deleteDoc, serverTimestamp, writeBatch, runTransaction
+    doc, getDoc, serverTimestamp, writeBatch, runTransaction
 } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
 import { state, dispatch, actionTypes } from './state.js';
 import { hasFlowGroups } from './flow-project-model.js';
 import { extractSectionsFromBlocks } from './blocks.js';
-import { assertAccountCanPublish, db, uploadPressPage, triggerAutoSave, auth, ensureUserBootstrap } from './firebase.js';
+import {
+    assertAccountCanPublish,
+    db,
+    uploadPressPage,
+    triggerAutoSave,
+    auth,
+    ensureUserBootstrap,
+    ensurePublicationThumbnailCloudUrl,
+    storePublicationThumbnailBlob,
+    PUBLICATION_THUMBNAIL_WIDTH,
+    PUBLICATION_THUMBNAIL_HEIGHT,
+} from './firebase.js';
 import { loadImageForCanvas } from './asset-fetch.js';
 import { renderPositionedThumbImageHtml } from './sections.js';
 import { t, getUILang } from './i18n-studio.js';
@@ -44,6 +55,7 @@ import {
     togglePressReleaseLanguage,
 } from './press-release-languages.js';
 import { createDsfReleaseOperationDiagnostic } from './dsf-release-operation-diagnostic.js';
+import { normalizeHttpsUrl } from './project-listing-thumbnail.js';
 
 let _estimateTimer = null;
 let _estimateRunId = 0;
@@ -2201,6 +2213,228 @@ function _assertCurrentFlowHorizonDraftIdentity(upload) {
     return user;
 }
 
+function _createPublicationThumbnailError(code, message) {
+    const error = new Error(message);
+    error.code = code;
+    return error;
+}
+
+async function _resolveConfiguredPublicationThumbnail() {
+    const configured = String(state.publicationThumbnailUrl || '').trim();
+    if (!configured) return '';
+    const resolved = await ensurePublicationThumbnailCloudUrl(configured);
+    const publicUrl = normalizeHttpsUrl(resolved);
+    if (!publicUrl) {
+        throw _createPublicationThumbnailError(
+            'PUBLICATION_THUMBNAIL_UPLOAD_REQUIRED',
+            '設定した作品サムネイルをHorizon配信用URLへ保存できませんでした。プロジェクト設定で画像を選び直してください。',
+        );
+    }
+    if (resolved !== configured) {
+        dispatch({
+            type: actionTypes.SET_STATE_FIELD,
+            payload: { key: 'publicationThumbnailUrl', value: publicUrl },
+        });
+        triggerAutoSave();
+    }
+    return publicUrl;
+}
+
+function _getPublicationCoverPageIndex(pageCount) {
+    const count = Number(pageCount);
+    if (!Number.isSafeInteger(count) || count < 1) {
+        throw _createPublicationThumbnailError(
+            'PUBLICATION_THUMBNAIL_PAGE_COUNT_INVALID',
+            '作品サムネイルに使用する表紙ページ数が不正です。',
+        );
+    }
+    const configured = getPressBookConfigForExport(count).book?.covers?.c1?.pageIndex;
+    const pageIndex = Number.isInteger(configured) ? configured : 0;
+    if (pageIndex < 0 || pageIndex >= count) {
+        throw _createPublicationThumbnailError(
+            'PUBLICATION_THUMBNAIL_COVER_INVALID',
+            'C1表紙の位置が発行ページ範囲外です。',
+        );
+    }
+    return pageIndex;
+}
+
+function _collectFixedTextThumbnailFontWeights(manifest, page) {
+    const fonts = new Map();
+    for (const line of page?.lines || []) {
+        for (const styleRef of [line?.styleRef, ...(line?.runs || []).map((run) => run?.styleRef).filter(Boolean)]) {
+            const style = manifest?.styles?.[styleRef];
+            const fontRef = String(style?.fontRef || '').trim();
+            const fontWeight = style?.fontWeight === 'normal'
+                ? 400
+                : (style?.fontWeight === 'bold' ? 700 : style?.fontWeight);
+            if (!fontRef || !Number.isInteger(fontWeight)) {
+                throw _createPublicationThumbnailError(
+                    'PUBLICATION_THUMBNAIL_FIXED_TEXT_STYLE_INVALID',
+                    '表紙の固定テキスト組版に不正なフォント設定があります。',
+                );
+            }
+            if (!fonts.has(fontRef)) fonts.set(fontRef, new Set());
+            fonts.get(fontRef).add(fontWeight);
+        }
+    }
+    return fonts;
+}
+
+async function _renderFlowFixedTextPublicationThumbnail(index, manifest, page) {
+    const [fontRegistryModule, fontRuntimeModule, rendererModule] = await Promise.all([
+        import('./dsf-font-registry.js'),
+        import('./dsf-production-font-runtime.js'),
+        import('./dsf-fixed-text-thumbnail-renderer.js'),
+    ]);
+    const fontWeights = _collectFixedTextThumbnailFontWeights(manifest, page);
+    const leases = [];
+    const fontFamiliesByRef = {};
+    try {
+        for (const [fontId, weights] of fontWeights) {
+            const lease = await fontRuntimeModule.fetchDsfProductionFontRuntimeLease({
+                registry: fontRegistryModule.DSF_PRODUCTION_FONT_REGISTRY,
+                fontId,
+                fontWeights: [...weights],
+                documentRef: document,
+            });
+            leases.push(lease);
+            fontFamiliesByRef[fontId] = lease.runtimeFontFamily;
+        }
+        const blob = await rendererModule.renderDsfFixedTextThumbnailWebP({
+            index,
+            manifest,
+            page,
+            fontFamiliesByRef,
+            documentRef: document,
+        });
+        const publicUrl = normalizeHttpsUrl(await storePublicationThumbnailBlob(blob));
+        if (!publicUrl) {
+            throw _createPublicationThumbnailError(
+                'PUBLICATION_THUMBNAIL_UPLOAD_INVALID',
+                '固定テキスト表紙のサムネイル保存先URLが不正です。',
+            );
+        }
+        return publicUrl;
+    } finally {
+        leases.forEach((lease) => lease.dispose());
+    }
+}
+
+async function _renderSectionPublicationThumbnail(section, language, pageIndex, pages, assertCurrent = null) {
+    if (typeof assertCurrent === 'function') assertCurrent();
+    const blob = await renderPressSectionToWebP(
+        section,
+        language,
+        PUBLICATION_THUMBNAIL_WIDTH,
+        PUBLICATION_THUMBNAIL_HEIGHT,
+        pageIndex,
+        pages,
+    );
+    if (!(blob instanceof Blob) || blob.type !== 'image/webp') {
+        throw _createPublicationThumbnailError(
+            'PUBLICATION_THUMBNAIL_RENDER_INVALID',
+            'C1表紙から一覧用WebPサムネイルを生成できませんでした。',
+        );
+    }
+    if (typeof assertCurrent === 'function') assertCurrent();
+    const publicUrl = normalizeHttpsUrl(await storePublicationThumbnailBlob(blob));
+    if (typeof assertCurrent === 'function') assertCurrent();
+    if (!publicUrl) {
+        throw _createPublicationThumbnailError(
+            'PUBLICATION_THUMBNAIL_UPLOAD_INVALID',
+            'C1表紙の一覧用サムネイル保存先URLが不正です。',
+        );
+    }
+    return publicUrl;
+}
+
+async function _resolveFlowReleaseThumbnail(upload) {
+    const custom = await _resolveConfiguredPublicationThumbnail();
+    if (custom) return custom;
+
+    _assertCurrentFlowHorizonDraftIdentity(upload);
+    const assembly = _pressFlowLocalReleasePlanningResult?.assembly;
+    const language = String(upload?.seal?.publicLocator?.defaultLang || '').trim();
+    const index = assembly?.bundle?.index;
+    const manifest = assembly?.bundle?.manifests?.[language];
+    if (!index || !manifest || !Array.isArray(manifest.pages) || !manifest.pages.length) {
+        throw _createPublicationThumbnailError(
+            'PUBLICATION_THUMBNAIL_RELEASE_ASSEMBLY_MISSING',
+            '検証済みReleaseから既定言語の表紙を取得できませんでした。',
+        );
+    }
+    const pageIndex = _getPublicationCoverPageIndex(manifest.pages.length);
+    const page = manifest.pages[pageIndex];
+    if (page?.renderKind === 'image') {
+        const blockId = page?.sourceAnchor?.kind === 'fixed'
+            ? String(page.sourceAnchor.blockId || '').trim()
+            : '';
+        const imageFile = _pressFlowHorizonHandoffResult?.imageFiles?.find((file) => (
+            file.language === language
+            && file.blockId === blockId
+            && file.pageIndex === pageIndex
+        ));
+        const receipt = upload.receipts?.find((entry) => entry?.storagePath === imageFile?.storagePath);
+        const receiptMatches = !!imageFile && !!receipt && [
+            'storagePath',
+            'publicUrl',
+            'mimeType',
+            'byteLength',
+            'sha256',
+            'cacheControl',
+        ].every((key) => receipt[key] === imageFile[key]);
+        if (!blockId || !receiptMatches) {
+            throw _createPublicationThumbnailError(
+                'PUBLICATION_THUMBNAIL_COVER_UPLOAD_MISSING',
+                'C1表紙画像の検証済みupload receiptを確認できませんでした。',
+            );
+        }
+        const pageBlocks = Array.isArray(state.blocks)
+            ? state.blocks.filter((block) => block?.kind === 'page')
+            : [];
+        const renderablePages = _getRenderablePages();
+        const fixedPageIndex = pageBlocks.findIndex((block) => block?.id === blockId);
+        const section = fixedPageIndex >= 0 ? renderablePages[fixedPageIndex] : null;
+        if (!section) {
+            throw _createPublicationThumbnailError(
+                'PUBLICATION_THUMBNAIL_COVER_SOURCE_MISSING',
+                '検証済みC1表紙に対応する作者ソースを取得できませんでした。',
+            );
+        }
+        return _renderSectionPublicationThumbnail(
+            section,
+            language,
+            fixedPageIndex,
+            renderablePages,
+            () => _assertCurrentFlowHorizonDraftIdentity(upload),
+        );
+    }
+    if (page?.renderKind === 'fixedText') {
+        return _renderFlowFixedTextPublicationThumbnail(index, manifest, page);
+    }
+    throw _createPublicationThumbnailError(
+        'PUBLICATION_THUMBNAIL_COVER_KIND_UNSUPPORTED',
+        'C1表紙の配信形式からサムネイルを作成できません。',
+    );
+}
+
+async function _resolveV1ReleaseThumbnail(pages, languages, customThumbnail = '') {
+    if (customThumbnail) return customThumbnail;
+    const pageIndex = _getPublicationCoverPageIndex(pages.length);
+    const section = pages[pageIndex];
+    const defaultLanguage = Array.isArray(languages) && languages.includes(state.defaultLang)
+        ? state.defaultLang
+        : languages?.[0];
+    if (!section || !defaultLanguage) {
+        throw _createPublicationThumbnailError(
+            'PUBLICATION_THUMBNAIL_COVER_SOURCE_MISSING',
+            'C1表紙の作者ソースまたは既定言語を取得できませんでした。',
+        );
+    }
+    return _renderSectionPublicationThumbnail(section, defaultLanguage, pageIndex, pages);
+}
+
 async function _writePressFlowHorizonDraftMetadata(upload, account) {
     const user = _assertCurrentFlowHorizonDraftIdentity(upload);
     if (!state.projectId) {
@@ -2229,11 +2463,14 @@ async function _writePressFlowHorizonDraftMetadata(upload, account) {
         const publishedAt = new Date();
         const publication = createDefaultPublication(account, publishedAt);
         const pageCount = upload.seal.publicLocator.pageCount;
+        const thumbnail = await _resolveFlowReleaseThumbnail(upload);
+        _assertCurrentFlowHorizonDraftIdentity(upload);
         const draft = _pressFlowHorizonDraftModule.createFlowPressHorizonDraftWrite({
             upload,
             projectId: state.projectId,
             project: state,
             publication,
+            thumbnail,
             bookConfig: getPressBookConfigForExport(pageCount),
             renderStamp: publishedAt.getTime(),
         });
@@ -3221,6 +3458,7 @@ window.publishToCloud = async () => {
         } catch (_) {
             /* トークン更新に失敗しても getIdToken(false) で再試行される */
         }
+        const customPublicationThumbnail = await _resolveConfiguredPublicationThumbnail();
 
         for (const [pageIndex, section] of pages.entries()) {
             throwIfPressRenderCancelled();
@@ -3281,19 +3519,39 @@ window.publishToCloud = async () => {
         }
 
         throwIfPressRenderCancelled();
+        const bookConfig = getPressBookConfigForExport(dsfPages.length);
+        const thumbnail = await _resolveV1ReleaseThumbnail(pages, langs, customPublicationThumbnail);
+        throwIfPressRenderCancelled();
         setModalProgress(t('press_saving_firestore'), 1);
 
         // Firestoreに DSF メタデータを保存
         const qualityProfile = getPressQualityProfile(resStr);
         const projectRef = doc(db, 'users', uid, 'projects', state.projectId);
-        const existingProjectSnap = await getDoc(projectRef);
+        const publicWorkIndexRef = doc(db, 'public_projects', workId);
+        const publicProjectIndexRef = state.projectId !== workId
+            ? doc(db, 'public_projects', state.projectId)
+            : null;
+        const [existingProjectSnap, publicWorkIndexSnap, publicProjectIndexSnap] = await Promise.all([
+            getDoc(projectRef),
+            getDoc(publicWorkIndexRef),
+            publicProjectIndexRef ? getDoc(publicProjectIndexRef) : Promise.resolve(null),
+        ]);
         const existingProject = existingProjectSnap.exists() ? existingProjectSnap.data() : {};
+        for (const publicIndexSnap of [publicWorkIndexSnap, publicProjectIndexSnap]) {
+            if (!publicIndexSnap?.exists()) continue;
+            if (publicIndexSnap.data()?.authorUid !== uid) {
+                const conflict = new Error('A stale public index is not owned by the current user.');
+                conflict.code = 'PRESS_V1_DRAFT_PUBLIC_INDEX_OWNER_MISMATCH';
+                throw conflict;
+            }
+        }
         const publishedAt = new Date();
         const projectPatch = {
                 dsfPages,
-                ...getPressBookConfigForExport(dsfPages.length),
+                ...bookConfig,
                 workId,
                 releaseId,
+                thumbnail,
                 labelName:      state.labelName || '',
                 rating:         state.rating || 'all',
                 license:        state.license || 'all-rights-reserved',
@@ -3324,15 +3582,14 @@ window.publishToCloud = async () => {
             projectPatch,
             { summaryOverrides: { dsfPublishedAt: publishedAt } },
         );
-        await projectBatch.commit();
-
-        await setDoc(
+        projectBatch.set(
             doc(db, 'users', uid, 'works', workId),
             {
                 workId,
                 projectId: state.projectId,
                 ownerUid: uid,
                 title: state.title || '',
+                thumbnail,
                 labelName: state.labelName || '',
                 rating: state.rating || 'all',
                 license: state.license || 'all-rights-reserved',
@@ -3347,14 +3604,15 @@ window.publishToCloud = async () => {
             { merge: true }
         );
 
-        await setDoc(
+        projectBatch.set(
             doc(db, 'users', uid, 'works', workId, 'releases', releaseId),
             {
                 releaseId,
                 workId,
                 projectId: state.projectId,
                 dsfPages,
-                ...getPressBookConfigForExport(dsfPages.length),
+                ...bookConfig,
+                thumbnail,
                 dsfStatus: 'draft',
                 dsfPublishedAt: serverTimestamp(),
                 publication,
@@ -3375,10 +3633,12 @@ window.publishToCloud = async () => {
 
         // Press は新しい DSF を draft として作り直す。
         // 公開インデックスは Works が管理するため、再発行時は stale な公開行を外す。
-        await deleteDoc(doc(db, 'public_projects', workId))
-            .catch((e) => console.warn('[Press] Failed to clear public_projects on draft publish:', e?.message || e));
-        await deleteDoc(doc(db, 'public_projects', state.projectId))
-            .catch((e) => console.warn('[Press] Failed to clear public_projects on draft publish:', e?.message || e));
+        if (publicWorkIndexSnap.exists()) projectBatch.delete(publicWorkIndexRef);
+        if (publicProjectIndexSnap?.exists()) projectBatch.delete(publicProjectIndexRef);
+
+        // Project root、Dashboard summary、Work、Release、公開index削除は
+        // 同じcommit境界で成功または失敗させ、発行スナップショットの部分保存を防ぐ。
+        await projectBatch.commit();
 
         dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'publication', value: publication } });
 

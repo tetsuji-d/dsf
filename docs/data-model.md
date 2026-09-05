@@ -209,6 +209,7 @@ Storage/R2 側に空フォルダを作るのではなく、namespace をここ�
   "releaseId": "String | null (最新発行ID)",
   "projectName": "String (編集用プロジェクト名。可変)",
   "title": "String (作品タイトル)",
+  "publicationThumbnailUrl": "String (任意。空なら公開時にC1表紙を使用し、非空URLならカスタム公開サムネイル)",
   "labelName": "String (作品レーベル名。将来の labels コレクション導入までの暫定フィールド)",
   "rating": "String (レーティング)",
   "license": "String (ライセンス)",
@@ -245,6 +246,20 @@ Storage/R2 側に空フォルダを作るのではなく、namespace をここ�
 Project v6のrootにはさらに`authoringRef: "authoring/current"`と
 `authoringSchemaVersion: 6`を保存する。公開可能なrootの`blocks[]`はFixed互換投影だけであり、
 完全なmixed spineの正本ではない。
+
+#### 作品タイトル・公開サムネイルのauthoring契約
+
+- `projectName`は作者向けの制作管理名であり、作品タイトルの代替値として公開面へ投影しない。
+- `title`／既定言語の`meta[language].title`から解決した作品タイトルは、前後空白を除去してNFC正規化した後の値を用いる。
+  `public`／`unlisted`へ遷移する直前には、この正規化済み作品タイトルが非空であることを必須とする。
+  `draft`／`private`では制作途中を保存できるよう、作品タイトルは空でもよい。
+- `publicationThumbnailUrl`はProject／DSPが所有するauthoring設定である。空文字は「C1（先頭の表紙ページ）を既定値として使う」、
+  非空URLは「作者がカスタム公開サムネイルを指定した」ことを表す。発行時には永続的で検証済みのHTTPS URLへ解決する。
+- DSP importで非空の`publicationThumbnailUrl`を受理するのは、archive内に実在する`assets/`配下の対応画像を参照し、
+  path、拡張子、実bytesの画像signature、decode結果を検証できた場合だけとする。外部URL、欠落entry、不一致画像は
+  Object URL生成やstate反映より前に拒否する。
+- このauthoring設定を後から変更しても既存Releaseの表示を変えない。発行時に確定したサムネイルはWorkとReleaseへ
+  スナップショットし、公開一覧は対象Releaseのスナップショットだけから作る。
 
 #### `users/{uid}/project_summaries/{pid}` — Dashboard軽量投影 v1
 
@@ -497,6 +512,7 @@ owner専用の`authoring/current`子documentへ保存する。rootと子document
   "rating": "String",
   "license": "String",
   "meta": { "ja": { "title": "String", "author": "String" } },
+  "thumbnail": "String (最新発行時に確定した一覧用サムネイルHTTPS URLのスナップショット)",
   "languages": ["ja"],
   "defaultLang": "ja",
   "latestReleaseId": "String | null",
@@ -514,6 +530,7 @@ Press Room で Horizon 発行するたびに作成する発行スナップショ
   "releaseId": "String",
   "workId": "String",
   "projectId": "String",
+  "thumbnail": "String (この発行時に確定した一覧用サムネイルHTTPS URLのスナップショット)",
   "dsfPages": [ "Array (この release の DSF ページ URL 群)" ],
   "bookMode": "String",
   "book": { "mode": "String", "covers": {} },
@@ -552,6 +569,10 @@ DSF delivery v2では長編本文をFirestoreへinline保存せず、R2/CDN上�
 
 - `dsfContentUrl`は`releaseId`を含むimmutable pathとし、再発行では新しいReleaseを作る。
 - `dsfPageCounts`は言語別Flow reflowによるページ数差を許可する。
+- `thumbnail`は発行時点のProject設定から確定する。カスタム指定がなければ、C1が画像であってもDSF本文用WebPのURLを
+  流用せず、現在の作者ソースから720×1280の一覧表示専用WebPを再生成する。C1が`fixedText`の場合も同じ寸法の一覧専用WebPを
+  派生生成し、本文の`fixedText`ページは画像へ置換しない。いずれの一覧専用WebPもDSF本文ページ、DSF archive、
+  `dsfTotalBytes`のいずれにも含めない。
 - v2 Viewerは`dsfSchemaVersion===2`と完全な`dsfContentUrl` locatorを優先する。v2が宣言済みまたはlocatorが部分的に存在するのに
   検証できない場合は、同じdocumentの旧`dsfPages[]`へfallbackせず停止する。schema未指定／v1だけが既存`dsfPages[]`を読む。
 - `public_projects/{workId}`には公開URL解決に必要な同じv2 locatorと、default languageの`pageCount`を投影する。
@@ -774,7 +795,7 @@ Viewer の閲覧行動を append-only の raw event として保存する。日�
     "backgroundUrl": "String",
     "bio": "String"
   },
-  "thumbnail": "String (カバー画像URL)",
+  "thumbnail": "String (検証済みReleaseの一覧用サムネイルHTTPS URL)",
   "updatedAt": "Timestamp",
   "dsfStatus": "'public' | 'unlisted'",
   "publication": {
@@ -794,6 +815,9 @@ Viewer の閲覧行動を append-only の raw event として保存する。日�
 }
 ```
 
+`public_projects.thumbnail`は、公開遷移時に再検証した対象Releaseの`thumbnail`だけから投影する。
+Projectの現在の`publicationThumbnailUrl`やC1をその場で再解決せず、既存Releaseの表示を後編集から分離する。
+`public`／`unlisted`のindex作成には正規化済みの非空作品タイトルを必須とし、`projectName`では補完しない。
 `public` は Portal に表示する。`unlisted` は Portal には表示しないが、`/viewer.html?work={workId}` の解決には使う。`draft` / `private` では削除する。
 Worksは`draft` / `private`に公開URLコピーを表示せず、所有者専用の下書きプレビューを表示する。
 

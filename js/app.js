@@ -11,7 +11,7 @@
  *   - 認証 UI: getStudioAuthMarkup → renderStudioAuthSlot（GIS ボタン + フォールバック）
  */
 import { state, dispatch, actionTypes } from './state.js';
-import { saveProject as persistProject, loadProject, uploadToStorage, uploadCoverToStorage, uploadStructureToStorage, triggerAutoSave, flushSave, flushPendingSave, generateCroppedThumbnail, listLocalRecentProjects, loadLocalRecentProject, cacheLocalRecentProject, ensureUserBootstrap, auth as firebaseAuth, authReady, db } from './firebase.js';
+import { saveProject as persistProject, loadProject, uploadToStorage, uploadCoverToStorage, uploadStructureToStorage, triggerAutoSave, flushSave, flushPendingSave, generateCroppedThumbnail, listLocalRecentProjects, loadLocalRecentProject, cacheLocalRecentProject, ensureUserBootstrap, storePublicationThumbnailFile, auth as firebaseAuth, authReady, db } from './firebase.js';
 import { initGIS, renderGISButton, signInWithGoogle, signOutUser, onAuthChanged, handleRedirectResult } from './gis-auth.js';
 import { handleCanvasClick, selectBubble, renderBubbleHTML, getBubbleText, setBubbleText, addBubbleAtCenter, startDrag, startTailDrag, startSpikeDrag } from './bubbles.js';
 import { addSection, addTextSection, changeSection, changeBlock, insertStructureBlock, renderThumbs, canDeleteActive, deleteActive, deleteSectionAt, insertSectionAt, insertSpreadImageAt, duplicateSectionAt, moveSection, moveSectionRange, insertPageNearBlock, duplicateBlockAt, moveBlockAt, getOptimizedImageUrl } from './sections.js';
@@ -33,6 +33,8 @@ import { CANONICAL_PAGE_WIDTH, CANONICAL_PAGE_HEIGHT } from './page-geometry.js'
 import { canInsertSpreadImageAt, getBookCompositionIssues, getPageDisplayLabel, getReadablePageCount, normalizeBookSettings, getPageCoverKey } from './page-labels.js';
 import { composeText, paginateText, PAGE_BREAK_MARKER, getWritingModeFromConfigs, getFontPresetFromConfigs, getFontPresetOptions, parseRubyTokens, tokensToPlainText, alignRubyToLines } from './layout.js';
 import { formatPublicationDate, normalizePlanTier } from './publication.js';
+import { resolveProjectDisplayTitle, resolveProjectName } from './project-display-title.js';
+import { selectProjectAuthoringCoverThumbnail } from './project-listing-thumbnail.js';
 import { buildOwnerDraftViewerUrl } from './viewer-owner-preview.js';
 import { buildPublicViewerUrl } from './viewer-release-route.js';
 import { PROJECT_SCHEMA_VERSION, createFlowGroupBlock, hasFlowGroups } from './flow-project-model.js';
@@ -3251,7 +3253,14 @@ function formatProjectBytes(bytes) {
 // ── Home room — ダッシュボード（クラウド / ローカル一覧） ─────────────────
 
 function renderHomeCard(project, source) {
-    const displayName = project.projectName || project.title || project.id || '無題';
+    const projectName = resolveProjectName(project);
+    const workTitle = resolveProjectDisplayTitle(project, { locale: getUILang() });
+    const displayName = projectName || workTitle || project.id || t('works_untitled');
+    const workTitleMeta = projectName
+        ? (workTitle
+            ? t('home_work_title', { title: workTitle })
+            : t('home_work_title_unset'))
+        : '';
     const thumb = project.listThumbnail || (
         source === 'cloud'
             ? getCoverImage(project.dsfPages, project.pages, project.blocks, project.sections)
@@ -3267,19 +3276,20 @@ function renderHomeCard(project, source) {
     const languageBadges = renderLanguageBadges(project.languages);
 
     return `
-        <button class="home-project-card" data-home-source="${source}" data-id="${project.id}">
-            ${source === 'cloud' ? `<span class="home-project-delete material-icons" data-delete-cloud="${project.id}" title="${t('btn_delete')}">delete</span>` : ''}
+        <button class="home-project-card" data-home-source="${escapeStudioHtml(source)}" data-id="${escapeStudioHtml(project.id)}">
+            ${source === 'cloud' ? `<span class="home-project-delete material-icons" data-delete-cloud="${escapeStudioHtml(project.id)}" title="${escapeStudioHtml(t('btn_delete'))}">delete</span>` : ''}
             <div class="home-project-thumb">
                 ${thumb
-                    ? `<img src="${thumb}" alt="${displayName}" loading="lazy" decoding="async">`
+                    ? `<img src="${escapeStudioHtml(thumb)}" alt="${escapeStudioHtml(displayName)}" loading="lazy" decoding="async">`
                     : `<div class="home-project-thumb-fallback"><span class="material-icons">folder</span></div>`}
             </div>
             <div class="home-project-info">
-                <div class="home-project-title">${displayName}</div>
-                <div class="home-project-meta">${t('home_pages_count', { count: pageCount })} · ${sourceLabel}${updatedAt ? ` · ${updatedAt}` : ''}</div>
+                <div class="home-project-title">${escapeStudioHtml(displayName)}</div>
+                ${workTitleMeta ? `<div class="home-project-meta home-project-work-title">${escapeStudioHtml(workTitleMeta)}</div>` : ''}
+                <div class="home-project-meta">${escapeStudioHtml(t('home_pages_count', { count: pageCount }))} · ${escapeStudioHtml(sourceLabel)}${updatedAt ? ` · ${escapeStudioHtml(updatedAt)}` : ''}</div>
                 <div class="home-project-meta home-project-meta-secondary">
                     <span class="home-lang-badges">${languageBadges}</span>
-                    <span>${languageLabel}${sizeLabel ? ` · ${sizeLabel}` : ''}</span>
+                    <span>${escapeStudioHtml(languageLabel)}${sizeLabel ? ` · ${escapeStudioHtml(sizeLabel)}` : ''}</span>
                 </div>
             </div>
         </button>
@@ -3429,7 +3439,12 @@ function renderHomeDashboardStats({ cloudProjects, localProjects, works, reviewT
 function renderHomeWorkCard(work, reviewSummary) {
     const workId = work.workId || work.id;
     const status = getHomeWorkStatus(work);
-    const title = work.title || work.projectName || work.id || 'Untitled';
+    const explicitWorkTitle = resolveProjectDisplayTitle(work, { locale: getUILang() });
+    const projectName = resolveProjectName(work);
+    const title = explicitWorkTitle || projectName || work.id || t('works_untitled');
+    const nameContext = explicitWorkTitle && projectName
+        ? t('works_project_name', { name: projectName })
+        : (!explicitWorkTitle && projectName ? t('works_title_fallback') : '');
     const thumb = getCoverImage(work.dsfPages, work.pages, work.blocks, work.sections);
     const pageCount = Array.isArray(work.dsfPages) && work.dsfPages.length
         ? work.dsfPages.length
@@ -3462,6 +3477,7 @@ function renderHomeWorkCard(work, reviewSummary) {
                     <span class="home-lang-badges">${languageBadges}</span>
                 </div>
                 <h4>${escapeStudioHtml(title)}</h4>
+                ${nameContext ? `<p class="home-work-name-context">${escapeStudioHtml(nameContext)}</p>` : ''}
                 <p>${escapeStudioHtml(t('home_work_meta', { pages: pageCount, date: date || '—' }))}</p>
                 ${publicationMeta}
                 <div class="home-work-metrics">
@@ -4496,8 +4512,21 @@ function refresh(options = {}) {
 
     // 作品タイトル同期
     const propTitle = document.getElementById('prop-title');
+    const titleLanguage = state.activeLang || state.defaultLang || 'ja';
+    const titleLanguageProps = getLangProps(titleLanguage);
+    const titleLanguageName = `${titleLanguageProps.label} ${titleLanguage.toUpperCase()}`;
+    const propTitleLangBadge = document.getElementById('prop-title-lang-badge');
+    if (propTitleLangBadge) {
+        propTitleLangBadge.textContent = titleLanguageName;
+    }
     if (propTitle && document.activeElement !== propTitle) {
         propTitle.value = getActiveLanguageWorkTitle();
+    }
+    if (propTitle) {
+        propTitle.placeholder = titleLanguageProps.placeholders?.title || t('placeholder_work_title');
+        const titleFieldLabel = t('label_work_title_for_language', { language: titleLanguageName });
+        propTitle.setAttribute('aria-label', titleFieldLabel);
+        propTitle.title = titleFieldLabel;
     }
     // 生成Flowページを含むruntime projectionとFixed互換ページを同じ番号体系で表示する。
     syncEditorPageCounters();
@@ -8050,7 +8079,8 @@ window.updateTitle = (v) => {
             title: v || ''
         }
     };
-    const representativeTitle = nextMeta?.[defaultLang]?.title || v || '';
+    const representativeTitle = nextMeta?.[defaultLang]?.title
+        || (lang === defaultLang ? '' : (state.title || ''));
     dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'meta', value: nextMeta } });
     dispatch({ type: actionTypes.SET_TITLE, payload: representativeTitle });
     const headerGuideTitle = document.getElementById('header-guide-title');
@@ -8609,6 +8639,7 @@ window.newProject = async () => {
     dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'releaseId', value: null } });
     dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'projectName', value: '' } });
     dispatch({ type: actionTypes.SET_TITLE, payload: '' });
+    dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'publicationThumbnailUrl', value: '' } });
     dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'labelName', value: '' } });
     dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'rating', value: 'all' } });
     dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'license', value: 'all-rights-reserved' } });
@@ -8724,6 +8755,9 @@ const PS_META_FIELDS = [
 // ── PS テーブル列ドラッグ ──
 let _psDragLang = null;
 let _psDraft = null;
+let _psPublicationThumbnailFile = null;
+let _psPublicationThumbnailPreviewUrl = '';
+let _psPublicationThumbnailSaving = false;
 
 function _cloneProjectSettingsDraft() {
     const languages = [...(state.languages && state.languages.length ? state.languages : ['ja'])];
@@ -8734,6 +8768,7 @@ function _cloneProjectSettingsDraft() {
     const book = normalizeBookSettings(state.book || { mode: bookMode }, bookMode, pageCount);
     return {
         projectName: state.projectName || '',
+        publicationThumbnailUrl: state.publicationThumbnailUrl || '',
         labelName: state.labelName || '',
         rating: state.rating || 'all',
         license: state.license || 'all-rights-reserved',
@@ -8758,6 +8793,7 @@ function _getPsSettingsSource() {
         languages: state.languages || ['ja'],
         defaultLang: state.defaultLang || 'ja',
         activeLang: state.activeLang || state.defaultLang || 'ja',
+        publicationThumbnailUrl: state.publicationThumbnailUrl || '',
         labelName: state.labelName || '',
         rating: state.rating || 'all',
         license: state.license || 'all-rights-reserved',
@@ -9029,9 +9065,91 @@ window.updateProjectTextPaperPreset = (key) => {
     renderProjectTextPaperSettings();
 };
 
+function _clearProjectThumbnailTemporaryPreview() {
+    if (_psPublicationThumbnailPreviewUrl) URL.revokeObjectURL(_psPublicationThumbnailPreviewUrl);
+    _psPublicationThumbnailPreviewUrl = '';
+    _psPublicationThumbnailFile = null;
+    const input = document.getElementById('ps-publication-thumbnail-input');
+    if (input) input.value = '';
+}
+
+function renderProjectPublicationThumbnailSettings() {
+    const draft = _getPsSettingsSource();
+    const image = document.getElementById('ps-publication-thumbnail-image');
+    const placeholder = document.getElementById('ps-publication-thumbnail-placeholder');
+    const choose = document.getElementById('ps-publication-thumbnail-choose');
+    const reset = document.getElementById('ps-publication-thumbnail-reset');
+    const status = document.getElementById('ps-publication-thumbnail-status');
+    const custom = Boolean(_psPublicationThumbnailFile || draft.publicationThumbnailUrl);
+    const source = _psPublicationThumbnailPreviewUrl
+        || draft.publicationThumbnailUrl
+        || selectProjectAuthoringCoverThumbnail(state, { allowLocal: true });
+
+    if (image) {
+        if (source) {
+            image.src = source;
+            image.hidden = false;
+        } else {
+            image.removeAttribute('src');
+            image.hidden = true;
+        }
+    }
+    if (placeholder) placeholder.hidden = Boolean(source);
+    if (reset) reset.disabled = !custom;
+    if (status) {
+        status.textContent = t(custom
+            ? 'ps_publication_thumbnail_custom_status'
+            : 'ps_publication_thumbnail_default_status');
+    }
+    const chooseLabel = choose?.querySelector('span:last-child');
+    if (chooseLabel) {
+        chooseLabel.textContent = t(custom
+            ? 'ps_publication_thumbnail_change'
+            : 'ps_publication_thumbnail_choose');
+    }
+}
+
+function bindProjectPublicationThumbnailSettings() {
+    const choose = document.getElementById('ps-publication-thumbnail-choose');
+    const reset = document.getElementById('ps-publication-thumbnail-reset');
+    const input = document.getElementById('ps-publication-thumbnail-input');
+    if (choose && !choose.dataset.bound) {
+        choose.dataset.bound = 'true';
+        choose.addEventListener('click', () => input?.click());
+    }
+    if (reset && !reset.dataset.bound) {
+        reset.dataset.bound = 'true';
+        reset.addEventListener('click', () => {
+            _clearProjectThumbnailTemporaryPreview();
+            const draft = _ensurePsDraft();
+            draft.publicationThumbnailUrl = '';
+            if (input) input.value = '';
+            renderProjectPublicationThumbnailSettings();
+        });
+    }
+    if (input && !input.dataset.bound) {
+        input.dataset.bound = 'true';
+        input.addEventListener('change', () => {
+            if (_psPublicationThumbnailSaving) return;
+            const file = input.files?.[0];
+            if (!file) return;
+            if (!String(file.type || '').startsWith('image/')) {
+                alert(t('ps_publication_thumbnail_invalid_file'));
+                input.value = '';
+                return;
+            }
+            _clearProjectThumbnailTemporaryPreview();
+            _psPublicationThumbnailFile = file;
+            _psPublicationThumbnailPreviewUrl = URL.createObjectURL(file);
+            renderProjectPublicationThumbnailSettings();
+        });
+    }
+}
+
 window.openProjectSettings = () => {
     const modal = document.getElementById('project-settings-modal');
     if (!modal) return;
+    _clearProjectThumbnailTemporaryPreview();
     _psDraft = _cloneProjectSettingsDraft();
     const draft = _ensurePsDraft();
 
@@ -9055,6 +9173,8 @@ window.openProjectSettings = () => {
 
     // Per-language meta table
     renderProjectSettingsTable();
+    bindProjectPublicationThumbnailSettings();
+    renderProjectPublicationThumbnailSettings();
     renderProjectBookSettings();
     renderProjectTextPaperSettings();
 
@@ -9062,13 +9182,26 @@ window.openProjectSettings = () => {
 };
 
 window.closeProjectSettings = (e) => {
+    if (_psPublicationThumbnailSaving) return;
     if (e && e.currentTarget !== e.target) return;
     const modal = document.getElementById('project-settings-modal');
     if (modal) modal.style.display = 'none';
+    _clearProjectThumbnailTemporaryPreview();
     _psDraft = null;
 };
 
-window.saveProjectSettings = () => {
+function _assertProjectSettingsPersistenceCompleted() {
+    const expectedTarget = state.projectId && state.uid ? 'Cloud' : 'Local';
+    const expectedStatus = `保存済み (${expectedTarget})`;
+    const actualStatus = String(document.getElementById('save-status')?.textContent || '');
+    if (actualStatus.includes(expectedStatus)) return;
+    const error = new Error('プロジェクト設定を保存できませんでした。接続状態を確認して、もう一度保存してください。');
+    error.code = 'PROJECT_SETTINGS_PERSISTENCE_FAILED';
+    throw error;
+}
+
+window.saveProjectSettings = async () => {
+    if (_psPublicationThumbnailSaving) return;
     const draft = _capturePsInputsToDraft();
     const nextLanguages = draft.languages && draft.languages.length ? [...draft.languages] : ['ja'];
     const missingFlowSourceLanguages = [...new Set((state.blocks || [])
@@ -9081,19 +9214,6 @@ window.saveProjectSettings = () => {
     }
     const nextDefaultLang = nextLanguages.includes(draft.defaultLang) ? draft.defaultLang : nextLanguages[0];
     const nextActiveLang = nextLanguages.includes(draft.activeLang) ? draft.activeLang : nextDefaultLang;
-
-    // Project name
-    const newName = draft.projectName || '';
-    dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'projectName', value: newName } });
-    const titleDisplay = document.getElementById('project-title');
-    if (titleDisplay) titleDisplay.textContent = newName || '新規プロジェクト';
-
-    // Global settings
-    dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'labelName', value: draft.labelName || '' } });
-    dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'rating', value: draft.rating || 'all' } });
-    dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'license', value: draft.license || 'all-rights-reserved' } });
-    const nextTextPaperPreset = _getProjectTextPaperPresetKey(draft);
-    dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'textPaperPreset', value: nextTextPaperPreset } });
     const nextBook = normalizeBookSettings(draft.book || {}, draft.bookMode || 'simple', (state.sections || []).length);
     const compositionIssues = getBookCompositionIssues({
         pageCount: (state.sections || []).length,
@@ -9105,37 +9225,82 @@ window.saveProjectSettings = () => {
         alertCompositionIssues(compositionIssues);
         return;
     }
-    dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'bookMode', value: nextBook.mode } });
-    dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'book', value: nextBook } });
 
-    dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'languages', value: nextLanguages } });
-    dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'defaultLang', value: nextDefaultLang } });
-    dispatch({ type: actionTypes.SET_ACTIVE_LANGUAGE, payload: nextActiveLang });
-    dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'meta', value: draft.meta || {} } });
-    dispatch({ type: actionTypes.SET_TITLE, payload: draft.meta?.[nextDefaultLang]?.title || '' });
-    dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'languageConfigs', value: draft.languageConfigs || {} } });
+    const dialog = document.querySelector('#project-settings-modal .ps-dialog');
+    const saveButton = document.querySelector('#project-settings-modal .ps-footer .btn-primary');
+    _psPublicationThumbnailSaving = true;
+    dialog?.setAttribute('aria-busy', 'true');
+    dialog?.setAttribute('inert', '');
+    if (saveButton) saveButton.disabled = true;
+    let persistenceCompleted = false;
+    try {
+        if (_psPublicationThumbnailFile) {
+            draft.publicationThumbnailUrl = await storePublicationThumbnailFile(_psPublicationThumbnailFile);
+            _clearProjectThumbnailTemporaryPreview();
+            renderProjectPublicationThumbnailSettings();
+        }
 
-    const nextSections = _applyTextPaperStyleToSections(state.sections, nextTextPaperPreset);
-    dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'sections', value: nextSections } });
+        // Project name
+        const newName = draft.projectName || '';
+        dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'projectName', value: newName } });
+        dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'publicationThumbnailUrl', value: draft.publicationThumbnailUrl || '' } });
+        const titleDisplay = document.getElementById('project-title');
+        if (titleDisplay) titleDisplay.textContent = newName || '新規プロジェクト';
 
-    const syncedBlocks = syncBlocksWithSections(
-        state.blocks,
-        nextSections,
-        nextLanguages,
-        { strictSpine: state.version === 6 },
-    );
-    const nextBlocks = _applyTextPaperStyleToBlocks(syncedBlocks, nextTextPaperPreset);
-    dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'blocks', value: nextBlocks } });
-    dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'pages', value: blocksToPages(nextBlocks) } });
+        // Global settings
+        dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'labelName', value: draft.labelName || '' } });
+        dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'rating', value: draft.rating || 'all' } });
+        dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'license', value: draft.license || 'all-rights-reserved' } });
+        const nextTextPaperPreset = _getProjectTextPaperPresetKey(draft);
+        dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'textPaperPreset', value: nextTextPaperPreset } });
+        dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'bookMode', value: nextBook.mode } });
+        dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'book', value: nextBook } });
+
+        dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'languages', value: nextLanguages } });
+        dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'defaultLang', value: nextDefaultLang } });
+        dispatch({ type: actionTypes.SET_ACTIVE_LANGUAGE, payload: nextActiveLang });
+        dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'meta', value: draft.meta || {} } });
+        dispatch({ type: actionTypes.SET_TITLE, payload: draft.meta?.[nextDefaultLang]?.title || '' });
+        dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'languageConfigs', value: draft.languageConfigs || {} } });
+
+        const nextSections = _applyTextPaperStyleToSections(state.sections, nextTextPaperPreset);
+        dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'sections', value: nextSections } });
+
+        const syncedBlocks = syncBlocksWithSections(
+            state.blocks,
+            nextSections,
+            nextLanguages,
+            { strictSpine: state.version === 6 },
+        );
+        const nextBlocks = _applyTextPaperStyleToBlocks(syncedBlocks, nextTextPaperPreset);
+        dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'blocks', value: nextBlocks } });
+        dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'pages', value: blocksToPages(nextBlocks) } });
+
+        // Project Settings は確定操作なので、2秒後のautosaveへ委ねない。
+        // 進行中の保存があっても flushSave の直列化ループがこのstateを次のsnapshotへ含める。
+        await flushSave();
+        _assertProjectSettingsPersistenceCompleted();
+        persistenceCompleted = true;
+    } catch (error) {
+        console.error('[Project Settings] Save failed:', error);
+        alert(error?.message || String(error));
+    } finally {
+        _psPublicationThumbnailSaving = false;
+        dialog?.removeAttribute('aria-busy');
+        dialog?.removeAttribute('inert');
+        if (saveButton) saveButton.disabled = false;
+    }
+
+    if (!persistenceCompleted) return;
 
     const modal = document.getElementById('project-settings-modal');
     if (modal) modal.style.display = 'none';
+    _clearProjectThumbnailTemporaryPreview();
     _psDraft = null;
 
     renderLangSettings();
     renderLangTabs();
     refresh();
-    triggerAutoSave();
 };
 
 // ===== Room Navigation（body.dataset.room の単一入口。各 room の「中身」は下記のみ委譲） =====
@@ -9530,6 +9695,7 @@ window.setStudioUILang = (lang) => {
         renderLangSettings();
         renderLangAddSelect();
         renderProjectBookSettings();
+        renderProjectPublicationThumbnailSettings();
     }
     if (currentRoom === 'press') {
         enterPressRoom();

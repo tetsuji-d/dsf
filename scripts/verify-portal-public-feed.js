@@ -22,5 +22,13 @@ assert.equal(
     1,
     'Portal init must not start duplicate public feed loads'
 );
+assert.match(
+    portalSource,
+    /resolveProjectDisplayTitle\(project, \{ locale: currentLang \}\)/,
+    'Portal cards must resolve the current language from semantic title metadata',
+);
+assert.match(portalSource, /meta:\s+data\.meta/);
+assert.match(portalSource, /defaultLang:\s+typeof data\.defaultLang/);
+assert.doesNotMatch(portalSource, /titleRaw/);
 
 console.log('Portal public feed startup verification passed.');

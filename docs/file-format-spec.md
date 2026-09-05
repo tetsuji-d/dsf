@@ -115,6 +115,7 @@ filename.dsf / filename.dsp
  │    └── en.json
  ├── fonts/                  // [DSF v2 download] 使用する固定テキスト用WOFF2（必須同梱）
  └── assets/                 // メディアファイル格納庫
+      ├── publication-thumbnail.<ext> // [DSPのみ・任意] 作者が指定した公開サムネイル
       ├── images/            // DSF: 閲覧用最適化済み画像
       ├── originals/         // DSP: 編集用オリジナル高解像度画像
       └── thumbs/            // DSP: エディタ表示用サムネイル画像
@@ -229,6 +230,8 @@ schema v1/v2は読込可能だが、未知のfuture schemaは本文欠落を避�
   "projectId": "local_abc123",
   "workId": "work_abc123",
   "releaseId": null,
+  "title": "作品タイトル",
+  "publicationThumbnailUrl": "assets/publication-thumbnail.webp",
   "languageConfigs": {
     "ja": { "writingMode": "vertical-rl", "fontPreset": "mincho" },
     "en": { "writingMode": "horizontal-tb", "fontPreset": "sans" }
@@ -259,6 +262,19 @@ Fixed Blockだけの互換投影であり、Flow-only DSPでは空配列とな�
 DSP importはProject v6全体をvalidationしてからasset Object URLを作成し、stateへdispatchする。
 不正なFlow、Project v5へのFlow混入、future Project／FlowDocument／FlowLayout／FlowTranslationStateは
 Fixedへfallbackしない。
+
+#### 作品タイトルと公開サムネイル（DSP authoring metadata）
+
+- `project.json.publicationThumbnailUrl`は任意である。空文字は「C1（先頭の表紙ページ）を既定の公開サムネイルとして使う」、
+  非空値は「作者がカスタム公開サムネイルを指定した」ことを表す。
+- カスタム画像がローカルassetの場合、DSP exportは実体を`assets/publication-thumbnail.<ext>`へ同梱し、
+  `publicationThumbnailUrl`をそのarchive相対pathへ書き換える。DSP importで非空値を受理するのは、このarchive相対pathが
+  `assets/`配下の実在entryを指し、拡張子と実bytesの画像signatureが一致して正常にdecodeできた場合だけとする。外部URL、
+  欠落entry、非画像、不一致画像はObject URL生成やstate反映より前に拒否する。
+- `publicationThumbnailUrl`は編集用設定であり、配信DSFの`content.json`や本文ページへは収録しない。
+  発行時に確定した一覧用サムネイルは、DSF本文とは別のWork／Release metadataへスナップショットする。
+- `projectName`は編集用の管理名であり、作品タイトルへ暗黙転用しない。DSPおよび`draft`／`private`は空の作品タイトルを保持できるが、
+  `public`／`unlisted`への遷移時には、前後空白を除去してNFC正規化した作品タイトルが非空でなければならない。
 
 ### `content.json` (DSF ファイル専用)
 ブラウザやネイティブリーダーが、最小の計算コストでページを描画するための最適化（フラット化）データ。
@@ -398,6 +414,15 @@ v2の`content.json`は言語別固定ページ列への小さなindexとする�
 固定テキストの`lines[]`はStudio／Pressで確定済みであり、Viewerは折り返さない。任意HTML／CSSは収録せず、
 Viewerはwhitelist済みstyleだけをDOMへ適用し、本文は`textContent`で設定する。フォント、座標、overflow、
 未知の必須機能をPressとViewerの両方で検証する。
+
+#### 公開一覧用サムネイルとDSF本文の境界
+
+公開一覧用サムネイルの既定値はC1表紙であり、作者が指定したカスタム画像がある場合だけそちらを使う。
+C1が画像でもDSF本文用WebPのURLを流用せず、現在の作者ソースから720×1280の一覧表示専用WebPを発行時に再生成する。
+C1が`fixedText`の場合も同じ寸法の一覧専用WebPだけを派生生成し、本文ページは画像化しない。
+この派生WebPは`content/{language}.json`の`pages[]`、DSF archiveの`assets/images/`、本文ページ数へ追加しない。
+`dsfTotalBytes`はDSF本文配信artifactだけの合計であり、一覧用サムネイルのbytesを含めない。
+公開面の`thumbnail`は検証済みRelease metadata由来とし、DSF file formatの描画契約には追加しない。
 
 #### 固定テキストの空白保持（2026-09-01承認）
 

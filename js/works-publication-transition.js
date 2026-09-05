@@ -7,6 +7,11 @@
  */
 
 import { resolveWorksDsfRelease } from './works-dsf-release.js';
+import { resolveProjectCanonicalTitle } from './project-display-title.js';
+import {
+    isManagedPublicationThumbnailUrl,
+    selectProjectListingThumbnail,
+} from './project-listing-thumbnail.js';
 
 const VISIBLE_STATUSES = new Set(['public', 'unlisted']);
 const ALL_STATUSES = new Set(['draft', 'public', 'unlisted', 'private']);
@@ -110,20 +115,6 @@ function normalizeAuthorProfile(account = {}, fallbackName = '') {
     };
 }
 
-function firstPageThumbnail(data) {
-    if (typeof data.thumbnail === 'string' && data.thumbnail) return data.thumbnail;
-    if (typeof data.listThumbnail === 'string' && data.listThumbnail) return data.listThumbnail;
-    const firstDsfPage = Array.isArray(data.dsfPages) ? data.dsfPages[0] : null;
-    if (isRecord(firstDsfPage?.urls)) {
-        const firstUrl = Object.values(firstDsfPage.urls).find((value) => typeof value === 'string' && value);
-        if (firstUrl) return firstUrl;
-    }
-    const sourcePage = Array.isArray(data.pages)
-        ? data.pages.find((page) => page?.content?.thumbnail || page?.content?.background)
-        : null;
-    return sourcePage?.content?.thumbnail || sourcePage?.content?.background || null;
-}
-
 function validateCanonicalIdentity({ uid, projectId, workId, releaseId, project, work, release }) {
     assertOptionalExactId(project.projectId, projectId, 'project.projectId');
     assertOptionalExactId(project.workId, workId, 'project.workId');
@@ -164,12 +155,50 @@ function buildPublicPayload({
     publication,
     account,
     fallbackAuthorName,
+    publicationThumbnailR2BaseUrl,
+    publicationThumbnailFirebaseStorageBucket,
 }) {
     const profile = normalizeAuthorProfile(account, fallbackAuthorName);
     const metadata = isRecord(work) ? work : project;
     const releaseMetadata = isRecord(release) ? release : project;
+    const titleSource = {
+        title: metadata.title || project.title || '',
+        meta: {
+            ...(isRecord(project.meta) ? project.meta : {}),
+            ...(isRecord(metadata.meta) ? metadata.meta : {}),
+        },
+        languages: [...projection.languages],
+        defaultLang: projection.defaultLang || metadata.defaultLang || project.defaultLang,
+    };
+    const canonicalTitle = resolveProjectCanonicalTitle(titleSource);
+    if (!canonicalTitle) {
+        fail(
+            'WORKS_PUBLICATION_TITLE_REQUIRED',
+            'title',
+            'A work title is required before a release can become public or unlisted.',
+        );
+    }
+    const thumbnail = selectProjectListingThumbnail(project, { release });
+    if (projection.releaseKind === 'horizon-v2' && !thumbnail) {
+        fail(
+            'WORKS_PUBLICATION_THUMBNAIL_REQUIRED',
+            'thumbnail',
+            'A verified Release thumbnail is required before a DSF v2 release can become public or unlisted.',
+        );
+    }
+    if (projection.releaseKind === 'horizon-v2' && !isManagedPublicationThumbnailUrl(thumbnail, {
+        ownerUid: uid,
+        r2PublicBaseUrl: publicationThumbnailR2BaseUrl,
+        firebaseStorageBucket: publicationThumbnailFirebaseStorageBucket,
+    })) {
+        fail(
+            'WORKS_PUBLICATION_THUMBNAIL_INVALID',
+            'thumbnail',
+            'The DSF v2 Release thumbnail is not stored in owner-managed publication-thumbnail storage.',
+        );
+    }
     return {
-        title: metadata.title || project.title || '無題のプロジェクト',
+        title: canonicalTitle,
         projectId,
         workId,
         releaseId: releaseId || null,
@@ -178,7 +207,7 @@ function buildPublicPayload({
         authorHandle: profile.handle,
         authorAvatarUrl: profile.avatarUrl,
         authorProfile: profile,
-        thumbnail: firstPageThumbnail(project),
+        thumbnail: thumbnail || null,
         dsfStatus: status,
         publication: deepClone(publication),
         dsfPublishedAt: releaseMetadata.dsfPublishedAt || project.dsfPublishedAt || null,
@@ -196,7 +225,7 @@ function buildPublicPayload({
         labelName: metadata.labelName || project.labelName || '',
         rating: metadata.rating || project.rating || 'all',
         license: metadata.license || project.license || 'all-rights-reserved',
-        meta: deepClone(metadata.meta || project.meta || {}),
+        meta: deepClone(titleSource.meta),
         ...deepClone(projection.deliveryFields),
     };
 }
@@ -285,6 +314,8 @@ export function createWorksPublicationTransition(input = {}) {
                 publication: input.publication,
                 account: input.account,
                 fallbackAuthorName: input.fallbackAuthorName,
+                publicationThumbnailR2BaseUrl: input.publicationThumbnailR2BaseUrl,
+                publicationThumbnailFirebaseStorageBucket: input.publicationThumbnailFirebaseStorageBucket,
             }),
         }
         : null;

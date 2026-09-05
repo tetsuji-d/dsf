@@ -22,7 +22,44 @@
  *   { error: "<message>" }
  */
 
-export async function onRequestPost({ request, env }) {
+const PUBLICATION_THUMBNAIL_FILENAME_PATTERN = /^([a-f0-9]{64})\.webp$/i;
+
+export function getPublicationThumbnailExpectedSha256(path, uid) {
+    if (typeof path !== 'string' || typeof uid !== 'string' || !uid) return null;
+    const prefix = `users/${uid}/dsf/publication-thumbnails/`;
+    if (!path.startsWith(prefix)) return null;
+    const match = PUBLICATION_THUMBNAIL_FILENAME_PATTERN.exec(path.slice(prefix.length));
+    return match ? match[1].toLowerCase() : null;
+}
+
+async function sha256Hex(buffer, cryptoRef) {
+    if (!cryptoRef?.subtle || typeof cryptoRef.subtle.digest !== 'function') {
+        throw new Error('Web Crypto SHA-256 is unavailable');
+    }
+    const digest = await cryptoRef.subtle.digest('SHA-256', buffer);
+    const bytes = new Uint8Array(digest);
+    if (bytes.length !== 32) throw new Error('Web Crypto returned an invalid SHA-256 digest');
+    return [...bytes].map((byte) => byte.toString(16).padStart(2, '0')).join('');
+}
+
+export async function verifyPublicationThumbnailContentAddress({ path, uid, buffer, cryptoRef = globalThis.crypto }) {
+    const expectedSha256 = getPublicationThumbnailExpectedSha256(path, uid);
+    if (!expectedSha256) return { applies: false };
+    const actualSha256 = await sha256Hex(buffer, cryptoRef);
+    return {
+        applies: true,
+        matches: actualSha256 === expectedSha256,
+        expectedSha256,
+        actualSha256,
+    };
+}
+
+export async function handleImageUpload({
+    request,
+    env,
+    verifyToken = verifyFirebaseToken,
+    cryptoRef = globalThis.crypto,
+}) {
     try {
         // 1. Verify Firebase Auth ID token
         const authHeader = request.headers.get('Authorization');
@@ -30,7 +67,7 @@ export async function onRequestPost({ request, env }) {
             return jsonError('Unauthorized', 401);
         }
         const projectId = env.FIREBASE_PROJECT_ID || 'vmnn-26345';
-        const uid = await verifyFirebaseToken(authHeader.slice(7), projectId);
+        const uid = await verifyToken(authHeader.slice(7), projectId);
         if (!uid) return jsonError('Unauthorized', 401);
 
         // 2. Parse multipart form data
@@ -55,6 +92,15 @@ export async function onRequestPost({ request, env }) {
         if (isWebPPath && !isWebPContent) {
             return jsonError('Expected image/webp content for .webp upload path', 415);
         }
+        const thumbnailAddress = await verifyPublicationThumbnailContentAddress({
+            path,
+            uid,
+            buffer,
+            cryptoRef,
+        });
+        if (thumbnailAddress.applies && !thumbnailAddress.matches) {
+            return jsonError('Publication thumbnail bytes do not match the SHA-256 upload path', 422);
+        }
         await env.R2_BUCKET.put(path, buffer, {
             httpMetadata: { contentType: isWebPContent ? 'image/webp' : (file.type || 'application/octet-stream') },
         });
@@ -67,6 +113,10 @@ export async function onRequestPost({ request, env }) {
         console.error('[upload] Unexpected error:', e.message, e.stack);
         return jsonError('Internal server error', 500);
     }
+}
+
+export async function onRequestPost({ request, env }) {
+    return handleImageUpload({ request, env });
 }
 
 // Handle CORS preflight
