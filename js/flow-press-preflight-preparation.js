@@ -98,6 +98,8 @@ export async function prepareFlowPressPreflight(options = {}) {
     const languageConfigs = deepClone(project.languageConfigs || {});
     const languages = normalizeLanguages(project, options.languages);
     const languageResults = [];
+    const book = project.book === undefined ? undefined : deepClone(project.book);
+    const bookMode = project.bookMode;
 
     for (const [languageIndex, language] of languages.entries()) {
         throwIfAborted(options.signal);
@@ -231,6 +233,8 @@ export async function prepareFlowPressPreflight(options = {}) {
         }
 
         const preflight = createPreflight({
+            book,
+            bookMode,
             blocks: project.blocks,
             language,
             flowPublicationProjections,

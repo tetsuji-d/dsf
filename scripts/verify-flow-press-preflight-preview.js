@@ -144,3 +144,5 @@ assert.match(pressSource, /if \(hasFlow && isHorizonPublish\)[\s\S]*btn\.disable
 assert.match(studioCssSource, /\.press-publish-btn:disabled\s*\{/);
 
 console.log('Flow Press preflight local preview verification passed.');
+
+assert.notEqual(makePressSignature({...project,book:{mode:'none'}},()=>['ja']),makePressSignature({...project,book:{mode:'full'}},()=>['ja']),'cover setting must invalidate publication readiness');

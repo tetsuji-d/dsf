@@ -202,8 +202,9 @@ const fixedB = createTextBlock(
 );
 const blocks = [graphicBlock, fixedA, flowBlock, fixedB];
 
-function createPreflight(language, flowPageCount) {
+function createPreflight(language, flowPageCount, bookMode) {
     return createDsfPressPreflight({
+        bookMode,
         blocks,
         language,
         compositionSnapshots: {
@@ -393,3 +394,15 @@ for (const source of [preflightSource, assemblySource]) {
 }
 
 console.log('Flow preflight and release assembly integration verified.');
+
+const oddCover=createPreflight('ja',2,'cover');
+const evenCover=createPreflight('en',3,'cover');
+assert.equal(oddCover.publishable,false);
+assert.equal(oddCover.summary.deliveryPageCount,5);
+assert.equal(oddCover.issues[0].code,'FLOW_PUBLICATION_BOOK_COMPOSITION_INVALID');
+assert.equal(oddCover.issues[0].language,'ja');
+assert.equal(oddCover.issues[0].pageCount,5);
+assert.equal(evenCover.publishable,true);
+assert.equal(createPreflight('ja',2,'none').publishable,true);
+await assert.rejects(()=>assembleDsfV2Release({defaultLang:'ja',languages:[{language:'ja',pageDirection:'rtl',preflight:oddCover,imageAssets:imageAssets('ja')}],hashBytes:async bytes=>sha256(bytes)}));
+console.log('Cover composition: generated language counts, odd rejection, even/coverless acceptance and blocked assembly passed.');

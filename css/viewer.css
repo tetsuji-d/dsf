@@ -2740,11 +2740,7 @@ body[data-theme="dark"] .viewer-empty-open-btn {
 }
 
 @media (max-width: 768px) {
-    #viewer-layout {
-        display: block;
-        width: auto;
-        height: auto;
-    }
+    /* Keep the viewport-sized grid: a page-sized clip hides zoomed top/bottom content. */
 
     .ui-bar {
         height: 54px;

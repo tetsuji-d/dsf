@@ -942,6 +942,8 @@ function _renderPressFixedTextDevSummary(previewPages = _getCurrentPressPreviewP
 function _createPressFlowPreflightPreviewSignature() {
     return JSON.stringify([
         state.version,
+        state.book,
+        state.bookMode,
         state.defaultLang,
         state.languages || [],
         state.languageConfigs || {},
@@ -3220,10 +3222,9 @@ window.switchPressThumbLang = (code) => {
 window.updatePressBookMode = (mode) => {
     const nextMode = mode === 'none' ? 'none' : 'cover';
     _writeBookSettings({ mode: nextMode });
-    _invalidatePressFlowLocalReleaseForSettingsChange();
     _renderBookSettings();
     _renderPageThumbs();
-    _queueSizeEstimate();
+    _handlePressLocalReleaseSettingChange();
 };
 
 function _getCompositionIssueMessage(issue) {

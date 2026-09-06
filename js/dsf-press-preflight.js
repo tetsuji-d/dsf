@@ -10,6 +10,7 @@
  */
 
 import { deepClone } from './utils.js';
+import { getBookCompositionIssues } from './page-labels.js';
 import { validateDsfLanguageManifest } from './dsf-delivery-v2.js';
 import { projectFixedTextBlockToDsfV2 } from './fixed-text-delivery-projection.js';
 import {
@@ -494,6 +495,15 @@ export function createDsfPressPreflight(input = {}) {
     const fallbackPageCount = decisions.filter((decision) => (
         decision.renderKind === 'image' && decision.decisionCode !== 'GRAPHIC_PAGE_WEBP'
     )).length;
+    // Validate the delivered count, including every generated Flow page.
+    if (input.book !== undefined || input.bookMode !== undefined) {
+        const compositionIssues = getBookCompositionIssues({pageCount:deliveryPageIndex,book:input.book || {},bookMode:input.bookMode});
+        if (compositionIssues.length) issues.push(createIssue(
+            'FLOW_PUBLICATION_BOOK_COMPOSITION_INVALID', 'book',
+            `表紙あり構成では総ページ数を偶数（2ページ以上）にしてください。${language}: ${deliveryPageIndex}ページ。`,
+            {language,pageCount:deliveryPageIndex,compositionIssues},
+        ));
+    }
     const result = {
         schemaVersion: DSF_PRESS_PREFLIGHT_SCHEMA_VERSION,
         language,
