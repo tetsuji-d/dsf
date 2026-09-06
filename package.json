@@ -30,6 +30,7 @@
     "verify:flow-incremental": "node scripts/verify-flow-incremental.js",
     "verify:flow-page-projection": "node scripts/verify-flow-page-projection.js",
     "verify:flow-source-mapping": "node scripts/verify-flow-source-mapping.js",
+    "verify:flow-text-selection": "node scripts/verify-flow-text-selection.js",
     "verify:flow-direct-edit": "node scripts/verify-flow-direct-edit.js",
     "verify:flow-image-insertion": "node scripts/verify-flow-image-insertion.js",
     "verify:flow-text-split": "node scripts/verify-flow-text-split.js",

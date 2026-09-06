@@ -67,6 +67,7 @@ function fixture(writingMode = 'vertical-rl', selection = [2, 2, 'none']) {
             abort(...args) { stats.aborts += 1; super.abort(...args); }
         },
         clearTimeout: forbidden('clearTimeout without a scheduled timer'),
+        _flowTextSelection: null,
         _flowDirectEditProxy: proxy,
         _flowDirectEditSession: Object.freeze({ groupId: group.id, sectionId: 'chapter', blockId: 'body',
             blockType: 'paragraph', languageKey: 'ja', writingMode, expectedText: text,
