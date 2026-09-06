@@ -913,7 +913,7 @@ export function renderThumbs() {
                             ${thumbImg}
                         </div>
                         <span class="thumb-page-num">${escapeHtml(pageLabel)}</span>
-                    ${strictAuthoring && !spreadGroupId ? '<span class="thumb-drag-grip" aria-hidden="true">⠿</span>' : ''}
+
                         <div class="thumb-card-top"></div>
                         <button class="thumb-insert-btn before" title="ここにページ挿入" ontouchstart="event.stopPropagation()" onclick="${insertBeforeAction}"><span class="material-icons">add</span></button>
                         <button class="thumb-insert-btn after" title="この下にページ挿入" ontouchstart="event.stopPropagation()" onclick="${insertAfterAction}"><span class="material-icons">add</span></button>
@@ -938,7 +938,7 @@ export function renderThumbs() {
                         <span class="thumb-card-badge thumb-card-badge-text">T</span>
                     </div>
                     <span class="thumb-page-num">${escapeHtml(pageLabel)}</span>
-                    ${strictAuthoring && !spreadGroupId ? '<span class="thumb-drag-grip" aria-hidden="true">⠿</span>' : ''}
+
                     <div class="thumb-card-top"></div>
                     <button class="thumb-insert-btn before" title="ここにページ挿入" ontouchstart="event.stopPropagation()" onclick="${insertBeforeAction}"><span class="material-icons">add</span></button>
                     <button class="thumb-insert-btn after" title="この下にページ挿入" ontouchstart="event.stopPropagation()" onclick="${insertAfterAction}"><span class="material-icons">add</span></button>
@@ -996,7 +996,7 @@ export function renderThumbs() {
                 onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();changeFlowGeneratedPage(${blockIdx},0)}"
                 role="button" tabindex="0" aria-label="Flowページ" draggable="false">
                 <div class="thumb-canvas thumb-canvas-meta"><span class="thumb-card-badge">FLOW</span></div>
-                <span class="thumb-page-num">…</span><span class="thumb-drag-grip" aria-hidden="true">⠿</span>
+                <span class="thumb-page-num">…</span>
             </div>`;
 
         const generatedCards = generatedFlowPages.map((page) => {
@@ -1034,7 +1034,7 @@ export function renderThumbs() {
                         ${fallbackBadge}
                     </div>
                     <span class="thumb-page-num">${escapeHtml(pageLabel)}</span>
-                    ${strictAuthoring ? '<span class="thumb-drag-grip" aria-hidden="true">⠿</span>' : ''}
+
                 </div>
             `;
         }).join('');

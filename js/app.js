@@ -7251,7 +7251,7 @@ function hideContextMenu() {
 function showContextMenuAt(x, y, html) {
     const contextMenu = document.getElementById('context-menu');
     if (!contextMenu) return;
-    contextMenu.innerHTML = html;
+    if (html !== null) contextMenu.innerHTML = html;
     contextMenu.style.display = 'flex';
     const rect = contextMenu.getBoundingClientRect();
     let menuX = x;
@@ -7351,7 +7351,7 @@ window.addTextSection = () => {
     addTextSection(refresh);
     triggerAutoSave();
 };
-window.insertFlowGroupBeforeActive = () => {
+function insertFlowGroupAt(insertIndex) {
     endHistoryGroup();
     pushState();
     const sourceLanguage = state.defaultLang || state.activeLang || state.languages?.[0] || 'ja';
@@ -7371,9 +7371,7 @@ window.insertFlowGroupBeforeActive = () => {
         },
     });
     const nextBlocks = [...(state.blocks || [])];
-    const insertAt = Number.isInteger(state.activeBlockIdx)
-        ? Math.max(0, Math.min(state.activeBlockIdx, nextBlocks.length))
-        : nextBlocks.length;
+    const insertAt = Math.max(0, Math.min(insertIndex, nextBlocks.length));
     nextBlocks.splice(insertAt, 0, group);
     dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'version', value: PROJECT_SCHEMA_VERSION } });
     dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'blocks', value: nextBlocks } });
@@ -7383,7 +7381,9 @@ window.insertFlowGroupBeforeActive = () => {
     selectFlowSource(group.id);
     refresh();
     triggerAutoSave();
-};
+}
+window.insertFlowGroupBeforeActive = () => insertFlowGroupAt(
+    Number.isInteger(state.activeBlockIdx) ? state.activeBlockIdx : (state.blocks || []).length);
 window.insertSectionBeforeActive = () => insertSectionBeforeActiveByType('image');
 window.insertTextSectionBeforeActive = () => insertSectionBeforeActiveByType('text');
 window.insertSpreadImageBeforeActive = insertSpreadImageBeforeActive;
@@ -8320,8 +8320,8 @@ function applyEditorSpineChange(result, options = {}) {
     triggerAutoSave();
 }
 
-function editorDragBlocked() {
-    return state.version !== 6 || _flowAuthoringComposing || _flowImageInsertionBusy
+function editorDragBlocked(requireV6 = true) {
+    return (requireV6 && state.version !== 6) || _flowAuthoringComposing || _flowImageInsertionBusy
         || _flowDirectEditApplying || _flowTranslationJob?.state === 'running';
 }
 
@@ -8395,6 +8395,7 @@ bindEditorThumbnailDrag({
     root: document.getElementById('editor-room'),
     begin: thumb => {
         if (editorDragBlocked()) return null;
+        hideContextMenu();
         const block = state.blocks.find(block => block.id === thumb.dataset.editorUnitId);
         if (!block || !['flow', 'page'].includes(block.kind) || block.content?.spreadImage) return null;
         return { id: block.id, snapshot: JSON.stringify(state.blocks), projectId: state.projectId, uid: state.uid,
@@ -10454,12 +10455,91 @@ initContextMenu(); // Initialize right-click context menu
 // ============================================================
 // Context Menu (Right-Click) Logic
 // ============================================================
+function openThumbnailContextMenu(event, thumb) {
+    event.preventDefault();
+    if (editorDragBlocked(false)) return;
+    const index = Number(thumb.dataset.blockIndex);
+    const block = state.blocks?.[index];
+    if (!block || !['page', 'flow'].includes(block.kind)) return;
+    const flowPageIndex = Number(thumb.dataset.flowPageIndex) || 0;
+    if (block.kind === 'flow') {
+        selectFlowGeneratedPage(block.id);
+        setSelectedFlowRuntimePageIndex(block.id, flowPageIndex);
+    }
+    changeBlock(index, refreshForThumbSelection);
+    dispatch({type: actionTypes.SET_ACTIVE_BUBBLE_INDEX, payload: null});
+    const snapshot = JSON.stringify(state.blocks);
+    const projectId = state.projectId, uid = state.uid, language = state.activeLang;
+    const valid = () => !editorDragBlocked(false) && state.projectId === projectId && state.uid === uid
+        && state.activeLang === language && state.blocks[state.activeBlockIdx]?.id === block.id
+        && JSON.stringify(state.blocks) === snapshot;
+    const menu = document.getElementById('context-menu');
+    const show = items => {
+        showContextMenuAt(event.clientX, event.clientY, '');
+        for (const item of items) {
+            const button = document.createElement('button');
+            button.type = 'button'; button.className = 'context-menu-item';
+            button.textContent = item.label; button.disabled = !!item.disabled;
+            button.onclick = e => { e.stopPropagation(); if (!valid()) { hideContextMenu(); return; } item.run(); };
+            menu.appendChild(button);
+        }
+        showContextMenuAt(event.clientX, event.clientY, null);
+        menu.querySelector('button:not(:disabled)')?.focus({preventScroll: true});
+    };
+    const add = (position, kind) => {
+        hideContextMenu();
+        const spreadId = block.content?.spreadImage?.groupId;
+        const indices = spreadId ? state.blocks.map((b,i) => b.content?.spreadImage?.groupId === spreadId ? i : -1).filter(i=>i>=0) : [index];
+        const targetIndex = position === 'before' ? indices[0] : indices.at(-1);
+        if (kind === 'flow') { insertFlowGroupAt(targetIndex + (position === 'after' ? 1 : 0)); return; }
+        if (block.kind === 'flow') {
+            const pages = getEditorPageProjection()?.pages.filter(p => p.kind === 'flow' && p.groupId === block.id) || [];
+            const page = pages.find(p => p.flowPageIndex === flowPageIndex);
+            const inside = position === 'before' ? flowPageIndex > 0 : flowPageIndex < pages.length - 1;
+            if (!page) return;
+            if (inside) {
+                const point = resolveEditorFlowPageBoundary(page, position);
+                if (!point || page.languageKey !== block.flow.document.sourceLanguage) return;
+                try {
+                    const session = createFlowDirectEditSession(block, {pageLanguageKey:page.languageKey, writingMode:page.writingMode, sourcePoint:point});
+                    const imageBlock = createPageBlockFromSection({type:'image', background:'', backgrounds:{}, bubbles:[]});
+                    const result = createFlowImageInsertion(state.blocks, session, {imageBlock,
+                        selectionStart:point.utf16Offset, selectionEnd:point.utf16Offset, expectedText:session.expectedText});
+                    applyEditorSpineChange(result);
+                } catch { alert(t('flow_drag_failed')); }
+                return;
+            }
+        }
+        endHistoryGroup(); pushState();
+        insertPageNearBlock(targetIndex, position, refresh, 'image');
+        triggerAutoSave();
+    };
+    const addMenu = position => {
+        const page = getEditorPageProjection()?.pages.find(p => p.groupId === block.id && p.flowPageIndex === flowPageIndex);
+        const imageDisabled = block.kind === 'flow' && (!page || page.isSourceFallback || page.languageKey !== block.flow.document.sourceLanguage);
+        show([
+            {label:t('thumb_add_image'), disabled:imageDisabled, run:()=>add(position,'image')},
+            {label:t(block.kind === 'flow' ? (position === 'before' ? 'thumb_add_flow_before_group' : 'thumb_add_flow_after_group') : 'thumb_add_flow'), run:()=>add(position,'flow')},
+        ]);
+    };
+    show([
+        {label:t('thumb_add_before'), run:()=>addMenu('before')},
+        {label:t('thumb_add_after'), run:()=>addMenu('after')},
+        ...(block.kind === 'flow' ? [
+            {label:t('flow_open_source'), run:()=>{hideContextMenu();window.changeFlowSourceBlock(index);}},
+            {label:t('thumb_delete_flow'), run:()=>{hideContextMenu();selectFlowSource(block.id);if (!deleteActiveFlowGroup(block)) { selectFlowGeneratedPage(block.id); refreshForThumbSelection(); }}},
+        ] : [{label:t('thumb_delete_page'), disabled:!canDeleteActive(), run:()=>{hideContextMenu();window.deleteActive();}}]),
+    ]);
+}
+
 function initContextMenu() {
     const contextMenu = document.getElementById('context-menu');
     if (!contextMenu) return;
 
     // キャンバスおよび吹き出し上の右クリックをフック
     document.addEventListener('contextmenu', (e) => {
+        const thumb = e.target.closest('#editor-room .thumb-wrap[data-block-index]');
+        if (thumb) { openThumbnailContextMenu(e, thumb); return; }
         // Only intercept if we are in the editor area
         const canvasView = document.getElementById('canvas-view');
         if (!canvasView || !canvasView.contains(e.target)) return;
@@ -10536,6 +10616,7 @@ function initContextMenu() {
         showContextMenuAt(e.clientX, e.clientY, contextMenu.innerHTML);
     });
 
+    document.addEventListener('keydown', e => { if (e.key === 'Escape') hideContextMenu(); });
     // 画面のどこかをクリックしたらコンテキストメニューを閉じる
     document.addEventListener('click', (e) => {
         if (!contextMenu.contains(e.target)) {

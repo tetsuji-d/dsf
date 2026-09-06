@@ -46,7 +46,7 @@ export function bindEditorThumbnailDrag({ root, begin, resolve, commit, finish, 
         const thumb = event.target.closest('.thumb-wrap[data-editor-unit-id]');
         if (!thumb || event.button !== 0 || event.isPrimary === false || drag) return;
         if (event.target.closest('button, input, select')) return;
-        if (event.pointerType === 'touch' && !event.target.closest('.thumb-drag-grip')) return;
+        if (event.pointerType === 'touch') return; // Keep ordinary touch scrolling without visible grips.
         const context = begin(thumb);
         if (!context) return;
         drag = { context, pointerId: event.pointerId, startX: event.clientX, startY: event.clientY,
