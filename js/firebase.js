@@ -1,3 +1,5 @@
+import { ASSET_MAX_LONG_EDGE, ASSET_MAX_BYTES, mapProjectAssetUrls } from './project-assets.js';
+import { decodeDspPublicationThumbnailImage } from './dsp-publication-thumbnail-import.js';
 /**
  * firebase.js — Firebase初期化・クラウド保存/読込・自動保存
  *
@@ -569,6 +571,7 @@ function collectProjectAssetUrls(snapshotState) {
     visit(snapshotState.pages || []);
     visit(snapshotState.blocks || []);
     visit(snapshotState.sections || []);
+    visit(snapshotState.projectAssets || []);
     return [...urls];
 }
 
@@ -589,6 +592,7 @@ async function getAssetByteSize(url) {
 
 async function computeProjectBytes(snapshotState) {
     const data = {
+        projectAssets: snapshotState.projectAssets || [],
         version: snapshotState.version || PAGE_SCHEMA_VERSION,
         projectName: snapshotState.projectName || '',
         title: snapshotState.title || '',
@@ -816,18 +820,21 @@ export async function flushPendingSave() {
  * blob: URL を Firebase Storage にアップロードして実 URL を返す。
  * localImageMap にエントリがなければ '' を返す（ゲストセッション切れなど）。
  */
+const recoveredAssetUrls = new Map();
 async function _uploadBlobUrlToStorage(blobUrl, uid) {
+    const cacheKey = `${uid}|${blobUrl}`;
+    if (recoveredAssetUrls.has(cacheKey)) return recoveredAssetUrls.get(cacheKey);
     const localId = window.localImageMap?.[blobUrl];
     if (!localId) return '';
     try {
         const blob = await idbGet(localId);
         if (!blob) return '';
-        const timestamp = Date.now();
-        const path = `users/${uid}/dsf/recovered/${timestamp}.webp`;
+        const path = `users/${uid}/dsf/recovered/${createId('img')}.webp`;
         const downloadUrl = await _storeFile(blob, path);
         if (downloadUrl) {
             window.localImageMap[downloadUrl] = localId;
-            delete window.localImageMap[blobUrl];
+            // Keep the local mapping for Undo/local snapshots and shared library references.
+            recoveredAssetUrls.set(cacheKey, downloadUrl);
         }
         return downloadUrl;
     } catch (e) {
@@ -1065,11 +1072,14 @@ async function performSaveOnce() {
             const cleanPublicationThumbnailUrl = await ensurePublicationThumbnailCloudUrl(
                 authoringProject.publicationThumbnailUrl || '',
             );
+            const cleanProjectAssets = await mapProjectAssetUrls(authoringProject.projectAssets || [], async (url) =>
+                url.startsWith('blob:') ? _uploadBlobUrlToStorage(url, saveIdentity.uid) : url);
             const persistedProject = prepareProjectForSave({
                 ...authoringProject,
                 blocks: cleanBlocks,
                 sections: cleanSections,
                 publicationThumbnailUrl: cleanPublicationThumbnailUrl,
+                projectAssets: cleanProjectAssets,
             });
             if (state.publicationThumbnailUrl !== cleanPublicationThumbnailUrl) {
                 state.publicationThumbnailUrl = cleanPublicationThumbnailUrl;
@@ -1358,11 +1368,14 @@ function applyUploadedImageToSectionGroup(sections, activeIdx, lang, mainUrl, th
 }
 
 /** Prepare the existing authoring image assets without mutating the project. */
-export async function prepareAuthoringImage(file, { uid = state.uid } = {}) {
+export async function prepareAuthoringImage(file, { uid = state.uid, maxLongEdge = AUTHORING_IMAGE_MAX_LONG_EDGE } = {}) {
     const [mainBlob, thumbBlob] = await Promise.all([
-        compressImage(file, AUTHORING_IMAGE_MAX_LONG_EDGE, AUTHORING_IMAGE_WEBP_QUALITY),
+        compressImage(file, maxLongEdge, AUTHORING_IMAGE_WEBP_QUALITY),
         compressImage(file, THUMBNAIL_IMAGE_MAX_LONG_EDGE, THUMBNAIL_IMAGE_WEBP_QUALITY),
     ]);
+    if (maxLongEdge === ASSET_MAX_LONG_EDGE && mainBlob.size > ASSET_MAX_BYTES) throw new Error('Asset too large');
+    const dimensions = await decodeDspPublicationThumbnailImage(mainBlob);
+    const metadata = { width: dimensions.width, height: dimensions.height, byteLength: mainBlob.size };
     const timestamp = createId('img');
     if (!uid) {
         const mainKey = `local_img_main_${timestamp}`;
@@ -1373,13 +1386,13 @@ export async function prepareAuthoringImage(file, { uid = state.uid } = {}) {
         window.localImageMap ||= {};
         window.localImageMap[mainUrl] = mainKey;
         window.localImageMap[thumbUrl] = thumbKey;
-        return { mainUrl, thumbUrl };
+        return { mainUrl, thumbUrl, ...metadata };
     }
     const [mainUrl, thumbUrl] = await Promise.all([
         _storeFile(mainBlob, `users/${uid}/dsf/${timestamp}.webp`),
         _storeFile(thumbBlob, `users/${uid}/dsf/thumbs/${timestamp}_thumb.webp`),
     ]);
-    return { mainUrl, thumbUrl };
+    return { mainUrl, thumbUrl, ...metadata };
 }
 
 /**

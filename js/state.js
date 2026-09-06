@@ -15,6 +15,7 @@ export const state = {
     localProjectId: null,
     projectName: '',
     title: '',               // 作品タイトル（ヘッダー表示用）
+    projectAssets: [],
     publicationThumbnailUrl: '', // 空なら発行時のC1表紙をHorizonサムネイルに使用
     dsfPages: [],
     languages: ['ja'],       // プロジェクトの対応言語
@@ -115,6 +116,7 @@ export function dispatch(action) {
                 dsfPages: [],
                 releaseId: null,
                 localProjectId: null,
+                projectAssets: [],
                 publicationThumbnailUrl: '',
                 activeIdx: 0,
                 activePageIdx: 0,

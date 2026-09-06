@@ -1,3 +1,4 @@
+import { validateProjectAssets } from './project-assets.js';
 /**
  * Project persistence boundary for legacy Fixed projects and Project v6 Flow.
  *
@@ -229,6 +230,10 @@ export function hydrateProjectFromPersistence(input) {
     assertProjectJsonSafe(input);
     assertNoProjectRuntimeData(input);
     assertSupportedPersistedVersion(input);
+    validateProjectAssets(input.projectAssets);
+    if (input.projectAssets?.length && input.version !== PROJECT_SCHEMA_VERSION) {
+        input = normalizeFlowProjectData(input);
+    }
 
     const containsFlow = hasFlowGroups(input);
     if (input.version === PROJECT_SCHEMA_VERSION) {
@@ -278,6 +283,10 @@ export function prepareProjectForSave(input) {
     assertProjectJsonSafe(input);
     assertNoProjectRuntimeData(input);
     assertSupportedPersistedVersion(input);
+    validateProjectAssets(input.projectAssets);
+    if (input.projectAssets?.length && input.version !== PROJECT_SCHEMA_VERSION) {
+        input = normalizeFlowProjectData(input);
+    }
 
     const containsFlow = hasFlowGroups(input);
     const isProjectV6 = input.version === PROJECT_SCHEMA_VERSION;

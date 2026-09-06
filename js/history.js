@@ -16,6 +16,7 @@ function clone(value, fallback) {
 export function createHistorySnapshot(source = state, options = {}) {
     return {
         version: source.version,
+        projectAssets: clone(source.projectAssets, []),
         blocks: clone(source.blocks, []),
         sections: clone(source.sections, []),
         pages: clone(source.pages, []),
@@ -30,6 +31,7 @@ export function createHistorySnapshot(source = state, options = {}) {
 
 function restoreHistorySnapshot(snapshot) {
     if (Number.isInteger(snapshot.version)) state.version = snapshot.version;
+    state.projectAssets = snapshot.projectAssets || [];
     state.blocks = snapshot.blocks || state.blocks || [];
     state.sections = snapshot.sections || [];
     state.pages = snapshot.pages || [];

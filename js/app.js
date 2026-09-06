@@ -1,3 +1,6 @@
+import { createProjectAssetPanel } from './project-asset-panel.js';
+
+
 /**
  * app.js — Studio メインエントリ（描画・UI 同期・room 切り替え）
  *
@@ -128,6 +131,52 @@ import {
     setSelectedFlowRuntimePageIndex,
 } from './flow-runtime-pages.js';
 import { collection, getDocs, query, where, limit } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
+
+const projectAssetPanel = createProjectAssetPanel({
+    state, prepareImage: prepareAuthoringImage,
+    addAsset: ({ name, mainUrl, thumbUrl, width, height, byteLength }) => {
+        endHistoryGroup(); pushState();
+        state.version = 6;
+        state.projectAssets = [...(state.projectAssets || []), {
+            id: createId('asset'), name, background: mainUrl, thumbnail: thumbUrl,
+            width, height, byteLength, mimeType: 'image/webp',
+        }];
+        refresh(); updateHistoryButtons(); triggerAutoSave();
+    },
+    useAsset: (id, kind) => {
+        const asset = state.projectAssets?.find(item => item.id === id);
+        if (!asset || _flowAuthoringComposing || _flowTranslationJob?.state === 'running') return;
+        const active = getActiveBlock();
+        if (kind === 'apply' && !(active?.kind === 'page' && active.content?.pageKind !== 'text')) return;
+        endHistoryGroup(); pushState();
+        if (kind === 'add') {
+            let index = state.activeBlockIdx;
+            const group = active?.content?.spreadImage?.groupId;
+            if (group) index = state.blocks.findLastIndex(block => block.content?.spreadImage?.groupId === group);
+            const before = state.blocks;
+            insertPageNearBlock(index, active?.kind === 'cover_back' ? 'before' : 'after', () => {}, 'image');
+            if (state.blocks === before) return;
+        }
+        const target = getActiveBlock();
+        if (target?.kind !== 'page') return;
+        const group = target.content?.spreadImage?.groupId;
+        for (const block of state.blocks) {
+            if (block !== target && (!group || block.content?.spreadImage?.groupId !== group)) continue;
+            block.content ||= {};
+            block.content.backgrounds = { ...block.content.backgrounds, [state.activeLang]: asset.background };
+            if ((state.languages || []).length <= 1) block.content.background = asset.background;
+            block.content.thumbnail = asset.thumbnail;
+            const position = { x: 0, y: 0, scale: 1, rotation: 0, flipX: false };
+            block.content.imagePosition = position;
+            block.content.imagePositions = { ...block.content.imagePositions, [state.activeLang]: position };
+            block.content.imageBasePosition = { ...position };
+        }
+        state.sections = extractSectionsFromBlocks(state.blocks);
+        state.pages = blocksToPages(state.blocks);
+        refresh(); updateHistoryButtons(); triggerAutoSave();
+    },
+});
+window.uploadAsset = event => projectAssetPanel.upload(event);
 
 const EDITOR_FRAME_WIDTH = CANONICAL_PAGE_WIDTH;
 const EDITOR_FRAME_HEIGHT = CANONICAL_PAGE_HEIGHT;
@@ -4713,6 +4762,7 @@ function setCurrentDeviceThumbColumns(cols) {
 //  refresh — 画面全体を再描画する (Gen3: image pages only)
 // ──────────────────────────────────────
 function refresh(options = {}) {
+    projectAssetPanel.render();
     const skipAncillary = !!options.skipAncillary;
     const skipThumbs = !!options.skipThumbs;
     const visSelect = document.getElementById('prop-visibility');
@@ -9314,6 +9364,7 @@ window.newProject = async () => {
     if (state.projectId && !confirm('現在のプロジェクトを閉じて新しいプロジェクトを作成しますか？')) return false;
     await flushPendingSave();
     resetFlowRuntimeForProjectChange();
+    state.projectAssets = [];
     dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'projectId', value: null } });
     dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'version', value: 5 } });
     dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'workId', value: createId('work') } });
@@ -10051,19 +10102,6 @@ window.handleMobileHeaderNav = () => {
     }
 };
 
-window.uploadAsset = () => {
-    const input = document.createElement('input');
-    input.type = 'file';
-    input.accept = 'image/*';
-    input.multiple = true;
-    input.onchange = async (e) => {
-        const files = Array.from(e.target.files || []);
-        if (!files.length) return;
-        // TODO: implement asset upload to Firebase Storage
-        console.log('uploadAsset: files selected', files.map((f) => f.name));
-    };
-    input.click();
-};
 
 const MOBILE_ROOM_ACTIONS = {
     home: [
