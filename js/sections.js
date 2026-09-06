@@ -5,6 +5,7 @@
  * editor UI still manipulates `sections` in several flows, but every content edit
  * must be resynchronized back into canonical `blocks` and derived `pages`.
  */
+import { t } from './i18n-studio.js';
 import { state, dispatch, actionTypes } from './state.js';
 import { deepClone, createId } from './utils.js';
 import { CANONICAL_PAGE_WIDTH, CANONICAL_PAGE_HEIGHT } from './page-geometry.js';
@@ -989,7 +990,12 @@ export function renderThumbs() {
         }
         const generatedFlowPages = runtimePagesByBlock.get(blockIdx) || [];
         const selectedFlowPageIndex = getSelectedFlowRuntimePageIndex(b.id);
-        if (generatedFlowPages.length === 0) return `
+        const groupNumber = blocks.filter(block => block.kind === 'flow').findIndex(block => block.id === b.id) + 1;
+        const groupLabel = 'Flow ' + groupNumber + ' · ' + (generatedFlowPages.length || '…') + t('flow_group_page_unit');
+        const wrapFlowCards = cards => '<div class="flow-thumb-group" data-flow-group-id="' + escapeAttr(b.id)
+            + '" data-group-selected="' + selected + '" role="group" aria-label="' + escapeAttr(groupLabel)
+            + '"><div class="flow-thumb-group-label">' + escapeHtml(groupLabel) + '</div>' + cards + '</div>';
+        if (generatedFlowPages.length === 0) return wrapFlowCards(`
             <div class="thumb-wrap thumb-card flow-generated-thumb" data-testid="flow-generated-thumb"
                 data-block-index="${blockIdx}" data-editor-unit-id="${escapeAttr(b.id)}" data-flow-page-index="0"
                 onclick="changeFlowGeneratedPage(${blockIdx}, 0)"
@@ -997,7 +1003,7 @@ export function renderThumbs() {
                 role="button" tabindex="0" aria-label="Flowページ" draggable="false">
                 <div class="thumb-canvas thumb-canvas-meta"><span class="thumb-card-badge">FLOW</span></div>
                 <span class="thumb-page-num">…</span>
-            </div>`;
+            </div>`);
 
         const generatedCards = generatedFlowPages.map((page) => {
             const pageLabel = getPageDisplayLabel(
@@ -1038,7 +1044,7 @@ export function renderThumbs() {
                 </div>
             `;
         }).join('');
-        return generatedCards;
+        return wrapFlowCards(generatedCards);
     }).join('');
 
     container.querySelectorAll('.flow-generated-thumb-page').forEach((pageElement) => {

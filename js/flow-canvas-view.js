@@ -5,7 +5,7 @@ import { normalizeFlowPageGuideMode, resolveFlowPageRuleGuide } from './flow-pag
 
 /** Editor-only virtual page strip. Page geometry and saved publication data never change. */
 export function createFlowCanvasView({ container, getPinnedPageIndex, onPageCreate,
-    onGeometryChange, onScrollPage, getPageLabel, renderFixedPage, onBeforeRemove, getDirection, getJoinedPageIndices }) {
+    onGeometryChange, onScrollPage, getPageLabel, getFlowGroupLabel, renderFixedPage, onBeforeRemove, getDirection, getJoinedPageIndices }) {
     const viewport = document.createElement('div');
     viewport.id = 'flow-canvas-viewport';
     viewport.dataset.testid = 'flow-canvas-viewport';
@@ -97,6 +97,13 @@ export function createFlowCanvasView({ container, getPinnedPageIndex, onPageCrea
                 label.className = 'flow-canvas-page-label';
                 label.textContent = getPageLabel(page);
                 slot.appendChild(label);
+                if (page.kind === 'flow') {
+                    const band = document.createElement('div'); band.className = 'flow-canvas-group-band';
+                    band.textContent = (getFlowGroupLabel?.(page) || 'Flow') + ' · ' + (page.flowPageIndex + 1) + '/' + page.flowPageCount;
+                    slot.appendChild(band);
+                    slot.dataset.groupStart = String(pages[index-1]?.groupId !== page.groupId);
+                    slot.dataset.groupEnd = String(pages[index+1]?.groupId !== page.groupId);
+                }
                 track.appendChild(slot);
                 const contentElement = page.kind === 'fixed'
                     ? (renderFixedPage?.(pageElement, page), null)
@@ -112,6 +119,7 @@ export function createFlowCanvasView({ container, getPinnedPageIndex, onPageCrea
                 left: `${position.left}px`, top: `${position.top}px`, width: `${position.width}px`,
                 height: `${position.height + layout.labelHeight}px`,
             });
+            entry.slot.dataset.groupSelected = String(page.kind === 'flow' && pages[selected]?.groupId === page.groupId);
             const selectedSpread = pages[selected]?.section?.spreadImage?.groupId;
             entry.slot.dataset.selected = String(index === selected || !!(selectedSpread
                 && entry.page.section?.spreadImage?.groupId === selectedSpread));
@@ -130,6 +138,7 @@ export function createFlowCanvasView({ container, getPinnedPageIndex, onPageCrea
         for (let attempt = 0; attempt < 3; attempt += 1) {
             layout = calculateFlowCanvasLayout({ viewportWidth: viewport.clientWidth,
                 viewportHeight: viewport.clientHeight, pageCount: pages.length,
+                labelHeight: pages.some(page=>page.kind==='flow') ? 48 : 24,
                 writingMode: pages[0].writingMode, direction: getDirection?.(),
                 joinedPageIndices: getJoinedPageIndices?.(pages), scale: explicitScale ?? retainedScale });
             viewport.style.setProperty('--flow-canvas-scale', layout.scale);

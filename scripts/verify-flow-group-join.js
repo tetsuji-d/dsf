@@ -1,0 +1,45 @@
+import assert from 'node:assert/strict';
+import { createFlowGroupBlock } from '../js/flow-project-model.js';
+import { createFlowDirectEditSession } from '../js/flow-direct-edit.js';
+import { createFlowImageInsertion } from '../js/flow-image-insertion.js';
+import { inspectFlowJoin, joinFlowWithPrevious } from '../js/flow-group-join.js';
+import { serializeProject, deserializeProject } from '../js/project-persistence.js';
+const group=createFlowGroupBlock({id:'flow',sourceLanguage:'ja',document:{sourceLanguage:'ja',sections:[{id:'section',title:{ja:'章'},blocks:[{id:'body',type:'paragraph',texts:{ja:'前半👩‍💻後半',en:'Translation'}}]}]}});
+const session=createFlowDirectEditSession(group,{pageLanguageKey:'ja',writingMode:'vertical-rl',sourcePoint:{sectionId:'section',blockId:'body',blockType:'paragraph',languageKey:'ja',utf16Offset:2,graphemeOffset:2}});
+const split=createFlowImageInsertion([group],session,{selectionStart:2,selectionEnd:2,expectedText:session.expectedText,imageBlock:{id:'image',kind:'page',content:{pageKind:'image',background:'asset.webp'}}});
+const blocks=split.blocks.filter(b=>b.kind==='flow'), original=JSON.stringify(blocks), id=blocks[1].id;
+assert.equal(inspectFlowJoin(split.blocks,id).reason,'adjacent');
+const kept=joinFlowWithPrevious(blocks,id);
+assert.equal(kept.blocks.length,1);
+assert.equal(kept.blocks[0].flow.document.sections.length,1);
+assert.deepEqual(kept.blocks[0].flow.document.sections[0].blocks.map(b=>b.texts.ja),['前半','👩‍💻後半']);
+const joined=joinFlowWithPrevious(blocks,id,{mergeParagraphs:true});
+assert.equal(joined.blocks[0].flow.document.sections[0].blocks[0].texts.ja,'前半👩‍💻後半');
+assert.equal(joined.blocks[0].flow.document.sections[0].blocks[0].texts.en,'Translation');
+assert.deepEqual(deserializeProject(serializeProject({version:6,blocks:joined.blocks,languages:['ja','en'],defaultLang:'ja'})).blocks,joined.blocks);
+assert.equal(JSON.stringify(blocks),original);
+const changed=structuredClone(blocks);changed[1].flow.layout.padding.top+=1;
+assert.equal(inspectFlowJoin(changed,id).reason,'layout');
+const translated=structuredClone(blocks);translated[1].flow.document.sections[0].blocks[0].texts.en='Tail';
+assert.equal(inspectFlowJoin(translated,id).eligible,true);
+assert.equal(inspectFlowJoin(translated,id,{mergeParagraphs:true}).reason,'translation');
+const conflict=structuredClone(blocks);conflict[1].flow.document.sections[0].title.ja='別章';
+assert.equal(inspectFlowJoin(conflict,id).reason,'metadata');
+console.log('Flow join: boundaries, paragraph options, translation preservation, immutable input and persistence passed.');
+
+// Fingerprints and locks follow their original units through split and reconnection.
+const {createFlowTranslationLanguageBaseline}=await import('../js/flow-translation-state.js');
+const protectedGroup=structuredClone(group);
+protectedGroup.flow.translationState={schemaVersion:1,languages:{en:createFlowTranslationLanguageBaseline(protectedGroup,'en',{lockedUnitIds:['body']})}};
+const protectedSession=createFlowDirectEditSession(protectedGroup,{pageLanguageKey:'ja',writingMode:'vertical-rl',sourcePoint:session.sourcePoint});
+const protectedSplit=createFlowImageInsertion([protectedGroup],protectedSession,{selectionStart:2,selectionEnd:2,expectedText:protectedSession.expectedText,imageBlock:{id:'image',kind:'page',content:{pageKind:'image'}}});
+const pair=protectedSplit.blocks.filter(b=>b.kind==='flow');
+const protectedJoin=joinFlowWithPrevious(pair,pair[1].id);
+assert.ok(protectedJoin.blocks[0].flow.translationState.languages.en.lockedUnitIds.includes('body'));
+assert.equal(protectedJoin.blocks[0].flow.translationState.languages.en.sourceFingerprints.blocks.body,
+    pair[0].flow.translationState.languages.en.sourceFingerprints.blocks.body);
+const unknown=structuredClone(pair);unknown[1].flow.document.custom={must:'keep'};
+assert.equal(inspectFlowJoin(unknown,unknown[1].id).reason,'metadata');
+const ids=structuredClone(blocks);ids[1].flow.document.sections[0].blocks[0].id='body';
+assert.equal(inspectFlowJoin(ids,ids[1].id).eligible,false);
+console.log('Flow join: translation fingerprints, locks and metadata conflicts passed.');

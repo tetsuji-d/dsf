@@ -64,3 +64,16 @@ Project/FlowDocumentの保存形式、Press、Release、Viewerは変更しない
 - Flowでは通常のページ削除を表示せず、「原稿を開く」「Flow全体を削除…」を表示する。全体削除は既存の確認とUndoを再利用する。見開き・保護対象・残数による既存のFixed削除制約は維持する。
 - IME・翻訳処理などの実行中は操作せず、メニュー表示後にproject／user／言語／原稿／選択対象が変わった場合は適用しない。Escapeまたは外側クリックで閉じる。
 - ローカル実操作で、非選択画像の右クリック削除とUndo、Flow後半ページの前への画像追加とUndo、画像の後への新規Flow追加とUndo、Flow全体削除の確認取消／実行／Undo、ハンドルなしのFlowドラッグを確認。関連3検証とビルドが成功。
+
+## Flowのまとまり表示と再接続
+
+- 同じFlowのサムネイルを共通枠と薄い背景で囲み、「Flow 1 · 3ページ」のように表示する。番号は作品内のFlowの並び順で、保存データへ追加しない。
+- キャンバスは作品通し番号を維持し、その下の帯で同じFlowの範囲とGroup内ページ番号を示す。選択ページは青枠、同じFlowの他ページは薄い青で強調する。帯は仮想化された各ページの表示に従い、全文DOMを増やさない。
+- 画像を移動／削除してもFlowは自動結合しない。隣接した後ろ側のFlowを右クリックし「前のFlowとつなぐ」を選ぶ。「段落の区切りを残す」と「境界の段落もつなぐ」を選択できる。
+- 共通Section IDの分割境界だけはSection metadataを照合して再統合する。別Sectionは区切りを保持する。原文言語・組版設定が異なる、IDが競合する、未知情報や翻訳metadataが競合する場合は、消去・上書きせず安全な理由を表示して拒否する。
+- 段落の接続は共通Section境界のParagraph同士だけに限定し、既存mergeParagraphBackwardを利用する。後段に翻訳・lock・fingerprintがある場合や書式が異なる場合は段落接続を拒否する。区切りを残す接続では本文・翻訳・fingerprint・lockを保持する。
+- 接続は1回のUndoで戻る。接続後は接続位置を原稿画面で示し、「ページへ戻る」で一続きの枠と帯を確認できる。Project schema・Rules・Press・Viewerの実装は変更しない。
+
+検証: verify:flow-group-join、editor-flow-interactions、flow-image-insertion、editor-canvas-projection、flow-canvas-layout、fixed-page-spineを実行。ローカルStudioで画像削除後も2枠を維持、右クリック段落接続、文字位置450への移動、1枠への統合、Undo／Redoを確認。
+
+追加の実操作確認: 横書き・左から右でも枠と帯を表示し、枠内サムネイルからFlow全体を移動してUndo、既存画像を枠内のページ境界へ移動してUndoできることを確認。見開きの既存サムネイル間隔とFixedのみの一覧余白は維持する。

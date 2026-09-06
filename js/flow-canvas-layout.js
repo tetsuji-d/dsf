@@ -41,6 +41,7 @@ function clampedScrollLeft(layout, value) {
  * An optional explicit scale supports the editor's existing zoom controls.
  */
 export function calculateFlowCanvasLayout(options = {}) {
+    const labelHeight = Math.max(LABEL_HEIGHT, Number(options.labelHeight) || LABEL_HEIGHT);
     const viewportWidth = positive(options.viewportWidth, CANONICAL_PAGE_WIDTH);
     const viewportHeight = positive(options.viewportHeight, CANONICAL_PAGE_HEIGHT);
     const rawPageCount = Number(options.pageCount);
@@ -48,7 +49,7 @@ export function calculateFlowCanvasLayout(options = {}) {
     const writingMode = options.writingMode === 'vertical-rl' ? 'vertical-rl' : 'horizontal-tb';
     const direction = options.direction === 'rtl' || options.direction === 'ltr'
         ? options.direction : writingMode === 'vertical-rl' ? 'rtl' : 'ltr';
-    const availableHeight = Math.max(1, viewportHeight - VERTICAL_INSET * 2 - LABEL_HEIGHT - SCROLLBAR_ALLOWANCE);
+    const availableHeight = Math.max(1, viewportHeight - VERTICAL_INSET * 2 - labelHeight - SCROLLBAR_ALLOWANCE);
     const availableWidth = Math.max(1, viewportWidth - SIDE_INSET * 2);
     const fittedScale = Math.min(availableHeight / CANONICAL_PAGE_HEIGHT, availableWidth / CANONICAL_PAGE_WIDTH);
     const scale = clamp(positive(options.scale, fittedScale), 0.1, 5);
@@ -66,9 +67,9 @@ export function calculateFlowCanvasLayout(options = {}) {
     const trackWidth = Math.max(viewportWidth, pagesWidth + SIDE_INSET * 2);
     const trackHeight = Math.max(
         viewportHeight - SCROLLBAR_ALLOWANCE,
-        VERTICAL_INSET * 2 + pageHeight + LABEL_HEIGHT,
+        VERTICAL_INSET * 2 + pageHeight + labelHeight,
     );
-    const pageTop = Math.max(VERTICAL_INSET, (trackHeight - pageHeight - LABEL_HEIGHT) / 2);
+    const pageTop = Math.max(VERTICAL_INSET, (trackHeight - pageHeight - labelHeight) / 2);
     const visibleCount = pageCount === 0 ? 0
         : Math.min(pageCount, Math.max(1, Math.floor((availableWidth + PAGE_GAP) / stride)));
     return Object.freeze({
@@ -76,7 +77,7 @@ export function calculateFlowCanvasLayout(options = {}) {
         pageWidth, pageHeight, gap: PAGE_GAP, stride, trackWidth, trackHeight,
         pageOffsets: Object.freeze(pageOffsets), pagesWidth,
         pageTop, startInset: (trackWidth - pagesWidth) / 2, sideInset: SIDE_INSET,
-        labelHeight: LABEL_HEIGHT, visibleCount,
+        labelHeight, visibleCount,
         maxScrollLeft: Math.max(0, trackWidth - viewportWidth),
     });
 }

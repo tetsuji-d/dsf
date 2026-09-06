@@ -39,6 +39,7 @@ import { buildOwnerDraftViewerUrl } from './viewer-owner-preview.js';
 import { buildPublicViewerUrl } from './viewer-release-route.js';
 import { PROJECT_SCHEMA_VERSION, createFlowGroupBlock, hasFlowGroups } from './flow-project-model.js';
 import { applyFlowAuthoringOperation } from './flow-authoring.js';
+import { inspectFlowJoin, joinFlowWithPrevious } from './flow-group-join.js';
 import { createFlowImageInsertion, moveExistingImageIntoFlow } from './flow-image-insertion.js';
 import { alignFlowDirectCompositionElement } from './flow-direct-composition.js';
 import { createFlowCanvasView } from './flow-canvas-view.js';
@@ -1834,6 +1835,7 @@ function ensureFlowCanvasView() {
         onBeforeRemove: entry => {
             if (entry.pageElement.contains(document.getElementById('canvas-stage'))) parkFixedCanvasStage();
         },
+        getFlowGroupLabel: page => 'Flow ' + (state.blocks.filter(b=>b.kind==='flow').findIndex(b=>b.id===page.groupId)+1),
         getPageLabel: page => {
             const label = getPageDisplayLabel(page.index, getEditorCanvasProjection()?.totalPageCount || 1,
                 state.book, state.bookMode);
@@ -4896,6 +4898,7 @@ function refreshForThumbSelection() {
 }
 
 function syncThumbSelectionDom() {
+    document.querySelectorAll('.flow-thumb-group').forEach(el => { el.dataset.groupSelected = String(el.dataset.flowGroupId === getActiveBlock()?.id); });
     document.querySelectorAll('.thumb-wrap, .thumb-row').forEach((el) => {
         const blockIndex = Number(el.dataset.blockIndex);
         const flowPageIndex = el.dataset.flowPageIndex === undefined
@@ -8332,7 +8335,7 @@ function resolveEditorThumbDrop(hit, x, y, context) {
     const projection = getEditorPageProjection();
     const thumb = hit?.closest('.thumb-wrap[data-editor-unit-id]');
     if (thumb) {
-        const container = thumb.parentElement;
+        const container = thumb.closest('#page-strip-thumbs, #thumb-container');
         const horizontal = container.id === 'page-strip-thumbs' || innerWidth < 1024;
         const rtl = container.dataset.dir === 'rtl';
         const box = thumb.getBoundingClientRect();
@@ -8425,7 +8428,7 @@ bindEditorThumbnailDrag({
     moveByKey: (thumb, key) => {
         if (editorDragBlocked()) return;
         const sourceIndex = state.blocks.findIndex(block => block.id === thumb.dataset.editorUnitId);
-        const rtl = thumb.parentElement.dataset.dir === 'rtl';
+        const rtl = thumb.closest('#page-strip-thumbs, #thumb-container')?.dataset.dir === 'rtl';
         const forward = (key === 'ArrowRight') !== rtl;
         const target = state.blocks[sourceIndex + (forward ? 1 : -1)];
         if (!target) return;
@@ -10480,6 +10483,7 @@ function openThumbnailContextMenu(event, thumb) {
             const button = document.createElement('button');
             button.type = 'button'; button.className = 'context-menu-item';
             button.textContent = item.label; button.disabled = !!item.disabled;
+            if (item.reason) button.title = item.reason;
             button.onclick = e => { e.stopPropagation(); if (!valid()) { hideContextMenu(); return; } item.run(); };
             menu.appendChild(button);
         }
@@ -10522,14 +10526,47 @@ function openThumbnailContextMenu(event, thumb) {
             {label:t(block.kind === 'flow' ? (position === 'before' ? 'thumb_add_flow_before_group' : 'thumb_add_flow_after_group') : 'thumb_add_flow'), run:()=>add(position,'flow')},
         ]);
     };
+    const joinStatus = inspectFlowJoin(state.blocks, block.id);
+    const reasonText = status => t('flow_join_reason_' + status.reason);
+    const performJoin = mergeParagraphs => {
+        hideContextMenu();
+        try {
+            const result = joinFlowWithPrevious(state.blocks, block.id, {mergeParagraphs});
+            applyEditorSpineChange(result);
+            const group = result.blocks[result.activeBlockIndex];
+            const languageKey = getFlowAuthoringLanguage(group);
+            const target = group.flow.document.sections.find(s=>s.id===result.focusPoint.sectionId)?.blocks.find(b=>b.id===result.focusPoint.blockId);
+            const offset = languageKey === group.flow.document.sourceLanguage ? result.focusPoint.utf16Offset : 0;
+            const point = {...result.focusPoint, languageKey, blockType:target?.type,
+                ...mapFlowTextUtf16OffsetToGrapheme(target?.texts?.[languageKey] || '', offset, languageKey)};
+            selectFlowSource(group.id, point); refresh(); restoreMappedFlowSourceCaret(group.id, point);
+        } catch { alert(t('flow_join_reason_invalid')); }
+    };
+    const joinMenu = () => {
+        const paragraphStatus = inspectFlowJoin(state.blocks, block.id, {mergeParagraphs:true});
+        show([
+            {label:t('flow_join_keep'), run:()=>performJoin(false)},
+            {label:t('flow_join_paragraphs'), disabled:!paragraphStatus.eligible,
+                reason:paragraphStatus.eligible?'':reasonText(paragraphStatus), run:()=>performJoin(true)},
+        ]);
+        if (!paragraphStatus.eligible) {
+            const note = document.createElement('div'); note.className='context-menu-note'; note.textContent=reasonText(paragraphStatus);
+            menu.appendChild(note); showContextMenuAt(event.clientX,event.clientY,null);
+        }
+    };
     show([
         {label:t('thumb_add_before'), run:()=>addMenu('before')},
         {label:t('thumb_add_after'), run:()=>addMenu('after')},
         ...(block.kind === 'flow' ? [
+            {label:t('flow_join_previous'), disabled:!joinStatus.eligible, reason:joinStatus.eligible?'':reasonText(joinStatus), run:joinMenu},
             {label:t('flow_open_source'), run:()=>{hideContextMenu();window.changeFlowSourceBlock(index);}},
             {label:t('thumb_delete_flow'), run:()=>{hideContextMenu();selectFlowSource(block.id);if (!deleteActiveFlowGroup(block)) { selectFlowGeneratedPage(block.id); refreshForThumbSelection(); }}},
         ] : [{label:t('thumb_delete_page'), disabled:!canDeleteActive(), run:()=>{hideContextMenu();window.deleteActive();}}]),
     ]);
+    if (block.kind === 'flow' && !joinStatus.eligible) {
+        const note = document.createElement('div'); note.className='context-menu-note'; note.textContent=reasonText(joinStatus);
+        menu.appendChild(note); showContextMenuAt(event.clientX,event.clientY,null);
+    }
 }
 
 function initContextMenu() {

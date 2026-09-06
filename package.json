@@ -37,6 +37,7 @@
     "verify:history-editor-focus": "node scripts/verify-history-editor-focus.js",
     "verify:flow-direct-navigation": "node scripts/verify-flow-direct-navigation.js",
     "verify:flow-direct-projection-recovery": "node scripts/verify-flow-direct-projection-recovery.js",
+    "verify:flow-group-join": "node scripts/verify-flow-group-join.js",
     "verify:editor-flow-interactions": "node scripts/verify-editor-flow-interactions.js",
     "verify:editor-canvas-projection": "node scripts/verify-editor-canvas-projection.js",
     "verify:flow-canvas-layout": "node scripts/verify-flow-canvas-layout.js",
