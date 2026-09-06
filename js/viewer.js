@@ -4875,11 +4875,11 @@ function getZoomFocusPoint(clientX, clientY) {
     const canvas = document.getElementById('viewer-canvas');
     if (!canvas) return { x: 0, y: 0 };
     const rect = canvas.getBoundingClientRect();
-    // The transformed rectangle already includes viewX/viewY. Remove that
-    // translation to recover the stable transform origin used by the stage.
+    // The canvas is untransformed; only its child stage receives zoom/pan.
+    // Its center is already the stable origin. Do not add the pan a second time.
     return {
-        x: clientX - (rect.left + rect.width / 2 - viewX),
-        y: clientY - (rect.top + rect.height / 2 - viewY)
+        x: clientX - (rect.left + rect.width / 2),
+        y: clientY - (rect.top + rect.height / 2)
     };
 }
 

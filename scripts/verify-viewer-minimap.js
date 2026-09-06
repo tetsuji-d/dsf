@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { runInNewContext } from 'node:vm';
 import { readFile } from 'node:fs/promises';
 import {
     calculateViewerAnchoredZoom,
@@ -173,6 +174,27 @@ const [html, viewerJs, css] = await Promise.all([
     readFile(new URL('../js/viewer.js', import.meta.url), 'utf8'),
     readFile(new URL('../css/viewer.css', import.meta.url), 'utf8')
 ]);
+
+// Exercise the actual DOM-to-focus adapter, including successive pinch frames.
+// A pure anchored-zoom test alone cannot detect double-counted pan here.
+const focusSource = viewerJs.match(/function getZoomFocusPoint\(clientX, clientY\) \{[\s\S]*?\n\}/)?.[0];
+assert.ok(focusSource, 'Viewer focus adapter must be available');
+const gestureContext = {
+    document: { getElementById: () => ({ getBoundingClientRect: () => ({ left: 0, top: 87, width: 440, height: 782 }) }) },
+    viewX: 30, viewY: -80
+};
+const focusAt = runInNewContext(`(${focusSource})`, gestureContext);
+const initialFocus = focusAt(160, 390);
+const anchor = { x: (initialFocus.x - 30) / 2, y: (initialFocus.y + 80) / 2 };
+for (const [scale, x, y] of [[2.2, 160, 390], [2.5, 165, 400], [3, 175, 410]]) {
+    const focus = focusAt(x, y);
+    const next = calculateViewerAnchoredZoom({ currentScale: 2, nextScale: scale,
+        focusX: focus.x, focusY: focus.y, anchorX: anchor.x, anchorY: anchor.y });
+    nearlyEqual(220 + next.x + anchor.x * scale, x);
+    nearlyEqual(478 + next.y + anchor.y * scale, y);
+    gestureContext.viewX = next.x;
+    gestureContext.viewY = next.y;
+}
 
 for (const id of [
     'viewer-minimap',
