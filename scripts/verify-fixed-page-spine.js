@@ -238,9 +238,4 @@ assert.match(appSource, /if \(state\.version === 6\) return false;/,
     'The legacy flat-Section insertion path must reject Project v6');
 assert.match(appSource, /if \(!canDeleteActive\(\)\) return;/,
     'Rejected deletes must not create an empty History entry or autosave');
-assert.match(sectionsSource, /const canDragV6FixedPage = isDesktop && !spreadGroupId;/,
-    'Only ordinary persisted Fixed pages may opt into Project v6 desktop DnD');
-assert.match(sectionsSource, /draggable="false"/,
-    'Flow and unsupported thumbnail cards must remain non-draggable');
-
 console.log('Fixed page mixed-spine verification passed.');

@@ -882,17 +882,14 @@ export function renderThumbs() {
             const spreadThumbClass = getSpreadThumbClass(pageIdx);
             if (activeSpreadGroupId && spreadGroupId === activeSpreadGroupId) selected = true;
             const spreadAttrs = spreadGroupId ? ` data-spread-group="${escapeAttr(spreadGroupId)}"` : '';
-            const dataAttrs = `data-block-index="${blockIdx}" data-section-index="${pageIdx}" data-tree-depth="${depth}"${spreadAttrs}`;
-            // v6 desktop DnD is routed through the canonical mixed-spine
-            // operation. Touch stays off until its delete/drop UI is migrated.
-            const canDragV6FixedPage = isDesktop && !spreadGroupId;
-            const dragHandlers = strictAuthoring && !canDragV6FixedPage ? 'draggable="false"' : `
+            const dataAttrs = `${strictAuthoring ? `data-editor-unit-id="${escapeAttr(b.id)}"` : ''} data-block-index="${blockIdx}" data-section-index="${pageIdx}" data-tree-depth="${depth}"${spreadAttrs}`;
+            const dragHandlers = strictAuthoring ? 'draggable="false"' : `
                 ondragstart="startThumbDrag(event, ${pageIdx})"
                 ondragover="onThumbDragOver(event, ${pageIdx})"
                 ondragleave="onThumbDragLeave(event, ${pageIdx})"
                 ondrop="onThumbDrop(event, ${pageIdx})"
                 ondragend="endThumbDrag()"
-                ${strictAuthoring ? '' : `ontouchstart="startThumbTouchDrag(event, ${pageIdx})"`}
+                ontouchstart="startThumbTouchDrag(event, ${pageIdx})"
                 draggable="true"
             `;
             const insertBeforeAction = strictAuthoring
@@ -916,6 +913,7 @@ export function renderThumbs() {
                             ${thumbImg}
                         </div>
                         <span class="thumb-page-num">${escapeHtml(pageLabel)}</span>
+                    ${strictAuthoring && !spreadGroupId ? '<span class="thumb-drag-grip" aria-hidden="true">⠿</span>' : ''}
                         <div class="thumb-card-top"></div>
                         <button class="thumb-insert-btn before" title="ここにページ挿入" ontouchstart="event.stopPropagation()" onclick="${insertBeforeAction}"><span class="material-icons">add</span></button>
                         <button class="thumb-insert-btn after" title="この下にページ挿入" ontouchstart="event.stopPropagation()" onclick="${insertAfterAction}"><span class="material-icons">add</span></button>
@@ -940,6 +938,7 @@ export function renderThumbs() {
                         <span class="thumb-card-badge thumb-card-badge-text">T</span>
                     </div>
                     <span class="thumb-page-num">${escapeHtml(pageLabel)}</span>
+                    ${strictAuthoring && !spreadGroupId ? '<span class="thumb-drag-grip" aria-hidden="true">⠿</span>' : ''}
                     <div class="thumb-card-top"></div>
                     <button class="thumb-insert-btn before" title="ここにページ挿入" ontouchstart="event.stopPropagation()" onclick="${insertBeforeAction}"><span class="material-icons">add</span></button>
                     <button class="thumb-insert-btn after" title="この下にページ挿入" ontouchstart="event.stopPropagation()" onclick="${insertAfterAction}"><span class="material-icons">add</span></button>
@@ -948,53 +947,57 @@ export function renderThumbs() {
             `;
         }
 
-        const canInsertBefore = canInsertNearBlock(b, 'before');
-        const canInsertAfter = canInsertNearBlock(b, 'after');
-        const canMove = canManualMoveBlock(b);
         const isFlow = b?.kind === 'flow';
-        const canMoveUp = isFlow && strictAuthoring
-            ? moveFlowGroupInSpine(blocks, { blockIndex: blockIdx, direction: 'up' }).changed
-            : canMove && findMovableTargetIndex(blocks, blockIdx, 'up') >= 0;
-        const canMoveDown = isFlow && strictAuthoring
-            ? moveFlowGroupInSpine(blocks, { blockIndex: blockIdx, direction: 'down' }).changed
-            : canMove && findMovableTargetIndex(blocks, blockIdx, 'down') >= 0;
-        const generatedFlowPages = isFlow ? (runtimePagesByBlock.get(blockIdx) || []) : [];
-        const rawInfo = getBlockSummary(b);
-        const info = isFlow && generatedFlowPages.length > 0
-            ? { ...rawInfo, subtitle: `${generatedFlowPages.length}ページ / 原稿を編集` }
-            : rawInfo;
-        const selectedFlowPageIndex = isFlow ? getSelectedFlowRuntimePageIndex(b.id) : 0;
-        const coverLock = isLockedBlock(b)
-            ? `<span class="thumb-card-lock" title="${isFlow ? 'Flow Group全体を移動・編集できます' : '位置固定'}">${isFlow ? 'SOURCE' : 'LOCK'}</span>`
-            : '';
-        const sourceSelected = selected && (!isFlow || isFlowSourceSelected(b.id));
-        const sourceCard = `
-            <div class="thumb-wrap thumb-card ${isFlow ? 'flow-source-card' : ''} ${sourceSelected ? 'active' : ''}" data-block-index="${blockIdx}" data-tree-depth="${depth}"
-                ${isFlow ? 'data-testid="flow-source-card" onclick="changeFlowSourceBlock(' + blockIdx + ')"' : 'onclick="changeBlock(' + blockIdx + ')"'}
-                onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();${isFlow ? 'changeFlowSourceBlock(' + blockIdx + ')' : 'changeBlock(' + blockIdx + ')'}}"
-                aria-current="${sourceSelected ? 'true' : 'false'}"
-                role="button" tabindex="0"
-                draggable="false">
-                <div class="thumb-canvas thumb-canvas-meta thumb-canvas-structure kind-${escapeHtml(b?.kind || 'unknown')}">
-                    <div class="thumb-card-meta">
-                        <span class="thumb-card-badge">${escapeHtml(info.badge)}</span>
-                        <span class="thumb-card-title">${escapeHtml(info.title || '')}</span>
-                        ${info.subtitle ? `<span class="thumb-card-subtitle">${escapeHtml(info.subtitle)}</span>` : ''}
+        if (!isFlow) {
+            const canInsertBefore = canInsertNearBlock(b, 'before');
+            const canInsertAfter = canInsertNearBlock(b, 'after');
+            const canMove = canManualMoveBlock(b);
+            const canMoveUp = canMove && findMovableTargetIndex(blocks, blockIdx, 'up') >= 0;
+            const canMoveDown = canMove && findMovableTargetIndex(blocks, blockIdx, 'down') >= 0;
+            const info = getBlockSummary(b);
+            const coverLock = isLockedBlock(b)
+                ? `<span class="thumb-card-lock" title="位置固定">LOCK</span>`
+                : '';
+            const sourceSelected = selected;
+            const sourceCard = `
+                <div class="thumb-wrap thumb-card ${sourceSelected ? 'active' : ''}" data-block-index="${blockIdx}" data-tree-depth="${depth}"
+                    onclick="changeBlock(${blockIdx})"
+                    onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();changeBlock(${blockIdx})}"
+                    aria-current="${sourceSelected ? 'true' : 'false'}"
+                    role="button" tabindex="0"
+                    draggable="false">
+                    <div class="thumb-canvas thumb-canvas-meta thumb-canvas-structure kind-${escapeHtml(b?.kind || 'unknown')}">
+                        <div class="thumb-card-meta">
+                            <span class="thumb-card-badge">${escapeHtml(info.badge)}</span>
+                            <span class="thumb-card-title">${escapeHtml(info.title || '')}</span>
+                            ${info.subtitle ? `<span class="thumb-card-subtitle">${escapeHtml(info.subtitle)}</span>` : ''}
+                        </div>
                     </div>
+                    <div class="thumb-card-top">
+                        ${coverLock}
+                    </div>
+                    ${canInsertBefore ? `<button class="thumb-insert-btn before" title="ここにページ挿入" ontouchstart="event.stopPropagation()" onclick="insertPageNearBlock(${blockIdx}, 'before', event)"><span class="material-icons">add</span></button>` : ''}
+                    ${canInsertAfter ? `<button class="thumb-insert-btn after" title="この下にページ挿入" ontouchstart="event.stopPropagation()" onclick="insertPageNearBlock(${blockIdx}, 'after', event)"><span class="material-icons">add</span></button>` : ''}
+                    ${canMoveUp ? `<button class="thumb-move-btn up" title="上へ移動" ontouchstart="event.stopPropagation()" onclick="moveBlockByIndex(${blockIdx}, 'up', event)"><span class="material-icons">arrow_upward</span></button>` : ''}
+                    ${canMoveDown ? `<button class="thumb-move-btn down" title="下へ移動" ontouchstart="event.stopPropagation()" onclick="moveBlockByIndex(${blockIdx}, 'down', event)"><span class="material-icons">arrow_downward</span></button>` : ''}
+                    ${!isLockedBlock(b)
+                    ? `<button class="thumb-duplicate-btn" title="ブロックを複製" ontouchstart="event.stopPropagation()" onclick="duplicateBlockByIndex(${blockIdx}, event)"><span class="material-icons">content_copy</span></button>`
+                    : ''}
                 </div>
-                <div class="thumb-card-top">
-                    ${coverLock}
-                </div>
-                ${canInsertBefore ? `<button class="thumb-insert-btn before" title="ここにページ挿入" ontouchstart="event.stopPropagation()" onclick="insertPageNearBlock(${blockIdx}, 'before', event)"><span class="material-icons">add</span></button>` : ''}
-                ${canInsertAfter ? `<button class="thumb-insert-btn after" title="この下にページ挿入" ontouchstart="event.stopPropagation()" onclick="insertPageNearBlock(${blockIdx}, 'after', event)"><span class="material-icons">add</span></button>` : ''}
-                ${canMoveUp ? `<button class="thumb-move-btn up" title="${isFlow ? 'Flow原稿を前へ移動' : '上へ移動'}" ontouchstart="event.stopPropagation()" onclick="moveBlockByIndex(${blockIdx}, 'up', event)"><span class="material-icons">arrow_upward</span></button>` : ''}
-                ${canMoveDown ? `<button class="thumb-move-btn down" title="${isFlow ? 'Flow原稿を後へ移動' : '下へ移動'}" ontouchstart="event.stopPropagation()" onclick="moveBlockByIndex(${blockIdx}, 'down', event)"><span class="material-icons">arrow_downward</span></button>` : ''}
-                ${!isLockedBlock(b)
-                ? `<button class="thumb-duplicate-btn" title="ブロックを複製" ontouchstart="event.stopPropagation()" onclick="duplicateBlockByIndex(${blockIdx}, event)"><span class="material-icons">content_copy</span></button>`
-                : ''}
-            </div>
-        `;
-        if (!isFlow || generatedFlowPages.length === 0) return sourceCard;
+            `;
+            return sourceCard;
+        }
+        const generatedFlowPages = runtimePagesByBlock.get(blockIdx) || [];
+        const selectedFlowPageIndex = getSelectedFlowRuntimePageIndex(b.id);
+        if (generatedFlowPages.length === 0) return `
+            <div class="thumb-wrap thumb-card flow-generated-thumb" data-testid="flow-generated-thumb"
+                data-block-index="${blockIdx}" data-editor-unit-id="${escapeAttr(b.id)}" data-flow-page-index="0"
+                onclick="changeFlowGeneratedPage(${blockIdx}, 0)"
+                onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();changeFlowGeneratedPage(${blockIdx},0)}"
+                role="button" tabindex="0" aria-label="Flowページ" draggable="false">
+                <div class="thumb-canvas thumb-canvas-meta"><span class="thumb-card-badge">FLOW</span></div>
+                <span class="thumb-page-num">…</span><span class="thumb-drag-grip" aria-hidden="true">⠿</span>
+            </div>`;
 
         const generatedCards = generatedFlowPages.map((page) => {
             const pageLabel = getPageDisplayLabel(
@@ -1012,6 +1015,7 @@ export function renderThumbs() {
             return `
                 <div class="thumb-wrap thumb-card flow-generated-thumb ${pageSelected ? 'active' : ''}"
                     data-testid="flow-generated-thumb"
+                    data-editor-unit-id="${escapeAttr(b.id)}"
                     data-block-index="${blockIdx}"
                     data-flow-page-index="${page.flowPageIndex}"
                     data-publication-index="${page.index}"
@@ -1030,10 +1034,11 @@ export function renderThumbs() {
                         ${fallbackBadge}
                     </div>
                     <span class="thumb-page-num">${escapeHtml(pageLabel)}</span>
+                    ${strictAuthoring ? '<span class="thumb-drag-grip" aria-hidden="true">⠿</span>' : ''}
                 </div>
             `;
         }).join('');
-        return sourceCard + generatedCards;
+        return generatedCards;
     }).join('');
 
     container.querySelectorAll('.flow-generated-thumb-page').forEach((pageElement) => {

@@ -1,3 +1,4 @@
+import { moveAuthoringUnitInSpine } from './fixed-page-spine.js';
 /**
  * Insert a Fixed image at a semantic caret. Each side paginates independently.
  * Source, layout and translation data stay in the existing Project v6 model.
@@ -85,4 +86,17 @@ export function createFlowImageInsertion(blocks, session, options = {}) {
     assertValidFlowProjectData({ version: 6, blocks: nextBlocks });
     return Object.freeze({ blocks: nextBlocks, activeBlockIndex: groupIndex + 1,
         leadingGroupId: leading.id, trailingGroupId: trailing.id });
+}
+
+/** Relocate an existing image (including all localized assets and overlays) into Flow in one transaction. */
+export function moveExistingImageIntoFlow(blocks, session, options = {}) {
+    const image = blocks.find(block => block.id === options.imageBlockId);
+    if (image?.kind !== 'page' || image.content?.pageKind !== 'image' || image.content.spreadImage) {
+        fail('FLOW_IMAGE_PAGE_REQUIRED');
+    }
+    const boundary = moveAuthoringUnitInSpine(blocks, { sourceBlockId: image.id,
+        targetBlockId: session?.groupId, position: 'before' });
+    if (!boundary.changed && boundary.reason !== 'no_change') fail('FLOW_IMAGE_SPINE_BOUNDARY');
+    return createFlowImageInsertion(blocks.filter(block => block.id !== image.id), session,
+        { ...options, imageBlock: image });
 }

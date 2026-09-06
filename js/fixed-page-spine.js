@@ -154,3 +154,33 @@ export function removeFixedPageRangeFromSpine(blocks, options = {}) {
             : 0,
     });
 }
+
+/** Move a whole authoring unit to a thumbnail boundary; never split a spread or cross structure markers. */
+export function moveAuthoringUnitInSpine(blocks, options = {}) {
+    const sourceIndex = blocks.findIndex(block => block.id === options.sourceBlockId);
+    const targetIndex = blocks.findIndex(block => block.id === options.targetBlockId);
+    const unitAt = index => {
+        const block = blocks[index];
+        if (block?.kind === 'flow') return [index];
+        if (block?.kind !== 'page') return null;
+        const entries = getPageEntries(blocks);
+        const result = resolveAtomicPageEntries(entries, entries.findIndex(entry => entry.blockIndex === index));
+        return result.ok ? result.entries.map(entry => entry.blockIndex) : null;
+    };
+    const source = unitAt(sourceIndex), target = unitAt(targetIndex);
+    if (!source || !target) return unchanged(blocks, 'invalid_unit');
+    if (source.some(index => target.includes(index))) return unchanged(blocks, 'same_unit');
+    const low = Math.min(...source, ...target), high = Math.max(...source, ...target);
+    if (blocks.slice(low, high + 1).some(block => !['flow', 'page'].includes(block.kind))) {
+        return unchanged(blocks, 'spine_boundary');
+    }
+    const moved = source.map(index => blocks[index]);
+    const next = blocks.filter((_, index) => !source.includes(index));
+    const anchor = blocks[options.position === 'before' ? target[0] : target.at(-1)];
+    const insertion = next.indexOf(anchor) + (options.position === 'before' ? 0 : 1);
+    next.splice(insertion, 0, ...moved);
+    if (sameBlockOrder(blocks, next)) return unchanged(blocks, 'no_change');
+    return Object.freeze({ changed: true, reason: '', blocks: next,
+        activeBlockIndex: next.indexOf(blocks[sourceIndex]),
+        activePageIndex: getPageIndexForBlockIndex(next, next.indexOf(blocks[sourceIndex])) });
+}

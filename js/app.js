@@ -23,7 +23,7 @@ import { getLangProps, getAllLangs } from './lang.js';
 import { t, applyI18n, setUILang, getUILang } from './i18n-studio.js';
 import { createPageBlockFromSection, createSectionFromPageBlock, getBlockIndexFromPageIndex, getPageIndexFromBlockIndex, migrateSectionsToBlocks, syncBlocksWithSections, extractSectionsFromBlocks } from './blocks.js';
 import { blocksToPages } from './pages.js';
-import { moveFixedPageRangeInSpine } from './fixed-page-spine.js';
+import { moveAuthoringUnitInSpine, moveFixedPageRangeInSpine } from './fixed-page-spine.js';
 import { buildDSP, buildDSF, parseAndLoadDSP } from './export.js';
 import { hydrateProjectFromPersistence } from './project-persistence.js';
 import { applyTheme, bindThemePreferenceListener, getThemeMode, setThemeMode } from './theme.js';
@@ -39,11 +39,12 @@ import { buildOwnerDraftViewerUrl } from './viewer-owner-preview.js';
 import { buildPublicViewerUrl } from './viewer-release-route.js';
 import { PROJECT_SCHEMA_VERSION, createFlowGroupBlock, hasFlowGroups } from './flow-project-model.js';
 import { applyFlowAuthoringOperation } from './flow-authoring.js';
-import { createFlowImageInsertion } from './flow-image-insertion.js';
+import { createFlowImageInsertion, moveExistingImageIntoFlow } from './flow-image-insertion.js';
 import { alignFlowDirectCompositionElement } from './flow-direct-composition.js';
 import { createFlowCanvasView } from './flow-canvas-view.js';
+import { bindEditorThumbnailDrag } from './editor-thumbnail-drag.js';
 import { buildFlowPageProjection } from './flow-page-projection.js';
-import { findEditorCanvasFlowPageIndex, getEditorCanvasSpreadJoins } from './editor-canvas-projection.js';
+import { resolveEditorFlowPageBoundary, resolveEditorFlowSourcePoint, findEditorCanvasFlowPageIndex, getEditorCanvasSpreadJoins } from './editor-canvas-projection.js';
 import { normalizeFlowPageGuideMode } from './flow-page-guides.js';
 import { measureFlowDirectNavigationStops, resolveFlowDirectNavigation } from './flow-direct-navigation.js';
 import {
@@ -408,7 +409,58 @@ function clearFlowDirectEditRuntime(options = {}) {
     syncFlowDirectFormatControls();
 }
 
+
+function syncFlowPageSourceControls() {
+    const panel = document.getElementById('flow-page-source-props');
+    const group = getActiveBlock();
+    const active = group?.kind === 'flow';
+    panel.hidden = !active;
+    if (!active) return;
+    const source = isFlowSourceSelected(group.id);
+    const button = document.getElementById('flow-open-source');
+    button.textContent = t(source ? 'flow_return_page' : 'flow_open_source');
+    button.disabled = _flowAuthoringComposing || _flowImageInsertionBusy;
+    button.onmousedown = event => event.preventDefault();
+    button.onclick = () => {
+        if (_flowAuthoringComposing || _flowImageInsertionBusy) return;
+        if (source) {
+            const input = document.activeElement?.matches?.('[data-flow-field="block-text"]') ? document.activeElement : null;
+            const target = input ? getFlowAuthoringTarget(input) : null;
+            const saved = target ? { ...target, languageKey: getFlowAuthoringLanguage(group),
+                ...mapFlowTextUtf16OffsetToGrapheme(input.value, input.selectionEnd, getFlowAuthoringLanguage(group)) }
+                : getFlowEditorSelection(group.id);
+            const pages = getEditorPageProjection()?.pages.filter(page => page.kind === 'flow' && page.groupId === group.id) || [];
+            const location = saved.blockId ? findFlowSourcePointInPages(pages.map(page => page.page), saved) : null;
+            window.changeFlowGeneratedPage(state.activeBlockIdx, location?.pageIndex ?? getSelectedFlowRuntimePageIndex(group.id));
+            return;
+        }
+        window.changeFlowSourceBlock(state.activeBlockIdx);
+    };
+}
+
+function scrollFlowSourceCaretIntoView(root, input, offset) {
+    // Source textareas auto-size to the whole paragraph. Measure the actual caret
+    // line so a long paragraph opens at the selected page, rather than its midpoint.
+    const style = getComputedStyle(input);
+    const mirror = document.createElement('div');
+    for (const name of ['fontFamily', 'fontSize', 'fontWeight', 'fontStyle', 'lineHeight', 'letterSpacing',
+        'wordSpacing', 'textIndent', 'paddingTop', 'paddingRight', 'paddingBottom', 'paddingLeft',
+        'boxSizing', 'wordBreak', 'overflowWrap', 'tabSize', 'direction']) mirror.style[name] = style[name];
+    Object.assign(mirror.style, { position: 'fixed', left: '-100000px', top: '0',
+        width: input.getBoundingClientRect().width + 'px', whiteSpace: 'pre-wrap', visibility: 'hidden' });
+    mirror.appendChild(document.createTextNode(input.value.slice(0, offset)));
+    const caret = document.createElement('span');
+    caret.textContent = input.value.slice(offset, offset + 1) || '\u200b';
+    mirror.appendChild(caret);
+    document.body.appendChild(mirror);
+    const lineTop = caret.getBoundingClientRect().top - mirror.getBoundingClientRect().top;
+    mirror.remove();
+    const top = input.getBoundingClientRect().top - root.getBoundingClientRect().top + root.scrollTop;
+    root.scrollTop = Math.max(0, top + lineTop - root.clientHeight / 2);
+}
+
 function syncFlowDirectFormatControls() {
+    syncFlowPageSourceControls();
     const panel = document.getElementById('flow-direct-format-props');
     if (!panel) return;
     const session = _flowDirectEditSession;
@@ -1553,7 +1605,7 @@ function restoreMappedFlowSourceCaret(groupId, sourcePoint) {
         ) return;
         input.focus({ preventScroll: true });
         input.setSelectionRange(utf16Offset, utf16Offset, 'none');
-        input.scrollIntoView?.({ block: 'center', behavior: 'auto' });
+        scrollFlowSourceCaretIntoView(root, input, utf16Offset);
         root.dataset.sourceMappedBlockId = sourcePoint.blockId;
         root.dataset.sourceMappedGraphemeOffset = String(sourcePoint.graphemeOffset);
         root.dataset.sourceMappedUtf16Offset = String(sourcePoint.utf16Offset);
@@ -4497,6 +4549,7 @@ function refresh(options = {}) {
         flowAuthoringLanguage.textContent = getFlowAuthoringLanguage(activeBlock).toUpperCase();
     }
     syncFlowAuthoringWritingModeControl(activeBlock, isFlowAuthoring);
+    syncFlowPageSourceControls();
 
     // Normalize stale bubble selection
     if (state.activeBubbleIdx !== null && (!s?.bubbles || !s.bubbles[state.activeBubbleIdx])) {
@@ -4532,7 +4585,7 @@ function refresh(options = {}) {
                 <span class="material-icons">article</span>
                 <strong>Flowテキスト</strong>
                 <span data-flow-progress>ページ生成中…</span>
-                <span>生成ページの確認画面です。編集するには親の「Flow原稿」を選択してください。</span>
+                <span>本文をクリックして編集できます。原稿全体は編集プロパティの「原稿を開く」から開けます。</span>
             </div>`;
         syncFlowDirectFormatControls();
         const pageLockNote = document.getElementById('page-lock-note');
@@ -8156,8 +8209,18 @@ window.changeFlowSourceBlock = (blockIndex) => {
     const block = state.blocks?.[Number(blockIndex)];
     if (block?.kind !== 'flow') return;
     endHistoryGroup();
-    selectFlowSource(block.id);
+    if (_flowAuthoringComposing || _flowImageInsertionBusy) return;
+    const page = getEditorPageProjection()?.pages.find(page => page.kind === 'flow'
+        && page.groupId === block.id && page.flowPageIndex === getSelectedFlowRuntimePageIndex(block.id));
+    let point = resolveEditorFlowSourcePoint(block, page, _flowDirectEditSession, {
+        start: _flowDirectEditProxy?.selectionStart, end: _flowDirectEditProxy?.selectionEnd,
+        direction: _flowDirectEditProxy?.selectionDirection });
+    // Fallback text has no equivalent translated character offset. Open the same block.
+    const languageKey = getFlowAuthoringLanguage(block);
+    if (point && point.languageKey !== languageKey) point = { ...point, languageKey, utf16Offset: 0, graphemeOffset: 0 };
+    selectFlowSource(block.id, point || {});
     changeBlock(blockIndex, refresh);
+    if (point) restoreMappedFlowSourceCaret(block.id, point);
 };
 window.changeFlowGeneratedPage = (blockIndex, flowPageIndex) => {
     if (Date.now() < suppressThumbClickUntil) return;
@@ -8233,6 +8296,144 @@ function isPersistedFixedPageIndex(pageIndex) {
         && state.blocks?.[blockIndex]?.kind === 'page'
         && !state.sections?.[Number(pageIndex)]?.spreadImage?.groupId;
 }
+
+function applyEditorSpineChange(result, options = {}) {
+    const editorFocus = captureFlowEditorFocusSnapshot();
+    endHistoryGroup();
+    pushState({ editorFocus });
+    clearFlowDirectEditRuntime();
+    dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'blocks', value: result.blocks } });
+    dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'sections', value: extractSectionsFromBlocks(result.blocks) } });
+    dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'pages', value: blocksToPages(result.blocks) } });
+    dispatch({ type: actionTypes.SET_ACTIVE_BLOCK_INDEX, payload: result.activeBlockIndex });
+    dispatch({ type: actionTypes.SET_ACTIVE_INDEX, payload: Math.max(0, getPageIndexFromBlockIndex(result.blocks, result.activeBlockIndex)) });
+    dispatch({ type: actionTypes.SET_ACTIVE_BUBBLE_INDEX, payload: null });
+    const active = result.blocks[result.activeBlockIndex];
+    if (active.kind === 'flow') {
+        selectFlowGeneratedPage(active.id);
+        setSelectedFlowRuntimePageIndex(active.id, options.flowPageIndex || 0);
+    }
+    _flowAuthoringSourceRevision += 1;
+    invalidateFlowRuntimePages({ preserveSelection: true });
+    refresh();
+    updateHistoryButtons();
+    triggerAutoSave();
+}
+
+function editorDragBlocked() {
+    return state.version !== 6 || _flowAuthoringComposing || _flowImageInsertionBusy
+        || _flowDirectEditApplying || _flowTranslationJob?.state === 'running';
+}
+
+function resolveEditorThumbDrop(hit, x, y, context) {
+    if (editorDragBlocked()) return null;
+    const image = state.blocks.find(block => block.id === context.id);
+    const isImage = image?.kind === 'page' && image.content?.pageKind === 'image' && !image.content.spreadImage;
+    const projection = getEditorPageProjection();
+    const thumb = hit?.closest('.thumb-wrap[data-editor-unit-id]');
+    if (thumb) {
+        const container = thumb.parentElement;
+        const horizontal = container.id === 'page-strip-thumbs' || innerWidth < 1024;
+        const rtl = container.dataset.dir === 'rtl';
+        const box = thumb.getBoundingClientRect();
+        const before = horizontal ? (x < box.left + box.width / 2) !== rtl : y < box.top + box.height / 2;
+        const position = before ? 'before' : 'after';
+        if (isImage && thumb.dataset.flowPageIndex !== undefined && !projection) return null;
+        const groupPages = projection?.pages.filter(page => page.kind === 'flow'
+            && page.groupId === thumb.dataset.editorUnitId) || [];
+        const pageIndex = Number(thumb.dataset.flowPageIndex);
+        if (isImage && groupPages.length && (before ? pageIndex > 0 : pageIndex < groupPages.length - 1)) {
+            const page = groupPages.find(page => page.flowPageIndex === pageIndex);
+            const point = resolveEditorFlowPageBoundary(page, position);
+            return createEditorImageFlowDrop(page, point, context, {
+                left: before !== rtl ? box.left : box.right, top: box.top, width: box.width, height: box.height,
+            }, horizontal ? 'vertical' : 'horizontal', t('flow_drag_insert_image_boundary'));
+        }
+        const result = moveAuthoringUnitInSpine(state.blocks, { sourceBlockId: context.id,
+            targetBlockId: thumb.dataset.editorUnitId, position });
+        if (!result.changed) return null;
+        const target = state.blocks.find(block => block.id === thumb.dataset.editorUnitId);
+        const spreadId = target?.content?.spreadImage?.groupId;
+        const targetIds = new Set(spreadId
+            ? state.blocks.filter(block => block.content?.spreadImage?.groupId === spreadId).map(block => block.id)
+            : [thumb.dataset.editorUnitId]);
+        const unitThumbs = [...container.querySelectorAll('.thumb-wrap[data-editor-unit-id]')]
+            .filter(el => targetIds.has(el.dataset.editorUnitId));
+        const edge = (before ? unitThumbs[0] : unitThumbs.at(-1)).getBoundingClientRect();
+        return { kind: 'spine', targetId: thumb.dataset.editorUnitId, position,
+            label: context.label, orientation: horizontal ? 'vertical' : 'horizontal',
+            rect: { left: horizontal ? (before !== rtl ? edge.left : edge.right) : edge.left,
+                top: horizontal ? edge.top : before ? edge.top : edge.bottom, width: edge.width, height: edge.height } };
+    }
+    const surface = hit?.closest('.flow-editor-page-surface');
+    const page = surface?._flowPageEntry;
+    if (!page || !isImage || page.isSourceFallback) return null;
+    if (!projection || !projection.pages.some(entry => entry.runtimeKey === page.runtimeKey)) return null;
+    try {
+        const point = mapFlowClientPointToSource(surface, page.page, x, y, { writingMode: page.writingMode });
+        if (!point) return null;
+        const rect = getFlowSourcePointClientRect(surface, page.page, point, {writingMode: page.writingMode});
+        return createEditorImageFlowDrop(page, point, context, rect, rect?.caretOrientation, t('flow_drag_insert_image'));
+    } catch { return null; }
+}
+
+function createEditorImageFlowDrop(page, point, context, rect, orientation, label) {
+    if (!page || !point || !rect || page.isSourceFallback) return null;
+    const group = getFlowGroupById(page.groupId);
+    if (!group || page.languageKey !== group.flow.document.sourceLanguage) return null;
+    const boundary = moveAuthoringUnitInSpine(state.blocks, {sourceBlockId: context.id,
+        targetBlockId: group.id, position: 'before'});
+    if (!boundary.changed && boundary.reason !== 'no_change') return null;
+    try {
+        const session = createFlowDirectEditSession(group, {pageLanguageKey: page.languageKey,
+            writingMode: page.writingMode, sourcePoint: point});
+        return { kind: 'flow-text', session, point, rect, orientation, label };
+    } catch { return null; }
+}
+
+bindEditorThumbnailDrag({
+    root: document.getElementById('editor-room'),
+    begin: thumb => {
+        if (editorDragBlocked()) return null;
+        const block = state.blocks.find(block => block.id === thumb.dataset.editorUnitId);
+        if (!block || !['flow', 'page'].includes(block.kind) || block.content?.spreadImage) return null;
+        return { id: block.id, snapshot: JSON.stringify(state.blocks), projectId: state.projectId, uid: state.uid,
+            language: state.activeLang, flowPageIndex: Number(thumb.dataset.flowPageIndex) || 0,
+            label: t(block.kind === 'flow' ? 'flow_drag_whole_group' : 'flow_drag_image_or_page') };
+    },
+    resolve: resolveEditorThumbDrop,
+    commit: (target, context) => {
+        if (editorDragBlocked() || context.projectId !== state.projectId || context.uid !== state.uid
+            || context.language !== state.activeLang || context.snapshot !== JSON.stringify(state.blocks)) return;
+        try {
+            if (target.kind === 'spine') {
+                const result = moveAuthoringUnitInSpine(state.blocks, {sourceBlockId: context.id,
+                    targetBlockId: target.targetId, position: target.position});
+                if (result.changed) applyEditorSpineChange(result, context);
+            } else {
+                const result = moveExistingImageIntoFlow(state.blocks, target.session, {
+                    imageBlockId: context.id, selectionStart: target.point.utf16Offset,
+                    selectionEnd: target.point.utf16Offset, expectedText: target.session.expectedText });
+                applyEditorSpineChange(result);
+            }
+            suppressThumbClickUntil = Date.now() + 350;
+        } catch {
+            alert(t('flow_drag_failed'));
+        }
+    },
+    moveByKey: (thumb, key) => {
+        if (editorDragBlocked()) return;
+        const sourceIndex = state.blocks.findIndex(block => block.id === thumb.dataset.editorUnitId);
+        const rtl = thumb.parentElement.dataset.dir === 'rtl';
+        const forward = (key === 'ArrowRight') !== rtl;
+        const target = state.blocks[sourceIndex + (forward ? 1 : -1)];
+        if (!target) return;
+        const result = moveAuthoringUnitInSpine(state.blocks, {sourceBlockId: thumb.dataset.editorUnitId,
+            targetBlockId: target.id, position: forward ? 'after' : 'before'});
+        if (result.changed) applyEditorSpineChange(result, {flowPageIndex:Number(thumb.dataset.flowPageIndex)||0});
+    },
+});
+
 window.startThumbDrag = (e, idx) => {
     if (state.version === 6 && !isPersistedFixedPageIndex(idx)) return;
     thumbDragSourceIdx = idx;
