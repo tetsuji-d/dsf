@@ -11,7 +11,7 @@
  *   - 認証 UI: getStudioAuthMarkup → renderStudioAuthSlot（GIS ボタン + フォールバック）
  */
 import { state, dispatch, actionTypes } from './state.js';
-import { saveProject as persistProject, loadProject, uploadToStorage, uploadCoverToStorage, uploadStructureToStorage, triggerAutoSave, flushSave, flushPendingSave, generateCroppedThumbnail, listLocalRecentProjects, loadLocalRecentProject, cacheLocalRecentProject, ensureUserBootstrap, storePublicationThumbnailFile, auth as firebaseAuth, authReady, db } from './firebase.js';
+import { saveProject as persistProject, loadProject, uploadToStorage, prepareAuthoringImage, uploadCoverToStorage, uploadStructureToStorage, triggerAutoSave, flushSave, flushPendingSave, generateCroppedThumbnail, listLocalRecentProjects, loadLocalRecentProject, cacheLocalRecentProject, ensureUserBootstrap, storePublicationThumbnailFile, auth as firebaseAuth, authReady, db } from './firebase.js';
 import { initGIS, renderGISButton, signInWithGoogle, signOutUser, onAuthChanged, handleRedirectResult } from './gis-auth.js';
 import { handleCanvasClick, selectBubble, renderBubbleHTML, getBubbleText, setBubbleText, addBubbleAtCenter, startDrag, startTailDrag, startSpikeDrag } from './bubbles.js';
 import { addSection, addTextSection, changeSection, changeBlock, insertStructureBlock, renderThumbs, canDeleteActive, deleteActive, deleteSectionAt, insertSectionAt, insertSpreadImageAt, duplicateSectionAt, moveSection, moveSectionRange, insertPageNearBlock, duplicateBlockAt, moveBlockAt, getOptimizedImageUrl } from './sections.js';
@@ -21,7 +21,7 @@ import { openWorksRoom, closeWorksRoom, refreshWorksRoomLanguage } from './works
 import { enterPressRoom, leavePressRoom, refreshFlowHorizonDryRunReadiness } from './press.js';
 import { getLangProps, getAllLangs } from './lang.js';
 import { t, applyI18n, setUILang, getUILang } from './i18n-studio.js';
-import { createSectionFromPageBlock, getBlockIndexFromPageIndex, getPageIndexFromBlockIndex, migrateSectionsToBlocks, syncBlocksWithSections, extractSectionsFromBlocks } from './blocks.js';
+import { createPageBlockFromSection, createSectionFromPageBlock, getBlockIndexFromPageIndex, getPageIndexFromBlockIndex, migrateSectionsToBlocks, syncBlocksWithSections, extractSectionsFromBlocks } from './blocks.js';
 import { blocksToPages } from './pages.js';
 import { moveFixedPageRangeInSpine } from './fixed-page-spine.js';
 import { buildDSP, buildDSF, parseAndLoadDSP } from './export.js';
@@ -39,6 +39,7 @@ import { buildOwnerDraftViewerUrl } from './viewer-owner-preview.js';
 import { buildPublicViewerUrl } from './viewer-release-route.js';
 import { PROJECT_SCHEMA_VERSION, createFlowGroupBlock, hasFlowGroups } from './flow-project-model.js';
 import { applyFlowAuthoringOperation } from './flow-authoring.js';
+import { createFlowImageInsertion } from './flow-image-insertion.js';
 import { alignFlowDirectCompositionElement } from './flow-direct-composition.js';
 import { createFlowCanvasView } from './flow-canvas-view.js';
 import { buildFlowPageProjection } from './flow-page-projection.js';
@@ -162,6 +163,7 @@ let _flowAuthoringComposing = false;
 let _flowAuthoringLanguageFeedback = null;
 const FLOW_AUTHORING_WRITING_MODES = Object.freeze(['horizontal-tb', 'vertical-rl']);
 let _flowPendingSourceCaret = null;
+let _flowImageInsertionBusy = false;
 let _flowDirectEditProxy = null;
 let _flowDirectEditSession = null;
 let _flowDirectCompositionText = '';
@@ -413,6 +415,16 @@ function syncFlowDirectFormatControls() {
     const active = !!session && _flowDirectEditProxy?.isConnected
         && getActiveBlock()?.id === session.groupId && isFlowDirectEditing(session.groupId);
     panel.hidden = !active;
+    for (const button of document.querySelectorAll('[data-flow-insert-image]')) {
+        button.hidden = !active;
+        button.disabled = !active || _flowImageInsertionBusy || _flowAuthoringComposing
+            || _flowDirectEditApplying || _flowTranslationJob?.state === 'running'
+            || _flowDirectEditProxy.selectionStart !== _flowDirectEditProxy.selectionEnd;
+        button.onpointerdown = event => event.stopPropagation();
+        button.ontouchstart = event => event.stopPropagation();
+        button.onmousedown = event => { event.preventDefault(); event.stopPropagation(); };
+        button.onclick = chooseFlowImageAtCaret;
+    }
     syncFlowPageGuideControls(active);
     if (!active) return;
     const group = getFlowGroupById(session.groupId);
@@ -842,6 +854,79 @@ function commitFlowDirectEdit(proxy) {
         _flowDirectEditApplying = false;
         syncFlowDirectFormatControls();
     }
+}
+
+
+function chooseFlowImageAtCaret() {
+    const proxy = _flowDirectEditProxy;
+    const session = _flowDirectEditSession;
+    if (!proxy?.isConnected || !session || _flowImageInsertionBusy || _flowAuthoringComposing
+        || _flowDirectEditApplying || _flowTranslationJob?.state === 'running'
+        || getActiveBlock()?.id !== session.groupId || !isFlowDirectEditing(session.groupId)) return;
+    const imageBlock = createPageBlockFromSection({ type: 'image' });
+    const options = { selectionStart: proxy.selectionStart, selectionEnd: proxy.selectionEnd,
+        expectedText: proxy.value, imageBlock };
+    let plan;
+    try {
+        plan = createFlowImageInsertion(state.blocks, session, options);
+    } catch {
+        setFlowDirectEditNote(t('flow_image_invalid_position'));
+        return;
+    }
+    const original = { blocks: JSON.stringify(state.blocks), projectId: state.projectId,
+        workId: state.workId, uid: state.uid, language: state.activeLang };
+    const editorFocus = captureFlowDirectEditFocusSnapshot();
+    const current = () => original.projectId === state.projectId && original.workId === state.workId
+        && original.uid === state.uid && original.language === state.activeLang
+        && original.blocks === JSON.stringify(state.blocks) && getActiveBlock()?.id === session.groupId
+        && _flowTranslationJob?.state !== 'running';
+    const picker = document.getElementById('flow-image-file');
+    picker.value = '';
+    _flowImageInsertionBusy = true;
+    syncFlowDirectFormatControls();
+    const finish = () => {
+        _flowImageInsertionBusy = false;
+        picker.onchange = null;
+        picker.oncancel = null;
+        picker.value = '';
+        syncFlowDirectFormatControls();
+    };
+    picker.oncancel = finish;
+    picker.onchange = async () => {
+        const file = picker.files?.[0];
+        if (!file) { finish(); return; }
+        try {
+            if (!current()) throw new Error('stale');
+            setFlowDirectEditNote(t('flow_image_preparing'));
+            const { mainUrl, thumbUrl } = await prepareAuthoringImage(file, { uid: original.uid });
+            // File selection/upload can outlive edits, project switches or sign-out.
+            if (!current()) throw new Error('stale');
+            const inserted = plan.blocks[plan.activeBlockIndex];
+            inserted.content.background = mainUrl;
+            inserted.content.backgrounds = { [session.languageKey]: mainUrl };
+            inserted.content.thumbnail = thumbUrl;
+            endHistoryGroup();
+            pushState({ editorFocus });
+            clearFlowDirectEditRuntime();
+            dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'blocks', value: plan.blocks } });
+            dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'sections', value: extractSectionsFromBlocks(plan.blocks) } });
+            dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'pages', value: blocksToPages(plan.blocks) } });
+            dispatch({ type: actionTypes.SET_ACTIVE_BLOCK_INDEX, payload: plan.activeBlockIndex });
+            dispatch({ type: actionTypes.SET_ACTIVE_INDEX, payload: getPageIndexFromBlockIndex(plan.blocks, plan.activeBlockIndex) });
+            dispatch({ type: actionTypes.SET_ACTIVE_BUBBLE_INDEX, payload: null });
+            _flowAuthoringSourceRevision += 1;
+            refresh();
+            updateHistoryButtons();
+            triggerAutoSave();
+        } catch {
+            // Neither storage errors nor internal source payloads reach the UI.
+            setFlowDirectEditNote(t('flow_image_failed'));
+            alert(t('flow_image_failed'));
+        } finally {
+            finish();
+        }
+    };
+    picker.click();
 }
 
 function insertFlowDirectPageBreak(proxy) {

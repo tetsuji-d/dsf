@@ -10379,3 +10379,16 @@ body[data-theme="dark"] .ps-meta-mobile-field {
 .editor-fixed-page-surface:focus-visible { outline: 2px solid var(--primary); outline-offset: -3px; }
 .editor-unified-canvas #image-zoom-controls-floating,
 .editor-unified-canvas .fab-btn { z-index: 30; }
+
+/* Keep insertion close to the manuscript, including with the Edit drawer closed. */
+.flow-image-insert {
+    position: absolute;
+    right: 16px;
+    bottom: 16px;
+    z-index: 40;
+    min-height: 44px;
+    padding: 8px 16px;
+    border-radius: 22px;
+    box-shadow: 0 2px 10px #0003;
+}
+.flow-image-insert[hidden] { display: none; }

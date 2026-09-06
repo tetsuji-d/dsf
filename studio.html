@@ -357,6 +357,9 @@
                     ondragover="handleCanvasDragOver(event)"
                     ondragleave="handleCanvasDragLeave(event)"
                     ondrop="handleCanvasDrop(event)">
+                    <button type="button" id="flow-image-insert" class="flow-image-insert btn-sm" data-flow-insert-image
+                        data-i18n="flow_image_insert_short" data-i18n-title="flow_image_insert_hint" hidden>＋ 画像ページ</button>
+                    <input type="file" id="flow-image-file" accept="image/*" hidden>
                     <div id="flow-authoring-surface" data-testid="flow-authoring" hidden></div>
                     <div id="canvas-stage">
                         <div id="canvas-transform-layer">
@@ -485,6 +488,8 @@
                             aria-keyshortcuts="Control+Enter Meta+Enter" aria-describedby="flow-direct-page-break-hint"
                             data-i18n="flow_direct_page_break">カーソル位置で改ページ</button>
                         <p id="flow-direct-page-break-hint" data-i18n="flow_direct_page_break_hint">Ctrl+Enter（Mac: ⌘+Enter）で、続きの本文を次ページへ送ります。</p>
+                        <button type="button" class="btn-sm" data-flow-insert-image data-i18n="flow_image_insert">ここに画像ページを挿入</button>
+                        <p data-i18n="flow_image_insert_hint">カーソル位置に画像ページを挿入します。前半の本文が増減しても、後半の組版は変わりません。</p>
                         <details class="flow-direct-display-assist">
                             <summary data-i18n="flow_direct_display_assist">表示補助</summary>
                             <label for="flow-direct-guide-mode" data-i18n="flow_direct_guide_label">本文ガイド</label>

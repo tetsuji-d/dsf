@@ -1357,6 +1357,31 @@ function applyUploadedImageToSectionGroup(sections, activeIdx, lang, mainUrl, th
     });
 }
 
+/** Prepare the existing authoring image assets without mutating the project. */
+export async function prepareAuthoringImage(file, { uid = state.uid } = {}) {
+    const [mainBlob, thumbBlob] = await Promise.all([
+        compressImage(file, AUTHORING_IMAGE_MAX_LONG_EDGE, AUTHORING_IMAGE_WEBP_QUALITY),
+        compressImage(file, THUMBNAIL_IMAGE_MAX_LONG_EDGE, THUMBNAIL_IMAGE_WEBP_QUALITY),
+    ]);
+    const timestamp = createId('img');
+    if (!uid) {
+        const mainKey = `local_img_main_${timestamp}`;
+        const thumbKey = `local_img_thumb_${timestamp}`;
+        await Promise.all([idbSet(mainKey, mainBlob), idbSet(thumbKey, thumbBlob)]);
+        const mainUrl = URL.createObjectURL(mainBlob);
+        const thumbUrl = URL.createObjectURL(thumbBlob);
+        window.localImageMap ||= {};
+        window.localImageMap[mainUrl] = mainKey;
+        window.localImageMap[thumbUrl] = thumbKey;
+        return { mainUrl, thumbUrl };
+    }
+    const [mainUrl, thumbUrl] = await Promise.all([
+        _storeFile(mainBlob, `users/${uid}/dsf/${timestamp}.webp`),
+        _storeFile(thumbBlob, `users/${uid}/dsf/thumbs/${timestamp}_thumb.webp`),
+    ]);
+    return { mainUrl, thumbUrl };
+}
+
 /**
  * 画像をアップロードし、セクションの背景に設定する
  * クライアント側でWebP変換・サムネイル生成を行う
@@ -1375,62 +1400,7 @@ export async function uploadToStorage(input, refresh) {
     setLabel("処理中...");
 
     try {
-        // 1. 画像圧縮
-        // 編集用背景は中品質マスターとして保持し、サムネイルだけを強く小さくする。
-        const [mainBlob, thumbBlob] = await Promise.all([
-            compressImage(file, AUTHORING_IMAGE_MAX_LONG_EDGE, AUTHORING_IMAGE_WEBP_QUALITY),
-            compressImage(file, THUMBNAIL_IMAGE_MAX_LONG_EDGE, THUMBNAIL_IMAGE_WEBP_QUALITY)
-        ]);
-
-        const timestamp = Date.now();
-        const filename = file.name.replace(/\.[^/.]+$/, "");
-
-        // --- ゲスト（未ログイン）モード時のローカル保存処理 ---
-        if (!state.uid) {
-            setLabel("ローカル保存中...");
-
-            const mainKey = `local_img_main_${timestamp}`;
-            const thumbKey = `local_img_thumb_${timestamp}`;
-
-            await Promise.all([
-                idbSet(mainKey, mainBlob),
-                idbSet(thumbKey, thumbBlob)
-            ]);
-
-            const mainUrl = URL.createObjectURL(mainBlob);
-            const thumbUrl = URL.createObjectURL(thumbBlob);
-
-            // マッピングを保持 (IndexedDBのキーとURLを紐づける)
-            window.localImageMap[mainUrl] = mainKey;
-            window.localImageMap[thumbUrl] = thumbKey;
-
-            // ステート更新
-            const lang = state.activeLang || state.defaultLang || 'ja';
-            const isMultiLang = (state.languages || ['ja']).length > 1;
-            const newSections = [...state.sections];
-            applyUploadedImageToSectionGroup(newSections, state.activeIdx, lang, mainUrl, thumbUrl, isMultiLang);
-            dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'sections', value: newSections } });
-
-            refresh();
-            triggerAutoSave();
-
-            setLabel("完了！");
-            setTimeout(() => setLabel(originalText), 2000);
-            return;
-        }
-
-        // --- ログイン時の Storage 保存処理 ---
-        const uid = state.uid;
-        const mainPath = `users/${uid}/dsf/${timestamp}_${filename}.webp`;
-        const thumbPath = `users/${uid}/dsf/thumbs/${timestamp}_${filename}_thumb.webp`;
-
-        setLabel("アップロード中...");
-
-        // 2. アップロード & URL取得
-        const [mainUrl, thumbUrl] = await Promise.all([
-            _storeFile(mainBlob, mainPath),
-            _storeFile(thumbBlob, thumbPath),
-        ]);
+        const { mainUrl, thumbUrl } = await prepareAuthoringImage(file);
 
         // 4. ステート更新
         const lang = state.activeLang || state.defaultLang || 'ja';
