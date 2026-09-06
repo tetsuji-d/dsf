@@ -14,7 +14,7 @@ import {
     getSelectedFlowRuntimePageIndex,
 } from './flow-runtime-pages.js';
 import { isFlowSourceSelected } from './flow-editor-session.js';
-import { removeFixedPageRangeFromSpine } from './fixed-page-spine.js';
+import { moveFlowGroupInSpine, removeFixedPageRangeFromSpine } from './fixed-page-spine.js';
 
 // ──────────────────────────────────────────────────────────────
 //  画像 URL 最適化（将来の Cloudflare CDN 配信に対応）
@@ -756,6 +756,16 @@ export function moveBlockAt(blockIndex, direction, refresh) {
     const list = state.blocks || [];
     if (!Number.isInteger(idx) || idx < 0 || idx >= list.length) return false;
     const block = list[idx];
+    if (state.version === 6 && block?.kind === 'flow') {
+        const moved = moveFlowGroupInSpine(list, { blockIndex: idx, direction });
+        if (!moved.changed) return false;
+        dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'blocks', value: moved.blocks } });
+        dispatch({ type: actionTypes.SET_ACTIVE_BLOCK_INDEX, payload: moved.activeBlockIndex });
+        dispatch({ type: actionTypes.SET_ACTIVE_BUBBLE_INDEX, payload: null });
+        syncModelsFromLegacy();
+        refresh();
+        return true;
+    }
     if (!canManualMoveBlock(block)) return false;
     const targetIdx = findMovableTargetIndex(list, idx, direction);
     if (targetIdx < 0 || targetIdx === idx) return false;
@@ -941,9 +951,13 @@ export function renderThumbs() {
         const canInsertBefore = canInsertNearBlock(b, 'before');
         const canInsertAfter = canInsertNearBlock(b, 'after');
         const canMove = canManualMoveBlock(b);
-        const canMoveUp = canMove && findMovableTargetIndex(blocks, blockIdx, 'up') >= 0;
-        const canMoveDown = canMove && findMovableTargetIndex(blocks, blockIdx, 'down') >= 0;
         const isFlow = b?.kind === 'flow';
+        const canMoveUp = isFlow && strictAuthoring
+            ? moveFlowGroupInSpine(blocks, { blockIndex: blockIdx, direction: 'up' }).changed
+            : canMove && findMovableTargetIndex(blocks, blockIdx, 'up') >= 0;
+        const canMoveDown = isFlow && strictAuthoring
+            ? moveFlowGroupInSpine(blocks, { blockIndex: blockIdx, direction: 'down' }).changed
+            : canMove && findMovableTargetIndex(blocks, blockIdx, 'down') >= 0;
         const generatedFlowPages = isFlow ? (runtimePagesByBlock.get(blockIdx) || []) : [];
         const rawInfo = getBlockSummary(b);
         const info = isFlow && generatedFlowPages.length > 0
@@ -951,7 +965,7 @@ export function renderThumbs() {
             : rawInfo;
         const selectedFlowPageIndex = isFlow ? getSelectedFlowRuntimePageIndex(b.id) : 0;
         const coverLock = isLockedBlock(b)
-            ? `<span class="thumb-card-lock" title="${isFlow ? 'Flow Groupの位置は固定・原稿は編集可能' : '位置固定'}">${isFlow ? 'SOURCE' : 'LOCK'}</span>`
+            ? `<span class="thumb-card-lock" title="${isFlow ? 'Flow Group全体を移動・編集できます' : '位置固定'}">${isFlow ? 'SOURCE' : 'LOCK'}</span>`
             : '';
         const sourceSelected = selected && (!isFlow || isFlowSourceSelected(b.id));
         const sourceCard = `
@@ -973,8 +987,8 @@ export function renderThumbs() {
                 </div>
                 ${canInsertBefore ? `<button class="thumb-insert-btn before" title="ここにページ挿入" ontouchstart="event.stopPropagation()" onclick="insertPageNearBlock(${blockIdx}, 'before', event)"><span class="material-icons">add</span></button>` : ''}
                 ${canInsertAfter ? `<button class="thumb-insert-btn after" title="この下にページ挿入" ontouchstart="event.stopPropagation()" onclick="insertPageNearBlock(${blockIdx}, 'after', event)"><span class="material-icons">add</span></button>` : ''}
-                ${canMoveUp ? `<button class="thumb-move-btn up" title="上へ移動" ontouchstart="event.stopPropagation()" onclick="moveBlockByIndex(${blockIdx}, 'up', event)"><span class="material-icons">arrow_upward</span></button>` : ''}
-                ${canMoveDown ? `<button class="thumb-move-btn down" title="下へ移動" ontouchstart="event.stopPropagation()" onclick="moveBlockByIndex(${blockIdx}, 'down', event)"><span class="material-icons">arrow_downward</span></button>` : ''}
+                ${canMoveUp ? `<button class="thumb-move-btn up" title="${isFlow ? 'Flow原稿を前へ移動' : '上へ移動'}" ontouchstart="event.stopPropagation()" onclick="moveBlockByIndex(${blockIdx}, 'up', event)"><span class="material-icons">arrow_upward</span></button>` : ''}
+                ${canMoveDown ? `<button class="thumb-move-btn down" title="${isFlow ? 'Flow原稿を後へ移動' : '下へ移動'}" ontouchstart="event.stopPropagation()" onclick="moveBlockByIndex(${blockIdx}, 'down', event)"><span class="material-icons">arrow_downward</span></button>` : ''}
                 ${!isLockedBlock(b)
                 ? `<button class="thumb-duplicate-btn" title="ブロックを複製" ontouchstart="event.stopPropagation()" onclick="duplicateBlockByIndex(${blockIdx}, event)"><span class="material-icons">content_copy</span></button>`
                 : ''}

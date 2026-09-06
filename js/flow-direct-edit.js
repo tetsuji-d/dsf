@@ -403,6 +403,29 @@ export function createFlowDirectParagraphSplitTransaction(groupInput, session, i
     });
 }
 
+/** Replace a selection and split a heading/paragraph in one semantic transaction. */
+export function createFlowDirectTextSplitTransaction(groupInput, session, input = {}) {
+    const { group, sourceLanguage, block, currentText } = requireCurrentDirectSession(groupInput, session);
+    const start = requireSelectionOffset(input.selectionStart, currentText.length, 'selectionStart');
+    const end = requireSelectionOffset(input.selectionEnd, currentText.length, 'selectionEnd');
+    if (start > end) fail('FLOW_DIRECT_SELECTION_INVALID', 'Selection start must precede its end.');
+    const target = { sectionId: session.sectionId, blockId: block.id, blockType: block.type, languageKey: sourceLanguage };
+    if ([start, end].some(offset => createSourcePoint(target, currentText, offset).utf16Offset !== offset)) {
+        fail('FLOW_DIRECT_GRAPHEME_BOUNDARY_REQUIRED', 'Split endpoints must be complete grapheme boundaries.');
+    }
+    const newBlockId = requireNewBlockId(input.newBlockId);
+    const nextText = currentText.slice(end);
+    const nextType = block.type === 'heading' && nextText.length ? 'heading' : 'paragraph';
+    const focusPoint = createSourcePoint({ ...target, blockId: newBlockId, blockType: nextType }, nextText, 0, 'forward');
+    return Object.freeze({
+        operation: Object.freeze({ type: 'splitTextBlock', groupId: group.id, sectionId: session.sectionId,
+            blockId: block.id, languageKey: sourceLanguage, utf16Offset: start, utf16EndOffset: end, newBlockId }),
+        nextSession: Object.freeze({ ...session, blockId: newBlockId, blockType: nextType, expectedText: nextText,
+            selectionStart: 0, selectionEnd: 0, selectionDirection: 'none', sourcePoint: focusPoint }),
+        selection: Object.freeze({ focusPoint, selectionStart: 0, selectionEnd: 0, selectionDirection: 'none' }),
+    });
+}
+
 /** Insert a semantic PageBreak at a collapsed source caret in one transaction. */
 export function createFlowDirectPageBreakTransaction(groupInput, session, input = {}) {
     const { group, sourceLanguage, block, currentText } = requireCurrentDirectSession(groupInput, session);

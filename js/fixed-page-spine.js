@@ -61,6 +61,33 @@ function sameBlockOrder(first, second) {
     return first.length === second.length && first.every((block, index) => block === second[index]);
 }
 
+/** Move a complete Flow group past one neighbouring page/group, keeping spread pairs atomic. */
+export function moveFlowGroupInSpine(blocks, options = {}) {
+    const sourceBlocks = Array.isArray(blocks) ? blocks : [];
+    const sourceIndex = options.blockIndex;
+    const source = sourceBlocks[sourceIndex];
+    if (!Number.isInteger(sourceIndex) || source?.kind !== 'flow') return unchanged(sourceBlocks, 'invalid_flow_group');
+    if (!['up', 'down'].includes(options.direction)) return unchanged(sourceBlocks, 'invalid_direction');
+    const step = options.direction === 'up' ? -1 : 1;
+    const neighbourIndex = sourceIndex + step;
+    const neighbour = sourceBlocks[neighbourIndex];
+    // Section/chapter markers and covers remain semantic boundaries.
+    if (!['page', 'flow'].includes(neighbour?.kind)) return unchanged(sourceBlocks, 'spine_boundary');
+    let targetIndex = neighbourIndex;
+    if (neighbour.kind === 'page') {
+        const entries = getPageEntries(sourceBlocks);
+        const pageIndex = entries.findIndex(entry => entry.blockIndex === neighbourIndex);
+        const target = resolveAtomicPageEntries(entries, pageIndex);
+        if (!target.ok) return unchanged(sourceBlocks, target.reason);
+        targetIndex = step < 0 ? target.entries[0].blockIndex : target.entries.at(-1).blockIndex;
+    }
+    const nextBlocks = sourceBlocks.slice();
+    nextBlocks.splice(sourceIndex, 1);
+    nextBlocks.splice(targetIndex, 0, source);
+    return Object.freeze({ changed: true, reason: '', blocks: nextBlocks,
+        activeBlockIndex: targetIndex, activePageIndex: getPageIndexForBlockIndex(nextBlocks, targetIndex) });
+}
+
 export function moveFixedPageRangeInSpine(blocks, options = {}) {
     const sourceBlocks = Array.isArray(blocks) ? blocks : [];
     const position = options.position === 'before' ? 'before' : 'after';

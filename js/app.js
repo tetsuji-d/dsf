@@ -41,6 +41,8 @@ import { PROJECT_SCHEMA_VERSION, createFlowGroupBlock, hasFlowGroups } from './f
 import { applyFlowAuthoringOperation } from './flow-authoring.js';
 import { alignFlowDirectCompositionElement } from './flow-direct-composition.js';
 import { createFlowCanvasView } from './flow-canvas-view.js';
+import { buildFlowPageProjection } from './flow-page-projection.js';
+import { findEditorCanvasFlowPageIndex, getEditorCanvasSpreadJoins } from './editor-canvas-projection.js';
 import { normalizeFlowPageGuideMode } from './flow-page-guides.js';
 import { measureFlowDirectNavigationStops, resolveFlowDirectNavigation } from './flow-direct-navigation.js';
 import {
@@ -54,6 +56,7 @@ import {
     createFlowDirectParagraphMergeBackwardTransaction,
     createFlowDirectParagraphMergeForwardTransaction,
     createFlowDirectParagraphSplitTransaction,
+    createFlowDirectTextSplitTransaction,
 } from './flow-direct-edit.js';
 import {
     ensureFlowLanguageTypography,
@@ -170,12 +173,84 @@ let _flowDirectPointerCleanup = null;
 let _flowCanvasView = null;
 let _flowCanvasContextKey = '';
 let _flowPageGuideMode = 'off';
+let _fixedCanvasFocus = null;
+
+function getEditorCanvasProjection() {
+    if (hasFlowGroups(state)) return getEditorPageProjection();
+    return buildFlowPageProjection({ blocks: state.blocks || [], fixedPages: state.sections || [],
+        requestedLanguageKey: state.activeLang || state.defaultLang || 'ja' });
+}
+
+function parkFixedCanvasStage() {
+    const stage = document.getElementById('canvas-stage');
+    const home = document.getElementById('canvas-view');
+    if (!stage || !home || stage.parentElement === home) return;
+    const focused = document.activeElement;
+    if (stage.contains(focused)) {
+        _fixedCanvasFocus = { element: focused, start: focused.selectionStart,
+            end: focused.selectionEnd, direction: focused.selectionDirection };
+    }
+    home.appendChild(stage);
+}
+
+function attachFixedCanvasStage() {
+    if (getActiveBlock()?.kind !== 'page' || _flowCanvasView?.viewport.hidden) return;
+    const page = _flowCanvasView.getPages().find(p => p.kind === 'fixed' && p.blockIndex === state.activeBlockIdx);
+    const surface = page && _flowCanvasView.getPageElement(page.index);
+    const stage = document.getElementById('canvas-stage');
+    if (!surface || !stage) return;
+    if (stage.parentElement !== surface) {
+        surface.replaceChildren(stage);
+        surface.parentElement.classList.add('editor-fixed-active-frame');
+    }
+    stage.hidden = false;
+    if (_fixedCanvasFocus?.element.isConnected) {
+        const { element, start, end, direction } = _fixedCanvasFocus;
+        _fixedCanvasFocus = null;
+        element.focus({ preventScroll: true });
+        if (typeof start === 'number' && typeof element.setSelectionRange === 'function') {
+            element.setSelectionRange(start, end, direction);
+        }
+    }
+}
+
+function ensureFlowCanvasPage(flowPageIndex, reveal = true) {
+    const groupId = _flowDirectEditSession?.groupId || getActiveBlock()?.id;
+    const index = findEditorCanvasFlowPageIndex(_flowCanvasView?.getPages() || [], groupId, flowPageIndex);
+    return index < 0 ? null : _flowCanvasView.ensurePage(index, reveal);
+}
+
+function getMountedActiveFlowPages() {
+    const groupId = _flowDirectEditSession?.groupId || getActiveBlock()?.id;
+    return (_flowCanvasView?.getMountedPages() || []).filter(entry => entry.page.kind === 'flow'
+        && entry.page.groupId === groupId).map(entry => ({ ...entry, pageIndex: entry.page.flowPageIndex }));
+}
+
+function isFixedLanguageCompareActive() {
+    return !hasFlowGroups(state) && !!state.uiPrefs?.languageCompareView && !!getActiveCompareLang();
+}
+
+function renderUnifiedFixedCanvas() {
+    if (getActiveBlock()?.kind !== 'page' || isFixedLanguageCompareActive()) return;
+    const projection = getEditorCanvasProjection();
+    if (!projection?.pages.length) { hideFlowCanvas(); return; }
+    const selected = getActiveProjectionPageIndex(projection);
+    if (selected < 0) return;
+    const canvas = ensureFlowCanvasView();
+    document.getElementById('canvas-view').classList.add('flow-canvas-active', 'editor-unified-canvas');
+    canvas.viewport.setAttribute('aria-label', t('editor_canvas_label'));
+    canvas.update(projection.pages, selected, `${state.projectId || 'local'}:${projection.languageKey}`);
+    canvasScale = canvas.getScale();
+    syncCanvasZoomUI();
+}
+
 
 function hideFlowCanvas() {
+    parkFixedCanvasStage();
     _flowCanvasView?.setGuideMode('off');
     _flowCanvasView?.setVisible(false);
     _flowCanvasContextKey = '';
-    document.getElementById('canvas-view')?.classList.remove('flow-canvas-active');
+    document.getElementById('canvas-view')?.classList.remove('flow-canvas-active', 'editor-unified-canvas');
     const stage = document.getElementById('canvas-stage');
     if (stage) stage.hidden = false;
 }
@@ -489,7 +564,7 @@ function renderFlowDirectEditIndicators(proxy = _flowDirectEditProxy) {
     const pageElement = proxy?._flowDirectPageElement;
     const page = proxy?._flowDirectPageEntry;
     if (!proxy || proxy !== _flowDirectEditProxy || !session || !pageElement || !page) return;
-    const mountedPages = _flowCanvasView?.getMountedPages() || [{ pageElement, page }];
+    const mountedPages = getMountedActiveFlowPages();
     mountedPages.forEach(entry => entry.pageElement.querySelectorAll('[data-flow-direct-indicator]')
         .forEach(element => element.remove()));
     const isComposing = _flowAuthoringComposing && proxy.dataset.composing === 'true';
@@ -918,10 +993,43 @@ function insertFlowDirectParagraphAfterHeading(proxy) {
 
 function applyFlowDirectEnter(proxy) {
     _flowDirectPreferredInlinePosition = null;
+    if (proxy.selectionStart !== proxy.selectionEnd
+        || (_flowDirectEditSession?.blockType === 'heading' && proxy.selectionStart !== proxy.value.length)) {
+        return splitFlowDirectTextSelection(proxy);
+    }
     if (_flowDirectEditSession?.blockType === 'heading') {
         return insertFlowDirectParagraphAfterHeading(proxy);
     }
     return splitFlowDirectParagraph(proxy);
+}
+
+function splitFlowDirectTextSelection(proxy) {
+    const session = _flowDirectEditSession;
+    if (proxy !== _flowDirectEditProxy || !proxy?.isConnected || !session || _flowDirectEditApplying || _flowAuthoringComposing) return false;
+    const group = getFlowGroupById(session.groupId);
+    if (!group || proxy.value !== session.expectedText) return false;
+    const editorFocus = captureFlowDirectEditFocusSnapshot();
+    try {
+        const transaction = createFlowDirectTextSplitTransaction(group, session, {
+            selectionStart: proxy.selectionStart, selectionEnd: proxy.selectionEnd, newBlockId: createId('flow_text'),
+        });
+        endHistoryGroup();
+        _flowDirectEditApplying = true;
+        applyFlowAuthoringEdit(transaction.operation, { immediate: true, editorFocus });
+        _flowDirectEditSession = transaction.nextSession;
+        rememberFlowDirectSelection();
+        _flowDirectEditMounting = true;
+        proxy.value = transaction.nextSession.expectedText;
+        proxy.dataset.flowBlockId = transaction.nextSession.blockId;
+        proxy.setSelectionRange(0, 0, 'none');
+        proxy.dataset.flowReflowPending = 'true';
+        proxy._flowDirectPageElement?.classList.add('flow-direct-edit-reflow-pending');
+        setFlowDirectEditNote(t('flow_direct_text_split_done'));
+        return true;
+    } catch {
+        setFlowDirectEditNote(t('flow_direct_text_split_blocked'));
+        return false;
+    } finally { _flowDirectEditApplying = false; _flowDirectEditMounting = false; }
 }
 
 function removeFlowDirectEmptyParagraphAfterHeading(proxy) {
@@ -1407,7 +1515,7 @@ function handleFlowGeneratedPageSourceClick(event, activeBlock, page, pageElemen
 function moveFlowDirectProxyToPage(pageIndex, reveal = true) {
     const proxy = _flowDirectEditProxy;
     if (!proxy || !_flowCanvasView) return;
-    _flowCanvasView.ensurePage(pageIndex, reveal);
+    ensureFlowCanvasPage(pageIndex, reveal);
     const pages = getEditorPageProjection()?.pages.filter(entry => entry.kind === 'flow'
         && entry.groupId === _flowDirectEditSession.groupId) || [];
     let inputPageIndex = pageIndex;
@@ -1415,7 +1523,7 @@ function moveFlowDirectProxyToPage(pageIndex, reveal = true) {
         const startPoint = createFlowDirectSourcePoint(_flowDirectEditSession, proxy.value, proxy.selectionStart, 'forward');
         inputPageIndex = findFlowSourcePointInPages(pages, startPoint)?.pageIndex ?? pageIndex;
     }
-    const pageElement = _flowCanvasView.ensurePage(inputPageIndex, false);
+    const pageElement = ensureFlowCanvasPage(inputPageIndex, false);
     setSelectedFlowRuntimePageIndex(_flowDirectEditSession.groupId, pageIndex, pages.length);
     if (!pageElement || pageElement === proxy._flowDirectPageElement) {
         renderFlowDirectEditIndicators(proxy);
@@ -1431,7 +1539,7 @@ function moveFlowDirectProxyToPage(pageIndex, reveal = true) {
     pageElement.appendChild(proxy);
     proxy.focus({ preventScroll: true });
     proxy.setSelectionRange(start, end, direction);
-    _flowCanvasView.ensurePage(pageIndex, false);
+    ensureFlowCanvasPage(pageIndex, false);
     renderFlowDirectEditIndicators(proxy);
 }
 
@@ -1473,7 +1581,7 @@ function handleFlowDirectNavigation(event, proxy) {
         _flowDirectPreferredInlinePosition = null;
     } else {
         const resolve = () => resolveFlowDirectNavigation({
-            stops: measureFlowDirectNavigationStops(_flowCanvasView.getMountedPages().map(entry => ({
+            stops: measureFlowDirectNavigationStops(getMountedActiveFlowPages().map(entry => ({
                 pageElement: entry.pageElement, page: entry.page.page, pageIndex: entry.pageIndex,
             })), { writingMode: session.writingMode }),
             sourcePoint: session.sourcePoint, pageIndex, key: event.key, writingMode: session.writingMode,
@@ -1481,7 +1589,7 @@ function handleFlowDirectNavigation(event, proxy) {
         });
         let result = resolve();
         if (result?.edge && !result.moved) {
-            _flowCanvasView.ensurePage(pageIndex + (result.edge === 'end' ? 1 : -1), false);
+            ensureFlowCanvasPage(pageIndex + (result.edge === 'end' ? 1 : -1), false);
             result = resolve();
         }
         if (!result?.moved) return true;
@@ -1501,7 +1609,7 @@ function handleFlowDirectNavigation(event, proxy) {
         const nextSession = tryCreateFlowDirectEditSession(getFlowGroupById(session.groupId), pages[pageIndex], point);
         if (!nextSession) return true;
         selectFlowDirectEditing(session.groupId, point);
-        const surface = _flowCanvasView.ensurePage(pageIndex);
+        const surface = ensureFlowCanvasPage(pageIndex);
         mountFlowDirectEditProxy(getActiveBlock(), pages[pageIndex], surface, nextSession);
     } else {
         const anchor = event.shiftKey ? (proxy.selectionDirection === 'backward'
@@ -1539,7 +1647,7 @@ function handleFlowPagePointerDown(event, activeBlock, page, pageElement) {
         if (_flowDirectEditProxy !== proxy || !(move.buttons & 1)) return;
         const surface = document.elementFromPoint(move.clientX, move.clientY)?.closest('.flow-editor-page-surface');
         const entry = surface?._flowPageEntry;
-        if (!entry) return;
+        if (!entry || entry.groupId !== session.groupId) return;
         const point = mapFlowClientPointToSource(surface, entry.page, move.clientX, move.clientY,
             { writingMode: session.writingMode });
         if (!point || point.blockId !== session.blockId || point.sectionId !== session.sectionId) return;
@@ -1566,10 +1674,37 @@ function ensureFlowCanvasView() {
     if (_flowCanvasView) return _flowCanvasView;
     _flowCanvasView = createFlowCanvasView({
         container: document.getElementById('canvas-view'),
-        getPinnedPageIndex: () => _flowDirectEditProxy?._flowDirectPageEntry?.flowPageIndex ?? null,
-        getPageLabel: page => getPageDisplayLabel(page.index, getEditorPageProjection()?.totalPageCount || 1,
-            state.book, state.bookMode),
-        onGeometryChange: () => renderFlowDirectEditIndicators(),
+        getPinnedPageIndex: () => {
+            const pinned = _flowDirectEditProxy?._flowDirectPageEntry;
+            return pinned?.index ?? getActiveProjectionPageIndex(getEditorCanvasProjection());
+        },
+        getDirection: () => getEditorLangDirection(state.activeLang || state.defaultLang || 'ja'),
+        getJoinedPageIndices: pages => {
+            const joins = getEditorCanvasSpreadJoins(pages);
+            if (!hasFlowGroups(state) && state.uiPrefs?.spreadView) {
+                pages.forEach((page, index) => {
+                    if (index && getSpreadAdjacentPageIndex(page.fixedPageIndex) === pages[index - 1].fixedPageIndex) joins.push(index);
+                });
+            }
+            return joins;
+        },
+        renderFixedPage: (element, page) => {
+            const preview = document.createElement('div');
+            preview.className = 'editor-fixed-page-preview';
+            element.appendChild(preview);
+            renderFixedPagePreview(preview, state.sections[page.fixedPageIndex] || page.section, state.activeLang || state.defaultLang || 'ja', page.fixedPageIndex);
+        },
+        onBeforeRemove: entry => {
+            if (entry.pageElement.contains(document.getElementById('canvas-stage'))) parkFixedCanvasStage();
+        },
+        getPageLabel: page => {
+            const label = getPageDisplayLabel(page.index, getEditorCanvasProjection()?.totalPageCount || 1,
+                state.book, state.bookMode);
+            const kind = page.kind === 'flow' ? 'editor_canvas_flow' : page.section?.spreadImage?.groupId
+                ? 'editor_canvas_spread' : page.section?.type === 'text' ? 'editor_canvas_fixed' : 'editor_canvas_image';
+            return `${label} · ${t(kind)}${page.isSourceFallback ? ` · ${t('editor_canvas_fallback')}` : ''}`;
+        },
+        onGeometryChange: () => { attachFixedCanvasStage(); renderFlowDirectEditIndicators(); },
         onScrollPage: index => {
             const active = getActiveBlock();
             if (active?.kind !== 'flow') return;
@@ -1579,17 +1714,48 @@ function ensureFlowCanvasView() {
             syncEditorPageCounters();
         },
         onPageCreate: ({ pageElement, page }) => {
-            const activeBlock = getActiveBlock();
+            if (page.kind === 'fixed') {
+                pageElement.setAttribute('aria-label', `${t('editor_canvas_select')} ${getPageDisplayLabel(page.index,
+                    getEditorCanvasProjection()?.totalPageCount || 1, state.book, state.bookMode)}`);
+                pageElement.tabIndex = 0;
+                const activate = event => {
+                    if (_flowAuthoringComposing || page.blockIndex === state.activeBlockIdx) return;
+                    event.stopPropagation();
+                    endHistoryGroup();
+                    activateProjectionPage(page);
+                };
+                pageElement.addEventListener('click', activate);
+                pageElement.addEventListener('keydown', event => {
+                    if (event.target !== pageElement || !['Enter', ' '].includes(event.key)) return;
+                    event.preventDefault(); activate(event);
+                });
+                return;
+            }
+            const activeBlock = getFlowGroupById(page.groupId);
+            const resolveSurface = event => {
+                if (_flowAuthoringComposing) return null;
+                if (getActiveBlock()?.id !== page.groupId) {
+                    event.stopPropagation();
+                    endHistoryGroup();
+                    activateProjectionPage(page);
+                    return _flowCanvasView.getPageElement(page.index);
+                }
+                return pageElement;
+            };
             pageElement.dataset.flowSourceMapping = page.isSourceFallback ? 'source-fallback' : 'ready';
             const editable = !page.isSourceFallback && page.languageKey === activeBlock?.flow?.document?.sourceLanguage;
             pageElement.dataset.flowDirectCapability = editable ? 'editable' : 'unavailable';
             pageElement.setAttribute('aria-label', `Flow生成ページ ${page.flowPageIndex + 1}。本文をクリックして編集`);
             pageElement.addEventListener('pointerdown', event => {
-                handleFlowPagePointerDown(event, getActiveBlock(), page, pageElement);
+                const surface = resolveSurface(event);
+                if (surface) handleFlowPagePointerDown(event, getFlowGroupById(page.groupId), page, surface);
             });
             // Touch remains available for horizontal scrolling; a tap opens editing.
             pageElement.addEventListener('click', event => {
-                if (event.pointerType === 'touch') handleFlowGeneratedPageSourceClick(event, getActiveBlock(), page, pageElement);
+                if (event.pointerType === 'touch') {
+                    const surface = resolveSurface(event);
+                    if (surface) handleFlowGeneratedPageSourceClick(event, getFlowGroupById(page.groupId), page, surface);
+                }
                 event.stopPropagation();
             });
             pageElement.addEventListener('dblclick', event => {
@@ -1664,12 +1830,13 @@ function renderEditorFlowGeneratedPage(activeBlock, projection) {
     render.replaceChildren();
     const canvas = ensureFlowCanvasView();
     document.getElementById('canvas-stage').hidden = true;
-    document.getElementById('canvas-view').classList.add('flow-canvas-active');
+    document.getElementById('canvas-view').classList.add('flow-canvas-active', 'editor-unified-canvas');
     _flowCanvasContextKey = `${activeBlock.id}:${page.languageKey}`;
-    canvas.update(groupPages, selectedIndex, `${activeBlock.id}:${page.languageKey}`);
+    canvas.viewport.setAttribute('aria-label', t('editor_canvas_label'));
+    canvas.update(projection.pages, page.index, `${state.projectId || 'local'}:${projection.languageKey}`);
     canvasScale = canvas.getScale();
     syncCanvasZoomUI();
-    const pageElement = canvas.getPageElement(selectedIndex);
+    const pageElement = canvas.getPageElement(page.index);
     const sourceLanguage = String(activeBlock.flow?.document?.sourceLanguage || '');
     const supportedDirectWritingMode = page.writingMode === 'horizontal-tb'
         || page.writingMode === 'vertical-rl';
@@ -2761,6 +2928,7 @@ function requestEditorFlowProjection(activeBlock) {
             renderThumbs();
             syncPageNavigationSlider();
             syncEditorPageCounters();
+            renderUnifiedFixedCanvas();
         }
         return;
     }
@@ -2811,6 +2979,7 @@ function requestEditorFlowProjection(activeBlock) {
         } else {
             syncPageNavigationSlider();
             syncEditorPageCounters();
+            renderUnifiedFixedCanvas();
         }
     }).catch((error) => {
         if (error?.name === 'AbortError' || controller.signal.aborted) return;
@@ -3103,6 +3272,8 @@ function scheduleImageAdjustDomUpdate() {
     imageAdjustRaf = requestAnimationFrame(() => {
         imageAdjustRaf = null;
         if (syncImageAdjustDom()) {
+            const groupId = state.sections[state.activeIdx]?.spreadImage?.groupId;
+            if (groupId) _flowCanvasView?.refreshFixedPreviews(page => page.section?.spreadImage?.groupId === groupId);
             scheduleImageAdjustThumbUpdate();
         } else {
             refresh();
@@ -4227,12 +4398,10 @@ function refresh(options = {}) {
     const nextFlowContext = `${activeBlock?.id}:${getEditorFlowProjectionLanguage(activeBlock)}`;
     if (_flowCanvasContextKey && _flowCanvasContextKey !== nextFlowContext) {
         clearFlowDirectEditRuntime();
-        hideFlowCanvas();
     }
     if (_flowDirectEditProxy && (!isFlowReadOnly || isFlowAuthoring)) clearFlowDirectEditRuntime();
-    if (!isFlowReadOnly || isFlowAuthoring) {
-        _flowCanvasView?.setVisible(false);
-        document.getElementById('canvas-view')?.classList.remove('flow-canvas-active');
+    if (isFlowAuthoring || isFixedLanguageCompareActive() || !['page', 'flow'].includes(activeBlock?.kind)) {
+        hideFlowCanvas();
     }
     setFlowAuthoringSurfaceVisible(isFlowAuthoring);
     render.classList.toggle('flow-editor-preview-active', isFlowReadOnly && !isFlowAuthoring);
@@ -4539,8 +4708,9 @@ function refresh(options = {}) {
         mobileSpreadBtn.disabled = hasFlowGroups(state);
     }
 
-    // 見開きページを更新
+    // Explicit language comparison retains its existing paired editor; normal editing uses the shared strip.
     refreshSpreadPage();
+    if (!isFlowAuthoring && !isFlowReadOnly) renderUnifiedFixedCanvas();
 
     // 言語タブの更新
     if (!skipAncillary) {
@@ -7488,8 +7658,8 @@ window.toggleSpreadView = () => {
     document.getElementById('btn-spread-view-mobile')?.classList.toggle('active', next);
     document.getElementById('btn-language-compare-view')?.classList.remove('active');
     // キャンバスサイズ再計算 → 見開きページ表示/非表示を更新
+    refresh();
     fitCanvasView();
-    refreshSpreadPage();
     syncPageNavigationSlider();
 };
 
@@ -7504,8 +7674,8 @@ window.toggleLanguageCompareView = () => {
     document.getElementById('btn-language-compare-view')?.classList.toggle('active', next);
     document.getElementById('btn-spread-view')?.classList.remove('active');
     document.getElementById('btn-spread-view-mobile')?.classList.remove('active');
+    refresh();
     fitCanvasView();
-    refreshSpreadPage();
     syncPageNavigationSlider();
     triggerAutoSave();
 };
@@ -7640,7 +7810,7 @@ function refreshSpreadPage() {
     const spreadEl = document.getElementById('canvas-spread-page');
     const stage    = document.getElementById('canvas-stage');
     if (!spreadEl || !stage) return;
-    if (hasFlowGroups(state)) {
+    if (hasFlowGroups(state) || !isLanguageCompare) {
         spreadEl.style.display = 'none';
         stage.style.flexDirection = '';
         stage.classList.remove('spread-image-pair-active');
@@ -7720,6 +7890,41 @@ function refreshSpreadPage() {
     const contentEl = document.getElementById('canvas-spread-content');
     if (!contentEl) return;
 
+    renderFixedPagePreview(contentEl, adjSection, renderLang, adjIdx);
+}
+
+function renderFixedPagePreview(contentEl, adjSection, renderLang, adjIdx) {
+    const token = {};
+    contentEl._fixedPreviewToken = token;
+    function appendPreviewBubbles() {
+        // 吹き出しレイヤー
+        const bubbles = adjSection.bubbles || [];
+        if (bubbles.length > 0) {
+            const langProps = getLangProps(renderLang);
+            const bLayer = document.createElement('div');
+            bLayer.style.cssText = 'position:absolute;inset:0;pointer-events:none;overflow:hidden;';
+            bLayer.innerHTML = bubbles.map((b, i) =>
+                renderBubbleHTML(b, i, false, langProps.defaultWritingMode || 'horizontal-tb')
+            ).join('');
+            // Passive previews must not duplicate the active editor's IDs or invoke editing handlers.
+            const ids = new Map([...bLayer.querySelectorAll('[id]')].map(el => [el.id, `preview-${adjIdx}-${el.id}`]));
+            bLayer.querySelectorAll('*').forEach(el => {
+                for (const attr of [...el.attributes]) {
+                    if (attr.name.startsWith('on') || ['contenteditable', 'tabindex'].includes(attr.name)) {
+                        el.removeAttribute(attr.name);
+                    } else {
+                        let value = attr.value.replace(/url\(#([^)]*)\)/g, (match, id) => ids.has(id) ? `url(#${ids.get(id)})` : match);
+                        if (['href', 'xlink:href'].includes(attr.name) && ids.has(value.slice(1))) value = `#${ids.get(value.slice(1))}`;
+                        if (value !== attr.value) el.setAttribute(attr.name, value);
+                    }
+                }
+                if (el.id) el.id = ids.get(el.id);
+            });
+            bLayer.setAttribute('inert', '');
+            contentEl.appendChild(bLayer);
+        }
+    }
+
     if (adjSection.type === 'text') {
         // テキストページ: renderTextPreview と同じロジックで描画
         contentEl.innerHTML = '';
@@ -7763,6 +7968,7 @@ function refreshSpreadPage() {
                 `<div style="width:100%;height:100%;display:flex;align-items:center;justify-content:center;color:#aaa;">
                     <span class="material-icons" style="font-size:48px;">add_photo_alternate</span>
                 </div>`;
+            appendPreviewBubbles();
         } else {
             // 言語別位置 → 共通位置 → レガシー → デフォルトの優先順で取得（main canvas と同じロジック）
             const pos = adjSection.imagePositions?.[renderLang]
@@ -7788,17 +7994,7 @@ function refreshSpreadPage() {
                 ].join(';');
                 contentEl.appendChild(imgEl);
 
-                // 吹き出しレイヤー
-                const bubbles = adjSection.bubbles || [];
-                if (bubbles.length > 0) {
-                    const langProps = getLangProps(renderLang);
-                    const bLayer = document.createElement('div');
-                    bLayer.style.cssText = 'position:absolute;inset:0;pointer-events:none;overflow:hidden;';
-                    bLayer.innerHTML = bubbles.map((b, i) =>
-                        renderBubbleHTML(b, i, false, langProps.defaultWritingMode || 'horizontal-tb')
-                    ).join('');
-                    contentEl.appendChild(bLayer);
-                }
+                appendPreviewBubbles();
             };
 
             if (cached) {
@@ -7816,8 +8012,7 @@ function refreshSpreadPage() {
                         editorImageAspectCache.set(bgUrl, loader.naturalWidth / loader.naturalHeight);
                     }
                     // キャッシュが埋まったら正確な位置で再描画
-                    if ((state.uiPrefs?.spreadView) &&
-                        document.getElementById('canvas-spread-content') === contentEl) {
+                    if (contentEl.isConnected && contentEl._fixedPreviewToken === token) {
                         contentEl.innerHTML = '';
                         contentEl.style.backgroundColor = adjSection.backgroundColor || '#fff';
                         _renderSpreadImg();
@@ -8689,10 +8884,26 @@ function syncDesktopToggleButtons() {
     const rightBtn = document.getElementById('btn-toggle-panel');
     if (leftBtn) leftBtn.textContent = drawerOpen ? '🖼 Assetsを閉じる' : '🖼 Assets';
     if (rightBtn) rightBtn.textContent = rightCollapsed ? '⚙ Editを開く' : '⚙ Edit';
+    const handle = document.getElementById('edit-drawer-handle');
+    if (handle) {
+        const labelKey = rightCollapsed ? 'edit_properties_open' : 'edit_properties_close';
+        handle.setAttribute('aria-expanded', String(!rightCollapsed));
+        handle.dataset.i18nTitle = labelKey;
+        handle.dataset.i18nAria = labelKey;
+        handle.title = t(labelKey);
+        handle.setAttribute('aria-label', t(labelKey));
+        handle.querySelector('.edit-drawer-chevron').textContent = rightCollapsed ? 'chevron_left' : 'chevron_right';
+    }
+    const panel = document.getElementById('panel-right');
+    if (panel) panel.inert = window.innerWidth >= 1024 && rightCollapsed;
 }
 
 window.toggleDesktopPanel = (side) => {
     if (side === 'right') {
+        const panel = document.getElementById('panel-right');
+        if (!document.body.classList.contains('right-collapsed') && panel?.contains(document.activeElement)) {
+            document.getElementById('edit-drawer-handle')?.focus({ preventScroll: true });
+        }
         document.body.classList.toggle('right-collapsed');
     }
     syncDesktopToggleButtons();
@@ -9630,6 +9841,7 @@ function initUIChrome() {
             updateAuthUI();
         }
         syncStudioShell();
+        syncDesktopToggleButtons();
     });
 
     setRibbonTab('home');
@@ -9920,7 +10132,7 @@ function initSidebarResizer() {
         let newWidth = window.innerWidth - clientX;
         if (newWidth < 200) newWidth = 200;
         if (newWidth > 800) newWidth = 800;
-        document.body.style.setProperty('--right-panel-width', `${newWidth}px`);
+        document.body.style.setProperty('--right-panel-expanded-width', `${newWidth}px`);
     };
 
     const stopResize = () => {

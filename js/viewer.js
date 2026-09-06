@@ -37,11 +37,16 @@ import {
     normalizeOwnerDraftProjectId,
     resolveOwnerDraftReleaseIdentity,
     resolveOwnerDraftWorkIdentity,
+    resolveOwnerHistoricalReleaseIdentity,
 } from './viewer-owner-preview.js';
-import { assertRequestedViewerReleaseIsCurrent } from './viewer-release-route.js';
+import { assertRequestedViewerReleaseIsCurrent, normalizeRequestedViewerReleaseId } from './viewer-release-route.js';
+import { resolveWorksDsfRelease } from './works-dsf-release.js';
 
 // ── Module State ──────────────────────────────────────────────
 let sharedProjectRef = null;
+let ownerPreviewRoute = false;
+let ownerPreviewGeneration = 0;
+let ownerPreviewAbort = null;
 let isProjectLoading = false;
 let projectLoaded = false;
 let lastLoadErrorCode = '';
@@ -201,6 +206,7 @@ const VIEWER_UI = {
         privateCancel: 'キャンセル',
         privateProject: 'この作品は非公開です。',
         unpublishedProject: 'このURLには発行済みの DSF データがありません。',
+        ownerDraftUnavailable: '選択したReleaseを表示できません。ログイン状態とReleaseを確認してください。',
         publicationExpired: 'この作品の公開期間は終了しました。',
         publicationScheduled: 'この作品は公開開始前です。',
         developerModeOn: 'Developer mode: ON',
@@ -287,6 +293,7 @@ const VIEWER_UI = {
         privateCancel: 'Cancel',
         privateProject: 'This work is private.',
         unpublishedProject: 'This URL does not have published DSF data yet.',
+        ownerDraftUnavailable: 'The selected release is unavailable. Check your sign-in and the release.',
         publicationExpired: 'This work is no longer available.',
         publicationScheduled: 'This work is not available yet.',
         developerModeOn: 'Developer mode: ON',
@@ -391,6 +398,11 @@ async function init() {
     const ownerDraftPid = String(params.get('draft') || '').trim();
     const workId = params.get('work') || params.get('w');
     const requestedReleaseId = params.get('r') || '';
+    ownerPreviewRoute = params.has('draft');
+    if (ownerPreviewRoute && (!ownerDraftPid || params.getAll('draft').length !== 1 || params.getAll('r').length > 1 || workId)) {
+        alert('Owner preview URL is invalid.');
+        return;
+    }
     const pid = params.get('project') || params.get('id');
     const uid = params.get('author') || params.get('uid');
     const src = params.get('src') || params.get('file') || params.get('url');
@@ -413,7 +425,7 @@ async function init() {
 
     await initAuth().catch((e) => console.warn('[Viewer] initAuth failed:', e));
     if (ownerDraftPid) {
-        sharedProjectRef = { ownerDraftPid };
+        sharedProjectRef = { ownerDraftPid, requestedReleaseId };
         attemptLoad();
     } else if (workId) {
         sharedProjectRef = { workId, requestedReleaseId };
@@ -487,16 +499,37 @@ async function loadLocalViewerFixture(fixtureId) {
 async function initAuth() {
     const redirectOutcome = await handleRedirectResult(firebaseAuth);
     if (redirectOutcome?.error) {
-        alert(vt('authError', { message: redirectOutcome.error?.message || String(redirectOutcome.error) }));
+        alert(ownerPreviewRoute ? vt('ownerDraftUnavailable') : vt('authError', { message: redirectOutcome.error?.message || String(redirectOutcome.error) }));
     }
     await initGIS({ authInstance: firebaseAuth });
     let firstState = true;
     return new Promise((resolve) => {
         onAuthChanged(user => {
+            if (ownerPreviewRoute) {
+                ownerPreviewGeneration++;
+                ownerPreviewAbort?.abort();
+                replaceViewerLocalPortableSession(null);
+                viewerFixedTextContext = null;
+                viewerLocalFixtureAssetUrls = new Map();
+                projectLoaded = false;
+                dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'pages', value: [] } });
+                dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'title', value: '' } });
+                viewerProjectMeta = buildViewerProjectMeta({}, 'owner-draft');
+                viewerBookModel = null;
+                const title = document.getElementById('ui-title');
+                if (title) title.textContent = '';
+                clearTransitionLayers();
+                hideSliderPreview();
+                document.querySelectorAll('.page-slider-preview-single, .page-slider-preview-left, .page-slider-preview-right')
+                    .forEach(surface => setSliderPreviewSurface(surface, null));
+                for (const id of ['viewer-content', 'viewer-spread-content', 'viewer-bubbles']) document.getElementById(id)?.replaceChildren();
+                viewerMinimap?.update();
+                refresh();
+            }
             dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'user', value: user || null } });
             dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'uid', value: user?.uid || null } });
             if (user) {
-                void ensureUserBootstrap(user).catch((e) => console.warn('[Viewer] user bootstrap failed:', e));
+                if (!ownerPreviewRoute) void ensureUserBootstrap(user).catch((e) => console.warn('[Viewer] user bootstrap failed:', e));
                 privateLoginRequested = false;
                 privateLoginDeclined = false;
                 closePrivateLoginModal();
@@ -589,27 +622,35 @@ async function attemptLoad() {
     isProjectLoading = true;
     try {
         const ok = sharedProjectRef.ownerDraftPid
-            ? await loadOwnerDraft(sharedProjectRef.ownerDraftPid)
+            ? await loadOwnerDraft(sharedProjectRef.ownerDraftPid, sharedProjectRef.requestedReleaseId)
             : sharedProjectRef.workId
                 ? await loadWorkFromPublicIndex(sharedProjectRef.workId, sharedProjectRef.requestedReleaseId)
                 : await loadFromFirestore(sharedProjectRef.pid, sharedProjectRef.uid);
         if (ok) { projectLoaded = true; lastLoadErrorCode = ''; }
     } finally {
         isProjectLoading = false;
+        if (ownerPreviewRoute && !projectLoaded && state.uid && lastLoadErrorCode === 'owner-session-changed') void attemptLoad();
     }
 }
 
 // ── Firestore ─────────────────────────────────────────────────
-async function loadOwnerDraft(pid) {
+async function loadOwnerDraft(pid, requestedReleaseId = '') {
     if (!state.uid) {
         lastLoadErrorCode = 'permission-denied';
         showPrivateLoginModal();
         return false;
     }
     const uid = state.uid;
+    const generation = ownerPreviewGeneration;
+    ownerPreviewAbort?.abort();
+    ownerPreviewAbort = new AbortController();
+    const canApply = () => state.uid === uid && generation === ownerPreviewGeneration;
+    const checkOwner = () => { if (!canApply()) throw Object.assign(new Error('Owner session changed.'), { code: 'owner-session-changed' }); };
     try {
+        const requested = normalizeRequestedViewerReleaseId(requestedReleaseId);
         const projectId = normalizeOwnerDraftProjectId(pid);
         const projectSnap = await getDoc(doc(db, 'users', uid, 'projects', projectId));
+        checkOwner();
         if (!projectSnap.exists()) {
             alert(vt('projectNotFound', { pid: projectId }));
             return false;
@@ -617,19 +658,30 @@ async function loadOwnerDraft(pid) {
         const projectData = projectSnap.data() || {};
         const workIdentity = resolveOwnerDraftWorkIdentity({ uid, projectId, project: projectData });
         const workSnap = await getDoc(doc(db, 'users', uid, 'works', workIdentity.workId));
+        checkOwner();
         const workData = workSnap.exists() ? workSnap.data() || {} : {};
-        const identity = resolveOwnerDraftReleaseIdentity({
+        const identity = requested ? resolveOwnerHistoricalReleaseIdentity(workIdentity, workData, requested) : resolveOwnerDraftReleaseIdentity({
             ...workIdentity,
             releaseId: projectData.releaseId || '',
         }, workData);
         const releaseSnap = await getDoc(doc(db, 'users', uid, 'works', identity.workId, 'releases', identity.releaseId));
+        checkOwner();
         if (!releaseSnap.exists()) {
             throw new Error('下書きのReleaseが見つかりません。Pressから下書きを再作成してください。');
         }
         const releaseData = releaseSnap.data() || {};
         assertOwnerDraftReleaseMetadata(releaseData, identity);
-        sharedProjectRef = { ownerDraftPid: projectId, pid: projectId, workId: identity.workId, uid };
-        const projectMetadata = {
+        sharedProjectRef = { ownerDraftPid: projectId, requestedReleaseId: requested, pid: projectId, workId: identity.workId, uid };
+        const projectMetadata = requested ? {
+            title: releaseData.title || workData.title || '',
+            projectId, workId: identity.workId, releaseId: identity.releaseId, authorUid: uid,
+            dsfPages: releaseData.dsfPages, dsfTotalBytes: releaseData.dsfTotalBytes,
+            dsfSchemaVersion: releaseData.dsfSchemaVersion,
+            dsfContentUrl: releaseData.dsfContentUrl, dsfContentHash: releaseData.dsfContentHash,
+            dsfPageCounts: releaseData.dsfPageCounts, dsfLangs: releaseData.dsfLangs,
+            languages: releaseData.dsfLangs, defaultLang: releaseData.defaultLang || releaseData.dsfLangs?.[0],
+            book: releaseData.book, bookMode: releaseData.bookMode,
+        } : {
             ...workData,
             ...projectData,
             ...releaseData,
@@ -638,27 +690,32 @@ async function loadOwnerDraft(pid) {
             releaseId: identity.releaseId,
             authorUid: uid,
         };
-        if (isDsfHorizonV2MetadataDeclared(projectData) || isDsfHorizonV2MetadataDeclared(releaseData)) {
+        if (isDsfHorizonV2MetadataDeclared(releaseData) || (!requested && isDsfHorizonV2MetadataDeclared(projectData))) {
             if (!isDsfHorizonV2MetadataDeclared(releaseData)) {
                 throw new Error('下書きのDSF v2 Release metadataが不完全です。');
             }
-            return loadHorizonProjection(uid, identity.workId, identity.releaseId, releaseData, {
+            return await loadHorizonProjection(uid, identity.workId, identity.releaseId, releaseData, {
                 releaseMetadata: releaseData,
                 projectMetadata,
                 source: 'owner-draft',
+                signal: ownerPreviewAbort.signal,
+                canApply,
             });
         }
         if (!Array.isArray(releaseData.dsfPages) || releaseData.dsfPages.length === 0) {
             throw new Error(vt('unpublishedProject'));
         }
+        if (requested) resolveWorksDsfRelease(releaseData, { uid, workId: identity.workId, releaseId: identity.releaseId, allowedContentOrigins: [] });
+        checkOwner();
         loadProjectData(projectMetadata, { source: 'owner-draft' });
         return true;
     } catch (e) {
+        if (!canApply()) { lastLoadErrorCode = 'owner-session-changed'; return false; }
         lastLoadErrorCode = e?.code || '';
         if (lastLoadErrorCode === 'permission-denied') {
             showPrivateLoginModal();
         } else {
-            alert(vt('loadError', { message: e?.message || String(e) }));
+            alert(vt('ownerDraftUnavailable'));
         }
         return false;
     }
@@ -742,8 +799,10 @@ async function loadHorizonProjection(uid, workId, releaseId, locatorMetadata, op
         projectMetadata: options.projectMetadata || locatorMetadata,
         allowedContentOrigins: [configuredOrigin],
         documentRef: document,
+        signal: options.signal,
     });
     try {
+        if (options.canApply && !options.canApply()) throw Object.assign(new Error('Owner session changed.'), { code: 'owner-session-changed' });
         const defaultContext = portableSession.contextsByLanguage.get(portableSession.project.defaultLang);
         loadProjectData(portableSession.project, {
             source: options.source || 'shared',

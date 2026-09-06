@@ -33,7 +33,7 @@ function assertRecordedOwner(record, uid, field) {
     }
 }
 
-export function buildOwnerDraftViewerUrl(origin, projectId) {
+export function buildOwnerDraftViewerUrl(origin, projectId, releaseId = '') {
     const pid = assertSafeId(projectId, 'projectId');
     let url;
     try {
@@ -45,6 +45,7 @@ export function buildOwnerDraftViewerUrl(origin, projectId) {
         fail('OWNER_PREVIEW_ORIGIN_INVALID', 'Viewer origin must use HTTP or HTTPS.');
     }
     url.searchParams.set('draft', pid);
+    if (releaseId) url.searchParams.set('r', assertSafeId(releaseId, 'releaseId'));
     return url.href;
 }
 
@@ -87,10 +88,21 @@ export function assertOwnerDraftReleaseMetadata(release, identity) {
         workId: assertSafeId(identity.workId, 'workId'),
         releaseId: assertSafeId(identity.releaseId, 'releaseId'),
     };
+    assertRecordedOwner(release, identity.uid, 'Release');
     for (const [field, value] of Object.entries(expected)) {
         if (assertSafeId(release[field], `release.${field}`) !== value) {
             fail('OWNER_PREVIEW_RELEASE_MISMATCH', `Release ${field} does not match the owner preview request.`);
         }
     }
     return true;
+}
+
+/** Explicit historical selection never consults latestReleaseId. */
+export function resolveOwnerHistoricalReleaseIdentity(workIdentity, work, requestedReleaseId) {
+    if (!isRecord(work) || work.ownerUid !== workIdentity.uid || work.workId !== workIdentity.workId
+        || work.projectId !== workIdentity.projectId
+        || (work.latestProjectId && work.latestProjectId !== workIdentity.projectId)) {
+        fail('OWNER_PREVIEW_WORK_MISMATCH', 'Historical preview requires the matching owner Work.');
+    }
+    return resolveOwnerDraftReleaseIdentity({ ...workIdentity, releaseId: assertSafeId(requestedReleaseId, 'releaseId') }, work);
 }

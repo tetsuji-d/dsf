@@ -411,6 +411,38 @@ export class DsfHorizonViewerLoadError extends Error {
     }
 }
 
+/** Read and validate delivery files without creating a DOM/font session. */
+export async function loadDsfHorizonReleaseBundle(input = {}) {
+    const identity = { uid: input.uid, workId: input.workId, releaseId: input.releaseId };
+    const transport = selectV2Transport(input.publicMetadata, identity, input.allowedContentOrigins || [], 'publicMetadata');
+    if (isRecord(input.releaseMetadata)) {
+        assertMatchingTransports(transport, selectV2Transport(input.releaseMetadata, identity, input.allowedContentOrigins || [], 'releaseMetadata'));
+    }
+    const fetchImpl = input.fetchImpl || globalThis.fetch;
+    const hashBytes = input.hashBytes || ((bytes) => sha256DsfBytes(bytes, { cryptoRef: input.cryptoRef || globalThis.crypto }));
+    const registry = input.fontRegistry || DSF_PRODUCTION_FONT_REGISTRY;
+    const root = new URL('./', transport.contentUrl);
+    const files = [];
+    const read = async (url, hash, path) => {
+        const result = await fetchVerifiedJson({ fetchImpl, url, expectedSha256: hash, path, hashBytes, signal: input.signal });
+        files.push({ url, byteLength: result.bytes.byteLength, sha256: hash });
+        return result.value;
+    };
+    const index = await read(transport.contentUrl, transport.contentHash, 'content.json');
+    validateIndexAgainstTransport(index, transport);
+    const manifests = {};
+    for (const language of transport.languages) {
+        const descriptor = index.languages[language];
+        const url = resolveReleaseResourceUrl(transport.contentUrl, descriptor.href, root, 'manifest.href');
+        manifests[language] = await read(url, descriptor.sha256, descriptor.href);
+    }
+    const bundle = normalizeDsfDeliveryBundle({ index, manifests });
+    assertValidDsfDeliveryBundle(bundle);
+    validateRegistryFonts(bundle, registry);
+    const assetUrls = createAssetUrls(bundle, transport.contentUrl, root);
+    return { transport, bundle, files, assetUrls };
+}
+
 export async function loadDsfHorizonViewerRelease(input = {}) {
     if (!isRecord(input.publicMetadata)) {
         throw new TypeError('Public index metadata is required.');
@@ -440,37 +472,7 @@ export async function loadDsfHorizonViewerRelease(input = {}) {
     const runtimeLeases = [];
 
     try {
-        const content = await fetchVerifiedJson({
-            fetchImpl,
-            url: contentUrl,
-            expectedSha256: releaseTransport.contentHash,
-            path: 'content.json',
-            hashBytes,
-            signal: input.signal,
-        });
-        validateIndexAgainstTransport(content.value, releaseTransport);
-        const manifests = {};
-        for (const language of releaseTransport.languages) {
-            const descriptor = content.value.languages[language];
-            const manifestUrl = resolveReleaseResourceUrl(
-                contentUrl,
-                descriptor.href,
-                releaseRoot,
-                `content.json.languages.${language}.href`,
-            );
-            const manifest = await fetchVerifiedJson({
-                fetchImpl,
-                url: manifestUrl,
-                expectedSha256: descriptor.sha256,
-                path: descriptor.href,
-                hashBytes,
-                signal: input.signal,
-            });
-            manifests[language] = manifest.value;
-        }
-        const sourceBundle = normalizeDsfDeliveryBundle({ index: content.value, manifests });
-        assertValidDsfDeliveryBundle(sourceBundle);
-        validateRegistryFonts(sourceBundle, registry);
+        const { bundle: sourceBundle } = await loadDsfHorizonReleaseBundle({ ...input, fetchImpl, hashBytes, fontRegistry: registry });
 
         const fontRuntime = await prepareRuntimeFonts({
             bundle: sourceBundle,

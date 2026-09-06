@@ -55,7 +55,14 @@ export function calculateFlowCanvasLayout(options = {}) {
     const pageWidth = CANONICAL_PAGE_WIDTH * scale;
     const pageHeight = CANONICAL_PAGE_HEIGHT * scale;
     const stride = pageWidth + PAGE_GAP;
-    const pagesWidth = pageCount > 0 ? pageCount * pageWidth + (pageCount - 1) * PAGE_GAP : 0;
+    const joins = new Set(options.joinedPageIndices || []);
+    const pageOffsets = [];
+    let pagesWidth = 0;
+    for (let index = 0; index < pageCount; index += 1) {
+        if (index) pagesWidth += joins.has(index) ? 0 : PAGE_GAP;
+        pageOffsets.push(pagesWidth);
+        pagesWidth += pageWidth;
+    }
     const trackWidth = Math.max(viewportWidth, pagesWidth + SIDE_INSET * 2);
     const trackHeight = Math.max(
         viewportHeight - SCROLLBAR_ALLOWANCE,
@@ -67,6 +74,7 @@ export function calculateFlowCanvasLayout(options = {}) {
     return Object.freeze({
         viewportWidth, viewportHeight, pageCount, writingMode, direction, scale,
         pageWidth, pageHeight, gap: PAGE_GAP, stride, trackWidth, trackHeight,
+        pageOffsets: Object.freeze(pageOffsets), pagesWidth,
         pageTop, startInset: (trackWidth - pagesWidth) / 2, sideInset: SIDE_INSET,
         labelHeight: LABEL_HEIGHT, visibleCount,
         maxScrollLeft: Math.max(0, trackWidth - viewportWidth),
@@ -76,10 +84,11 @@ export function calculateFlowCanvasLayout(options = {}) {
 export function getFlowCanvasPagePosition(layout, pageIndex) {
     const index = pageIndexWithin(layout, pageIndex);
     if (index === null) return null;
-    const physicalIndex = layout.direction === 'rtl' ? layout.pageCount - 1 - index : index;
+    const offset = layout.direction === 'rtl'
+        ? layout.pagesWidth - layout.pageWidth - layout.pageOffsets[index] : layout.pageOffsets[index];
     return Object.freeze({
         pageIndex: index,
-        left: layout.startInset + physicalIndex * layout.stride,
+        left: layout.startInset + offset,
         top: layout.pageTop,
         width: layout.pageWidth,
         height: layout.pageHeight,
@@ -100,15 +109,19 @@ export function calculateFlowCanvasWindow(layout, options = {}) {
             scrollLeft, maxScrollLeft: layout.maxScrollLeft,
         });
     }
-    const firstPhysical = clamp(
-        Math.floor((scrollLeft - layout.startInset + layout.gap) / layout.stride),
-        0, layout.pageCount - 1,
-    );
-    const lastPhysical = clamp(
-        Math.ceil((scrollLeft + layout.viewportWidth - layout.startInset) / layout.stride) - 1,
-        firstPhysical, layout.pageCount - 1,
-    );
     const indexForPhysical = (physical) => layout.direction === 'rtl' ? layout.pageCount - 1 - physical : physical;
+    const lowerBound = (predicate) => {
+        let low = 0, high = layout.pageCount;
+        while (low < high) {
+            const mid = (low + high) >>> 1;
+            if (predicate(getFlowCanvasPagePosition(layout, indexForPhysical(mid)))) high = mid;
+            else low = mid + 1;
+        }
+        return low;
+    };
+    const firstPhysical = clamp(lowerBound(p => p.left + p.width > scrollLeft), 0, layout.pageCount - 1);
+    const lastPhysical = clamp(lowerBound(p => p.left >= scrollLeft + layout.viewportWidth) - 1,
+        firstPhysical, layout.pageCount - 1);
     const visiblePageIndices = [];
     for (let physical = firstPhysical; physical <= lastPhysical; physical += 1) {
         visiblePageIndices.push(indexForPhysical(physical));

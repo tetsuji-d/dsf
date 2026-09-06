@@ -40,7 +40,7 @@ body {
 
 body {
     --left-panel-width: 0px;
-    --right-panel-width: 340px;
+    --right-panel-width: var(--right-panel-expanded-width, 340px);
     --icon-bar-width: 60px;
     --studio-app-bg: #eef2f7;
     --studio-surface: #ffffff;
@@ -2635,7 +2635,7 @@ textarea:focus-visible {
 
 #workspace {
     display: grid;
-    grid-template-columns: var(--icon-bar-width) var(--left-panel-width) 1fr var(--right-panel-width);
+    grid-template-columns: var(--icon-bar-width) var(--left-panel-width) minmax(0, 1fr) 32px var(--right-panel-width);
     width: 100%;
     min-height: 0;
     min-width: 0;
@@ -2769,7 +2769,62 @@ textarea:focus-visible {
 
 body.right-collapsed #panel-right {
     opacity: 0;
+    visibility: hidden;
     pointer-events: none;
+}
+
+.edit-drawer-rail {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    min-width: 0;
+    background: var(--studio-app-bg);
+}
+
+#edit-drawer-handle {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    width: 32px;
+    min-height: 104px;
+    padding: 10px 4px;
+    border: 1px solid var(--studio-border);
+    border-right: 0;
+    border-radius: 8px 0 0 8px;
+    background: var(--studio-surface);
+    color: var(--primary);
+    font: inherit;
+    cursor: pointer;
+}
+
+#edit-drawer-handle:hover {
+    background: var(--studio-surface-3);
+}
+
+#edit-drawer-handle:focus-visible {
+    outline: 2px solid var(--primary);
+    outline-offset: -3px;
+}
+
+.edit-drawer-label {
+    writing-mode: vertical-rl;
+    font-size: 12px;
+    font-weight: 600;
+}
+
+.edit-drawer-chevron {
+    font-size: 18px;
+}
+
+@media (min-width: 1024px) and (pointer: coarse) {
+    #workspace {
+        grid-template-columns: var(--icon-bar-width) var(--left-panel-width) minmax(0, 1fr) 44px var(--right-panel-width);
+    }
+    #edit-drawer-handle {
+        width: 44px;
+    }
 }
 
 /* Icon bar — always-visible vertical icon strip */
@@ -3854,6 +3909,14 @@ body[data-theme="light"] .strip-language-compare-btn.active { color: #2b6cb0; }
 #page-strip-thumbs .thumb-duplicate-btn,
 #page-strip-thumbs .thumb-move-btn {
     display: none;
+}
+
+#page-strip-thumbs .flow-source-card .thumb-move-btn {
+    display: inline-flex;
+}
+#page-strip-thumbs .flow-source-card:focus-within .thumb-move-btn {
+    opacity: 1;
+    pointer-events: auto;
 }
 
 .page-strip-add-btn {
@@ -5879,6 +5942,9 @@ body[data-theme="dark"] #mobile-overlay-backdrop {
 }
 
 @media (max-width: 1023px) {
+    .edit-drawer-rail {
+        display: none;
+    }
     body[data-device="mobile"][data-room="editor"] #mobile-lang-bar {
         display: flex;
         position: fixed;
@@ -6646,6 +6712,7 @@ body[data-theme="dark"] #mobile-overlay-backdrop {
     }
 
     body.right-collapsed #panel-right {
+        visibility: visible;
         opacity: 1;
         pointer-events: auto;
     }
@@ -7080,6 +7147,13 @@ body[data-theme="dark"] #mobile-overlay-backdrop {
 
     .thumb-move-btn {
         display: none !important;
+    }
+    #thumb-container .flow-source-card .thumb-move-btn {
+        display: inline-flex !important;
+    }
+    #thumb-container .flow-source-card:focus-within .thumb-move-btn {
+        opacity: 1;
+        pointer-events: auto;
     }
 
     .thumb-insert-btn,
@@ -8804,8 +8878,7 @@ body[data-device="mobile"] #works-room .works-release-audit-group li {
     background: #fff;
 }
 
-/* Flow has its own scroll surface. Fixed pages retain their stage transform,
-   image adjustment layers, and existing pan/zoom behavior unchanged. */
+/* Shared editor scroll surface. The selected Fixed page reuses its live editing layers. */
 #canvas-view.flow-canvas-active {
     touch-action: pan-x pan-y;
 }
@@ -8842,7 +8915,8 @@ body[data-device="mobile"] #works-room .works-release-audit-group li {
     box-shadow: 0 4px 20px rgba(0, 0, 0, 0.28);
 }
 
-.flow-canvas-page-frame > .flow-editor-page-surface {
+.flow-canvas-page-frame > .flow-editor-page-surface,
+.flow-canvas-page-frame > .editor-fixed-page-surface {
     position: relative;
     inset: auto;
     width: var(--dsf-canonical-page-width, 360px);
@@ -8870,8 +8944,8 @@ body[data-device="mobile"] #works-room .works-release-audit-group li {
     user-select: none;
 }
 
-#canvas-view.flow-canvas-active #image-zoom-controls-floating,
-#canvas-view.flow-canvas-active .fab-btn {
+#canvas-view.flow-canvas-active:not(:has(.editor-fixed-active-frame)) #image-zoom-controls-floating,
+#canvas-view.flow-canvas-active:not(:has(.editor-fixed-active-frame)) .fab-btn {
     display: none;
 }
 
@@ -10279,3 +10353,29 @@ body[data-theme="dark"] .ps-meta-mobile-label {
 body[data-theme="dark"] .ps-meta-mobile-field {
     border-color: var(--studio-border);
 }
+/* Owner-only immutable Release history. */
+.works-release-history { margin-top: 14px; border-top: 1px solid var(--border-color, #555); padding-top: 10px; }
+.works-release-history summary { cursor: pointer; font-weight: 600; }
+.works-release-history button, .works-history-actions a { padding: 6px 10px; margin: 4px 6px 4px 0; }
+.works-release-history [aria-busy="true"] { opacity: .7; }
+.works-history-entry { display: grid; grid-template-columns: 64px minmax(0, 1fr); gap: 12px; padding: 16px 0; border-bottom: 1px solid var(--border-color, #555); }
+.works-history-entry p, .works-history-entry ul { margin: 6px 0; font-size: 12px; }
+.works-history-entry code, .works-history-entry strong { overflow-wrap: anywhere; }
+.works-history-thumb img { width: 64px; height: auto; aspect-ratio: 9 / 16; object-fit: contain; }
+.works-history-actions { display: flex; flex-wrap: wrap; align-items: center; }
+
+/* One runtime page strip; the selected Fixed page hosts the original editing DOM. */
+.editor-unified-canvas #canvas-stage {
+    top: 0;
+    left: 0;
+    transform: none !important;
+    transform-origin: top left;
+}
+.editor-unified-canvas #canvas-transform-layer { box-shadow: none; }
+.editor-unified-canvas #canvas-page-label { display: none; }
+.editor-fixed-active-frame { overflow: visible; }
+.editor-fixed-page-surface { background: #fff; cursor: pointer; }
+.editor-fixed-page-preview { pointer-events: none; overflow: hidden; }
+.editor-fixed-page-surface:focus-visible { outline: 2px solid var(--primary); outline-offset: -3px; }
+.editor-unified-canvas #image-zoom-controls-floating,
+.editor-unified-canvas .fab-btn { z-index: 30; }

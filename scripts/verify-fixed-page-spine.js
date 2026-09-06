@@ -4,6 +4,7 @@ import { readFileSync } from 'node:fs';
 import { createSectionFromPageBlock } from '../js/blocks.js';
 import {
     moveFixedPageRangeInSpine,
+    moveFlowGroupInSpine,
     removeFixedPageRangeFromSpine,
 } from '../js/fixed-page-spine.js';
 import { createFlowGroupBlock } from '../js/flow-project-model.js';
@@ -66,6 +67,15 @@ const imageB = fixedPage('image_b', 'image');
 const fixture = [imageA, flowA, textA, flowB, spreadLeft, spreadRight, imageB];
 
 const fixtureBefore = clone(fixture);
+const flowMove = moveFlowGroupInSpine(fixture, { blockIndex: 3, direction: 'down' });
+assert.deepEqual(flowMove.blocks.map(block => block.id), ['image_a', 'flow_a', 'text_a', 'spread_left', 'spread_right', 'flow_b', 'image_b']);
+assert.equal(flowMove.blocks[5], flowB, 'Flow snapshot and unknown fields are retained without cloning');
+assert.deepEqual(moveFlowGroupInSpine(flowMove.blocks, { blockIndex: 5, direction: 'up' }).blocks, fixture);
+assert.equal(moveFlowGroupInSpine([flowA, { kind: 'chapter' }, textA], { blockIndex: 0, direction: 'down' }).changed, false);
+assert.equal(moveFlowGroupInSpine([flowA, spreadLeft, textA, spreadRight], { blockIndex: 0, direction: 'down' }).changed, false);
+assert.equal(moveFlowGroupInSpine([flowA, { kind: 'cover_back' }], { blockIndex: 0, direction: 'down' }).changed, false);
+assert.equal(moveFlowGroupInSpine(fixture, { blockIndex: 1, direction: 'invalid' }).changed, false);
+assert.deepEqual(fixture, fixtureBefore);
 const singleMove = moveFixedPageRangeInSpine(fixture, {
     sourcePageIndex: 1,
     targetPageIndex: 4,

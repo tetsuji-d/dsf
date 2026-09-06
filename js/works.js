@@ -22,6 +22,7 @@ import { resolveWorksDsfRelease } from './works-dsf-release.js';
 import { createWorksPublicationTransition } from './works-publication-transition.js';
 import { resolveProjectDisplayTitle, resolveProjectName } from './project-display-title.js';
 import { selectProjectListingThumbnail } from './project-listing-thumbnail.js';
+import { renderReleaseHistoryControl, bindReleaseHistoryPanels } from './works-release-history-panel.js';
 import { fetchDsfReleaseInventoryPages } from './dsf-release-inventory-client.js';
 import { createDsfReleaseStorageAudit } from './dsf-release-orphan-inventory.js';
 import {
@@ -36,6 +37,7 @@ const DSF_STATUS_LABELS = {
     private:  { labelKey: 'works_status_private',   icon: 'lock', cls: 'dsf-private'  },
 };
 let _worksViewCache = null;
+let _disposeReleaseHistory = () => {};
 let _worksViewLoadState = { uid: null, phase: 'idle', error: '' };
 let _worksLoadGeneration = 0;
 const _worksPendingProjectKeys = new Set();
@@ -81,6 +83,7 @@ function _resolveWorksRelease(data, pid, uid = state.uid) {
  * @param {{ useCache?: boolean }} options - UI再翻訳時だけ取得済みデータを再利用
  */
 export async function openWorksRoom(roomMode = false, options = {}) {
+    _disposeReleaseHistory();
     const listEl = roomMode
         ? document.getElementById('works-room-list')
         : document.getElementById('works-list');
@@ -112,8 +115,12 @@ export async function openWorksRoom(roomMode = false, options = {}) {
         const account = cachedView ? cachedView.account : await assertAccountCanEdit();
         if (!_isCurrentWorksLoad(ownerUid, loadGeneration)) return;
         const projects = cachedView ? cachedView.projects : [];
+        let historyWorks = cachedView?.historyWorks || [];
         if (!cachedView) {
-            const snap = await getDocs(collection(db, 'users', ownerUid, 'projects'));
+            const [snap, worksSnapshot] = await Promise.all([
+                getDocs(collection(db, 'users', ownerUid, 'projects')),
+                getDocs(collection(db, 'users', ownerUid, 'works')),
+            ]);
             if (!_isCurrentWorksLoad(ownerUid, loadGeneration)) return;
             for (const docSnap of snap.docs) {
                 if (!_isCurrentWorksLoad(ownerUid, loadGeneration)) return;
@@ -147,8 +154,11 @@ export async function openWorksRoom(roomMode = false, options = {}) {
                 });
             }
             projects.sort((a, b) => b.dsfPublishedAt - a.dsfPublishedAt);
+            const displayedWorks = new Set(projects.map(project => project.workId));
+            historyWorks = worksSnapshot.docs.filter(snapshot => !displayedWorks.has(snapshot.id))
+                .map(snapshot => ({ ...snapshot.data(), workId: snapshot.id }));
             if (!_isCurrentWorksLoad(ownerUid, loadGeneration)) return;
-            _worksViewCache = { uid: ownerUid, account, projects };
+            _worksViewCache = { uid: ownerUid, account, projects, historyWorks };
             _worksViewLoadState = { uid: ownerUid, phase: 'ready', error: '' };
         }
 
@@ -166,8 +176,12 @@ export async function openWorksRoom(roomMode = false, options = {}) {
                 </div>`
             : projects.map(p => _renderRow(p, account)).join('');
 
-        listEl.innerHTML = `${_renderReleaseStorageAuditPanel()}${worksContent}`;
+        const historyContent = historyWorks.map(work => `<div class="works-row" data-pid="${_esc(work.projectId || '')}" data-work-id="${_esc(work.workId)}">
+            <div class="works-info"><div class="works-title">${_esc(resolveProjectDisplayTitle(work, { locale: getUILang() }) || t('works_untitled'))}</div>
+            <p>${_esc(t('history_detached'))}</p>${renderReleaseHistoryControl()}</div></div>`).join('');
+        listEl.innerHTML = `${_renderReleaseStorageAuditPanel()}${projects.length || !historyWorks.length ? worksContent : ''}${historyContent}`;
         _bindReleaseStorageAuditPanel(listEl, ownerUid);
+        _disposeReleaseHistory = bindReleaseHistoryPanels(listEl, ownerUid);
         if (!projects.length) return;
         projects.forEach(project => {
             if (_isWorksProjectPending(ownerUid, project.id)) {
@@ -293,6 +307,7 @@ export async function openWorksRoom(roomMode = false, options = {}) {
 
 /** Works Room モーダルを閉じる */
 export function closeWorksRoom() {
+    _disposeReleaseHistory();
     document.getElementById('works-modal')?.classList.remove('visible');
 }
 
@@ -607,6 +622,7 @@ function _renderRow(p, account = {}) {
                 ${publicationEditor}
                 <div class="works-meta">${_esc(t('works_published_on', { date }))}</div>
                 <div class="works-operation-diagnostic" data-works-operation-diagnostic hidden></div>
+                ${renderReleaseHistoryControl()}
             </div>
             <div class="works-controls">
                 <span class="works-dsf-badge ${dsf.cls}">${_statusIcon(dsf.icon)}<span>${dsf.label}</span></span>

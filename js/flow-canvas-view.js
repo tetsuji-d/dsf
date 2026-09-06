@@ -5,12 +5,12 @@ import { normalizeFlowPageGuideMode, resolveFlowPageRuleGuide } from './flow-pag
 
 /** Editor-only virtual page strip. Page geometry and saved publication data never change. */
 export function createFlowCanvasView({ container, getPinnedPageIndex, onPageCreate,
-    onGeometryChange, onScrollPage, getPageLabel }) {
+    onGeometryChange, onScrollPage, getPageLabel, renderFixedPage, onBeforeRemove, getDirection, getJoinedPageIndices }) {
     const viewport = document.createElement('div');
     viewport.id = 'flow-canvas-viewport';
     viewport.dataset.testid = 'flow-canvas-viewport';
     viewport.setAttribute('role', 'region');
-    viewport.setAttribute('aria-label', 'Flowページ・横スクロール');
+    viewport.setAttribute('aria-label', '作品ページ・横スクロール');
     viewport.tabIndex = 0;
     viewport.hidden = true;
     viewport.dataset.flowPageGuideMode = 'off';
@@ -70,7 +70,7 @@ export function createFlowCanvasView({ container, getPinnedPageIndex, onPageCrea
         const indices = new Set(window.pageIndices);
         if (Number.isInteger(extraPageIndex) && pages[extraPageIndex]) indices.add(extraPageIndex);
         for (const [index, entry] of mounted) {
-            if (!indices.has(index)) { entry.slot.remove(); mounted.delete(index); }
+            if (!indices.has(index)) { onBeforeRemove?.(entry); entry.slot.remove(); mounted.delete(index); }
         }
         for (const index of indices) {
             const page = pages[index];
@@ -80,11 +80,13 @@ export function createFlowCanvasView({ container, getPinnedPageIndex, onPageCrea
                 const slot = document.createElement('div');
                 slot.className = 'flow-canvas-page-slot';
                 slot.dataset.flowPageIndex = String(index);
+                slot.dataset.pageKind = page.kind;
+                slot.dataset.runtimeKey = page.runtimeKey;
                 const pageFrame = document.createElement('div');
                 pageFrame.className = 'flow-canvas-page-frame';
                 const pageElement = document.createElement('div');
-                pageElement.className = 'flow-editor-page-surface';
-                pageElement.dataset.testid = 'flow-editor-generated-page';
+                pageElement.className = page.kind === 'fixed' ? 'editor-fixed-page-surface' : 'flow-editor-page-surface';
+                pageElement.dataset.testid = page.kind === 'fixed' ? 'editor-fixed-page' : 'flow-editor-generated-page';
                 pageElement.dataset.flowRuntimeKey = page.runtimeKey;
                 pageElement.dataset.publicationIndex = String(page.index);
                 pageElement.dataset.flowPageIndex = String(index);
@@ -96,8 +98,10 @@ export function createFlowCanvasView({ container, getPinnedPageIndex, onPageCrea
                 label.textContent = getPageLabel(page);
                 slot.appendChild(label);
                 track.appendChild(slot);
-                const contentElement = renderFlowGeneratedPage(pageElement, { page: page.page, pageBox: page.pageBox,
-                    languageKey: page.languageKey, writingMode: page.writingMode, typography: page.typography });
+                const contentElement = page.kind === 'fixed'
+                    ? (renderFixedPage?.(pageElement, page), null)
+                    : renderFlowGeneratedPage(pageElement, { page: page.page, pageBox: page.pageBox,
+                        languageKey: page.languageKey, writingMode: page.writingMode, typography: page.typography });
                 entry = { slot, pageElement, contentElement, page, pageIndex: index };
                 mounted.set(index, entry);
                 applyPageGuide(entry);
@@ -108,7 +112,9 @@ export function createFlowCanvasView({ container, getPinnedPageIndex, onPageCrea
                 left: `${position.left}px`, top: `${position.top}px`, width: `${position.width}px`,
                 height: `${position.height + layout.labelHeight}px`,
             });
-            entry.slot.dataset.selected = String(index === selected);
+            const selectedSpread = pages[selected]?.section?.spreadImage?.groupId;
+            entry.slot.dataset.selected = String(index === selected || !!(selectedSpread
+                && entry.page.section?.spreadImage?.groupId === selectedSpread));
         }
         viewport.dataset.visiblePageCount = String(layout.visibleCount);
         viewport.dataset.mountedPageCount = String(mounted.size);
@@ -124,7 +130,8 @@ export function createFlowCanvasView({ container, getPinnedPageIndex, onPageCrea
         for (let attempt = 0; attempt < 3; attempt += 1) {
             layout = calculateFlowCanvasLayout({ viewportWidth: viewport.clientWidth,
                 viewportHeight: viewport.clientHeight, pageCount: pages.length,
-                writingMode: pages[0].writingMode, scale: explicitScale ?? retainedScale });
+                writingMode: pages[0].writingMode, direction: getDirection?.(),
+                joinedPageIndices: getJoinedPageIndices?.(pages), scale: explicitScale ?? retainedScale });
             viewport.style.setProperty('--flow-canvas-scale', layout.scale);
             viewport.style.setProperty('--flow-canvas-page-height', `${layout.pageHeight}px`);
             viewport.dataset.direction = layout.direction;
@@ -157,9 +164,14 @@ export function createFlowCanvasView({ container, getPinnedPageIndex, onPageCrea
         return mounted.get(index)?.pageElement || null;
     }
 
-    viewport.addEventListener('mousedown', event => event.stopPropagation());
-    viewport.addEventListener('touchstart', event => event.stopPropagation(), { passive: true });
+    const stopPassivePointer = event => {
+        // The live Fixed stage keeps its existing bubble and image-drag handlers on canvas-view.
+        if (!event.target.closest('#canvas-stage')) event.stopPropagation();
+    };
+    viewport.addEventListener('mousedown', stopPassivePointer);
+    viewport.addEventListener('touchstart', stopPassivePointer, { passive: true });
     viewport.addEventListener('wheel', event => {
+        if (event.target.closest('#canvas-transform-layer.adjust-image-mode')) return;
         event.stopPropagation();
         if (event.ctrlKey || event.metaKey) return; // Browser pinch/zoom remains native.
         event.preventDefault();
@@ -204,6 +216,7 @@ export function createFlowCanvasView({ container, getPinnedPageIndex, onPageCrea
             contextKey = resolvedContext;
             pages = nextPages;
             selected = Math.max(0, Math.min(pages.length - 1, Number(selectedIndex) || 0));
+            mounted.forEach(entry => onBeforeRemove?.(entry));
             mounted.clear();
             track.replaceChildren();
             if (!pages.length) {
@@ -216,9 +229,21 @@ export function createFlowCanvasView({ container, getPinnedPageIndex, onPageCrea
             if (!sameContext) setScrollLeft(getFlowCanvasPageScrollLeft(layout, selected, { align: 'start' }));
             renderWindow(selected);
         },
-        setVisible(visible) { viewport.hidden = !visible; },
+        setVisible(visible) {
+            if (!visible) mounted.forEach(entry => onBeforeRemove?.(entry));
+            viewport.hidden = !visible;
+        },
         resize, ensurePage, setGuideMode,
         getScale() { return layout?.scale || 1; },
+        getPages() { return pages; },
+        refreshFixedPreviews(predicate) {
+            for (const entry of mounted.values()) {
+                if (entry.page.kind !== 'fixed' || !predicate(entry.page)
+                    || entry.pageElement.querySelector('#canvas-stage')) continue;
+                entry.pageElement.replaceChildren();
+                renderFixedPage?.(entry.pageElement, entry.page);
+            }
+        },
         getMountedPages() { return [...mounted.values()].sort((a, b) => a.pageIndex - b.pageIndex); },
         getPageElement(index) { return mounted.get(index)?.pageElement || null; },
     };

@@ -299,10 +299,11 @@ export function applyFlowAuthoringOperation(blocks, operation, options = {}) {
             section.blocks.splice(insertIndex, 0, inserted);
             break;
         }
+        case 'splitTextBlock':
         case 'splitParagraph': {
             const blockIndex = findBlockIndex(section, operation.blockId);
             const block = section.blocks[blockIndex];
-            if (block.type !== 'paragraph') {
+            if (operation.type === 'splitParagraph' ? block.type !== 'paragraph' : !TEXT_BLOCK_TYPES.has(block.type)) {
                 fail('FLOW_BLOCK_NOT_PARAGRAPH', 'Only paragraph blocks can be split.', {
                     blockId: block.id,
                     blockType: block.type,
@@ -320,6 +321,9 @@ export function applyFlowAuthoringOperation(blocks, operation, options = {}) {
             const text = sourceValue === undefined ? '' : sourceValue;
             if (typeof text !== 'string') fail('INVALID_FLOW_TEXT', 'Paragraph source text must be a string.');
             const utf16Offset = validateGraphemeBoundary(text, operation.utf16Offset, sourceLanguage);
+            const utf16EndOffset = operation.type === 'splitTextBlock'
+                ? validateGraphemeBoundary(text, operation.utf16EndOffset ?? utf16Offset, sourceLanguage) : utf16Offset;
+            if (utf16EndOffset < utf16Offset) fail('INVALID_FLOW_SELECTION', 'Selection end precedes its start.');
             const requestedId = operation.newBlockId == null || operation.newBlockId === ''
                 ? null
                 : validateBlockId(operation.newBlockId, 'New paragraph ID');
@@ -336,13 +340,15 @@ export function applyFlowAuthoringOperation(blocks, operation, options = {}) {
             if (captured.changed) context.group.flow.translationState = captured.translationState;
 
             const beforeText = text.slice(0, utf16Offset);
-            const afterText = text.slice(utf16Offset);
+            const afterText = text.slice(utf16EndOffset);
             block.texts = { ...(block.texts || {}), [sourceLanguage]: beforeText };
-            const inserted = createFlowParagraph({
+            const tailOptions = {
                 ...(requestedId ? { id: requestedId } : {}),
                 idFactory,
                 texts: { [sourceLanguage]: afterText },
-            });
+            };
+            const inserted = block.type === 'heading' && afterText.length
+                ? createFlowHeading({ ...tailOptions, level: block.level }) : createFlowParagraph(tailOptions);
             section.blocks.splice(blockIndex + 1, 0, inserted);
             break;
         }
