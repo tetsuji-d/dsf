@@ -1,3 +1,4 @@
+import {getFlowPublicationAnnotationGlyphs} from './flow-publication-annotations.js';
 /**
  * Pure Flow publication projection for DSF delivery v2.
  *
@@ -75,7 +76,7 @@ const SNAPSHOT_KEYS = new Set([
     'pages',
 ]);
 const SNAPSHOT_EVIDENCE_KEYS = new Set(['fontId', 'fontSha256', 'hyphenation']);
-const SNAPSHOT_PAGE_KEYS = new Set(['index', 'manualBreakBefore', 'lines']);
+const SNAPSHOT_PAGE_KEYS = new Set(['index', 'manualBreakBefore', 'lines', 'annotations']);
 const SNAPSHOT_LINE_KEYS = new Set([
     'x',
     'y',
@@ -91,6 +92,7 @@ const PAGINATION_KEYS = new Set(['documentId', 'languageKey', 'writingMode', 'pa
 const PAGINATION_PAGE_KEYS = new Set(['index', 'manualBreakBefore', 'fragments']);
 const MANUAL_BREAK_KEYS = new Set(['sectionId', 'blockId']);
 const FRAGMENT_KEYS = new Set([
+    'annotations',
     'sectionId',
     'blockId',
     'blockType',
@@ -305,6 +307,11 @@ function validatePagination(pagination, context) {
             if (!expected) {
                 fail('FLOW_PUBLICATION_FRAGMENT_UNEXPECTED', path, 'Pagination contains text beyond the FlowDocument.');
             }
+            if((expected.block.annotations?.[language] || []).some(a=>a.type==='ruby' && a.start<fragment.sourceRange.end && fragment.sourceRange.start<a.end
+                && (a.start<fragment.sourceRange.start || a.end>fragment.sourceRange.end)))fail('FLOW_PUBLICATION_ANNOTATION_MISMATCH',path,'Ruby must remain within one page fragment.');
+            const expectedAnnotations=(expected.block.annotations?.[language] || []).filter(a=>a.start<fragment.sourceRange.end && fragment.sourceRange.start<a.end)
+                .map(a=>({...a,start:Math.max(fragment.sourceRange.start,a.start)-fragment.sourceRange.start,end:Math.min(fragment.sourceRange.end,a.end)-fragment.sourceRange.start}));
+            if(!sameValue(fragment.annotations || [],expectedAnnotations))fail('FLOW_PUBLICATION_ANNOTATION_MISMATCH',path,'Pagination annotations differ from source.');
             const range = fragment.sourceRange;
             assertExactKeys(range, SOURCE_RANGE_KEYS, `${path}.sourceRange`);
             const startGrapheme = finiteNumber(range.startGrapheme, `${path}.sourceRange.startGrapheme`, {
@@ -415,7 +422,7 @@ function styleIdForEntry(entry) {
     return entry.block.type === 'heading' ? `heading-${entry.block.level}` : 'body';
 }
 
-function validateSnapshotPage(snapshotPage, paginationPage, pageIndex, context) {
+export function validateSnapshotPage(snapshotPage, paginationPage, pageIndex, context) {
     const path = `compositionSnapshot.pages[${pageIndex}]`;
     assertExactKeys(snapshotPage, SNAPSHOT_PAGE_KEYS, path);
     if (snapshotPage.index !== pageIndex
@@ -470,7 +477,7 @@ function validateSnapshotPage(snapshotPage, paginationPage, pageIndex, context) 
                 fail('FLOW_PUBLICATION_LINE_CROSSES_BLOCKS', linePath, 'A fixed line cannot combine separate semantic Flow blocks.');
             }
             lineBlockId = fragment.blockId;
-            lineStyleId = styleIdForEntry(entry);
+            lineStyleId = styleIdForEntry(entry)+(fragment.annotations?.length ? '-glyph' : '');
             nextGrapheme = endGrapheme;
             if (endGrapheme === fragmentEnd) {
                 fragmentIndex += 1;
@@ -496,6 +503,15 @@ function validateSnapshotPage(snapshotPage, paginationPage, pageIndex, context) 
     if (fragmentIndex !== fragments.length) {
         fail('FLOW_PUBLICATION_SNAPSHOT_SOURCE_INCOMPLETE', `${path}.lines`, 'Measured lines do not cover every pagination fragment.');
     }
+    const expected=fragments.flatMap(getFlowPublicationAnnotationGlyphs);
+    const actual=snapshotPage.annotations || [];
+    if(!Array.isArray(actual) || actual.length!==expected.length)fail('FLOW_PUBLICATION_ANNOTATION_MISMATCH',path,'Annotation glyphs are missing or duplicated.');
+    actual.forEach((glyph,index)=>{
+        assertExactKeys(glyph,new Set(['blockId','annotationId','type','index','text','x','y','width','height']),path);
+        if(!Object.entries(expected[index]).every(([key,value])=>glyph[key]===value))fail('FLOW_PUBLICATION_ANNOTATION_MISMATCH',path,'Annotation glyphs differ from source.');
+        outputLines.push({...validateLineGeometry({...glyph,writingMode:context.writingMode,textOrientation:'mixed'},path,context.writingMode,context.pageBox),
+            writingMode:context.writingMode,textOrientation:'mixed',styleRef:styleIdForEntry(context.source.byBlockId.get(glyph.blockId))+'-'+glyph.type,runs:[{text:glyph.text}]});
+    });
     return outputLines;
 }
 
@@ -673,6 +689,13 @@ export function projectFlowPaginationToDsfV2(input = {}) {
     try {
         const context = prepareContext(input);
         const styles = buildStyles(context.typography, context.fontId, context.source);
+        for(const entry of context.source.textEntries){
+            if(!entry.block.annotations?.[context.language]?.length)continue;
+            const id=styleIdForEntry(entry),base=styles[id];
+            styles[id+'-glyph']={...base,lineHeight:1.2};
+            styles[id+'-ruby']={...base,fontSize:base.fontSize*.5,lineHeight:1.2};
+            styles[id+'-emphasis']={...base,fontSize:base.fontSize*.48,lineHeight:1.2};
+        }
         const pages = context.pagination.pages.map((page, pageIndex) => ({
             id: input.pageIds[pageIndex],
             renderKind: 'fixedText',

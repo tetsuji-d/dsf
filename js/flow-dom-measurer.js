@@ -6,6 +6,7 @@
  * drift because of duplicate markup.
  */
 
+import { renderAnnotationPreview } from './flow-annotation-ui.js';
 import { normalizeFlowPageBox } from './flow-pagination.js';
 import { getFontPresetFromConfigs, getTextPageTypographyDefaults } from './layout.js';
 import {
@@ -15,7 +16,7 @@ import {
 
 export const FLOW_DOM_SUPPORTED_WRITING_MODE = 'horizontal-tb';
 export const FLOW_DOM_SUPPORTED_WRITING_MODES = Object.freeze(['horizontal-tb', 'vertical-rl']);
-export const FLOW_DOM_RENDERER_VERSION = 8;
+export const FLOW_DOM_RENDERER_VERSION = 10;
 export const FLOW_DOM_HYPHENATION_MODES = Object.freeze(['auto', 'none']);
 
 const DEFAULT_MEASUREMENT_CACHE_SIZE = 2048;
@@ -218,7 +219,12 @@ function createFragmentElement(ownerDocument, fragment, fragmentIndex, typograph
         hyphens: hyphenation,
     });
     if (fragment.text) {
-        element.textContent = fragment.text;
+        if (fragment.annotations?.length) {
+            element.dataset.writing = typography.writingMode || 'horizontal-tb';
+            element.style.paddingBlockStart = (fontSize * .8)+'px';
+            element.style.lineHeight = String(Math.max(lineHeight, 2.8));
+            renderAnnotationPreview(element, {texts:{[fragment.languageKey]:fragment.text}, annotations:{[fragment.languageKey]:fragment.annotations}}, fragment.languageKey);
+        } else element.textContent = fragment.text;
     } else {
         element.textContent = '\u200B';
         element.dataset.emptyFragment = 'true';
@@ -264,6 +270,7 @@ function createMeasurementCacheKey(context, pageBox, writingMode, languageKey, t
             fragment.blockType,
             fragment.headingLevel ?? null,
             fragment.text,
+            fragment.annotations || null,
             fragment.isBlockStart === true,
             fragment.isBlockEnd === true,
         ]),

@@ -20,6 +20,7 @@ import {
     confirmFlowTranslationAgainstCurrentSource,
     recordFlowManualTranslationUnitEdit,
 } from './flow-translation-state.js';
+import { validateFlowAnnotations, replaceAnnotatedText, splitAnnotatedText, mergeAnnotatedText } from './flow-annotations.js';
 import { segmentGraphemes } from './grapheme.js';
 import { createId, deepClone } from './utils.js';
 
@@ -173,6 +174,20 @@ export function applyFlowAuthoringOperation(blocks, operation, options = {}) {
     const idFactory = typeof options.idFactory === 'function' ? options.idFactory : createId;
 
     switch (operation.type) {
+        case 'setAnnotations': {
+            const block = section.blocks[findBlockIndex(section, operation.blockId)];
+            const language = validateLanguageKey(operation.languageKey);
+            if (!TEXT_BLOCK_TYPES.has(block.type) || typeof operation.expectedText !== 'string'
+                || block.texts?.[language] !== operation.expectedText
+                || JSON.stringify(block.annotations?.[language] || []) !== operation.expectedAnnotations) {
+                fail('FLOW_ANNOTATION_SOURCE_CHANGED', 'Annotation source changed.');
+            }
+            if (!Array.isArray(operation.annotations)) fail('FLOW_ANNOTATIONS_INVALID', 'Annotations must be an array.');
+            block.annotations = { ...(block.annotations || {}), [language]: deepClone(operation.annotations) };
+            validateFlowAnnotations(block);
+            context.group.flow.document.schemaVersion = 2;
+            break;
+        }
         case 'setText': {
             const blockIndex = findBlockIndex(section, operation.blockId);
             const block = section.blocks[blockIndex];
@@ -192,6 +207,7 @@ export function applyFlowAuthoringOperation(blocks, operation, options = {}) {
                 });
                 if (captured.changed) context.group.flow.translationState = captured.translationState;
             }
+            replaceAnnotatedText(block, languageKey, operation.text);
             block.texts = { ...(block.texts || {}), [languageKey]: operation.text };
             if (languageKey !== sourceLanguage) {
                 const recorded = recordFlowManualTranslationUnitEdit(context.group, languageKey, {
@@ -339,10 +355,12 @@ export function applyFlowAuthoringOperation(blocks, operation, options = {}) {
             });
             if (captured.changed) context.group.flow.translationState = captured.translationState;
 
+            const trailingAnnotations = splitAnnotatedText(block, sourceLanguage, utf16Offset, utf16EndOffset);
             const beforeText = text.slice(0, utf16Offset);
             const afterText = text.slice(utf16EndOffset);
             block.texts = { ...(block.texts || {}), [sourceLanguage]: beforeText };
             const tailOptions = {
+                ...(trailingAnnotations.length ? { annotations: { [sourceLanguage]: trailingAnnotations } } : {}),
                 ...(requestedId ? { id: requestedId } : {}),
                 idFactory,
                 texts: { [sourceLanguage]: afterText },
@@ -388,6 +406,7 @@ export function applyFlowAuthoringOperation(blocks, operation, options = {}) {
                 }
             }
 
+            const trailingAnnotations = splitAnnotatedText(block, sourceLanguage, utf16Offset);
             const beforeText = text.slice(0, utf16Offset);
             const afterText = text.slice(utf16Offset);
             // At the end (including a source-missing empty block), the original
@@ -401,6 +420,7 @@ export function applyFlowAuthoringOperation(blocks, operation, options = {}) {
                 block.texts = { ...(block.texts || {}), [sourceLanguage]: beforeText };
             }
             const trailingOptions = { id: newBlockId, idFactory, texts: { [sourceLanguage]: afterText } };
+            if (trailingAnnotations.length) trailingOptions.annotations = { [sourceLanguage]: trailingAnnotations };
             const trailingBlock = block.type === 'heading' && afterText.length > 0
                 ? createFlowHeading({ ...trailingOptions, level: block.level })
                 : createFlowParagraph(trailingOptions);
@@ -456,6 +476,7 @@ export function applyFlowAuthoringOperation(blocks, operation, options = {}) {
             });
             if (captured.changed) context.group.flow.translationState = captured.translationState;
 
+            mergeAnnotatedText(previousBlock, block, sourceLanguage, previousText.length);
             previousBlock.texts = {
                 ...(previousBlock.texts || {}),
                 [sourceLanguage]: previousText + currentText,

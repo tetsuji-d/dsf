@@ -2,6 +2,7 @@
 import { segmentGraphemes } from './grapheme.js';
 import {
     advanceFlowVerticalLineBreakClientRect,
+    getFlowFragmentDomPosition,
     isFlowCaretMeasurementRect,
     resolveFlowCaretClientGeometry,
 } from './flow-source-mapping.js';
@@ -61,7 +62,7 @@ export function measureFlowDirectNavigationStops(pages, options = {}) {
             const text = String(fragment.text ?? '');
             const sourceRange = fragment.sourceRange;
             const segments = segmentGraphemes(text, fragment.languageKey);
-            if (!node || node.nodeType !== 3 || node.textContent !== (text || '\u200B')
+            if (!node || (!fragment.annotations?.length && (node.nodeType !== 3 || node.textContent !== (text || '\u200B')))
                 || !fragment.sectionId || !fragment.blockId || !fragment.languageKey
                 || !Number.isInteger(sourceRange?.start) || sourceRange.start < 0
                 || !Number.isInteger(sourceRange?.startGrapheme) || sourceRange.startGrapheme < 0
@@ -71,8 +72,10 @@ export function measureFlowDirectNavigationStops(pages, options = {}) {
             const fragmentRect = element.getBoundingClientRect?.();
             const style = ownerDocument.defaultView?.getComputedStyle?.(element);
             const glyphRects = segments.map((segment) => {
-                range.setStart(node, segment.index);
-                range.setEnd(node, segment.end);
+                const begin = getFlowFragmentDomPosition(element, fragment, segment.index);
+                const finish = getFlowFragmentDomPosition(element, fragment, segment.end, 'backward');
+                range.setStart(begin.node, begin.offset);
+                range.setEnd(finish.node, finish.offset);
                 return measureRange(range, writingMode);
             });
             const afterGlyphRects = glyphRects.map((measured, index) => {
@@ -87,7 +90,8 @@ export function measureFlowDirectNavigationStops(pages, options = {}) {
             });
             for (let index = 0; index <= segments.length; index += 1) {
                 const offset = index < segments.length ? segments[index].index : text.length;
-                range.setStart(node, offset);
+                const caret = getFlowFragmentDomPosition(element, fragment, offset);
+                range.setStart(caret.node, caret.offset);
                 range.collapse(true);
                 const collapsedRect = measureRange(range, writingMode);
                 const boundaryStops = [];

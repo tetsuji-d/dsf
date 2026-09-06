@@ -334,11 +334,11 @@ const futureDocumentVersion = normalizeFlowProjectData({
         id: 'future_document_group',
         flow: {
             ...factoryGroup.flow,
-            document: { ...factoryGroup.flow.document, id: 'future_document', schemaVersion: 2 },
+            document: { ...factoryGroup.flow.document, id: 'future_document', schemaVersion: 3 },
         },
     }],
 });
-assert.equal(futureDocumentVersion.blocks[0].flow.document.schemaVersion, 2);
+assert.equal(futureDocumentVersion.blocks[0].flow.document.schemaVersion, 3);
 assert.equal(hasIssue(
     validateFlowProjectData(futureDocumentVersion),
     'unsupported_schema_version',

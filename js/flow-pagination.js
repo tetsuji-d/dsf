@@ -126,6 +126,9 @@ function createFragment(section, block, languageKey, text, segments, startGraphe
         isBlockStart: startGrapheme === 0,
         isBlockEnd: endGrapheme === segments.length,
     };
+    const annotations = (block.annotations?.[languageKey] || []).filter(a => a.start < end && start < a.end)
+        .map(a => ({...a, start:Math.max(start,a.start)-start, end:Math.min(end,a.end)-start}));
+    if (annotations.length) fragment.annotations = annotations;
     if (block.type === 'heading') fragment.headingLevel = block.level;
     return Object.freeze(fragment);
 }
@@ -165,6 +168,16 @@ function findLargestFittingEnd({
     knownFailureEnd,
     measure,
 }) {
+    const rubies = (block.annotations?.[languageKey] || []).filter(a=>a.type==='ruby');
+    if (rubies.length) {
+        const ends = segments.map((s,i)=>({offset:s.end,index:i+1})).filter(e=>e.index>startGrapheme
+            && !rubies.some(a=>a.start<e.offset && e.offset<a.end));
+        let low=0, high=ends.length-1, best=startGrapheme;
+        while(low<=high){const middle=Math.floor((low+high)/2), end=ends[middle].index;
+            if(measure(createFragment(section,block,languageKey,text,segments,startGrapheme,end))){best=end;low=middle+1;}else high=middle-1;
+        }
+        return best;
+    }
     let best = Number.isInteger(knownFittingEnd) ? knownFittingEnd : startGrapheme;
     const remaining = segments.length - startGrapheme;
     if (remaining <= 0) return best;
@@ -460,6 +473,7 @@ export function createFlowPaginationIterator(document, options = {}) {
             const remainingGraphemes = segments.length - graphemeOffset;
             if (
                 currentFragments.length > 0
+                && !(block.annotations?.[languageKey] || []).some(a=>a.type==='ruby')
                 && remainingGraphemes <= DEFAULT_FLOW_INITIAL_PROBE_GRAPHEMES * 2
             ) {
                 const fullFragment = createFragment(

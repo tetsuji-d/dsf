@@ -32,6 +32,7 @@ function createSourceIndex(document, languageKey) {
                 sectionId: section.id,
                 blockId: block.id,
                 blockType: block.type,
+                annotationSignature: JSON.stringify(block.annotations?.[languageKey] || []),
                 headingLevel: block.type === 'heading' ? block.level : null,
                 text,
                 segments,
@@ -49,7 +50,8 @@ function entryIdentityMatches(left, right) {
         && left.sectionId === right.sectionId
         && left.blockId === right.blockId
         && left.blockType === right.blockType
-        && left.headingLevel === right.headingLevel;
+        && left.headingLevel === right.headingLevel
+        && left.annotationSignature === right.annotationSignature;
 }
 
 function entryMatches(left, right) {

@@ -10,6 +10,9 @@
  *   - Press / Works: enterPressRoom（press.js）, openWorksRoom（works.js）は switchRoom から委譲
  *   - 認証 UI: getStudioAuthMarkup → renderStudioAuthSlot（GIS ボタン + フォールバック）
  */
+import '../css/flow-annotations.css';
+import { openAnnotationDialog } from './flow-annotation-ui.js';
+import { refreshFlowRichInput } from './flow-source-rich-input.js';
 import { state, dispatch, actionTypes } from './state.js';
 import { saveProject as persistProject, loadProject, uploadToStorage, prepareAuthoringImage, uploadCoverToStorage, uploadStructureToStorage, triggerAutoSave, flushSave, flushPendingSave, generateCroppedThumbnail, listLocalRecentProjects, loadLocalRecentProject, cacheLocalRecentProject, ensureUserBootstrap, storePublicationThumbnailFile, auth as firebaseAuth, authReady, db } from './firebase.js';
 import { initGIS, renderGISButton, signInWithGoogle, signOutUser, onAuthChanged, handleRedirectResult } from './gis-auth.js';
@@ -472,6 +475,9 @@ function syncFlowDirectFormatControls() {
     const active = !!session && _flowDirectEditProxy?.isConnected
         && getActiveBlock()?.id === session.groupId && isFlowDirectEditing(session.groupId);
     panel.hidden = !active;
+    let annotationButton=panel.querySelector('[data-flow-annotation-button]');
+    if(!annotationButton){annotationButton=document.createElement('button');annotationButton.type='button';annotationButton.dataset.flowAnnotationButton='';annotationButton.textContent='ルビ・圏点…';panel.append(annotationButton);}
+    annotationButton.disabled=!active || !!_flowTextSelection || _flowAuthoringComposing || _flowDirectEditProxy?.dataset.flowReflowPending==='true';
     for (const button of document.querySelectorAll('[data-flow-insert-image]')) {
         button.hidden = !active;
         button.disabled = !active || !!_flowTextSelection || _flowImageInsertionBusy || _flowAuthoringComposing
@@ -2807,16 +2813,18 @@ function getFlowAuthoringSectionFromBlocks(blocks, groupId, sectionId) {
     return group?.flow?.document?.sections?.find((section) => section?.id === sectionId) || null;
 }
 
-function restoreFlowAuthoringBlockFocus(blockId, sectionId) {
+function restoreFlowAuthoringBlockFocus(blockId, sectionId, selection) {
     requestAnimationFrame(() => {
         const root = getFlowAuthoringSurface();
         const blockElement = [...(root?.querySelectorAll?.('[data-testid="flow-block"]') || [])]
             .find((entry) => entry.dataset.flowBlockId === blockId);
-        const focusTarget = blockElement?.querySelector('.flow-authoring-input, [data-flow-action]')
+        const focusTarget = blockElement?.querySelector('.flow-authoring-input')
+            || blockElement?.querySelector('[data-flow-action]')
             || [...(root?.querySelectorAll?.('[data-testid="flow-section"]') || [])]
                 .find((entry) => entry.dataset.flowSectionId === sectionId)
                 ?.querySelector('[data-flow-field="section-title"], [data-flow-action="insert"]');
         focusTarget?.focus?.({ preventScroll: true });
+        if(selection && focusTarget?.setSelectionRange)focusTarget.setSelectionRange(selection.start,selection.end);
     });
 }
 
@@ -2923,7 +2931,70 @@ function restoreFlowAuthoringFocusSnapshot(snapshot) {
     });
 }
 
+function getFlowAnnotationTarget(element) {
+    const source = element?.closest?.('[data-testid="flow-block"]');
+    if(source){
+        const input=source.querySelector('[data-flow-field="block-text"]');
+        const root=source.closest('#flow-authoring-surface');
+        if(!input || !root)return null;
+        return {groupId:root.dataset.flowGroupId,sectionId:source.dataset.flowSectionId,blockId:source.dataset.flowBlockId,
+            languageKey:root.dataset.languageKey,start:input.selectionStart,end:input.selectionEnd,sourceMode:true,input,editorFocus:captureFlowEditorFocusSnapshot()};
+    }
+    const session=_flowDirectEditSession,proxy=_flowDirectEditProxy;
+    if(!session || !proxy || _flowTextSelection || proxy.dataset.flowReflowPending==='true')return null;
+    const pageElement=element?.closest?.('.flow-editor-page-surface');
+    if(pageElement){
+        const entry=getEditorPageProjection()?.pages[Number(pageElement.dataset.publicationIndex)];
+        const fragmentElement=element.closest('.flow-dom-block');
+        const fragment=entry?.page?.fragments[Number(fragmentElement?.dataset.flowFragmentIndex)];
+        if(entry?.groupId!==session.groupId || (fragment && fragment.blockId!==session.blockId))return null;
+    }
+    return {...session,start:proxy.selectionStart,end:proxy.selectionEnd,sourceMode:false,editorFocus:captureFlowEditorFocusSnapshot()};
+}
+
+function showFlowAnnotationDialog(target) {
+    if(!target || _flowAuthoringComposing)return;
+    const group=getFlowGroupById(target.groupId);
+    const block=group?.flow.document.sections.find(s=>s.id===target.sectionId)?.blocks.find(b=>b.id===target.blockId);
+    if(!block || typeof block.texts?.[target.languageKey]!=='string')return;
+    const editorFocus=target.editorFocus || captureFlowEditorFocusSnapshot();
+    const expectedAnnotations=JSON.stringify(block.annotations?.[target.languageKey] || []);
+    const expectedText=block.texts[target.languageKey];
+    const opened=openAnnotationDialog({source:group.flow.document,...target,range:{start:target.start,end:target.end},onApply:next=>{
+        const annotations=next.sections.find(s=>s.id===target.sectionId).blocks.find(b=>b.id===target.blockId).annotations?.[target.languageKey] || [];
+        if(JSON.stringify(annotations)===expectedAnnotations)return;
+        endHistoryGroup();
+        applyFlowAuthoringEdit({type:'setAnnotations',groupId:target.groupId,sectionId:target.sectionId,blockId:target.blockId,
+            languageKey:target.languageKey,expectedText,expectedAnnotations,annotations},
+            {immediate:true,rerender:target.sourceMode,editorFocus});
+    },onClose:()=>{
+        if(target.sourceMode)restoreFlowAuthoringBlockFocus(target.blockId,target.sectionId,target);
+        else _flowDirectEditProxy?.focus({preventScroll:true});
+    }});
+    if(!opened)setFlowAuthoringInteractionNote('本文から対象の文字を選択してください。設定済みのルビ・圏点は親文字にカーソルを置いて編集できます。');
+}
+
+document.addEventListener('mousedown',event=>{if(event.target.closest('[data-flow-annotation-button]'))event.preventDefault();});
+document.addEventListener('click',event=>{
+    const button=event.target.closest('[data-flow-annotation-button]');
+    if(button && !button.disabled)showFlowAnnotationDialog(getFlowAnnotationTarget(button));
+});
+document.addEventListener('contextmenu',event=>{
+    if(!event.target.closest('.flow-authoring-input, .flow-editor-page-surface'))return;
+    const target=getFlowAnnotationTarget(event.target);
+    if(!target)return;
+    event.preventDefault();
+    document.querySelector('[data-flow-annotation-menu]')?.remove();
+    const menu=document.createElement('div');menu.dataset.flowAnnotationMenu='';menu.className='flow-annotation-menu';menu.setAttribute('role','menu');
+    const button=document.createElement('button');button.textContent='ルビ・圏点…';button.setAttribute('role','menuitem');menu.append(button);
+    document.body.append(menu);menu.style.left=Math.min(event.clientX,innerWidth-menu.offsetWidth-8)+'px';menu.style.top=Math.min(event.clientY,innerHeight-menu.offsetHeight-8)+'px';
+    const close=()=>{menu.remove();document.removeEventListener('pointerdown',outside,true);document.removeEventListener('keydown',escape,true);};
+    const outside=e=>{if(!menu.contains(e.target))close();};const escape=e=>{if(e.key==='Escape')close();};
+    button.onclick=()=>{close();showFlowAnnotationDialog(target);};document.addEventListener('pointerdown',outside,true);document.addEventListener('keydown',escape,true);button.focus();
+});
+
 function handleFlowAuthoringInput(event) {
+    if (event.isComposing || event.target?._composing) return;
     const field = event.target?.dataset?.flowField;
     if (field !== 'block-text' && field !== 'section-title') return;
     const target = getFlowAuthoringTarget(event.target);
@@ -2931,7 +3002,12 @@ function handleFlowAuthoringInput(event) {
     const languageKey = String(target.root?.dataset?.languageKey || getFlowAuthoringLanguage(group));
     if (!group || !languageKey) return;
     const value = event.target.value;
-    if (findFlowAuthoringValue(target, field, languageKey) === value) return;
+    if (findFlowAuthoringValue(target, field, languageKey) === value) {
+        const block=group.flow.document.sections.flatMap(section=>section.blocks).find(block=>block.id===target.blockId);
+        if(block)refreshFlowRichInput(event.target,block,languageKey);
+        return;
+    }
+    try {
     event.target.classList?.remove('is-translation-missing');
     if (field === 'section-title') {
         const outlineButton = [...(target.root?.querySelectorAll?.('.flow-authoring-outline [data-flow-section-id]') || [])]
@@ -2949,6 +3025,12 @@ function handleFlowAuthoringInput(event) {
     }, {
         historyKey: `flow:${target.groupId}:${target.sectionId}:${target.blockId || 'title'}:${languageKey}`,
     });
+    } catch {
+        event.target.value = findFlowAuthoringValue(target,field,languageKey) || '';
+        setFlowDirectEditNote('ルビ・圏点の途中では改行できません。対象の注釈を解除または変更してください。');
+    }
+    const current = getFlowGroupById(target.groupId)?.flow.document.sections.flatMap(s=>s.blocks).find(b=>b.id===target.blockId);
+    if(current) refreshFlowRichInput(event.target,current,languageKey);
 }
 
 function handleFlowAuthoringChange(event) {
@@ -3103,6 +3185,7 @@ function handleFlowAuthoringCompositionStart() {
 
 function handleFlowAuthoringCompositionEnd(event) {
     _flowAuthoringComposing = false;
+    handleFlowAuthoringInput({target:event.target});
     const root = getFlowAuthoringSurface();
     if (root) root.dataset.composing = 'false';
     const target = getFlowAuthoringTarget(event.target);

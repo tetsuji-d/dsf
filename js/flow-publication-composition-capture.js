@@ -1,3 +1,5 @@
+import {getFlowPublicationAnnotationGlyphs} from './flow-publication-annotations.js';
+import {getFlowFragmentDomPosition} from './flow-source-mapping.js';
 /**
  * Browser-only certified Flow composition capture for DSF publication.
  *
@@ -810,6 +812,55 @@ function captureViewerLineBox(element, line, sourceItems, context, surface) {
     );
 }
 
+// Capture exact parent/annotation glyphs using the same fixedText probe as delivery.
+function captureAnnotationGlyph(node,start,end,text,context,surface,pageRect){
+ const computed=context.ownerDocument.defaultView.getComputedStyle(node.parentElement);
+ const probe=surface.lineBoxProbe,run=surface.lineBoxProbeRun;
+ const fontSize=Number.parseFloat(computed.fontSize),vertical=context.writingMode==='vertical-rl';
+ Object.assign(probe.style,{width:(vertical?fontSize*1.2:360)+'px',height:(vertical?640:fontSize*1.2)+'px',
+  writingMode:context.writingMode,direction:'ltr',fontFamily:computed.fontFamily,fontSize:computed.fontSize,
+  fontWeight:computed.fontWeight,lineHeight:'1.2',letterSpacing:computed.letterSpacing,textAlign:'start'});
+ probe.lang=context.language;
+ const parts=renderFixedTextRunText(run,text,FIXED_TEXT_WHITE_SPACE_MODE);
+ const range=context.ownerDocument.createRange();range.setStart(node,start);range.setEnd(node,end);
+ const source=pageRelativeRect(range.getBoundingClientRect(),pageRect);
+ if(/^\s+$/u.test(text)){
+  // Whitespace has no ink. Preserve its source text and measured anchor even
+  // when the existing Viewer whitespace renderer uses a zero-size marker.
+  range.detach?.();const box=context.pageBox.contentBox;
+  const x=Math.min(Math.max(source.x,box.x),box.x+box.width-.001);
+  const y=Math.min(Math.max(source.y,box.y),box.y+box.height-.001);
+  const width=Math.max(.001,Math.min(source.width,box.x+box.width-x));
+  const height=Math.max(.001,Math.min(source.height,box.y+box.height-y));
+  return normalizeCapturedGeometry({x,y,width,height},box);
+ }
+ const part=parts[0];range.setStart(part.node,0);range.setEnd(part.node,part.node.length);
+ const measured=pageRelativeRect(range.getBoundingClientRect(),probe.getBoundingClientRect());range.detach?.();
+ if(!closeGeometry(source.width,measured.width) || !closeGeometry(source.height,measured.height)){
+  fail('FLOW_PUBLICATION_CAPTURE_GLYPH_MISMATCH','Annotation glyph cannot be reproduced as fixed text.',{source,measured,text,fontSize:computed.fontSize,parent:node.parentElement.tagName});
+ }
+ const x=source.x-measured.x,y=source.y-measured.y,content=context.pageBox.contentBox;
+ const geometry=normalizeCapturedGeometry({x,y,width:vertical?probe.getBoundingClientRect().width:Math.min(360,content.x+content.width-x),
+  height:vertical?Math.min(640,content.y+content.height-y):probe.getBoundingClientRect().height},content);
+ geometry.width=Math.min(geometry.width,roundGeometry(content.x+content.width-geometry.x));
+ geometry.height=Math.min(geometry.height,roundGeometry(content.y+content.height-geometry.y));
+ return geometry;
+}
+function captureFragmentAnnotations(element,fragment,context,pageRect,surface){
+ return getFlowPublicationAnnotationGlyphs(fragment).map(expected=>{
+  let node;
+  if(expected.type==='ruby'){
+   const ruby=Array.from(element.querySelectorAll('ruby')).find(e=>e.dataset.annotationId===expected.annotationId);
+   node=Array.from(ruby?.querySelectorAll('[data-reading-index]') || []).find(e=>Number(e.dataset.readingIndex)===expected.index)?.firstChild;
+  }else{
+   node=Array.from(element.querySelectorAll('[data-emphasis-id]')).find(e=>e.dataset.emphasisId===expected.annotationId
+    && Number(e.dataset.baseOffset)+fragment.sourceRange.start===expected.index)?.firstChild;
+  }
+  if(!node || node.textContent!==expected.text)fail('FLOW_PUBLICATION_CAPTURE_ANNOTATION_MISMATCH','Rendered annotation does not match source.');
+  return {...expected,...captureAnnotationGlyph(node,0,node.length,expected.text,context,surface,pageRect)};
+ });
+}
+
 function captureFragmentLines(element, fragment, context, pageRect, surface) {
     const expectedCount = fragment.sourceRange.endGrapheme - fragment.sourceRange.startGrapheme;
     if (fragment.text === '') {
@@ -819,6 +870,14 @@ function captureFragmentLines(element, fragment, context, pageRect, surface) {
             });
         }
         return [captureEmptyFragmentLine(element, fragment, context, pageRect)];
+    }
+    if(fragment.annotations?.length){
+        return segmentGraphemes(fragment.text,context.language).map((segment,index)=>{
+            const position=getFlowFragmentDomPosition(element,fragment,segment.index);
+            const source={blockId:fragment.blockId,startGrapheme:fragment.sourceRange.startGrapheme+index,endGrapheme:fragment.sourceRange.startGrapheme+index+1};
+            return {...captureAnnotationGlyph(position.node,position.offset,position.offset+segment.segment.length,segment.segment,context,surface,pageRect),
+                writingMode:context.writingMode,textOrientation:'mixed',runs:[{text:segment.segment,source}]};
+        });
     }
     const textNode = element.firstChild;
     if (!textNode || textNode.nodeType !== 3 || textNode.data !== fragment.text) {
@@ -940,6 +999,7 @@ function capturePage(page, context, surface) {
         index: page.index,
         manualBreakBefore: cloneManualBreak(page.manualBreakBefore),
         lines,
+        ...(page.fragments.some(f=>f.annotations?.length)?{annotations:elements.flatMap((element,index)=>captureFragmentAnnotations(element,page.fragments[index],context,pageRect,surface))}:{}),
     };
 }
 

@@ -6,6 +6,7 @@
  * pages must never be written back into this source document.
  */
 
+import { validateFlowAnnotations } from './flow-annotations.js';
 import { createId, deepClone } from './utils.js';
 
 export const FLOW_DOCUMENT_SCHEMA_VERSION = 1;
@@ -194,7 +195,7 @@ export function validateFlowDocument(document) {
     if (document.layoutType !== FLOW_LAYOUT_TYPE) {
         addIssue(issues, 'invalid_layout_type', 'layoutType', 'layoutType must be "flow".');
     }
-    if (document.schemaVersion !== FLOW_DOCUMENT_SCHEMA_VERSION) {
+    if (![1, 2].includes(document.schemaVersion)) {
         addIssue(issues, 'unsupported_schema_version', 'schemaVersion', 'Unsupported Flow document schema version.', {
             supportedVersion: FLOW_DOCUMENT_SCHEMA_VERSION,
         });
@@ -235,6 +236,10 @@ export function validateFlowDocument(document) {
             if (!FLOW_BLOCK_TYPE_SET.has(block.type)) {
                 addIssue(issues, 'unsupported_block_type', `${blockPath}.type`, 'Unsupported Flow block type.');
                 return;
+            }
+            if (block.annotations !== undefined) {
+                if (document.schemaVersion !== 2) addIssue(issues, 'annotation_version_required', blockPath, 'Annotations require FlowDocument v2.');
+                try { validateFlowAnnotations(block); } catch { addIssue(issues, 'invalid_annotations', blockPath, 'Invalid text annotations.'); }
             }
             if (isFlowTextBlock(block)) validateLocalizedTextMap(block.texts, `${blockPath}.texts`, issues);
             if (block.type === 'heading' && (!Number.isInteger(block.level) || block.level < 1 || block.level > 6)) {

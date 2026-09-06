@@ -1,0 +1,33 @@
+.annotation-ruby { position:relative; ruby-position:over; ruby-align:space-around; }
+.annotation-ruby rt { font-size:.5em; line-height:1.2; user-select:none; }
+.annotation-emphasis { text-emphasis-position:over right; }
+.annotation-ruby.has-emphasis > .annotation-emphasis { text-emphasis:none!important; }
+.annotation-outer-marks { position:absolute; left:0; top:-2.5em; width:100%; display:flex; justify-content:space-around; font-size:.48em; line-height:1; user-select:none; pointer-events:none; }
+[data-writing=vertical-rl] .annotation-outer-marks { left:auto; right:-2.5em; top:0; height:100%; width:auto; flex-direction:row; }
+.annotation-ruby.needs-review { text-decoration:underline wavy #bb7813; }
+.flow-annotation-dialog { width:min(400px,calc(100vw - 40px)); border:1px solid #cad4e0; border-radius:14px; padding:24px; color:#202d3d; background:#fff; box-shadow:0 24px 80px #10203655; }
+.flow-annotation-dialog::backdrop { background:#0d1f3655; }
+.flow-annotation-dialog header,.flow-annotation-dialog footer { display:flex; align-items:center; justify-content:space-between; gap:10px; }
+.flow-annotation-dialog h2 { font-size:20px; margin:0 0 20px; }
+.flow-annotation-dialog label { display:grid; gap:8px; margin:14px 0; font-size:14px; font-weight:600; }
+.flow-annotation-dialog input,.flow-annotation-dialog select { padding:10px; border:1px solid #b7c5d5; border-radius:7px; font:inherit; width:100%; box-sizing:border-box; }
+.flow-annotation-dialog output { font-size:20px; font-weight:400; overflow-wrap:anywhere; }
+.flow-annotation-dialog button { font:inherit; padding:9px 16px; border:1px solid #c8d3e0; border-radius:8px; background:#f4f7fb; cursor:pointer; }
+.flow-annotation-dialog .primary { background:#245fcb; color:white; border-color:#245fcb; }
+.flow-annotation-dialog button:disabled { opacity:.45; cursor:default; }
+.annotation-help { color:#65778a; font-size:12px; margin:0; }
+.annotation-live { padding:24px; margin:20px 0; background:#f7f3e7; border-radius:8px; font-size:30px; line-height:2.8; min-height:80px; }
+.flow-annotation-dialog [data-error] { font-size:13px; color:#b02c38; }
+
+.annotation-ruby { white-space:nowrap; }
+.flow-rich-source-input { white-space:pre-wrap; line-height:2.8; overflow-wrap:anywhere; min-height:4em; }
+.flow-annotation-menu { position:fixed; z-index:10000; padding:5px; background:#182335; border:1px solid #42516a; border-radius:8px; box-shadow:0 8px 25px #0005; }
+.flow-annotation-menu button { border:0; border-radius:4px; padding:9px 16px; color:#e6edf7; background:transparent; cursor:pointer; }
+.flow-annotation-menu button:hover,.flow-annotation-menu button:focus { background:#294b7b; }
+[data-flow-annotation-button] { margin-top:6px; }
+
+.annotation-single-mark { position:absolute; top:-1.2em; left:0; width:100%; text-align:center; font-size:.48em; line-height:1; user-select:none; pointer-events:none; }
+[data-writing=vertical-rl] .annotation-single-mark { top:0; left:auto; right:-1.2em; width:auto; height:100%; }
+.annotation-ruby rt > [data-reading-index] { display:inline-block; }
+
+.annotation-ruby > [data-base-start] { display:inline-block; }

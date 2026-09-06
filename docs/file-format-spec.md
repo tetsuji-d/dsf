@@ -252,7 +252,7 @@ fingerprintで記録するauthoring metadataである。本文は従来どおり
 翻訳job、進捗、error、cancel状態も収録しない。
 
 translationStateはProject v6 DSPの任意拡張なので、`meta.json.schemaVersion:2`、`project.json.version:6`、
-FlowDocument v1、FlowLayout v1は変更しない。translationState自身が`schemaVersion:1`を持つ。stateがない
+FlowDocumentは注釈未使用のv1と明示適用後のv2を受け入れ、FlowLayout v1は変更しない。v2では本文をplain textに保ち、annotations[language]へルビ・圏点の範囲を保存する（[注釈契約](flow-annotations.md)）。既存原稿の自動変換は行わない。注釈付き言語のDSF発行は、本文・読み・圏点を実測した既存fixedText文字行へ投影する。注釈の欠落・重複・不一致は発行前に拒否する。translationState自身が`schemaVersion:1`を持つ。stateがない
 8B-1以前の手動翻訳は有効な`untracked`本文として読み込み、暗黙生成・暗黙上書きしない。futureまたは不正な
 translationState schemaは本文欠落を防ぐためProject validationで停止する。
 

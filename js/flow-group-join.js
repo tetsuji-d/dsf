@@ -42,8 +42,9 @@ export function joinFlowWithPrevious(blocks, groupId, {mergeParagraphs=false}={}
     if (!same(left.flow.layout,right.flow.layout)) fail('layout');
     compatible(left,right,['id','flow']);
     compatible(left.flow,right.flow,['document','translationState']);
-    compatible(left.flow.document,right.flow.document,['id','sections']);
+    compatible(left.flow.document,right.flow.document,['id','sections','schemaVersion']);
     const joined = deepClone(left);
+    joined.flow.document.schemaVersion = Math.max(left.flow.document.schemaVersion, right.flow.document.schemaVersion);
     const sections = joined.flow.document.sections, incoming = deepClone(right.flow.document.sections);
     const last = sections.at(-1), first = incoming[0];
     const sharedBoundary = last && first && last.id === first.id;
@@ -65,7 +66,7 @@ export function joinFlowWithPrevious(blocks, groupId, {mergeParagraphs=false}={}
         if (!sharedBoundary) fail('paragraph');
         const before = last.blocks.find(b=>b.id===leftTailId), after = last.blocks.find(b=>b.id===rightHeadId);
         if (before?.type!=='paragraph' || after?.type!=='paragraph') fail('paragraph');
-        compatible(before,after,['id','texts']);
+        compatible(before,after,['id','texts','annotations']);
         const language = joined.flow.document.sourceLanguage;
         if (Object.keys(after.texts||{}).some(k=>k!==language)) fail('translation');
         // The removed block must not carry locks or translation records.

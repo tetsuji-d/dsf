@@ -1,5 +1,6 @@
 /** Atomic state.blocks transaction for an already validated Flow translation plan. */
 
+import { replaceAnnotatedText } from './flow-annotations.js';
 import { PROJECT_SCHEMA_VERSION, assertValidFlowProjectData } from './flow-project-model.js';
 import { recordFlowMachineTranslationUnitBatch } from './flow-translation-state.js';
 import { deepClone } from './utils.js';
@@ -76,6 +77,7 @@ export function applyFlowTranslationPlan(blocks, options = {}) {
         if (block.type !== 'heading' && block.type !== 'paragraph') {
             failUnit(unitId, `Unsupported Flow translation Block: ${unitId}`);
         }
+        replaceAnnotatedText(block, targetLang, edit.text);
         block.texts = { ...(block.texts || {}), [targetLang]: edit.text };
         stateUnits.push({
             unitMap: 'blocks',

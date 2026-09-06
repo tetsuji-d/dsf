@@ -1,0 +1,66 @@
+import {validateSnapshotPage,projectFlowPaginationToDsfV2} from '/js/flow-publication-projection.js';
+import {segmentGraphemes} from '/js/grapheme.js';
+import {prepareDsfViewerFixedTextContext,createDsfFixedTextPageElement} from '/js/viewer-fixed-text.js';
+import {createFlowGroupBlock} from '/js/flow-project-model.js';
+import {createFlowPublicationCompositionCaptureSession} from '/js/flow-publication-composition-capture.js';
+import {FLOW_PRESS_PREFLIGHT_FIXTURE_FONT_REGISTRY as fontRegistry} from '/js/fixtures/flow-press-preflight-fixture.js';
+if(!import.meta.env.DEV)throw Error('Local fixture only');
+export async function captureAnnotations(options={}){
+ const results=[];
+ for(const writingMode of ['horizontal-tb','vertical-rl']){
+  const group=createFlowGroupBlock({id:'annotation-'+writingMode,sourceLanguage:'ja',document:{schemaVersion:2,id:'doc-'+writingMode,sourceLanguage:'ja',sections:[{id:'section',title:{},blocks:[{id:'body',type:'paragraph',texts:{ja:options.text || '前漢字と圏点の本文です。'.repeat(30)},annotations:{ja:[{id:'r',type:'ruby',start:1,end:3,reading:options.reading || 'かんじ'},{id:'e',type:'emphasis',start:1,end:3,mark:'sesame'},{id:'d',type:'emphasis',start:4,end:6,mark:'dot'}]}}]}]}});
+  if(options.heading)Object.assign(group.flow.document.sections[0].blocks[0],{type:'heading',level:2});
+  group.flow.layout.typographyByLanguage.ja={writingMode,fontFamily:"'Noto Sans JP',sans-serif",fontSize:16,fontWeight:400,lineHeight:1.8,letterSpacing:0,textAlign:'start',paragraphSpacing:12,headingSpacing:18,textColor:'#1f1b16',paperColor:'#f7f1df'};
+  const session=await createFlowPublicationCompositionCaptureSession({ownerDocument:document,flowGroup:group,language:'ja',revision:1,fontId:'fixture-flow-press-noto-sans-jp',fontRegistry});
+  try{const pagination=session.paginate();const snapshot=session.capture(pagination);results.push({group,pagination,snapshot,fontRegistry});}finally{session.dispose();}
+ }
+ return results;
+}
+window.captureAnnotations=captureAnnotations;
+document.querySelector('#run').onclick=async()=>{try{window.annotationResults=await captureAnnotations();document.querySelector('#status').textContent=JSON.stringify(window.annotationResults.map(r=>({mode:r.snapshot.writingMode,pages:r.snapshot.pages.length,glyphs:r.snapshot.pages.flatMap(p=>p.annotations||[]).length})),null,2);}catch(e){document.querySelector('#status').textContent=e.code+': '+e.message;window.annotationError={code:e.code,context:e.context};}};
+
+export async function verifyAnnotationViewer(result){
+ const {group,pagination,snapshot}=result;
+ const entries=group.flow.document.sections.flatMap(section=>section.blocks.map(block=>({section,block,text:block.texts.ja,segments:segmentGraphemes(block.texts.ja,'ja')})));
+ const context={source:{byBlockId:new Map(entries.map(e=>[e.block.id,e]))},pageBox:snapshot.pageBox,writingMode:snapshot.writingMode,language:'ja'};
+ const fontRef='fixture-flow-press-noto-sans-jp';
+ const projection=projectFlowPaginationToDsfV2({flowGroup:group,language:'ja',revision:1,fontId:fontRef,fontRegistry,pagination,compositionSnapshot:snapshot,pageIds:pagination.pages.map((_,i)=>'p'+i)});
+ if(!projection.ok)throw Object.assign(new Error(projection.publicationBlocked.message),projection.publicationBlocked);
+ const {pages,styles}=projection.manifest;
+ const declaration=fontRegistry.fonts[fontRef].declaration;
+ const bundle={index:{schemaVersion:2,layoutModel:'fixed-page-hybrid-1',canonicalPage:{width:360,height:640,aspectRatio:'9:16'},defaultLang:'ja',fonts:{[fontRef]:declaration},languages:{ja:{href:'content/ja.json',pageCount:pages.length,sha256:'a'.repeat(64),pageDirection:snapshot.writingMode==='vertical-rl'?'rtl':'ltr'}}},manifests:{ja:{schemaVersion:1,language:'ja',styles,pages}}};
+ const viewer=await prepareDsfViewerFixedTextContext({bundle,language:'ja',certifiedFonts:{[fontRef]:declaration},fontFaceSet:document.fonts});
+ for(const page of viewer.manifest.pages){const host=document.createElement('div');host.className='result';host.append(createDsfFixedTextPageElement({context:viewer,page,documentRef:document}));document.querySelector('#pages').append(host);}
+ const bad=structuredClone(snapshot.pages[0]);bad.annotations.pop();let rejected=false;
+ try{validateSnapshotPage(bad,pagination.pages[0],0,context);}catch{rejected=true;}
+ if(!rejected)throw Error('Missing annotation accepted');
+ return {pages:pages.length,glyphs:pages.flatMap(p=>p.lines).filter(l=>!l.runs[0].source).length,missingRejected:rejected};
+}
+window.verifyAnnotationViewer=verifyAnnotationViewer;
+
+export async function verifyAnnotationPackage(group){
+ const {prepareFlowPressPublication}=await import('/js/flow-press-publication-preparation.js');
+ const {createFlowPressLocalReleasePlanning}=await import('/js/flow-press-local-release-planning.js');
+ const {createFlowPressLocalReleasePackage}=await import('/js/flow-press-local-release-package.js');
+ const {loadDsfLocalViewerPackage}=await import('/js/dsf-local-viewer-package.js');
+ const mode=group.flow.layout.typographyByLanguage.ja.writingMode;
+ const preparation=await prepareFlowPressPublication({project:{version:6,blocks:[group],languages:['ja'],defaultLang:'ja'},revision:1,ownerDocument:document});
+ if(!preparation.ok)throw Error('Production preparation failed: '+JSON.stringify(preparation.languages.map(l=>l.preparationIssues)));
+ const planning=await createFlowPressLocalReleasePlanning({preparation,defaultLang:'ja',languages:['ja'],pageDirections:{ja:mode==='vertical-rl'?'rtl':'ltr'},imageAssets:{ja:{}}});
+ const metadata={projectId:'local-annotation-test',workId:'local-annotation-test',releaseId:'local-annotation-test',title:'注釈検証',author:'DSF Test',localizedMeta:{ja:{title:'注釈検証',author:'DSF Test'}},created:'2026-09-06T00:00:00.000Z',modified:'2026-09-06T00:00:00.000Z',generator:'DSF local verification',spread:'auto'};
+ const pkg=await createFlowPressLocalReleasePackage({planning,sealedAssets:[],metadata});
+ const restored=await loadDsfLocalViewerPackage({file:pkg.zipPackage.blob});
+ try{
+  const signature=manifest=>JSON.stringify(manifest.pages.map(p=>p.lines.map(l=>[l.x,l.y,l.width,l.height,l.styleRef,l.runs.map(r=>r.text),manifest.styles[l.styleRef].fontSize])));
+  if(signature(restored.manifests.ja)!==signature(planning.assembly.bundle.manifests.ja))throw Error('Portable annotation geometry/text changed');
+  return {mode,font:group.flow.layout.typographyByLanguage.ja.fontFamily,roundTrip:true,zipBytes:pkg.summary.zipByteLength,imageFiles:pkg.summary.imageFileCount};
+ }finally{restored.dispose();}
+}
+window.verifyAnnotationPackage=verifyAnnotationPackage;
+document.querySelector('#run').onclick=async()=>{
+ const status=document.querySelector('#status');status.textContent='実測・Viewer・DSF再読込を検証中';document.querySelector('#pages').replaceChildren();
+ try{window.annotationResults=await captureAnnotations();const results=[];
+  for(const capture of window.annotationResults){results.push({...await verifyAnnotationViewer(capture),...await verifyAnnotationPackage(capture.group)});}
+  status.textContent=JSON.stringify(results,null,2);
+ }catch(error){status.textContent='検証停止: '+(error.code || error.message);}
+};

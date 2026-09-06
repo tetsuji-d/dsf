@@ -391,7 +391,7 @@ Project v6では`blocks[]`を順序付きauthoring spineとし、既存Fixed Blo
 - Flow本文を廃止予定のFixed `content.text`／`content.richText`へ複製しない。
 - Flow Groupに`status`は置かず、spine内に存在すること自体を原稿へ接続中とみなす。
 
-バージョン境界はProject v6、Page v5、FlowDocument v1、FlowLayout v1、任意のFlowTranslationState v1とする。Commit 6Bで
+バージョン境界はProject v6、Page v5、FlowDocument v1/v2、FlowLayout v1、任意のFlowTranslationState v1とする。ルビ・圏点を明示適用したFlowDocumentだけv2とし、既存原稿は自動変換しない。注釈は言語別本文と分離したUTF-16範囲として保存する（[注釈契約](flow-annotations.md)）。Firestore Rulesは変更しない。Commit 6Bで
 `state.blocks`、IndexedDB、DSP、Firestoreへ接続した。Fixed-only作品はv5を維持し、Flow Groupを含む作品は
 明示的なv6として保存する。
 

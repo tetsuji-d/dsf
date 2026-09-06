@@ -910,3 +910,12 @@ Flow Horizon発行buttonとWorks v2公開操作は無効のため、新しい公
 
 各単位を別commitとしてreviewする。9A-6C-C-C-1C-Gは非公開draft保存までで、読者公開操作は許可しない。
 production publication migrationはまだ許可しない。
+
+## 2026-09-06: Flow ruby and emphasis
+
+Ruby readings and sesame/dot emphasis are emitted as measured fixedText lines with
+font-size-specific styles. Base text retains its source ranges; annotation output
+runs contain text only. This uses existing delivery v2 fields, without a Viewer
+schema extension, semantic FlowDocument, raster body fallback or Rules change.
+Capture/projection verify exact annotation text and ranges before Release assembly.
+See [Flow annotations](flow-annotations.md) for the source contract and acceptance.

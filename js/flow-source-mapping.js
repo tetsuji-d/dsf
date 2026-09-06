@@ -217,23 +217,29 @@ function findFragmentElement(pageElement, node) {
     return fragmentElement && pageElement?.contains?.(fragmentElement) ? fragmentElement : null;
 }
 
-function getFragmentTextNode(fragmentElement, fragment) {
-    const textNode = fragmentElement?.firstChild;
-    if (!textNode || textNode.nodeType !== 3) {
-        throw new FlowSourceMappingError(
-            'FRAGMENT_DOM_INVALID',
-            'Generated Flow fragment must contain one direct text node.',
-        );
-    }
+function getFragmentTextNodes(fragmentElement, fragment) {
+    const bases = Array.from(fragmentElement?.querySelectorAll?.('[data-base-start]') || []);
+    const nodes = bases.length ? bases.map(e=>e.firstChild) : [fragmentElement?.firstChild];
     const expected = fragment.text === '' ? '\u200B' : fragment.text;
-    if (textNode.data !== expected) {
-        throw new FlowSourceMappingError(
-            'FRAGMENT_DOM_SOURCE_MISMATCH',
-            'Generated Flow DOM text no longer matches pagination source.',
-            { expected, actual: textNode.data },
-        );
+    if (nodes.some(n=>!n || n.nodeType!==3) || nodes.map(n=>n.textContent).join('')!==expected) {
+        throw new FlowSourceMappingError('FRAGMENT_DOM_SOURCE_MISMATCH', 'Generated Flow DOM no longer matches semantic text.');
     }
-    return textNode;
+    return nodes;
+}
+
+/** Resolve an offset among parent characters only, excluding ruby readings. */
+export function getFlowFragmentDomPosition(element, fragment, offset, affinity = 'forward') {
+    const nodes = getFragmentTextNodes(element, fragment);
+    let remaining = fragment.text === '' ? 0 : offset;
+    for (let index = 0; index < nodes.length; index += 1) {
+        const node = nodes[index];
+        const length = node.textContent.length;
+        if (remaining < length || (remaining === length && (affinity === 'backward' || index === nodes.length - 1))) {
+            return {node, offset: remaining};
+        }
+        remaining -= length;
+    }
+    return {node: nodes.at(-1), offset: nodes.at(-1).textContent.length};
 }
 
 /** Map an existing DOM Selection-compatible position back to semantic source. */
@@ -249,12 +255,18 @@ export function mapFlowDomPositionToSource(pageElement, page, node, offset, opti
             { fragmentIndex },
         );
     }
-    const textNode = getFragmentTextNode(fragmentElement, fragment);
-    let domOffset;
+    const nodes = getFragmentTextNodes(fragmentElement, fragment);
+    let domOffset = 0;
     if (fragment.text === '') domOffset = 0;
-    else if (node === textNode) domOffset = Number(offset);
-    else if (node === fragmentElement) domOffset = Number(offset) <= 0 ? 0 : fragment.text.length;
-    else return null;
+    else if (nodes.includes(node)) {
+        for (const n of nodes) { if (n===node) break; domOffset+=n.data.length; }
+        domOffset += Number(offset);
+    } else if (node === fragmentElement) domOffset = Number(offset) <= 0 ? 0 : fragment.text.length;
+    else {
+        const base = (node.nodeType===1?node:node.parentElement)?.closest?.('[data-base-start]');
+        if (!base) return null;
+        domOffset = Number(base.dataset.baseStart) + (Number(offset)>0 ? base.firstChild.textContent.length : 0);
+    }
     return mapFlowFragmentDomOffsetToSource(fragment, domOffset, options);
 }
 
@@ -320,10 +332,11 @@ export function mapFlowSourcePointToDomPosition(pageElement, page, sourcePoint) 
         `.flow-dom-block[data-flow-fragment-index="${selected.fragmentIndex}"]`,
     );
     if (!fragmentElement) return null;
-    const textNode = getFragmentTextNode(fragmentElement, fragments[selected.fragmentIndex]);
+    const {node, offset} = getFlowFragmentDomPosition(fragmentElement, fragments[selected.fragmentIndex], selected.position.domOffset, sourcePoint?.affinity);
     return Object.freeze({
-        node: textNode,
-        offset: fragments[selected.fragmentIndex].text === '' ? 0 : selected.position.domOffset,
+        node,
+        offset,
+        fragmentOffset: selected.position.domOffset,
         fragmentElement,
         fragmentIndex: selected.fragmentIndex,
     });
@@ -539,21 +552,25 @@ export function getFlowSourcePointClientRect(pageElement, page, sourcePoint, opt
     const fragment = getPageFragments(page)[position.fragmentIndex];
     const text = String(fragment?.text || '');
     const segments = segmentGraphemes(text, fragment?.languageKey || 'und');
-    const next = segments.find((segment) => segment.index >= position.offset);
-    const previous = [...segments].reverse().find((segment) => segment.end <= position.offset);
+    const next = segments.find((segment) => segment.index >= position.fragmentOffset);
+    const previous = [...segments].reverse().find((segment) => segment.end <= position.fragmentOffset);
     let nextRect = null;
     let previousRect = null;
     if (next) {
-        range.setStart(position.node, next.index);
-        range.setEnd(position.node, next.end);
+        const begin = getFlowFragmentDomPosition(position.fragmentElement, fragment, next.index);
+        const finish = getFlowFragmentDomPosition(position.fragmentElement, fragment, next.end, 'backward');
+        range.setStart(begin.node, begin.offset);
+        range.setEnd(finish.node, finish.offset);
         nextRect = firstRangeRect(
             range,
             (rect) => isFlowCaretMeasurementRect(rect, writingMode),
         );
     }
     if (previous) {
-        range.setStart(position.node, previous.index);
-        range.setEnd(position.node, previous.end);
+        const begin = getFlowFragmentDomPosition(position.fragmentElement, fragment, previous.index);
+        const finish = getFlowFragmentDomPosition(position.fragmentElement, fragment, previous.end, 'backward');
+        range.setStart(begin.node, begin.offset);
+        range.setEnd(finish.node, finish.offset);
         previousRect = firstRangeRect(
             range,
             (rect) => isFlowCaretMeasurementRect(rect, writingMode),
@@ -598,6 +615,23 @@ export function getFlowSourceRangeClientRects(pageElement, page, startPoint, end
     const ownerDocument = pageElement?.ownerDocument;
     if (!start || !end || !ownerDocument?.createRange) return [];
     const range = ownerDocument.createRange();
+    if (pageElement.querySelector?.('[data-base-start]')) {
+        const rects = [];
+        for (let index=start.fragmentIndex; index<=end.fragmentIndex; index+=1) {
+            const element=pageElement.querySelector('.flow-dom-block[data-flow-fragment-index="'+index+'"]');
+            const fragment=getPageFragments(page)[index];
+            if (!element || !fragment) continue;
+            let cursor=0;
+            const from=index===start.fragmentIndex ? start.fragmentOffset : 0;
+            const to=index===end.fragmentIndex ? end.fragmentOffset : fragment.text.length;
+            for (const node of getFragmentTextNodes(element,fragment)) {
+                const a=Math.max(0,from-cursor), b=Math.min(node.textContent.length,to-cursor);
+                if(b>a){range.setStart(node,a);range.setEnd(node,b);rects.push(...range.getClientRects());}
+                cursor+=node.textContent.length;
+            }
+        }
+        return Object.freeze(rects.filter(r=>r.width>0 && r.height>0).map(r=>snapshotRect(r)));
+    }
     try {
         range.setStart(start.node, start.offset);
         range.setEnd(end.node, end.offset);

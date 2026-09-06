@@ -15,6 +15,9 @@ import { prepareFlowPressPreflight } from './flow-press-preflight-preparation.js
 export const FLOW_PRESS_PUBLICATION_PREPARATION_VERSION = 1;
 
 const ISSUE_MESSAGES = Object.freeze({
+    FLOW_PUBLICATION_ANNOTATION_MISMATCH: '原稿と配信用のルビ・圏点が一致しないため発行を停止しました。',
+    FLOW_PUBLICATION_CAPTURE_ANNOTATION_MISMATCH: 'ルビ・圏点の表示と原稿が一致しないため発行を停止しました。',
+    FLOW_PUBLICATION_CAPTURE_GLYPH_MISMATCH: '文字や注釈の配置を固定テキストで再現できないため発行を停止しました。',
     FONT_NOT_CERTIFIED: 'このFlow原稿のフォントは本番配信用としてまだ認定されていません。',
     FONT_FAMILY_REQUIRED: 'Flow原稿の本番配信用フォントを指定してください。',
     FONT_FAMILY_AMBIGUOUS: '同じfont familyに複数の本番版があるため、配信版を一意に決められません。',

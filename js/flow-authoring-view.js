@@ -1,5 +1,6 @@
 /** DOM renderer for the continuous semantic Flow authoring surface. */
 
+import { installFlowRichInput } from './flow-source-rich-input.js';
 import { getFlowBlockText } from './flow-document.js';
 
 function escapeHtml(value) {
@@ -338,6 +339,7 @@ function renderBlock(groupId, section, block, index, languageKey, options = {}) 
                 </div>`}
             </div>
             ${input}
+            <button type="button" data-flow-annotation-button>ルビ・圏点…</button>
         </div>`;
 }
 
@@ -558,13 +560,18 @@ export function renderFlowAuthoringView(root, options = {}) {
     root.dataset.languageKey = languageKey;
     root.dataset.sourceLanguage = sourceLanguage;
     root.dataset.authoringMode = isTranslation ? 'translation' : 'source';
+    for (const input of root.querySelectorAll('textarea[data-flow-field="block-text"]')) {
+        const id = input.closest('[data-flow-block-id]').dataset.flowBlockId;
+        const block = sections.flatMap(s=>s.blocks).find(b=>b.id===id);
+        if (block?.annotations?.[languageKey]?.length) installFlowRichInput(input,block,languageKey);
+    }
     autosizeFlowAuthoringTextareas(root);
     updateFlowTranslationStatusView(root, options.translationStatus);
     if (isTranslation) updateFlowTranslationAutomationView(root, options.translationAutomation);
 
     root.oninput = (event) => {
-        if (event.target?.classList?.contains('flow-authoring-input')) autosizeTextarea(event.target);
         options.onInput?.(event);
+        if (event.target?.classList?.contains('flow-authoring-input')) autosizeTextarea(event.target);
     };
     root.onchange = (event) => options.onChange?.(event);
     root.onclick = (event) => options.onAction?.(event);

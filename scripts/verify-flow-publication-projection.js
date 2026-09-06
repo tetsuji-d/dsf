@@ -1,3 +1,4 @@
+import {getFlowPublicationAnnotationGlyphs} from '../js/flow-publication-annotations.js';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 
@@ -586,3 +587,23 @@ for (const forbiddenDependency of [
 }
 
 console.log('Flow publication projection verification passed');
+
+for(const writingMode of ['horizontal-tb','vertical-rl']){
+ const group=createFlowGroup({writingMode,blocks:[{id:'annotated',type:'paragraph',texts:{ja:'前漢字と圏点です'},annotations:{ja:[{id:'r',type:'ruby',start:1,end:3,reading:'かんじ'},{id:'e',type:'emphasis',start:1,end:3,mark:'dot'}]}}]});
+ group.flow.document.schemaVersion=2;
+ const pagination=paginateGroup(group,40),snapshot=createCompositionSnapshot(group,pagination);
+ snapshot.pages[0].annotations=pagination.pages[0].fragments.flatMap(getFlowPublicationAnnotationGlyphs).map((g,i)=>({...g,x:30+i*10,y:30,width:10,height:10}));
+ const input=createInput(group,pagination,snapshot),result=projectFlowPaginationToDsfV2(input);
+ assert.equal(result.ok,true,JSON.stringify(result.publicationBlocked));
+ const lines=result.manifest.pages.flatMap(p=>p.lines);
+ assert.equal(lines.flatMap(l=>l.runs).filter(r=>r.source).map(r=>r.text).join(''),'前漢字と圏点です');
+ assert.equal(lines.flatMap(l=>l.runs).filter(r=>!r.source).map(r=>r.text).join(''),'かんじ••');
+ assert.deepEqual(JSON.parse(JSON.stringify(result.manifest)),result.manifest);
+ assert(!JSON.stringify(result.manifest).includes('annotationId'));
+ for(const mutate of [x=>x.compositionSnapshot.pages[0].annotations.pop(),x=>x.compositionSnapshot.pages[0].annotations.push(x.compositionSnapshot.pages[0].annotations[0]),x=>x.compositionSnapshot.pages[0].annotations[0].text='別',x=>delete x.pagination.pages[0].fragments[0].annotations]){
+  const bad=clone(input);mutate(bad);expectBlocked(bad,'FLOW_PUBLICATION_ANNOTATION_MISMATCH','annotation no-loss');
+ }
+ const bad=clone(input);bad.compositionSnapshot.pages[0].annotations[0].x=400;
+ assert.equal(projectFlowPaginationToDsfV2(bad).ok,false);
+}
+console.log('Flow annotation projection: base/reading/emphasis preservation, JSON roundtrip, missing/duplicate/changed annotations and bounds rejection passed.');
