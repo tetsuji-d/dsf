@@ -83,6 +83,36 @@ const topEdgePan = clampViewerPanAxis({
 });
 nearlyEqual(100 + 300 + topEdgePan - 600, 47);
 
+// Mobile page has letterboxing at rest; zoom reveals the entire viewport.
+const phone = {
+    scale: 2.82, canvasWidth: 440, canvasHeight: 782,
+    canvasLeft: 0, canvasTop: 87, viewportLeft: 0, viewportTop: 0,
+    viewportWidth: 440, viewportHeight: 956
+};
+for (const [value, edge] of [[Infinity, 'top'], [-Infinity, 'bottom']]) {
+    const viewY = clampViewerPanAxis({
+        value, contentStart: phone.canvasTop, contentSize: phone.canvasHeight,
+        scale: phone.scale, viewportStart: phone.viewportTop, viewportSize: phone.viewportHeight
+    });
+    const map = calculateViewerMinimapGeometry({ ...phone, viewX: 0, viewY });
+    nearlyEqual(map.visibleRatioY, 956 / (782 * 2.82));
+    nearlyEqual(map.visibleRatioX, 1 / 2.82);
+    nearlyEqual(edge === 'top' ? map.viewportTop : map.viewportTop + map.viewportHeight,
+        edge === 'top' ? 0 : map.mapHeight);
+    const pan = calculateViewerPanFromMinimapPoint({ ...phone,
+        pointRatioX: map.focusRatioX, pointRatioY: map.focusRatioY });
+    nearlyEqual(pan.y, viewY);
+}
+const fitsVertically = calculateViewerMinimapGeometry({ ...phone, scale: 1.1, viewY: 0 });
+nearlyEqual(fitsVertically.viewportTop, 0);
+nearlyEqual(fitsVertically.viewportHeight, fitsVertically.mapHeight);
+const offsetViewport = { ...phone, canvasLeft: 20, canvasTop: 110, viewportLeft: 10, viewportTop: 47 };
+const offsetMap = calculateViewerMinimapGeometry({ ...offsetViewport, viewX: 15, viewY: -70 });
+const offsetPan = calculateViewerPanFromMinimapPoint({ ...offsetViewport,
+    pointRatioX: offsetMap.focusRatioX, pointRatioY: offsetMap.focusRatioY });
+nearlyEqual(offsetPan.x, 15);
+nearlyEqual(offsetPan.y, -70);
+
 const focusedZoom = calculateViewerAnchoredZoom({
     currentScale: 1,
     viewX: 0,

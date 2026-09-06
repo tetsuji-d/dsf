@@ -136,6 +136,12 @@ export function calculateViewerMinimapGeometry({
     viewY,
     canvasWidth,
     canvasHeight,
+    canvasLeft = 0,
+    canvasTop = 0,
+    viewportLeft = canvasLeft,
+    viewportTop = canvasTop,
+    viewportWidth = canvasWidth,
+    viewportHeight = canvasHeight,
     maxWidth = DEFAULT_MAX_WIDTH,
     maxHeight = DEFAULT_MAX_HEIGHT
 }) {
@@ -148,30 +154,32 @@ export function calculateViewerMinimapGeometry({
     const mapWidth = Math.max(MIN_MAP_WIDTH, Math.min(maxWidth, maxHeight * ratio));
     const mapHeight = mapWidth / ratio;
     const visibleRatio = Math.min(1, 1 / safeScale);
-    const maxStart = 1 - visibleRatio;
+    // The zoomed page is clipped by the visual viewport, not its resting box.
+    const visibleRatioX = clamp(viewportWidth / (width * safeScale), 0, 1);
+    const visibleRatioY = clamp(viewportHeight / (height * safeScale), 0, 1);
     const startRatioX = clamp(
-        ((safeScale - 1) / 2 - (Number(viewX) || 0) / width) / safeScale,
-        0,
-        maxStart
+        (viewportLeft - canvasLeft - width / 2 - (Number(viewX) || 0)) / (width * safeScale) + 0.5,
+        0, 1 - visibleRatioX
     );
     const startRatioY = clamp(
-        ((safeScale - 1) / 2 - (Number(viewY) || 0) / height) / safeScale,
-        0,
-        maxStart
+        (viewportTop - canvasTop - height / 2 - (Number(viewY) || 0)) / (height * safeScale) + 0.5,
+        0, 1 - visibleRatioY
     );
 
     return {
         mapWidth,
         mapHeight,
         visibleRatio,
+        visibleRatioX,
+        visibleRatioY,
         startRatioX,
         startRatioY,
         viewportLeft: startRatioX * mapWidth,
         viewportTop: startRatioY * mapHeight,
-        viewportWidth: visibleRatio * mapWidth,
-        viewportHeight: visibleRatio * mapHeight,
-        focusRatioX: startRatioX + visibleRatio / 2,
-        focusRatioY: startRatioY + visibleRatio / 2
+        viewportWidth: visibleRatioX * mapWidth,
+        viewportHeight: visibleRatioY * mapHeight,
+        focusRatioX: startRatioX + visibleRatioX / 2,
+        focusRatioY: startRatioY + visibleRatioY / 2
     };
 }
 
@@ -180,14 +188,20 @@ export function calculateViewerPanFromMinimapPoint({
     pointRatioY,
     scale,
     canvasWidth,
-    canvasHeight
+    canvasHeight,
+    canvasLeft = 0,
+    canvasTop = 0,
+    viewportLeft = canvasLeft,
+    viewportTop = canvasTop,
+    viewportWidth = canvasWidth,
+    viewportHeight = canvasHeight
 }) {
     const safeScale = Math.max(1, Number(scale) || 1);
     const width = Math.max(0, Number(canvasWidth) || 0);
     const height = Math.max(0, Number(canvasHeight) || 0);
     return {
-        x: (0.5 - clamp(Number(pointRatioX) || 0, 0, 1)) * width * safeScale,
-        y: (0.5 - clamp(Number(pointRatioY) || 0, 0, 1)) * height * safeScale
+        x: viewportLeft + viewportWidth / 2 - canvasLeft - width / 2 + (0.5 - clamp(Number(pointRatioX) || 0, 0, 1)) * width * safeScale,
+        y: viewportTop + viewportHeight / 2 - canvasTop - height / 2 + (0.5 - clamp(Number(pointRatioY) || 0, 0, 1)) * height * safeScale
     };
 }
 
@@ -242,6 +256,21 @@ function getThumbnailKey(snapshot) {
         snapshot.surfaceMode || '',
         ...snapshot.surfaces.map((surface) => surface.key || '')
     ].join('|');
+}
+
+function getSnapshotGeometry(snapshot) {
+    const rect = snapshot.canvas.getBoundingClientRect();
+    const viewport = snapshot.viewport || rect;
+    return {
+        canvasWidth: rect.width,
+        canvasHeight: rect.height,
+        canvasLeft: rect.left,
+        canvasTop: rect.top,
+        viewportLeft: viewport.left,
+        viewportTop: viewport.top,
+        viewportWidth: viewport.width,
+        viewportHeight: viewport.height
+    };
 }
 
 export function createViewerMinimapController({
@@ -336,8 +365,7 @@ export function createViewerMinimapController({
             scale,
             viewX: snapshot.viewX,
             viewY: snapshot.viewY,
-            canvasWidth: canvas.clientWidth,
-            canvasHeight: canvas.clientHeight
+            ...getSnapshotGeometry(snapshot)
         });
         if (!geometry) {
             hide();
@@ -386,8 +414,7 @@ export function createViewerMinimapController({
             pointRatioX: (event.clientX - rect.left) / rect.width,
             pointRatioY: (event.clientY - rect.top) / rect.height,
             scale,
-            canvasWidth: canvas.clientWidth,
-            canvasHeight: canvas.clientHeight
+            ...getSnapshotGeometry(snapshot)
         });
         if (typeof onMove === 'function') onMove(pan);
     }

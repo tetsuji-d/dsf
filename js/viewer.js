@@ -4626,6 +4626,7 @@ function getViewerMinimapSnapshot() {
         viewX,
         viewY,
         lang,
+        viewport: getViewerViewportMetrics(),
         surfaceMode: surfaces.length > 1 ? 'spread' : 'single',
         surfaces
     };
