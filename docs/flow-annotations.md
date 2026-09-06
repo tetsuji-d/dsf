@@ -36,8 +36,13 @@ converted. Project remains v6 and FlowLayout remains v1. No Firestore Rules chan
 Annotated source blocks use a rich input; texts[language] still contains only
 parent text. Runtime ruby readings and emphasis marks are excluded from source
 selection offsets, copying and caret measurement. Generated pages use the shared
-annotation renderer. Ruby groups stay together at line/page boundaries; emphasis
-may continue onto the next page. Annotations reserve additional line spacing.
+annotation renderer. Ruby groups stay together at page boundaries; emphasis
+may continue onto the next page. Decorations do not add paragraph padding or line spacing.
+Ruby readings sit immediately above horizontal text or right of vertical text,
+anchored to parent glyphs without changing their line boxes. The dialog uses ruby
+and emphasis exclusively on the same range. Existing combined annotations retain
+their authoring data, with ruby taking precedence in preview and publication;
+emphasis on other characters remains visible. Partial overlapping edits are rejected.
 
 Existing project serialization, local autosave and Undo/Redo retain annotations.
 Authoring replacements, translations, splits, image insertion and Flow joins use
@@ -51,11 +56,11 @@ schema, Firestore schema, Rules, or Viewer renderer change is required. Parent t
 retains source ranges. Ruby readings and sesame/dot emphasis are separate measured
 text lines; authoring annotation IDs and review metadata are not published.
 
-The shared renderer exposes actual parent/reading/mark text nodes. Annotated DOM
-disables pair kerning and optional ligatures for independent fixed glyph replay,
-and reserves 0.8em of leading space. Ruby base and reading spans separate glyph
-metrics from distributed ruby spacing. Capture compares each visible glyph with a
-fixedText probe. Invisible whitespace preserves exact source text and its measured
+The shared renderer exposes parent/reading/mark text nodes without extra leading
+space or altered body kerning. Inline parent spans and absolutely positioned
+reading spans separate body geometry from decorations. Body text reuses the
+existing measured line/column capture and fixedText styles; reading/mark glyphs
+are measured separately against the fixedText probe. Invisible whitespace preserves exact source text and its measured
 anchor. Unsupported geometry still stops publication; no full-page raster fallback.
 
 Projection checks annotation ranges against the exact source, refuses ruby split
@@ -98,3 +103,8 @@ missing-glyph rejection, and production Noto Sans JP / Noto Serif JP font-byte
 verification plus portable round trips. All four font/direction packages contain
 zero body image files. External R2/Firestore publication and deployment are separate
 operations and were not performed.
+
+Decorations can occupy the existing page margin, without expanding the body frame.
+Pagination measures body flow only. Capture and projection validate decorations
+against the full fixed page; parent text retains the stricter body-frame bounds.
+The outer page clips preview decoration overflow, and publication rejects it.

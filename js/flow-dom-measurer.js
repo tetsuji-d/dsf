@@ -16,7 +16,7 @@ import {
 
 export const FLOW_DOM_SUPPORTED_WRITING_MODE = 'horizontal-tb';
 export const FLOW_DOM_SUPPORTED_WRITING_MODES = Object.freeze(['horizontal-tb', 'vertical-rl']);
-export const FLOW_DOM_RENDERER_VERSION = 11;
+export const FLOW_DOM_RENDERER_VERSION = 12;
 export const FLOW_DOM_HYPHENATION_MODES = Object.freeze(['auto', 'none']);
 
 const DEFAULT_MEASUREMENT_CACHE_SIZE = 2048;
@@ -150,7 +150,7 @@ function setContentStyles(contentElement, pageBox, typography, languageKey, writ
         width: `${contentBox.width}px`,
         height: `${contentBox.height}px`,
         boxSizing: 'border-box',
-        overflow: 'hidden',
+        overflow: 'visible',
         display: 'flow-root',
         writingMode,
         textOrientation: writingMode === 'vertical-rl' ? 'mixed' : '',
@@ -221,7 +221,6 @@ function createFragmentElement(ownerDocument, fragment, fragmentIndex, typograph
     if (fragment.text) {
         if (fragment.annotations?.length) {
             element.dataset.writing = typography.writingMode || 'horizontal-tb';
-            element.style.paddingBlockStart = (fontSize * 1.2)+'px';
             // An annotation must not change the author-selected line/column advance.
             renderAnnotationPreview(element, {texts:{[fragment.languageKey]:fragment.text}, annotations:{[fragment.languageKey]:fragment.annotations}}, fragment.languageKey);
         } else element.textContent = fragment.text;
@@ -418,6 +417,8 @@ export function createFlowDomPageMeasurer(options = {}) {
             typography,
             hyphenation,
         });
+        // Decorations may use page margins; only body flow determines pagination.
+        contentElement.querySelectorAll('[data-annotation-text]').forEach(node=>{node.style.display='none';});
         const scrollWidth = contentElement.scrollWidth;
         const scrollHeight = contentElement.scrollHeight;
         const clientWidth = contentElement.clientWidth;

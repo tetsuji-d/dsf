@@ -597,7 +597,7 @@ for(const writingMode of ['horizontal-tb','vertical-rl']){
  assert.equal(result.ok,true,JSON.stringify(result.publicationBlocked));
  const lines=result.manifest.pages.flatMap(p=>p.lines);
  assert.equal(lines.flatMap(l=>l.runs).filter(r=>r.source).map(r=>r.text).join(''),'前漢字と圏点です');
- assert.equal(lines.flatMap(l=>l.runs).filter(r=>!r.source).map(r=>r.text).join(''),'かんじ••');
+ assert.equal(lines.flatMap(l=>l.runs).filter(r=>!r.source).map(r=>r.text).join(''),'かんじ');
  assert.deepEqual(JSON.parse(JSON.stringify(result.manifest)),result.manifest);
  assert(!JSON.stringify(result.manifest).includes('annotationId'));
  for(const mutate of [x=>x.compositionSnapshot.pages[0].annotations.pop(),x=>x.compositionSnapshot.pages[0].annotations.push(x.compositionSnapshot.pages[0].annotations[0]),x=>x.compositionSnapshot.pages[0].annotations[0].text='別',x=>delete x.pagination.pages[0].fragments[0].annotations]){

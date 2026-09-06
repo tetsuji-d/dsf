@@ -477,7 +477,7 @@ export function validateSnapshotPage(snapshotPage, paginationPage, pageIndex, co
                 fail('FLOW_PUBLICATION_LINE_CROSSES_BLOCKS', linePath, 'A fixed line cannot combine separate semantic Flow blocks.');
             }
             lineBlockId = fragment.blockId;
-            lineStyleId = styleIdForEntry(entry)+(fragment.annotations?.length ? '-glyph' : '');
+            lineStyleId = styleIdForEntry(entry);
             nextGrapheme = endGrapheme;
             if (endGrapheme === fragmentEnd) {
                 fragmentIndex += 1;
@@ -509,7 +509,7 @@ export function validateSnapshotPage(snapshotPage, paginationPage, pageIndex, co
     actual.forEach((glyph,index)=>{
         assertExactKeys(glyph,new Set(['blockId','annotationId','type','index','text','x','y','width','height']),path);
         if(!Object.entries(expected[index]).every(([key,value])=>glyph[key]===value))fail('FLOW_PUBLICATION_ANNOTATION_MISMATCH',path,'Annotation glyphs differ from source.');
-        outputLines.push({...validateLineGeometry({...glyph,writingMode:context.writingMode,textOrientation:'mixed'},path,context.writingMode,context.pageBox),
+        outputLines.push({...validateLineGeometry({...glyph,writingMode:context.writingMode,textOrientation:'mixed'},path,context.writingMode,{...context.pageBox,contentBox:{x:0,y:0,width:context.pageBox.width,height:context.pageBox.height}}),
             writingMode:context.writingMode,textOrientation:'mixed',styleRef:styleIdForEntry(context.source.byBlockId.get(glyph.blockId))+'-'+glyph.type,runs:[{text:glyph.text}]});
     });
     return outputLines;
@@ -692,9 +692,8 @@ export function projectFlowPaginationToDsfV2(input = {}) {
         for(const entry of context.source.textEntries){
             if(!entry.block.annotations?.[context.language]?.length)continue;
             const id=styleIdForEntry(entry),base=styles[id];
-            styles[id+'-glyph']={...base,lineHeight:1.2};
-            styles[id+'-ruby']={...base,fontSize:base.fontSize*.5,lineHeight:1.2};
-            styles[id+'-emphasis']={...base,fontSize:base.fontSize*.48,lineHeight:1.2};
+            styles[id+'-ruby']={...base,fontSize:base.fontSize*.5,lineHeight:1.2,letterSpacing:0};
+            styles[id+'-emphasis']={...base,fontSize:base.fontSize*.48,lineHeight:1.2,letterSpacing:0};
         }
         const pages = context.pagination.pages.map((page, pageIndex) => ({
             id: input.pageIds[pageIndex],

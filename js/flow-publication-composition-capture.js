@@ -839,7 +839,7 @@ function captureAnnotationGlyph(node,start,end,text,context,surface,pageRect){
  if(!closeGeometry(source.width,measured.width) || !closeGeometry(source.height,measured.height)){
   fail('FLOW_PUBLICATION_CAPTURE_GLYPH_MISMATCH','Annotation glyph cannot be reproduced as fixed text.',{source,measured,text,fontSize:computed.fontSize,parent:node.parentElement.tagName});
  }
- const x=source.x-measured.x,y=source.y-measured.y,content=context.pageBox.contentBox;
+ const x=source.x-measured.x,y=source.y-measured.y,content={x:0,y:0,width:context.pageBox.width,height:context.pageBox.height};
  const geometry=normalizeCapturedGeometry({x,y,width:vertical?probe.getBoundingClientRect().width:Math.min(360,content.x+content.width-x),
   height:vertical?Math.min(640,content.y+content.height-y):probe.getBoundingClientRect().height},content);
  geometry.width=Math.min(geometry.width,roundGeometry(content.x+content.width-geometry.x));
@@ -871,20 +871,6 @@ function captureFragmentLines(element, fragment, context, pageRect, surface) {
         }
         return [captureEmptyFragmentLine(element, fragment, context, pageRect)];
     }
-    if(fragment.annotations?.length){
-        return segmentGraphemes(fragment.text,context.language).map((segment,index)=>{
-            const position=getFlowFragmentDomPosition(element,fragment,segment.index);
-            const source={blockId:fragment.blockId,startGrapheme:fragment.sourceRange.startGrapheme+index,endGrapheme:fragment.sourceRange.startGrapheme+index+1};
-            return {...captureAnnotationGlyph(position.node,position.offset,position.offset+segment.segment.length,segment.segment,context,surface,pageRect),
-                writingMode:context.writingMode,textOrientation:'mixed',runs:[{text:segment.segment,source}]};
-        });
-    }
-    const textNode = element.firstChild;
-    if (!textNode || textNode.nodeType !== 3 || textNode.data !== fragment.text) {
-        fail('FLOW_PUBLICATION_CAPTURE_DOM_SOURCE_MISMATCH', 'Rendered Flow text does not match its pagination fragment.', {
-            blockId: fragment.blockId,
-        });
-    }
     const segments = segmentGraphemes(fragment.text, context.language);
     if (segments.length !== expectedCount) {
         fail('FLOW_PUBLICATION_CAPTURE_SOURCE_MISMATCH', 'Rendered fragment grapheme count does not match pagination.', {
@@ -895,8 +881,10 @@ function captureFragmentLines(element, fragment, context, pageRect, surface) {
     }
     const items = segments.map((segment, localIndex) => {
         const range = context.ownerDocument.createRange();
-        range.setStart(textNode, segment.index);
-        range.setEnd(textNode, segment.end);
+        const position=getFlowFragmentDomPosition(element,fragment,segment.index);
+        if(!position?.node || position.node.data.slice(position.offset,position.offset+segment.segment.length)!==segment.segment)fail('FLOW_PUBLICATION_CAPTURE_DOM_SOURCE_MISMATCH','Rendered body differs from source.');
+        range.setStart(position.node, position.offset);
+        range.setEnd(position.node, position.offset+segment.segment.length);
         const rects = Array.from(range.getClientRects(), (rect) => pageRelativeRect(rect, pageRect));
         range.detach?.();
         return {
@@ -961,6 +949,8 @@ function capturePage(page, context, surface) {
             actual: computedFamily,
         });
     }
+    const decorations=Array.from(contentElement.querySelectorAll('[data-annotation-text]'));
+    decorations.forEach(node=>{node.style.display='none';});
     const contentRect = contentElement.getBoundingClientRect();
     const boundsOverflow = Array.from(contentElement.children).some((child) => {
         const rect = child.getBoundingClientRect();
@@ -981,6 +971,7 @@ function capturePage(page, context, surface) {
             boundsOverflow,
         });
     }
+    decorations.forEach(node=>{node.style.display='';});
     const elements = Array.from(contentElement.children);
     if (elements.length !== page.fragments.length) {
         fail('FLOW_PUBLICATION_CAPTURE_DOM_SOURCE_MISMATCH', 'Rendered Flow block count differs from pagination.', {

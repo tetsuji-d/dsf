@@ -11,17 +11,38 @@ export async function captureAnnotations(options={}){
  for(const writingMode of ['horizontal-tb','vertical-rl']){
   const group=createFlowGroupBlock({id:'annotation-'+writingMode,sourceLanguage:'ja',document:{schemaVersion:2,id:'doc-'+writingMode,sourceLanguage:'ja',sections:[{id:'section',title:{},blocks:[{id:'body',type:'paragraph',texts:{ja:options.text || '前漢字と圏点の本文です。'.repeat(30)},annotations:{ja:[{id:'r',type:'ruby',start:1,end:3,reading:options.reading || 'かんじ'},{id:'e',type:'emphasis',start:1,end:3,mark:'sesame'},{id:'d',type:'emphasis',start:4,end:6,mark:'dot'}]}}]}]}});
   if(options.heading)Object.assign(group.flow.document.sections[0].blocks[0],{type:'heading',level:2});
-  group.flow.layout.typographyByLanguage.ja={writingMode,fontFamily:"'Noto Sans JP',sans-serif",fontSize:16,fontWeight:400,lineHeight:1.8,letterSpacing:0,textAlign:'start',paragraphSpacing:12,headingSpacing:18,textColor:'#1f1b16',paperColor:'#f7f1df'};
+  group.flow.layout.typographyByLanguage.ja={writingMode,fontFamily:options.fontFamily || "'Noto Sans JP',sans-serif",fontSize:16,fontWeight:400,lineHeight:options.lineHeight || 1.8,letterSpacing:0,textAlign:'start',paragraphSpacing:12,headingSpacing:18,textColor:'#1f1b16',paperColor:'#f7f1df'};
   const session=await createFlowPublicationCompositionCaptureSession({ownerDocument:document,flowGroup:group,language:'ja',revision:1,fontId:'fixture-flow-press-noto-sans-jp',fontRegistry});
   try{const pagination=session.paginate();const snapshot=session.capture(pagination);
    const host=document.createElement('div');document.body.append(host);
    try{
     const content=renderFlowGeneratedPage(host,{page:pagination.pages[0],pageBox:snapshot.pageBox,writingMode,languageKey:'ja',typography:group.flow.layout.typographyByLanguage.ja});
     for(const element of content.querySelectorAll('.flow-dom-block')){
-     const style=getComputedStyle(element),expected=element.tagName==='H2'?1.65:1.8;
+     const style=getComputedStyle(element),expected=element.tagName==='H2'?Math.max(1.35,(options.lineHeight || 1.8)-.15):(options.lineHeight || 1.8);
      if(Math.abs(parseFloat(style.lineHeight)/parseFloat(style.fontSize)-expected)>.001)throw Error('Annotation changed author line spacing');
     }
+    const measure=()=>{
+     const origin=host.getBoundingClientRect(),walker=document.createTreeWalker(content,NodeFilter.SHOW_TEXT),rects=[];
+     while(walker.nextNode()){
+      const node=walker.currentNode;if(node.parentElement.closest('[data-annotation-text]'))continue;
+      for(const g of segmentGraphemes(node.data,'ja')){const range=document.createRange();range.setStart(node,g.index);range.setEnd(node,g.end);const rect=range.getBoundingClientRect();rects.push([rect.x-origin.x,rect.y-origin.y,rect.width,rect.height]);}
+     }
+     return rects;
+    };
+    const annotatedRects=measure();
+    const plainPage=structuredClone(pagination.pages[0]);plainPage.fragments.forEach(f=>delete f.annotations);
+    const {renderFlowFragments}=await import('/js/flow-dom-measurer.js');
+    renderFlowFragments(content,{fragments:plainPage.fragments,pageBox:snapshot.pageBox,writingMode,languageKey:'ja',typography:group.flow.layout.typographyByLanguage.ja});
+    const plainRects=measure();
+    if(plainRects.length!==annotatedRects.length || plainRects.some((r,i)=>r.some((v,j)=>Math.abs(v-annotatedRects[i][j])>.25)))throw Error('Annotation moved parent glyph geometry: '+JSON.stringify({writingMode,first:plainRects.findIndex((r,i)=>r.some((v,j)=>Math.abs(v-annotatedRects[i][j])>.25)),plain:plainRects.slice(8,22),annotated:annotatedRects.slice(8,22)}));
    }finally{host.remove();}
+   const plainGroup=structuredClone(group);
+   plainGroup.flow.document.sections.forEach(s=>s.blocks.forEach(b=>delete b.annotations));
+   const plainSession=await createFlowPublicationCompositionCaptureSession({ownerDocument:document,flowGroup:plainGroup,language:'ja',revision:1,fontId:'fixture-flow-press-noto-sans-jp',fontRegistry});
+   try{
+    const boundaries=p=>JSON.stringify(p.pages.map(page=>page.fragments.map(f=>[f.blockId,f.sourceRange])));
+    if(boundaries(plainSession.paginate())!==boundaries(pagination))throw Error('Annotation changed sample page boundaries');
+   }finally{plainSession.dispose();}
    results.push({group,pagination,snapshot,fontRegistry});
   }finally{session.dispose();}
  }

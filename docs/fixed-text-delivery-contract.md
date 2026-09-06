@@ -919,3 +919,13 @@ runs contain text only. This uses existing delivery v2 fields, without a Viewer
 schema extension, semantic FlowDocument, raster body fallback or Rules change.
 Capture/projection verify exact annotation text and ranges before Release assembly.
 See [Flow annotations](flow-annotations.md) for the source contract and acceptance.
+
+### 2026-09-06: Annotation layout correction
+
+Flow body text with annotations reuses the normal measured line/column styles;
+annotation-only paragraph padding and body kerning overrides are removed.
+Ruby/emphasis are out-of-flow decorations beside the body. Decorations may use
+existing page margins, but must remain inside the fixed page. Body bounds still
+use the author-defined content box. Legacy overlapping ruby/emphasis metadata
+is retained in authoring; ruby takes display and publication precedence on
+those glyphs. The editing UI allows one decoration type per selected range.

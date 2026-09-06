@@ -5,29 +5,48 @@ import { segmentGraphemes } from './grapheme.js';
 export function renderAnnotationPreview(element, block, language = 'ja') {
     const document = element.ownerDocument;
     const text = block.texts[language];
-    element.style.fontKerning='none';
-    element.style.fontVariantLigatures='none';
     const annotations = block.annotations?.[language] || [];
     element.replaceChildren();
     const ruby = annotations.filter(a => a.type === 'ruby').sort((a,b) => a.start-b.start);
-    const addBase = (parent, start, end) => {
-        for (const g of segmentGraphemes(text.slice(start,end),language)) {
+    const addBase = (parent, start, end, readingAnnotation = null) => {
+        let segments = segmentGraphemes(text.slice(start,end),language);
+        if(!readingAnnotation){
+            const grouped=[];
+            for(const g of segments){
+                const marked=annotations.some(a=>a.type==='emphasis' && a.start<=start+g.index && a.end>=start+g.end);
+                const previous=grouped.at(-1);
+                if(!marked && previous && !previous.marked){previous.segment+=g.segment;previous.end=g.end;}
+                else grouped.push({...g,marked});
+            }
+            segments=grouped;
+        }
+        const readings = readingAnnotation ? segmentGraphemes(readingAnnotation.reading,language) : [];
+        const extent = Math.max(segments.length, readings.length * .5);
+        const readingStart = Math.max(-segmentGraphemes(text.slice(0,start),language).length, (segments.length-extent)/2);
+        for (const [index,g] of segments.entries()) {
             const base = document.createElement('span');
             base.dataset.baseStart = String(start + g.index);
             base.dataset.baseEnd = String(start + g.end);
             base.textContent = g.segment;
+            base.className = 'annotation-base';
             const emphasis = annotations.find(a => a.type === 'emphasis' && a.start <= start+g.index && a.end >= start+g.end);
-            if (emphasis && !/^\s+$/u.test(g.segment)) {
-                base.className = 'annotation-emphasis';
-                base.style.textEmphasisStyle = emphasis.mark === 'dot' ? 'filled dot' : 'filled sesame';
-            }
-            if (emphasis && !/^\s+$/u.test(g.segment) && parent===element) {
-                base.style.position='relative';base.style.textEmphasis='none';
+            // Preserve older combined data; ruby takes display precedence.
+            if (emphasis && !readingAnnotation && !/^\s+$/u.test(g.segment)) {
                 const mark=document.createElement('span');mark.className='annotation-single-mark';
                 mark.dataset.annotationText='true';mark.dataset.emphasisId=emphasis.id;
                 mark.dataset.baseOffset=String(start+g.index);
                 mark.textContent=emphasis.mark==='dot'?'•':'﹅';base.append(mark);
             }
+            readings.forEach((reading,readingIndex)=>{
+                const center=readingStart+(readingIndex+.5)*extent/readings.length;
+                const anchor=Math.max(0,Math.min(segments.length-1,Math.floor(center)));
+                if(anchor!==index)return;
+                const span=document.createElement('span');span.className='annotation-reading';
+                span.dataset.annotationText='true';span.dataset.readingIndex=String(readingIndex);
+                span.textContent=reading.segment;
+                span.style.insetInlineStart=((center-index-.25)*2)+'em';
+                span.setAttribute('aria-label','読み '+reading.segment);base.append(span);
+            });
             parent.append(base);
         }
     };
@@ -39,30 +58,7 @@ export function renderAnnotationPreview(element, block, language = 'ja') {
         node.title = a.reviewState === 'needs-review' ? 'ルビの読みを確認してください' : a.reading;
         node.className = 'annotation-ruby';
         if (a.reviewState === 'needs-review') node.classList.add('needs-review');
-        addBase(node,a.start,a.end);
-        const rt = document.createElement('rt');
-        rt.dataset.annotationText = 'true';
-        segmentGraphemes(a.reading,language).forEach((g,index)=>{
-            const span=document.createElement('span');span.dataset.readingIndex=String(index);span.textContent=g.segment;rt.append(span);
-        });
-        rt.setAttribute('aria-label','読み '+a.reading);
-        node.append(rt);
-        const emphasized = annotations.some(e=>e.type==='emphasis' && e.start<a.end && a.start<e.end);
-        if (emphasized) {
-            node.classList.add('has-emphasis');
-            const marks = document.createElement('span');
-            marks.className = 'annotation-outer-marks';
-            marks.dataset.annotationText = 'true';
-            marks.setAttribute('aria-hidden','true');
-            for (const g of segmentGraphemes(text.slice(a.start,a.end),language)) {
-                const e = annotations.find(e=>e.type==='emphasis' && e.start<=a.start+g.index && e.end>=a.start+g.end);
-                const mark = document.createElement('span');
-                mark.textContent = e && !/^\s+$/u.test(g.segment) ? (e.mark==='dot'?'•':'﹅') : '\u2007';
-                if(e && !/^\s+$/u.test(g.segment)){mark.dataset.emphasisId=e.id;mark.dataset.baseOffset=String(a.start+g.index);}
-                marks.append(mark);
-            }
-            node.append(marks);
-        }
+        addBase(node,a.start,a.end,a);
         element.append(node);
         cursor = a.end;
     }
@@ -106,7 +102,7 @@ export function openAnnotationDialog({ source, sectionId, blockId, range, langua
         <header><h2 id="annotation-dialog-title">ルビ・圏点</h2><button value="cancel" aria-label="閉じる">×</button></header>
         <label>対象の文字<output data-parent></output></label>
         <label>ルビの読み<input name="reading" autocomplete="off" placeholder="例：としょかん"></label>
-        <p class="annotation-help">空欄にするとルビを解除します。</p>
+        <p class="annotation-help">ルビと圏点は同じ文字には併用しません。一方を設定すると、もう一方を解除します。</p>
         <label>圏点<select name="mark"><option value="none">なし</option><option value="sesame">ゴマ点</option><option value="dot">黒丸</option></select></label>
         <div class="annotation-live" aria-label="設定後の見た目"><div data-preview></div></div>
         <p data-error role="alert"></p>
@@ -114,10 +110,12 @@ export function openAnnotationDialog({ source, sectionId, blockId, range, langua
     </form>`;
     const reading = dialog.querySelector('[name=reading]'), mark = dialog.querySelector('[name=mark]');
     reading.value = existingRuby?.reading || '';
-    mark.value = existingEmphasis?.mark || 'none';
+    mark.value = existingRuby ? 'none' : existingEmphasis?.mark || 'none';
     dialog.querySelector('[data-parent]').textContent = text.slice(range.start,range.end);
     const candidate = () => {
         let result = source;
+        const chosenType=reading.value.trim()?'ruby':mark.value!=='none'?'emphasis':null;
+        if(chosenType && list.some(a=>a.type!==chosenType && a.start<range.end && range.start<a.end && (a.start!==range.start || a.end!==range.end)))throw new Error('ANNOTATION_PARTIAL_OVERLAP');
         for (const type of ['ruby','emphasis']) {
             const existing = type==='ruby' ? existingRuby : existingEmphasis;
             const value = type==='ruby' ? reading.value.trim() : mark.value;
@@ -146,7 +144,8 @@ export function openAnnotationDialog({ source, sectionId, blockId, range, langua
             dialog.querySelector('[data-apply]').disabled=true;return null;
         }
     };
-    reading.addEventListener('input',update);mark.addEventListener('change',update);
+    reading.addEventListener('input',()=>{if(reading.value.trim())mark.value='none';update();});
+    mark.addEventListener('change',()=>{if(mark.value!=='none')reading.value='';update();});
     const previous = document.activeElement;
     dialog.querySelector('[data-apply]').onclick=()=>{const next=update();if(next){
         try { onApply(next); dialog.close(); }
