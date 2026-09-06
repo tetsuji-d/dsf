@@ -16,7 +16,7 @@ import {
 
 export const FLOW_DOM_SUPPORTED_WRITING_MODE = 'horizontal-tb';
 export const FLOW_DOM_SUPPORTED_WRITING_MODES = Object.freeze(['horizontal-tb', 'vertical-rl']);
-export const FLOW_DOM_RENDERER_VERSION = 10;
+export const FLOW_DOM_RENDERER_VERSION = 11;
 export const FLOW_DOM_HYPHENATION_MODES = Object.freeze(['auto', 'none']);
 
 const DEFAULT_MEASUREMENT_CACHE_SIZE = 2048;
@@ -221,8 +221,8 @@ function createFragmentElement(ownerDocument, fragment, fragmentIndex, typograph
     if (fragment.text) {
         if (fragment.annotations?.length) {
             element.dataset.writing = typography.writingMode || 'horizontal-tb';
-            element.style.paddingBlockStart = (fontSize * .8)+'px';
-            element.style.lineHeight = String(Math.max(lineHeight, 2.8));
+            element.style.paddingBlockStart = (fontSize * 1.2)+'px';
+            // An annotation must not change the author-selected line/column advance.
             renderAnnotationPreview(element, {texts:{[fragment.languageKey]:fragment.text}, annotations:{[fragment.languageKey]:fragment.annotations}}, fragment.languageKey);
         } else element.textContent = fragment.text;
     } else {

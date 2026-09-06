@@ -1,3 +1,4 @@
+import {renderFlowGeneratedPage} from '/js/flow-dom-measurer.js';
 import {validateSnapshotPage,projectFlowPaginationToDsfV2} from '/js/flow-publication-projection.js';
 import {segmentGraphemes} from '/js/grapheme.js';
 import {prepareDsfViewerFixedTextContext,createDsfFixedTextPageElement} from '/js/viewer-fixed-text.js';
@@ -12,7 +13,17 @@ export async function captureAnnotations(options={}){
   if(options.heading)Object.assign(group.flow.document.sections[0].blocks[0],{type:'heading',level:2});
   group.flow.layout.typographyByLanguage.ja={writingMode,fontFamily:"'Noto Sans JP',sans-serif",fontSize:16,fontWeight:400,lineHeight:1.8,letterSpacing:0,textAlign:'start',paragraphSpacing:12,headingSpacing:18,textColor:'#1f1b16',paperColor:'#f7f1df'};
   const session=await createFlowPublicationCompositionCaptureSession({ownerDocument:document,flowGroup:group,language:'ja',revision:1,fontId:'fixture-flow-press-noto-sans-jp',fontRegistry});
-  try{const pagination=session.paginate();const snapshot=session.capture(pagination);results.push({group,pagination,snapshot,fontRegistry});}finally{session.dispose();}
+  try{const pagination=session.paginate();const snapshot=session.capture(pagination);
+   const host=document.createElement('div');document.body.append(host);
+   try{
+    const content=renderFlowGeneratedPage(host,{page:pagination.pages[0],pageBox:snapshot.pageBox,writingMode,languageKey:'ja',typography:group.flow.layout.typographyByLanguage.ja});
+    for(const element of content.querySelectorAll('.flow-dom-block')){
+     const style=getComputedStyle(element),expected=element.tagName==='H2'?1.65:1.8;
+     if(Math.abs(parseFloat(style.lineHeight)/parseFloat(style.fontSize)-expected)>.001)throw Error('Annotation changed author line spacing');
+    }
+   }finally{host.remove();}
+   results.push({group,pagination,snapshot,fontRegistry});
+  }finally{session.dispose();}
  }
  return results;
 }
