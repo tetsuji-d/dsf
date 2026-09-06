@@ -134,6 +134,22 @@ import { collection, getDocs, query, where, limit } from "https://www.gstatic.co
 
 const projectAssetPanel = createProjectAssetPanel({
     state, prepareImage: prepareAuthoringImage,
+    renameAsset: (id, name) => {
+        if (!state.projectAssets?.some(asset => asset.id === id)) return;
+        endHistoryGroup(); pushState();
+        state.projectAssets = state.projectAssets.map(asset => asset.id === id ? { ...asset, name } : asset);
+        refresh(); updateHistoryButtons(); triggerAutoSave();
+    },
+    dropAsset: (id, target) => {
+        const surface = target.closest?.('[data-testid="editor-fixed-page"], [data-testid="flow-editor-generated-page"]');
+        if (surface) {
+            const page = surface._flowPageEntry;
+            if (page?.kind !== 'fixed' || page.section?.type === 'text') return;
+            activateProjectionPage(page);
+        } else if (!target.closest?.('#canvas-view') || _flowCanvasView?.getPages()?.length) return;
+        projectAssetPanel.use(id);
+    },
+
     addAsset: ({ name, mainUrl, thumbUrl, width, height, byteLength }) => {
         endHistoryGroup(); pushState();
         state.version = 6;

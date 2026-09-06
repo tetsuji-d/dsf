@@ -10439,3 +10439,10 @@ body.strip-collapsed #page-strip:has(.flow-thumb-group) { height: 42px; }
 .project-asset-card button { white-space: normal; }
 
 #asset-grid { grid-template-columns: repeat(auto-fit, minmax(125px, 1fr)); }
+
+.project-asset-menu { position: fixed; z-index: 20000; display: flex; flex-direction: column; padding: 6px; max-width: min(300px, 100vw); background: var(--panel, #172033); color: var(--text, #fff); border: 1px solid var(--line, #64748b); border-radius: 8px; box-shadow: 0 8px 24px #0005; }
+.project-asset-menu button { text-align: left; padding: 10px; background: transparent; color: inherit; border: 0; cursor: pointer; }
+.project-asset-menu button:hover, .project-asset-menu button:focus-visible { background: #3b82f633; }
+.project-asset-menu button:disabled { opacity: .45; cursor: default; }
+.project-asset-card strong { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.asset-upload-area.drag-over { outline: 2px solid #3b82f6; background: #3b82f622; }
