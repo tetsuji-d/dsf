@@ -16,7 +16,7 @@ import {
 
 export const FLOW_DOM_SUPPORTED_WRITING_MODE = 'horizontal-tb';
 export const FLOW_DOM_SUPPORTED_WRITING_MODES = Object.freeze(['horizontal-tb', 'vertical-rl']);
-export const FLOW_DOM_RENDERER_VERSION = 12;
+export const FLOW_DOM_RENDERER_VERSION = 13;
 export const FLOW_DOM_HYPHENATION_MODES = Object.freeze(['auto', 'none']);
 
 const DEFAULT_MEASUREMENT_CACHE_SIZE = 2048;
@@ -107,6 +107,8 @@ export function resolveFlowDomTypography(
     const defaultFontFamily = cjk
         ? defaults.fontFamily
         : (FLOW_PORTABLE_LATIN_FONT_FAMILIES[fontPreset] || defaults.fontFamily);
+    const blockAlign = String(overrides.blockAlign || 'start');
+    if (!['start','center','end'].includes(blockAlign)) throw new FlowDomMeasurementError('INVALID_TYPOGRAPHY', 'blockAlign is unsupported.');
     const textAlign = String(overrides.textAlign || 'start');
     if (!['start', 'center', 'end', 'justify'].includes(textAlign)) {
         throw new FlowDomMeasurementError('INVALID_TYPOGRAPHY', 'textAlign is unsupported.', {
@@ -122,6 +124,7 @@ export function resolveFlowDomTypography(
         lineHeight: requireFiniteNumber(overrides.lineHeight, defaults.lineHeight, 'lineHeight', { positive: true }),
         letterSpacing: requireFiniteNumber(overrides.letterSpacing, defaults.letterSpacing, 'letterSpacing'),
         textAlign,
+        blockAlign,
         paragraphSpacing: requireFiniteNumber(overrides.paragraphSpacing, defaults.paragraphSpacing, 'paragraphSpacing', { minimum: 0 }),
         headingSpacing: requireFiniteNumber(overrides.headingSpacing, 18, 'headingSpacing', { minimum: 0 }),
         textColor: String(overrides.textColor || '#1f1b16'),
@@ -259,6 +262,7 @@ function createMeasurementCacheKey(context, pageBox, writingMode, languageKey, t
         typography.lineHeight,
         typography.letterSpacing,
         typography.textAlign,
+        typography.blockAlign,
         typography.paragraphSpacing,
         typography.headingSpacing,
         typography.textColor,
@@ -300,6 +304,17 @@ export function renderFlowFragments(contentElement, options = {}) {
             hyphenation,
         ));
     });
+    // Flex's column axis follows the writing mode's block axis. This also works
+    // before attachment (thumbnails) and never shrinks text to conceal overflow.
+    contentElement.style.flexDirection = 'column';
+    contentElement.style.justifyContent = 'flex-start';
+    if (typography.blockAlign !== 'start' && contentElement.children.length) {
+        contentElement.style.display = 'flex';
+        contentElement.style.justifyContent = typography.blockAlign === 'center' ? 'center' : 'flex-end';
+        const children = [...contentElement.children];
+        children.at(-1).style.paddingBlockEnd = '0px';
+        for (const child of children) child.style.flexShrink = '0';
+    }
     return { pageBox, typography, hyphenation };
 }
 

@@ -218,6 +218,9 @@ export function validateFlowLayoutSettings(layout) {
             if (hasOwn(profile, 'textAlign') && !TEXT_ALIGN_SET.has(profile.textAlign)) {
                 addIssue(issues, 'invalid_flow_typography', `${profilePath}.textAlign`, 'textAlign is unsupported.');
             }
+            if (hasOwn(profile, 'blockAlign') && !['start','center','end'].includes(profile.blockAlign)) {
+                addIssue(issues, 'invalid_flow_typography', `${profilePath}.blockAlign`, 'blockAlign is unsupported.');
+            }
             for (const colorKey of ['textColor', 'paperColor']) {
                 if (hasOwn(profile, colorKey) && typeof profile[colorKey] !== 'string') {
                     addIssue(issues, 'invalid_flow_typography', `${profilePath}.${colorKey}`, `${colorKey} must be a string.`);

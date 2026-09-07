@@ -474,6 +474,24 @@
 
                     <div id="flow-page-source-props" class="flow-direct-format-props" hidden>
                         <button type="button" id="flow-open-source" class="btn-sm" data-testid="flow-open-source">原稿を開く</button>
+                        <details id="flow-page-placement">
+                            <summary data-i18n="flow_placement_title">Flowのページ内配置</summary>
+                            <p data-i18n="flow_placement_hint">このFlowの選択言語に適用します。扉は本文とは別のFlowで作成してください。</p>
+                            <label for="flow-placement-inline" data-i18n="flow_placement_inline">行内の文字揃え</label>
+                            <select id="flow-placement-inline">
+                                <option value="start" data-i18n="flow_placement_start">先頭</option>
+                                <option value="center" data-i18n="flow_placement_center">中央</option>
+                                <option value="end" data-i18n="flow_placement_end">末尾</option>
+                                <option value="justify" data-i18n="flow_placement_justify">均等揃え</option>
+                            </select>
+                            <label for="flow-placement-block" data-i18n="flow_placement_block">行のまとまりの配置</label>
+                            <select id="flow-placement-block">
+                                <option value="start" data-i18n="flow_placement_start">先頭</option>
+                                <option value="center" data-i18n="flow_placement_center">中央</option>
+                                <option value="end" data-i18n="flow_placement_end">末尾</option>
+                            </select>
+                            <p data-i18n="flow_placement_axes">縦書き：文字揃えは上下、まとまりは左右。横書き：文字揃えは左右、まとまりは上下。</p>
+                        </details>
                         <p data-i18n="flow_source_location_hint">編集中の位置から原稿全体を開きます。ページのドラッグでFlow全体を移動できます。</p>
                     </div>
                     <div id="flow-direct-format-props" class="flow-direct-format-props" data-testid="flow-direct-format" hidden>

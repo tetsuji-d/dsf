@@ -210,7 +210,7 @@ const punctuationFragment = {
     isBlockStart: true, isBlockEnd: true,
 };
 deepFreeze(punctuationFragment);
-assert.equal(FLOW_DOM_RENDERER_VERSION, 12, 'invalidate pre-annotation-renderer measurement and publication evidence');
+assert.equal(FLOW_DOM_RENDERER_VERSION, 13, 'invalidate pre-annotation-renderer measurement and publication evidence');
 const reusedContent = ownerDocument.createElement('div');
 reusedContent.style.fontFeatureSettings = '"vert" 1, "vkna" 1';
 for (const mode of ['vertical-rl', 'horizontal-tb', 'vertical-rl']) {

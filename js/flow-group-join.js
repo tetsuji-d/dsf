@@ -35,7 +35,7 @@ function mergeTranslation(a,b) {
     return result;
 }
 
-const typographyKeys = ['writingMode','fontFamily','fontSize','fontWeight','lineHeight','letterSpacing','textAlign','paragraphSpacing','headingSpacing','textColor','paperColor'];
+const typographyKeys = ['writingMode','fontFamily','fontSize','fontWeight','lineHeight','letterSpacing','textAlign','blockAlign','paragraphSpacing','headingSpacing','textColor','paperColor'];
 
 /** Compare effective known settings; never discard unknown layout metadata. */
 export function getFlowJoinLayoutDifferences(left, right, options = {}) {

@@ -489,6 +489,20 @@ function syncFlowPageSourceControls() {
     const active = group?.kind === 'flow';
     panel.hidden = !active;
     if (!active) return;
+    const languageKey = getFlowAuthoringLanguage(group);
+    const profile = group.flow.layout.typographyByLanguage[languageKey];
+    for (const [id,field] of [['flow-placement-inline','textAlign'],['flow-placement-block','blockAlign']]) {
+        const control = document.getElementById(id);
+        control.value = profile?.[field] || 'start';
+        control.disabled = !profile || editorDragBlocked(false);
+        control.onchange = () => {
+            if (getActiveBlock()?.id !== group.id || editorDragBlocked(false)) return;
+            const next = structuredClone(state.blocks);
+            next[state.activeBlockIdx].flow.layout.typographyByLanguage[languageKey][field] = control.value;
+            applyEditorSpineChange({blocks:next,activeBlockIndex:state.activeBlockIdx},
+                {flowPageIndex:getSelectedFlowRuntimePageIndex(group.id)});
+        };
+    }
     const source = isFlowSourceSelected(group.id);
     const button = document.getElementById('flow-open-source');
     button.textContent = t(source ? 'flow_return_page' : 'flow_open_source');
@@ -7618,7 +7632,7 @@ window.addTextSection = () => {
     addTextSection(refresh);
     triggerAutoSave();
 };
-function insertFlowGroupAt(insertIndex) {
+function insertFlowGroupAt(insertIndex, titlePage = false) {
     endHistoryGroup();
     pushState();
     const sourceLanguage = state.defaultLang || state.activeLang || state.languages?.[0] || 'ja';
@@ -7629,14 +7643,15 @@ function insertFlowGroupAt(insertIndex) {
         document: {
             sourceLanguage,
             sections: [{
-                title: { [sourceLanguage]: '新しいFlow原稿' },
+                title: { [sourceLanguage]: titlePage ? t('flow_title_placeholder') : '新しいFlow原稿' },
                 blocks: [
-                    { type: 'heading', level: 1, texts: { [sourceLanguage]: '見出し' } },
+                    { type: 'heading', level: 1, texts: { [sourceLanguage]: titlePage ? t('flow_title_placeholder') : '見出し' } },
                     { type: 'paragraph', texts: { [sourceLanguage]: '' } },
                 ],
             }],
         },
     });
+    if (titlePage) Object.assign(group.flow.layout.typographyByLanguage[sourceLanguage], {textAlign:'center',blockAlign:'center'});
     const nextBlocks = [...(state.blocks || [])];
     const insertAt = Math.max(0, Math.min(insertIndex, nextBlocks.length));
     nextBlocks.splice(insertAt, 0, group);
@@ -7645,7 +7660,7 @@ function insertFlowGroupAt(insertIndex) {
     dispatch({ type: actionTypes.SET_ACTIVE_BLOCK_INDEX, payload: insertAt });
     dispatch({ type: actionTypes.SET_ACTIVE_BUBBLE_INDEX, payload: null });
     invalidateFlowRuntimePages({ preserveSelection: true });
-    selectFlowSource(group.id);
+    if (titlePage) selectFlowGeneratedPage(group.id); else selectFlowSource(group.id);
     refresh();
     triggerAutoSave();
 }
@@ -10747,7 +10762,7 @@ function openThumbnailContextMenu(event, thumb) {
         const spreadId = block.content?.spreadImage?.groupId;
         const indices = spreadId ? state.blocks.map((b,i) => b.content?.spreadImage?.groupId === spreadId ? i : -1).filter(i=>i>=0) : [index];
         const targetIndex = position === 'before' ? indices[0] : indices.at(-1);
-        if (kind === 'flow') { insertFlowGroupAt(targetIndex + (position === 'after' ? 1 : 0)); return; }
+        if (kind === 'flow' || kind === 'title') { insertFlowGroupAt(targetIndex + (position === 'after' ? 1 : 0), kind === 'title'); return; }
         if (block.kind === 'flow') {
             const pages = getEditorPageProjection()?.pages.filter(p => p.kind === 'flow' && p.groupId === block.id) || [];
             const page = pages.find(p => p.flowPageIndex === flowPageIndex);
@@ -10775,6 +10790,7 @@ function openThumbnailContextMenu(event, thumb) {
         const imageDisabled = block.kind === 'flow' && (!page || page.isSourceFallback || page.languageKey !== block.flow.document.sourceLanguage);
         show([
             {label:t('thumb_add_image'), disabled:imageDisabled, run:()=>add(position,'image')},
+            {label:t('flow_title_page'), run:()=>add(position,'title')},
             {label:t(block.kind === 'flow' ? (position === 'before' ? 'thumb_add_flow_before_group' : 'thumb_add_flow_after_group') : 'thumb_add_flow'), run:()=>add(position,'flow')},
         ]);
     };
