@@ -60,5 +60,25 @@ const metadata=structuredClone(changed);metadata[1].flow.layout.custom={keep:tru
 assert.equal(inspectFlowJoin(metadata,id,{usePreviousLayout:true}).reason,'metadata');
 assert.equal(inspectFlowJoin(conflict,id,{usePreviousLayout:true}).reason,'metadata');
 const languages=structuredClone(changed);languages[1].flow.layout.typographyByLanguage.en={writingMode:'horizontal-tb'};
-assert.equal(inspectFlowJoin(languages,id,{usePreviousLayout:true}).reason,'metadata');
+assert.equal(inspectFlowJoin(languages,id).reason,'layout');
+assert.equal(inspectFlowJoin(languages,id,{usePreviousLayout:true}).eligible,true);
+assert.deepEqual(joinFlowWithPrevious(languages,id,{usePreviousLayout:true}).blocks[0].flow.layout.typographyByLanguage.en,languages[1].flow.layout.typographyByLanguage.en);
 console.log('Flow join: effective defaults, explicit layout adoption, safe differences and persistence passed.');
+
+assert.equal(inspectFlowJoin(conflict,id).detail,'section_title');
+assert.equal(inspectFlowJoin(metadata,id,{usePreviousLayout:true}).detail,'layout_extension');
+assert.equal(inspectFlowJoin(unknown,unknown[1].id).detail,'document');
+const reviews=structuredClone(pair);
+reviews[0].flow.translationState.languages.en.origin='manual';
+reviews[0].flow.translationState.languages.en.reviewState='reviewed';
+reviews[1].flow.translationState.languages.en.origin='machine';
+reviews[1].flow.translationState.languages.en.reviewState='needs-review';
+const mergedReviews=joinFlowWithPrevious(reviews,reviews[1].id);
+assert.equal(mergedReviews.blocks[0].flow.translationState.languages.en.origin,'mixed');
+assert.equal(mergedReviews.blocks[0].flow.translationState.languages.en.reviewState,'needs-review');
+assert.deepEqual(mergedReviews.blocks[0].flow.document,protectedJoin.blocks[0].flow.document);
+assert.deepEqual(mergedReviews.blocks[0].flow.translationState.languages.en.sourceFingerprints,protectedJoin.blocks[0].flow.translationState.languages.en.sourceFingerprints);
+const titles=structuredClone(blocks);titles[1].flow.document.sections[0].title.en='Chapter';
+assert.equal(joinFlowWithPrevious(titles,id).blocks[0].flow.document.sections[0].title.en,'Chapter');
+assert.deepEqual(deserializeProject(serializeProject({version:6,blocks:mergedReviews.blocks,languages:['ja','en'],defaultLang:'ja'})).blocks,mergedReviews.blocks);
+console.log('Flow join: language union, detailed rejection, title union and conservative translation review passed.');

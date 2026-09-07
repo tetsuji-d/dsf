@@ -10779,7 +10779,9 @@ function openThumbnailContextMenu(event, thumb) {
     const joinOptions = {languageConfigs:state.languageConfigs};
     const joinStatus = inspectFlowJoin(state.blocks, block.id, joinOptions);
     const unifiedStatus = inspectFlowJoin(state.blocks, block.id, {...joinOptions,usePreviousLayout:true});
-    const reasonText = status => t('flow_join_reason_' + status.reason);
+    const reasonText = status => t(status.reason === 'metadata' && status.detail
+        ? 'flow_join_detail_' + status.detail : 'flow_join_reason_' + status.reason);
+    const blockedStatus = joinStatus.reason === 'layout' && !unifiedStatus.eligible ? unifiedStatus : joinStatus;
     const performJoin = (mergeParagraphs, usePreviousLayout=false) => {
         hideContextMenu();
         try {
@@ -10817,22 +10819,21 @@ function openThumbnailContextMenu(event, thumb) {
             {label:t('flow_join_paragraphs'), disabled:!paragraphStatus.eligible,
                 reason:paragraphStatus.eligible?'':reasonText(paragraphStatus), run:()=>performJoin(true)},
         ]);
-        if (!paragraphStatus.eligible) {
-            const note = document.createElement('div'); note.className='context-menu-note'; note.textContent=reasonText(paragraphStatus);
-            menu.appendChild(note); showContextMenuAt(event.clientX,event.clientY,null);
-        }
+        const note = document.createElement('div'); note.className='context-menu-note';
+        note.textContent = t('flow_join_translation_note') + (!paragraphStatus.eligible ? '\n' + reasonText(paragraphStatus) : '');
+        menu.appendChild(note); showContextMenuAt(event.clientX,event.clientY,null);
     };
     show([
         {label:t('thumb_add_before'), run:()=>addMenu('before')},
         {label:t('thumb_add_after'), run:()=>addMenu('after')},
         ...(block.kind === 'flow' ? [
-            {label:t('flow_join_previous'), disabled:!joinStatus.eligible && !unifiedStatus.eligible, reason:joinStatus.eligible?'':reasonText(joinStatus), run:joinMenu},
+            {label:t('flow_join_previous'), disabled:!joinStatus.eligible && !unifiedStatus.eligible, reason:joinStatus.eligible?'':reasonText(blockedStatus), run:joinMenu},
             {label:t('flow_open_source'), run:()=>{hideContextMenu();window.changeFlowSourceBlock(index);}},
             {label:t('thumb_delete_flow'), run:()=>{hideContextMenu();selectFlowSource(block.id);if (!deleteActiveFlowGroup(block)) { selectFlowGeneratedPage(block.id); refreshForThumbSelection(); }}},
         ] : [{label:t('thumb_delete_page'), disabled:!canDeleteActive(), run:()=>{hideContextMenu();window.deleteActive();}}]),
     ]);
     if (block.kind === 'flow' && !joinStatus.eligible) {
-        const note = document.createElement('div'); note.className='context-menu-note'; note.textContent=reasonText(joinStatus);
+        const note = document.createElement('div'); note.className='context-menu-note'; note.textContent=reasonText(blockedStatus);
         menu.appendChild(note); showContextMenuAt(event.clientX,event.clientY,null);
     }
 }
