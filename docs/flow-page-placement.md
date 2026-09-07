@@ -7,3 +7,11 @@
 Project v6の既存`flow.layout.typographyByLanguage[language]`に任意の`blockAlign`を保存する。省略値はstart。不正値はvalidationで拒否する。DSP・owner authoring保存は既存の経路を利用し、Firestore Rulesは変更しない。旧Studioはこの新しい配置設定を描画しないため、扉の編集・再発行は対応版Studioで行う。
 
 Editor・測定・Press captureは共通DOM描画で位置を確定する。配信は既存fixedTextの座標で表現し、Viewerに新しい組版処理や原稿を渡さない。renderer versionを13に更新して古い組版証拠とcacheを無効化する。本文の文字列、翻訳、注釈は配置変更で書き換えない。Undo/Redoは既存authoring spine transactionを利用する。
+
+## ページ単位の扉指定
+
+編集プロパティの「このページを扉にする」は現在の原文ページのfragment範囲を原稿と照合し、既存splitTextBlockで必要な段落境界を作って、前・扉・後の独立Flowへ1回のUndo transactionで分離する。生成ページ番号は保存しない。`flow.pageRole: 'title'`は原稿区間の任意属性として保持し、将来の目次接続の対象にできる。目次への掲載やページリンクはこの段階では追加しない。
+
+適用範囲の既定値は「このページ」。原稿全体表示中・翻訳ページ・fallback・生成待ちではページ指定を使用しない。「Flow全体」は従来の言語別設定を使う。部分的に切断する段落に翻訳本文がある場合は位置対応を推測せず拒否する。段落を丸ごと移す場合は本文・翻訳・注釈・対応するfingerprintとlockを保持する。未知/orphan翻訳管理情報は先頭側へ保持する。
+
+「通常の本文に戻す」は選択言語を先頭揃えへ戻し、扉属性を解除する。前後の区切りは維持する。結合が必要な場合は既存のFlow接続操作を使う。Undoは区間分割を含めた元の状態を復元する。扉の本文が増えれば通常どおり複数ページになる。

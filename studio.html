@@ -476,6 +476,13 @@
                         <button type="button" id="flow-open-source" class="btn-sm" data-testid="flow-open-source">原稿を開く</button>
                         <details id="flow-page-placement">
                             <summary data-i18n="flow_placement_title">Flowのページ内配置</summary>
+                            <button type="button" id="flow-make-title" class="btn-sm" data-i18n="flow_make_title">このページを扉にする</button>
+                            <button type="button" id="flow-restore-body" class="btn-sm" data-i18n="flow_restore_body" hidden>通常の本文に戻す</button>
+                            <label for="flow-placement-scope" data-i18n="flow_placement_scope">適用範囲</label>
+                            <select id="flow-placement-scope">
+                                <option value="page" data-i18n="flow_scope_page">このページ</option>
+                                <option value="group" data-i18n="flow_scope_group">Flow全体</option>
+                            </select>
                             <p data-i18n="flow_placement_hint">このFlowの選択言語に適用します。扉は本文とは別のFlowで作成してください。</p>
                             <label for="flow-placement-inline" data-i18n="flow_placement_inline">行内の文字揃え</label>
                             <select id="flow-placement-inline">

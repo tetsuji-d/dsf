@@ -342,6 +342,10 @@ export function validateFlowGroupBlock(block) {
         addIssue(issues, 'invalid_flow_group_payload', 'flow', 'Flow group payload must be an object.');
         return { valid: issues.length === 0, issues };
     }
+    if (hasOwn(block.flow, 'pageRole') && block.flow.pageRole !== 'title') {
+        addIssue(issues, 'invalid_flow_page_role', 'flow.pageRole', 'Unsupported Flow page role.');
+    }
+
     if (!isRecord(block.flow.document)) {
         addIssue(issues, 'invalid_flow_document', 'flow.document', 'Flow group must contain a FlowDocument.');
     } else {
