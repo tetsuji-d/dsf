@@ -903,6 +903,8 @@ function updateFlowDirectSelectionFromProxy(proxy, options = {}) {
     if (
         proxy !== _flowDirectEditProxy
         || !_flowDirectEditSession
+        // Explicit page navigation wins over a proxy retained until the next render.
+        || !isFlowDirectEditing(_flowDirectEditSession.groupId)
         || _flowDirectEditMounting
         || _flowDirectEditApplying
         || _flowAuthoringComposing
