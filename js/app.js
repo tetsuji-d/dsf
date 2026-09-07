@@ -46,7 +46,7 @@ import { buildPublicViewerUrl } from './viewer-release-route.js';
 import { PROJECT_SCHEMA_VERSION, createFlowGroupBlock, hasFlowGroups } from './flow-project-model.js';
 import { applyFlowAuthoringOperation } from './flow-authoring.js';
 import { createFlowTextSelection, validateFlowTextSelection } from './flow-text-selection.js';
-import { inspectFlowJoin, joinFlowWithPrevious } from './flow-group-join.js';
+import { getFlowJoinLayoutDifferences, inspectFlowJoin, joinFlowWithPrevious } from './flow-group-join.js';
 import { createFlowImageInsertion, moveExistingImageIntoFlow } from './flow-image-insertion.js';
 import { alignFlowDirectCompositionElement } from './flow-direct-composition.js';
 import { createFlowCanvasView } from './flow-canvas-view.js';
@@ -10776,12 +10776,14 @@ function openThumbnailContextMenu(event, thumb) {
             {label:t(block.kind === 'flow' ? (position === 'before' ? 'thumb_add_flow_before_group' : 'thumb_add_flow_after_group') : 'thumb_add_flow'), run:()=>add(position,'flow')},
         ]);
     };
-    const joinStatus = inspectFlowJoin(state.blocks, block.id);
+    const joinOptions = {languageConfigs:state.languageConfigs};
+    const joinStatus = inspectFlowJoin(state.blocks, block.id, joinOptions);
+    const unifiedStatus = inspectFlowJoin(state.blocks, block.id, {...joinOptions,usePreviousLayout:true});
     const reasonText = status => t('flow_join_reason_' + status.reason);
-    const performJoin = mergeParagraphs => {
+    const performJoin = (mergeParagraphs, usePreviousLayout=false) => {
         hideContextMenu();
         try {
-            const result = joinFlowWithPrevious(state.blocks, block.id, {mergeParagraphs});
+            const result = joinFlowWithPrevious(state.blocks, block.id, {...joinOptions,mergeParagraphs,usePreviousLayout});
             applyEditorSpineChange(result);
             const group = result.blocks[result.activeBlockIndex];
             const languageKey = getFlowAuthoringLanguage(group);
@@ -10793,7 +10795,23 @@ function openThumbnailContextMenu(event, thumb) {
         } catch { alert(t('flow_join_reason_invalid')); }
     };
     const joinMenu = () => {
-        const paragraphStatus = inspectFlowJoin(state.blocks, block.id, {mergeParagraphs:true});
+        if (!joinStatus.eligible) {
+            const currentIndex = state.blocks.findIndex(item=>item.id===block.id);
+            let differences;
+            try {
+                differences = getFlowJoinLayoutDifferences(state.blocks[currentIndex-1].flow.layout,
+                    state.blocks[currentIndex].flow.layout,joinOptions);
+            } catch { alert(t('flow_join_reason_invalid')); return; }
+            const summary = differences.map(item => (item.language ? item.language + ': ' : '') + t('flow_join_field_' + item.field)).join('、');
+            show([{label:t('flow_join_unify'), run:()=>{
+                hideContextMenu();
+                if (confirm(summary + '\n\n' + t('flow_join_unify_confirm'))) performJoin(false,true);
+            }}]);
+            const note = document.createElement('div'); note.className='context-menu-note';
+            note.textContent = summary; menu.appendChild(note); showContextMenuAt(event.clientX,event.clientY,null);
+            return;
+        }
+        const paragraphStatus = inspectFlowJoin(state.blocks, block.id, {...joinOptions,mergeParagraphs:true});
         show([
             {label:t('flow_join_keep'), run:()=>performJoin(false)},
             {label:t('flow_join_paragraphs'), disabled:!paragraphStatus.eligible,
@@ -10808,7 +10826,7 @@ function openThumbnailContextMenu(event, thumb) {
         {label:t('thumb_add_before'), run:()=>addMenu('before')},
         {label:t('thumb_add_after'), run:()=>addMenu('after')},
         ...(block.kind === 'flow' ? [
-            {label:t('flow_join_previous'), disabled:!joinStatus.eligible, reason:joinStatus.eligible?'':reasonText(joinStatus), run:joinMenu},
+            {label:t('flow_join_previous'), disabled:!joinStatus.eligible && !unifiedStatus.eligible, reason:joinStatus.eligible?'':reasonText(joinStatus), run:joinMenu},
             {label:t('flow_open_source'), run:()=>{hideContextMenu();window.changeFlowSourceBlock(index);}},
             {label:t('thumb_delete_flow'), run:()=>{hideContextMenu();selectFlowSource(block.id);if (!deleteActiveFlowGroup(block)) { selectFlowGeneratedPage(block.id); refreshForThumbSelection(); }}},
         ] : [{label:t('thumb_delete_page'), disabled:!canDeleteActive(), run:()=>{hideContextMenu();window.deleteActive();}}]),

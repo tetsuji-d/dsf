@@ -1,3 +1,4 @@
+import { resolveFlowDomTypography } from './flow-dom-measurer.js';
 import { deepClone } from './utils.js';
 import { assertValidFlowProjectData } from './flow-project-model.js';
 import { applyFlowAuthoringOperation } from './flow-authoring.js';
@@ -32,16 +33,41 @@ function mergeTranslation(a,b) {
     return result;
 }
 
+const typographyKeys = ['writingMode','fontFamily','fontSize','fontWeight','lineHeight','letterSpacing','textAlign','paragraphSpacing','headingSpacing','textColor','paperColor'];
+
+/** Compare effective known settings; never discard unknown layout metadata. */
+export function getFlowJoinLayoutDifferences(left, right, options = {}) {
+    compatible(left, right, ['padding','typographyByLanguage']);
+    compatible(left.padding, right.padding, ['top','right','bottom','left']);
+    const differences = [];
+    for (const side of ['top','right','bottom','left']) {
+        if (!same(left.padding[side],right.padding[side])) differences.push({field:'padding_' + side,language:''});
+    }
+    const a = left.typographyByLanguage, b = right.typographyByLanguage;
+    // Missing language profiles affect fallback routing as well as typography.
+    if (!same(Object.keys(a).sort(),Object.keys(b).sort())) fail('metadata');
+    for (const language of Object.keys(a)) {
+        compatible(a[language],b[language],typographyKeys);
+        const before = resolveFlowDomTypography(language,a[language],a[language].writingMode,options);
+        const after = resolveFlowDomTypography(language,b[language],b[language].writingMode,options);
+        for (const field of typographyKeys) {
+            if (!same(before[field],after[field])) differences.push({field,language});
+        }
+    }
+    return differences;
+}
+
 /** Immutable authoring transaction. No page snapshots, assets, or schema additions. */
-export function joinFlowWithPrevious(blocks, groupId, {mergeParagraphs=false}={}) {
+export function joinFlowWithPrevious(blocks, groupId, {mergeParagraphs=false, usePreviousLayout=false, languageConfigs}={}) {
     assertValidFlowProjectData({version:6,blocks});
     const index = blocks.findIndex(b=>b.id===groupId);
     const right = blocks[index], left = blocks[index-1];
     if (right?.kind!=='flow' || left?.kind!=='flow') fail('adjacent');
     if (left.flow.document.sourceLanguage!==right.flow.document.sourceLanguage) fail('language');
-    if (!same(left.flow.layout,right.flow.layout)) fail('layout');
+    const differences = getFlowJoinLayoutDifferences(left.flow.layout,right.flow.layout,{languageConfigs});
+    if (differences.length && !usePreviousLayout) fail('layout');
     compatible(left,right,['id','flow']);
-    compatible(left.flow,right.flow,['document','translationState']);
+    compatible(left.flow,right.flow,['document','translationState','layout']);
     compatible(left.flow.document,right.flow.document,['id','sections','schemaVersion']);
     const joined = deepClone(left);
     joined.flow.document.schemaVersion = Math.max(left.flow.document.schemaVersion, right.flow.document.schemaVersion);

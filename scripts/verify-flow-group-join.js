@@ -43,3 +43,22 @@ assert.equal(inspectFlowJoin(unknown,unknown[1].id).reason,'metadata');
 const ids=structuredClone(blocks);ids[1].flow.document.sections[0].blocks[0].id='body';
 assert.equal(inspectFlowJoin(ids,ids[1].id).eligible,false);
 console.log('Flow join: translation fingerprints, locks and metadata conflicts passed.');
+
+// Effective defaults compare equally; explicit adoption preserves all source data.
+const defaults=structuredClone(blocks);
+defaults[1].flow.layout.typographyByLanguage.ja.textAlign='start';
+defaults[1].flow.layout.typographyByLanguage.ja.fontWeight=400;
+assert.equal(inspectFlowJoin(defaults,id).eligible,true);
+const adopted=joinFlowWithPrevious(changed,id,{usePreviousLayout:true});
+assert.deepEqual(adopted.blocks[0].flow.layout,changed[0].flow.layout);
+assert.deepEqual(adopted.blocks[0].flow.document,kept.blocks[0].flow.document);
+assert.equal(changed[1].flow.layout.padding.top,changed[0].flow.layout.padding.top+1);
+assert.deepEqual(deserializeProject(serializeProject({version:6,blocks:adopted.blocks,languages:['ja','en'],defaultLang:'ja'})).blocks,adopted.blocks);
+const {getFlowJoinLayoutDifferences}=await import('../js/flow-group-join.js');
+assert.deepEqual(getFlowJoinLayoutDifferences(changed[0].flow.layout,changed[1].flow.layout),[{field:'padding_top',language:''}]);
+const metadata=structuredClone(changed);metadata[1].flow.layout.custom={keep:true};
+assert.equal(inspectFlowJoin(metadata,id,{usePreviousLayout:true}).reason,'metadata');
+assert.equal(inspectFlowJoin(conflict,id,{usePreviousLayout:true}).reason,'metadata');
+const languages=structuredClone(changed);languages[1].flow.layout.typographyByLanguage.en={writingMode:'horizontal-tb'};
+assert.equal(inspectFlowJoin(languages,id,{usePreviousLayout:true}).reason,'metadata');
+console.log('Flow join: effective defaults, explicit layout adoption, safe differences and persistence passed.');
