@@ -240,6 +240,16 @@ const planSnapshot = structuredClone(plan);
         'uploading', 'uploaded', 'uploading', 'uploaded', 'uploading', 'uploaded',
     ]);
     assert.equal(progress.at(-1).completedFileCount, plan.files.length);
+    assert.equal(progress[0].completedBytes, 0);
+    let confirmedBytes = 0;
+    for (let i = 0; i < plan.files.length; i++) {
+        assert.equal(progress[i * 2].completedBytes, confirmedBytes);
+        confirmedBytes += plan.files[i].byteLength;
+        assert.equal(progress[i * 2 + 1].completedBytes, confirmedBytes);
+        assert.equal(progress[i * 2 + 1].totalBytes, plan.summary.totalBytes);
+    }
+    assert.equal(confirmedBytes, plan.summary.totalBytes);
+
     assert.equal(Object.isFrozen(progress.at(-1)), true);
     assert.equal(Object.isFrozen(result), true);
     assert.equal(Object.isFrozen(result.receipts), true);

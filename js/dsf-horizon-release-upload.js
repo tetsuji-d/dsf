@@ -403,6 +403,7 @@ export async function uploadDsfHorizonReleasePlan(input = {}) {
     const fetchImpl = input.fetchImpl || globalThis.fetch;
     const receipts = [];
     let reusedObjectCount = 0;
+    let completedBytes = 0;
 
     for (const [index, file] of input.plan.files.entries()) {
         throwIfAborted(input.signal, receipts, file, index);
@@ -411,6 +412,8 @@ export async function uploadDsfHorizonReleasePlan(input = {}) {
             fileIndex: index,
             fileCount: input.plan.files.length,
             completedFileCount: receipts.length,
+            completedBytes,
+            totalBytes: input.plan.summary.totalBytes,
             storagePath: file.storagePath,
         });
         const blob = await createPlannedBlob(file, index, input, receipts);
@@ -463,12 +466,15 @@ export async function uploadDsfHorizonReleasePlan(input = {}) {
         }
         const validated = validateReceiptResponse(body, file, index, receipts);
         receipts.push(validated.receipt);
+        completedBytes += file.byteLength;
         if (validated.reused) reusedObjectCount += 1;
         emitProgress(input, {
             phase: 'uploaded',
             fileIndex: index,
             fileCount: input.plan.files.length,
             completedFileCount: receipts.length,
+            completedBytes,
+            totalBytes: input.plan.summary.totalBytes,
             storagePath: file.storagePath,
             reused: validated.reused,
         });

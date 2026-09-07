@@ -1,3 +1,4 @@
+import { calculateHorizonSaveProgress, isManualHorizonSaveCancellation } from './horizon-save-progress.js';
 /**
  * press.js — Press Room ロジック
  * DSP → DSF レンダリング・R2アップロード・Firestore発行
@@ -1428,9 +1429,8 @@ function _renderPressFlowHorizonHandoffStatus() {
             return `<span ${attributes} role="alert"><b>${_esc(t('press_horizon_draft_title'))}</b> ${_esc(failed)}${diagnostic}</span>`;
         }
         if (_pressFlowHorizonUploadState === 'working') {
-            const completed = Number(_pressFlowHorizonUploadProgress?.completedFileCount || 0);
-            const total = Number(_pressFlowHorizonUploadProgress?.fileCount || result.summary.fileCount || 0);
-            return `<span ${attributes}><b>${_esc(t('press_horizon_upload_title'))}</b> ${_esc(t('press_horizon_upload_working', { done: completed, total }))}</span>`;
+            const display = _formatHorizonSaveProgress(_pressFlowHorizonUploadProgress || {});
+            return `<span ${attributes}><b>${_esc(t('press_horizon_upload_title'))}</b> ${_esc(display.label)}</span>`;
         }
         if (_pressFlowHorizonUploadState === 'error') {
             const failed = getUILang() === 'en' ? 'Upload failed.' : 'アップロードに失敗しました。';
@@ -2088,6 +2088,17 @@ function _throwIfPressFlowHorizonUploadCancelled(signal, requestId) {
     throw error;
 }
 
+function _formatHorizonSaveProgress(progress) {
+    const estimate = calculateHorizonSaveProgress(progress);
+    if (progress?.totalBytes > 0 && progress.completedBytes >= progress.totalBytes) {
+        return { ...estimate, label: t('press_flow_horizon_saving') };
+    }
+    const remaining = estimate.remainingSeconds === null
+        ? t('press_flow_horizon_estimating')
+        : t('press_flow_horizon_remaining', { seconds: estimate.remainingSeconds });
+    return { ...estimate, label: t('press_flow_horizon_uploading', { percent: estimate.percent, remaining }) };
+}
+
 async function _executePressFlowHorizonUpload() {
     if (!_isPressFlowHorizonHandoffReady()) {
         const error = new Error('Flow Horizon upload handoff is not ready.');
@@ -2106,6 +2117,7 @@ async function _executePressFlowHorizonUpload() {
     _pressFlowHorizonUploadRequestId = requestId;
     _pressFlowHorizonUploadController?.abort();
     const controller = new AbortController();
+    const uploadStartedAt = performance.now();
     _pressFlowHorizonUploadController = controller;
     _pressFlowHorizonUploadState = 'working';
     _pressFlowHorizonUploadError = null;
@@ -2124,13 +2136,9 @@ async function _executePressFlowHorizonUpload() {
             signal: controller.signal,
             onProgress(progress) {
                 if (controller.signal.aborted || requestId !== _pressFlowHorizonUploadRequestId) return;
-                _pressFlowHorizonUploadProgress = progress;
-                const completed = Number(progress?.completedFileCount || 0);
-                const total = Number(progress?.fileCount || handoff.summary?.fileCount || 0);
-                _setFlowHorizonPublishProgress(
-                    t('press_flow_horizon_uploading', { done: completed, total }),
-                    total > 0 ? completed / total : null,
-                );
+                _pressFlowHorizonUploadProgress = { ...progress, elapsedMs: performance.now() - uploadStartedAt };
+                const display = _formatHorizonSaveProgress(_pressFlowHorizonUploadProgress);
+                _setFlowHorizonPublishProgress(display.label, display.percent / 100);
                 _renderPressFlowLocalReleaseSummary();
             },
         });
@@ -3283,7 +3291,7 @@ window.publishToCloud = async () => {
         } catch (error) {
             const diagnostic = createDsfReleaseOperationDiagnostic(error);
             console.warn('[Press Flow Horizon authorization] blocked:', diagnostic.code, diagnostic.classification);
-            alert(`${t('press_flow_horizon_failed')}\n${diagnostic.code}`);
+            alert(`${t('press_flow_horizon_failed')}\n${_getPressFlowReleaseDiagnosticCopy(diagnostic.classification).guidance}\n${diagnostic.code}`);
             return;
         }
         if (!confirm(t('press_flow_horizon_confirm'))) return;
@@ -3302,8 +3310,9 @@ window.publishToCloud = async () => {
             const upload = await uploadFlowHorizonReleaseFiles();
             cancelable = false;
             _setFlowHorizonPublishCancelable(false);
-            _setFlowHorizonPublishProgress(t('press_flow_horizon_saving'), null);
+            _setFlowHorizonPublishProgress(t('press_flow_horizon_saving'), 0.99);
             const draft = await writeFlowHorizonDraftMetadata(account);
+            _setFlowHorizonPublishProgress(t('press_flow_horizon_success'), 1);
             _closeFlowHorizonPublishModal();
             alert(t('press_flow_horizon_success', {
                 files: upload.summary.fileCount,
@@ -3311,14 +3320,14 @@ window.publishToCloud = async () => {
             }));
             window.switchRoom('works');
         } catch (error) {
-            if (error?.name === 'AbortError') {
-                alert(t('press_render_cancelled'));
+            if (isManualHorizonSaveCancellation(error, _pressRenderCancelled)) {
+                alert(t('press_flow_horizon_cancelled'));
             } else {
                 const fileCount = _pressFlowHorizonUploadResult?.summary?.fileCount
                     ?? _pressFlowLocalReleasePlanningResult?.summary?.fileCount;
                 const diagnostic = createDsfReleaseOperationDiagnostic(error, { fileCount });
                 console.warn('[Press Flow Horizon] failed:', diagnostic.code, diagnostic.classification);
-                alert(`${t('press_flow_horizon_failed')}\n${diagnostic.code}`);
+                alert(`${t('press_flow_horizon_failed')}\n${_getPressFlowReleaseDiagnosticCopy(diagnostic.classification).guidance}\n${diagnostic.code}`);
             }
         } finally {
             window.removeEventListener('keydown', onEscKey, true);
