@@ -1,5 +1,5 @@
 import { validateFlowTextSelection, createFlowTextSelection } from './flow-text-selection.js';
-import { inspectFlowParagraphMerge, canRemoveEmptyFlowParagraph } from './flow-paragraph-merge.js';
+import { inspectFlowParagraphMerge, canRemoveEmptyFlowTextBlock } from './flow-paragraph-merge.js';
 /**
  * Pure transactions for editing the semantic Flow source.
  *
@@ -533,7 +533,7 @@ export function applyFlowAuthoringOperation(blocks, operation, options = {}) {
             const index = findBlockIndex(section, operation.blockId);
             const neighborIndex = findBlockIndex(section, operation.neighborId);
             const block = section.blocks[index], neighbor = section.blocks[neighborIndex];
-            if (Math.abs(index-neighborIndex)!==1 || !canRemoveEmptyFlowParagraph(block,neighbor))
+            if (Math.abs(index-neighborIndex)!==1 || !canRemoveEmptyFlowTextBlock(block,neighbor))
                 fail('FLOW_EMPTY_PARAGRAPH_PROTECTED','Empty paragraph has protected content or settings.');
             for (const key of Object.keys(block.texts || {})) if (!Object.hasOwn(neighbor.texts,key)) neighbor.texts[key]='';
             for (const language of Object.values(context.group.flow.translationState?.languages || {})) {

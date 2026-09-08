@@ -8,9 +8,11 @@ export function inspectFlowParagraphMerge(left, right) {
     return null;
 }
 
-export function canRemoveEmptyFlowParagraph(block, neighbor) {
-    return block?.type === 'paragraph' && ['paragraph','heading'].includes(neighbor?.type)
+export function canRemoveEmptyFlowTextBlock(block, neighbor) {
+    return ['paragraph','heading'].includes(block?.type) && ['paragraph','heading'].includes(neighbor?.type)
         && Object.values(block.texts || {}).every(text => text === '')
         && Object.values(block.annotations || {}).every(items => Array.isArray(items) && items.length === 0)
-        && !inspectFlowParagraphMerge(neighbor, block);
+        // An empty heading's level does not format any surviving text.
+        && !inspectFlowParagraphMerge(neighbor, block.type === 'heading'
+            ? Object.fromEntries(Object.entries(block).filter(([key]) => key !== 'level')) : block);
 }

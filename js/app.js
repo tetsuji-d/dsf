@@ -1,4 +1,4 @@
-import { canRemoveEmptyFlowParagraph } from './flow-paragraph-merge.js';
+import { canRemoveEmptyFlowTextBlock } from './flow-paragraph-merge.js';
 import { createProjectAssetPanel } from './project-asset-panel.js';
 
 
@@ -1393,13 +1393,17 @@ function removeFlowEmptyLine(proxy, direction) {
     const current = section?.blocks[index];
     if (!current || proxy.value !== session.expectedText) return false;
     const neighbor = section.blocks[index+direction];
-    if (!neighbor) return false;
     let removed, survivor;
-    if (proxy.value === '' && canRemoveEmptyFlowParagraph(current,neighbor)) { removed=current; survivor=neighbor; }
-    else if (canRemoveEmptyFlowParagraph(neighbor,current)) { removed=neighbor; survivor=current; }
-    else return false;
+    if (proxy.value === '') {
+        // At the start/end of a title region, use its other adjacent text block.
+        survivor = [neighbor, section.blocks[index-direction]].find(candidate =>
+            canRemoveEmptyFlowTextBlock(current,candidate));
+        if (survivor) removed=current;
+    }
+    if (!removed && canRemoveEmptyFlowTextBlock(neighbor,current)) { removed=neighbor; survivor=current; }
+    if (!removed) return false;
     const text = survivor.texts[session.languageKey] || '';
-    const offset = survivor===current ? proxy.selectionStart : direction<0 ? text.length : 0;
+    const offset = survivor===current ? proxy.selectionStart : section.blocks.indexOf(survivor)<index ? text.length : 0;
     const point = {sectionId:section.id,blockId:survivor.id,blockType:survivor.type,languageKey:session.languageKey,
         utf16Offset:offset,graphemeOffset:mapFlowTextUtf16OffsetToGrapheme(text,offset,session.languageKey).graphemeOffset,affinity:'forward'};
     const editorFocus = captureFlowDirectEditFocusSnapshot();

@@ -30,3 +30,22 @@ assert.deepEqual(next.flow.document.sections[0].blocks[0],blocks[0]);
 blocks[1].texts.en='translation';
 assert.throws(()=>applyFlowAuthoringOperation([g],{type:'removeEmptyParagraph',groupId:'g',sectionId:'s',blockId:'b',neighborId:'a'}),{code:'FLOW_EMPTY_PARAGRAPH_PROTECTED'});
 console.log('Selection deletion and empty heading paragraph: text preservation, stale rejection, boundaries and translation protection passed.');
+
+// Empty headings 1-6 inside a title region: retain the actual title/body exactly.
+for (let level=1;level<=6;level++) {
+    const g=make(), rows=g.flow.document.sections[0].blocks;
+    rows[0].type='heading';rows[0].level=level;rows[0].texts={ja:'',en:''};
+    rows[0].annotations={ja:[]};
+    rows[0].titleRegion=rows[1].titleRegion={id:'title',languageKey:'ja',textAlign:'center',blockAlign:'center'};
+    const original=JSON.stringify(g), survivor=structuredClone(rows[1]);
+    const operation={type:'removeEmptyParagraph',groupId:'g',sectionId:'s',blockId:'a',neighborId:'b'};
+    const result=applyFlowAuthoringOperation([g],operation)[0];
+    assert.deepEqual(result.flow.document.sections[0].blocks[0],survivor);
+    assert.equal(result.flow.document.sections[0].blocks.length,2);
+    assert.equal(JSON.stringify(g),original);
+    for(const mutate of [b=>b.texts.ja='見出し',b=>b.texts.en='Title',b=>b.titleRegion={...b.titleRegion,id:'other'},b=>b.custom='protected']) {
+        const unsafe=structuredClone(g);mutate(unsafe.flow.document.sections[0].blocks[0]);
+        assert.throws(()=>applyFlowAuthoringOperation([unsafe],operation),{code:'FLOW_EMPTY_PARAGRAPH_PROTECTED'});
+    }
+}
+console.log('Empty headings 1-6: title region, survivor formatting, immutable source, translations and unknown metadata protection passed.');
