@@ -1,3 +1,4 @@
+import { showFlowIndentRuler, hideFlowIndentRuler } from './flow-indent-ruler.js';
 import { canRemoveEmptyFlowTextBlock } from './flow-paragraph-merge.js';
 import { createProjectAssetPanel } from './project-asset-panel.js';
 
@@ -462,6 +463,7 @@ function activateProjectionPage(page) {
 let _flowTextSelection = null;
 
 function clearFlowDirectEditRuntime(options = {}) {
+    hideFlowIndentRuler();
     if (!options.preservePointer) _flowDirectPointerCleanup?.();
     if (!options.preserveSelection) _flowTextSelection = null;
     const pageElement = _flowDirectEditProxy?._flowDirectPageElement;
@@ -642,6 +644,21 @@ function handleFlowPageGuideModeChange(event) {
     }
     _flowPageGuideMode = normalizeFlowPageGuideMode(event.target.value);
     syncFlowPageGuideControls(true);
+}
+
+function applyFlowDirectIndent(indent) {
+    const session=_flowDirectEditSession,proxy=_flowDirectEditProxy;
+    if(!session || !proxy?.isConnected || _flowTextSelection || _flowAuthoringComposing || _flowDirectEditApplying
+        || proxy.dataset.flowReflowPending==='true')return;
+    const block=getFlowGroupById(session.groupId)?.flow.document.sections.find(s=>s.id===session.sectionId)?.blocks.find(b=>b.id===session.blockId);
+    if(!block || block.texts?.[session.languageKey]!==session.expectedText)return;
+    const editorFocus=captureFlowDirectEditFocusSnapshot();
+    endHistoryGroup();_flowDirectEditApplying=true;proxy.dataset.flowReflowPending='true';
+    try { applyFlowAuthoringEdit({type:'setIndent',groupId:session.groupId,sectionId:session.sectionId,
+        blockId:session.blockId,languageKey:session.languageKey,expectedText:session.expectedText,
+        expectedIndent:JSON.stringify(block.indentByLanguage?.[session.languageKey] || null),indent}, {immediate:true,editorFocus}); }
+    finally {_flowDirectEditApplying=false;}
+    setFlowDirectEditNote('この段落のインデントを変更しました。');
 }
 
 function handleFlowDirectFormatChange(event) {
@@ -851,7 +868,15 @@ function renderFlowDirectEditIndicators(proxy = _flowDirectEditProxy) {
         focusPoint,
         session.writingMode,
     );
-    if (!renderedCaret) return;
+    if (!renderedCaret) { hideFlowIndentRuler(); return; }
+    const indentGroup=getFlowGroupById(session.groupId);
+    const indentBlock=indentGroup?.flow.document.sections.find(s=>s.id===session.sectionId)?.blocks.find(b=>b.id===session.blockId);
+    const indentFragment=[...focusEntry.pageElement.querySelectorAll('.flow-dom-block')].find(e=>e.dataset.flowBlockId===session.blockId && e.dataset.flowSectionId===session.sectionId);
+    if (indentBlock && indentFragment) showFlowIndentRuler({pageElement:focusEntry.pageElement,fragment:indentFragment,
+        block:indentBlock,language:session.languageKey,writingMode:session.writingMode,caret:renderedCaret.caretRect,
+        disabled:!!_flowTextSelection || _flowAuthoringComposing || proxy.dataset.flowReflowPending==='true',
+        onCommit:applyFlowDirectIndent});
+
     // The input/IME anchor belongs to the replacement start, while the visible
     // focus caret may be on another page. Keep the native input stable before IME starts.
     const inputRect = start < end

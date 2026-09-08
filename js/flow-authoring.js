@@ -1,3 +1,4 @@
+import { validateFlowIndent } from './flow-indent.js';
 import { validateFlowTextSelection, createFlowTextSelection } from './flow-text-selection.js';
 import { inspectFlowParagraphMerge, canRemoveEmptyFlowTextBlock } from './flow-paragraph-merge.js';
 /**
@@ -202,6 +203,17 @@ export function applyFlowAuthoringOperation(blocks, operation, options = {}) {
     const idFactory = typeof options.idFactory === 'function' ? options.idFactory : createId;
 
     switch (operation.type) {
+        case 'setIndent': {
+            const block=section.blocks[findBlockIndex(section,operation.blockId)];
+            const language=validateLanguageKey(operation.languageKey);
+            if (!TEXT_BLOCK_TYPES.has(block.type) || block.texts?.[language] !== operation.expectedText
+                || JSON.stringify(block.indentByLanguage?.[language] || null) !== operation.expectedIndent)
+                fail('FLOW_INDENT_STALE','Paragraph changed while adjusting its indent.');
+            const indent=validateFlowIndent(operation.indent);
+            block.indentByLanguage={...block.indentByLanguage,[language]:{...indent}};
+            context.group.flow.document.schemaVersion=4;
+            break;
+        }
         case 'setAnnotations': {
             const block = section.blocks[findBlockIndex(section, operation.blockId)];
             const language = validateLanguageKey(operation.languageKey);
@@ -388,6 +400,8 @@ export function applyFlowAuthoringOperation(blocks, operation, options = {}) {
             const afterText = text.slice(utf16EndOffset);
             block.texts = { ...(block.texts || {}), [sourceLanguage]: beforeText };
             const tailOptions = {
+                ...(block.indentByLanguage ? {indentByLanguage:deepClone(block.indentByLanguage)} : {}),
+                ...(block.titleRegion ? {titleRegion:deepClone(block.titleRegion)} : {}),
                 ...(trailingAnnotations.length ? { annotations: { [sourceLanguage]: trailingAnnotations } } : {}),
                 ...(requestedId ? { id: requestedId } : {}),
                 idFactory,
@@ -447,7 +461,9 @@ export function applyFlowAuthoringOperation(blocks, operation, options = {}) {
                 if (captured.changed) context.group.flow.translationState = captured.translationState;
                 block.texts = { ...(block.texts || {}), [sourceLanguage]: beforeText };
             }
-            const trailingOptions = { id: newBlockId, idFactory, texts: { [sourceLanguage]: afterText } };
+            const trailingOptions = { id: newBlockId, idFactory, texts: { [sourceLanguage]: afterText },
+                ...(block.indentByLanguage ? {indentByLanguage:deepClone(block.indentByLanguage)} : {}),
+                ...(block.titleRegion ? {titleRegion:deepClone(block.titleRegion)} : {}) };
             if (trailingAnnotations.length) trailingOptions.annotations = { [sourceLanguage]: trailingAnnotations };
             const trailingBlock = block.type === 'heading' && afterText.length > 0
                 ? createFlowHeading({ ...trailingOptions, level: block.level })

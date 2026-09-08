@@ -129,6 +129,7 @@ function createFragment(section, block, languageKey, text, segments, startGraphe
     const annotations = (block.annotations?.[languageKey] || []).filter(a => a.start < end && start < a.end)
         .map(a => ({...a, start:Math.max(start,a.start)-start, end:Math.min(end,a.end)-start}));
     if (annotations.length) fragment.annotations = annotations;
+    if (block.indentByLanguage?.[languageKey]) fragment.indent=Object.freeze({...block.indentByLanguage[languageKey]});
     if (block.titleRegion) fragment.titleRegion=Object.freeze({...block.titleRegion});
     if (block.type === 'heading') fragment.headingLevel = block.level;
     return Object.freeze(fragment);

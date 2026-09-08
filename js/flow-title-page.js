@@ -43,7 +43,7 @@ export function isolateFlowTitlePage(blocks, groupId, page, {idFactory=createId}
     const start=entries.findIndex(e=>e.block.id===startId),end=entries.findIndex(e=>e.block.id===endId);
     const region = deepClone(fragments[0].titleRegion || {id:idFactory('flow_title'),languageKey:language,textAlign:'center',blockAlign:'center'});
     for (const entry of entries.slice(start,end+1)) entry.block.titleRegion=deepClone(region);
-    source.flow.document.schemaVersion=3;
+    source.flow.document.schemaVersion=Math.max(3,source.flow.document.schemaVersion);
     assertValidFlowProjectData({version:6,blocks:next});
     return {blocks:next,activeBlockIndex:index,regionId:region.id};
 }

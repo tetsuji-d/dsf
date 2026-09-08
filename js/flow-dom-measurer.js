@@ -16,7 +16,7 @@ import {
 
 export const FLOW_DOM_SUPPORTED_WRITING_MODE = 'horizontal-tb';
 export const FLOW_DOM_SUPPORTED_WRITING_MODES = Object.freeze(['horizontal-tb', 'vertical-rl']);
-export const FLOW_DOM_RENDERER_VERSION = 14;
+export const FLOW_DOM_RENDERER_VERSION = 15;
 export const FLOW_DOM_HYPHENATION_MODES = Object.freeze(['auto', 'none']);
 
 const DEFAULT_MEASUREMENT_CACHE_SIZE = 2048;
@@ -221,6 +221,13 @@ function createFragmentElement(ownerDocument, fragment, fragmentIndex, typograph
         lineBreak: typography.lineBreak,
         hyphens: hyphenation,
     });
+    if (fragment.indent) {
+        const {start,first,end}=fragment.indent;
+        element.style.boxSizing='border-box';
+        element.style.paddingInlineStart=`${start}em`;
+        element.style.paddingInlineEnd=`${end}em`;
+        element.style.textIndent=fragment.isBlockStart ? `${first}em` : '0px';
+    }
     if (fragment.text) {
         if (fragment.annotations?.length) {
             element.dataset.writing = typography.writingMode || 'horizontal-tb';
@@ -275,6 +282,7 @@ function createMeasurementCacheKey(context, pageBox, writingMode, languageKey, t
             fragment.text,
             fragment.annotations || null,
             fragment.titleRegion || null,
+            fragment.indent || null,
             fragment.isBlockStart === true,
             fragment.isBlockEnd === true,
         ]),
