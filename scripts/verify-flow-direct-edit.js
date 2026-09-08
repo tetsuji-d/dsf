@@ -1166,7 +1166,7 @@ for (const unsupportedBreak of ['\r', '\r\n', '\u2028', '\u2029']) {
 assert.throws(
     () => createSession(group, { pageLanguageKey: 'en' }),
     (error) => error instanceof FlowDirectEditError
-        && error.code === 'FLOW_DIRECT_SOURCE_LANGUAGE_ONLY',
+        && error.code === 'FLOW_DIRECT_SOURCE_POINT_INVALID',
 );
 assert.throws(
     () => createSession(group, { isSourceFallback: true }),
@@ -1419,3 +1419,28 @@ for (const mode of ['horizontal-tb', 'vertical-rl']) {
     assert.throws(()=>createFlowDirectParagraphMergeBackwardTransaction(g,createMergeSession(g),{selectionStart:0,selectionEnd:0}),{code:'FLOW_DIRECT_MERGE_TITLE_BOUNDARY'});
 }
 console.log('Translated paragraph joins: both keys/modes, annotation offsets, review status, title boundary and immutable input passed.');
+
+// A translated page edits its own exact language, preserving shared structure and other texts.
+const translatedGroup = createFixture();
+for (const b of translatedGroup.flow.document.sections[0].blocks) b.texts['en-GB'] = 'Translated text';
+const translatedBefore = structuredClone(translatedGroup);
+const translatedOptions = {pageLanguageKey:'en-GB', writingMode:'horizontal-tb', sourcePoint:{
+    sectionId:'flow_direct_section',blockId:'flow_direct_paragraph',blockType:'paragraph',languageKey:'en-GB',utf16Offset:0}};
+const translatedSession = createFlowDirectEditSession(translatedGroup, translatedOptions);
+const translatedTransaction = createFlowDirectEditTransaction(translatedGroup, translatedSession,
+    {text:'Edited\ntranslation',selectionStart:6,selectionEnd:6});
+assert.equal(translatedTransaction.operation.languageKey,'en-GB');
+const translatedResult = applyFlowAuthoringOperation([translatedGroup], translatedTransaction.operation)[0];
+const translatedBlock = translatedResult.flow.document.sections[0].blocks[1];
+assert.equal(translatedBlock.texts['en-GB'],'Edited\ntranslation');
+assert.equal(translatedBlock.texts.ja,translatedBefore.flow.document.sections[0].blocks[1].texts.ja);
+assert.deepEqual(translatedResult.flow.document.sections[0].blocks.map(b=>[b.id,b.type]),translatedBefore.flow.document.sections[0].blocks.map(b=>[b.id,b.type]));
+assert.ok(translatedResult.flow.translationState.languages['en-GB']);
+assert.deepEqual(translatedGroup,translatedBefore);
+assert.throws(()=>createFlowDirectParagraphSplitTransaction(translatedGroup,translatedSession,{newBlockId:'new'}),{code:'FLOW_DIRECT_SESSION_STALE'});
+assert.throws(()=>createFlowDirectEditSession(translatedGroup,{...translatedOptions,isSourceFallback:true}),{code:'FLOW_DIRECT_SOURCE_FALLBACK'});
+const missingTranslation=structuredClone(translatedGroup);delete missingTranslation.flow.document.sections[0].blocks[1].texts['en-GB'];
+assert.throws(()=>createFlowDirectEditSession(missingTranslation,translatedOptions),{code:'FLOW_DIRECT_SOURCE_FALLBACK'});
+assert.throws(()=>createFlowDirectEditTransaction(missingTranslation,translatedSession,{text:'wrong',selectionStart:0,selectionEnd:0}),{code:'FLOW_DIRECT_SOURCE_FALLBACK'});
+assert.throws(()=>createFlowDirectEditTransaction(translatedResult,translatedSession,{text:'stale',selectionStart:0,selectionEnd:0}),{code:'FLOW_DIRECT_SOURCE_STALE'});
+console.log('Translated direct edits preserve source, structure and fallback protection');

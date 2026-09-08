@@ -84,3 +84,11 @@
   #editor-room #ribbon-bar.studio-compact-ribbon .ribbon-panel-row { min-height:84px; }
   .flow-ribbon-group { grid-template-rows:36px 36px; }
 }
+
+@media(min-width:1024px) {
+  body.image-ribbon-context #panel-right,body.image-ribbon-context .edit-drawer-rail,body.image-ribbon-context #btn-toggle-panel { display:none!important; }
+  body.image-ribbon-context #editor-room #workspace { grid-template-columns:0 0 minmax(0,1fr) 0 0; }
+  body.image-ribbon-context #image-zoom-controls-floating { display:none!important; }
+  .ribbon-image-rotation { display:flex; align-items:center; gap:4px; }
+  #ribbon-image-rotation { width:70px; height:27px; min-height:27px; padding:3px 5px; background:var(--studio-field-bg); color:var(--studio-text); border:1px solid var(--studio-border); border-radius:4px; }
+}

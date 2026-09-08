@@ -91,27 +91,29 @@ function createSourcePoint(target, text, utf16Offset, affinity = 'nearest') {
     });
 }
 
-function requireCurrentDirectSession(groupInput, session) {
+function requireCurrentDirectSession(groupInput, session, allowTranslation = false) {
     const group = requireFlowGroup(groupInput);
     if (!session || session.groupId !== group.id) {
         fail('FLOW_DIRECT_SESSION_STALE', 'The direct-edit session no longer targets the active Flow group.');
     }
     const sourceLanguage = String(group.flow.document.sourceLanguage || '');
-    if (session.languageKey !== sourceLanguage || !DIRECT_TEXT_WRITING_MODES.has(session.writingMode)) {
+    if ((!allowTranslation && session.languageKey !== sourceLanguage) || !DIRECT_TEXT_WRITING_MODES.has(session.writingMode)) {
         fail('FLOW_DIRECT_SESSION_STALE', 'The direct-edit language or writing mode changed.');
     }
     const { section, block } = requireSourceTarget(group, session.sectionId, session.blockId);
     if (block.type !== session.blockType) {
         fail('FLOW_DIRECT_SESSION_STALE', 'The direct-edit source block changed type.');
     }
-    const currentText = requireDirectEditableText(block.texts?.[sourceLanguage] ?? '');
+    const languageKey = session.languageKey;
+    if (languageKey !== sourceLanguage && !Object.hasOwn(block.texts || {}, languageKey)) fail('FLOW_DIRECT_SOURCE_FALLBACK', 'The exact language text is missing.');
+    const currentText = requireDirectEditableText(block.texts?.[languageKey] ?? '');
     if (currentText !== session.expectedText) {
         fail('FLOW_DIRECT_SOURCE_STALE', 'The semantic source changed after the generated page was rendered.', {
             expectedText: session.expectedText,
             currentText,
         });
     }
-    return { group, sourceLanguage, section, block, currentText };
+    return { group, sourceLanguage, languageKey, section, block, currentText };
 }
 
 function requireNewBlockId(value) {
@@ -173,8 +175,8 @@ export function createFlowDirectEditSession(groupInput, options = {}) {
     if (options.isSourceFallback === true) {
         fail('FLOW_DIRECT_SOURCE_FALLBACK', 'A fallback rendering cannot edit the requested language.');
     }
-    if (!sourceLanguage || pageLanguageKey !== sourceLanguage) {
-        fail('FLOW_DIRECT_SOURCE_LANGUAGE_ONLY', 'Direct page editing currently supports the source language only.', {
+    if (!sourceLanguage || !pageLanguageKey) {
+        fail('FLOW_DIRECT_LANGUAGE_REQUIRED', 'An exact page language is required.', {
             sourceLanguage,
             pageLanguageKey,
         });
@@ -186,11 +188,11 @@ export function createFlowDirectEditSession(groupInput, options = {}) {
     }
     if (
         !sourcePoint
-        || String(sourcePoint.languageKey || '') !== sourceLanguage
+        || String(sourcePoint.languageKey || '') !== pageLanguageKey
         || !String(sourcePoint.sectionId || '')
         || !String(sourcePoint.blockId || '')
     ) {
-        fail('FLOW_DIRECT_SOURCE_POINT_INVALID', 'A complete source-language caret is required.');
+        fail('FLOW_DIRECT_SOURCE_POINT_INVALID', 'A complete caret for the displayed language is required.');
     }
 
     const sectionId = String(sourcePoint.sectionId);
@@ -202,12 +204,13 @@ export function createFlowDirectEditSession(groupInput, options = {}) {
             sourceBlockType: block.type,
         });
     }
-    const text = requireDirectEditableText(block.texts?.[sourceLanguage] ?? '');
+    if (pageLanguageKey !== sourceLanguage && !Object.hasOwn(block.texts || {}, pageLanguageKey)) fail('FLOW_DIRECT_SOURCE_FALLBACK', 'The exact language text is missing.');
+    const text = requireDirectEditableText(block.texts?.[pageLanguageKey] ?? '');
     const utf16Offset = requireSelectionOffset(sourcePoint.utf16Offset, text.length, 'utf16Offset');
     const mapped = mapFlowTextUtf16OffsetToGrapheme(
         text,
         utf16Offset,
-        sourceLanguage,
+        pageLanguageKey,
         sourcePoint.affinity,
     );
     if (
@@ -226,7 +229,7 @@ export function createFlowDirectEditSession(groupInput, options = {}) {
         sectionId,
         blockId,
         blockType: block.type,
-        languageKey: sourceLanguage,
+        languageKey: pageLanguageKey,
         writingMode,
         expectedText: text,
         selectionStart: mapped.utf16Offset,
@@ -236,7 +239,7 @@ export function createFlowDirectEditSession(groupInput, options = {}) {
             sectionId,
             blockId,
             blockType: block.type,
-            languageKey: sourceLanguage,
+            languageKey: pageLanguageKey,
         }, text, mapped.utf16Offset, sourcePoint.affinity),
     });
 }
@@ -274,7 +277,7 @@ export function createFlowDirectBlockFormatTransaction(groupInput, session, inpu
  * separators are rejected before state mutation.
  */
 export function createFlowDirectEditTransaction(groupInput, session, input = {}) {
-    const { group, sourceLanguage } = requireCurrentDirectSession(groupInput, session);
+    const { group, languageKey } = requireCurrentDirectSession(groupInput, session, true);
     const text = requireDirectEditableText(input.text);
     const selectionStart = requireSelectionOffset(input.selectionStart, text.length, 'selectionStart');
     const selectionEnd = requireSelectionOffset(input.selectionEnd, text.length, 'selectionEnd');
@@ -286,7 +289,7 @@ export function createFlowDirectEditTransaction(groupInput, session, input = {})
         sectionId: session.sectionId,
         blockId: session.blockId,
         blockType: session.blockType,
-        languageKey: sourceLanguage,
+        languageKey,
     };
     const collapsed = selectionStart === selectionEnd;
     const startPoint = createSourcePoint(target, text, selectionStart, 'forward');
@@ -299,7 +302,7 @@ export function createFlowDirectEditTransaction(groupInput, session, input = {})
             groupId: group.id,
             sectionId: session.sectionId,
             blockId: session.blockId,
-            languageKey: sourceLanguage,
+            languageKey,
             text,
         }),
         nextSession: Object.freeze({

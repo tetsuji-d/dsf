@@ -8,6 +8,7 @@ let refreshFrame = 0;
 const byId = id => document.getElementById(id);
 const desktop = () => window.matchMedia('(min-width: 1024px)').matches;
 const mirrors = [];
+let imageContext = { active: false, adjusting: false, bubbleSelected: false, position: null };
 let noteHome, noteAnchor;
 function icon(name) {
     const span = document.createElement('span');
@@ -170,6 +171,31 @@ export function initFlowRibbon() {
     const flowInsert = document.createElement('div'); flowInsert.id = 'flow-ribbon-insert'; flowInsert.className = 'flow-ribbon-tools'; insert.append(flowInsert);
     originalAction(flowInsert, 'flow-direct-page-break', 'insert_page_break', 'flow_direct_page_break');
     const insertImage = button('add_photo_alternate', 'flow_image_insert'); insertImage.dataset.flowInsertImage = ''; flowInsert.append(insertImage);
+    const imageTools = document.createElement('div'); imageTools.id = 'image-ribbon-home'; imageTools.className = 'flow-ribbon-tools'; home.append(imageTools);
+    const imageActions = group(imageTools, 'ribbon_image_tools');
+    const change = button('image', 'btn_change_image', () => {
+        if (imageContext.active) byId('file-upload').click();
+    }); imageActions.append(change);
+    const adjust = button('crop_free', 'btn_adjust', () => {
+        if (imageContext.active) byId('btn-adjust-img-panel').click();
+    }); adjust.id = 'ribbon-image-adjust'; imageActions.append(adjust);
+    const remove = button('delete_outline', 'btn_delete', () => {
+        if (imageContext.active && !byId('btn-delete-active').disabled) byId('btn-delete-active').click();
+    }); remove.id = 'ribbon-image-delete'; imageActions.append(remove);
+    const transforms = group(imageTools, 'ribbon_image_transform'); transforms.id = 'ribbon-image-transform';
+    for (const [name, key, action] of [
+        ['zoom_in', 'ribbon_image_zoom_in', () => window.adjustImageZoom(.1)],
+        ['zoom_out', 'ribbon_image_zoom_out', () => window.adjustImageZoom(-.1)],
+        ['flip', 'ribbon_image_flip', () => window.toggleImageFlipX()],
+        ['restart_alt', 'ribbon_image_reset', () => window.resetImageTransform()],
+    ]) transforms.append(button(name, key, () => { if (imageContext.active && imageContext.adjusting) action(); }));
+    const rotationLabel = document.createElement('label'); rotationLabel.className = 'ribbon-image-rotation';
+    const rotation = document.createElement('input'); rotation.id='ribbon-image-rotation'; rotation.type='number'; rotation.min='-180'; rotation.max='180'; rotation.step='.5';
+    rotation.dataset.i18nTitle='ribbon_image_rotation'; rotation.dataset.i18nAria='ribbon_image_rotation'; rotation.title=t('ribbon_image_rotation'); rotation.setAttribute('aria-label',t('ribbon_image_rotation'));
+    rotation.addEventListener('change', () => { if (imageContext.active && imageContext.adjusting && rotation.value !== '') window.commitRibbonImageRotation(rotation.value); });
+    rotationLabel.append(icon('rotate_right'), rotation, document.createTextNode('°')); transforms.append(rotationLabel);
+    const imageHint=document.createElement('small'); imageHint.dataset.i18n='ribbon_image_hint'; imageHint.textContent=t('ribbon_image_hint'); transforms.append(imageHint);
+    const done=button('check', 'ribbon_image_done', () => { if (imageContext.active && imageContext.adjusting) window.toggleImageAdjustment(); }); transforms.append(done);
     const status = document.createElement('div'); status.className = 'flow-ribbon-status'; status.innerHTML = '<span id="ribbon-flow-context"></span><span id="ribbon-flow-note"></span><span id="ribbon-flow-scope"></span><span id="ribbon-status" role="status"></span>'; root.append(status);
     root.addEventListener('mousedown', event => {
         // Toolbar clicks must not collapse the semantic text selection; fields retain native focus.
@@ -250,6 +276,7 @@ export function refreshFlowRibbon() {
     byId('ribbon-flow-context').textContent = active ? t(context.source ? 'ribbon_source_context' : 'ribbon_flow_context', { language: context.language?.toUpperCase() || '' }) : '';
     byId('ribbon-flow-scope').textContent = active ? t('ribbon_scope_status', { scope }) : '';
     byId('ribbon-status').textContent = active ? byId('flow-direct-format-status').textContent : '';
+    refreshImageRibbon();
     positionRibbonDrawer();
 }
 export function syncRibbonDrawerButtons(drawer) {
@@ -258,4 +285,19 @@ export function syncRibbonDrawerButtons(drawer) {
         b.classList.toggle('active', drawer === b.dataset.drawer); b.setAttribute('aria-expanded', String(drawer === b.dataset.drawer)); b.setAttribute('aria-controls', 'sidebar');
     });
     positionRibbonDrawer();
+}
+
+export function syncImageRibbonContext(next) {
+    imageContext = next;
+    if (initialized) refreshImageRibbon();
+}
+function refreshImageRibbon() {
+    const active = imageContext.active && !context.active;
+    document.body.classList.toggle('image-ribbon-context', active && !imageContext.bubbleSelected);
+    byId('image-ribbon-home').hidden = !active;
+    byId('ribbon-image-transform').hidden = !active || !imageContext.adjusting;
+    byId('ribbon-image-adjust').setAttribute('aria-pressed', String(active && imageContext.adjusting));
+    byId('ribbon-image-delete').disabled = !active || byId('btn-delete-active').disabled;
+    const rotation=byId('ribbon-image-rotation');
+    if(document.activeElement!==rotation) rotation.value=String(imageContext.position?.rotation || 0);
 }

@@ -15,7 +15,7 @@
 
 ## 既存動作との境界
 
-`js/studio-flow-ribbon.js` は既存コントロールの値・disabled状態を参照し、同じclick/change処理を呼ぶ。本文、翻訳、扉領域、選択範囲、履歴、保存、発行の処理は既存controllerを使用する。インデント欄と操作案内は同じDOMを移動し、1024px未満では元のパネルへ戻す。画像・Fixedページの編集パネルは維持する。
+`js/studio-flow-ribbon.js` は既存コントロールの値・disabled状態を参照し、同じclick/change処理を呼ぶ。本文、翻訳、扉領域、選択範囲、履歴、保存、発行の処理は既存controllerを使用する。インデント欄と操作案内は同じDOMを移動し、1024px未満では元のパネルへ戻す。画像ページの背景操作もホームリボンへ統合する。Fixed本文・画像上のテキストボックス選択時の詳細パネルと、モバイルのパネルは維持する。
 
 既存の翻訳保護、IME変換中、再ページ化中、複数段落選択中などの制限を引き継ぐ。形式、Firestore、Rules、Viewer、配信データの変更はない。設定変更、ページ追加、注釈などは従来のUndoと保存経路を通る。
 
@@ -37,3 +37,11 @@ node scripts/verify-studio-ribbon-browser.cjs
 別途、縦書き・横書きのルーラードラッグ、段落の余白と翻訳保持、7操作分のUndo、スクロール時の補助線追従をブラウザで確認。既存の `verify-flow-direct-format`、`verify-flow-direct-page-break`、`verify-flow-indent`、`verify-flow-annotation-integration`、`verify-flow-title-page` とstaging用ビルドを実施する。
 
 コミット・staging deployは実装とは別の承認単位。
+
+## 統合後の追加対応
+
+- 翻訳済みのHeading／Paragraphも、表示中の言語の本文をキャンバスで直接編集できる。`setText`と既存の手動翻訳記録を使い、原稿言語・他言語・ブロック構造を保持する。入力、範囲置換・削除、段落内LF、Undo／Redoのフォーカス復元に対応する。
+- 未翻訳時の原文fallbackは読み取り専用。翻訳編集中のEnterは段落内改行とする。共有構造を変える見出し種別、段落分割／結合、改ページ、画像挿入は原稿言語で行う。複数段落にまたがる翻訳の範囲編集はこの単位には含めない。
+- 画像ページ選択時のホームに画像変更・調整開始・削除を配置。調整中は拡大／縮小・左右反転・初期化・回転角度・完了を表示する。実際の位置・サイズ調整は既存のキャンバス操作を使用する。回転の数値確定も既存処理を呼び、履歴と保存を記録する。
+- 末尾の「＋」に「Flow原稿を追加」を追加。選択中のページとは無関係にspine末尾へ新しいFlow Groupを追加し、原稿入力を開く。既存の末尾画像追加と同じく、表紙位置を含むページ役割は現在の構成規則で再計算する。
+- `scripts/verify-studio-ribbon-followups-browser.cjs`で翻訳編集／原文保持／Undo・Redo／fallback拒否、画像リボン／Undo／ファイル選択、Fixedパネル、末尾追加／Undo、画面幅・モバイル退避を確認する。`verify-flow-direct-edit.js`でも翻訳キー・stale session・共有構造保護を検証する。
