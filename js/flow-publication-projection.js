@@ -92,6 +92,7 @@ const PAGINATION_KEYS = new Set(['documentId', 'languageKey', 'writingMode', 'pa
 const PAGINATION_PAGE_KEYS = new Set(['index', 'manualBreakBefore', 'fragments']);
 const MANUAL_BREAK_KEYS = new Set(['sectionId', 'blockId']);
 const FRAGMENT_KEYS = new Set([
+    'titleRegion',
     'annotations',
     'sectionId',
     'blockId',
@@ -312,6 +313,10 @@ function validatePagination(pagination, context) {
             const expectedAnnotations=(expected.block.annotations?.[language] || []).filter(a=>a.start<fragment.sourceRange.end && fragment.sourceRange.start<a.end)
                 .map(a=>({...a,start:Math.max(fragment.sourceRange.start,a.start)-fragment.sourceRange.start,end:Math.min(fragment.sourceRange.end,a.end)-fragment.sourceRange.start}));
             if(!sameValue(fragment.annotations || [],expectedAnnotations))fail('FLOW_PUBLICATION_ANNOTATION_MISMATCH',path,'Pagination annotations differ from source.');
+            if(!sameValue(fragment.titleRegion || null,expected.block.titleRegion || null)
+                || (page.fragments[0]?.titleRegion?.id || '') !== (fragment.titleRegion?.id || '')) {
+                fail('FLOW_PUBLICATION_TITLE_REGION_MISMATCH',path,'Title region differs from source or crosses a page boundary.');
+            }
             const range = fragment.sourceRange;
             assertExactKeys(range, SOURCE_RANGE_KEYS, `${path}.sourceRange`);
             const startGrapheme = finiteNumber(range.startGrapheme, `${path}.sourceRange.startGrapheme`, {

@@ -41,30 +41,24 @@ export function isolateFlowTitlePage(blocks, groupId, page, {idFactory=createId}
     if(newStart){startId=newStart;if(endId===first.blockId)endId=newStart;}
     const source=next[index], entries=source.flow.document.sections.flatMap(s=>s.blocks.map(b=>({section:s,block:b})));
     const start=entries.findIndex(e=>e.block.id===startId),end=entries.findIndex(e=>e.block.id===endId);
-    const ranges=[entries.slice(0,start),entries.slice(start,end+1),entries.slice(end+1)];
-    const parts=[];let titleIndex;
-    for(let part=0;part<3;part++) {
-        if(!ranges[part].length)continue;
-        const output=deepClone(source);
-        if(parts.length){output.id=idFactory('flow');output.flow.document.id=idFactory('flow_document');}
-        output.flow.document.sections=source.flow.document.sections.flatMap(section=>{
-            const ids=new Set(ranges[part].filter(e=>e.section.id===section.id).map(e=>e.block.id));
-            return ids.size?[{...deepClone(section),blocks:deepClone(section.blocks.filter(b=>ids.has(b.id)))}]:[];
-        });
-        if(part===1){titleIndex=parts.length;output.flow.pageRole='title';Object.assign(output.flow.layout.typographyByLanguage[language],{textAlign:'center',blockAlign:'center'});}
-        const blockIds=new Set(output.flow.document.sections.flatMap(s=>s.blocks.map(b=>b.id)));
-        const sectionIds=new Set(output.flow.document.sections.map(s=>s.id));
-        const allBlockIds=new Set(entries.map(e=>e.block.id)),allSectionIds=new Set(entries.map(e=>e.section.id));
-        for(const state of Object.values(output.flow.translationState?.languages||{})) {
-            for(const [map,ids,all] of [['blocks',blockIds,allBlockIds],['sectionTitles',sectionIds,allSectionIds]]) {
-                state.sourceFingerprints[map]=Object.fromEntries(Object.entries(state.sourceFingerprints[map]).filter(([id])=>ids.has(id)||(!parts.length&&!all.has(id))));
-            }
-            if(state.lockedUnitIds)state.lockedUnitIds=state.lockedUnitIds.filter(id=>blockIds.has(id)||sectionIds.has(id)||(!parts.length&&!allBlockIds.has(id)&&!allSectionIds.has(id)));
-        }
-        parts.push(output);
-    }
-    next.splice(index,1,...parts);
-    if(new Set(next.map(b=>b.id)).size!==next.length)fail('stale');
+    const region = deepClone(fragments[0].titleRegion || {id:idFactory('flow_title'),languageKey:language,textAlign:'center',blockAlign:'center'});
+    for (const entry of entries.slice(start,end+1)) entry.block.titleRegion=deepClone(region);
+    source.flow.document.schemaVersion=3;
     assertValidFlowProjectData({version:6,blocks:next});
-    return {blocks:next,activeBlockIndex:index+titleIndex};
+    return {blocks:next,activeBlockIndex:index,regionId:region.id};
+}
+
+export function updateFlowTitleRegion(blocks,groupId,regionId,{field,value,remove=false}={}) {
+    const next=deepClone(blocks),index=next.findIndex(b=>b.id===groupId);
+    if(index<0)fail('stale');
+    let found=false;
+    for(const section of next[index].flow.document.sections) for(const block of section.blocks) {
+        if(block.titleRegion?.id!==regionId)continue;
+        found=true;
+        if(remove)delete block.titleRegion;
+        else if(['textAlign','blockAlign'].includes(field))block.titleRegion[field]=value;
+    }
+    if(!found)fail('stale');
+    assertValidFlowProjectData({version:6,blocks:next});
+    return {blocks:next,activeBlockIndex:index};
 }

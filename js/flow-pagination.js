@@ -129,6 +129,7 @@ function createFragment(section, block, languageKey, text, segments, startGraphe
     const annotations = (block.annotations?.[languageKey] || []).filter(a => a.start < end && start < a.end)
         .map(a => ({...a, start:Math.max(start,a.start)-start, end:Math.min(end,a.end)-start}));
     if (annotations.length) fragment.annotations = annotations;
+    if (block.titleRegion) fragment.titleRegion=Object.freeze({...block.titleRegion});
     if (block.type === 'heading') fragment.headingLevel = block.level;
     return Object.freeze(fragment);
 }
@@ -414,6 +415,11 @@ export function createFlowPaginationIterator(document, options = {}) {
             const entry = source.entries[entryIndex];
             const { section, block, text, segments } = entry;
 
+            if (currentFragments.length && block.type !== 'pageBreak'
+                && (currentFragments.at(-1).titleRegion?.id || '') !== (block.titleRegion?.id || '')) {
+                return Object.freeze({done:false,value:emitPage(pageStartCheckpoint,pageManualBreakBefore,
+                    currentFragments,createCheckpoint(source,entryIndex,graphemeOffset,null),false)});
+            }
             if (block.type === 'pageBreak') {
                 const manualBreak = Object.freeze({ sectionId: section.id, blockId: block.id });
                 entryIndex += 1;

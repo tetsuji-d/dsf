@@ -16,7 +16,7 @@ import {
 
 export const FLOW_DOM_SUPPORTED_WRITING_MODE = 'horizontal-tb';
 export const FLOW_DOM_SUPPORTED_WRITING_MODES = Object.freeze(['horizontal-tb', 'vertical-rl']);
-export const FLOW_DOM_RENDERER_VERSION = 13;
+export const FLOW_DOM_RENDERER_VERSION = 14;
 export const FLOW_DOM_HYPHENATION_MODES = Object.freeze(['auto', 'none']);
 
 const DEFAULT_MEASUREMENT_CACHE_SIZE = 2048;
@@ -274,6 +274,7 @@ function createMeasurementCacheKey(context, pageBox, writingMode, languageKey, t
             fragment.headingLevel ?? null,
             fragment.text,
             fragment.annotations || null,
+            fragment.titleRegion || null,
             fragment.isBlockStart === true,
             fragment.isBlockEnd === true,
         ]),
@@ -289,8 +290,10 @@ export function renderFlowFragments(contentElement, options = {}) {
     const languageKey = String(options.languageKey || 'ja');
     const writingMode = assertFlowDomWritingMode(options.writingMode, languageKey);
     const hyphenation = resolveFlowDomHyphenation(options.hyphenation, writingMode);
-    const typography = resolveFlowDomTypography(languageKey, options.typography, writingMode);
     const fragments = Array.isArray(options.fragments) ? options.fragments : [];
+    const region=fragments[0]?.titleRegion;
+    const typography = resolveFlowDomTypography(languageKey, region?.languageKey===languageKey
+        ? {...options.typography,textAlign:region.textAlign,blockAlign:region.blockAlign} : options.typography, writingMode);
 
     contentElement.replaceChildren();
     contentElement.className = 'flow-dom-content';

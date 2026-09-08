@@ -195,7 +195,7 @@ export function validateFlowDocument(document) {
     if (document.layoutType !== FLOW_LAYOUT_TYPE) {
         addIssue(issues, 'invalid_layout_type', 'layoutType', 'layoutType must be "flow".');
     }
-    if (![1, 2].includes(document.schemaVersion)) {
+    if (![1, 2, 3].includes(document.schemaVersion)) {
         addIssue(issues, 'unsupported_schema_version', 'schemaVersion', 'Unsupported Flow document schema version.', {
             supportedVersion: FLOW_DOCUMENT_SCHEMA_VERSION,
         });
@@ -237,8 +237,17 @@ export function validateFlowDocument(document) {
                 addIssue(issues, 'unsupported_block_type', `${blockPath}.type`, 'Unsupported Flow block type.');
                 return;
             }
+            if (block.titleRegion !== undefined) {
+                const r=block.titleRegion;
+                if(document.schemaVersion!==3 || !FLOW_TEXT_BLOCK_TYPE_SET.has(block.type) || !isRecord(r)
+                    || typeof r.id!=='string' || !r.id.trim() || r.languageKey!==document.sourceLanguage
+                    || !['start','center','end','justify'].includes(r.textAlign)
+                    || !['start','center','end'].includes(r.blockAlign)) {
+                    addIssue(issues,'invalid_title_region',blockPath,'Invalid title region.');
+                }
+            }
             if (block.annotations !== undefined) {
-                if (document.schemaVersion !== 2) addIssue(issues, 'annotation_version_required', blockPath, 'Annotations require FlowDocument v2.');
+                if (![2,3].includes(document.schemaVersion)) addIssue(issues, 'annotation_version_required', blockPath, 'Annotations require FlowDocument v2.');
                 try { validateFlowAnnotations(block); } catch { addIssue(issues, 'invalid_annotations', blockPath, 'Invalid text annotations.'); }
             }
             if (isFlowTextBlock(block)) validateLocalizedTextMap(block.texts, `${blockPath}.texts`, issues);
@@ -248,6 +257,17 @@ export function validateFlowDocument(document) {
         });
     });
 
+    const regions=new Map(),closed=new Set();let currentRegion='';
+    for(const section of document.sections) for(const block of (Array.isArray(section?.blocks) ? section.blocks : [])) {
+        if(block?.type==='pageBreak')continue;
+        const r=block?.titleRegion,id=typeof r?.id==='string'?r.id:'';
+        if(id!==currentRegion) {if(currentRegion)closed.add(currentRegion);if(id && closed.has(id))addIssue(issues,'noncontiguous_title_region','sections','Title region must be contiguous.');currentRegion=id;}
+        if(id) {
+            const signature=JSON.stringify([r.languageKey,r.textAlign,r.blockAlign]);
+            if(regions.has(id)&&regions.get(id)!==signature)addIssue(issues,'conflicting_title_region','sections','Title region settings must agree.');
+            regions.set(id,signature);
+        }
+    }
     return { valid: issues.length === 0, issues };
 }
 

@@ -32,7 +32,7 @@ function createSourceIndex(document, languageKey) {
                 sectionId: section.id,
                 blockId: block.id,
                 blockType: block.type,
-                annotationSignature: JSON.stringify(block.annotations?.[languageKey] || []),
+                annotationSignature: JSON.stringify([block.annotations?.[languageKey] || [],block.titleRegion || null]),
                 headingLevel: block.type === 'heading' ? block.level : null,
                 text,
                 segments,

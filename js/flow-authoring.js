@@ -185,7 +185,7 @@ export function applyFlowAuthoringOperation(blocks, operation, options = {}) {
             if (!Array.isArray(operation.annotations)) fail('FLOW_ANNOTATIONS_INVALID', 'Annotations must be an array.');
             block.annotations = { ...(block.annotations || {}), [language]: deepClone(operation.annotations) };
             validateFlowAnnotations(block);
-            context.group.flow.document.schemaVersion = 2;
+            context.group.flow.document.schemaVersion = Math.max(2, context.group.flow.document.schemaVersion);
             break;
         }
         case 'setText': {
