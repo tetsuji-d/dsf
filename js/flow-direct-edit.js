@@ -5,6 +5,7 @@
  * operation always targets the persisted heading/paragraph source block.
  */
 
+import { inspectFlowParagraphMerge } from './flow-paragraph-merge.js';
 import { mapFlowTextUtf16OffsetToGrapheme } from './flow-source-mapping.js';
 
 const DIRECT_TEXT_TYPES = new Set(['heading', 'paragraph']);
@@ -122,16 +123,9 @@ function requireNewBlockId(value) {
     return value;
 }
 
-function requireMergeRemovalSafe(block, sourceLanguage) {
-    const translatedLanguageKeys = Object.entries(block.texts || {})
-        .filter(([key, value]) => key !== sourceLanguage && typeof value === 'string')
-        .map(([key]) => key);
-    if (translatedLanguageKeys.length) {
-        fail('FLOW_DIRECT_MERGE_TRANSLATION_DATA_PRESENT', 'A Paragraph with saved translations cannot be removed by merging.', {
-            blockId: block.id,
-            translatedLanguageKeys,
-        });
-    }
+function requireMergeRemovalSafe(left, right) {
+    const reason = inspectFlowParagraphMerge(left, right);
+    if (reason) fail('FLOW_DIRECT_MERGE_' + reason, 'Paragraph settings must be compatible before merging.');
 }
 
 function requireDisposableEmptyParagraph(group, block, sourceLanguage) {
@@ -654,7 +648,7 @@ export function createFlowDirectEmptyParagraphAfterHeadingRemovalTransaction(gro
 
 /**
  * Convert Backspace at the start of a Paragraph into one atomic backward merge.
- * The removed Paragraph must not own saved target-language text.
+ * Translations and annotations are preserved; incompatible title/settings boundaries remain protected.
  */
 export function createFlowDirectParagraphMergeBackwardTransaction(groupInput, session, input = {}) {
     const {
@@ -693,7 +687,7 @@ export function createFlowDirectParagraphMergeBackwardTransaction(groupInput, se
             previousBlockType: previousBlock?.type || '',
         });
     }
-    requireMergeRemovalSafe(block, sourceLanguage);
+    requireMergeRemovalSafe(previousBlock, block);
 
     const previousText = requireDirectEditableText(previousBlock.texts?.[sourceLanguage] ?? '');
     const mergedText = previousText + currentText;
@@ -708,6 +702,7 @@ export function createFlowDirectParagraphMergeBackwardTransaction(groupInput, se
     return Object.freeze({
         operation: Object.freeze({
             type: 'mergeParagraphBackward',
+            preserveTranslations: true,
             groupId: group.id,
             sectionId: session.sectionId,
             blockId: session.blockId,
@@ -774,7 +769,7 @@ export function createFlowDirectParagraphMergeForwardTransaction(groupInput, ses
             nextBlockType: nextBlock?.type || '',
         });
     }
-    requireMergeRemovalSafe(nextBlock, sourceLanguage);
+    requireMergeRemovalSafe(block, nextBlock);
 
     const nextText = requireDirectEditableText(nextBlock.texts?.[sourceLanguage] ?? '');
     const mergedText = currentText + nextText;
@@ -789,6 +784,7 @@ export function createFlowDirectParagraphMergeForwardTransaction(groupInput, ses
     return Object.freeze({
         operation: Object.freeze({
             type: 'mergeParagraphBackward',
+            preserveTranslations: true,
             groupId: group.id,
             sectionId: session.sectionId,
             blockId: nextBlock.id,

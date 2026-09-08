@@ -1,3 +1,4 @@
+import { inspectFlowParagraphMerge } from './flow-paragraph-merge.js';
 /**
  * Pure transactions for editing the semantic Flow source.
  *
@@ -456,7 +457,7 @@ export function applyFlowAuthoringOperation(blocks, operation, options = {}) {
             const translatedLanguageKeys = Object.entries(block.texts || {})
                 .filter(([key, value]) => key !== sourceLanguage && typeof value === 'string')
                 .map(([key]) => key);
-            if (translatedLanguageKeys.length) {
+            if (translatedLanguageKeys.length && !operation.preserveTranslations) {
                 fail('FLOW_MERGE_TRANSLATION_DATA_PRESENT', 'A Paragraph with saved translations cannot be removed by merging.', {
                     blockId: block.id,
                     translatedLanguageKeys,
@@ -470,17 +471,34 @@ export function applyFlowAuthoringOperation(blocks, operation, options = {}) {
                 fail('INVALID_FLOW_TEXT', 'Paragraph source text must be a string.');
             }
 
+            if (operation.preserveTranslations) {
+                const reason = inspectFlowParagraphMerge(previousBlock, block);
+                if (reason) fail('FLOW_MERGE_' + reason, 'Paragraph settings differ.');
+                // Keep both translations verbatim, separated by a paragraph newline.
+                for (const key of translatedLanguageKeys) {
+                    const left = previousBlock.texts[key] ?? '';
+                    const right = block.texts[key];
+                    const separator = left && right ? '\n' : '';
+                    previousBlock.texts[key] = left + separator;
+                    mergeAnnotatedText(previousBlock, block, key, (left + separator).length);
+                    previousBlock.texts[key] += right;
+                }
+            }
             const captured = captureFlowTranslationUnitBeforeSourceEdit(context.group, {
-                unitMap: 'blocks',
-                unitId: previousBlock.id,
+                unitMap: 'blocks', unitId: previousBlock.id,
             });
             if (captured.changed) context.group.flow.translationState = captured.translationState;
-
+            if (operation.preserveTranslations) {
+                for (const [key, language] of Object.entries(context.group.flow.translationState?.languages || {})) {
+                    if (language.sourceFingerprints?.blocks) delete language.sourceFingerprints.blocks[block.id];
+                    if (language.lockedUnitIds?.includes(block.id)) {
+                        language.lockedUnitIds = [...new Set(language.lockedUnitIds.map(id => id === block.id ? previousBlock.id : id))];
+                    }
+                    if (Object.hasOwn(previousBlock.texts, key)) language.reviewState = 'needs-review';
+                }
+            }
             mergeAnnotatedText(previousBlock, block, sourceLanguage, previousText.length);
-            previousBlock.texts = {
-                ...(previousBlock.texts || {}),
-                [sourceLanguage]: previousText + currentText,
-            };
+            previousBlock.texts = { ...previousBlock.texts, [sourceLanguage]: previousText + currentText };
             section.blocks.splice(blockIndex, 1);
             break;
         }

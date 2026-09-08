@@ -1204,7 +1204,11 @@ function splitFlowDirectParagraph(proxy) {
         });
     } catch (error) {
         if (!(error instanceof FlowDirectEditError)) throw error;
-        if (error.code === 'FLOW_DIRECT_PARAGRAPH_REQUIRED') {
+        if (error.code === 'FLOW_DIRECT_MERGE_TITLE_BOUNDARY') {
+            setFlowDirectEditNote('扉と本文、または別の扉区間の境界です。扉設定を解除してから結合してください。');
+        } else if (error.code === 'FLOW_DIRECT_MERGE_METADATA_CONFLICT') {
+            setFlowDirectEditNote('段落の設定が異なるため、設定を保持したまま結合できません。');
+        } else if (error.code === 'FLOW_DIRECT_PARAGRAPH_REQUIRED') {
             setFlowDirectEditNote('見出しの分割は未対応です。現在はFlow原稿画面で段落を追加してください。');
         } else if (error.code === 'FLOW_DIRECT_COLLAPSED_CARET_REQUIRED') {
             setFlowDirectEditNote('選択範囲を含む段落分割は未対応です。選択を解除してEnterを押してください。');
@@ -1402,7 +1406,11 @@ function mergeFlowDirectParagraphBackward(proxy) {
         });
     } catch (error) {
         if (!(error instanceof FlowDirectEditError)) throw error;
-        if (error.code === 'FLOW_DIRECT_PARAGRAPH_REQUIRED') {
+        if (error.code === 'FLOW_DIRECT_MERGE_TITLE_BOUNDARY') {
+            setFlowDirectEditNote('扉と本文、または別の扉区間の境界です。扉設定を解除してから結合してください。');
+        } else if (error.code === 'FLOW_DIRECT_MERGE_METADATA_CONFLICT') {
+            setFlowDirectEditNote('段落の設定が異なるため、設定を保持したまま結合できません。');
+        } else if (error.code === 'FLOW_DIRECT_PARAGRAPH_REQUIRED') {
             setFlowDirectEditNote('見出しはBackspaceで前の段落へ結合できません。');
         } else if (error.code === 'FLOW_DIRECT_COLLAPSED_CARET_REQUIRED') {
             setFlowDirectEditNote('選択範囲を含む段落結合は未対応です。選択を解除してください。');
@@ -1455,7 +1463,11 @@ function mergeFlowDirectParagraphForward(proxy) {
         });
     } catch (error) {
         if (!(error instanceof FlowDirectEditError)) throw error;
-        if (error.code === 'FLOW_DIRECT_PARAGRAPH_REQUIRED') {
+        if (error.code === 'FLOW_DIRECT_MERGE_TITLE_BOUNDARY') {
+            setFlowDirectEditNote('扉と本文、または別の扉区間の境界です。扉設定を解除してから結合してください。');
+        } else if (error.code === 'FLOW_DIRECT_MERGE_METADATA_CONFLICT') {
+            setFlowDirectEditNote('段落の設定が異なるため、設定を保持したまま結合できません。');
+        } else if (error.code === 'FLOW_DIRECT_PARAGRAPH_REQUIRED') {
             setFlowDirectEditNote('見出しはDeleteで次の段落へ結合できません。');
         } else if (error.code === 'FLOW_DIRECT_COLLAPSED_CARET_REQUIRED') {
             setFlowDirectEditNote('選択範囲を含む段落結合は未対応です。選択を解除してください。');

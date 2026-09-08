@@ -20,7 +20,7 @@ import {
 } from '../js/flow-pagination.js';
 import { createFlowGroupBlock } from '../js/flow-project-model.js';
 import { findFlowSourcePointInPages } from '../js/flow-source-mapping.js';
-import { deriveFlowTranslationStatus } from '../js/flow-translation-state.js';
+import { deriveFlowTranslationStatus, captureFlowTranslationUnitBeforeSourceEdit } from '../js/flow-translation-state.js';
 import { getWritingModeFromConfigs } from '../js/layout.js';
 
 function createFixture(overrides = {}) {
@@ -354,9 +354,9 @@ for (const writingMode of ['horizontal-tb', 'vertical-rl']) {
         [createFlowDirectParagraphMergeForwardTransaction, forwardSession,
             { selectionStart: first.texts.ja.length, selectionEnd: first.texts.ja.length }],
     ]) {
-        assert.throws(() => createTransaction(protectedMergeGroup, targetSession, selection),
-            { code: 'FLOW_DIRECT_MERGE_TRANSLATION_DATA_PRESENT' },
-            `${writingMode}: Even empty saved translation keys must protect a removed Paragraph`);
+        const tx = createTransaction(protectedMergeGroup, targetSession, selection);
+        const joined = applyFlowAuthoringOperation([protectedMergeGroup], tx.operation)[0];
+        assert.equal(joined.flow.document.sections[0].blocks[1].texts.en, 'Snowy day');
     }
     const protectedEmptyGroup = structuredClone(multilineHeadingParagraphGroup);
     protectedEmptyGroup.flow.document.sections[0].blocks[1].futureData = { keep: true };
@@ -789,6 +789,7 @@ const merge = createFlowDirectParagraphMergeBackwardTransaction(group, mergeSess
 const mergeJoinOffset = '雪👩‍💻の日'.length;
 assert.deepEqual(merge.operation, {
     type: 'mergeParagraphBackward',
+    preserveTranslations: true,
     groupId: 'flow_direct_group',
     sectionId: 'flow_direct_section',
     blockId: 'flow_direct_paragraph_next',
@@ -861,14 +862,10 @@ assert.throws(
 const translatedMergeGroup = structuredClone(group);
 translatedMergeGroup.flow.document.sections[0].blocks.at(-1).texts.en = '';
 const translatedMergeSession = createMergeSession(translatedMergeGroup);
-assert.throws(
-    () => createFlowDirectParagraphMergeBackwardTransaction(translatedMergeGroup, translatedMergeSession, {
+assert.doesNotThrow(() => createFlowDirectParagraphMergeBackwardTransaction(translatedMergeGroup, translatedMergeSession, {
         selectionStart: 0,
         selectionEnd: 0,
-    }),
-    (error) => error instanceof FlowDirectEditError
-        && error.code === 'FLOW_DIRECT_MERGE_TRANSLATION_DATA_PRESENT',
-);
+    }));
 
 const forwardMergeSession = createForwardMergeSession(group);
 const forwardMergeInputJson = JSON.stringify(group);
@@ -879,6 +876,7 @@ const forwardMerge = createFlowDirectParagraphMergeForwardTransaction(group, for
 assert.equal(JSON.stringify(group), forwardMergeInputJson, 'Forward Paragraph merge planning must not mutate source');
 assert.deepEqual(forwardMerge.operation, {
     type: 'mergeParagraphBackward',
+    preserveTranslations: true,
     groupId: 'flow_direct_group',
     sectionId: 'flow_direct_section',
     blockId: 'flow_direct_paragraph_next',
@@ -951,14 +949,10 @@ assert.throws(
 const translatedForwardGroup = structuredClone(group);
 translatedForwardGroup.flow.document.sections[0].blocks.at(-1).texts.en = '';
 const translatedForwardSession = createForwardMergeSession(translatedForwardGroup);
-assert.throws(
-    () => createFlowDirectParagraphMergeForwardTransaction(translatedForwardGroup, translatedForwardSession, {
+assert.doesNotThrow(() => createFlowDirectParagraphMergeForwardTransaction(translatedForwardGroup, translatedForwardSession, {
         selectionStart: translatedForwardSession.expectedText.length,
         selectionEnd: translatedForwardSession.expectedText.length,
-    }),
-    (error) => error instanceof FlowDirectEditError
-        && error.code === 'FLOW_DIRECT_MERGE_TRANSLATION_DATA_PRESENT',
-);
+    }));
 
 // A semantic Paragraph may span generated pages. Structural edits must reflow
 // from the semantic source, move the caret to the new fragment, and never save
@@ -1389,3 +1383,39 @@ assert.doesNotMatch(appSource, /renderFlowDirectCaretPreview/);
 assert.doesNotMatch(appSource, /pageElement\.contentEditable\s*=/);
 
 console.log('Flow direct edit verification passed.');
+
+// Both directions preserve translations, annotations and title membership.
+for (const mode of ['horizontal-tb', 'vertical-rl']) {
+    const g = createFixture();
+    g.flow.document.schemaVersion = 3;
+    const [heading, a, b] = g.flow.document.sections[0].blocks;
+    a.texts.en = 'First'; b.texts.en = 'Second';
+    a.titleRegion = b.titleRegion = {id:'title',languageKey:'ja',textAlign:'center',blockAlign:'center'};
+    b.annotations = {ja:[{id:'ruby',type:'ruby',start:0,end:1,reading:'あし'}],
+        en:[{id:'em',type:'emphasis',start:0,end:1,mark:'sesame'}]};
+    g.flow.translationState = captureFlowTranslationUnitBeforeSourceEdit(g,{unitMap:'blocks',unitId:b.id}).translationState;
+    g.flow.translationState.languages.en.lockedUnitIds = [b.id];
+    const before = JSON.stringify(g);
+    for (const forward of [false,true]) {
+        const session = forward ? createForwardMergeSession(g) : createMergeSession(g);
+        const offset = forward ? a.texts.ja.length : 0;
+        const tx = (forward ? createFlowDirectParagraphMergeForwardTransaction : createFlowDirectParagraphMergeBackwardTransaction)(g,
+            {...session,writingMode:mode},{selectionStart:offset,selectionEnd:offset});
+        const merged = applyFlowAuthoringOperation([g],tx.operation)[0];
+        const target = merged.flow.document.sections[0].blocks[1];
+        assert.equal(target.texts.en,'First\nSecond');
+        assert.equal(target.texts.ja,a.texts.ja+b.texts.ja);
+        assert.equal(target.annotations.en[0].start,6);
+        assert.equal(target.annotations.ja[0].start,a.texts.ja.length);
+        assert.deepEqual(target.titleRegion,a.titleRegion);
+        assert.equal(merged.flow.translationState.languages.en.reviewState,'needs-review');
+        assert.deepEqual(merged.flow.translationState.languages.en.lockedUnitIds,[a.id]);
+        assert.equal(Object.hasOwn(merged.flow.translationState.languages.en.sourceFingerprints.blocks,b.id),false);
+        assert.deepEqual(deriveFlowTranslationStatus(merged,'en').body.ids.stale,[a.id]);
+        assert.equal(tx.nextSession.selectionStart,a.texts.ja.length);
+    }
+    assert.equal(JSON.stringify(g),before);
+    delete b.titleRegion;
+    assert.throws(()=>createFlowDirectParagraphMergeBackwardTransaction(g,createMergeSession(g),{selectionStart:0,selectionEnd:0}),{code:'FLOW_DIRECT_MERGE_TITLE_BOUNDARY'});
+}
+console.log('Translated paragraph joins: both keys/modes, annotation offsets, review status, title boundary and immutable input passed.');
