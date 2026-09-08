@@ -1,3 +1,4 @@
+import { initFlowRibbon, syncFlowRibbonContext, refreshFlowRibbon, syncRibbonDrawerButtons } from './studio-flow-ribbon.js';
 import { showFlowIndentRuler, hideFlowIndentRuler } from './flow-indent-ruler.js';
 import { canRemoveEmptyFlowTextBlock } from './flow-paragraph-merge.js';
 import { createProjectAssetPanel } from './project-asset-panel.js';
@@ -492,8 +493,10 @@ function syncFlowPageSourceControls() {
     const group = getActiveBlock();
     const active = group?.kind === 'flow';
     panel.hidden = !active;
+    const languageKey = active ? getFlowAuthoringLanguage(group) : '';
+    syncFlowRibbonContext({active, source:active && isFlowSourceSelected(group.id), language:languageKey,
+        writingMode:group?.flow?.layout?.typographyByLanguage?.[languageKey]?.writingMode || group?.flow?.layout?.writingMode || 'horizontal-tb'});
     if (!active) return;
-    const languageKey = getFlowAuthoringLanguage(group);
     const profile = group.flow.layout.typographyByLanguage[languageKey];
     const scope = document.getElementById('flow-placement-scope');
     const page = getEditorPageProjection()?.pages.find(p=>p.kind==='flow' && p.groupId===group.id
@@ -558,6 +561,7 @@ function syncFlowPageSourceControls() {
         }
         window.changeFlowSourceBlock(state.activeBlockIdx);
     };
+    refreshFlowRibbon();
 }
 
 function scrollFlowSourceCaretIntoView(root, input, offset) {
@@ -603,7 +607,7 @@ function syncFlowDirectFormatControls() {
         button.onclick = chooseFlowImageAtCaret;
     }
     syncFlowPageGuideControls(active);
-    if (!active) return;
+    if (!active) { refreshFlowRibbon(); return; }
     const group = getFlowGroupById(session.groupId);
     const block = group?.flow?.document?.sections?.find(entry => entry.id === session.sectionId)
         ?.blocks?.find(entry => entry.id === session.blockId);
@@ -624,6 +628,7 @@ function syncFlowDirectFormatControls() {
     document.getElementById('flow-direct-format-status').textContent = _flowAuthoringComposing
         ? t('flow_direct_format_composing') : pending ? t('flow_direct_format_pending')
             : hasRange ? t('flow_direct_page_break_selection') : '';
+    refreshFlowRibbon();
 }
 
 function syncFlowPageGuideControls(active) {
@@ -3183,7 +3188,7 @@ function getFlowAnnotationTarget(element) {
     return {...session,start:proxy.selectionStart,end:proxy.selectionEnd,sourceMode:false,editorFocus:captureFlowEditorFocusSnapshot()};
 }
 
-function showFlowAnnotationDialog(target) {
+function showFlowAnnotationDialog(target, initialFocus = 'reading') {
     if(!target || _flowAuthoringComposing)return;
     const group=getFlowGroupById(target.groupId);
     const block=group?.flow.document.sections.find(s=>s.id===target.sectionId)?.blocks.find(b=>b.id===target.blockId);
@@ -3191,7 +3196,7 @@ function showFlowAnnotationDialog(target) {
     const editorFocus=target.editorFocus || captureFlowEditorFocusSnapshot();
     const expectedAnnotations=JSON.stringify(block.annotations?.[target.languageKey] || []);
     const expectedText=block.texts[target.languageKey];
-    const opened=openAnnotationDialog({source:group.flow.document,...target,range:{start:target.start,end:target.end},onApply:next=>{
+    const opened=openAnnotationDialog({source:group.flow.document,...target,initialFocus,range:{start:target.start,end:target.end},onApply:next=>{
         const annotations=next.sections.find(s=>s.id===target.sectionId).blocks.find(b=>b.id===target.blockId).annotations?.[target.languageKey] || [];
         if(JSON.stringify(annotations)===expectedAnnotations)return;
         endHistoryGroup();
@@ -3208,7 +3213,7 @@ function showFlowAnnotationDialog(target) {
 document.addEventListener('mousedown',event=>{if(event.target.closest('[data-flow-annotation-button]'))event.preventDefault();});
 document.addEventListener('click',event=>{
     const button=event.target.closest('[data-flow-annotation-button]');
-    if(button && !button.disabled)showFlowAnnotationDialog(getFlowAnnotationTarget(button));
+    if(button && !button.disabled)showFlowAnnotationDialog(getFlowAnnotationTarget(button),button.dataset.flowAnnotationFocus);
 });
 document.addEventListener('contextmenu',event=>{
     if(!event.target.closest('.flow-authoring-input, .flow-editor-page-surface'))return;
@@ -5015,7 +5020,7 @@ function refresh(options = {}) {
                 <span class="material-icons">article</span>
                 <strong>Flowテキスト</strong>
                 <span data-flow-progress>ページ生成中…</span>
-                <span>本文をクリックして編集できます。原稿全体は編集プロパティの「原稿を開く」から開けます。</span>
+                <span>本文をクリックして編集できます。原稿全体は「原稿を開く」から開けます。</span>
             </div>`;
         syncFlowDirectFormatControls();
         const pageLockNote = document.getElementById('page-lock-note');
@@ -7361,14 +7366,15 @@ function renderEditorTocPreview() {
     if (!panels.length) return;
     const activeSection = getEditableActiveFixedSection();
     const isPageSection = activeSection?.type === 'image' || activeSection?.type === 'text';
-    panels.forEach((panel) => { panel.style.display = isPageSection ? 'block' : 'none'; });
-    if (!isPageSection) return;
+    const canShowToc = isPageSection || getActiveBlock()?.kind === 'flow';
+    panels.forEach((panel) => { panel.style.display = canShowToc ? 'block' : 'none'; });
+    if (!canShowToc) return;
 
     const items = getEditorTocItems();
     const html = !items.length
         ? `<div class="toc-preview-empty">${escapeStudioHtml(t('toc_preview_empty'))}</div>`
         : items.map((item) => {
-            const active = item.pageIndex === state.activeIdx;
+            const active = getActiveBlock()?.kind === 'page' && item.pageIndex === state.activeIdx;
             const activeLabel = active ? `<span class="toc-preview-current">${escapeStudioHtml(t('toc_preview_current'))}</span>` : '';
             return `
                 <button type="button" class="toc-preview-item${active ? ' active' : ''}" onclick="jumpToTocPage(${item.pageIndex})">
@@ -9590,7 +9596,9 @@ window.newProject = async () => {
 
 function setRibbonTab(tabName) {
     document.querySelectorAll('.ribbon-tab').forEach((tab) => {
-        tab.classList.toggle('active', tab.dataset.ribbonTab === tabName);
+        const active = tab.dataset.ribbonTab === tabName;
+        tab.classList.toggle('active', active); tab.setAttribute('role','tab');
+        tab.setAttribute('aria-selected',String(active)); tab.tabIndex = active ? 0 : -1;
     });
     document.querySelectorAll('.ribbon-panel').forEach((panel) => {
         panel.classList.toggle('active', panel.dataset.ribbonPanel === tabName);
@@ -9602,8 +9610,9 @@ function syncDesktopToggleButtons() {
     const rightCollapsed = document.body.classList.contains('right-collapsed');
     const leftBtn = document.getElementById('btn-toggle-sidebar');
     const rightBtn = document.getElementById('btn-toggle-panel');
-    if (leftBtn) leftBtn.textContent = drawerOpen ? '🖼 Assetsを閉じる' : '🖼 Assets';
-    if (rightBtn) rightBtn.textContent = rightCollapsed ? '⚙ Editを開く' : '⚙ Edit';
+    if (leftBtn && !leftBtn.classList.contains('studio-ribbon-icon')) leftBtn.textContent = drawerOpen ? '🖼 Assetsを閉じる' : '🖼 Assets';
+    if (rightBtn && !rightBtn.classList.contains('studio-ribbon-icon')) rightBtn.textContent = rightCollapsed ? '⚙ Editを開く' : '⚙ Edit';
+    syncRibbonDrawerButtons(drawerOpen ? activeDrawer : null);
     const handle = document.getElementById('edit-drawer-handle');
     if (handle) {
         const labelKey = rightCollapsed ? 'edit_properties_open' : 'edit_properties_close';
@@ -10497,6 +10506,7 @@ window.openMobileSheet = (sheetName) => {
 };
 
 function initUIChrome() {
+    initFlowRibbon();
     document.querySelectorAll('.ribbon-tab').forEach((tab) => {
         tab.addEventListener('click', () => setRibbonTab(tab.dataset.ribbonTab));
     });
@@ -10623,6 +10633,7 @@ window.setStudioUILang = (lang) => {
         void refreshWorksRoomLanguage(true);
     }
     syncStudioShell();
+    refreshFlowRibbon();
 };
 
 // --- 初回描画: UI 骨組み → リダイレクト認証結果 → GIS 初期化 → ローカル復元 → ?room= ---
