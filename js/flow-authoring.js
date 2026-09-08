@@ -1,4 +1,5 @@
-import { inspectFlowParagraphMerge } from './flow-paragraph-merge.js';
+import { validateFlowTextSelection, createFlowTextSelection } from './flow-text-selection.js';
+import { inspectFlowParagraphMerge, canRemoveEmptyFlowParagraph } from './flow-paragraph-merge.js';
 /**
  * Pure transactions for editing the semantic Flow source.
  *
@@ -168,6 +169,32 @@ export function applyFlowAuthoringOperation(blocks, operation, options = {}) {
         if (result.changed) groupContext.group.flow.translationState = result.translationState;
         assertValidFlowProjectData({ version: PROJECT_SCHEMA_VERSION, blocks: nextBlocks });
         return nextBlocks;
+    }
+
+    if (operation.type === 'deleteTextSelection') {
+        const group = groupContext.group;
+        const selection = validateFlowTextSelection(group, operation.selection);
+        const range = selection && createFlowTextSelection(group, selection.anchor, selection.focus);
+        if (!range || range.collapsed) fail('FLOW_SELECTION_STALE', 'Selection is stale or empty.');
+        const first = range.ranges[0], last = range.ranges.at(-1);
+        const section = group.flow.document.sections.find(s => s.id === first.sectionId);
+        const startIndex = section.blocks.findIndex(b => b.id === first.blockId);
+        const endIndex = section.blocks.findIndex(b => b.id === last.blockId);
+        if (first.sectionId !== last.sectionId || endIndex < startIndex) fail('FLOW_SELECTION_BOUNDARY', 'Section boundary.');
+        const selected = section.blocks.slice(startIndex,endIndex+1);
+        if (selected.length > 1 && selected.some(b => b.type !== 'paragraph'
+            || inspectFlowParagraphMerge(selected[0], b))) fail('FLOW_SELECTION_BOUNDARY', 'Incompatible paragraph boundary.');
+        let result = nextBlocks;
+        for (const r of range.ranges) {
+            result = applyFlowAuthoringOperation(result, {type:'setText',groupId:group.id,
+                sectionId:r.sectionId,blockId:r.blockId,languageKey:range.languageKey,
+                text:r.text.slice(0,r.start)+r.text.slice(r.end)});
+        }
+        for (const b of selected.slice(1)) {
+            result = applyFlowAuthoringOperation(result, {type:'mergeParagraphBackward',preserveTranslations:true,
+                groupId:group.id,sectionId:first.sectionId,blockId:b.id,languageKey:range.languageKey});
+        }
+        return result;
     }
 
     const context = findFlowContext(nextBlocks, operation, groupContext);
@@ -500,6 +527,20 @@ export function applyFlowAuthoringOperation(blocks, operation, options = {}) {
             mergeAnnotatedText(previousBlock, block, sourceLanguage, previousText.length);
             previousBlock.texts = { ...previousBlock.texts, [sourceLanguage]: previousText + currentText };
             section.blocks.splice(blockIndex, 1);
+            break;
+        }
+        case 'removeEmptyParagraph': {
+            const index = findBlockIndex(section, operation.blockId);
+            const neighborIndex = findBlockIndex(section, operation.neighborId);
+            const block = section.blocks[index], neighbor = section.blocks[neighborIndex];
+            if (Math.abs(index-neighborIndex)!==1 || !canRemoveEmptyFlowParagraph(block,neighbor))
+                fail('FLOW_EMPTY_PARAGRAPH_PROTECTED','Empty paragraph has protected content or settings.');
+            for (const key of Object.keys(block.texts || {})) if (!Object.hasOwn(neighbor.texts,key)) neighbor.texts[key]='';
+            for (const language of Object.values(context.group.flow.translationState?.languages || {})) {
+                if (language.sourceFingerprints?.blocks) delete language.sourceFingerprints.blocks[block.id];
+                if (language.lockedUnitIds?.includes(block.id)) language.lockedUnitIds = [...new Set(language.lockedUnitIds.map(id=>id===block.id?neighbor.id:id))];
+            }
+            section.blocks.splice(index,1);
             break;
         }
         case 'removeBlock': {

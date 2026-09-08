@@ -7,3 +7,10 @@ export function inspectFlowParagraphMerge(left, right) {
     }
     return null;
 }
+
+export function canRemoveEmptyFlowParagraph(block, neighbor) {
+    return block?.type === 'paragraph' && ['paragraph','heading'].includes(neighbor?.type)
+        && Object.values(block.texts || {}).every(text => text === '')
+        && Object.values(block.annotations || {}).every(items => Array.isArray(items) && items.length === 0)
+        && !inspectFlowParagraphMerge(neighbor, block);
+}

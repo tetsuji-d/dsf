@@ -1,3 +1,4 @@
+import { canRemoveEmptyFlowParagraph } from './flow-paragraph-merge.js';
 import { createProjectAssetPanel } from './project-asset-panel.js';
 
 
@@ -1383,7 +1384,43 @@ function isFlowDirectParagraphImmediatelyAfterHeading(group, session) {
     return blockIndex > 0 && section.blocks[blockIndex - 1]?.type === 'heading';
 }
 
+function removeFlowEmptyLine(proxy, direction) {
+    const session = _flowDirectEditSession;
+    if (!session || _flowDirectEditApplying || _flowAuthoringComposing || proxy.selectionStart !== proxy.selectionEnd) return false;
+    const group = getFlowGroupById(session.groupId);
+    const section = group?.flow.document.sections.find(s=>s.id===session.sectionId);
+    const index = section?.blocks.findIndex(b=>b.id===session.blockId);
+    const current = section?.blocks[index];
+    if (!current || proxy.value !== session.expectedText) return false;
+    const neighbor = section.blocks[index+direction];
+    if (!neighbor) return false;
+    let removed, survivor;
+    if (proxy.value === '' && canRemoveEmptyFlowParagraph(current,neighbor)) { removed=current; survivor=neighbor; }
+    else if (canRemoveEmptyFlowParagraph(neighbor,current)) { removed=neighbor; survivor=current; }
+    else return false;
+    const text = survivor.texts[session.languageKey] || '';
+    const offset = survivor===current ? proxy.selectionStart : direction<0 ? text.length : 0;
+    const point = {sectionId:section.id,blockId:survivor.id,blockType:survivor.type,languageKey:session.languageKey,
+        utf16Offset:offset,graphemeOffset:mapFlowTextUtf16OffsetToGrapheme(text,offset,session.languageKey).graphemeOffset,affinity:'forward'};
+    const editorFocus = captureFlowDirectEditFocusSnapshot();
+    endHistoryGroup();
+    _flowDirectEditSession = Object.freeze({...session,blockId:survivor.id,blockType:survivor.type,expectedText:text,
+        selectionStart:offset,selectionEnd:offset,selectionDirection:'none',sourcePoint:point});
+    selectFlowDirectEditing(group.id,point);
+    _flowDirectEditMounting=true;
+    proxy.value=text; proxy.dataset.flowBlockId=survivor.id; proxy.setSelectionRange(offset,offset);
+    _flowDirectEditMounting=false;
+    proxy.dataset.flowReflowPending='true';
+    _flowDirectEditApplying=true;
+    try { applyFlowAuthoringEdit({type:'removeEmptyParagraph',groupId:group.id,sectionId:section.id,
+        blockId:removed.id,neighborId:survivor.id},{immediate:true,editorFocus}); }
+    finally { _flowDirectEditApplying=false; }
+    setFlowDirectEditNote('空行を削除しました。');
+    return true;
+}
+
 function applyFlowDirectBackspace(proxy) {
+    if (removeFlowEmptyLine(proxy,-1)) return true;
     _flowDirectPreferredInlinePosition = null;
     const group = _flowDirectEditSession
         ? getFlowGroupById(_flowDirectEditSession.groupId)
@@ -1451,6 +1488,7 @@ function mergeFlowDirectParagraphBackward(proxy) {
 }
 
 function mergeFlowDirectParagraphForward(proxy) {
+    if (removeFlowEmptyLine(proxy,1)) return true;
     _flowDirectPreferredInlinePosition = null;
     if (proxy !== _flowDirectEditProxy || !_flowDirectEditSession || _flowDirectEditApplying) return false;
     const group = getFlowGroupById(_flowDirectEditSession.groupId);
@@ -1513,8 +1551,44 @@ function insertFlowDirectLineBreak(proxy) {
     commitFlowDirectEdit(proxy);
 }
 
+function deleteFlowSelectedText() {
+    const proxy = _flowDirectEditProxy, session = _flowDirectEditSession;
+    if (!proxy || !session || !_flowTextSelection || _flowAuthoringComposing || _flowDirectEditApplying) return;
+    const group = getFlowGroupById(session.groupId);
+    const selection = validateFlowTextSelection(group, _flowTextSelection);
+    if (!selection) { setFlowDirectEditNote('原稿が変わりました。削除する範囲を選択し直してください。'); return; }
+    const operation = {type:'deleteTextSelection',groupId:group.id,selection};
+    let next;
+    try { next = applyFlowAuthoringOperation(state.blocks, operation); }
+    catch { setFlowDirectEditNote('見出し・改ページ・異なる扉設定をまたぐ範囲は削除できません。本文内の範囲を選択してください。'); return; }
+    const point = selection.start;
+    const target = next.find(g=>g.id===group.id).flow.document.sections.find(s=>s.id===point.sectionId).blocks.find(b=>b.id===point.blockId);
+    const editorFocus = captureFlowDirectEditFocusSnapshot();
+    endHistoryGroup();
+    _flowTextSelection = null;
+    _flowDirectEditSession = Object.freeze({...session,sectionId:point.sectionId,blockId:point.blockId,
+        blockType:target.type,expectedText:target.texts[selection.languageKey],sourcePoint:point,
+        selectionStart:point.utf16Offset,selectionEnd:point.utf16Offset,selectionDirection:'none'});
+    selectFlowDirectEditing(group.id,point);
+    _flowDirectEditMounting = true;
+    proxy.readOnly = false;
+    proxy.value = _flowDirectEditSession.expectedText;
+    proxy.dataset.flowBlockId = point.blockId;
+    proxy.setSelectionRange(point.utf16Offset,point.utf16Offset);
+    _flowDirectEditMounting = false;
+    proxy.dataset.flowReflowPending = 'true';
+    _flowDirectEditApplying = true;
+    try { applyFlowAuthoringEdit(operation,{immediate:true,editorFocus}); }
+    finally { _flowDirectEditApplying = false; }
+    setFlowDirectEditNote('選択した本文を削除しました。翻訳は保持され、再確認の対象になります。');
+}
+
 function handleFlowDirectBeforeInput(event) {
-    if (_flowTextSelection) { event.preventDefault(); return; }
+    if (_flowTextSelection) {
+        event.preventDefault();
+        if (['deleteContentBackward','deleteContentForward'].includes(event.inputType)) deleteFlowSelectedText();
+        return;
+    }
     if (event.target !== _flowDirectEditProxy) return;
     if (event.isComposing || _flowAuthoringComposing) return;
     if (event.inputType === 'historyUndo' || event.inputType === 'historyRedo') {
@@ -1645,7 +1719,7 @@ function mountFlowDirectEditProxy(activeBlock, page, pageElement, session) {
     proxy.wrap = 'off';
     proxy.value = session.expectedText;
     proxy.readOnly = !!_flowTextSelection;
-    if (_flowTextSelection) proxy.setAttribute('aria-label', 'Flow本文の複数段落選択。コピーのみ対応');
+    if (_flowTextSelection) proxy.setAttribute('aria-label', 'Flow本文の複数段落選択。コピー・削除に対応');
     proxy._flowDirectPageEntry = page;
     proxy._flowDirectPageElement = pageElement;
     _flowDirectEditProxy = proxy;
@@ -1677,6 +1751,9 @@ function mountFlowDirectEditProxy(activeBlock, page, pageElement, session) {
             return;
         }
         if (_flowTextSelection) {
+            if (event.key === 'Delete' || event.key === 'Backspace') {
+                event.preventDefault(); event.stopPropagation(); deleteFlowSelectedText(); return;
+            }
             if (event.key !== 'Tab' && (!(event.ctrlKey || event.metaKey) || !['c', 'C'].includes(event.key))) {
                 event.preventDefault();
                 event.stopPropagation();
@@ -1878,7 +1955,7 @@ function setFlowCrossBlockSelection(group, anchor, focus, reveal = false) {
     const surface = ensureFlowCanvasPage(location.pageIndex, reveal);
     mountFlowDirectEditProxy(group, page, surface, session);
     setSelectedFlowRuntimePageIndex(group.id, location.pageIndex, pages.length);
-    if (_flowTextSelection) setFlowDirectEditNote('複数段落の選択はコピーできます。削除・置換は原稿画面で行ってください。');
+    if (_flowTextSelection) setFlowDirectEditNote('選択した本文はコピー、Delete・Backspaceで削除できます。');
     syncFlowDirectFormatControls();
     syncThumbSelectionDom();
     syncPageNavigationSlider();
