@@ -19,7 +19,7 @@ await page.evaluate(async()=>{
 
 
 await page.locator('#page-strip-thumbs [data-flow-page-index="0"]').first().click();
-await page.locator('[data-ribbon-tab=view]').click();await page.locator('#flow-compare-split').click();
+await page.locator('#flow-compare-split').click();
 const sourcePane=page.locator('[data-compare-side=source]'),targetPane=page.locator('[data-compare-side=target]');
 await targetPane.locator('.flow-dom-block[data-flow-block-id=body]').first().waitFor({state:'visible'});
 const read=()=>page.evaluate(async()=>JSON.parse(JSON.stringify((await import('/js/state.js')).state.blocks)));
@@ -93,7 +93,7 @@ await page.locator('#flow-compare-translation-settings').click();
 await page.locator('#flow-canvas-translation-panel').waitFor({state:'visible'});
 assert.equal(await page.locator('#flow-translation-compare').isVisible(),true);
 await page.locator('#flow-canvas-translation-panel > button').click();
-await page.locator('[data-ribbon-tab=home]').click();
+
 await page.locator('#flow-ribbon-home [data-ribbon-original=flow-open-source]').click();
 await page.locator('.flow-authoring-input').first().waitFor({state:'visible'});
 const originalRoot=page.locator('#flow-authoring-surface .flow-authoring-editor').first();
@@ -124,7 +124,7 @@ await page.screenshot({path:tmpdir()+'/flow-manuscript-split.png'});
 await page.locator('#flow-manuscript-normal').click();assert.equal(await mt.isVisible(),false);
 console.log('manuscript split edits/Undo, semantic wheel sync, independent scroll and normal mode passed');
 
-await page.locator('[data-ribbon-tab=view]').click();
+
 assert.equal(await page.locator('#flow-translation-compare').isVisible(),false);
 await page.locator('#flow-compare-split').click();await targetPane.locator('.flow-canvas-viewport:not([hidden]) .flow-dom-block').first().waitFor({state:'visible'});
 
@@ -153,7 +153,7 @@ assert.deepEqual((await read())[0],after[0]);
 await page.locator('#flow-compare-split').click();await targetPane.locator('.flow-canvas-viewport:not([hidden]) .flow-dom-block').first().waitFor({state:'visible'});
 await page.locator('#page-strip-thumbs [data-editor-unit-id=picture]').click();
 assert.equal(await page.locator('#flow-translation-compare').isVisible(),true);
-await page.locator('[data-ribbon-tab=home]').click();
+
 await page.locator('#image-ribbon-home').waitFor({state:'visible'});
 
 await page.waitForFunction(()=>document.querySelector('[data-compare-side=target] #canvas-stage'));

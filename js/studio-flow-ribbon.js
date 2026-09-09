@@ -196,6 +196,29 @@ export function initFlowRibbon() {
     rotationLabel.append(icon('rotate_right'), rotation, document.createTextNode('°')); transforms.append(rotationLabel);
     const imageHint=document.createElement('small'); imageHint.dataset.i18n='ribbon_image_hint'; imageHint.textContent=t('ribbon_image_hint'); transforms.append(imageHint);
     const done=button('check', 'ribbon_image_done', () => { if (imageContext.active && imageContext.adjusting) window.toggleImageAdjustment(); }); transforms.append(done);
+    for (const b of root.querySelectorAll('.ribbon-panel .btn-tool')) {
+        if (b.classList.contains('studio-ribbon-icon')) continue;
+        const key = b.querySelector('[data-i18n]')?.dataset.i18n || b.dataset.i18n;
+        const name = b.querySelector('.material-icons')?.textContent.trim()
+            || (b.getAttribute('onclick')?.includes('fitCanvasView') ? 'fit_screen' : 'filter_1');
+        if (key) labelButton(b, name, key);
+        else {
+            const text = b.title || b.textContent.trim();
+            b.classList.add('studio-ribbon-icon'); b.title = text; b.setAttribute('aria-label', text); b.replaceChildren(icon(name));
+        }
+    }
+    const top = root.querySelector('.ribbon-top-row');
+    const flatLayout = () => {
+        const wide = desktop();
+        (wide ? top : tabRow).append(quick);
+        (wide ? root.querySelector('.ribbon-panel-row') : tabRow).append(root.querySelector('.ribbon-auth'));
+        root.querySelectorAll('.ribbon-panel').forEach(panel => {
+            panel.setAttribute('role', wide ? 'group' : 'tabpanel');
+            if (wide) { panel.removeAttribute('aria-labelledby'); panel.setAttribute('aria-label', t('tab_' + panel.dataset.ribbonPanel)); }
+            else { panel.removeAttribute('aria-label'); panel.setAttribute('aria-labelledby', 'studio-ribbon-tab-' + panel.dataset.ribbonPanel); }
+        });
+    };
+    flatLayout(); window.matchMedia('(min-width: 1024px)').addEventListener('change', flatLayout);
     const status = document.createElement('div'); status.className = 'flow-ribbon-status'; status.innerHTML = '<span id="ribbon-flow-context"></span><span id="ribbon-flow-note"></span><span id="ribbon-flow-scope"></span><span id="ribbon-status" role="status"></span>'; root.append(status);
     root.addEventListener('mousedown', event => {
         // Toolbar clicks must not collapse the semantic text selection; fields retain native focus.

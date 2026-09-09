@@ -27,11 +27,11 @@ await page.evaluate(async()=>{
  state.blocks=isolateFlowTitlePage(state.blocks,'ribbon',{fragments:[{sectionId:'s',blockId:b.id,languageKey:'ja',text:b.texts.ja,sourceRange:{start:0,end:b.texts.ja.length}}]}).blocks;
  window.changeFlowGeneratedPage(0,0);
 });
-await page.locator('[data-ribbon-tab=view]').click();await page.locator('#flow-compare-split').click();
+await page.locator('#flow-compare-split').click();
 const target=page.locator('[data-compare-side=target] .flow-dom-block[data-flow-block-id=heading]').first();
 await target.click();
 await page.waitForFunction(()=>document.querySelector('.flow-direct-input-proxy')?.lang==='en-GB');
-await page.locator('[data-ribbon-tab=arrange]').click();
+
 const read=()=>page.evaluate(async()=>JSON.parse(JSON.stringify((await import('/js/state.js')).state.blocks[0].flow.document)));
 const before=await read();
 const geometry=()=>target.evaluate(el=>{
@@ -60,7 +60,7 @@ await page.waitForFunction(()=>document.querySelector('#flow-placement-inline').
 assert.equal(await choice('inline','center').isDisabled(),true);
 assert.equal(await page.locator('[data-compare-side=target] [data-flow-block-id=body]').first().evaluate(el=>getComputedStyle(el).textAlign),'start');
 // Normal mode has the same alignment as split mode.
-await page.locator('[data-ribbon-tab=view]').click();await page.locator('#flow-compare-normal').click();
+await page.locator('#flow-compare-normal').click();
 await page.locator('#page-strip-thumbs [data-flow-page-index="0"]').first().click();
 assert.equal(await page.locator('.flow-editor-page-surface [data-flow-block-id=heading]').first().evaluate(el=>getComputedStyle(el).textAlign),'center');
 assert.deepEqual(errors,[]);console.log('Translated title: centered geometry, real ribbon alignment, shared scope, structural guard, Undo, body and normal-mode regression passed');

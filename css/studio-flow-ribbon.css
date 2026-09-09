@@ -92,3 +92,38 @@
   .ribbon-image-rotation { display:flex; align-items:center; gap:4px; }
   #ribbon-image-rotation { width:70px; height:27px; min-height:27px; padding:3px 5px; background:var(--studio-field-bg); color:var(--studio-text); border:1px solid var(--studio-border); border-radius:4px; }
 }
+
+/* Always-visible desktop commands. Keep live nodes/controllers and mobile tabs. */
+@media(min-width:1024px) {
+  #editor-room #ribbon-bar.studio-compact-ribbon .ribbon-command-row { display:none; }
+  #editor-room #ribbon-bar.studio-compact-ribbon .ribbon-top-row { flex-wrap:wrap; }
+  #editor-room #ribbon-bar.studio-compact-ribbon .ribbon-panel-row { display:flex; flex-wrap:wrap; justify-content:flex-start; align-items:center; gap:4px 0; min-height:40px; overflow:visible; padding:5px 8px; }
+  #editor-room #ribbon-bar.studio-compact-ribbon .ribbon-panel { display:contents!important; }
+  #editor-room #ribbon-bar.studio-compact-ribbon .flow-ribbon-tools { display:contents; min-height:0; }
+  #editor-room #ribbon-bar.studio-compact-ribbon .flow-ribbon-tools[hidden] { display:none!important; }
+  #editor-room #ribbon-bar.studio-compact-ribbon .flow-ribbon-group,
+  #editor-room #ribbon-bar.studio-compact-ribbon .ribbon-panel .ribbon-group { display:flex; flex-direction:row; flex-wrap:nowrap; min-height:28px; gap:3px; padding:0 6px; border-right:1px solid var(--studio-border); }
+  #editor-room #ribbon-bar.studio-compact-ribbon .flow-ribbon-group small { display:none; }
+  #editor-room #ribbon-bar.studio-compact-ribbon .studio-ribbon-icon { width:28px; }
+  #editor-room #ribbon-bar.studio-compact-ribbon .ribbon-group:empty { display:none; }
+  #editor-room #flow-ribbon-home > .flow-ribbon-alignment,
+  #editor-room #flow-ribbon-home > .flow-ribbon-display,
+  #editor-room #flow-ribbon-insert { display:none!important; }
+  #editor-room #ribbon-bar.studio-compact-ribbon #flow-ribbon-indent { min-width:0; }
+  #flow-ribbon-indent .flow-indent-body { display:flex; align-items:center; gap:5px; }
+  #flow-ribbon-indent .flow-indent-field input { width:38px!important; }
+  #flow-ribbon-indent .flow-indent-one-char { font-size:10px; }
+  #flow-ribbon-indent .flow-indent-reset { width:28px; }
+  #editor-room #ribbon-bar.studio-compact-ribbon .ribbon-canvas-zoom .field-label { display:none; }
+  #editor-room #ribbon-bar.studio-compact-ribbon .ribbon-quick { margin-left:0; flex-shrink:0; gap:3px; }
+  #editor-room #ribbon-bar .flow-compare-mode { margin:0 0 0 auto; flex-shrink:0; }
+  #editor-room #ribbon-bar .flow-compare-mode button { padding:3px 10px; min-height:24px; font-size:11px; }
+  #editor-room #ribbon-bar.studio-compact-ribbon .lang-tabs-top { margin-left:0; }
+  body.flow-ribbon-context #editor-room #ribbon-bar [data-fixed-page-edit],
+  body.image-ribbon-context #editor-room #btn-adjust-img { display:none!important; }
+  #editor-room #ribbon-bar.studio-compact-ribbon .flow-ribbon-status { flex-wrap:wrap; gap:4px 12px; }
+}
+
+@media(min-width:1024px) {
+  #editor-room #ribbon-bar.studio-compact-ribbon .ribbon-panel-row > .ribbon-auth { flex:0 1 auto; margin-left:6px; max-width:240px; }
+}

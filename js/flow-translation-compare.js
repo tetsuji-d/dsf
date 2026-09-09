@@ -97,7 +97,12 @@ export function createFlowTranslationCompare({ container, createView, model, can
     normal.type = split.type = 'button'; normal.id = 'flow-compare-normal'; split.id = 'flow-compare-split';
     for (const button of [normal, split]) button.setAttribute('aria-controls', root.id);
     controls.append(normal, split);
-    document.querySelector('[data-ribbon-panel="view"]').prepend(controls);
+    const placeControls = () => {
+        const languages = document.getElementById('lang-tabs-top');
+        if (window.matchMedia('(min-width:1024px)').matches) languages.before(controls);
+        else document.querySelector('[data-ribbon-panel="view"]').prepend(controls);
+    };
+    placeControls(); window.matchMedia('(min-width:1024px)').addEventListener('change', placeControls);
     normal.addEventListener('click', () => setEnabled(false)); split.addEventListener('click', () => setEnabled(true));
     targetSelect.addEventListener('change', () => {
         if (!canSwitch()) { targetSelect.value = target; return; }
