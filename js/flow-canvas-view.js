@@ -5,9 +5,10 @@ import { normalizeFlowPageGuideMode, resolveFlowPageRuleGuide } from './flow-pag
 
 /** Editor-only virtual page strip. Page geometry and saved publication data never change. */
 export function createFlowCanvasView({ container, getPinnedPageIndex, onPageCreate,
-    onGeometryChange, onScrollPage, getPageLabel, getFlowGroupLabel, renderFixedPage, onBeforeRemove, getDirection, getJoinedPageIndices }) {
+    onGeometryChange, onScrollPage, onReadingScroll, getPageLabel, getFlowGroupLabel, renderFixedPage, onBeforeRemove, getDirection, getJoinedPageIndices }) {
     const viewport = document.createElement('div');
     viewport.id = 'flow-canvas-viewport';
+    viewport.className = 'flow-canvas-viewport';
     viewport.dataset.testid = 'flow-canvas-viewport';
     viewport.setAttribute('role', 'region');
     viewport.setAttribute('aria-label', '作品ページ・横スクロール');
@@ -16,6 +17,7 @@ export function createFlowCanvasView({ container, getPinnedPageIndex, onPageCrea
     viewport.dataset.flowPageGuideMode = 'off';
     const track = document.createElement('div');
     track.id = 'flow-canvas-track';
+    track.className = 'flow-canvas-track';
     viewport.appendChild(track);
     container.appendChild(viewport);
     const mounted = new Map();
@@ -199,6 +201,7 @@ export function createFlowCanvasView({ container, getPinnedPageIndex, onPageCrea
                 && Math.abs(viewport.scrollLeft - programmaticScrollLeft) < 0.5;
             programmaticScrollLeft = null;
             if (programmatic) return;
+            onReadingScroll?.();
             if (getPinnedPageIndex?.() !== null && getPinnedPageIndex?.() !== undefined) return;
             const center = viewport.scrollLeft + viewport.clientWidth / 2;
             const visible = calculateFlowCanvasWindow(layout, { scrollLeft: viewport.scrollLeft, overscan: 0 });
@@ -243,6 +246,18 @@ export function createFlowCanvasView({ container, getPinnedPageIndex, onPageCrea
             viewport.hidden = !visible;
         },
         resize, ensurePage, setGuideMode,
+        getReadingPosition() {
+            if (!layout) return 0;
+            const stride = pages.length > 1 ? Math.abs(getFlowCanvasPagePosition(layout, 1).left - getFlowCanvasPagePosition(layout, 0).left) : 1;
+            return (layout.direction === 'rtl' ? layout.maxScrollLeft - viewport.scrollLeft : viewport.scrollLeft) / stride;
+        },
+        setReadingPosition(value) {
+            if (!layout) return;
+            const stride = pages.length > 1 ? Math.abs(getFlowCanvasPagePosition(layout, 1).left - getFlowCanvasPagePosition(layout, 0).left) : 1;
+            const offset = Math.max(0, Math.min(layout.maxScrollLeft, value * stride));
+            setScrollLeft(layout.direction === 'rtl' ? layout.maxScrollLeft - offset : offset);
+            renderWindow();
+        },
         getScale() { return layout?.scale || 1; },
         getPages() { return pages; },
         refreshFixedPreviews(predicate) {

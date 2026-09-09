@@ -164,6 +164,15 @@ export function applyFlowAuthoringOperation(blocks, operation, options = {}) {
         assertValidFlowProjectData({ version: PROJECT_SCHEMA_VERSION, blocks: nextBlocks });
         return nextBlocks;
     }
+    if (operation.type === 'confirmTranslationUnit') {
+        const languageKey = validateLanguageKey(operation.languageKey);
+        const result = recordFlowManualTranslationUnitEdit(groupContext.group, languageKey, {
+            unitMap: 'blocks', unitId: validateBlockId(operation.blockId),
+        });
+        if (result.changed) groupContext.group.flow.translationState = result.translationState;
+        assertValidFlowProjectData({ version: PROJECT_SCHEMA_VERSION, blocks: nextBlocks });
+        return nextBlocks;
+    }
     if (operation.type === 'confirmTranslation') {
         const languageKey = validateLanguageKey(operation.languageKey);
         const result = confirmFlowTranslationAgainstCurrentSource(groupContext.group, languageKey);

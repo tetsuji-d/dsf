@@ -14,7 +14,7 @@ import {
     getCachedFlowRuntimePageProjection,
     getSelectedFlowRuntimePageIndex,
 } from './flow-runtime-pages.js';
-import { isFlowSourceSelected } from './flow-editor-session.js';
+import { getFlowEditorProjectionScope, isFlowSourceSelected } from './flow-editor-session.js';
 import { moveFlowGroupInSpine, removeFixedPageRangeFromSpine } from './fixed-page-spine.js';
 
 // ──────────────────────────────────────────────────────────────
@@ -813,7 +813,7 @@ export function renderThumbs() {
                 || blocks[state.activeBlockIdx]?.flow?.document?.sourceLanguage || 'ja',
             state.sections || [],
             document,
-            'editor',
+            getFlowEditorProjectionScope(),
         )
         : null;
     const runtimePagesByBlock = new Map();

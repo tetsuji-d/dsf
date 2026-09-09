@@ -105,7 +105,7 @@ function requireCurrentDirectSession(groupInput, session, allowTranslation = fal
         fail('FLOW_DIRECT_SESSION_STALE', 'The direct-edit source block changed type.');
     }
     const languageKey = session.languageKey;
-    if (languageKey !== sourceLanguage && !Object.hasOwn(block.texts || {}, languageKey)) fail('FLOW_DIRECT_SOURCE_FALLBACK', 'The exact language text is missing.');
+    if (!session.allowMissingTranslation && languageKey !== sourceLanguage && !Object.hasOwn(block.texts || {}, languageKey)) fail('FLOW_DIRECT_SOURCE_FALLBACK', 'The exact language text is missing.');
     const currentText = requireDirectEditableText(block.texts?.[languageKey] ?? '');
     if (currentText !== session.expectedText) {
         fail('FLOW_DIRECT_SOURCE_STALE', 'The semantic source changed after the generated page was rendered.', {
@@ -204,7 +204,7 @@ export function createFlowDirectEditSession(groupInput, options = {}) {
             sourceBlockType: block.type,
         });
     }
-    if (pageLanguageKey !== sourceLanguage && !Object.hasOwn(block.texts || {}, pageLanguageKey)) fail('FLOW_DIRECT_SOURCE_FALLBACK', 'The exact language text is missing.');
+    if (options.allowMissingTranslation !== true && pageLanguageKey !== sourceLanguage && !Object.hasOwn(block.texts || {}, pageLanguageKey)) fail('FLOW_DIRECT_SOURCE_FALLBACK', 'The exact language text is missing.');
     const text = requireDirectEditableText(block.texts?.[pageLanguageKey] ?? '');
     const utf16Offset = requireSelectionOffset(sourcePoint.utf16Offset, text.length, 'utf16Offset');
     const mapped = mapFlowTextUtf16OffsetToGrapheme(
@@ -231,6 +231,7 @@ export function createFlowDirectEditSession(groupInput, options = {}) {
         blockType: block.type,
         languageKey: pageLanguageKey,
         writingMode,
+        allowMissingTranslation: options.allowMissingTranslation === true,
         expectedText: text,
         selectionStart: mapped.utf16Offset,
         selectionEnd: mapped.utf16Offset,

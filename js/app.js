@@ -1,3 +1,7 @@
+import { createFlowManuscriptCompare } from './flow-manuscript-compare.js';
+import { renderFlowTranslationAutomationPanel } from './flow-authoring-view.js';
+import { getFlowEditorProjectionScope } from './flow-editor-session.js';
+import { createFlowTranslationCompare } from './flow-translation-compare.js';
 import { syncImageRibbonContext, initFlowRibbon, syncFlowRibbonContext, refreshFlowRibbon, syncRibbonDrawerButtons } from './studio-flow-ribbon.js';
 import { showFlowIndentRuler, hideFlowIndentRuler } from './flow-indent-ruler.js';
 import { canRemoveEmptyFlowTextBlock } from './flow-paragraph-merge.js';
@@ -248,6 +252,10 @@ let _flowDirectEditApplying = false;
 let _flowDirectPreferredInlinePosition = null;
 let _flowDirectPointerCleanup = null;
 let _flowCanvasView = null;
+let _flowCompare = null;
+let _flowManuscriptCompare = null;
+let _flowNormalCanvasView = null;
+const editorFlowScope = getFlowEditorProjectionScope;
 let _flowCanvasContextKey = '';
 let _flowPageGuideMode = 'off';
 let _fixedCanvasFocus = null;
@@ -310,19 +318,21 @@ function isFixedLanguageCompareActive() {
 function renderUnifiedFixedCanvas() {
     if (getActiveBlock()?.kind !== 'page' || isFixedLanguageCompareActive()) return;
     const projection = getEditorCanvasProjection();
-    if (!projection?.pages.length) { hideFlowCanvas(); return; }
+    if (!projection?.pages.length) { if (!_flowCompare?.enabled) hideFlowCanvas(); return; }
     const selected = getActiveProjectionPageIndex(projection);
     if (selected < 0) return;
     const canvas = ensureFlowCanvasView();
     document.getElementById('canvas-view').classList.add('flow-canvas-active', 'editor-unified-canvas');
     canvas.viewport.setAttribute('aria-label', t('editor_canvas_label'));
     canvas.update(projection.pages, selected, `${state.projectId || 'local'}:${projection.languageKey}`);
+    _flowCompare?.update(canvas);
     canvasScale = canvas.getScale();
     syncCanvasZoomUI();
 }
 
 
 function hideFlowCanvas() {
+    if (_flowCompare?.enabled) _flowCompare.setEnabled(false);
     parkFixedCanvasStage();
     _flowCanvasView?.setGuideMode('off');
     _flowCanvasView?.setVisible(false);
@@ -421,7 +431,7 @@ function getEditorPageProjection() {
         languageKey,
         state.sections || [],
         document,
-        'editor',
+        editorFlowScope(),
     );
 }
 
@@ -1871,6 +1881,7 @@ function tryCreateFlowDirectEditSession(activeBlock, page, sourcePoint) {
             pageLanguageKey: page.languageKey,
             writingMode: page.writingMode,
             isSourceFallback: page.isSourceFallback,
+            allowMissingTranslation: _flowCompare?.enabled === true && page.languageKey === page.requestedLanguageKey,
             sourcePoint,
         });
         return restoreFlowDirectSelection(session, sourcePoint);
@@ -1891,7 +1902,7 @@ function restoreMappedFlowSourceCaret(groupId, sourcePoint) {
         const root = getFlowAuthoringSurface();
         if (
             !root
-            || root.hidden
+            || root.hidden || document.getElementById('flow-authoring-surface')?.hidden
             || root.dataset.flowGroupId !== groupId
             || root.dataset.languageKey !== sourcePoint.languageKey
         ) return;
@@ -2172,14 +2183,24 @@ function handleFlowPagePointerDown(event, activeBlock, page, pageElement) {
 }
 
 function ensureFlowCanvasView() {
-    if (_flowCanvasView) return _flowCanvasView;
-    _flowCanvasView = createFlowCanvasView({
+    if (_flowCompare?.enabled) {
+        _flowCanvasView = _flowCompare.getView(state.activeLang || state.defaultLang || 'ja');
+        return _flowCanvasView;
+    }
+    if (!_flowNormalCanvasView) _flowNormalCanvasView = createEditorFlowCanvas();
+    _flowCanvasView = _flowNormalCanvasView;
+    return _flowCanvasView;
+}
+
+function createEditorFlowCanvas(language = null) {
+    const view = createFlowCanvasView({
         container: document.getElementById('canvas-view'),
         getPinnedPageIndex: () => {
+            if (view !== _flowCanvasView) return null;
             const pinned = _flowDirectEditProxy?._flowDirectPageEntry;
             return pinned?.index ?? getActiveProjectionPageIndex(getEditorCanvasProjection());
         },
-        getDirection: () => getEditorLangDirection(state.activeLang || state.defaultLang || 'ja'),
+        getDirection: () => getEditorLangDirection(language || state.activeLang || state.defaultLang || 'ja'),
         getJoinedPageIndices: pages => {
             const joins = getEditorCanvasSpreadJoins(pages);
             if (!hasFlowGroups(state) && state.uiPrefs?.spreadView) {
@@ -2193,7 +2214,7 @@ function ensureFlowCanvasView() {
             const preview = document.createElement('div');
             preview.className = 'editor-fixed-page-preview';
             element.appendChild(preview);
-            renderFixedPagePreview(preview, state.sections[page.fixedPageIndex] || page.section, state.activeLang || state.defaultLang || 'ja', page.fixedPageIndex);
+            renderFixedPagePreview(preview, state.sections[page.fixedPageIndex] || page.section, language || state.activeLang || state.defaultLang || 'ja', page.fixedPageIndex);
         },
         onBeforeRemove: entry => {
             if (entry.pageElement.contains(document.getElementById('canvas-stage'))) parkFixedCanvasStage();
@@ -2206,8 +2227,10 @@ function ensureFlowCanvasView() {
                 ? 'editor_canvas_spread' : page.section?.type === 'text' ? 'editor_canvas_fixed' : 'editor_canvas_image';
             return `${label} · ${t(kind)}${page.isSourceFallback ? ` · ${t('editor_canvas_fallback')}` : ''}`;
         },
-        onGeometryChange: () => { attachFixedCanvasStage(); renderFlowDirectEditIndicators(); },
+        onGeometryChange: () => { if (view === _flowCanvasView) { attachFixedCanvasStage(); renderFlowDirectEditIndicators(); } _flowCompare?.highlight(); },
+        onReadingScroll: () => _flowCompare?.follow(view),
         onScrollPage: index => {
+            if (view !== _flowCanvasView) return;
             const active = getActiveBlock();
             if (active?.kind !== 'flow') return;
             setSelectedFlowRuntimePageIndex(active.id, index);
@@ -2221,7 +2244,10 @@ function ensureFlowCanvasView() {
                     getEditorCanvasProjection()?.totalPageCount || 1, state.book, state.bookMode)}`);
                 pageElement.tabIndex = 0;
                 const activate = event => {
-                    if (_flowAuthoringComposing || page.blockIndex === state.activeBlockIdx) return;
+                    if (_flowAuthoringComposing) return;
+                    const otherPane = _flowCompare?.enabled && view !== _flowCanvasView;
+                    if (otherPane && !_flowCompare.activateView(view, language)) return;
+                    if (!otherPane && page.blockIndex === state.activeBlockIdx) return;
                     event.stopPropagation();
                     endHistoryGroup();
                     activateProjectionPage(page);
@@ -2236,6 +2262,9 @@ function ensureFlowCanvasView() {
             const activeBlock = getFlowGroupById(page.groupId);
             const resolveSurface = event => {
                 if (_flowAuthoringComposing) return null;
+                if (_flowCompare?.enabled && view !== _flowCanvasView) {
+                    if (!_flowCompare.activateView(view, language)) return null;
+                }
                 if (getActiveBlock()?.id !== page.groupId) {
                     event.stopPropagation();
                     endHistoryGroup();
@@ -2275,7 +2304,7 @@ function ensureFlowCanvasView() {
             });
         },
     });
-    return _flowCanvasView;
+    return view;
 }
 
 function renderEditorFlowGeneratedPage(activeBlock, projection) {
@@ -2336,6 +2365,7 @@ function renderEditorFlowGeneratedPage(activeBlock, projection) {
     _flowCanvasContextKey = `${activeBlock.id}:${page.languageKey}`;
     canvas.viewport.setAttribute('aria-label', t('editor_canvas_label'));
     canvas.update(projection.pages, page.index, `${state.projectId || 'local'}:${projection.languageKey}`);
+    _flowCompare?.update(canvas, projection);
     canvasScale = canvas.getScale();
     syncCanvasZoomUI();
     const pageElement = canvas.getPageElement(page.index);
@@ -2386,11 +2416,11 @@ function renderEditorFlowGeneratedPage(activeBlock, projection) {
 }
 
 function getFlowAuthoringSurface() {
-    return document.getElementById('flow-authoring-surface');
+    return _flowManuscriptCompare?.activeRoot() || document.getElementById('flow-authoring-surface');
 }
 
 function setFlowAuthoringSurfaceVisible(visible) {
-    const surface = getFlowAuthoringSurface();
+    const surface = document.getElementById('flow-authoring-surface');
     const stage = document.getElementById('canvas-stage');
     if (surface) surface.hidden = !visible;
     if (visible) _flowCanvasView?.setVisible(false);
@@ -2607,13 +2637,43 @@ function getFlowTranslationAutomation(group, languageKey) {
     };
 }
 
+function refreshCanvasTranslationPanel() {
+    const panel = document.getElementById('flow-canvas-translation-panel');
+    if (!panel || panel.hidden) return;
+    const group = getActiveBlock(), language = state.activeLang;
+    if (group?.id !== panel.dataset.flowGroupId || language !== panel.dataset.languageKey) { panel.hidden = true; return; }
+    const body = panel.querySelector('.flow-canvas-translation-body');
+    renderFlowTranslationAutomationPanel(body, getFlowTranslationAutomation(group, language));
+}
+
+function openCanvasTranslationPanel(language) {
+    const group = getActiveBlock(); if (group?.kind !== 'flow' || _flowAuthoringComposing) return;
+    clearFlowDirectEditRuntime(); endHistoryGroup(); state.activeLang = language;
+    selectFlowGeneratedPage(group.id); refresh();
+    let panel = document.getElementById('flow-canvas-translation-panel');
+    if (!panel) {
+        panel = document.createElement('section'); panel.id = 'flow-canvas-translation-panel';
+        panel.setAttribute('role','region'); panel.setAttribute('aria-label','自動翻訳');
+        const close = document.createElement('button'); close.type = 'button'; close.textContent = '×'; close.setAttribute('aria-label','閉じる');
+        close.onclick = () => { panel.hidden = true; };
+        const body = document.createElement('div'); body.className = 'flow-canvas-translation-body';
+        body.addEventListener('change',handleFlowAuthoringChange); body.addEventListener('click',handleFlowAuthoringAction);
+        panel.append(close,body); document.getElementById('canvas-view').append(panel);
+        panel.addEventListener('keydown',event=>{if(event.key==='Escape') {event.stopPropagation();panel.hidden=true;}});
+    }
+    panel.dataset.flowGroupId = group.id; panel.dataset.languageKey = language; panel.hidden = false;
+    refreshCanvasTranslationPanel();
+}
+
 function refreshFlowTranslationAutomationSurface() {
+    refreshCanvasTranslationPanel();
     const group = getActiveBlock();
     if (group?.kind !== 'flow' || !isFlowSourceSelected(group.id)) return;
     renderFlowAuthoringSurface(group, getEditorPageProjection());
 }
 
 function updateCurrentFlowTranslationAutomation() {
+    refreshCanvasTranslationPanel();
     const root = getFlowAuthoringSurface();
     const group = getActiveBlock();
     if (!root || group?.kind !== 'flow') return;
@@ -2928,12 +2988,20 @@ function updateActiveFlowAuthoringStatus(projection, options = {}) {
 }
 
 function renderFlowAuthoringSurface(activeBlock, projection = getEditorPageProjection()) {
-    const root = getFlowAuthoringSurface();
-    if (!root || activeBlock?.kind !== 'flow') return;
+    const host = document.getElementById('flow-authoring-surface');
+    if (!host || activeBlock?.kind !== 'flow') return;
+    if (!_flowManuscriptCompare) _flowManuscriptCompare = createFlowManuscriptCompare({
+        host, model:()=>state, canSwitch:()=>!_flowAuthoringComposing,
+        activate:language=>{if (state.activeLang !== language) { endHistoryGroup(); state.activeLang=language; renderLangTabs(); }},
+        rerender:()=>renderFlowAuthoringSurface(getActiveBlock()),
+    });
+    _flowManuscriptCompare.render(activeBlock,(root,language)=>renderSingleFlowManuscript(root,getFlowGroupById(activeBlock.id),projection,language));
+}
+
+function renderSingleFlowManuscript(root, activeBlock, projection, languageKey) {
     delete root.dataset.sourceMappedBlockId;
     delete root.dataset.sourceMappedGraphemeOffset;
     delete root.dataset.sourceMappedUtf16Offset;
-    const languageKey = getFlowAuthoringLanguage(activeBlock);
     const { languageProgress, translationStatus } = getFlowAuthoringLanguageFeedback(activeBlock, languageKey);
     const translationAutomation = getFlowTranslationAutomation(activeBlock, languageKey);
     const groupProjection = getFlowAuthoringGroupProjection(projection, activeBlock.id);
@@ -2944,7 +3012,7 @@ function renderFlowAuthoringSurface(activeBlock, projection = getEditorPageProje
         pageCount: groupProjection?.pageCount || 0,
         translationStatus,
         translationAutomation,
-        onInput: handleFlowAuthoringInput,
+        onInput: event=>{handleFlowAuthoringInput(event); _flowManuscriptCompare?.refreshOther(root);},
         onChange: handleFlowAuthoringChange,
         onAction: handleFlowAuthoringAction,
         onFocus: handleFlowAuthoringFocus,
@@ -2966,7 +3034,7 @@ function renderFlowAuthoringSurface(activeBlock, projection = getEditorPageProje
 }
 
 function getFlowAuthoringTarget(target) {
-    const root = target?.closest?.('#flow-authoring-surface');
+    const root = target?.closest?.('.flow-authoring-editor, #flow-authoring-surface, #flow-canvas-translation-panel');
     const blockElement = target?.closest?.('[data-testid="flow-block"]');
     const sectionElement = target?.closest?.('[data-testid="flow-section"]');
     return {
@@ -3076,6 +3144,7 @@ function captureFlowAuthoringFocusSnapshot() {
     const target = getFlowAuthoringTarget(activeElement);
     return {
         mode: 'source',
+        languageKey: target.root?.dataset.languageKey,
         groupId: target.groupId,
         sectionId: target.sectionId,
         blockId: target.blockId,
@@ -3150,7 +3219,7 @@ function captureFlowEditorFocusSnapshot() {
 function restoreFlowAuthoringFocusSnapshot(snapshot) {
     if (!snapshot) return;
     requestAnimationFrame(() => {
-        const root = getFlowAuthoringSurface();
+        const root = [...document.querySelectorAll('.flow-authoring-editor')].find(el => !el.hidden && el.dataset.languageKey === snapshot.languageKey) || getFlowAuthoringSurface();
         const candidates = [...(root?.querySelectorAll?.(`[data-flow-field="${snapshot.field}"]`) || [])];
         const focusTarget = candidates.find((entry) => {
             const target = getFlowAuthoringTarget(entry);
@@ -3178,7 +3247,7 @@ function getFlowAnnotationTarget(element) {
     const source = element?.closest?.('[data-testid="flow-block"]');
     if(source){
         const input=source.querySelector('[data-flow-field="block-text"]');
-        const root=source.closest('#flow-authoring-surface');
+        const root=source.closest('.flow-authoring-editor, #flow-authoring-surface');
         if(!input || !root)return null;
         return {groupId:root.dataset.flowGroupId,sectionId:source.dataset.flowSectionId,blockId:source.dataset.flowBlockId,
             languageKey:root.dataset.languageKey,start:input.selectionStart,end:input.selectionEnd,sourceMode:true,input,editorFocus:captureFlowEditorFocusSnapshot()};
@@ -3429,6 +3498,7 @@ function handleFlowAuthoringCompositionStart() {
 function handleFlowAuthoringCompositionEnd(event) {
     _flowAuthoringComposing = false;
     handleFlowAuthoringInput({target:event.target});
+    _flowManuscriptCompare?.refreshOther(getFlowAuthoringTarget(event.target).root);
     const root = getFlowAuthoringSurface();
     if (root) root.dataset.composing = 'false';
     const target = getFlowAuthoringTarget(event.target);
@@ -3485,8 +3555,8 @@ function requestEditorFlowProjection(activeBlock) {
         return;
     }
     const languageKey = getEditorFlowProjectionLanguage(activeBlock);
-    const requestKey = createFlowRuntimeProjectionSignature(state, languageKey, state.sections || [], document, 'editor');
-    const cached = getCachedFlowRuntimePageProjection(state, languageKey, state.sections || [], document, 'editor');
+    const requestKey = createFlowRuntimeProjectionSignature(state, languageKey, state.sections || [], document, editorFlowScope());
+    const cached = getCachedFlowRuntimePageProjection(state, languageKey, state.sections || [], document, editorFlowScope());
     if (cached) {
         _editorFlowProjectionController?.abort();
         _editorFlowProjectionController = null;
@@ -3525,7 +3595,7 @@ function requestEditorFlowProjection(activeBlock) {
 
     void createFlowRuntimePageProjection(state, {
         ownerDocument: document,
-        sessionScope: 'editor',
+        sessionScope: editorFlowScope(),
         fixedPages: state.sections || [],
         languageKey,
         revision: requestId,
@@ -3539,7 +3609,7 @@ function requestEditorFlowProjection(activeBlock) {
         if (
             controller.signal.aborted
             || requestId !== _editorFlowProjectionRequestId
-            || requestKey !== createFlowRuntimeProjectionSignature(state, languageKey, state.sections || [], document, 'editor')
+            || requestKey !== createFlowRuntimeProjectionSignature(state, languageKey, state.sections || [], document, editorFlowScope())
             || languageKey !== getEditorFlowProjectionLanguage(getActiveBlock())
         ) return;
         _editorFlowProjectionController = null;
@@ -4957,6 +5027,11 @@ function setCurrentDeviceThumbColumns(cols) {
 //  refresh — 画面全体を再描画する (Gen3: image pages only)
 // ──────────────────────────────────────
 function refresh(options = {}) {
+    refreshCanvasTranslationPanel();
+    _flowCompare?.labels();
+    if (_flowCompare?.enabled && (!['flow','page'].includes(getActiveBlock()?.kind) || (getActiveBlock()?.kind === 'flow' && isFlowSourceSelected(getActiveBlock().id)))) {
+        _flowCompare.setEnabled(false); return;
+    }
     projectAssetPanel.render();
     const skipAncillary = !!options.skipAncillary;
     const skipThumbs = !!options.skipThumbs;
@@ -6482,6 +6557,7 @@ function initImageAdjustment() {
 
     // Wheel Zoom for Image
     view.addEventListener('wheel', (e) => {
+        if (e.target.closest?.('.flow-authoring-editor, #flow-authoring-surface, #flow-canvas-translation-panel')) return;
         if (isImageAdjusting) {
             e.preventDefault();
             e.stopPropagation();
@@ -9130,6 +9206,7 @@ window.fitCanvasView = () => {
     canvasTranslate = { x: 0, y: 0 };
     if (_flowCanvasView && !_flowCanvasView.viewport.hidden) {
         _flowCanvasView.resize();
+        _flowCompare?.resize();
         canvasScale = _flowCanvasView.getScale();
         syncCanvasZoomUI();
         return;
@@ -9265,7 +9342,7 @@ function initCanvasZoom() {
 
     // Wheel Zoom
     view.addEventListener('wheel', (e) => {
-        if (e.target.closest?.('#flow-canvas-viewport')) return;
+        if (e.target.closest?.('.flow-canvas-viewport, #flow-authoring-surface, #flow-canvas-translation-panel')) return;
         if (isImageAdjusting) return; // 画像調整中はCanvasズーム無効
 
         e.preventDefault();
@@ -10539,6 +10616,35 @@ window.openMobileSheet = (sheetName) => {
 
 function initUIChrome() {
     initFlowRibbon();
+    _flowCompare = createFlowTranslationCompare({
+        container: document.getElementById('canvas-view'), createView: createEditorFlowCanvas,
+        model: () => ({state, group:getActiveBlock()}),
+        review: operation => {
+            clearFlowDirectEditRuntime(); endHistoryGroup();
+            applyFlowAuthoringEdit({type:'confirmTranslationUnit', ...operation}, {rerender:true, immediate:true});
+        },
+        openTranslation: openCanvasTranslationPanel,
+        canSwitch: () => !_flowAuthoringComposing && _flowDirectEditProxy?.dataset.flowReflowPending !== 'true',
+        activate: (language, view) => {
+            if (view && getActiveBlock()?.kind === 'page') {
+                parkFixedCanvasStage();
+                _flowCanvasView?.refreshFixedPreviews(() => true);
+            }
+            clearFlowDirectEditRuntime(); endHistoryGroup();
+            state.activeLang = language;
+            if (view) _flowCanvasView = view;
+            const group = getActiveBlock();
+            if (group?.kind === 'flow') selectFlowGeneratedPage(group.id);
+            renderLangTabs(); renderThumbs(); syncFlowDirectFormatControls();
+        },
+        changed: (enabled) => {
+            clearFlowDirectEditRuntime(); endHistoryGroup();
+            _flowCanvasView?.setVisible(false); _flowCanvasView = null;
+            const group = getActiveBlock();
+            if (enabled && group?.kind === 'flow') selectFlowGeneratedPage(group.id);
+            refresh();
+        },
+    });
     document.querySelectorAll('.ribbon-tab').forEach((tab) => {
         tab.addEventListener('click', () => setRibbonTab(tab.dataset.ribbonTab));
     });

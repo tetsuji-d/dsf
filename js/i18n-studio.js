@@ -8,6 +8,24 @@ const STORAGE_KEY = 'dsf_studio_ui_lang';
 
 export const STRINGS = {
     ja: {
+        compare_missing_short: '未翻訳',
+        compare_previous: "前の段落",
+        compare_next: "次の段落",
+        compare_confirm: "選択段落の翻訳を確認済みにする",
+        compare_settings: "キャンバスで自動翻訳",
+
+        compare_normal: "通常",
+        compare_split: "分割",
+        compare_mode: "キャンバス表示",
+        compare_source: "原文",
+        compare_language: "比較する翻訳言語",
+        compare_sync: "同期",
+        compare_resize: "左右の幅を調整",
+        compare_missing: "未翻訳あり・クリックして入力",
+        compare_review: "要確認",
+        compare_ready: "保存済み翻訳",
+        compare_error: "比較ページを生成できません",
+
         ribbon_click_text: '本文をクリックして段落を編集',
         tab_view: "表示",
         ribbon_page_alignment: "ページ内の配置",
@@ -701,6 +719,24 @@ export const STRINGS = {
         zip_generating:          '⏳ ZIP生成中...',
     },
     en: {
+        compare_missing_short: 'Not translated',
+        compare_previous: "Previous paragraph",
+        compare_next: "Next paragraph",
+        compare_confirm: "Mark selected translation as reviewed",
+        compare_settings: "Translate on canvas",
+
+        compare_normal: "Normal",
+        compare_split: "Split",
+        compare_mode: "Canvas view",
+        compare_source: "Source",
+        compare_language: "Translation language",
+        compare_sync: "Sync",
+        compare_resize: "Resize panes",
+        compare_missing: "Missing translation: click to type",
+        compare_review: "Review needed",
+        compare_ready: "Saved translation",
+        compare_error: "Could not generate comparison pages",
+
         ribbon_click_text: 'Click text to edit a paragraph',
         tab_view: "View",
         ribbon_page_alignment: "Page alignment",
