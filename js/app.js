@@ -512,16 +512,21 @@ function syncFlowPageSourceControls() {
     const page = getEditorPageProjection()?.pages.find(p=>p.kind==='flow' && p.groupId===group.id
         && p.flowPageIndex===getSelectedFlowRuntimePageIndex(group.id));
     const titleRegion=page?.page?.fragments?.[0]?.titleRegion;
-    const canUsePage = !!page && !page.isSourceFallback && page.languageKey===group.flow.document.sourceLanguage
+    const canUsePage = !!page && !page.isSourceFallback && page.languageKey===languageKey
         && !isFlowSourceSelected(group.id) && !editorDragBlocked(false);
+    const canChangeStructure = canUsePage && languageKey===group.flow.document.sourceLanguage;
+    const canAlignPage = canUsePage && (!!titleRegion || canChangeStructure);
+    scope.dataset.sharedTitle = String(!!titleRegion);
+    scope.title = t(titleRegion ? 'flow_scope_shared_title' : 'flow_placement_scope');
     const applyPlacement = (field,value,restore=false) => {
         if (getActiveBlock()?.id!==group.id || editorDragBlocked(false)) return;
         try {
             let result;
             if(titleRegion && (restore || scope.value==='page')) {
+                if(!canAlignPage || (restore && !canChangeStructure)) return;
                 result=updateFlowTitleRegion(state.blocks,group.id,titleRegion.id,{field,value,remove:restore});
             } else if(scope.value==='page' && !restore) {
-                if(!canUsePage) return;
+                if(!canChangeStructure) return;
                 result=isolateFlowTitlePage(state.blocks,group.id,page.page);
             } else result={blocks:structuredClone(state.blocks),activeBlockIndex:state.activeBlockIdx};
             const target=result.blocks[result.activeBlockIndex];
@@ -535,17 +540,17 @@ function syncFlowPageSourceControls() {
         } catch(error) { alert(t(error.code==='translation'?'flow_title_translation_blocked':'flow_title_stale')); }
     };
     const titleButton=document.getElementById('flow-make-title');
-    titleButton.disabled=!canUsePage;
+    titleButton.disabled=!canChangeStructure;
     titleButton.onclick=()=>{scope.value='page';applyPlacement();};
     const restoreButton=document.getElementById('flow-restore-body');
     restoreButton.hidden=!titleRegion && group.flow.pageRole!=='title';
-    restoreButton.disabled=editorDragBlocked(false)||!profile;
+    restoreButton.disabled=editorDragBlocked(false)||!profile||(!!titleRegion && !canChangeStructure);
     restoreButton.onclick=()=>applyPlacement(null,null,true);
     scope.onchange=()=>syncFlowPageSourceControls();
     for (const [id,field] of [['flow-placement-inline','textAlign'],['flow-placement-block','blockAlign']]) {
         const control = document.getElementById(id);
         control.value = (scope.value==='page' ? titleRegion?.[field] : undefined) || profile?.[field] || 'start';
-        control.disabled = !profile || editorDragBlocked(false) || (scope.value==='page' && !canUsePage);
+        control.disabled = !profile || editorDragBlocked(false) || (scope.value==='page' && !canAlignPage);
         control.onchange = () => {
             if (getActiveBlock()?.id !== group.id || editorDragBlocked(false)) return;
             applyPlacement(field,control.value);
@@ -1954,6 +1959,7 @@ function handleFlowGeneratedPageSourceClick(event, activeBlock, page, pageElemen
     endHistoryGroup();
     const directSession = tryCreateFlowDirectEditSession(activeBlock, page, sourcePoint);
     if (directSession) {
+        setSelectedFlowRuntimePageIndex(activeBlock.id, page.flowPageIndex, page.flowPageCount);
         selectFlowDirectEditing(activeBlock.id, directSession.sourcePoint);
         mountFlowDirectEditProxy(activeBlock, page, pageElement, directSession);
         syncThumbSelectionDom();

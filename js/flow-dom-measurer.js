@@ -16,7 +16,7 @@ import {
 
 export const FLOW_DOM_SUPPORTED_WRITING_MODE = 'horizontal-tb';
 export const FLOW_DOM_SUPPORTED_WRITING_MODES = Object.freeze(['horizontal-tb', 'vertical-rl']);
-export const FLOW_DOM_RENDERER_VERSION = 15;
+export const FLOW_DOM_RENDERER_VERSION = 16;
 export const FLOW_DOM_HYPHENATION_MODES = Object.freeze(['auto', 'none']);
 
 const DEFAULT_MEASUREMENT_CACHE_SIZE = 2048;
@@ -300,7 +300,7 @@ export function renderFlowFragments(contentElement, options = {}) {
     const hyphenation = resolveFlowDomHyphenation(options.hyphenation, writingMode);
     const fragments = Array.isArray(options.fragments) ? options.fragments : [];
     const region=fragments[0]?.titleRegion;
-    const typography = resolveFlowDomTypography(languageKey, region?.languageKey===languageKey
+    const typography = resolveFlowDomTypography(languageKey, region
         ? {...options.typography,textAlign:region.textAlign,blockAlign:region.blockAlign} : options.typography, writingMode);
 
     contentElement.replaceChildren();

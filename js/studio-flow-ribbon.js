@@ -272,7 +272,8 @@ export function refreshFlowRibbon() {
         const checked = key === 'ruled' ? byId('flow-direct-guide-mode').value === 'ruled' : document.querySelector(`[data-flow-indent-display="${key}"]`)?.checked;
         b.disabled = !direct; b.setAttribute('aria-pressed', String(!!checked));
     });
-    const scope = t(byId('flow-placement-scope').value === 'page' ? 'flow_scope_page' : 'flow_scope_group');
+    const scopeControl = byId('flow-placement-scope');
+    const scope = t(scopeControl.value === 'page' ? (scopeControl.dataset.sharedTitle === 'true' ? 'flow_scope_shared_title' : 'flow_scope_page') : 'flow_scope_group');
     byId('ribbon-flow-context').textContent = active ? t(context.source ? 'ribbon_source_context' : 'ribbon_flow_context', { language: context.language?.toUpperCase() || '' }) : '';
     byId('ribbon-flow-scope').textContent = active ? t('ribbon_scope_status', { scope }) : '';
     byId('ribbon-status').textContent = active ? byId('flow-direct-format-status').textContent : '';
