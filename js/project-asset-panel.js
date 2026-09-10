@@ -15,12 +15,13 @@ export function createProjectAssetPanel({ state, prepareImage, addAsset, useAsse
         menu = element('div', '', 'project-asset-menu');
         menu.setAttribute('role', 'menu');
         for (const [kind, text] of [
+            ['place', label('画像オブジェクトとして配置', 'Place image object')],
             ['apply', label('選択画像ページに適用', 'Use on selected image page')],
             ['add', selected?.kind === 'flow' ? label('Flow全体の後に画像ページを追加', 'Add image page after Flow') : label('画像ページとして追加', 'Add image page')],
             ['rename', label('名前を変更', 'Rename')]
         ]) {
             const button = element('button', text); button.type = 'button'; button.setAttribute('role', 'menuitem');
-            button.disabled = busy || (kind === 'apply' && !(selected?.kind === 'page' && selected.content?.pageKind !== 'text'));
+            button.disabled = busy || (kind === 'place' && selected?.kind !== 'page') || (kind === 'apply' && !(selected?.kind === 'page' && selected.content?.pageKind !== 'text'));
             button.onclick = () => {
                 closeMenu();
                 if (identity() !== key || state.blocks?.[state.activeBlockIdx] !== selected) return;

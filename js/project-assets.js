@@ -23,7 +23,8 @@ export function getAssetUsage(blocks, asset) {
     const visit = (value) => {
         if (!value || typeof value !== 'object') return;
         for (const [key, entry] of Object.entries(value)) {
-            if (key === 'background' && entry === asset.background) count++;
+            if (key === 'assetId' && entry === asset.id) count++;
+            else if (key === 'background' && entry === asset.background) count++;
             else if (key === 'backgrounds' && entry && Object.values(entry).includes(asset.background)) count++;
             else if (typeof entry === 'object') visit(entry);
         }

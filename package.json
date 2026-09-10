@@ -24,6 +24,8 @@
     "verify:flow-foundation": "node scripts/verify-flow-foundation.js",
     "verify:flow-model": "node scripts/verify-flow-model.js",
     "verify:flow-project-model": "node scripts/verify-flow-project-model.js",
+    "verify:graphic-objects": "node scripts/verify-graphic-objects.js",
+    "verify:graphic-objects-browser": "node scripts/verify-graphic-objects-browser.cjs",
     "verify:project-persistence": "node scripts/verify-project-persistence.js",
     "verify:flow-preview": "node scripts/verify-flow-preview.js",
     "verify:flow-text-page-typography": "node scripts/verify-flow-text-page-typography.js",

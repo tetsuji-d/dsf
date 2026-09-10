@@ -1,3 +1,6 @@
+import { createStudioObjectToolbar } from './studio-object-toolbar.js';
+import { validateGraphicObjects, graphicOrder, initializeGraphicObjects } from './graphic-object-model.js';
+import { appendGraphicPreview } from './graphic-object-renderer.js';
 import { createFlowManuscriptCompare } from './flow-manuscript-compare.js';
 import { renderFlowTranslationAutomationPanel } from './flow-authoring-view.js';
 import { getFlowEditorProjectionScope } from './flow-editor-session.js';
@@ -140,6 +143,31 @@ import {
 } from './flow-runtime-pages.js';
 import { collection, getDocs, query, where, limit } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
 
+const objectToolbar = createStudioObjectToolbar({
+    state, refresh, prepareImage: prepareAuthoringImage, canEdit:canEditActiveFixedPage,
+    editText: (id,language,value) => {
+        if(!canEditActiveFixedPage())return;
+        const target=getActiveBlock(),object=target.content.graphicObjects?.find(o=>o.id===id);
+        if(!object||object.locked||object.texts[language]===value)return;
+        pushState({groupKey:`graphic-text:${target.id}:${id}:${language}`});
+        object.texts[language]=value;
+        state.sections=extractSectionsFromBlocks(state.blocks);state.pages=blocksToPages(state.blocks);
+        updateHistoryButtons();triggerAutoSave();
+    },
+    finishText:()=>{endHistoryGroup();refresh();},
+    selectLegacy: index => { state.activeBubbleIdx=index; refresh(); },
+    commit: mutate => {
+        const target=getActiveBlock(); if(target?.kind!=='page'||!canEditActiveFixedPage()) return;
+        const content=structuredClone(target.content),oldAssets=state.projectAssets,oldVersion=state.version;
+        try { mutate(content); validateGraphicObjects({...state,blocks:state.blocks.map(b=>b===target?{...b,content}:b)}); }
+        catch { state.projectAssets=oldAssets;state.version=oldVersion;alert('変更できませんでした。入力値を確認してください。 / Check object values.');return; }
+        const assets=state.projectAssets;
+        state.projectAssets=oldAssets;state.version=oldVersion;
+        endHistoryGroup();pushState();target.content=content;state.projectAssets=assets;state.version=6;
+        state.sections=extractSectionsFromBlocks(state.blocks);state.pages=blocksToPages(state.blocks);
+        refresh();updateHistoryButtons();triggerAutoSave();
+    }
+});
 const projectAssetPanel = createProjectAssetPanel({
     state, prepareImage: prepareAuthoringImage,
     renameAsset: (id, name) => {
@@ -152,10 +180,10 @@ const projectAssetPanel = createProjectAssetPanel({
         const surface = target.closest?.('[data-testid="editor-fixed-page"], [data-testid="flow-editor-generated-page"]');
         if (surface) {
             const page = surface._flowPageEntry;
-            if (page?.kind !== 'fixed' || page.section?.type === 'text') return;
+            if (page?.kind !== 'fixed') return;
             activateProjectionPage(page);
         } else if (!target.closest?.('#canvas-view') || _flowCanvasView?.getPages()?.length) return;
-        projectAssetPanel.use(id);
+        objectToolbar.placeAsset(id);
     },
 
     addAsset: ({ name, mainUrl, thumbUrl, width, height, byteLength }) => {
@@ -168,6 +196,7 @@ const projectAssetPanel = createProjectAssetPanel({
         refresh(); updateHistoryButtons(); triggerAutoSave();
     },
     useAsset: (id, kind) => {
+        if(kind==='place'){objectToolbar.placeAsset(id);return;}
         const asset = state.projectAssets?.find(item => item.id === id);
         if (!asset || _flowAuthoringComposing || _flowTranslationJob?.state === 'running') return;
         const active = getActiveBlock();
@@ -5033,6 +5062,7 @@ function setCurrentDeviceThumbColumns(cols) {
 //  refresh — 画面全体を再描画する (Gen3: image pages only)
 // ──────────────────────────────────────
 function refresh(options = {}) {
+    for(const s of state.sections||[])if(s.objectOrder)initializeGraphicObjects(s,()=>createId('bubble'));
     refreshCanvasTranslationPanel();
     _flowCompare?.labels();
     if (_flowCompare?.enabled && (!['flow','page'].includes(getActiveBlock()?.kind) || (getActiveBlock()?.kind === 'flow' && isFlowSourceSelected(getActiveBlock().id)))) {
@@ -5377,6 +5407,10 @@ function refresh(options = {}) {
     syncImageRibbonContext({ active: editableFixedSection?.type === 'image',
         bubbleSelected: !!hasSelectedBubble, adjusting: isImageAdjusting,
         position: editableFixedSection?.type === 'image' ? getActiveImagePosition() : null });
+
+    objectToolbar.render();
+    const hasGraphicObjects=!!getActiveBlock()?.content?.graphicObjects?.length;
+    document.getElementById('image-upload-placeholder')?.classList.toggle('graphic-page-placeholder',hasGraphicObjects);
 
     // 言語タブの更新
     if (!skipAncillary) {
@@ -8587,6 +8621,8 @@ function renderFixedPagePreview(contentEl, adjSection, renderLang, adjIdx) {
     const token = {};
     contentEl._fixedPreviewToken = token;
     function appendPreviewBubbles() {
+        appendGraphicPreview(contentEl,adjSection,state.projectAssets||[],renderLang,state.defaultLang).catch(()=>{contentEl.dataset.graphicRenderError='true';});
+
         // 吹き出しレイヤー
         const bubbles = adjSection.bubbles || [];
         if (bubbles.length > 0) {
@@ -8610,6 +8646,8 @@ function renderFixedPagePreview(contentEl, adjSection, renderLang, adjIdx) {
                 }
                 if (el.id) el.id = ids.get(el.id);
             });
+            graphicOrder(adjSection).forEach((entry,index)=>{if(entry.legacy){const node=bLayer.querySelector(`[id$="bubble-svg-${entry.index}"]`);if(node){node.style.zIndex=String((index+1)*2);node.style.display=entry.legacy.visible===false?'none':'';}}});
+            bLayer.style.display='contents';
             bLayer.setAttribute('inert', '');
             contentEl.appendChild(bLayer);
         }
@@ -8638,6 +8676,7 @@ function renderFixedPagePreview(contentEl, adjSection, renderLang, adjIdx) {
         }
         contentEl.style.backgroundColor = _getTextPaperStyle(_getTextPaperPresetKey(adjSection)).backgroundColor;
         _renderTextIntoSpread(adjSection, renderLang, contentEl, spFrame, spContent);
+        appendPreviewBubbles();
     } else {
         // 画像ページ: メインキャンバスと同じ位置・トリミングで描画
         contentEl.innerHTML = '';
@@ -9147,9 +9186,7 @@ window.performRedo = performProjectRedo;
 // FAB用
 window.addBubbleFab = () => {
     if (!canEditActiveFixedPage()) return;
-    pushState();
-    addBubbleAtCenter(refresh);
-    triggerAutoSave();
+    objectToolbar.addText();
 };
 
 // バブル移動ハンドル用

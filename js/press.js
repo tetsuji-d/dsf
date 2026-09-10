@@ -1,3 +1,4 @@
+import { compositeGraphicObjects, appendGraphicThumbnail } from './graphic-object-renderer.js';
 import { calculateHorizonSaveProgress, isManualHorizonSaveCancellation } from './horizon-save-progress.js';
 /**
  * press.js — Press Room ロジック
@@ -950,6 +951,7 @@ function _createPressFlowPreflightPreviewSignature() {
         state.languageConfigs || {},
         _getSelectedPressLangs(),
         state.blocks || [],
+        state.projectAssets || [],
     ]);
 }
 
@@ -2856,6 +2858,10 @@ function _renderPageThumbs() {
         </div>`;
     }).join('');
 
+    container.querySelectorAll('.press-thumb-item').forEach((item,index)=>{
+        const section=previewPages[index]?.section;
+        if(section?.graphicObjects?.length||section?.objectOrder)appendGraphicThumbnail(item.querySelector('.press-thumb-media'),section,state.projectAssets||[],lang,state.defaultLang).catch(()=>{});
+    });
     if (projection) {
         const flowPageByKey = new Map(projection.pages
             .filter((page) => page.kind === 'flow')
@@ -3088,7 +3094,7 @@ async function _updateSizeEstimate() {
                 tasks.push({ kind: 'text', section, lang });
             } else {
                 const bgUrl = section.backgrounds?.[lang] || section.background;
-                if (!bgUrl && !_isSpreadImageSection(section)) continue;
+                if (!bgUrl && !section.objectOrder && !_isSpreadImageSection(section)) continue;
                 tasks.push({
                     kind: 'image',
                     section,
@@ -3388,7 +3394,7 @@ window.publishToCloud = async () => {
         for (const lang of langs) {
             if (section.type === 'text') {
                 totalOps += 1;
-            } else if (section.backgrounds?.[lang] || section.background) {
+            } else if (section.backgrounds?.[lang] || section.background || section.objectOrder) {
                 totalOps += 1;
             }
         }
@@ -3489,7 +3495,7 @@ window.publishToCloud = async () => {
                     blob = await _renderTextSectionToWebP(section, lang, targetW, targetH, _getPressQualityForSection(section, targetW, targetH));
                 } else {
                     const bgUrl = section.backgrounds?.[lang] || section.background;
-                    if (!bgUrl && !_isSpreadImageSection(section)) continue;
+                    if (!bgUrl && !section.objectOrder && !_isSpreadImageSection(section)) continue;
                     done++;
                     setModalProgress(
                         t('press_rendering_progress', { done, total: totalOps }),
@@ -3843,7 +3849,13 @@ async function _renderSpreadImagePairBlobs(bgUrl, pos, targetW, targetH, quality
     return { leftBlob, rightBlob };
 }
 
-async function _renderSectionImageBlob(section, lang, targetW, targetH, quality, pageIndex, pages = _getRenderablePages()) {
+async function _renderSectionImageBlob(section,lang,w,h,quality,pageIndex,pages=_getRenderablePages()) {
+    const hasBackground=section?.backgrounds?.[lang]||section?.backgrounds?.[state.defaultLang]||section?.background;
+    const base=(hasBackground||_isSpreadImageSection(section))?await _renderSectionBaseImageBlob(section,lang,w,h,quality,pageIndex,pages):null;
+    return compositeGraphicObjects(base,section,state.projectAssets||[],lang,state.defaultLang,w,h,c=>encodeCanvasToWebP(c,quality,'Graphic page'));
+}
+
+async function _renderSectionBaseImageBlob(section, lang, targetW, targetH, quality, pageIndex, pages = _getRenderablePages()) {
     const bgUrl = section?.backgrounds?.[lang] || section?.backgrounds?.[state.defaultLang] || section?.background || '';
     const pos = section?.imagePositions?.[lang]
         || section?.imagePositions?.[state.defaultLang]
@@ -3944,7 +3956,7 @@ export async function renderPressSectionToWebP(section, lang, targetW, targetH, 
     const pages = Array.isArray(pagesOverride) ? pagesOverride : _getRenderablePages();
     const pageIndex = Number.isInteger(pageIndexOverride) ? pageIndexOverride : pages.indexOf(section);
     const bgUrl = section?.backgrounds?.[lang] || section?.backgrounds?.[state.defaultLang] || section?.background;
-    if (!bgUrl && !_isSpreadImageSection(section)) return null;
+    if (!bgUrl && !section.objectOrder && !_isSpreadImageSection(section)) return null;
     return _renderSectionImageBlob(section, lang, targetW, targetH, _getPressQualityForSection(section, targetW, targetH), pageIndex, pages);
 }
 
@@ -4175,7 +4187,11 @@ function _drawHorizontalLine(ctx, line, x, baseline, width, justify, align = 'st
  * 縦書きは CSS/html2canvas に任せず、Canvas に列と文字を明示配置する。
  * 横書きも Canvas に直接描画する。html2canvas の foreignObject は環境により白紙化するため使わない。
  */
-async function _renderTextSectionToWebP(section, lang, targetW, targetH, quality) {
+async function _renderTextSectionToWebP(section,lang,w,h,quality) {
+    const base=await _renderTextSectionBaseWebP(section,lang,w,h,quality);
+    return compositeGraphicObjects(base,section,state.projectAssets||[],lang,state.defaultLang,w,h,c=>encodeCanvasToWebP(c,quality,'Graphic text page'));
+}
+async function _renderTextSectionBaseWebP(section, lang, targetW, targetH, quality) {
     const writingMode = getWritingModeFromConfigs(lang, state.languageConfigs || {});
     if (writingMode === 'vertical-rl') {
         return _renderVerticalTextSectionToWebP(section, lang, targetW, targetH, quality);

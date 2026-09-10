@@ -451,3 +451,19 @@ Excel（`.xlsx`）が Ooxml ベースで新機能（新しいグラフ、新し�
 1.  **未知データの扱い**: 表示に影響しない未知metadataは無視できる。一方、配信の未知style／必須描画capabilityは数値schemaVersionが既知でも拒否し、誤描画を避ける。authoring内容や順序に影響する未知Blockはround-tripのため保持し、対応できないEditorは編集保存を停止する。未知のFlow semantic Blockも保持したうえでvalidation／paginationを停止し、本文を黙って欠落させない。
 2.  **`fallback` プロパティの推奨**: 新しい機能（例：動画背景 `type: "video"`）を追加した場合、ビューアが非対応なら代替表示ができるよう、`fallback_image` のようなプロパティを標準化する。
 3.  **`schemaVersion` によるマイグレーション**: スキーマが根本的に変わる場合（例：旧来は配列だったものがオブジェクトのMapになる等）は、`schemaVersion` をインクリメントし、アプリ側で旧データを新データ構造にオンザフライで変換するマイグレーション関数を通してから読み込む (`syncModelsFromLegacy` 関数などの拡張)。
+
+
+### Fixedページの編集用オブジェクト（Project v6 / DSP v2、2026-09-10）
+
+ユーザー承認済みの任意拡張。Fixed Blockの `content.graphicObjects` と `content.objectOrder` は一緒に保存する。新機能の使用時にProject v6へ移行し、未使用の旧Project/DSPには一括変換を行わない。
+
+- `graphicObjects`: `id`, `kind`（text/image/shape）, `name`, `visible`, `locked`, `frame`, `style`, 言語別 `texts`。
+- `frame`: 正規360×640座標のx/y/width/height/rotation。必要に応じて `frames[language]` が言語別位置を上書きする。
+- `style`: 塗り・枠線・文字のRGB色、独立したfillOpacity/strokeOpacity、線幅、文字サイズ・書体・太字・斜体・下線、余白、文字揃え、まとまりの配置、縦横書き。
+- image: `assetId` で既存 `projectAssets` の元WebPを参照。opacity、flipX/flipY、元画像に対する0〜1のcrop矩形を保持する。元画像は長辺最大7680px。サムネイルを本文画像として使用しない。
+- shape: rect / roundRect / ellipse / line / arrow / speech。線・矢印以外は言語別本文を持てる。
+- `objectOrder`: 背面から前面のID列。背景は常に最下層で列に含めない。対象ページの旧bubblesは初めて重なりを編集するときにIDだけを付与し、従来本文・形状・位置を維持する。
+
+保存と読込ではID重複・重なり参照・元画像参照・有限座標・色・crop範囲を検証する。DSPは既存projectAssets同梱経路で元WebPとサムネイルを収録する。Undo/Redoはオブジェクトとライブラリを同じスナップショットに含める。
+
+公開DSFへこの編集用モデルを渡さず、Fixedページの背景・重なり順・文字・配置画像をWebPに合成する。非表示は書き出しからも除外し、ロックは編集操作だけに作用する。オブジェクト付きFixedテキストページはWebPにフォールバックする。FlowのfixedTextは変更しない。

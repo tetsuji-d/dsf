@@ -1,0 +1,198 @@
+.graphic-toolbar,
+.graphic-object-tools {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  flex-wrap: wrap;
+}
+.graphic-toolbar[hidden] {
+  display: none;
+}
+.graphic-toolbar {
+  border-left: 1px solid var(--studio-border);
+  padding: 3px 6px;
+  max-width: 100%;
+}
+.graphic-tool {
+  width: 30px;
+  height: 30px;
+  padding: 3px;
+  border: 1px solid var(--studio-border);
+  border-radius: 5px;
+  background: var(--studio-surface);
+  color: var(--studio-text);
+  cursor: pointer;
+}
+.graphic-tool .material-icons {
+  font-size: 19px;
+}
+.graphic-tool.active {
+  background: #173866;
+  border-color: #3b82f6;
+}
+.graphic-tool:disabled {
+  opacity: .35;
+  cursor: default;
+}
+.graphic-field {
+  display: flex;
+  gap: 3px;
+  align-items: center;
+  font-size: 10px;
+  color: var(--studio-text);
+}
+.graphic-field input {
+  width: 49px;
+  background: var(--studio-surface);
+  color: inherit;
+  border: 1px solid #334155;
+  border-radius: 4px;
+  padding: 4px;
+}
+.graphic-object-name {
+  max-width: 90px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 11px;
+}
+.graphic-object-tools select {
+  max-width: 88px;
+  background: var(--studio-surface);
+  color: var(--studio-text);
+}
+.graphic-popup {
+  position: fixed;
+  z-index: 20000;
+  background: var(--studio-surface);
+  color: var(--studio-text);
+  border: 1px solid #475569;
+  border-radius: 9px;
+  padding: 12px;
+  box-shadow: 0 8px 30px #0008;
+  max-height: 65vh;
+  overflow: auto;
+  width: 280px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.graphic-popup button {
+  background: var(--studio-surface);
+  color: var(--studio-text);
+  border: 1px solid #475569;
+  border-radius: 4px;
+  padding: 5px;
+  cursor: pointer;
+}
+.graphic-shape-gallery,
+.graphic-swatches {
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  gap: 5px;
+}
+.graphic-shape-gallery button {
+  height: 36px;
+}
+.graphic-shape-gallery svg {
+  width: 27px;
+  height: 27px;
+}
+.graphic-swatches button {
+  height: 28px;
+}
+.graphic-layer-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.graphic-layer-row > button:first-child {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+  text-align: left;
+}
+.graphic-paint {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+.graphic-hit {
+  position: absolute;
+  box-sizing: border-box;
+  cursor: move;
+  touch-action: none;
+}
+.graphic-hit.selected {
+  outline: 1px solid #2563eb;
+}
+.graphic-hit .graphic-resize {
+  display: none;
+  position: absolute;
+  right: -4px;
+  bottom: -4px;
+  width: 9px;
+  height: 9px;
+  background: #fff;
+  border: 1px solid #2563eb;
+  cursor: nwse-resize;
+}
+.graphic-hit.selected .graphic-resize {
+  display: block;
+}
+.graphic-hit textarea {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  box-sizing: border-box;
+  background: #ffffffeb;
+  border: 1px solid #2563eb;
+  resize: none;
+  padding: 10px;
+  z-index: 2;
+}
+.graphic-object-selected #prop-panel,
+.graphic-object-selected #edit-drawer,
+.graphic-object-selected #image-ribbon-group {
+  display: none !important;
+}
+.graphic-object-selected #panel-right,
+.graphic-object-selected .edit-drawer-rail {
+  display: none !important;
+}
+.graphic-page-placeholder {
+  visibility: hidden !important;
+}
+@media (min-width:1024px) {
+  body.graphic-object-selected #editor-room #workspace {
+    grid-template-columns: 0 0 minmax(0, 1fr) 0 0;
+  }
+  body.graphic-object-selected #image-ribbon-home {
+    display: none !important;
+  }
+}
+@media (max-width:1023px) {
+  #editor-room > .graphic-toolbar {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    background: var(--studio-surface);
+    z-index: 40;
+    flex-shrink: 0;
+  }
+  #editor-room > .graphic-toolbar .graphic-object-tools {
+    flex-wrap: nowrap;
+    flex-shrink: 0;
+  }
+  .graphic-tool {
+    flex-shrink: 0;
+  }
+}
+
+@media(max-width:1023px){#editor-room>.graphic-toolbar{position:fixed;top:88px;left:0;right:0;height:42px;z-index:950}body[data-device="mobile"][data-room="editor"].graphic-page-context #editor-main{padding-top:130px}}
+
+body.graphic-page-context #ribbon-bar [onclick="addBubbleFab()"]{display:none!important}

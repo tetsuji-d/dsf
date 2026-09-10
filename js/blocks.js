@@ -73,6 +73,7 @@ export function createPageBlockFromSection(section) {
         kind: 'page',
         content: {
             pageKind: src.type === 'text' ? 'text' : 'image',
+            ...(src.graphicObjects ? {graphicObjects:deepClone(src.graphicObjects),objectOrder:deepClone(src.objectOrder)} : {}),
             background: src.background || '',
             backgrounds: deepClone(src.backgrounds || {}),
             thumbnail: src.thumbnail || '',
@@ -99,6 +100,7 @@ export function createSectionFromPageBlock(block) {
     const c = block?.content || {};
     return {
         type: c.pageKind === 'text' ? 'text' : 'image',
+        ...(c.graphicObjects ? {graphicObjects:deepClone(c.graphicObjects),objectOrder:deepClone(c.objectOrder)} : {}),
         background: c.background || '',
         backgrounds: deepClone(c.backgrounds || {}),
         thumbnail: c.thumbnail || '',

@@ -209,6 +209,11 @@ const fallbackCases = [
         input: { block: createBlock({ texts: { ja: '今日は｛漢字｜かんじ｝。' } }) },
     },
     {
+        label: 'graphic objects',
+        expected: 'FIXED_TEXT_OVERLAY_UNSUPPORTED',
+        input: { block: createBlock({ graphicObjects: [{ id: 'graphic_1', kind: 'shape' }] }) },
+    },
+    {
         label: 'overlay',
         expected: 'FIXED_TEXT_OVERLAY_UNSUPPORTED',
         input: { block: createBlock({ layers: [{ id: 'layer_1' }] }) },
