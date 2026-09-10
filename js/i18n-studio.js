@@ -8,6 +8,7 @@ const STORAGE_KEY = 'dsf_studio_ui_lang';
 
 export const STRINGS = {
     ja: {
+        editor_viewer_preview: 'Viewerでプレビュー',
         compare_missing_short: '未翻訳',
         compare_previous: "前の段落",
         compare_next: "次の段落",
@@ -720,6 +721,7 @@ export const STRINGS = {
         zip_generating:          '⏳ ZIP生成中...',
     },
     en: {
+        editor_viewer_preview: 'Preview in Viewer',
         compare_missing_short: 'Not translated',
         compare_previous: "Previous paragraph",
         compare_next: "Next paragraph",
@@ -1445,6 +1447,7 @@ export function setUILang(lang) {
     _lang = lang;
     localStorage.setItem(STORAGE_KEY, lang);
     applyI18n();
+    document.dispatchEvent(new Event('studio-ui-language-change'));
 }
 
 /**

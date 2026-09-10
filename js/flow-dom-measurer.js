@@ -16,7 +16,7 @@ import {
 
 export const FLOW_DOM_SUPPORTED_WRITING_MODE = 'horizontal-tb';
 export const FLOW_DOM_SUPPORTED_WRITING_MODES = Object.freeze(['horizontal-tb', 'vertical-rl']);
-export const FLOW_DOM_RENDERER_VERSION = 16;
+export const FLOW_DOM_RENDERER_VERSION = 17;
 export const FLOW_DOM_HYPHENATION_MODES = Object.freeze(['auto', 'none']);
 
 const DEFAULT_MEASUREMENT_CACHE_SIZE = 2048;
@@ -343,6 +343,21 @@ export function renderFlowGeneratedPage(pageElement, options = {}) {
     pageElement.replaceChildren();
     const contentElement = pageElement.ownerDocument.createElement('div');
     pageElement.appendChild(contentElement);
+    if(options.page?.wrapRegions){
+        contentElement.className='flow-dom-content flow-dom-wrapped';
+        setContentStyles(contentElement,pageBox,typography,languageKey,writingMode,hyphenation);
+        // Region coordinates are page-relative; use a full-page wrapper for source mapping.
+        Object.assign(contentElement.style,{left:'0px',top:'0px',width:pageBox.width+'px',height:pageBox.height+'px'});
+        for(const region of options.page.wrapRegions){
+            const element=pageElement.ownerDocument.createElement('div');
+            renderFlowFragments(element,{pageBox:region.pageBox,languageKey,writingMode,typography,hyphenation,
+                fragments:options.page.fragments.slice(region.fragmentStart,region.fragmentStart+region.fragmentCount)});
+            element.className='flow-dom-region';
+            [...element.children].forEach((child,index)=>child.dataset.flowFragmentIndex=String(region.fragmentStart+index));
+            contentElement.append(element);
+        }
+        return contentElement;
+    }
     renderFlowFragments(contentElement, {
         fragments: options.page?.fragments,
         pageBox,

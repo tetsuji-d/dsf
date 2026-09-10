@@ -252,7 +252,7 @@ fingerprintで記録するauthoring metadataである。本文は従来どおり
 翻訳job、進捗、error、cancel状態も収録しない。
 
 translationStateはProject v6 DSPの任意拡張なので、`meta.json.schemaVersion:2`、`project.json.version:6`、
-FlowDocumentは注釈未使用のv1と明示適用後のv2を受け入れ、FlowLayout v1は変更しない。v2では本文をplain textに保ち、annotations[language]へルビ・圏点の範囲を保存する（[注釈契約](flow-annotations.md)）。既存原稿の自動変換は行わない。注釈付き言語のDSF発行は、本文・読み・圏点を実測した既存fixedText文字行へ投影する。注釈の欠落・重複・不一致は発行前に拒否する。translationState自身が`schemaVersion:1`を持つ。stateがない
+FlowDocumentは注釈未使用のv1と明示適用後のv2を受け入れ、注釈機能単体ではFlowLayout v1を維持する（段落画像を使う場合は末尾のFlowLayout v2契約を参照）。FlowDocument v2では本文をplain textに保ち、annotations[language]へルビ・圏点の範囲を保存する（[注釈契約](flow-annotations.md)）。既存原稿の自動変換は行わない。注釈付き言語のDSF発行は、本文・読み・圏点を実測した既存fixedText文字行へ投影する。注釈の欠落・重複・不一致は発行前に拒否する。translationState自身が`schemaVersion:1`を持つ。stateがない
 8B-1以前の手動翻訳は有効な`untracked`本文として読み込み、暗黙生成・暗黙上書きしない。futureまたは不正な
 translationState schemaは本文欠落を防ぐためProject validationで停止する。
 
@@ -467,3 +467,17 @@ Excel（`.xlsx`）が Ooxml ベースで新機能（新しいグラフ、新し�
 保存と読込ではID重複・重なり参照・元画像参照・有限座標・色・crop範囲を検証する。DSPは既存projectAssets同梱経路で元WebPとサムネイルを収録する。Undo/Redoはオブジェクトとライブラリを同じスナップショットに含める。
 
 公開DSFへこの編集用モデルを渡さず、Fixedページの背景・重なり順・文字・配置画像をWebPに合成する。非表示は書き出しからも除外し、ロックは編集操作だけに作用する。オブジェクト付きFixedテキストページはWebPにフォールバックする。FlowのfixedTextは変更しない。
+
+
+### FlowLayout v2：段落に紐づく画像・図形（承認済み）
+
+Project v6 / DSP meta schema v2のまま、使用するFlowだけ `flow.layout.schemaVersion:2` とする。
+`anchoredObjects` は `id`、`anchorBlockId`、既存image/shape `graphic`、`wrap: square|band`、`gapEm` を持つ。
+画像は既存 `projectAssets` の `assetId` を参照し、DSPには元WebPを保存する。`graphic.frame` と言語別 `frames` の位置は本文領域の左上からの論理座標である。
+生成ページ・回り込み領域・実測キャッシュは保存しない。未解決anchorは削除せず保持し、修復前の発行は拒否する。
+FlowLayout v1は引き続き受理する。v2の自動降格やv1への画像配置データ混入は許可しない。
+
+配信は既存DSF delivery v2の `fixedText.background.imageHref` を使用する。
+画像・図形だけをWebPに合成し、本文・ルビ・圏点は実測したfixedTextのまま残す。
+内部asset planの `purpose: fixedTextBackground` は公開manifestに持ち込まない。背景ファイルはページ数へ加算しない。
+詳細は [Flow回り込みの接続仕様](flow-wrap-integration-contract.md) を参照。

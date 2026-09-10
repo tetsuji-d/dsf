@@ -1,3 +1,5 @@
+import {createFlowObjectToolbarAdapter} from './flow-object-toolbar-adapter.js';
+import {openEditorViewerPreview} from './editor-viewer-preview.js';
 import { createStudioObjectToolbar } from './studio-object-toolbar.js';
 import { validateGraphicObjects, graphicOrder, initializeGraphicObjects } from './graphic-object-model.js';
 import { appendGraphicPreview } from './graphic-object-renderer.js';
@@ -143,8 +145,37 @@ import {
 } from './flow-runtime-pages.js';
 import { collection, getDocs, query, where, limit } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
 
+const flowObjectToolbar=createFlowObjectToolbarAdapter({
+    state,
+    canEdit:()=>!_flowAuthoringComposing && _flowTranslationJob?.state!=='running',
+    stopEditing:()=>clearFlowDirectEditRuntime(),
+    getAnchor:group=>{
+        if(_flowDirectEditSession?.groupId===group.id)return _flowDirectEditSession.blockId;
+        const index=getSelectedFlowRuntimePageIndex(group.id);
+        const page=_flowCanvasView?.getPages()?.find(p=>p.groupId===group.id&&p.flowPageIndex===index);
+        return page?.page.fragments.find(f=>f.blockType==='paragraph')?.blockId
+            || group.flow.document.sections.flatMap(s=>s.blocks).find(b=>b.type==='paragraph')?.id;
+    },
+    save:(group,assets)=>{
+        clearFlowDirectEditRuntime();endHistoryGroup();pushState();
+        state.projectAssets=assets;state.version=6;
+        dispatch({type:actionTypes.SET_STATE_FIELD,payload:{key:'blocks',value:state.blocks.map(b=>b.id===group.id?group:b)}});
+        _flowAuthoringSourceRevision+=1;
+        scheduleFlowAuthoringReflow(group.id,{immediate:true});refresh();updateHistoryButtons();triggerAutoSave();
+    },
+});
 const objectToolbar = createStudioObjectToolbar({
+    flow:flowObjectToolbar,
     state, refresh, prepareImage: prepareAuthoringImage, canEdit:canEditActiveFixedPage,
+    activateAt: target => { const surface=target.closest('[data-testid="editor-fixed-page"]'); if(surface?._flowPageEntry)activateProjectionPage(surface._flowPageEntry);return canEditActiveFixedPage(); },
+    commitBlocks: mutate => {
+        if(!canEditActiveFixedPage())return false;
+        const blocks=structuredClone(state.blocks);
+        try{mutate(blocks);validateGraphicObjects({...state,blocks});}catch{return false;}
+        endHistoryGroup();pushState();state.blocks=blocks;state.version=6;
+        state.sections=extractSectionsFromBlocks(blocks);state.pages=blocksToPages(blocks);
+        refresh();updateHistoryButtons();triggerAutoSave();return true;
+    },
     editText: (id,language,value) => {
         if(!canEditActiveFixedPage())return;
         const target=getActiveBlock(),object=target.content.graphicObjects?.find(o=>o.id===id);
@@ -180,7 +211,7 @@ const projectAssetPanel = createProjectAssetPanel({
         const surface = target.closest?.('[data-testid="editor-fixed-page"], [data-testid="flow-editor-generated-page"]');
         if (surface) {
             const page = surface._flowPageEntry;
-            if (page?.kind !== 'fixed') return;
+            if (!['fixed','flow'].includes(page?.kind)) return;
             activateProjectionPage(page);
         } else if (!target.closest?.('#canvas-view') || _flowCanvasView?.getPages()?.length) return;
         objectToolbar.placeAsset(id);
@@ -2238,13 +2269,14 @@ function createEditorFlowCanvas(language = null) {
         getDirection: () => getEditorLangDirection(language || state.activeLang || state.defaultLang || 'ja'),
         getJoinedPageIndices: pages => {
             const joins = getEditorCanvasSpreadJoins(pages);
-            if (!hasFlowGroups(state) && state.uiPrefs?.spreadView) {
-                pages.forEach((page, index) => {
-                    if (index && getSpreadAdjacentPageIndex(page.fixedPageIndex) === pages[index - 1].fixedPageIndex) joins.push(index);
-                });
+            if (hasFlowGroups(state) || state.uiPrefs?.spreadView) {
+                const book=normalizeBookSettings(state.book,state.bookMode,pages.length);
+                const first=book.mode==='none'?0:1,last=book.mode==='none'?pages.length:pages.length-1;
+                for(let i=first;i+1<last;i+=2)joins.push(i+1);
             }
             return joins;
         },
+        onBoundaryMenu:(event,page,position)=>openThumbnailContextMenu(event,{dataset:{blockIndex:String(page.blockIndex),flowPageIndex:String(page.flowPageIndex||0)}},position),
         renderFixedPage: (element, page) => {
             const preview = document.createElement('div');
             preview.className = 'editor-fixed-page-preview';
@@ -2308,10 +2340,14 @@ function createEditorFlowCanvas(language = null) {
                 }
                 return pageElement;
             };
+            flowObjectToolbar.mount(pageElement,page,event=>{
+                const surface=resolveSurface(event);if(!surface)return false;
+                setSelectedFlowRuntimePageIndex(page.groupId,page.flowPageIndex);return true;
+            });
             pageElement.dataset.flowSourceMapping = page.isSourceFallback ? 'source-fallback' : 'ready';
             const editable = !page.isSourceFallback && ['horizontal-tb', 'vertical-rl'].includes(page.writingMode);
             pageElement.dataset.flowDirectCapability = editable ? 'editable' : 'unavailable';
-            pageElement.setAttribute('aria-label', `Flow生成ページ ${page.flowPageIndex + 1}。本文をクリックして編集`);
+            pageElement.setAttribute('aria-label', getUILang()==='en'?`Flow page ${page.flowPageIndex+1}. Click text to edit`:`Flow生成ページ ${page.flowPageIndex + 1}。本文をクリックして編集`);
             pageElement.addEventListener('pointerdown', event => {
                 const surface = resolveSurface(event);
                 if (surface) handleFlowPagePointerDown(event, getFlowGroupById(page.groupId), page, surface);
@@ -5384,7 +5420,7 @@ function refresh(options = {}) {
         propTitle.value = getActiveLanguageWorkTitle();
     }
     if (propTitle) {
-        propTitle.placeholder = titleLanguageProps.placeholders?.title || t('placeholder_work_title');
+        propTitle.placeholder = getUILang()==='en'?t('placeholder_work_title'):(titleLanguageProps.placeholders?.title || t('placeholder_work_title'));
         const titleFieldLabel = t('label_work_title_for_language', { language: titleLanguageName });
         propTitle.setAttribute('aria-label', titleFieldLabel);
         propTitle.title = titleFieldLabel;
@@ -8956,6 +8992,13 @@ function resolveEditorThumbDrop(hit, x, y, context) {
             rect: { left: horizontal ? (before !== rtl ? edge.left : edge.right) : edge.left,
                 top: horizontal ? edge.top : before ? edge.top : edge.bottom, width: edge.width, height: edge.height } };
     }
+    const slot=hit?.closest('.flow-canvas-page-slot');
+    if(slot&&(context.canvas||!hit.closest('.flow-editor-page-surface'))){
+        const index=Number(slot.dataset.blockIndex),target=state.blocks[index];if(!target)return null;
+        const box=slot.getBoundingClientRect(),rtl=slot.dataset.direction==='rtl',before=(x<box.left+box.width/2)!==rtl,position=before?'before':'after';
+        const result=moveAuthoringUnitInSpine(state.blocks,{sourceBlockId:context.id,targetBlockId:target.id,position});if(!result.changed)return null;
+        return {kind:'spine',targetId:target.id,position,label:context.label,rect:{left:before!==rtl?box.left:box.right,top:box.top,width:box.width,height:box.height}};
+    }
     const surface = hit?.closest('.flow-editor-page-surface');
     const page = surface?._flowPageEntry;
     if (!page || !isImage || page.isSourceFallback) return null;
@@ -8988,9 +9031,9 @@ bindEditorThumbnailDrag({
         if (editorDragBlocked()) return null;
         hideContextMenu();
         const block = state.blocks.find(block => block.id === thumb.dataset.editorUnitId);
-        if (!block || !['flow', 'page'].includes(block.kind) || block.content?.spreadImage) return null;
+        if (!block || !['flow', 'page'].includes(block.kind)) return null;
         return { id: block.id, snapshot: JSON.stringify(state.blocks), projectId: state.projectId, uid: state.uid,
-            language: state.activeLang, flowPageIndex: Number(thumb.dataset.flowPageIndex) || 0,
+            language: state.activeLang, canvas:thumb.classList.contains('editor-canvas-drag-handle'), flowPageIndex: Number(thumb.dataset.flowPageIndex) || 0,
             label: t(block.kind === 'flow' ? 'flow_drag_whole_group' : 'flow_drag_image_or_page') };
     },
     resolve: resolveEditorThumbDrop,
@@ -10284,9 +10327,8 @@ window.closeProjectSettings = (e) => {
 
 function _assertProjectSettingsPersistenceCompleted() {
     const expectedTarget = state.projectId && state.uid ? 'Cloud' : 'Local';
-    const expectedStatus = `保存済み (${expectedTarget})`;
-    const actualStatus = String(document.getElementById('save-status')?.textContent || '');
-    if (actualStatus.includes(expectedStatus)) return;
+    const indicator=document.getElementById('save-status');
+    if (indicator?.dataset.saveStatus==='saved' && indicator.dataset.saveTarget===expectedTarget) return;
     const error = new Error('プロジェクト設定を保存できませんでした。接続状態を確認して、もう一度保存してください。');
     error.code = 'PROJECT_SETTINGS_PERSISTENCE_FAILED';
     throw error;
@@ -10790,6 +10832,7 @@ onAuthChanged((user) => {
 }, firebaseAuth);
 
 // ── UI言語スイッチャー（windowに公開） ──────────────────────────
+window.previewEditorInViewer = openEditorViewerPreview;
 window.setStudioUILang = (lang) => {
     setUILang(lang);
     const currentRoom = getCurrentRoom();
@@ -11067,7 +11110,7 @@ initContextMenu(); // Initialize right-click context menu
 // ============================================================
 // Context Menu (Right-Click) Logic
 // ============================================================
-function openThumbnailContextMenu(event, thumb) {
+function openThumbnailContextMenu(event, thumb, initialPosition = null) {
     event.preventDefault();
     if (editorDragBlocked(false)) return;
     const index = Number(thumb.dataset.blockIndex);
@@ -11136,6 +11179,7 @@ function openThumbnailContextMenu(event, thumb) {
             {label:t(block.kind === 'flow' ? (position === 'before' ? 'thumb_add_flow_before_group' : 'thumb_add_flow_after_group') : 'thumb_add_flow'), run:()=>add(position,'flow')},
         ]);
     };
+    if(initialPosition){addMenu(initialPosition);return;}
     const joinOptions = {languageConfigs:state.languageConfigs};
     const joinStatus = inspectFlowJoin(state.blocks, block.id, joinOptions);
     const unifiedStatus = inspectFlowJoin(state.blocks, block.id, {...joinOptions,usePreviousLayout:true});

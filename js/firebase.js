@@ -1,3 +1,4 @@
+import { getUILang } from './i18n-studio.js';
 import { ASSET_MAX_LONG_EDGE, ASSET_MAX_BYTES, mapProjectAssetUrls } from './project-assets.js';
 import { decodeDspPublicationThumbnailImage } from './dsp-publication-thumbnail-import.js';
 /**
@@ -746,7 +747,10 @@ export function onAuthChanged(callback) {
 /**
  * 保存ステータスを更新してUIに反映する
  */
+let lastSaveIndicatorMessage = '';
+document.addEventListener('studio-ui-language-change',()=>{if(lastSaveIndicatorMessage)updateSaveIndicator(saveStatus,lastSaveIndicatorMessage);});
 function updateSaveIndicator(status, message) {
+    lastSaveIndicatorMessage=message||'';
     saveStatus = status;
     const el = document.getElementById('save-status');
     if (!el) return;
@@ -754,7 +758,11 @@ function updateSaveIndicator(status, message) {
     const icons = { idle: '', saving: '●', saved: '✓', error: '!' };
     const colors = { idle: '#999', saving: '#f0ad4e', saved: '#34c759', error: '#ff3b30' };
 
-    el.textContent = `${icons[status]} ${message || ''}`;
+    const target=message?.includes('(Cloud)')?'Cloud':message?.includes('(Local)')?'Local':'';
+    el.dataset.saveStatus=status;el.dataset.saveTarget=target;
+    const en={idle:'Unsaved',saving:'Saving…',saved:'Saved',error:'Save failed'};
+    const display=getUILang()==='en'?(en[status]||message)+(target?' ('+target+')':''):message||'';
+    el.textContent = `${icons[status]} ${display}`;
     el.style.color = colors[status];
 }
 

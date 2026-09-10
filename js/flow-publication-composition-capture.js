@@ -1,3 +1,4 @@
+import {composeFlowWithAnchoredObjects} from './flow-wrap-composition.js';
 import {getFlowPublicationAnnotationGlyphs} from './flow-publication-annotations.js';
 import {getFlowFragmentDomPosition} from './flow-source-mapping.js';
 /**
@@ -972,7 +973,7 @@ function capturePage(page, context, surface) {
         });
     }
     decorations.forEach(node=>{node.style.display='';});
-    const elements = Array.from(contentElement.children);
+    const elements = Array.from(contentElement.querySelectorAll('.flow-dom-block'));
     if (elements.length !== page.fragments.length) {
         fail('FLOW_PUBLICATION_CAPTURE_DOM_SOURCE_MISMATCH', 'Rendered Flow block count differs from pagination.', {
             pageIndex: page.index,
@@ -990,6 +991,7 @@ function capturePage(page, context, surface) {
         index: page.index,
         manualBreakBefore: cloneManualBreak(page.manualBreakBefore),
         lines,
+        ...(page.anchoredObject ? {wrapLayout: structuredClone({object:page.anchoredObject,regions:page.wrapRegions})} : {}),
         ...(page.fragments.some(f=>f.annotations?.length)?{annotations:elements.flatMap((element,index)=>captureFragmentAnnotations(element,page.fragments[index],context,pageRect,surface))}:{}),
     };
 }
@@ -1035,7 +1037,10 @@ export async function createFlowPublicationCompositionCaptureSession(options = {
         }),
         paginate(paginationOptions = {}) {
             assertActive();
-            const pagination = paginateFlowDocument(context.document, {
+            const paginate = context.flowGroup.flow.layout.anchoredObjects?.length
+                ? (_document, opts) => composeFlowWithAnchoredObjects(context.flowGroup, {...opts, ownerDocument:context.ownerDocument, typography:context.measurementTypography})
+                : paginateFlowDocument;
+            const pagination = paginate(context.document, {
                 languageKey: context.language,
                 writingMode: context.writingMode,
                 pageBox: context.pageBox,

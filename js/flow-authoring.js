@@ -1,3 +1,4 @@
+import {retargetFlowObjects} from './flow-anchored-objects.js';
 import { validateFlowIndent } from './flow-indent.js';
 import { validateFlowTextSelection, createFlowTextSelection } from './flow-text-selection.js';
 import { inspectFlowParagraphMerge, canRemoveEmptyFlowTextBlock } from './flow-paragraph-merge.js';
@@ -551,6 +552,7 @@ export function applyFlowAuthoringOperation(blocks, operation, options = {}) {
             }
             mergeAnnotatedText(previousBlock, block, sourceLanguage, previousText.length);
             previousBlock.texts = { ...previousBlock.texts, [sourceLanguage]: previousText + currentText };
+            retargetFlowObjects(context.group,block.id,previousBlock.id);
             section.blocks.splice(blockIndex, 1);
             break;
         }

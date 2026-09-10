@@ -1,3 +1,4 @@
+import {composeFlowWithAnchoredObjects} from './flow-wrap-composition.js';
 /** Browser-only runtime pagination for persisted Project v6 Flow groups. */
 
 import {
@@ -335,7 +336,10 @@ async function paginateFlowGroup(group, options) {
             }
         }
     }
-    const { pagination, changeSet } = await session.paginator.paginateAsync(paginationDocument, {
+    const { pagination, changeSet } = group.flow.layout.anchoredObjects?.length
+        ? {pagination:composeFlowWithAnchoredObjects({...group,flow:{...group.flow,document:paginationDocument}},
+            {pageBox,languageKey,writingMode,typography,ownerDocument,signal,maxPages:options.maxPagesPerGroup||DEFAULT_MAX_PAGES_PER_GROUP}),changeSet:null}
+        : await session.paginator.paginateAsync(paginationDocument, {
             revision: options.revision,
             signal,
             maxPagesPerChunk: options.maxPagesPerChunk || 1,

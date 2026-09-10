@@ -1,3 +1,4 @@
+import {appendFlowGraphicPreview} from './graphic-object-renderer.js';
 import { appendGraphicThumbnail } from './graphic-object-renderer.js';
 /**
  * sections.js — editor-facing page operations + thumbnail rendering
@@ -1058,6 +1059,7 @@ export function renderThumbs() {
             writingMode: page.writingMode,
             typography: page.typography,
         });
+        void appendFlowGraphicPreview(pageElement,page.page,state.projectAssets || [],page.languageKey,state.defaultLang).catch(()=>{});
         const viewport = pageElement.parentElement;
         const scale = Math.max(0, (viewport?.clientWidth || 0) / CANONICAL_PAGE_WIDTH);
         pageElement.style.position = 'absolute';

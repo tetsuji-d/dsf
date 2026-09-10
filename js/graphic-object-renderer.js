@@ -223,3 +223,11 @@ export {
   getGraphicFrame,
   renderGraphicLayerCanvas
 };
+
+/** Graphics only: Flow text and annotations remain semantic DOM/fixedText. */
+export async function appendFlowGraphicPreview(element,page,assets,language,defaultLanguage){
+  if(!page?.anchoredObject)return;
+  const canvas=await renderGraphicLayerCanvas(page.anchoredObject.graphic,assets,language,defaultLanguage);
+  if(!element.isConnected)return;
+  canvas.className='graphic-paint';canvas.style.pointerEvents='none';element.append(canvas);
+}

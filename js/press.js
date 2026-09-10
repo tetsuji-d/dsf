@@ -1,3 +1,5 @@
+import {appendFlowGraphicPreview} from './graphic-object-renderer.js';
+import {drawGraphicObject} from './graphic-object-renderer.js';
 import { compositeGraphicObjects, appendGraphicThumbnail } from './graphic-object-renderer.js';
 import { calculateHorizonSaveProgress, isManualHorizonSaveCancellation } from './horizon-save-progress.js';
 /**
@@ -1774,21 +1776,23 @@ function _throwIfPressFlowLocalReleaseCancelled(signal, requestId) {
     throw error;
 }
 
-async function _createPressFlowLocalReleaseImageAssets(preparation, languages, targetWidth, targetHeight, signal, requestId) {
+async function _createPressFlowLocalReleaseImageAssets(preparation, languages, targetWidth, targetHeight, signal, requestId, check = () => _throwIfPressFlowLocalReleaseCancelled(signal, requestId)) {
     const pageBlocks = Array.isArray(state.blocks)
         ? state.blocks.filter((block) => block?.kind === 'page')
         : [];
     const renderablePages = _getRenderablePages();
     const imageAssets = {};
+    const backgroundAssets = {};
     const sealedAssets = [];
     for (const language of languages) {
-        _throwIfPressFlowLocalReleaseCancelled(signal, requestId);
+        check();
         const languageResult = preparation.languages.find((result) => result?.language === language);
         imageAssets[language] = {};
+        backgroundAssets[language] = {};
         const imageDecisions = (languageResult?.preflight?.decisions || [])
             .filter((decision) => decision?.renderKind === 'image');
         for (const decision of imageDecisions) {
-            _throwIfPressFlowLocalReleaseCancelled(signal, requestId);
+            check();
             if (decision.sourceKind !== 'fixed') {
                 const error = new Error('Flow image fallback cannot be included implicitly.');
                 error.code = 'FLOW_LOCAL_RELEASE_IMAGE_SOURCE_UNSUPPORTED';
@@ -1809,7 +1813,7 @@ async function _createPressFlowLocalReleaseImageAssets(preparation, languages, t
                 fixedPageIndex,
                 renderablePages,
             );
-            _throwIfPressFlowLocalReleaseCancelled(signal, requestId);
+            check();
             if (!(blob instanceof Blob) || blob.type !== 'image/webp') {
                 const error = new Error(`Fixed page ${decision.blockId} did not produce a WebP asset.`);
                 error.code = 'FLOW_LOCAL_RELEASE_WEBP_MISSING';
@@ -1834,7 +1838,25 @@ async function _createPressFlowLocalReleaseImageAssets(preparation, languages, t
             });
         }
     }
-    return { imageAssets, sealedAssets };
+    for(const language of languages){
+        const result=preparation.languages.find(r=>r.language===language);
+        for(const decision of result.preflight.decisions) for(const bg of decision.projection?.backgrounds || []) {
+            check();
+            if(bg.revision!==decision.projection.revision)throw new Error('FLOW_BACKGROUND_STALE');
+            const canvas=document.createElement('canvas');canvas.width=targetWidth;canvas.height=targetHeight;
+            const ctx=canvas.getContext('2d');ctx.scale(targetWidth/360,targetHeight/640);
+            ctx.fillStyle=decision.projection.manifest.pages[bg.pageIndex].background.color;ctx.fillRect(0,0,360,640);
+            await drawGraphicObject(ctx,bg.object.graphic,state.projectAssets || [],language,state.defaultLang);
+            check();
+            const blob=await new Promise(resolve=>canvas.toBlob(resolve,'image/webp',.95));
+            const index=decision.deliveryPageIndex+bg.pageIndex;
+            const sealed=await _pressFlowLocalReleaseSealingModule.sealDsfWebPAsset({bytes:blob,expectedWidth:targetWidth,expectedHeight:targetHeight});
+            check();
+            backgroundAssets[language][JSON.stringify([decision.blockId,bg.pageIndex])]=sealed.descriptor;
+            sealedAssets.push({language,blockId:decision.blockId,pageIndex:index,sealed});
+        }
+    }
+    return { imageAssets, backgroundAssets, sealedAssets };
 }
 
 async function _requestPressFlowLocalReleasePlanning(preparation = _pressFlowProductionPreparationResult) {
@@ -1904,7 +1926,7 @@ async function _requestPressFlowLocalReleasePlanning(preparation = _pressFlowPro
         const defaultLang = languages.includes(state.defaultLang) ? state.defaultLang : languages[0];
         const resolutionKey = resolvePressResolutionKey(document.getElementById('press-resolution')?.value);
         const { width, height } = getPressResolutionDims(resolutionKey);
-        const { imageAssets, sealedAssets } = await _createPressFlowLocalReleaseImageAssets(
+        const { imageAssets, backgroundAssets, sealedAssets } = await _createPressFlowLocalReleaseImageAssets(
             preparation,
             languages,
             width,
@@ -1918,7 +1940,7 @@ async function _requestPressFlowLocalReleasePlanning(preparation = _pressFlowPro
             defaultLang,
             languages,
             pageDirections: Object.fromEntries(languages.map((language) => [language, _getLangDirection(language)])),
-            imageAssets,
+            imageAssets, backgroundAssets,
         });
         if (
             controller.signal.aborted
@@ -2876,6 +2898,7 @@ function _renderPageThumbs() {
                 writingMode: page.writingMode,
                 typography: page.typography,
             });
+        void appendFlowGraphicPreview(pageElement,page.page,state.projectAssets || [],page.languageKey,state.defaultLang).catch(()=>{});
             pageElement.style.position = 'absolute';
             pageElement.style.left = '0';
             pageElement.style.top = '0';
@@ -4203,4 +4226,18 @@ function _esc(str) {
     return String(str ?? '')
         .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
         .replace(/"/g, '&quot;');
+}
+
+/** Read-only editor preview; uses the same certified Flow and portable ZIP pipeline as Press. */
+export async function createEditorFlowPreview({project,languages,signal,check,onProgress}) {
+  const {prepareFlowPressPublication}=await import('./flow-press-publication-preparation.js');
+  const preparation=await prepareFlowPressPublication({project,languages,revision:Date.now(),documentRef:document,signal,onProgress});check();
+  if(!preparation.ok)throw new Error('PREVIEW_PREPARATION_BLOCKED');
+  _pressFlowLocalReleaseSealingModule ||= await import('./dsf-release-byte-sealing.js');
+  const {imageAssets,backgroundAssets,sealedAssets}=await _createPressFlowLocalReleaseImageAssets(preparation,languages,1080,1920,signal,null,check);check();
+  const {createFlowPressLocalReleasePlanning}=await import('./flow-press-local-release-planning.js');
+  const planning=await createFlowPressLocalReleasePlanning({preparation,defaultLang:languages.includes(project.defaultLang)?project.defaultLang:languages[0],languages,pageDirections:Object.fromEntries(languages.map(l=>[l,_getLangDirection(l)])),imageAssets,backgroundAssets});check();
+  const {createFlowPressLocalReleasePackage}=await import('./flow-press-local-release-package.js');
+  const result=await createFlowPressLocalReleasePackage({planning,sealedAssets,metadata:_createPressFlowLocalReleaseMetadata(languages),signal});check();
+  return result.zipPackage.blob;
 }

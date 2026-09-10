@@ -5,13 +5,13 @@ import { normalizeFlowPageGuideMode, resolveFlowPageRuleGuide } from './flow-pag
 
 /** Editor-only virtual page strip. Page geometry and saved publication data never change. */
 export function createFlowCanvasView({ container, getPinnedPageIndex, onPageCreate,
-    onGeometryChange, onScrollPage, onReadingScroll, getPageLabel, getFlowGroupLabel, renderFixedPage, onBeforeRemove, getDirection, getJoinedPageIndices }) {
+    onGeometryChange, onScrollPage, onReadingScroll, getPageLabel, getFlowGroupLabel, renderFixedPage, onBeforeRemove, getDirection, getJoinedPageIndices, onBoundaryMenu }) {
     const viewport = document.createElement('div');
     viewport.id = 'flow-canvas-viewport';
     viewport.className = 'flow-canvas-viewport';
     viewport.dataset.testid = 'flow-canvas-viewport';
     viewport.setAttribute('role', 'region');
-    viewport.setAttribute('aria-label', '作品ページ・横スクロール');
+    viewport.setAttribute('aria-label', document.documentElement.lang==='en'?'Work pages, horizontal scrolling':'作品ページ・横スクロール');
     viewport.tabIndex = 0;
     viewport.hidden = true;
     viewport.dataset.flowPageGuideMode = 'off';
@@ -84,6 +84,9 @@ export function createFlowCanvasView({ container, getPinnedPageIndex, onPageCrea
                 slot.dataset.flowPageIndex = String(index);
                 slot.dataset.pageKind = page.kind;
                 slot.dataset.runtimeKey = page.runtimeKey;
+                slot.dataset.editorUnitId=page.groupId||page.blockId;
+                slot.dataset.blockIndex=String(page.blockIndex);
+                slot.dataset.generatedPageIndex=String(page.flowPageIndex||0);
                 const pageFrame = document.createElement('div');
                 pageFrame.className = 'flow-canvas-page-frame';
                 const pageElement = document.createElement('div');
@@ -94,11 +97,16 @@ export function createFlowCanvasView({ container, getPinnedPageIndex, onPageCrea
                 pageElement.dataset.flowPageIndex = String(index);
                 pageElement._flowPageEntry = page;
                 pageFrame.appendChild(pageElement);
+                const grip=document.createElement('span');grip.className='editor-canvas-drag-handle editor-canvas-frame-grip';grip.dataset.editorUnitId=page.blockId;grip.dataset.flowPageIndex=String(page.flowPageIndex||0);grip.title=document.documentElement.lang==='en'?'Hold to move page / Flow group':'長押ししてページ／Flow全体を移動';pageFrame.append(grip);
                 slot.appendChild(pageFrame);
                 const label = document.createElement('div');
                 label.className = 'flow-canvas-page-label';
                 label.textContent = getPageLabel(page);
+                label.dataset.editorUnitId=page.groupId||page.blockId;label.dataset.flowPageIndex=String(page.flowPageIndex||0);
+                label.classList.add('editor-canvas-drag-handle');label.tabIndex=0;
                 slot.appendChild(label);
+                if(index<pages.length-1){const gap=document.createElement('button');gap.type='button';gap.className='editor-canvas-boundary';gap.textContent='+';gap.setAttribute('aria-label',document.documentElement.lang==='en'?'Insert page here':'ここにページを挿入');gap.oncontextmenu=e=>{e.preventDefault();e.stopPropagation();onBoundaryMenu?.(e,page,'after');};gap.onclick=e=>{e.stopPropagation();onBoundaryMenu?.(e,page,'after');};slot.append(gap);}
+
                 if (page.kind === 'flow') {
                     const band = document.createElement('div'); band.className = 'flow-canvas-group-band';
                     band.textContent = (getFlowGroupLabel?.(page) || 'Flow') + ' · ' + (page.flowPageIndex + 1) + '/' + page.flowPageCount;
@@ -121,6 +129,8 @@ export function createFlowCanvasView({ container, getPinnedPageIndex, onPageCrea
                 left: `${position.left}px`, top: `${position.top}px`, width: `${position.width}px`,
                 height: `${position.height + layout.labelHeight}px`,
             });
+            entry.slot.dataset.direction=getDirection?.()||'ltr';
+            entry.slot.dataset.joinedAfter=String(getJoinedPageIndices?.(pages)?.includes(index+1)||false);
             entry.slot.dataset.groupSelected = String(page.kind === 'flow' && pages[selected]?.groupId === page.groupId);
             const selectedSpread = pages[selected]?.section?.spreadImage?.groupId;
             entry.slot.dataset.selected = String(index === selected || !!(selectedSpread

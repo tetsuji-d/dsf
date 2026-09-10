@@ -1,3 +1,4 @@
+import {validateFlowAnchoredObjects} from './flow-anchored-objects.js';
 /**
  * Pure Project v6 authoring model for mixed Fixed and Flow content.
  *
@@ -139,7 +140,7 @@ export function createFlowLayoutSettings(options = {}) {
 
     return {
         ...source,
-        schemaVersion: FLOW_LAYOUT_SCHEMA_VERSION,
+        schemaVersion: source.schemaVersion ?? FLOW_LAYOUT_SCHEMA_VERSION,
         pagePreset: source.pagePreset ?? FLOW_CANONICAL_PAGE_PRESET,
         padding,
         typographyByLanguage,
@@ -159,11 +160,12 @@ export function validateFlowLayoutSettings(layout) {
         return { valid: false, issues };
     }
 
-    if (layout.schemaVersion !== FLOW_LAYOUT_SCHEMA_VERSION) {
+    if (![1,2].includes(layout.schemaVersion)) {
         addIssue(issues, 'unsupported_flow_layout_schema_version', 'schemaVersion', 'Unsupported Flow layout schema version.', {
             supportedVersion: FLOW_LAYOUT_SCHEMA_VERSION,
         });
     }
+    try { validateFlowAnchoredObjects(layout); } catch { addIssue(issues,'invalid_flow_objects','anchoredObjects','Invalid Flow anchored objects.'); }
     if (layout.pagePreset !== FLOW_CANONICAL_PAGE_PRESET) {
         addIssue(issues, 'unsupported_flow_page_preset', 'pagePreset', 'Flow layout must use the canonical DSF page preset.');
     }

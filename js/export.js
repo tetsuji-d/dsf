@@ -221,7 +221,7 @@ export async function buildDSP() {
 }
 
 // --- Build .dsf (Content/Publish Archive) ---
-export async function buildDSF() {
+export async function buildDSF(options = {}) {
     if (hasFlowGroups(state)) {
         const artifact = getFlowPortableDsfDownloadArtifact();
         const currentArtifact = getFlowPortableDsfDownloadArtifact();
@@ -262,7 +262,7 @@ export async function buildDSF() {
         const rawResKey = resolvePressResolutionKey(document.getElementById('press-resolution')?.value || '1080x1920');
         const exportResKey = clampPressPublishResolutionKey(rawResKey);
         const { width: targetW, height: targetH } = getPressResolutionDims(exportResKey);
-        const langs = getSelectedPressLangs();
+        const langs = options.languages || getSelectedPressLangs();
         const pages = getRenderablePressPages();
         const qualityProfile = getPressQualityProfile(exportResKey);
 
@@ -276,6 +276,7 @@ export async function buildDSF() {
 
         for (let pageIndex = 0; pageIndex < pages.length; pageIndex++) {
             throwIfPressRenderCancelled();
+            options.check?.();
             const section = pages[pageIndex];
             const exportedBackgrounds = {};
             const bytesByLang = {};
@@ -284,6 +285,7 @@ export async function buildDSF() {
             for (const lang of langs) {
                 throwIfPressRenderCancelled();
                 const blob = await renderPressSectionToWebP(section, lang, targetW, targetH, pageIndex, pages);
+                if(!blob&&options.preview)throw new Error('PREVIEW_PAGE_NOT_RENDERABLE');
                 if (!blob) continue;
                 const filename = `page_${String(pageIndex + 1).padStart(3, '0')}_${lang}.webp`;
                 const assetPath = `assets/images/${filename}`;
@@ -358,6 +360,7 @@ export async function buildDSF() {
         // 4. Determine Filename
         const safeTitle = (meta.title || 'comic').replace(/[\\/:*?"<>|]/g, '_');
         const defaultFilename = `${safeTitle}.dsf`;
+        if(options.preview){const blob=await zip.generateAsync({type:"blob"});options.check?.();return blob;}
         let filename = prompt("配信データのエクスポート名を入力してください:", defaultFilename);
 
         if (filename === null) {

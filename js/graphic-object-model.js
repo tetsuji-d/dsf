@@ -4,7 +4,7 @@ const color = (value) => typeof value === "string" && /^#[0-9a-f]{6}$/i.test(val
 const finite = (v, min, max) => Number.isFinite(v) && v >= min && v <= max;
 function validateGraphicObjects(project) {
   const assets = new Set((project.projectAssets || []).map((a) => a.id));
-  for (const block of project.blocks || []) {
+  for (const block of [...project.blocks || [], ...(project.blocks || []).flatMap(b => (b?.flow?.layout?.anchoredObjects || []).map(e => ({kind:"page",content:{graphicObjects:[e.graphic],objectOrder:[e.graphic?.id]}})))]) {
     if (block?.kind !== "page") continue;
     const c = block.content || {};
     if (c.graphicObjects === void 0 && c.objectOrder === void 0) continue;

@@ -1,7 +1,8 @@
-// Fixed-page authoring objects. Public delivery uses flattened WebP pages.
 import { initializeGraphicObjects, createGraphicObject, graphicOrder, GRAPHIC_SHAPES } from "./graphic-object-model.js";
 import { renderGraphicLayerCanvas, getGraphicFrame } from "./graphic-object-renderer.js";
 import "../css/studio-object-toolbar.css";
+import { getUILang } from "./i18n-studio.js";
+import { resizeGraphicFrame, rotateGraphicFrame, cropGraphicFrame, clamp } from "./graphic-object-geometry.js";
 const el = (tag, text, cls) => {
   const n = document.createElement(tag);
   if (text) n.textContent = text;
@@ -10,11 +11,14 @@ const el = (tag, text, cls) => {
 };
 const icons = { rect: '<rect x="3" y="5" width="22" height="17"/>', roundRect: '<rect x="3" y="5" width="22" height="17" rx="5"/>', ellipse: '<ellipse cx="14" cy="14" rx="11" ry="9"/>', line: '<path d="M3 23L25 4"/>', arrow: '<path d="M3 23L25 4M14 4H25V15"/>', speech: '<path d="M3 4H25V20H12L5 25V20H3Z"/>' };
 const names = { rect: ["四角形", "Rectangle"], roundRect: ["角丸四角形", "Rounded rectangle"], ellipse: ["楕円", "Ellipse"], line: ["直線", "Line"], arrow: ["矢印", "Arrow"], speech: ["吹き出し", "Speech"] };
-function createStudioObjectToolbar({ state, commit, refresh, prepareImage, selectLegacy, canEdit, editText, finishText }) {
-  let selected = null, pageKey = "", root, tools, popup, busy = false, sequence = 0;
-  const label = (ja, en) => document.documentElement.lang?.startsWith("en") ? en : ja;
+function createStudioObjectToolbar({ state, commit, refresh, prepareImage, selectLegacy, canEdit, editText, finishText, commitBlocks, activateAt, flow }) {
+  const fixedCommit=commit,fixedCanEdit=canEdit;
+  commit=fn=>flow?.active()?flow.commit(fn):fixedCommit(fn);
+  canEdit=()=>flow?.active()?flow.canEdit():fixedCanEdit();
+  let selected = null, pageKey = "", root, tools, popup, busy = false, sequence = 0, clipboard = null, cropCleanup = null;
+  const label = (ja, en) => getUILang() === "en" ? en : ja;
   const key = () => [state.projectId, state.localProjectId, state.uid, state.activeBlockIdx, state.activeLang].join("|");
-  const block = () => state.blocks?.[state.activeBlockIdx];
+  const block = () => flow?.active() ? flow.asBlock() : state.blocks?.[state.activeBlockIdx];
   const object = () => block()?.content?.graphicObjects?.find((o) => o.id === selected);
   const id = () => `object_${crypto.randomUUID()}`;
   function change(fn) {
@@ -35,6 +39,8 @@ function createStudioObjectToolbar({ state, commit, refresh, prepareImage, selec
     });
   }
   function closePopup() {
+    cropCleanup?.();
+    cropCleanup = null;
     popup?.remove();
     popup = null;
   }
@@ -168,6 +174,241 @@ function createStudioObjectToolbar({ state, commit, refresh, prepareImage, selec
       p.append(none);
     }
   }
+  const projectKey = () => [state.uid, state.projectId, state.localProjectId].join("|");
+  function copy(cut = false) {
+    const o = object();
+    if (flow?.active() || !o || cut && o.locked) return;
+    clipboard = { project: projectKey(), source: block().id, object: structuredClone(o), cut, signature: JSON.stringify(o) };
+    closePopup();
+  }
+  function canPaste() {
+    return !flow?.active() && clipboard?.project === projectKey() && block()?.kind === "page" && canEdit() && (!clipboard.cut || state.blocks.some((b) => b.id === clipboard.source && b.content?.graphicObjects?.some((o) => o.id === clipboard.object.id && !o.locked && JSON.stringify(o) === clipboard.signature)));
+  }
+  function paste() {
+    if (!canPaste()) return;
+    const clip = clipboard, target = block().id, newId = id();
+    const ok = commitBlocks?.((blocks) => {
+      const dest = blocks.find((b) => b.id === target);
+      initializeGraphicObjects(dest.content, id);
+      if (clip.cut) {
+        const src = blocks.find((b) => b.id === clip.source);
+        src.content.graphicObjects = src.content.graphicObjects.filter((o) => o.id !== clip.object.id);
+        src.content.objectOrder = src.content.objectOrder.filter((v) => v !== clip.object.id);
+      }
+      dest.content.graphicObjects.push({ ...structuredClone(clip.object), id: newId });
+      dest.content.objectOrder.push(newId);
+    });
+    if (ok) {
+      selected = newId;
+      state.activeBubbleIdx = null;
+      if (clip.cut) clipboard = null;
+      refresh();
+    }
+    closePopup();
+  }
+  function duplicate() {
+    const o = object();
+    if (!o || o.locked) return;
+    const copy2 = structuredClone(o);
+    copy2.id = id();
+    copy2.name += " " + label("コピー", "copy");
+    for (const f of [copy2.frame, ...Object.values(copy2.frames || {})]) {
+      f.x = clamp(f.x + 12, -3600, 3600);
+      f.y = clamp(f.y + 12, -6400, 6400);
+    }
+    change((c) => {
+      c.graphicObjects.push(copy2);
+      c.objectOrder.push(copy2.id);
+      selected = copy2.id;
+    });
+  }
+  function order(direction) {
+    if (!object() || object().locked) return;
+    change((c) => {
+      const i = c.objectOrder.indexOf(selected);
+      c.objectOrder.splice(i, 1);
+      const at = direction === "top" ? c.objectOrder.length : direction === "bottom" ? 0 : direction === "up" ? Math.min(i + 1, c.objectOrder.length) : Math.max(0, i - 1);
+      c.objectOrder.splice(at, 0, selected);
+    });
+  }
+  function resetImage() {
+    update((o) => {
+      o.crop = { x: 0, y: 0, width: 1, height: 1 };
+      o.flipX = false;
+      o.flipY = false;
+      setFrame(o, { ...getGraphicFrame(o, state.activeLang), rotation: 0 });
+    });
+  }
+  function contextMenu(x, y, pageOnly = false) {
+    const anchor = { getBoundingClientRect: () => ({ left: x, bottom: y }) }, p = pop(anchor), context = key(), target = selected;
+    p.classList.add("graphic-context-menu");
+    p.setAttribute("role", "menu");
+    const add2 = (ja, en, run, disabled = false) => {
+      const b = el("button", label(ja, en));
+      b.setAttribute("role", "menuitem");
+      b.disabled = disabled;
+      b.onclick = () => {
+        if (key() !== context || selected !== target) {
+          closePopup();
+          return;
+        }
+        run();
+        closePopup();
+      };
+      p.append(b);
+    };
+    const sep = () => p.append(el("hr"));
+    const o = pageOnly ? null : object();
+    if (o) {
+      if(!flow?.active()){
+        add2("切り取り", "Cut", () => copy(true), o.locked);
+        add2("コピー", "Copy", () => copy(false));sep();
+      }
+      if (o.kind === "image") {
+        add2("トリミング", "Crop", () => {
+          closePopup();
+          openCrop();
+        }, o.locked);
+        p.lastChild.onclick = () => {
+          if (key() === context && selected === target) {
+            closePopup();
+            openCrop();
+          }
+        };
+        add2("左右反転", "Flip horizontal", () => update((v) => v.flipX = !v.flipX), o.locked);
+        sep();
+      }
+      if(!flow?.active()){
+      const i = block().content.objectOrder.indexOf(o.id), last = block().content.objectOrder.length - 1;
+      add2("最前面に移動", "Bring to front", () => order("top"), o.locked || i === last);
+      add2("前面に移動", "Bring forward", () => order("up"), o.locked || i === last);
+      add2("背面に移動", "Send backward", () => order("down"), o.locked || i === 0);
+      add2("最背面に移動", "Send to back", () => order("bottom"), o.locked || i === 0);
+      }
+      if (o.kind === "image") {
+        sep();
+        add2("画像のリセット", "Reset image", resetImage, o.locked);
+        add2("画像の差し替え", "Replace image", () => upload(true), o.locked);
+      }
+      sep();
+      if(!flow?.active())add2("複製", "Duplicate", duplicate, o.locked);
+      add2("削除", "Delete", remove, o.locked);
+    } else add2("貼り付け", "Paste", paste, !canPaste());
+    const rect = p.getBoundingClientRect();
+    p.style.top = clamp(y, 6, innerHeight - rect.height - 6) + "px";
+    const choices = [...p.querySelectorAll("button:not(:disabled)")];
+    choices[0]?.focus({ preventScroll: true });
+    p.onkeydown = (e) => {
+      if (["ArrowDown", "ArrowUp"].includes(e.key)) {
+        e.preventDefault();
+        const i = choices.indexOf(document.activeElement);
+        choices[(i + (e.key === "ArrowDown" ? 1 : -1) + choices.length) % choices.length]?.focus();
+      }
+    };
+  }
+  function openCrop() {
+    const o = object();
+    if (!o || o.kind !== "image" || o.locked) return;
+    const context = key(), target = o.id, source = state.projectAssets.find((a) => a.id === o.assetId);
+    if (!source) return;
+    const p = pop(root);
+    p.classList.add("graphic-crop-popup", "graphic-crop-inline-controls");
+    p.setAttribute("role", "dialog");
+    p.setAttribute("aria-label", label("画像のトリミング", "Crop image"));
+    p.append(el("strong", label("トリミング", "Crop image")), el("small", label("黒いハンドルで範囲を変更。枠内をドラッグして構図を調整します。", "Drag black handles to crop. Drag inside the frame to adjust the composition.")));
+    const stage = el("div", null, "graphic-crop-stage"), img = el("img");
+    img.src = source.background;
+    img.alt = "";
+    img.draggable = false;
+    stage.append(img);
+    const layer = flow?.active() ? flow.layer(selected) : document.getElementById("bubble-layer"), f = getGraphicFrame(o, state.activeLang), sx = f.width / o.crop.width, sy = f.height / o.crop.height;
+    if (!layer) {
+      closePopup();
+      return;
+    }
+    const overlay = el("div", null, "graphic-crop-overlay");
+    Object.assign(overlay.style, { left: f.x + f.width / 2 + "px", top: f.y + f.height / 2 + "px", transform: `rotate(${f.rotation}deg) scale(${o.flipX ? -1 : 1},${o.flipY ? -1 : 1})` });
+    Object.assign(stage.style, { width: sx + "px", height: sy + "px", left: -o.crop.x * sx - f.width / 2 + "px", top: -o.crop.y * sy - f.height / 2 + "px" });
+    overlay.append(stage);
+    layer.append(overlay);
+    const paintLayer = layer.querySelector(`.graphic-paint[data-object-id="${o.id}"]`), oldVisibility = paintLayer?.style.visibility;
+    if (paintLayer) paintLayer.style.visibility = "hidden";
+    cropCleanup = () => {
+      overlay.remove();
+      if (paintLayer) paintLayer.style.visibility = oldVisibility;
+    };
+    let crop = { ...o.crop }, pan = {x:0,y:0};
+    const frame = el("div", null, "graphic-crop-frame");
+    stage.append(frame);
+    for (const k of ["nw", "n", "ne", "e", "se", "s", "sw", "w"]) {
+      const h = el("span", null, "graphic-crop-handle");
+      h.dataset.corner = k;
+      h.title = label("切り抜き範囲", "Crop bounds");
+      frame.append(h);
+    }
+    const paint = () => {
+      Object.assign(frame.style,{left:crop.x*100+'%',top:crop.y*100+'%',width:crop.width*100+'%',height:crop.height*100+'%'});
+      stage.style.left=(-o.crop.x*sx-f.width/2-pan.x*sx)+'px';
+      stage.style.top=(-o.crop.y*sy-f.height/2-pan.y*sy)+'px';
+    };
+    paint();
+    frame.onpointerdown = (e) => {
+      if (e.button !== 0) return;
+      e.preventDefault();
+      const start = { ...crop }, startPan={...pan}, x = e.clientX, y = e.clientY, scale = layer.getBoundingClientRect().width / 360, k = e.target.dataset.corner;
+      frame.setPointerCapture(e.pointerId);
+      frame.onpointermove = (ev) => {
+        const a = f.rotation * Math.PI / 180, px = (ev.clientX - x) / scale, py = (ev.clientY - y) / scale, dx = (px * Math.cos(a) + py * Math.sin(a)) / sx * (o.flipX ? -1 : 1), dy = (-px * Math.sin(a) + py * Math.cos(a)) / sy * (o.flipY ? -1 : 1);
+        let c = { ...start };
+        if (!k) {
+          c.x = clamp(start.x - dx, 0, 1 - start.width);
+          c.y = clamp(start.y - dy, 0, 1 - start.height);
+          pan={x:startPan.x+c.x-start.x,y:startPan.y+c.y-start.y};
+        } else {
+          if (k.includes("w")) {
+            c.x = clamp(start.x + dx, 0, start.x + start.width - 0.01);
+            c.width = start.x + start.width - c.x;
+          }
+          if (k.includes("e")) c.width = clamp(start.width + dx, 0.01, 1 - start.x);
+          if (k.includes("n")) {
+            c.y = clamp(start.y + dy, 0, start.y + start.height - 0.01);
+            c.height = start.y + start.height - c.y;
+          }
+          if (k.includes("s")) c.height = clamp(start.height + dy, 0.01, 1 - start.y);
+        }
+        crop = c;
+        paint();
+      };
+      frame.onpointerup = () => {
+        frame.onpointermove = null;
+      };
+      frame.onpointercancel = () => {
+        frame.onpointermove = null;
+        crop = start;pan=startPan;
+        paint();
+      };
+    };
+    const done = el("button", label("適用", "Apply")), cancel = el("button", label("取消", "Cancel"));
+    done.onclick = () => {
+      if (key() !== context || selected !== target) {
+        closePopup();
+        return;
+      }
+      update((v) => {
+        const f2 = getGraphicFrame(v, state.activeLang);
+        const next = cropGraphicFrame(f2, v.crop, {...crop,x:crop.x-pan.x,y:crop.y-pan.y}, v.flipX, v.flipY);
+        if (next.width < 1 || next.height < 1 || next.width > 3600 || next.height > 6400) return;
+        setFrame(v, next);
+        v.crop = { ...crop };
+      });
+    };
+    cancel.onclick = closePopup;
+    p.append(done, cancel);
+    p.onkeydown = (e) => {
+      if (e.key === "Enter" && !e.target.closest("button")) done.click();
+    };
+    done.focus({ preventScroll: true });
+  }
   function remove() {
     const target = selected;
     change((c) => {
@@ -227,13 +468,49 @@ function createStudioObjectToolbar({ state, commit, refresh, prepareImage, selec
     root = el("div", null, "graphic-toolbar");
     root.id = "graphic-toolbar";
     (document.querySelector(".ribbon-panel-row") || document.querySelector("#editor-main")).append(root);
+    document.addEventListener("studio-ui-language-change", () => {
+      closePopup();
+      render();
+    });
     window.addEventListener("resize", () => requestAnimationFrame(render));
+    document.addEventListener("contextmenu", (e) => {
+      if (e.target.closest(".graphic-hit,input,textarea,[contenteditable=true]")) return;
+      if (!e.target.closest('#canvas-stage,[data-testid="editor-fixed-page"]')) return;
+      if (activateAt?.(e.target) === false || block()?.kind !== "page") return;
+      e.preventDefault();
+      e.stopImmediatePropagation();
+      selected = null;
+      controls();
+      contextMenu(e.clientX, e.clientY, true);
+    }, true);
     document.addEventListener("pointerdown", (e) => {
-      if (popup && !popup.contains(e.target) && !root.contains(e.target)) closePopup();
+      if (popup && !popup.contains(e.target) && !root.contains(e.target) && !e.target.closest(".graphic-crop-overlay")) closePopup();
     });
     document.addEventListener("keydown", (e) => {
       if (e.key === "Escape") closePopup();
-      if (!object() || e.target.closest("input,textarea,select,[contenteditable=true]")) return;
+      if (e.target.closest("input,textarea,select,[contenteditable=true]") || !canEdit()) return;
+      if ((e.ctrlKey || e.metaKey) && !e.altKey) {
+        const k = e.key.toLowerCase();
+        if (k === "v" && canPaste()) {
+          e.preventDefault();
+          e.stopImmediatePropagation();
+          paste();
+          return;
+        }
+        if (!flow?.active() && (k === "c" || k === "x") && object() && !getSelection()?.toString()) {
+          e.preventDefault();
+          e.stopImmediatePropagation();
+          copy(k === "x");
+          return;
+        }
+      }
+      if (!object()) return;
+      if (e.key === "ContextMenu" || e.shiftKey && e.key === "F10") {
+        e.preventDefault();
+        const r = document.querySelector(".graphic-hit.selected")?.getBoundingClientRect();
+        if (r) contextMenu(r.left, r.top);
+        return;
+      }
       if (["Delete", "Backspace"].includes(e.key)) {
         e.preventDefault();
         e.stopImmediatePropagation();
@@ -243,7 +520,7 @@ function createStudioObjectToolbar({ state, commit, refresh, prepareImage, selec
   }
   function controls() {
     root.replaceChildren();
-    button(root, "text_fields", label("テキストボックスを追加", "Add text box"), () => add("text"));
+    if(!flow?.active()) button(root, "text_fields", label("テキストボックスを追加", "Add text box"), () => add("text"));
     const shapes = button(root, "category", label("図形を追加", "Add shape"), () => {
       const p = pop(shapes), grid = el("div", null, "graphic-shape-gallery");
       p.append(grid);
@@ -257,10 +534,11 @@ function createStudioObjectToolbar({ state, commit, refresh, prepareImage, selec
       }
     });
     button(root, "add_photo_alternate", label("画像を配置", "Place image"), () => upload());
-    const layer = button(root, "layers", label("重なり一覧", "Layers"), () => layers(layer));
+    const layer = !flow?.active() && button(root, "layers", label("重なり一覧", "Layers"), () => layers(layer));
     tools = el("div", null, "graphic-object-tools");
     root.append(tools);
     const o = object();
+    if(flow?.active())flow.controls(root,tools,selected,id=>{selected=id;render();},button,pop,numeric);
     if (!o) {
       legacyControls();
       return;
@@ -276,9 +554,14 @@ function createStudioObjectToolbar({ state, commit, refresh, prepareImage, selec
     if (o.kind !== "image") {
       for (const [prop, icon, title] of [["fill", "format_color_fill", label("塗りつぶし", "Fill")], ["stroke", "border_color", label("枠線", "Outline")], ["color", "format_color_text", label("文字色", "Text color")]]) {
         const b = button(tools, icon, title, () => palette(b, prop));
+        const chip = el("span", null, "graphic-color-chip");
+        chip.style.background = o.style[prop];
+        chip.style.opacity = prop === "color" ? 1 : o.style[prop + "Opacity"];
+        b.append(chip);
+        b.title = title + " · " + o.style[prop] + (prop !== "color" ? " · " + Math.round(o.style[prop + "Opacity"] * 100) + "%" : "");
       }
       numeric(tools, label("線幅", "Line"), o.style.lineWidth, 0, 30, (v) => update((o2) => o2.style.lineWidth = v));
-      if (!["line", "arrow"].includes(o.shape)) {
+      if (!flow?.active() && !["line", "arrow"].includes(o.shape)) {
         const font = el("select");
         font.title = label("フォント", "Font");
         font.setAttribute("aria-label", font.title);
@@ -302,40 +585,14 @@ function createStudioObjectToolbar({ state, commit, refresh, prepareImage, selec
       numeric(tools, label("透明度 %", "Transparency %"), Math.round((1 - o.opacity) * 100), 0, 100, (v) => update((o2) => o2.opacity = 1 - v / 100));
       button(tools, "flip", label("左右反転", "Flip horizontal"), () => update((o2) => o2.flipX = !o2.flipX), o.flipX);
       button(tools, "flip_camera_android", label("上下反転", "Flip vertical"), () => update((o2) => o2.flipY = !o2.flipY), o.flipY);
-      const crop = button(tools, "crop", label("切り抜き", "Crop"), () => {
-        const p = pop(crop);
-        p.append(el("strong", label("元画像内の範囲（%）", "Source region (%)")));
-        for (const [prop, title] of [["x", "X"], ["y", "Y"], ["width", label("幅", "Width")], ["height", label("高さ", "Height")]]) numeric(p, title, Math.round(o.crop[prop] * 100), prop === "x" || prop === "y" ? 0 : 1, 100, (v) => update((o2) => {
-          const c = { ...o2.crop, [prop]: v / 100 };
-          if (c.x + c.width <= 1 && c.y + c.height <= 1) o2.crop = c;
-        }));
-        const reset = el("button", label("切り抜きを解除", "Reset crop"));
-        reset.onclick = () => update((o2) => o2.crop = { x: 0, y: 0, width: 1, height: 1 });
-        p.append(reset);
-      });
+      button(tools, "crop", label("トリミング", "Crop"), openCrop);
+      button(tools, "restore", label("画像のリセット", "Reset image"), resetImage);
     }
     const frame = getGraphicFrame(o, state.activeLang);
     numeric(tools, label("回転 °", "Rotate °"), frame.rotation, -180, 180, (v) => update((o2) => setFrame(o2, { ...getGraphicFrame(o2, state.activeLang), rotation: v })));
-    button(tools, "flip_to_front", label("最前面へ", "Bring to front"), () => change((c) => {
-      c.objectOrder = c.objectOrder.filter((v) => v !== selected);
-      c.objectOrder.push(selected);
-    }));
-    button(tools, "flip_to_back", label("最背面へ", "Send to back"), () => change((c) => {
-      c.objectOrder = c.objectOrder.filter((v) => v !== selected);
-      c.objectOrder.unshift(selected);
-    }));
-    button(tools, "content_copy", label("複製", "Duplicate"), () => {
-      const copy = structuredClone(o);
-      copy.id = id();
-      copy.name += " " + label("コピー", "copy");
-      copy.frame.x += 12;
-      copy.frame.y += 12;
-      change((c) => {
-        c.graphicObjects.push(copy);
-        c.objectOrder.push(copy.id);
-        selected = copy.id;
-      });
-    });
+    if(!flow?.active()) button(tools, "flip_to_front", label("最前面へ", "Bring to front"), () => order("top"));
+    if(!flow?.active()) button(tools, "flip_to_back", label("最背面へ", "Send to back"), () => order("bottom"));
+    if(!flow?.active()) button(tools, "content_copy", label("複製", "Duplicate"), duplicate);
     button(tools, "delete", label("削除", "Delete"), () => {
       if (!o.locked) remove();
     });
@@ -398,31 +655,54 @@ function createStudioObjectToolbar({ state, commit, refresh, prepareImage, selec
     }
   }
   function attachHandle(hit, o) {
-    const handle = el("span", null, "graphic-resize");
-    handle.title = label("サイズ変更", "Resize");
-    hit.append(handle);
+    for (const corner of ["nw", "ne", "sw", "se"]) {
+      const handle = el("span", null, "graphic-resize");
+      handle.dataset.corner = corner;
+      handle.title = label("サイズ変更", "Resize");
+      hit.append(handle);
+    }
+    const rotation = el("span", "↻", "graphic-rotate");
+    rotation.title = label("回転（Shiftで15°刻み）", "Rotate (Shift: 15° steps)");
+    hit.append(rotation);
+    hit.tabIndex = 0;
+    hit.setAttribute("aria-label", o.name);
+    hit.oncontextmenu = (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      selected = o.id;
+      state.activeBubbleIdx = null;
+      controls();
+      contextMenu(e.clientX, e.clientY);
+    };
     hit.onpointerdown = (e) => {
       if (e.button !== 0 || e.target.tagName === "TEXTAREA") return;
       e.preventDefault();
       e.stopPropagation();
       if (o.locked) return;
+      getSelection()?.removeAllRanges();
+      hit.focus({ preventScroll: true });
       selected = o.id;
       state.activeBubbleIdx = null;
       controls();
       document.body.classList.add("graphic-object-selected");
       document.querySelectorAll(".graphic-hit.selected").forEach((n) => n.classList.remove("selected"));
       hit.classList.add("selected");
-      const f = { ...getGraphicFrame(o, state.activeLang) }, px = e.clientX, py = e.clientY, scale = hit.parentElement.getBoundingClientRect().width / 360, resize = e.target === handle, context = key();
+      const f = { ...getGraphicFrame(o, state.activeLang) }, px = e.clientX, py = e.clientY, scale = hit.parentElement.getBoundingClientRect().width / 360, resize = e.target.dataset.corner, rotating = e.target === rotation, context = key();
+      const box = hit.getBoundingClientRect(), cx = box.x + box.width / 2, cy = box.y + box.height / 2, startAngle = Math.atan2(py - cy, px - cx);
       let next = f;
       hit.setPointerCapture(e.pointerId);
       hit.onpointermove = (ev) => {
         const dx = (ev.clientX - px) / scale, dy = (ev.clientY - py) / scale;
-        if (resize) {
-          const angle = f.rotation * Math.PI / 180, rx = dx * Math.cos(angle) + dy * Math.sin(angle), ry = -dx * Math.sin(angle) + dy * Math.cos(angle);
-          const w = Math.max(1, Math.min(3600, f.width + rx)), h = o.kind === "image" ? w * f.height / f.width : Math.max(1, Math.min(6400, f.height + ry));
-          next = { ...f, width: w, height: Math.min(6400, h) };
-        } else next = { ...f, x: Math.max(-3600, Math.min(3600, f.x + dx)), y: Math.max(-6400, Math.min(6400, f.y + dy)) };
-        Object.assign(hit.style, { left: next.x + "px", top: next.y + "px", width: next.width + "px", height: next.height + "px" });
+        if (rotating) next = rotateGraphicFrame(f, startAngle, Math.atan2(ev.clientY - cy, ev.clientX - cx), ev.shiftKey);
+        else if (resize) next = resizeGraphicFrame(f, resize, dx, dy, o.kind === "image" && !ev.shiftKey);
+        else next = { ...f, x: clamp(f.x + dx, -3600, 3600), y: clamp(f.y + dy, -6400, 6400) };
+        Object.assign(hit.style, { left: next.x + "px", top: next.y + "px", width: next.width + "px", height: next.height + "px", transform: `rotate(${next.rotation}deg)` });
+        const paint = hit.parentElement.querySelector(`.graphic-paint[data-object-id="${o.id}"]`);
+        if (paint) {
+          const m = new DOMMatrix().translate(next.x + next.width / 2, next.y + next.height / 2).rotate(next.rotation).scale(next.width / f.width, next.height / f.height).rotate(-f.rotation).translate(-f.x - f.width / 2, -f.y - f.height / 2);
+          paint.style.transformOrigin = "0 0";
+          paint.style.transform = m.toString();
+        }
       };
       hit.onpointerup = () => {
         hit.onpointermove = null;
@@ -436,7 +716,7 @@ function createStudioObjectToolbar({ state, commit, refresh, prepareImage, selec
       };
     };
     hit.ondblclick = (e) => {
-      if (o.kind === "image" || o.locked || ["line", "arrow"].includes(o.shape)) return;
+      if (flow?.active() || o.kind === "image" || o.locked || ["line", "arrow"].includes(o.shape)) return;
       e.stopPropagation();
       const context = key(), text = el("textarea");
       text.value = o.texts[state.activeLang] ?? o.texts[state.defaultLang] ?? "";
@@ -475,9 +755,11 @@ function createStudioObjectToolbar({ state, commit, refresh, prepareImage, selec
     if (state.activeBubbleIdx != null) selected = null;
     if (!object()) selected = null;
     document.body.classList.toggle("graphic-object-selected", !!selected || !!block()?.content?.bubbles?.[state.activeBubbleIdx]);
+    flow?.render({selected,attachHandle});
     if (!fixed) return;
     controls();
     if (!canEdit()) root.querySelectorAll("button,input,select").forEach((n) => n.disabled = true);
+    if(flow?.active())return;
     const layer = document.getElementById("bubble-layer");
     if (!layer) return;
     layer.querySelectorAll(".graphic-paint,.graphic-hit").forEach((n) => n.remove());
@@ -498,6 +780,7 @@ function createStudioObjectToolbar({ state, commit, refresh, prepareImage, selec
       renderGraphicLayerCanvas(o, state.projectAssets || [], state.activeLang, state.defaultLang).then((c) => {
         if (sequence !== token) return;
         c.className = "graphic-paint";
+        c.dataset.objectId = o.id;
         c.style.zIndex = String((i + 1) * 2);
         layer.append(c);
       }).catch(() => {

@@ -395,6 +395,18 @@ async function init() {
     applyViewerDevSmoothingClass();
 
     const params = new URLSearchParams(window.location.search);
+    const editorPreview=params.get('editorPreview');
+    if(editorPreview&&window.opener){
+        const source=window.opener,origin=location.origin;
+        const receive=async event=>{
+            if(event.source!==source||event.origin!==origin||event.data?.nonce!==editorPreview||event.data?.type!=='dsf-editor-preview-package'||!(event.data.blob instanceof Blob))return;
+            window.removeEventListener('message',receive);
+            try{await loadViewerFile(new File([event.data.blob],'editor-preview.dsf',{type:event.data.blob.type}));resizeCanvas();updateUiVisibility();source.postMessage({type:'dsf-editor-preview-loaded',nonce:editorPreview},origin);}catch{alert('プレビューを読み込めませんでした。 / Unable to load preview.');}
+        };
+        window.addEventListener('message',receive);
+        source.postMessage({type:'dsf-editor-preview-ready',nonce:editorPreview},origin);
+        showStandaloneEmpty();return;
+    }
     const ownerDraftPid = String(params.get('draft') || '').trim();
     const workId = params.get('work') || params.get('w');
     const requestedReleaseId = params.get('r') || '';

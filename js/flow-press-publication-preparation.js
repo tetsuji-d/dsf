@@ -15,6 +15,12 @@ import { prepareFlowPressPreflight } from './flow-press-preflight-preparation.js
 export const FLOW_PRESS_PUBLICATION_PREPARATION_VERSION = 1;
 
 const ISSUE_MESSAGES = Object.freeze({
+    FLOW_OBJECT_ANCHOR_MISSING: '画像・図形の紐づけ先がありません。Flow画像一覧から本文段落を指定してください。',
+    FLOW_OBJECT_ANCHOR_CONFLICT: '同じ段落に複数の画像・図形があります。紐づけ先を別の段落へ変更してください。',
+    FLOW_OBJECT_TITLE_REGION: '扉の段落には画像を回り込ませられません。通常の本文段落を選んでください。',
+    INVALID_OBJECT_GEOMETRY: '画像・図形が本文領域の外にあります。配置か大きさを調整してください。',
+    FLOW_WRAP_ANCHOR_MISMATCH: '画像と本文の組版結果が一致しないため発行を停止しました。再度準備してください。',
+
     FLOW_PUBLICATION_ANNOTATION_MISMATCH: '原稿と配信用のルビ・圏点が一致しないため発行を停止しました。',
     FLOW_PUBLICATION_CAPTURE_ANNOTATION_MISMATCH: 'ルビ・圏点の表示と原稿が一致しないため発行を停止しました。',
     FLOW_PUBLICATION_CAPTURE_GLYPH_MISMATCH: '文字や注釈の配置を固定テキストで再現できないため発行を停止しました。',
