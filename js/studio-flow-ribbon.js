@@ -121,6 +121,19 @@ export function initFlowRibbon() {
         catch { byId('ribbon-status').textContent = t('ribbon_fullscreen_unavailable'); }
     });
     full.id = 'ribbon-fullscreen'; quick.append(full);
+    const zoom = byId('canvas-zoom-select');
+    zoom.dataset.i18nTitle = 'ribbon_canvas_zoom'; zoom.dataset.i18nAria = 'ribbon_canvas_zoom';
+    zoom.title = t('ribbon_canvas_zoom'); zoom.setAttribute('aria-label', t('ribbon_canvas_zoom'));
+    const collapse = button('expand_less', 'ribbon_collapse', () => {
+        const collapsed = root.classList.toggle('ribbon-collapsed');
+        labelButton(collapse, collapsed ? 'expand_more' : 'expand_less', collapsed ? 'ribbon_expand' : 'ribbon_collapse');
+        collapse.setAttribute('aria-expanded', String(!collapsed));
+        window.dispatchEvent(new Event('resize'));
+    });
+    collapse.id = 'ribbon-collapse'; collapse.setAttribute('aria-expanded', 'true');
+    root.querySelector('.ribbon-panel-row').id = 'ribbon-commands';
+    collapse.setAttribute('aria-controls', 'ribbon-commands'); quick.append(collapse);
+
     document.addEventListener('fullscreenchange', () => {
         const on = !!document.fullscreenElement;
         labelButton(full, on ? 'fullscreen_exit' : 'fullscreen', on ? 'ribbon_fullscreen_exit' : 'ribbon_fullscreen'); full.setAttribute('aria-pressed', String(on));

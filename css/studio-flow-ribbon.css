@@ -127,3 +127,14 @@
 @media(min-width:1024px) {
   #editor-room #ribbon-bar.studio-compact-ribbon .ribbon-panel-row > .ribbon-auth { flex:0 1 auto; margin-left:6px; max-width:240px; }
 }
+
+#ribbon-collapse { display:none; }
+@media(min-width:1024px) {
+  #editor-room #ribbon-bar.studio-compact-ribbon #canvas-zoom-select {
+    box-sizing:border-box; height:28px; min-height:28px; max-height:28px;
+    padding:2px 6px; margin:0; font-size:12px; line-height:normal;
+  }
+  #editor-room #ribbon-bar.studio-compact-ribbon #ribbon-collapse { display:inline-flex; }
+  #editor-room #ribbon-bar.studio-compact-ribbon.ribbon-collapsed .ribbon-panel-row,
+  #editor-room #ribbon-bar.studio-compact-ribbon.ribbon-collapsed .flow-ribbon-status { display:none; }
+}
