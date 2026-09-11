@@ -60,3 +60,13 @@ cover pages are never synthesized. Source project data is unchanged.
 Thumbnails place larger images above labels and may be collapsed while retaining
 selection and scroll position. Language writing mode and reading direction remain
 visible. Page labels on paper are preview guides and excluded from printed output.
+
+Booklet padding can be placed before C3 (default) or before C4 for complete
+full-cover books. Before-C4 padding retains the old C3 content in the body and
+labels the last inserted blank as C3 for this print session only. Outer-cover-only
+books offer before C4; partial selections and books without covers use trailing
+padding. Controls are hidden when no booklet padding is required.
+Inserted blanks appear in the thumbnail strip and can navigate to their print
+face. Amber outlines identify pages in the current preview independently of print
+selection. Fold guides distinguish mountain folds on front faces and valley folds
+on back faces, viewed from the shown side, and are excluded from print output.

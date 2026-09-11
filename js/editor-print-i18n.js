@@ -3,6 +3,7 @@ export function localizePrintTemplate(html, en) {
     if (!en) return html;
     const labels = {
         '印刷のヒント':'Printing tips',
+        '白紙の挿入位置':'Insert blanks','C3の前に白紙':'Blanks before C3: ','C4の前に白紙':'Blanks before C4: ','C3の前':'Before C3','C4の前':'Before C4','選択ページの末尾':'After selected pages','印刷時に追加する白紙':'Blank added for printing','表示中':'In preview','谷折り（この面から見て）':'Valley fold (viewed from this side)','山折り（この面から見て）':'Mountain fold (viewed from this side)',
         'サムネイルを折りたたむ':'Collapse thumbnails','サムネイルを展開':'Expand thumbnails','裏表紙の前に白紙':'Blanks before back covers: ',
         '倍率100%・余白なし・ヘッダーとフッターなしで印刷してください。':'Use 100% scale, no margins, and no headers or footers.',
         'テキストページの用紙色を印刷':'Print text page paper color',
