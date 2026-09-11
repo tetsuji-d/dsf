@@ -2,6 +2,7 @@ import { state } from "./state.js";
 import { getUILang } from "./i18n-studio.js";
 import { hasFlowGroups } from "./flow-project-model.js";
 import { prepareProjectForSave } from "./project-persistence.js";
+import { formatEditorPreviewFailure, selectEditorPreviewLanguages } from "./editor-preview-diagnostics.js";
 let working = false;
 export async function openEditorViewerPreview() {
   if (working) return;
@@ -12,7 +13,7 @@ export async function openEditorViewerPreview() {
     return;
   }
   const fields = () => ({ version: state.version, blocks: state.blocks, sections: state.sections, projectAssets: state.projectAssets, languages: state.languages, defaultLang: state.defaultLang, languageConfigs: state.languageConfigs, book: { mode: state.book?.mode || state.bookMode || "simple" }, bookMode: state.bookMode, title: state.title, meta: state.meta, projectId: state.projectId, localProjectId: state.localProjectId });
-  const initial = JSON.stringify(fields()), languages = [...state.languages || [state.defaultLang || "ja"]];
+  const initial = JSON.stringify(fields()), languages = selectEditorPreviewLanguages(state);
   const check = () => {
     if (controller.signal.aborted || JSON.stringify(fields()) !== initial) throw new Error(controller.signal.aborted ? "PREVIEW_CANCELLED" : "PREVIEW_CHANGED");
   };
@@ -51,7 +52,7 @@ export async function openEditorViewerPreview() {
   const dialog = document.createElement("dialog");
   dialog.className = "editor-preview-progress";
   const text = document.createElement("p");
-  text.textContent = en ? "Preparing Viewer preview…" : "Viewerプレビューを準備中…";
+  text.textContent = en ? `Preparing Viewer preview (${languages[0]})…` : `Viewerプレビューを準備中（${languages[0]}）…`;
   const cancel = document.createElement("button");
   cancel.textContent = en ? "Cancel" : "キャンセル";
   const abort = () => {
@@ -78,7 +79,7 @@ export async function openEditorViewerPreview() {
     send();
   } catch (error) {
     if (import.meta.env.DEV) console.warn("[Editor preview]", error.code || error.message);
-    if (!controller.signal.aborted) alert(en ? "Preview could not be prepared. Check the page composition, images and Flow layout. If you edited the project during preparation, try again." : "プレビューを準備できませんでした。ページ構成・画像・Flowの組版を確認してください。準備中に編集した場合はもう一度お試しください。");
+    if (!controller.signal.aborted) alert(formatEditorPreviewFailure(error, { project: JSON.parse(initial), language: languages[0], en }));
     child.close();
     cleanup();
   } finally {

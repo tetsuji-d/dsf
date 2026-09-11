@@ -4232,7 +4232,15 @@ function _esc(str) {
 export async function createEditorFlowPreview({project,languages,signal,check,onProgress}) {
   const {prepareFlowPressPublication}=await import('./flow-press-publication-preparation.js');
   const preparation=await prepareFlowPressPublication({project,languages,revision:Date.now(),documentRef:document,signal,onProgress});check();
-  if(!preparation.ok)throw new Error('PREVIEW_PREPARATION_BLOCKED');
+  if (!preparation.ok) {
+        const error = new Error('PREVIEW_PREPARATION_BLOCKED');
+        // Preserve only diagnostic codes and locations, never capture payloads.
+        error.previewIssues = preparation.languages.flatMap(result => {
+            const issues = result.preparationIssues.length ? result.preparationIssues : result.preflight.issues;
+            return issues.map(issue => ({code: issue.code, groupId: issue.groupId, language: result.language}));
+        });
+        throw error;
+    }
   _pressFlowLocalReleaseSealingModule ||= await import('./dsf-release-byte-sealing.js');
   const {imageAssets,backgroundAssets,sealedAssets}=await _createPressFlowLocalReleaseImageAssets(preparation,languages,1080,1920,signal,null,check);check();
   const {createFlowPressLocalReleasePlanning}=await import('./flow-press-local-release-planning.js');

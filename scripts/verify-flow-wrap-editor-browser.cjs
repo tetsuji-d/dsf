@@ -33,5 +33,15 @@ if(process.env.DSF_TEST_CAPTIONS==='1'){
  await p.screenshot({path:require('node:os').tmpdir()+'/flow-caption-editor.png'});
  console.log('Caption canvas editing, vertical placement, duplicate/undo and clipboard retain original asset and caption');
 }
+// Missing inactive translations must not block the displayed Japanese preview.
+await p.evaluate(()=>window.wrapTestState.languages=['ja','en-GB']);
 if(process.env.DSF_TEST_PAUSED_FRAMES==='1')await p.evaluate(()=>window.requestAnimationFrame=()=>0);
-console.log('starting preview',await p.locator('#btn-editor-preview').isEnabled());const popup=p.waitForEvent('popup',{timeout:30000});await p.locator('#btn-editor-preview').click();console.log('clicked');const viewer=await popup;console.log('popup',viewer.url());viewer.on('dialog',async d=>{console.log('viewer dialog',d.message());await d.dismiss()});await viewer.waitForSelector('.viewer-fixed-text-page',{timeout:120000});await viewer.waitForSelector('.viewer-fixed-text-background');assert.ok(await viewer.locator('.viewer-fixed-text-run').count()>0);console.log('viewer ready');console.log(errors);assert.deepEqual(errors,[]);}finally{await b.close()}})().catch(e=>{console.error(e);process.exitCode=1});
+console.log('starting preview',await p.locator('#btn-editor-preview').isEnabled());const popup=p.waitForEvent('popup',{timeout:30000});await p.locator('#btn-editor-preview').click();console.log('clicked');const viewer=await popup;console.log('popup',viewer.url());viewer.on('dialog',async d=>{console.log('viewer dialog',d.message());await d.dismiss()});await viewer.waitForSelector('.viewer-fixed-text-page',{timeout:120000});await viewer.waitForSelector('.viewer-fixed-text-background');assert.ok(await viewer.locator('.viewer-fixed-text-run').count()>0);console.log('viewer ready with missing inactive translation');assert.deepEqual(await p.evaluate(()=>window.wrapTestState.languages),['ja','en-GB']);await viewer.close();
+await p.evaluate(()=>window.wrapTestState.activeLang='en-GB');
+const failure=p.waitForEvent('dialog');
+await p.evaluate(()=>{import('/js/editor-viewer-preview.js').then(m=>m.openEditorViewerPreview());});
+const message=(await failure).message();
+assert.ok(message.includes('EN-GB / Flow manuscript 1'),message);
+assert.ok(message.includes('Translation is missing'),message);
+console.log('Selected missing translation reports language, manuscript and safe reason');
+console.log(errors);assert.deepEqual(errors,[]);}finally{await b.close()}})().catch(e=>{console.error(e);process.exitCode=1});
