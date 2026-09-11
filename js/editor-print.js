@@ -92,6 +92,7 @@ export async function openEditorPrint() {
             const nextImages=new Map();
             await Promise.all([...next.assetUrls].map(async([href,url])=>{const image=new win.Image();image.src=url;await image.decode();nextImages.set(href,image);}));check();
             session?.dispose();session=next;next=null;images=nextImages;pages=session.pagesByLanguage.get(language)||[];
+            if(priorLanguage!==language)win.setPrintDirection(session.index.languages[language].pageDirection);
             win.printBusy=false;win.setPrintCount(pages.length);
             if(priorLanguage===language){$('rangeMode').value=priorMode;$('range').value=priorRange;$('range').dispatchEvent(new win.Event('input'));}
             $('loadState').textContent=en?'Ready · print snapshot':'準備完了 · 印刷用スナップショット';

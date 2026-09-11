@@ -7,7 +7,7 @@
 .print-page-selector #range{width:180px!important}.print-page-selector #rangeHelp{font-size:11px}
 .print-page-selector #rangeError:empty{display:none}.print-page-selector #rangeError{margin:0}
 .print-page-selector #pageChoices{display:flex;gap:7px;overflow-x:auto;flex-basis:100%;padding:5px 0 8px;order:5}
-.print-page-selector #pageChoices button{width:48px;flex-shrink:0}
+.print-page-selector #pageChoices button{direction:ltr;width:48px;flex-shrink:0}
 .print-page-selector .selection-actions{display:flex;gap:6px}.print-page-selector>.note:last-child{display:none}
 .print-page-selector #selectionSummary{margin-left:auto}
 </style>
@@ -51,6 +51,7 @@ function buildChoices(){ $('pageChoices').replaceChildren();for(let n=1;n<=total
 $('selectAll').onclick=()=>{$('range').value=total?`1-${total}`:'';parseRange();index=0;render()};
 $('selectNone').onclick=()=>{$('rangeMode').value='selected';$('range').value='';parseRange();index=0;render()};
 function render(){
+ $('pageChoices').dir=$('binding').value==='right'?'rtl':'ltr';
  document.querySelectorAll('[data-print]').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.print===($('mode').value==='booklet'?'booklet':$('duplex').value))));
  syncChoices();const chosen=$('rangeMode').value==='all'?Array.from({length:total},(_,i)=>i+1):selected;
  const padded=Math.ceil(chosen.length/4)*4,extra=padded-chosen.length;
@@ -75,7 +76,7 @@ function render(){
  let svg=`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${w} ${h}" role="img" aria-label="用紙上のページ配置"><rect width="${w}" height="${h}" fill="white"/>`;
  if($('guides').checked)svg+=`<rect x="${faceLeft}" y="${faceTop}" width="${Math.max(0,aw)}" height="${Math.max(0,ah)}" fill="none" stroke="#9aabba" stroke-width=".3" stroke-dasharray="2 2"/>`;
  if(pw>=10)faces[index].forEach((p,j)=>{
- const x=spine?(j===0?w/2-pw:w/2):faceLeft+(j%cols)*(cw+gap)+(cw-pw)/2,y=faceTop+Math.floor(j/cols)*(ch+gap)+(ch-ph)/2;
+ const x=spine?(j===0?w/2-pw:w/2):faceLeft+(!book&&$('binding').value==='right'?cols-1-j%cols:j%cols)*(cw+gap)+(cw-pw)/2,y=faceTop+Math.floor(j/cols)*(ch+gap)+(ch-ph)/2;
  const left=!spine||j===0,right=!spine||j===1;
  svg+=`<g data-print-page="${p??''}" data-x="${x}" data-y="${y}" data-w="${pw}" data-h="${ph}" data-bleed="${bleed}" data-left="${left}" data-right="${right}"></g>`;
  if($('border').checked)svg+=`<rect x="${x}" y="${y}" width="${pw}" height="${ph}" fill="none" stroke="#333" stroke-width=".25"/>`;
@@ -107,6 +108,7 @@ function render(){
 document.querySelectorAll('[data-print]').forEach(b=>b.onclick=()=>{const v=b.dataset.print;$('mode').value=v==='booklet'?'booklet':'normal';$('duplex').value=v==='booklet'?'short':v;index=0;render()});
 document.querySelectorAll('input,select').forEach(e=>e.addEventListener('input',()=>{if(e.id==='range')parseRange();if(['mode','nup','duplex','range','rangeMode'].includes(e.id))index=0;render()}));$('prev').onclick=()=>{index--;render()};$('next').onclick=()=>{index++;render()};
 if(false){$('mode').value='booklet';$('finish').value='trim';$('bleed').value='edge';$('marks').checked=true;}render();
+window.setPrintDirection=direction=>{$('binding').value=direction==='rtl'?'right':'left';index=0;render()};
 window.setPrintCount=count=>{total=count;selected=Array.from({length:total},(_,i)=>i+1);rangeValid=true;$('range').value=total?`1-${total}`:'';index=0;buildChoices();window.mountPrintThumbnails?.();render()};
 window.refreshPrint=render;
 window.collectPrintSheets=()=>{const old=index,guides=$('guides').checked;$('guides').checked=false;const sheets=[];try{for(index=0;index<window.printGeometry.faceCount;index++){render();const svg=document.querySelector('#stage svg');svg.style.width=window.printGeometry.w+'mm';svg.style.height=window.printGeometry.h+'mm';sheets.push(svg.cloneNode(true));}return sheets;}finally{index=old;$('guides').checked=guides;render()}};
