@@ -481,3 +481,11 @@ FlowLayout v1は引き続き受理する。v2の自動降格やv1への画像配
 画像・図形だけをWebPに合成し、本文・ルビ・圏点は実測したfixedTextのまま残す。
 内部asset planの `purpose: fixedTextBackground` は公開manifestに持ち込まない。背景ファイルはページ数へ加算しない。
 詳細は [Flow回り込みの接続仕様](flow-wrap-integration-contract.md) を参照。
+
+
+## FlowLayout v3：複数配置と画像キャプション
+
+2026-09-11承認済み。v1/v2の読み込みを維持し、新しい画像操作時に対象Groupのみv3へ移行する。
+`anchoredObjects[].graphic.caption`に配置方向・言語別文字列・文字サイズ・間隔・色・揃えを保存する。
+同一段落の複数配置を許可する。公開配信ではキャプションを画像背景へ合成し、本文はfixedTextを維持する。
+Project/Firestore Rules変更はない。詳細は[画像キャプション仕様](flow-image-captions.md)。

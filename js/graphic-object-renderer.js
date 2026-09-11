@@ -3,6 +3,7 @@ import { getShape } from "./shapes.js";
 import { getLangProps } from "./lang.js";
 import { graphicOrder } from "./graphic-object-model.js";
 import { loadImageForCanvas } from "./asset-fetch.js";
+import {drawImageCaption} from './image-caption.js';
 const images = /* @__PURE__ */ new Map();
 async function getImage(url) {
   if (!images.has(url)) images.set(url, loadImageForCanvas(url).then(({ img, revoke }) => {
@@ -20,6 +21,7 @@ function getGraphicFrame(object, language) {
   return object.frames?.[language] || object.frame;
 }
 async function drawGraphicObject(ctx, o, assets, language, defaultLanguage) {
+  if(o.members){for(const member of o.members)await drawGraphicObject(ctx,member,assets,language,defaultLanguage);return;}
   if (!o.visible) return;
   const f = getGraphicFrame(o, language), s = o.style, w = f.width, h = f.height;
   ctx.save();
@@ -127,6 +129,7 @@ async function drawGraphicObject(ctx, o, assets, language, defaultLanguage) {
     }
   } finally {
     ctx.restore();
+    if(o.kind === "image")drawImageCaption(ctx,o,language,defaultLanguage);
   }
 }
 async function renderGraphicLayerCanvas(o, assets, language, defaultLanguage, scale = 2) {

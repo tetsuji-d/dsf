@@ -177,16 +177,21 @@ function createStudioObjectToolbar({ state, commit, refresh, prepareImage, selec
   const projectKey = () => [state.uid, state.projectId, state.localProjectId].join("|");
   function copy(cut = false) {
     const o = object();
-    if (flow?.active() || !o || cut && o.locked) return;
+    if (!o || cut && (o.locked || flow?.active())) return;
     clipboard = { project: projectKey(), source: block().id, object: structuredClone(o), cut, signature: JSON.stringify(o) };
     closePopup();
   }
   function canPaste() {
-    return !flow?.active() && clipboard?.project === projectKey() && block()?.kind === "page" && canEdit() && (!clipboard.cut || state.blocks.some((b) => b.id === clipboard.source && b.content?.graphicObjects?.some((o) => o.id === clipboard.object.id && !o.locked && JSON.stringify(o) === clipboard.signature)));
+    return clipboard?.project === projectKey() && (!flow?.active() || ['image','shape'].includes(clipboard.object.kind)) && block()?.kind === "page" && canEdit() && (!clipboard.cut || !flow?.active() && state.blocks.some((b) => b.id === clipboard.source && b.content?.graphicObjects?.some((o) => o.id === clipboard.object.id && !o.locked && JSON.stringify(o) === clipboard.signature)));
   }
   function paste() {
     if (!canPaste()) return;
     const clip = clipboard, target = block().id, newId = id();
+    if(flow?.active()){
+      if(!['image','shape'].includes(clip.object.kind))return;
+      const copy=structuredClone(clip.object);copy.id=newId;copy.copyPlacement={};
+      change(c=>{c.graphicObjects.push(copy);c.objectOrder.push(newId);selected=newId;});return;
+    }
     const ok = commitBlocks?.((blocks) => {
       const dest = blocks.find((b) => b.id === target);
       initializeGraphicObjects(dest.content, id);
@@ -211,6 +216,7 @@ function createStudioObjectToolbar({ state, commit, refresh, prepareImage, selec
     if (!o || o.locked) return;
     const copy2 = structuredClone(o);
     copy2.id = id();
+    if(flow?.active())copy2.copyPlacement={anchorBlockId:flow.anchorFor(o.id)};
     copy2.name += " " + label("コピー", "copy");
     for (const f of [copy2.frame, ...Object.values(copy2.frames || {})]) {
       f.x = clamp(f.x + 12, -3600, 3600);
@@ -262,9 +268,12 @@ function createStudioObjectToolbar({ state, commit, refresh, prepareImage, selec
     if (o) {
       if(!flow?.active()){
         add2("切り取り", "Cut", () => copy(true), o.locked);
-        add2("コピー", "Copy", () => copy(false));sep();
+        sep();
       }
+      add2("コピー", "Copy", () => copy(false));
+      add2("貼り付け", "Paste", paste, !canPaste());
       if (o.kind === "image") {
+        if(flow?.active())add2("キャプションを追加・編集", "Add or edit caption", ()=>flow.editCaption(o.id),o.locked);
         add2("トリミング", "Crop", () => {
           closePopup();
           openCrop();
@@ -291,7 +300,7 @@ function createStudioObjectToolbar({ state, commit, refresh, prepareImage, selec
         add2("画像の差し替え", "Replace image", () => upload(true), o.locked);
       }
       sep();
-      if(!flow?.active())add2("複製", "Duplicate", duplicate, o.locked);
+      add2("複製", "Duplicate", duplicate, o.locked);
       add2("削除", "Delete", remove, o.locked);
     } else add2("貼り付け", "Paste", paste, !canPaste());
     const rect = p.getBoundingClientRect();
@@ -475,7 +484,7 @@ function createStudioObjectToolbar({ state, commit, refresh, prepareImage, selec
     window.addEventListener("resize", () => requestAnimationFrame(render));
     document.addEventListener("contextmenu", (e) => {
       if (e.target.closest(".graphic-hit,input,textarea,[contenteditable=true]")) return;
-      if (!e.target.closest('#canvas-stage,[data-testid="editor-fixed-page"]')) return;
+      if (!e.target.closest('#canvas-stage,[data-testid="editor-fixed-page"],[data-testid="flow-editor-generated-page"]')) return;
       if (activateAt?.(e.target) === false || block()?.kind !== "page") return;
       e.preventDefault();
       e.stopImmediatePropagation();
@@ -491,13 +500,14 @@ function createStudioObjectToolbar({ state, commit, refresh, prepareImage, selec
       if (e.target.closest("input,textarea,select,[contenteditable=true]") || !canEdit()) return;
       if ((e.ctrlKey || e.metaKey) && !e.altKey) {
         const k = e.key.toLowerCase();
+        if(k === "d" && object() && !getSelection()?.toString()){e.preventDefault();e.stopImmediatePropagation();duplicate();return;}
         if (k === "v" && canPaste()) {
           e.preventDefault();
           e.stopImmediatePropagation();
           paste();
           return;
         }
-        if (!flow?.active() && (k === "c" || k === "x") && object() && !getSelection()?.toString()) {
+        if ((k === "c" || k === "x" && !flow?.active()) && object() && !getSelection()?.toString()) {
           e.preventDefault();
           e.stopImmediatePropagation();
           copy(k === "x");
@@ -592,7 +602,7 @@ function createStudioObjectToolbar({ state, commit, refresh, prepareImage, selec
     numeric(tools, label("回転 °", "Rotate °"), frame.rotation, -180, 180, (v) => update((o2) => setFrame(o2, { ...getGraphicFrame(o2, state.activeLang), rotation: v })));
     if(!flow?.active()) button(tools, "flip_to_front", label("最前面へ", "Bring to front"), () => order("top"));
     if(!flow?.active()) button(tools, "flip_to_back", label("最背面へ", "Send to back"), () => order("bottom"));
-    if(!flow?.active()) button(tools, "content_copy", label("複製", "Duplicate"), duplicate);
+    button(tools, "content_copy", label("複製", "Duplicate"), duplicate);
     button(tools, "delete", label("削除", "Delete"), () => {
       if (!o.locked) remove();
     });

@@ -144,3 +144,11 @@ Groups using anchored graphics persist `flow.layout.schemaVersion: 2` and `ancho
 Full WebP images use the existing `projectAssets` mapping. Runtime pages, wrap regions and capture snapshots are not saved.
 Project v6, Firestore collections, Rules and public root projections are unchanged. Layout v1 remains readable; v2 is never silently downgraded.
 Public delivery contains fixedText and sealed background WebP assets, not the authoring Flow layout.
+
+
+## FlowLayout v3：複数配置と画像キャプション
+
+2026-09-11承認済み。v1/v2の読み込みを維持し、新しい画像操作時に対象Groupのみv3へ移行する。
+`anchoredObjects[].graphic.caption`に配置方向・言語別文字列・文字サイズ・間隔・色・揃えを保存する。
+同一段落の複数配置を許可する。公開配信ではキャプションを画像背景へ合成し、本文はfixedTextを維持する。
+Project/Firestore Rules変更はない。詳細は[画像キャプション仕様](flow-image-captions.md)。

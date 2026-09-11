@@ -23,6 +23,7 @@
     "test:firebase": "node scripts/verify-firebase.js",
     "verify:flow-foundation": "node scripts/verify-flow-foundation.js",
     "verify:flow-model": "node scripts/verify-flow-model.js",
+    "verify:image-caption": "node scripts/verify-image-caption.js",
     "verify:flow-anchored-objects": "node scripts/verify-flow-anchored-objects.js",
     "verify:flow-wrap-integration-browser": "node scripts/verify-flow-wrap-integration-browser.cjs",
     "verify:flow-wrap-editor-browser": "node scripts/verify-flow-wrap-editor-browser.cjs",

@@ -13,7 +13,7 @@ const graphic=createGraphicObject('shape','graphic','ja');graphic.frame={x:8,y:3
 group.flow.layout.schemaVersion=2;group.flow.layout.anchoredObjects=[{id:'placement',anchorBlockId:'b',graphic,wrap:'square',gapEm:.5}];
 assert.ok(validateFlowGroupBlock(group).valid);
 const old=clone(group);old.flow.layout.schemaVersion=1;assert.equal(validateFlowGroupBlock(old).valid,false,'v1 must not silently accept anchored objects');
-const future=clone(group);future.flow.layout.schemaVersion=3;assert.equal(validateFlowGroupBlock(future).valid,false);
+const future=clone(group);future.flow.layout.schemaVersion=4;assert.equal(validateFlowGroupBlock(future).valid,false);
 const duplicate=clone(group);duplicate.flow.layout.anchoredObjects.push({...clone(duplicate.flow.layout.anchoredObjects[0]),id:'second'});assert.equal(validateFlowGroupBlock(duplicate).valid,false,'graphic IDs must also be unique');
 const project={version:6,blocks:[group]};assert.deepEqual(deserializeProject(serializeProject(project)).blocks,project.blocks);
 const merged=applyFlowAuthoringOperation([group],{type:'mergeParagraphBackward',groupId:'flow',sectionId:'s',blockId:'b',languageKey:'ja'});

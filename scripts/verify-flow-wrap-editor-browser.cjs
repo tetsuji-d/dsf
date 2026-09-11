@@ -11,4 +11,26 @@ await p.waitForFunction(()=>window.wrapTestState.blocks[0].flow.layout.anchoredO
 const imageState=await p.evaluate(async()=>{const {state}=await import('/js/state.js');return {asset:state.projectAssets[0],objects:state.blocks[0].flow.layout.anchoredObjects,anchor:state.blocks[0].flow.layout.anchoredObjects.find(e=>e.graphic.kind==='image')?.anchorBlockId};});
 assert.equal(imageState.anchor,'q');assert.equal(imageState.asset.width,500);assert.equal(imageState.asset.height,800);assert.equal(imageState.asset.mimeType,'image/webp');
 console.log('Wrapped text editing and paragraph-anchored full-resolution image upload passed');
+if(process.env.DSF_TEST_CAPTIONS==='1'){
+ const image=p.locator('.flow-graphic-layer .graphic-hit').last();await image.dblclick();
+ const input=p.getByRole('textbox',{name:'Caption text',exact:true});await input.fill('灯台の記録\n海辺を歩く');await input.press('Control+Enter');
+ await p.waitForFunction(()=>window.wrapTestState.blocks[0].flow.layout.anchoredObjects.some(e=>e.graphic.caption?.texts.ja==='灯台の記録\n海辺を歩く'));
+ await p.getByRole('button',{name:'Right, vertical',exact:true}).click();
+ await p.waitForFunction(()=>window.wrapTestState.blocks[0].flow.layout.anchoredObjects.some(e=>e.graphic.caption?.position==='right'));
+ await p.getByRole('button',{name:'Duplicate',exact:true}).click();
+ await p.waitForFunction(()=>window.wrapTestState.blocks[0].flow.layout.anchoredObjects.length===3);
+ const copied=await p.evaluate(()=>window.wrapTestState.blocks[0].flow.layout.anchoredObjects.filter(e=>e.graphic.kind==='image'));
+ assert.equal(copied[0].graphic.assetId,copied[1].graphic.assetId);assert.equal(copied[0].anchorBlockId,copied[1].anchorBlockId);assert.deepEqual(copied[0].graphic.caption,copied[1].graphic.caption);
+ await p.locator('#btn-undo').click();await p.waitForFunction(()=>window.wrapTestState.blocks[0].flow.layout.anchoredObjects.length===2);
+ await p.locator('.flow-graphic-layer .graphic-hit').last().click();await p.keyboard.press('Control+c');await p.keyboard.press('Control+v');
+ await p.waitForFunction(()=>window.wrapTestState.blocks[0].flow.layout.anchoredObjects.length===3);
+ assert.equal(await p.evaluate(()=>window.wrapTestState.projectAssets.length),1);
+ await p.locator('#btn-undo').click();await p.waitForFunction(()=>window.wrapTestState.blocks[0].flow.layout.anchoredObjects.length===2);
+ await p.locator('[data-testid=flow-editor-generated-page]').first().click({button:'right',position:{x:20,y:20}});
+ await p.getByRole('menuitem',{name:'Paste',exact:true}).click();
+ await p.waitForFunction(()=>window.wrapTestState.blocks[0].flow.layout.anchoredObjects.length===3);
+
+ await p.screenshot({path:require('node:os').tmpdir()+'/flow-caption-editor.png'});
+ console.log('Caption canvas editing, vertical placement, duplicate/undo and clipboard retain original asset and caption');
+}
 console.log('starting preview',await p.locator('#btn-editor-preview').isEnabled());const popup=p.waitForEvent('popup',{timeout:30000});await p.locator('#btn-editor-preview').click();console.log('clicked');const viewer=await popup;console.log('popup',viewer.url());viewer.on('dialog',async d=>{console.log('viewer dialog',d.message());await d.dismiss()});await viewer.waitForSelector('.viewer-fixed-text-page',{timeout:120000});await viewer.waitForSelector('.viewer-fixed-text-background');assert.ok(await viewer.locator('.viewer-fixed-text-run').count()>0);console.log('viewer ready');console.log(errors);assert.deepEqual(errors,[]);}finally{await b.close()}})().catch(e=>{console.error(e);process.exitCode=1});

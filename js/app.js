@@ -167,7 +167,14 @@ const flowObjectToolbar=createFlowObjectToolbarAdapter({
 const objectToolbar = createStudioObjectToolbar({
     flow:flowObjectToolbar,
     state, refresh, prepareImage: prepareAuthoringImage, canEdit:canEditActiveFixedPage,
-    activateAt: target => { const surface=target.closest('[data-testid="editor-fixed-page"]'); if(surface?._flowPageEntry)activateProjectionPage(surface._flowPageEntry);return canEditActiveFixedPage(); },
+    activateAt: target => {
+        const surface=target.closest('[data-testid="editor-fixed-page"],[data-testid="flow-editor-generated-page"]'),page=surface?._flowPageEntry;
+        if(page?.kind!=='fixed' && page?.groupId){
+            if(page.isSourceFallback || !flowObjectToolbar.canEdit())return false;
+            clearFlowDirectEditRuntime();activateProjectionPage(page);setSelectedFlowRuntimePageIndex(page.groupId,page.flowPageIndex);return true;
+        }
+        if(page)activateProjectionPage(page);return canEditActiveFixedPage();
+    },
     commitBlocks: mutate => {
         if(!canEditActiveFixedPage())return false;
         const blocks=structuredClone(state.blocks);

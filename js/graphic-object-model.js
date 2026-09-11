@@ -1,4 +1,5 @@
 // Fixed-page authoring objects. Public delivery uses flattened WebP pages.
+import {validateImageCaption} from './image-caption.js';
 const GRAPHIC_SHAPES = ["rect", "roundRect", "ellipse", "line", "arrow", "speech"];
 const color = (value) => typeof value === "string" && /^#[0-9a-f]{6}$/i.test(value);
 const finite = (v, min, max) => Number.isFinite(v) && v >= min && v <= max;
@@ -15,6 +16,8 @@ function validateGraphicObjects(project) {
       ids.add(o.id);
     }
     for (const o of c.graphicObjects) {
+      if(o.members !== undefined)throw new Error("Runtime graphic bundle cannot be persisted");
+      validateImageCaption(o);
       const f = o.frame, st = o.style;
       if (!["image", "shape", "text"].includes(o.kind) || typeof o.name !== "string" || o.name.length > 512 || typeof o.visible !== "boolean" || typeof o.locked !== "boolean" || !f || !st || !finite(f.x, -3600, 3600) || !finite(f.y, -6400, 6400) || !finite(f.width, 1, 3600) || !finite(f.height, 1, 6400) || !finite(f.rotation, -180, 180) || !color(st.fill) || !color(st.stroke) || !color(st.color) || !finite(st.fillOpacity, 0, 1) || !finite(st.strokeOpacity, 0, 1) || !finite(st.lineWidth, 0, 30) || !finite(st.fontSize, 6, 200) || !finite(st.padding, 0, 200) || !["serif", "sans-serif"].includes(st.fontFamily) || !["left", "center", "right"].includes(st.align) || !["top", "center", "bottom"].includes(st.valign) || !["horizontal-tb", "vertical-rl"].includes(st.writingMode)) throw new Error("Invalid graphic object style or frame");
       for (const f2 of Object.values(o.frames || {})) if (!f2 || !finite(f2.x, -3600, 3600) || !finite(f2.y, -6400, 6400) || !finite(f2.width, 1, 3600) || !finite(f2.height, 1, 6400) || !finite(f2.rotation, -180, 180)) throw new Error("Invalid language graphic frame");

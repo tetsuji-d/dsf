@@ -51,6 +51,11 @@ export function createWrapRegions(pageBox, object, writingMode, typography) {
     } else fail('UNSUPPORTED_WRITING_MODE');
     return regions;
 }
+function combineObjects(objects){
+ if(objects.length===1)return objects[0];
+ const x=Math.min(...objects.map(o=>o.x)),y=Math.min(...objects.map(o=>o.y));
+ return {id:objects[0].id,anchorBlockId:objects[0].anchorBlockId,objects,x,y,width:Math.max(...objects.map(o=>o.x+o.width))-x,height:Math.max(...objects.map(o=>o.y+o.height))-y,gap:Math.max(...objects.map(o=>o.gap)),wrap:objects.some(o=>o.wrap==='band')?'band':'square',graphic:{members:objects.flatMap(o=>o.graphic.members||[o.graphic])}};
+}
 function regionPageBox(pageBox, rect) {
     return normalizeFlowPageBox({width:pageBox.width,height:pageBox.height,padding:{
         left:rect.x,top:rect.y,right:pageBox.width-rect.x-rect.width,bottom:pageBox.height-rect.y-rect.height,
@@ -148,8 +153,19 @@ export function composeFlowWithAnchoredObjects(group, options) {
             if(pages.length>=maxPages) fail('PAGE_LIMIT_EXCEEDED');
             activeObject=null;
             let candidate=composePage(checkpoint,[pageBox.contentBox]);
-            const target=candidate.fragments.map(f=>objects.find(o=>!placed.has(o.id)&&o.anchorBlockId===f.blockId&&f.isBlockStart)).find(Boolean);
+            const targets=objects.filter(o=>!placed.has(o.id)&&containsStart(candidate,o.anchorBlockId));
+            const target=targets[0];
             if(target) {
+                if(group.flow.layout.schemaVersion===3 && targets.length>1){
+                  for(let count=targets.length;count>1;count--){
+                    const batch=targets.slice(0,count),combined=combineObjects(batch);activeObject=combined;
+                    const regions=createWrapRegions(pageBox,combined,writingMode,measurer.typography);
+                    const excluded=new Set(objects.filter(o=>!placed.has(o.id)&&!batch.includes(o)).map(o=>o.anchorBlockId));
+                    const wrapped=composePage(checkpoint,regions,excluded);
+                    if(batch.every(o=>containsStart(wrapped,o.anchorBlockId))){candidate=wrapped;candidate.object=combined;batch.forEach(o=>placed.add(o.id));break;}
+                  }
+                }
+                if(!candidate.object){
                 activeObject=target;
                 const regions=createWrapRegions(pageBox,target,writingMode,measurer.typography);
                 const targetIndex=blocks.findIndex(b=>b.id===target.anchorBlockId);
@@ -161,6 +177,7 @@ export function composeFlowWithAnchoredObjects(group, options) {
                     activeObject=null;
                     candidate=composePage(checkpoint,[pageBox.contentBox],new Set([target.anchorBlockId]));
                     if(!candidate.parts.length) fail('ANCHOR_CANNOT_FIT_WITH_OBJECT');
+                }
                 }
             }
             if(!candidate.parts.length || JSON.stringify(candidate.nextCheckpoint)===JSON.stringify(checkpoint)) fail('COMPOSITION_NO_PROGRESS');
@@ -184,10 +201,12 @@ export function validateFlowWrapPagination(group,pagination,typography) {
     const equal=(a,b)=>JSON.stringify(a)===JSON.stringify(b);
     for(const page of pagination.pages) {
         if(!page.anchoredObject){if(page.wrapRegions)fail('FLOW_WRAP_REGIONS_UNEXPECTED');continue;}
-        const object=objects.find(o=>o.id===page.anchoredObject.id);
-        if(!object || !equal(object,page.anchoredObject) || seen.has(object.id)
-            || !containsStart(page,object.anchorBlockId))fail('FLOW_WRAP_ANCHOR_MISMATCH');
-        seen.add(object.id);
+        const ids=(page.anchoredObject.objects || [page.anchoredObject]).map(o=>o.id);
+        const batch=ids.map(id=>objects.find(o=>o.id===id));
+        if(batch.some(o=>!o || seen.has(o.id) || !containsStart(page,o.anchorBlockId)) || new Set(ids).size!==ids.length)fail('FLOW_WRAP_ANCHOR_MISMATCH');
+        const object=combineObjects(batch);
+        if(!equal(object,page.anchoredObject))fail('FLOW_WRAP_ANCHOR_MISMATCH');
+        batch.forEach(o=>seen.add(o.id));
         const allowed=createWrapRegions(pagination.pageBox,object,pagination.writingMode,typography);
         let offset=0, previous=-1;
         if(!Array.isArray(page.wrapRegions)||!page.wrapRegions.length)fail('FLOW_WRAP_REGIONS_MISSING');

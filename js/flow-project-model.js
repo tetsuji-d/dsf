@@ -160,7 +160,7 @@ export function validateFlowLayoutSettings(layout) {
         return { valid: false, issues };
     }
 
-    if (![1,2].includes(layout.schemaVersion)) {
+    if (![1,2,3].includes(layout.schemaVersion)) {
         addIssue(issues, 'unsupported_flow_layout_schema_version', 'schemaVersion', 'Unsupported Flow layout schema version.', {
             supportedVersion: FLOW_LAYOUT_SCHEMA_VERSION,
         });
