@@ -452,3 +452,33 @@ body.graphic-page-context #ribbon-bar [onclick="addBubbleFab()"] {
 .editor-canvas-frame-grip:hover {
   background: #3b82f655;
 }
+/* Keep the object ribbon controls on the same 30px baseline as its icons. */
+#graphic-toolbar :is(input[type="number"], input[type="color"], select) {
+  box-sizing: border-box;
+  height: 30px;
+  min-height: 30px;
+  max-height: 30px;
+  margin: 0;
+  padding: 2px 5px;
+  font-size: 12px;
+  line-height: 1.2;
+}
+#graphic-toolbar > select {
+  width: 180px;
+  max-width: 180px;
+  min-width: 0;
+  text-overflow: ellipsis;
+}
+#graphic-toolbar input[type="color"] {
+  width: 30px;
+  padding: 3px;
+  flex: 0 0 30px;
+}
+#graphic-toolbar .graphic-field {
+  margin: 0;
+  white-space: nowrap;
+}
+#graphic-toolbar .graphic-object-name {
+  height: 30px;
+  line-height: 30px;
+}
