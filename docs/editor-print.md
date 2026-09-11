@@ -48,3 +48,15 @@ local Vite server. Covers real Flow output, selected booklet pages, paper-color
 removal, original-source equality, guide exclusion, cleanup, Fixed image pages,
 edge extension and English UI. It also captures the print document as a PDF using
 Chrome. Physical duplex printer acceptance remains a manual step.
+
+## Cover labels and thumbnail controls
+
+Print labels use the original project cover settings and original page numbers.
+For full-document booklet printing, padding is inserted before C3 (or C4 for
+outer-cover-only books), preserving the outside C1/C4 and inside C2/C3 sheet.
+Partial selections retain original labels but receive trailing padding; omitted
+cover pages are never synthesized. Source project data is unchanged.
+
+Thumbnails place larger images above labels and may be collapsed while retaining
+selection and scroll position. Language writing mode and reading direction remain
+visible. Page labels on paper are preview guides and excluded from printed output.

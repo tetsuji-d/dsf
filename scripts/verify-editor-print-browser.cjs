@@ -1,5 +1,25 @@
 const {chromium}=require(process.env.DSF_PLAYWRIGHT_MODULE||'C:/Users/tetsu/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/node_modules/playwright');const assert=require('node:assert/strict');
 (async()=>{const b=await chromium.launch({channel:'chrome',headless:true});try{const p=await b.newPage({viewport:{width:1440,height:1000}});p.on('pageerror',e=>console.log('ERROR',e.message));await p.goto('http://127.0.0.1:5178/studio?room=editor');await p.waitForFunction(()=>window.changeFlowGeneratedPage);await p.evaluate(async()=>{const {state}=await import('/js/state.js'),{createFlowGroupBlock}=await import('/js/flow-project-model.js');window.testState=state;state.blocks=[createFlowGroupBlock({id:'print-test',sourceLanguage:'ja',writingMode:'vertical-rl',document:{sourceLanguage:'ja',sections:[{id:'s',blocks:[{id:'p',type:'paragraph',texts:{ja:'印刷の検証。海辺の物語。'.repeat(100)}}]}]}})];Object.assign(state,{projectAssets:[],version:6,activeLang:'ja',defaultLang:'ja',languages:['ja'],activeBlockIdx:0,activeIdx:0,sections:[],pages:[],projectId:null,localProjectId:'print-test',bookMode:'none',book:{mode:'none'}});window.changeFlowGeneratedPage(0,0)});const before=await p.evaluate(()=>JSON.stringify(window.testState.blocks));await p.click('#ribbon-print');const f=p.frameLocator('iframe[title="印刷設定"]');await f.locator('#printNow').waitFor();await f.locator('#printNow').evaluate(e=>e.ownerDocument.defaultView.print=()=>{});await f.locator('#printNow').waitFor({state:'visible'});await p.waitForFunction(()=>{const d=document.querySelector('iframe[title="印刷設定"]')?.contentDocument;return d?.querySelector('.viewer-fixed-text-page')||d?.getElementById('loadState')?.textContent.includes('できません')},{},{timeout:120000});console.log(await f.locator('#loadState').textContent());assert.ok(await f.locator('.viewer-fixed-text-run').count()>0);assert.equal(await f.locator('#binding').inputValue(),'right');
+const actualCount=await f.locator('#pageChoices button').count();
+const coverKeys=await p.evaluate(async()=>{const {getPageCoverKey}=await import('/js/page-labels.js');return Array.from({length:14},(_,i)=>getPageCoverKey(i,{mode:'full'},'full',14).toUpperCase())});
+await f.locator('html').evaluate((el,keys)=>{const w=el.ownerDocument.defaultView;w.printCoverKeys=keys;w.setPrintCount(14)},coverKeys);
+assert.equal(await f.locator('[data-choice="14"] .thumbnail-label').textContent(),'P14 · C4');
+const thumb=await f.locator('[data-choice="1"]').evaluate(e=>({image:e.querySelector('svg').getBoundingClientRect().bottom,label:e.querySelector('.thumbnail-label').getBoundingClientRect().top}));assert.ok(thumb.label>=thumb.image);
+await f.locator('#pageChoices').evaluate(e=>e.scrollLeft=-100);
+const scroll=await f.locator('#pageChoices').evaluate(e=>e.scrollLeft),stageHeight=await f.locator('#stage').evaluate(e=>e.clientHeight);
+await f.locator('#toggleThumbnails').click();assert.ok(await f.locator('#stage').evaluate(e=>e.clientHeight)>stageHeight);assert.equal(await f.locator('#pageChoices').isVisible(),false);
+await f.locator('#toggleThumbnails').click();assert.equal(await f.locator('#pageChoices').evaluate(e=>e.scrollLeft),scroll);
+await f.locator('[data-print=booklet]').click();
+let coverSheets=await f.locator('html').evaluate(el=>el.ownerDocument.defaultView.collectPrintSheets().map(svg=>[...svg.querySelectorAll('[data-print-page]')].map(e=>e.dataset.printPage)));
+assert.deepEqual(coverSheets[0],['1','14']);assert.deepEqual(coverSheets[1],['13','2']);assert.equal(coverSheets.flat().filter(x=>x==='').length,2);assert.equal(new Set(coverSheets.flat().filter(Boolean)).size,14);
+assert.equal(await f.locator('#stage [data-page-label]').count(),2);
+await f.locator('#rangeMode').selectOption('selected');await f.locator('#range').fill('1-13');
+coverSheets=await f.locator('html').evaluate(el=>el.ownerDocument.defaultView.collectPrintSheets().map(svg=>[...svg.querySelectorAll('[data-print-page]')].map(e=>e.dataset.printPage)));
+assert.deepEqual(coverSheets[0],['1','']);
+await f.locator('html').evaluate((el,count)=>{const w=el.ownerDocument.defaultView;w.printCoverKeys=[];el.ownerDocument.getElementById('rangeMode').value='all';w.setPrintCount(count)},actualCount);
+await f.locator('[data-print=single]').click();
+console.log('PASS cover-preserving padding, partial selection, labels and thumbnail collapse');
+
 await f.locator('#rangeMode').selectOption('selected');
 assert.ok(await f.locator('#pageChoices').evaluate(e=>e.children[0].getBoundingClientRect().x>e.children[1].getBoundingClientRect().x));
 await f.locator('#nup').selectOption('4');

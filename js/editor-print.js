@@ -1,5 +1,7 @@
 import template from './editor-print-template.html?raw';
 import {localizePrintTemplate} from './editor-print-i18n.js';
+import { getPageCoverKey } from './page-labels.js';
+import { getLangProps } from './lang.js';
 import { state } from './state.js';
 import { getUILang } from './i18n-studio.js';
 import { prepareProjectForSave } from './project-persistence.js';
@@ -62,9 +64,9 @@ export async function openEditorPrint() {
     win.mountPrintPages=mount;
     win.mountPrintThumbnails=()=>{
         for(const b of doc.querySelectorAll('[data-choice]')){
-            const preview=svgElement('svg',{viewBox:'0 0 36 64',width:23,height:40,'aria-hidden':'true'});
+            const preview=svgElement('svg',{viewBox:'0 0 36 64',width:45,height:80,'aria-hidden':'true'});
             const slot=svgElement('g',{'data-print-page':b.dataset.choice,'data-x':0,'data-y':0,'data-w':36,'data-h':64,'data-bleed':0});
-            preview.append(slot);mount(preview);b.replaceChildren(preview,doc.createTextNode(b.dataset.choice));
+            preview.append(slot);mount(preview);const label=doc.createElement('span');label.className='thumbnail-label';label.textContent=win.printPageLabel(Number(b.dataset.choice));b.title=label.textContent;b.setAttribute('aria-label',label.textContent);b.replaceChildren(preview,label);
         }
     };
     async function rebuild(){
@@ -93,6 +95,13 @@ export async function openEditorPrint() {
             await Promise.all([...next.assetUrls].map(async([href,url])=>{const image=new win.Image();image.src=url;await image.decode();nextImages.set(href,image);}));check();
             session?.dispose();session=next;next=null;images=nextImages;pages=session.pagesByLanguage.get(language)||[];
             if(priorLanguage!==language)win.setPrintDirection(session.index.languages[language].pageDirection);
+            const source=JSON.parse(initial);
+            win.printCoverKeys=pages.map((_,i)=>getPageCoverKey(i,source.book,source.bookMode,pages.length).toUpperCase());
+            const modes=new Set((source.blocks||[]).filter(b=>b.kind==='flow').map(b=>b.flow?.layout?.typographyByLanguage?.[language]?.writingMode).filter(Boolean));
+            const mode=modes.size===1?[...modes][0]:source.languageConfigs?.[language]?.writingMode||getLangProps(language).defaultWritingMode;
+            const modeLabel=modes.size>1?(en?'Mixed writing modes':'縦横混在'):mode?.startsWith('vertical')?(en?'Vertical':'縦書き'):(en?'Horizontal':'横書き');
+            const direction=session.index.languages[language].pageDirection==='rtl'?(en?'← Right to left':'← 右から左'):(en?'Left to right →':'左から右 →');
+            $('languageInfo').textContent=modeLabel+' · '+direction;
             win.printBusy=false;win.setPrintCount(pages.length);
             if(priorLanguage===language){$('rangeMode').value=priorMode;$('range').value=priorRange;$('range').dispatchEvent(new win.Event('input'));}
             $('loadState').textContent=en?'Ready · print snapshot':'準備完了 · 印刷用スナップショット';
