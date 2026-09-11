@@ -1,5 +1,6 @@
 const {chromium}=require(process.env.DSF_PLAYWRIGHT_MODULE),assert=require('node:assert/strict');
-(async()=>{const browser=await chromium.launch({channel:'chrome',headless:true});try{const page=await browser.newPage();await page.goto('http://127.0.0.1:5178/scripts/fixtures/flow-image-wrap-lab.html');console.log(await page.evaluate(async(captionMode)=>{
+(async()=>{const browser=await chromium.launch({channel:'chrome',headless:true});try{const page=await browser.newPage();await page.goto('http://127.0.0.1:5178/scripts/fixtures/flow-image-wrap-lab.html');console.log(await page.evaluate(async({captionMode,pausedFrames})=>{
+ if(pausedFrames)window.requestAnimationFrame=()=>0;
  const {createFlowGroupBlock}=await import('/js/flow-project-model.js');const {createGraphicObject}=await import('/js/graphic-object-model.js');
  const {prepareFlowPressPublication}=await import('/js/flow-press-publication-preparation.js');
  const {composeFlowWithAnchoredObjects,validateFlowWrapPagination}=await import('/js/flow-wrap-composition.js');
@@ -70,7 +71,7 @@ const {chromium}=require(process.env.DSF_PLAYWRIGHT_MODULE),assert=require('node
   cases++;
  }
  return {cases,glyphs};
-},process.env.DSF_TEST_CAPTIONS==='1'));
+},{captionMode:process.env.DSF_TEST_CAPTIONS==='1',pausedFrames:process.env.DSF_TEST_PAUSED_FRAMES==='1'}));
 page.on('dialog',async dialog=>await dialog.accept('flow-wrap-test.dsp'));
 const download=page.waitForEvent('download');
 await page.evaluate(async()=>await (await import('/js/export.js')).buildDSP());

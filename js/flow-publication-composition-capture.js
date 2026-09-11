@@ -547,7 +547,14 @@ function resolveCaptureContext(options) {
 async function nextPaint(ownerDocument) {
     const requestFrame = ownerDocument.defaultView?.requestAnimationFrame?.bind(ownerDocument.defaultView);
     if (!requestFrame) return;
-    await new Promise((resolve) => requestFrame(() => requestFrame(resolve)));
+    // Background tabs may never receive an animation frame. Fonts are awaited
+    // separately and the subsequent geometry reads synchronously flush layout.
+    await new Promise(resolve => {
+        const view=ownerDocument.defaultView;let first,second,settled=false;
+        const finish=()=>{if(settled)return;settled=true;clearTimeout(timer);if(first)view?.cancelAnimationFrame?.(first);if(second)view?.cancelAnimationFrame?.(second);resolve();};
+        const timer=setTimeout(finish,100);
+        first=requestFrame(()=>{second=requestFrame(finish);});
+    });
 }
 
 async function loadCertifiedFonts(context) {

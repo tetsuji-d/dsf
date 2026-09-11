@@ -98,6 +98,7 @@ export function composeFlowWithAnchoredObjects(group, options) {
 
     const original = JSON.stringify(document);
     const measurer = createFlowDomPageMeasurer({ownerDocument:options.ownerDocument,languageKey,writingMode,typography:options.typography,hyphenation:'none'});
+    const gridMeasurer = createFlowDomPageMeasurer({ownerDocument:options.ownerDocument,languageKey,writingMode,typography:{...options.typography,blockGrid:true},hyphenation:'none'});
     const ownerDocument=options.ownerDocument || globalThis.document;
     const annotationHost = ownerDocument.createElement('div');
     annotationHost.className='flow-wrap-annotation-measure-host';
@@ -106,10 +107,10 @@ export function composeFlowWithAnchoredObjects(group, options) {
     annotationHost.append(annotationSurface);ownerDocument.body.append(annotationHost);
     let activeObject=null;
     const annotationFits = context => {
-        const body = measurer.measurePage(context);
+        const body = (activeObject?gridMeasurer:measurer).measurePage(context);
         if (!body.fits || !activeObject || !context.fragments.some(f=>f.annotations?.length)) return body;
         renderFlowGeneratedPage(annotationSurface,{page:{fragments:context.fragments},pageBox:context.pageBox,
-            languageKey,writingMode,typography:measurer.typography,hyphenation:'none'});
+            languageKey,writingMode,typography:gridMeasurer.typography,hyphenation:'none'});
         const root=annotationSurface.getBoundingClientRect(), o=activeObject;
         for(const glyph of annotationSurface.querySelectorAll('[data-annotation-text]')) {
             const r=glyph.getBoundingClientRect(), x=r.left-root.left,y=r.top-root.top;
@@ -192,7 +193,7 @@ export function composeFlowWithAnchoredObjects(group, options) {
         verifyWrapSourceCoverage(document,languageKey,pages);
         if(JSON.stringify(document)!==original) fail('SOURCE_MUTATED');
         return {documentId:document.id,languageKey,writingMode,pageBox,pages};
-    } finally { measurer.dispose(); annotationHost.remove(); }
+    } finally { measurer.dispose(); gridMeasurer.dispose(); annotationHost.remove(); }
 }
 
 /** Fail closed when a captured background is stale, duplicated, or detached from its paragraph. */

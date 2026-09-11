@@ -28,7 +28,7 @@ export async function openEditorViewerPreview() {
       ready = true;
       send();
     }
-    if (e.data.type === "dsf-editor-preview-loaded") cleanup();
+    if (["dsf-editor-preview-loaded", "dsf-editor-preview-failed"].includes(e.data.type)) cleanup();
   };
   const timer = setInterval(() => {
     if (child.closed) {

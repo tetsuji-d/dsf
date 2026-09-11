@@ -33,4 +33,5 @@ if(process.env.DSF_TEST_CAPTIONS==='1'){
  await p.screenshot({path:require('node:os').tmpdir()+'/flow-caption-editor.png'});
  console.log('Caption canvas editing, vertical placement, duplicate/undo and clipboard retain original asset and caption');
 }
+if(process.env.DSF_TEST_PAUSED_FRAMES==='1')await p.evaluate(()=>window.requestAnimationFrame=()=>0);
 console.log('starting preview',await p.locator('#btn-editor-preview').isEnabled());const popup=p.waitForEvent('popup',{timeout:30000});await p.locator('#btn-editor-preview').click();console.log('clicked');const viewer=await popup;console.log('popup',viewer.url());viewer.on('dialog',async d=>{console.log('viewer dialog',d.message());await d.dismiss()});await viewer.waitForSelector('.viewer-fixed-text-page',{timeout:120000});await viewer.waitForSelector('.viewer-fixed-text-background');assert.ok(await viewer.locator('.viewer-fixed-text-run').count()>0);console.log('viewer ready');console.log(errors);assert.deepEqual(errors,[]);}finally{await b.close()}})().catch(e=>{console.error(e);process.exitCode=1});

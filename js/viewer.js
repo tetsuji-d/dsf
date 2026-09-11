@@ -401,11 +401,16 @@ async function init() {
         const receive=async event=>{
             if(event.source!==source||event.origin!==origin||event.data?.nonce!==editorPreview||event.data?.type!=='dsf-editor-preview-package'||!(event.data.blob instanceof Blob))return;
             window.removeEventListener('message',receive);
-            try{await loadViewerFile(new File([event.data.blob],'editor-preview.dsf',{type:event.data.blob.type}));resizeCanvas();updateUiVisibility();source.postMessage({type:'dsf-editor-preview-loaded',nonce:editorPreview},origin);}catch{alert('プレビューを読み込めませんでした。 / Unable to load preview.');}
+            try{await loadViewerFile(new File([event.data.blob],'editor-preview.dsf',{type:event.data.blob.type}),{preview:true});resizeCanvas();updateUiVisibility();source.postMessage({type:'dsf-editor-preview-loaded',nonce:editorPreview},origin);}catch{showStandaloneEmpty();document.getElementById('viewer-empty-title').textContent='プレビューを読み込めませんでした。 / Unable to load preview.';document.getElementById('viewer-empty-body').textContent='エディターへ戻り、プレビューをもう一度開いてください。 / Return to the editor and try again.';source.postMessage({type:'dsf-editor-preview-failed',nonce:editorPreview},origin);}
         };
         window.addEventListener('message',receive);
+        showStandaloneEmpty();
+        document.getElementById('viewer-empty-title').textContent='プレビューを準備中… / Preparing preview…';
+        document.getElementById('viewer-empty-body').textContent='画像と組版を準備しています。このタブでお待ちください。 / Preparing images and layout. Please wait here.';
+        document.getElementById('viewer-empty-open').hidden=true;
+        document.getElementById('viewer-empty-hint').textContent='';
         source.postMessage({type:'dsf-editor-preview-ready',nonce:editorPreview},origin);
-        showStandaloneEmpty();return;
+        return;
     }
     const ownerDraftPid = String(params.get('draft') || '').trim();
     const workId = params.get('work') || params.get('w');
@@ -935,7 +940,7 @@ function updateStandaloneEmptyText() {
     if (hint) hint.textContent = vt('standaloneHint');
 }
 
-async function loadViewerFile(file) {
+async function loadViewerFile(file, {preview = false} = {}) {
     if (!file) return;
     document.body.style.cursor = 'wait';
     try {
@@ -964,6 +969,7 @@ async function loadViewerFile(file) {
             loadProjectData(JSON.parse(await file.text()), { source: 'file' });
         }
     } catch (e) {
+        if(preview)throw e;
         alert(vt('loadError', { message: e.message }));
         if (!projectLoaded) showStandaloneEmpty();
     } finally {

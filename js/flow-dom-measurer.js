@@ -118,6 +118,7 @@ export function resolveFlowDomTypography(
     }
     return Object.freeze({
         writingMode: mode,
+        blockGrid: overrides.blockGrid === true,
         fontFamily: String(overrides.fontFamily || defaultFontFamily),
         fontSize: requireFiniteNumber(overrides.fontSize, defaults.fontSize, 'fontSize', { positive: true }),
         fontWeight: String(overrides.fontWeight ?? '400'),
@@ -267,6 +268,7 @@ function createMeasurementCacheKey(context, pageBox, writingMode, languageKey, t
         typography.fontSize,
         typography.fontWeight,
         typography.lineHeight,
+        typography.blockGrid,
         typography.letterSpacing,
         typography.textAlign,
         typography.blockAlign,
@@ -326,6 +328,20 @@ export function renderFlowFragments(contentElement, options = {}) {
         children.at(-1).style.paddingBlockEnd = '0px';
         for (const child of children) child.style.flexShrink = '0';
     }
+    if(typography.blockGrid && contentElement.children.length){
+        // Measure without editor zoom; align each block footprint to the page grid.
+        const probe=contentElement.cloneNode(true);
+        Object.assign(probe.style,{left:'-10000px',top:'0px',visibility:'hidden',pointerEvents:'none'});
+        contentElement.ownerDocument.body.append(probe);
+        try{
+            const advance=typography.fontSize*typography.lineHeight;
+            const pads=[...probe.children].map(child=>{
+                const rect=child.getBoundingClientRect(),extent=writingMode==='vertical-rl'?rect.width:rect.height;
+                return parseFloat(child.style.paddingBlockEnd||'0')+Math.max(0,Math.ceil((extent-.05)/advance)*advance-extent);
+            });
+            [...contentElement.children].forEach((child,i)=>child.style.paddingBlockEnd=`${pads[i]}px`);
+        }finally{probe.remove();}
+    }
     return { pageBox, typography, hyphenation };
 }
 
@@ -350,7 +366,7 @@ export function renderFlowGeneratedPage(pageElement, options = {}) {
         Object.assign(contentElement.style,{left:'0px',top:'0px',width:pageBox.width+'px',height:pageBox.height+'px'});
         for(const region of options.page.wrapRegions){
             const element=pageElement.ownerDocument.createElement('div');
-            renderFlowFragments(element,{pageBox:region.pageBox,languageKey,writingMode,typography,hyphenation,
+            renderFlowFragments(element,{pageBox:region.pageBox,languageKey,writingMode,typography:{...typography,blockGrid:true},hyphenation,
                 fragments:options.page.fragments.slice(region.fragmentStart,region.fragmentStart+region.fragmentCount)});
             element.className='flow-dom-region';
             [...element.children].forEach((child,index)=>child.dataset.flowFragmentIndex=String(region.fragmentStart+index));
