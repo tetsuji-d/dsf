@@ -121,6 +121,8 @@ export function initFlowRibbon() {
         catch { byId('ribbon-status').textContent = t('ribbon_fullscreen_unavailable'); }
     });
     full.id = 'ribbon-fullscreen'; quick.append(full);
+    const print = button('print', 'ribbon_print', () => import('./editor-print.js').then(m => m.openEditorPrint()));
+    print.id = 'ribbon-print'; quick.append(print);
     const zoom = byId('canvas-zoom-select');
     zoom.dataset.i18nTitle = 'ribbon_canvas_zoom'; zoom.dataset.i18nAria = 'ribbon_canvas_zoom';
     zoom.title = t('ribbon_canvas_zoom'); zoom.setAttribute('aria-label', t('ribbon_canvas_zoom'));

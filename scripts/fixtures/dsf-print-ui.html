@@ -1,0 +1,127 @@
+<!doctype html><html lang="ja"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>DSF 印刷設定 — UI試作</title>
+<style>
+:root{color-scheme:dark;font:13px system-ui;color:#e3ebf7;background:#101827}*{box-sizing:border-box}body{margin:0}header{height:48px;padding:12px 20px;background:#090f19;display:flex;gap:24px;align-items:center}header strong{color:#87b5ff}header small{margin-left:auto;color:#dbbd78}main{display:grid;grid-template-columns:310px 1fr;height:calc(100vh - 48px)}aside{padding:16px;background:#172235;overflow:auto;border-right:1px solid #354359}h2{font-size:16px;margin:0 0 16px}fieldset{border:0;border-top:1px solid #354359;margin:12px 0;padding:12px 0 0}legend{color:#a1b7d2;padding-right:8px}label{display:flex;align-items:center;justify-content:space-between;gap:8px;margin:9px 0}select,input,button{font:inherit;border:1px solid #45546b;border-radius:5px;color:inherit;background:#101827;padding:5px;height:30px}select{max-width:175px}input[type=number]{width:72px}input[type=checkbox]{accent-color:#3987ff;height:16px}button{cursor:pointer;padding:4px 12px}button:disabled{opacity:.5;cursor:default}button:hover:enabled{border-color:#75a9ff}button:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid #75a9ff}.pair{display:grid;grid-template-columns:1fr 1fr;gap:10px}.pair label{display:block}.pair input{width:100%;margin-top:5px}.preview{min-width:0;display:flex;flex-direction:column;padding:18px 26px;gap:12px}.bar{display:flex;align-items:center;gap:12px}.bar span{flex:1}.stage{flex:1;min-height:0;display:flex;align-items:center;justify-content:center;background:#222d3f;border-radius:9px;padding:22px}.stage svg{height:100%;max-width:100%;filter:drop-shadow(0 8px 10px #0006)}.note{color:#adc0d8;line-height:1.6;margin:0}#warning{color:#ffca80}footer{display:flex;justify-content:space-between;align-items:center;gap:20px}#summary{color:#adc0d8}.badge{color:#8dbaff} @media(max-width:800px){main{grid-template-columns:260px 1fr}.preview{padding:12px}.stage{padding:8px}}
+
+.print-page-selector{flex-shrink:0;border-top:1px solid #45546b;padding-top:10px;display:flex;align-items:center;flex-wrap:wrap;gap:8px 16px}
+.print-page-selector label{margin:0}.print-page-selector #rangeControls{display:contents}.print-page-selector #rangeControls[hidden]{display:none}
+.print-page-selector #range{width:180px!important}.print-page-selector #rangeHelp{font-size:11px}
+.print-page-selector #rangeError:empty{display:none}.print-page-selector #rangeError{margin:0}
+.print-page-selector #pageChoices{display:flex;gap:7px;overflow-x:auto;flex-basis:100%;padding:5px 0 8px;order:5}
+.print-page-selector #pageChoices button{width:48px;flex-shrink:0}
+.print-page-selector .selection-actions{display:flex;gap:6px}.print-page-selector>.note:last-child{display:none}
+.print-page-selector #selectionSummary{margin-left:auto}
+</style>
+<header><strong>DSF Studio</strong><span>印刷設定</span><small>UI試作 · サンプル10ページ / 保存・印刷は行いません</small></header>
+<main><aside><h2>用紙と配置</h2>
+<label hidden>印刷方法<select id="mode"><option value="normal">通常・割り付け</option><option value="booklet">冊子（二つ折り）</option></select></label>
+<label>用紙<select id="paper"><option>A4</option><option>A5</option><option>B5</option><option>Letter</option></select></label>
+<label>用紙の向き<select id="orientation"><option value="portrait">縦</option><option value="landscape">横</option></select></label>
+<label>1面のページ数<select id="nup"><option value="1">1ページ</option><option value="2">2ページ</option><option value="4">4ページ</option></select></label>
+<fieldset><legend>余白（mm）</legend><div class="pair"><label>上<input id="top" type="number" min="0" max="60" value="10"></label><label>下<input id="bottom" type="number" min="0" max="60" value="10"></label><label>左<input id="left" type="number" min="0" max="60" value="10"></label><label>右<input id="right" type="number" min="0" max="60" value="10"></label></div><label>ページ間隔<input id="gap" type="number" min="0" max="30" value="8"></label><p class="note">9:16を維持して各配置枠にフィット。余白は用紙の端から指定します。</p></fieldset>
+<fieldset><legend>仕上がり</legend>
+<label>仕上げ方<select id="finish"><option value="margin">余白を残す</option><option value="trim">9:16に裁断</option></select></label>
+<p class="note" id="finishNote"></p>
+<label>塗り足し<select id="bleed"><option value="none">なし</option><option value="edge">端の色を延長</option></select></label>
+<label>塗り足し幅（mm）<input id="bleedWidth" type="number" min="0" max="10" step="0.5" value="3"></label>
+<label><span>テキストページの用紙色を印刷</span><input id="paperColor" type="checkbox" checked></label>
+<p class="note">用紙色だけを除外します。文字・画像・図形の色は維持します。画像に焼き込まれた紙色は除去しません。</p><label><span>ページ枠線</span><input id="border" type="checkbox" checked></label><label><span>トンボ</span><input id="marks" type="checkbox"></label><label><span>余白ガイド（確認用）</span><input id="guides" type="checkbox" checked></label></fieldset>
+<fieldset><legend>両面・冊子</legend><div class="print-modes" role="group" aria-label="印刷方法">
+<button type="button" data-print="single" title="片面：用紙の表だけに印刷"><svg viewBox="0 0 48 40"><rect x="13" y="3" width="23" height="33"/><path d="M18 12h13M18 18h13M18 24h9"/></svg><span>片面</span></button>
+<button type="button" data-print="long" title="両面・長辺綴じ：長い辺を軸にめくる"><svg viewBox="0 0 48 40"><rect x="14" y="3" width="23" height="33"/><path d="M14 3v33" class="axis"/><path d="M24 13h8M24 19h8M11 11C0 11 0 28 11 28m-4-4 4 4-4 4"/></svg><span>両面・長辺</span></button>
+<button type="button" data-print="short" title="両面・短辺綴じ：短い辺を軸にめくる"><svg viewBox="0 0 48 40"><rect x="9" y="11" width="23" height="26"/><path d="M9 11h23" class="axis"/><path d="M15 19h11M15 25h11M19 8C19 0 40 0 40 11m-4-4 4 4 4-4"/></svg><span>両面・短辺</span></button>
+<button type="button" data-print="booklet" title="中綴じ冊子：両面印刷した用紙を重ねて二つ折り"><svg viewBox="0 0 48 40"><path d="M4 8l20 5 20-5v24l-20 5-20-5ZM24 13v24M8 3l16 5 16-5"/><path d="M24 17v4m0 5v4" class="axis"/></svg><span>中綴じ冊子</span></button></div><label hidden>両面設定<select id="duplex"><option value="single">片面</option><option value="long">両面・長辺綴じ</option><option value="short">両面・短辺綴じ</option></select></label><label>読む方向<select id="binding"><option value="right">右綴じ</option><option value="left">左綴じ</option></select></label><p class="note" id="duplexNote"></p></fieldset>
+<fieldset><legend>印刷対象</legend><p class="note">印刷するページは画面下のサムネイルで選択します。</p></fieldset>
+</aside><section class="preview"><div class="bar"><span><b id="face"></b> <small class="badge" id="count"></small></span><button id="prev" title="前の印刷面">←</button><button id="next" title="次の印刷面">→</button></div><div class="stage" id="stage"></div><p id="summary"></p><p id="warning" role="status"></p><footer><p class="note">本文の組版はそのまま。図は配置確認用です。<br>青破線：仕上がり・折り目 ／ 橙：塗り足し領域（確認用）<br>端の延長は画像の続きを生成しません。実原稿・PDF出力には未接続です。</p><div><button disabled title="実装段階で接続します">PDFを書き出す</button> <button disabled title="実装段階で接続します">印刷する</button></div></footer><section class="print-page-selector" aria-label="印刷ページの選択"><strong>印刷ページ</strong><label>言語<select id="lang"><option value="ja">日本語</option><option value="en">English</option></select></label><label>対象<select id="rangeMode"><option value="all">全ページ</option><option value="selected">指定ページ</option></select></label>
+<div id="rangeControls" hidden><label for="range">ページ番号</label><input id="range" type="text" value="1-10" placeholder="例：1-3, 5, 8-10" style="width:100%" aria-describedby="rangeHelp rangeError"><p class="note" id="rangeHelp">例：1-3, 5, 8-10。表紙を含む作品順の番号です。</p><p id="rangeError" role="status" style="color:#ffca80"></p><div id="pageChoices" ></div><div class="selection-actions"><button id="selectAll" type="button">すべて選択</button><button id="selectNone" type="button">解除</button></div></div><p class="note" id="selectionSummary"></p><p class="note">選択ページは作品順に配置します。冊子の白紙補完も選択後のページ数が基準です。</p></section></section></main>
+<script>
+const $=id=>document.getElementById(id),sizes={A4:[210,297],A5:[148,210],B5:[182,257],Letter:[215.9,279.4]};let index=0;
+// Sample image: repeat the actual outermost pixels outside its unchanged bounds.
+function sampleImage(bleed,left,right,pw){
+ const src=document.createElement('canvas');src.width=180;src.height=320;const c=src.getContext('2d');
+ const g=c.createLinearGradient(0,0,180,320);g.addColorStop(0,'#183d65');g.addColorStop(.5,'#7bbed0');g.addColorStop(1,'#efd7ac');c.fillStyle=g;c.fillRect(0,0,180,320);
+ c.fillStyle='#fff5c7';c.beginPath();c.arc(128,73,27,0,Math.PI*2);c.fill();c.fillStyle='#365c75';c.fillRect(0,218,180,9);
+ const d=Math.ceil(bleed*180/pw),l=left?d:0,r=right?d:0,out=document.createElement('canvas');out.width=180+l+r;out.height=320+2*d;const x=out.getContext('2d');
+ x.drawImage(src,l,d);if(d){x.drawImage(src,0,0,180,1,l,0,180,d);x.drawImage(src,0,319,180,1,l,320+d,180,d);
+ if(l)x.drawImage(out,l,0,1,out.height,0,0,l,out.height);if(r)x.drawImage(out,l+179,0,1,out.height,l+180,0,r,out.height);}
+ return out.toDataURL();
+}
+let selected=Array.from({length:10},(_,i)=>i+1),rangeValid=true;
+function parseRange(){
+ const raw=$('range').value.trim();const found=new Set();rangeValid=true;
+ if(raw)for(const part of raw.split(/[,、]/)){const m=part.trim().match(/^(\d+)(?:\s*-\s*(\d+))?$/);if(!m){rangeValid=false;break}const a=Number(m[1]),b=Number(m[2]||m[1]);if(a<1||b>10||a>b){rangeValid=false;break}for(let n=a;n<=b;n++)found.add(n)}
+ selected=rangeValid?[...found].sort((a,b)=>a-b):[];
+ $('range').setAttribute('aria-invalid',String(!rangeValid));
+}
+function syncChoices(){
+ $('rangeControls').hidden=false;$('range').disabled=$('rangeMode').value==='all';
+ $('rangeError').textContent=rangeValid?'':'1〜10のページ番号を入力してください（例：1-3, 5）。';
+ document.querySelectorAll('[data-choice]').forEach(b=>{const on=$('rangeMode').value==='all'||selected.includes(Number(b.dataset.choice));b.setAttribute('aria-pressed',String(on));b.style.background=on?'#264d7c':'#101827';b.style.borderColor=on?'#79b3ff':'#45546b'});
+}
+for(let n=1;n<=10;n++){const b=document.createElement('button');b.type='button';b.dataset.choice=n;b.title=n===1?'1：表紙':n===10?'10：裏表紙':`${n}：作品内ページ`;b.setAttribute('aria-label',b.title);b.style.height='66px';b.style.padding='3px';b.innerHTML=`<span aria-hidden="true" style="display:block;width:20px;height:35px;margin:0 auto 3px;background:${n===1||n===7?'#76aabd':'#f7f1df'};border:1px solid #aaa"></span>${n}`;b.onclick=()=>{if($('rangeMode').value==='all'){selected=Array.from({length:10},(_,i)=>i+1);$('rangeMode').value='selected'}if(!rangeValid)selected=[];selected=selected.includes(n)?selected.filter(p=>p!==n):[...selected,n].sort((a,b)=>a-b);$('range').value=selected.join(', ');parseRange();index=0;render()};$('pageChoices').append(b)}
+$('selectAll').onclick=()=>{$('range').value='1-10';parseRange();index=0;render()};
+$('selectNone').onclick=()=>{$('rangeMode').value='selected';$('range').value='';parseRange();index=0;render()};
+function render(){
+ document.querySelectorAll('[data-print]').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.print===($('mode').value==='booklet'?'booklet':$('duplex').value))));
+ syncChoices();const chosen=$('rangeMode').value==='all'?Array.from({length:10},(_,i)=>i+1):selected;
+ const padded=Math.ceil(chosen.length/4)*4,extra=padded-chosen.length;
+ $('selectionSummary').textContent=`${chosen.length} / 10ページを選択`;
+
+ const book=$('mode').value==='booklet',trim=$('finish').value==='trim',spine=book&&trim;
+ $('nup').disabled=book;$('orientation').disabled=book;$('duplex').disabled=book;$('gap').disabled=spine;
+ $('bleed').disabled=!trim;$('bleedWidth').disabled=!trim||$('bleed').value==='none';
+ if(book){$('orientation').value='landscape';$('duplex').value='short'}
+ let [w,h]=sizes[$('paper').value];if($('orientation').value==='landscape')[w,h]=[h,w];
+ const val=id=>Math.max(0,Number($(id).value)||0),n=book?2:Number($('nup').value),cols=n===1?1:2,rows=n===4?2:1,duplex=$('duplex').value!=='single';
+ const bleed=trim&&$('bleed').value==='edge'?Math.min(10,val('bleedWidth')):0,mark=$('marks').checked?6:0,reserve=bleed+mark;
+ const l=val('left'),r=val('right'),t=val('top'),b=val('bottom'),gap=spine?0:val('gap');
+ // Mirror asymmetric margins on reverse faces to keep physical trim positions aligned.
+ const faceLeft=duplex&&index%2?r:l,faceRight=duplex&&index%2?l:r;
+ const aw=w-faceLeft-faceRight,ah=h-t-b,cw=(aw-gap*(cols-1))/cols,ch=(ah-gap*(rows-1))/rows;
+ const pw=spine?Math.min(w/2-Math.max(l,r)-reserve,(ah-2*reserve)*9/16):Math.min(cw-2*reserve,(ch-2*reserve)*9/16),ph=pw*16/9;
+ let faces=[];if(book){const sequence=[...chosen,...Array(extra).fill(null)];for(let i=0;i<padded/4;i++){let a=[sequence[padded-1-2*i],sequence[2*i]],b=[sequence[2*i+1],sequence[padded-2-2*i]];if($('binding').value==='right'){a.reverse();b.reverse()}faces.push(a,b)}}else{for(let i=0;i<chosen.length;i+=n)faces.push(Array.from({length:n},(_,j)=>chosen[i+j]??null));if(duplex&&faces.length%2)faces.push(Array(n).fill(null))}
+ if(!faces.length){$('stage').innerHTML='<p role="status">'+(rangeValid?'印刷するページを選択してください。':'ページ番号の指定を確認してください。')+'</p>';$('face').textContent='対象ページなし';$('count').textContent='0面';$('summary').textContent='印刷用紙 0枚';$('warning').textContent='';$('prev').disabled=true;$('next').disabled=true;return}
+
+ index=Math.max(0,Math.min(index,faces.length-1));
+ let svg=`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${w} ${h}" role="img" aria-label="用紙上のページ配置"><rect width="${w}" height="${h}" fill="white"/>`;
+ if($('guides').checked)svg+=`<rect x="${faceLeft}" y="${t}" width="${Math.max(0,aw)}" height="${Math.max(0,ah)}" fill="none" stroke="#9aabba" stroke-width=".3" stroke-dasharray="2 2"/>`;
+ if(pw>0)faces[index].forEach((p,j)=>{
+ const x=spine?(j===0?w/2-pw:w/2):faceLeft+(j%cols)*(cw+gap)+(cw-pw)/2,y=t+Math.floor(j/cols)*(ch+gap)+(ch-ph)/2,blank=p==null,photo=p===1||p===7;
+ const left=!spine||j===0,right=!spine||j===1,bl=left?bleed:0,br=right?bleed:0,paper=blank||!$('paperColor').checked?'#fff':'#f7f1df';
+ if(photo&&!blank)svg+=`<image data-photo="${p}" x="${x-bl}" y="${y-bleed}" width="${pw+bl+br}" height="${ph+2*bleed}" preserveAspectRatio="none" href="${sampleImage(bleed,left,right,pw)}"/>`;
+ else svg+=`<rect data-paper="${p}" x="${x-bl}" y="${y-bleed}" width="${pw+bl+br}" height="${ph+2*bleed}" fill="${paper}"/>`;
+ svg+=`<rect data-page="${p}" x="${x}" y="${y}" width="${pw}" height="${ph}" fill="none" stroke="${$('border').checked?'#333':'none'}" stroke-width=".25"/>`;
+ if(!blank){svg+=`<text x="${x+pw/2}" y="${y+ph*.2}" text-anchor="middle" fill="${photo?'white':'#25354b'}" font-size="${pw*.07}">${p===1?($('lang').value==='ja'?'海辺の記録':'By the sea'):($('lang').value==='ja'?'第 '+p+' ページ':'Page '+p)}</text>`;
+ if(!photo){for(let k=0;k<11;k++)svg+=`<path d="M ${x+pw*.17} ${y+ph*(.32+k*.038)} h ${pw*(k===10?.36:.66)}" stroke="#969589" stroke-width=".4"/>`;svg+=`<rect data-shape="" x="${x+pw*.18}" y="${y+ph*.8}" width="${pw*.2}" height="${ph*.035}" fill="#548eaa"/>`}
+ svg+=`<text x="${x+pw/2}" y="${y+ph*.93}" text-anchor="middle" fill="#25354b" font-size="3">${p}</text>`;
+ }else if($('guides').checked)svg+=`<text x="${x+pw/2}" y="${y+ph/2}" text-anchor="middle" fill="#9aa5b2" font-size="3">補完白紙</text>`;
+ if($('guides').checked&&trim){svg+=`<rect data-trim="" x="${x}" y="${y}" width="${pw}" height="${ph}" fill="none" stroke="#3987ff" stroke-width=".35" stroke-dasharray="2 1"/>`;if(bleed)svg+=`<rect data-bleed="" x="${x-bl}" y="${y-bleed}" width="${pw+bl+br}" height="${ph+bleed*2}" fill="none" stroke="#dc8e33" stroke-width=".4"/>`}
+ if($('marks').checked)for(const [xx,dx,allowed]of [[x,-1,left],[x+pw,1,right]])if(allowed)for(const [yy,dy]of [[y,-1],[y+ph,1]])svg+=`<path data-crop="" d="M ${xx+dx*(bleed+2)} ${yy} h ${dx*3} M ${xx} ${yy+dy*(bleed+2)} v ${dy*3}" stroke="#111" stroke-width=".2"/>`;
+ });
+ if(book&&$('guides').checked)svg+=`<path d="M ${w/2} 0 V ${h}" stroke="#7598bf" stroke-width=".25" stroke-dasharray="2 2"/>`;
+ if($('guides').checked){
+ const dim=(x1,y1,x2,y2,label,tx,ty)=>`<path d="M ${x1} ${y1} L ${x2} ${y2}" stroke="#266bb8" stroke-width=".35"/><text x="${tx}" y="${ty}" font-size="3" text-anchor="middle" fill="#155a9d" stroke="white" stroke-width="1.1" paint-order="stroke">${label}</text>`;
+ svg+=dim(5,0,5,t,`上 ${t} mm`,17,Math.max(3,t/2));
+ svg+=dim(5,h-b,5,h,`下 ${b} mm`,17,h-Math.max(2,b/2));
+ svg+=dim(0,h/2,faceLeft,h/2,`左 ${faceLeft} mm`,Math.max(12,faceLeft/2),h/2-3);
+ svg+=dim(w-faceRight,h/2,w,h/2,`右 ${faceRight} mm`,w-Math.max(12,faceRight/2),h/2-3);
+ if(pw>0&&trim){const yy=t+(ch-ph)/2;
+ svg+=`<text x="${w/2}" y="${Math.max(4,yy-bleed-8)}" font-size="3.2" text-anchor="middle" fill="#155a9d" stroke="white" stroke-width="1" paint-order="stroke">仕上がり 9:16 ・ ${pw.toFixed(1)} × ${ph.toFixed(1)} mm</text>`;
+ // Hatch the paper discarded outside the trim boxes, without hiding page contents.
+ svg+=`<defs><pattern id="cutHatch" width="3" height="3" patternUnits="userSpaceOnUse"><path d="M0 3L3 0" stroke="#aab8c8" stroke-width=".2"/></pattern></defs><rect x="${faceLeft}" y="${t}" width="${Math.max(0,aw)}" height="${Math.max(0,yy-t-bleed)}" fill="url(#cutHatch)"/><text x="${w-28}" y="${Math.max(4,t+4)}" font-size="3" fill="#566b84">斜線：裁断部分</text>`;
+ if(spine)svg+=`<text x="${w/2}" y="${h-3}" font-size="3" text-anchor="middle" fill="#155a9d" stroke="white" stroke-width="1" paint-order="stroke">折り目・綴じ側</text>`;
+ if(bleed)svg+=`<text x="${w/2}" y="${Math.min(h-8,yy+ph+bleed+4)}" font-size="3" text-anchor="middle" fill="#a95a08" stroke="white" stroke-width="1" paint-order="stroke">橙枠：塗り足し ${bleed} mm ／ 青破線：裁断位置</text>`;
+ }
+ }
+ $('stage').innerHTML=svg+'</svg>';$('face').textContent=duplex?`用紙 ${Math.floor(index/2)+1} ・ ${index%2?'裏':'表'}`:`用紙 ${index+1}`;$('count').textContent=`${index+1} / ${faces.length}面`;$('prev').disabled=index===0;$('next').disabled=index===faces.length-1;
+ $('summary').textContent=`${$('paper').value} ${w} × ${h} mm ／ ${pw>0?`${trim?'仕上がり':'ページ'} ${pw.toFixed(1)} × ${ph.toFixed(1)} mm`:'配置不可'} ／ 用紙 ${Math.ceil(faces.length/(duplex?2:1))}枚${bleed?` ／ 塗り足し ${bleed} mm`:''}`;
+ $('warning').textContent=pw<=0?'余白・塗り足しが大きすぎます。設定を小さくしてください。':(book?`${chosen.length}ページ → ${padded}ページ。末尾に白紙${extra}ページを補い、${padded/4}枚へ面付けします。 `:'')+(bleed?'画像端の画素を延長します。模様によって筋状に見えます。':'');
+ $('finishNote').textContent=spine?'折り目に寄せて配置。ページ間隔は0、上・下・小口の三方を裁断します。左右の余白の大きい方で共通寸法を決めます。':trim?'9:16の仕上がりの外側に塗り足しとトンボの空間を確保します。':'用紙の余白を残します。塗り足しは「9:16に裁断」で使用できます。';
+ $('duplexNote').textContent=book?'横向き・短辺綴じで両面印刷し、中央で折ります。プリンター側の冊子設定はオフにします。':duplex?'印刷ダイアログでも同じ綴じ方向を指定します。図は各面を正立で表示します。':'両面の実行はプリンター側で設定します。';
+}
+document.querySelectorAll('[data-print]').forEach(b=>b.onclick=()=>{const v=b.dataset.print;$('mode').value=v==='booklet'?'booklet':'normal';$('duplex').value=v==='booklet'?'short':v;index=0;render()});
+document.querySelectorAll('input,select').forEach(e=>e.addEventListener('input',()=>{if(e.id==='range')parseRange();if(['mode','nup','duplex','range','rangeMode'].includes(e.id))index=0;render()}));$('prev').onclick=()=>{index--;render()};$('next').onclick=()=>{index++;render()};
+if(new URLSearchParams(location.search).has('trim')){$('mode').value='booklet';$('finish').value='trim';$('bleed').value='edge';$('marks').checked=true;}render();
+</script></html>
+<style>
+label[hidden]{display:none!important}.print-modes{display:grid;grid-template-columns:1fr 1fr;gap:6px}.print-modes button{height:78px;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:3px}.print-modes svg{width:46px;height:39px;fill:none;stroke:currentColor;stroke-width:1.5}.print-modes .axis{stroke:#ffa74c;stroke-width:3}.print-modes button[aria-pressed=true]{border-color:#78b4ff;background:#264d7c;color:#e7f3ff}
+.preview{min-height:0;overflow:hidden}.stage{overflow:hidden}.stage svg{display:block;max-height:100%}#summary,#warning{margin:0}.print-page-selector{gap:6px 12px}</style>

@@ -1776,7 +1776,7 @@ function _throwIfPressFlowLocalReleaseCancelled(signal, requestId) {
     throw error;
 }
 
-async function _createPressFlowLocalReleaseImageAssets(preparation, languages, targetWidth, targetHeight, signal, requestId, check = () => _throwIfPressFlowLocalReleaseCancelled(signal, requestId)) {
+async function _createPressFlowLocalReleaseImageAssets(preparation, languages, targetWidth, targetHeight, signal, requestId, check = () => _throwIfPressFlowLocalReleaseCancelled(signal, requestId), printOptions = null) {
     const pageBlocks = Array.isArray(state.blocks)
         ? state.blocks.filter((block) => block?.kind === 'page')
         : [];
@@ -1806,7 +1806,7 @@ async function _createPressFlowLocalReleaseImageAssets(preparation, languages, t
                 throw error;
             }
             const blob = await renderPressSectionToWebP(
-                section,
+                printOptions?.omitPaperColor && section.type === 'text' ? {...section, backgroundColor: '#ffffff'} : section,
                 language,
                 targetWidth,
                 targetHeight,
@@ -4229,7 +4229,7 @@ function _esc(str) {
 }
 
 /** Read-only editor preview; uses the same certified Flow and portable ZIP pipeline as Press. */
-export async function createEditorFlowPreview({project,languages,signal,check,onProgress}) {
+export async function createEditorFlowPreview({project,languages,signal,check,onProgress,printOptions=null}) {
   const {prepareFlowPressPublication}=await import('./flow-press-publication-preparation.js');
   const preparation=await prepareFlowPressPublication({project,languages,revision:Date.now(),documentRef:document,signal,onProgress});check();
   if (!preparation.ok) {
@@ -4242,7 +4242,7 @@ export async function createEditorFlowPreview({project,languages,signal,check,on
         throw error;
     }
   _pressFlowLocalReleaseSealingModule ||= await import('./dsf-release-byte-sealing.js');
-  const {imageAssets,backgroundAssets,sealedAssets}=await _createPressFlowLocalReleaseImageAssets(preparation,languages,1080,1920,signal,null,check);check();
+  const {imageAssets,backgroundAssets,sealedAssets}=await _createPressFlowLocalReleaseImageAssets(preparation,languages,printOptions?2160:1080,printOptions?3840:1920,signal,null,check,printOptions);check();
   const {createFlowPressLocalReleasePlanning}=await import('./flow-press-local-release-planning.js');
   const planning=await createFlowPressLocalReleasePlanning({preparation,defaultLang:languages.includes(project.defaultLang)?project.defaultLang:languages[0],languages,pageDirections:Object.fromEntries(languages.map(l=>[l,_getLangDirection(l)])),imageAssets,backgroundAssets});check();
   const {createFlowPressLocalReleasePackage}=await import('./flow-press-local-release-package.js');
