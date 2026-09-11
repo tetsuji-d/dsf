@@ -2,6 +2,7 @@
 export function localizePrintTemplate(html, en) {
     if (!en) return html;
     const labels = {
+        '印刷のヒント':'Printing tips',
         '倍率100%・余白なし・ヘッダーとフッターなしで印刷してください。':'Use 100% scale, no margins, and no headers or footers.',
         'テキストページの用紙色を印刷':'Print text page paper color',
         '用紙色だけを除外します。文字・画像・図形の色は維持します。画像に焼き込まれた紙色は除去しません。':'Only paper color is omitted. Text, images and shapes retain their colors.',
