@@ -102,6 +102,8 @@ function hasCompleteFlowLanguage(document, languageKey) {
     return sawTextBlock;
 }
 
+export function isFlowEditorLanguageScope(scope) { return scope === 'editor' || scope === 'editor-compare'; }
+
 export function resolveFlowRuntimeLanguage(group, requestedLanguageKey, sessionScope = 'default') {
     const profiles = group?.flow?.layout?.typographyByLanguage || {};
     const requestedProfile = profiles[requestedLanguageKey];
@@ -114,11 +116,10 @@ export function resolveFlowRuntimeLanguage(group, requestedLanguageKey, sessionS
     const translationStatus = requestedLanguageKey === sourceLanguage
         ? null
         : deriveFlowTranslationStatus(group, requestedLanguageKey);
-    // Only the authoring comparison may display saved translations before review.
-    // Default/Press/Viewer callers keep the existing fallback contract.
-    const requiresSourceFallback = translationStatus?.requiresSourceFallback === true && sessionScope !== 'editor-compare';
+    // Both editor modes display drafts. Default/Press/Viewer retain their output contract.
+    const requiresSourceFallback = translationStatus?.requiresSourceFallback === true && !isFlowEditorLanguageScope(sessionScope);
 
-    if (requestedLanguageKey === sourceLanguage || (requestedHasProfile && ((requestedHasText && !requiresSourceFallback) || sessionScope === 'editor-compare'))) {
+    if (requestedLanguageKey === sourceLanguage || (requestedHasProfile && ((requestedHasText && !requiresSourceFallback) || isFlowEditorLanguageScope(sessionScope)))) {
         if (!requestedHasProfile) {
             throw new FlowRuntimePageError(
                 'FLOW_LANGUAGE_TYPOGRAPHY_MISSING',
@@ -134,7 +135,7 @@ export function resolveFlowRuntimeLanguage(group, requestedLanguageKey, sessionS
         });
     }
 
-    if (requestedHasText && !requestedHasProfile && !requiresSourceFallback) {
+    if (!requestedHasProfile && (isFlowEditorLanguageScope(sessionScope) || (requestedHasText && !requiresSourceFallback))) {
         throw new FlowRuntimePageError(
             'FLOW_LANGUAGE_TYPOGRAPHY_MISSING',
             `Flow typography is not available for translated language ${requestedLanguageKey}.`,
@@ -329,7 +330,7 @@ async function paginateFlowGroup(group, options) {
     // Missing targets are empty runtime placeholders, never source text presented
     // as a translation and never written into the authoring document.
     let paginationDocument = group.flow.document;
-    if (options.sessionScope === 'editor-compare' && languageKey !== group.flow.document.sourceLanguage) {
+    if (isFlowEditorLanguageScope(options.sessionScope) && languageKey !== group.flow.document.sourceLanguage) {
         paginationDocument = deepClone(paginationDocument);
         for (const section of paginationDocument.sections) for (const block of section.blocks) {
             if (['heading', 'paragraph'].includes(block.type) && typeof block.texts?.[languageKey] !== 'string') {

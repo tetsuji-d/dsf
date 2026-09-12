@@ -1,0 +1,91 @@
+const {chromium}=require(process.env.DSF_PLAYWRIGHT_MODULE),assert=require('node:assert/strict');
+(async()=>{const browser=await chromium.launch({channel:'chrome',headless:true});let p;try{
+ p=await browser.newPage({viewport:{width:1500,height:950}});const errors=[];p.on('pageerror',e=>{errors.push(e.message);console.log('PAGE ERROR',e.message)});p.on('dialog',d=>d.dismiss());
+ await p.goto('http://127.0.0.1:5178/studio?room=editor');await p.waitForFunction(()=>window.changeFlowGeneratedPage&&!document.body.hasAttribute("data-booting"));
+ await p.evaluate(async()=>{
+ const {state}=await import('/js/state.js'),{createFlowGroupBlock}=await import('/js/flow-project-model.js');window.languageTestState=state;
+ const group=createFlowGroupBlock({id:'language',sourceLanguage:'en-GB',writingMode:'horizontal-tb',document:{sourceLanguage:'en-GB',sections:[{id:'chapter',blocks:[{id:'first',type:'paragraph',texts:{'en-GB':'Morning light.','ja':'朝の光。'}},{id:'second',type:'paragraph',texts:{'en-GB':'A new day begins.'}}]}]}});
+ group.flow.layout.typographyByLanguage.ja={...group.flow.layout.typographyByLanguage['en-GB'],writingMode:'vertical-rl'};
+ const {confirmFlowTranslationAgainstCurrentSource,captureFlowTranslationUnitBeforeSourceEdit}=await import('/js/flow-translation-state.js');
+ group.flow.translationState=captureFlowTranslationUnitBeforeSourceEdit(group,{unitMap:'blocks',unitId:'first'}).translationState;
+ group.flow.document.sections[0].blocks[0].texts['en-GB']='Bright morning light.';
+ Object.assign(state,{blocks:[group],version:6,sections:[],pages:[],projectAssets:[],projectId:null,localProjectId:'language-settings-test',activeLang:'ja',defaultLang:'en-GB',languages:['en-GB','ja'],languageConfigs:{'en-GB':{pageDirection:'ltr'},ja:{pageDirection:'rtl'}},activeBlockIdx:0,activeIdx:0,activeBubbleIdx:null,bookMode:'none',book:{mode:'none'}});
+ window.setStudioUILang('ja');window.changeFlowGeneratedPage(0,0);
+ });
+ const snapshot=()=>p.evaluate(()=>structuredClone(window.languageTestState.blocks));const initial=await snapshot();
+ await p.locator('.flow-canvas-viewport:not([hidden]) [data-flow-language-key=ja]').first().waitFor();
+ assert.ok((await p.locator('#editor-language-status').innerText()).includes('原文言語: EN-GB'));
+ assert.ok(await p.locator('.flow-canvas-viewport:not([hidden]) .flow-compare-missing').count()>0);
+ await p.locator('.flow-canvas-viewport:not([hidden]) [data-flow-block-id=second]').first().click();
+ await p.waitForFunction(()=>document.querySelector('.flow-direct-input-proxy')?.lang==='ja');
+ assert.deepEqual(await snapshot(),initial);
+ await p.locator('.flow-direct-input-proxy').pressSequentially('新しい一日。');
+ await p.waitForFunction(()=>document.querySelector('.flow-direct-input-proxy')?.dataset.flowReflowPending!=='true');
+ assert.equal((await snapshot())[0].flow.document.sections[0].blocks[1].texts.ja,'新しい一日。');
+ await p.locator('#btn-undo').click();await p.waitForFunction(()=>!Object.hasOwn(window.languageTestState.blocks[0].flow.document.sections[0].blocks[1].texts,'ja'));
+ await p.locator('#lang-tabs-top button').filter({hasText:"EN-GB"}).click();
+ await p.locator('.flow-canvas-viewport:not([hidden]) [data-flow-language-key="en-GB"]').first().waitFor();
+ assert.deepEqual(await snapshot(),initial);
+ await p.locator('#flow-compare-split').click();await p.locator('[data-compare-side=target] [data-flow-language-key=ja]').first().waitFor();
+ await p.locator('#flow-compare-language').selectOption('ja');
+ await p.locator('#flow-compare-normal').click();
+ await p.locator('.flow-canvas-viewport:not([hidden]) [data-flow-language-key=ja]').first().waitFor();
+ assert.equal(await p.evaluate(()=>window.languageTestState.activeLang),'ja');
+ assert.deepEqual(await snapshot(),initial);
+ await p.screenshot({path:require('node:path').join(require('node:os').tmpdir(),'editor-language-normal.png')});
+ console.log('English source, partial Japanese translation, empty input/Undo, normal/split language retention passed');
+ // UI language is inside the account menu, independent of text.
+ assert.equal(await p.locator('.ui-lang-switcher:not(.auth-panel .ui-lang-switcher)').count(),0);
+ const trigger=p.locator('[data-auth-trigger]:visible').first();await trigger.click();
+ await p.locator('[data-auth-dropdown].open [data-ui-language=en]').click();
+ assert.equal(await p.evaluate(()=>window.languageTestState.activeLang),'ja');
+ assert.equal(await p.locator('[data-auth-dropdown].open [data-ui-language=en]').getAttribute('aria-pressed'),'true');
+ await p.locator('[data-auth-trigger]:visible').first().click();
+ // Explicit default, unaffected by reordering.
+ await p.evaluate(()=>window.openProjectSettings());await p.locator('#ps-default-language').waitFor();
+ await p.locator('#ps-default-language').selectOption('ja');
+ const header=p.locator('.ps-meta-header[data-lang="en-GB"]');
+ await header.dispatchEvent('dragstart',{dataTransfer:await p.evaluateHandle(()=>new DataTransfer())});
+ await p.locator('.ps-meta-header[data-lang=ja]').dispatchEvent('drop',{dataTransfer:await p.evaluateHandle(()=>new DataTransfer())});
+ assert.equal(await p.locator('#ps-default-language').inputValue(),'ja');
+ assert.equal(await p.locator('.ps-meta-header--default').getAttribute('data-lang'),'ja');
+ assert.deepEqual(await snapshot(),initial);
+ // Cancel the existing settings modal through its normal close button.
+ await p.evaluate(()=>window.closeProjectSettings());
+ // A newly selected language has an explicit preparation action, with no translated text seeded.
+ await p.evaluate(()=>{window.languageTestState.languages.push('en-US');window.switchLang('en-US')});
+ await p.locator('#editor-language-status [data-prepare-typography]').waitFor();
+ await p.locator('#editor-language-status [data-prepare-typography]').click();
+ await p.locator('.flow-canvas-viewport:not([hidden]) [data-flow-language-key="en-US"]').first().waitFor();
+ assert.equal((await snapshot())[0].flow.layout.typographyByLanguage['en-US'].writingMode,'horizontal-tb');
+ assert.ok((await snapshot())[0].flow.document.sections[0].blocks.every(block=>!Object.hasOwn(block.texts,'en-US')));
+ await p.locator('#btn-undo').click();await p.waitForFunction(()=>!window.languageTestState.blocks[0].flow.layout.typographyByLanguage['en-US']);
+ await p.evaluate(()=>{window.switchLang('ja')});
+ await p.locator('.flow-canvas-viewport:not([hidden]) [data-flow-language-key=ja]').first().waitFor();
+ assert.deepEqual(await snapshot(),initial);
+ // Flow insertion asks before altering the document; cancel is a no-op.
+ await p.evaluate(()=>{window.addSectionByType('flow')});await p.locator('#source-language-dialog').waitFor();
+ await p.locator('#source-language-dialog [name=sourceLanguage]').selectOption('en-GB');
+ await p.locator('#source-language-dialog [value=cancel]').click();assert.deepEqual(await snapshot(),initial);
+ await p.evaluate(()=>{window.addSectionByType('flow')});
+ await p.locator('#source-language-dialog [name=sourceLanguage]').selectOption('en-GB');
+ await p.locator('#source-language-dialog [value=create]').click();
+ await p.waitForFunction(()=>window.languageTestState.blocks.length===2);
+ const added=(await snapshot())[1];assert.equal(added.flow.document.sourceLanguage,'en-GB');assert.equal(added.flow.layout.typographyByLanguage['en-GB'].writingMode,'horizontal-tb');
+ assert.equal(added.flow.document.sections[0].blocks[0].texts['en-GB'],'');
+ await p.screenshot({path:require('node:path').join(require('node:os').tmpdir(),'editor-language-settings.png')});
+ console.log('Profile UI language, default selection/reorder, Flow creation/cancel passed');
+ // New project language is explicit and independent of UI.
+ await p.evaluate(()=>{void window.newProject()});await p.locator('#source-language-dialog').waitFor();
+ await p.locator('#source-language-dialog [name=sourceLanguage]').selectOption('en-gb');await p.locator('#source-language-dialog [value=create]').click();
+ await p.waitForFunction(()=>window.languageTestState.defaultLang==='en-gb');
+ assert.equal(await p.evaluate(()=>window.languageTestState.activeLang),'en-gb');
+ await p.reload();await p.waitForFunction(()=>window.changeFlowGeneratedPage&&!document.body.hasAttribute("data-booting"));
+ assert.equal(await p.evaluate(()=>localStorage.getItem('dsf_studio_ui_lang')),'en');
+ const beforeMobileLanguage=await p.evaluate(async()=>{const {state}=await import('/js/state.js');return [state.defaultLang,state.activeLang]});
+ await p.setViewportSize({width:390,height:844});await p.locator('[data-auth-trigger]:visible').first().click();
+ await p.locator('[data-auth-dropdown].open [data-ui-language=ja]').click();
+ assert.equal(await p.evaluate(()=>localStorage.getItem('dsf_studio_ui_lang')),'ja');
+ assert.deepEqual(await p.evaluate(async()=>{const {state}=await import('/js/state.js');return [state.defaultLang,state.activeLang]}),beforeMobileLanguage);
+ assert.deepEqual(errors,[]);console.log('New project language, mobile account switching and persisted UI preference passed');
+ }catch(e){if(p)await p.screenshot({path:require('node:path').join(require('node:os').tmpdir(),'editor-language-settings-failure.png')});throw e;}finally{await browser.close();}})().catch(e=>{console.error(e);process.exitCode=1});

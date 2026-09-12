@@ -93,6 +93,7 @@ import {
 } from './flow-multilingual-authoring.js';
 import { isFlowWritingModeSupported } from './flow-typography.js';
 import { deriveFlowTranslationStatus } from './flow-translation-state.js';
+import { chooseSourceLanguage, languageName, updateLanguagePresentation, annotateTranslationPage } from './studio-language-settings.js';
 import {
     createFlowTranslationApplyPlan,
     createFlowTranslationRequest,
@@ -793,6 +794,7 @@ function scrollFlowSourceCaretIntoView(root, input, offset) {
 }
 
 function syncFlowDirectFormatControls() {
+    refreshEditorLanguagePresentation();
     syncFlowPageSourceControls();
     const panel = document.getElementById('flow-direct-format-props');
     if (!panel) return;
@@ -2079,7 +2081,7 @@ function tryCreateFlowDirectEditSession(activeBlock, page, sourcePoint) {
             pageLanguageKey: page.languageKey,
             writingMode: page.writingMode,
             isSourceFallback: page.isSourceFallback,
-            allowMissingTranslation: _flowCompare?.enabled === true && page.languageKey === page.requestedLanguageKey,
+            allowMissingTranslation: page.languageKey === page.requestedLanguageKey,
             sourcePoint,
         });
         return restoreFlowDirectSelection(session, sourcePoint);
@@ -2477,6 +2479,7 @@ function createEditorFlowCanvas(language = null) {
                 const surface=resolveSurface(event);if(!surface)return false;
                 setSelectedFlowRuntimePageIndex(page.groupId,page.flowPageIndex);return true;
             });
+            annotateTranslationPage(pageElement,page,activeBlock);
             pageElement.dataset.flowSourceMapping = page.isSourceFallback ? 'source-fallback' : 'ready';
             const editable = !page.isSourceFallback && ['horizontal-tb', 'vertical-rl'].includes(page.writingMode);
             pageElement.dataset.flowDirectCapability = editable ? 'editable' : 'unavailable';
@@ -3727,7 +3730,7 @@ function clampEditorFlowProjectionSelection(activeBlock, projection) {
 
 function getFlowProjectionErrorMessage(error) {
     if (error?.code === 'FLOW_LANGUAGE_TYPOGRAPHY_MISSING') {
-        return 'このFlow原稿の組版設定を確認してください。';
+        return t('language_missing_settings');
     }
     if (error?.code === 'MAX_PAGES_EXCEEDED') {
         return 'ページ数が安全上限を超えました。';
@@ -3834,7 +3837,7 @@ function requestEditorFlowProjection(activeBlock) {
             syncEditorPageCounters();
             renderUnifiedFixedCanvas();
         }
-        flowSearch.update();
+        flowSearch.update();refreshEditorLanguagePresentation();
     }).catch((error) => {
         if (error?.name === 'AbortError' || controller.signal.aborted) return;
         console.error('[Flow pages] Editor preview failed:', error);
@@ -4956,6 +4959,7 @@ function getStudioAuthMarkup(user, { mobile = false, slotName = 'nav' } = {}) {
                     <span class="auth-dropdown-display-name">${displayName}</span>
                     ${user ? `<span class="auth-dropdown-plan">${planName}</span>` : ''}
                 </div>
+                <div class="auth-panel-section"><div class="auth-panel-label">表示言語 / Language</div><div class="ui-lang-switcher" role="group" aria-label="表示言語 / Language">${['ja','en'].map(key=>`<button type="button" class="ui-lang-btn ${getUILang()===key?'active':''}" data-lang="${key}" data-ui-language="${key}" aria-pressed="${getUILang()===key}">${key==='ja'?'日本語':'English'}</button>`).join('')}</div></div>
                 ${getStudioThemeButtonsMarkup()}
                 ${signedOutSection}
                 ${getStudioAccountLinksMarkup(user)}
@@ -5026,6 +5030,8 @@ function bindStudioAuthSlot(container, user, { mobile = false } = {}) {
         }
     });
     dropdown?.addEventListener('click', async (event) => {
+        const uiButton=event.target.closest('[data-ui-language]');
+        if(uiButton){event.stopPropagation();const key=uiButton.dataset.uiLanguage;window.setStudioUILang(key);const next=container.querySelector('[data-auth-dropdown]');next?.classList.add('open');container.querySelector('[data-auth-trigger]')?.setAttribute('aria-expanded','true');container.querySelector(`[data-ui-language="${key}"]`)?.focus();return;}
         const themeBtn = event.target.closest('.theme-mode-btn');
         if (themeBtn?.dataset.themeMode) {
             setThemeMode(themeBtn.dataset.themeMode);
@@ -5289,8 +5295,8 @@ function refresh(options = {}) {
             const sourceLanguage = activeBlock.flow?.document?.sourceLanguage || 'ja';
             const authoringLanguage = getFlowAuthoringLanguage(activeBlock);
             pageLockNote.textContent = authoringLanguage === sourceLanguage
-                ? `Flow原稿を編集中（原稿言語 ${sourceLanguage.toUpperCase()}）`
-                : `Flow翻訳を編集中（${authoringLanguage.toUpperCase()} / 構造は ${sourceLanguage.toUpperCase()} と共通）`;
+                ? (getUILang()==='en'?`Editing source manuscript (${sourceLanguage.toUpperCase()})`:`Flow原稿を編集中（原稿言語 ${sourceLanguage.toUpperCase()}）`)
+                : (getUILang()==='en'?`Editing translation (${authoringLanguage.toUpperCase()}; shared structure with ${sourceLanguage.toUpperCase()})`:`Flow翻訳を編集中（${authoringLanguage.toUpperCase()} / 構造は ${sourceLanguage.toUpperCase()} と共通）`);
             pageLockNote.style.display = 'block';
         }
         requestEditorFlowProjection(activeBlock);
@@ -5676,10 +5682,30 @@ function renderEditorLangTabContent(code) {
     `;
 }
 
+function canSwitchEditorLanguage() {
+    return !_flowAuthoringComposing && _flowDirectEditProxy?.dataset.flowReflowPending !== 'true';
+}
+function refreshEditorLanguagePresentation() {
+    const group=getActiveBlock();
+    updateLanguagePresentation({state,group,busy:!canSwitchEditorLanguage(),onPrepare:()=>{
+        if(!canSwitchEditorLanguage()||group?.kind!=='flow')return;
+        let blocks=state.blocks;const languageKey=state.activeLang;
+        for(const block of state.blocks){if(block.kind!=='flow'||block.flow.layout.typographyByLanguage[languageKey])continue;
+            blocks=ensureFlowLanguageTypography(blocks,{groupId:block.id,languageKey,writingMode:getWritingModeFromConfigs(languageKey,state.languageConfigs)}).blocks;}
+        if(blocks!==state.blocks)applyEditorSpineChange({blocks,activeBlockIndex:state.activeBlockIdx},{preserveFlowSource:isFlowSourceSelected(group.id)});
+    },onIssue:ids=>{
+        if(!canSwitchEditorLanguage()||group?.kind!=='flow')return;
+        const pages=getEditorPageProjection()?.pages||[];
+        const candidates=pages.filter(page=>page.groupId===group.id&&page.page?.fragments.some(f=>ids.includes(f.blockId)));
+        const current=getSelectedFlowRuntimePageIndex(group.id);
+        const next=candidates.find(page=>page.flowPageIndex>current)||candidates[0];
+        if(next)window.changeFlowGeneratedPage(state.blocks.findIndex(b=>b.id===group.id),next.flowPageIndex);
+    }});
+}
 function renderLangTabs() {
     const html = state.languages.map(code => {
         const active = code === state.activeLang ? 'active' : '';
-        const label = `${getLangProps(code).label} ${String(code).toUpperCase()} ${getEditorLangDirection(code) === 'rtl' ? '<<' : '>>'}`;
+        const label = `${t('language_content')}: ${languageName(code)} · ${String(code).toUpperCase()} · ${getEditorLangDirectionArrow(code)}`;
         return `<button class="lang-tab ${active}" onclick="switchLang('${code}')" title="${escapeStudioHtml(label)}">${renderEditorLangTabContent(code)}</button>`;
     }).join('');
     ['lang-tabs', 'lang-tabs-mobile', 'lang-tabs-top', 'lang-tabs-pages-panel'].forEach((id) => {
@@ -5694,6 +5720,12 @@ function renderLangSettings() {
     const draft = _getPsSettingsSource();
     const languages = draft.languages || ['ja'];
     const configs = draft.languageConfigs || {};
+    let defaultControl=document.getElementById('ps-default-language');
+    if(!defaultControl){const label=document.createElement('label');label.className='ps-default-language';label.innerHTML='<span></span><select id="ps-default-language"></select><small></small>';list.before(label);defaultControl=label.querySelector('select');defaultControl.addEventListener('change',()=>{_capturePsInputsToDraft();_ensurePsDraft().defaultLang=defaultControl.value;renderProjectSettingsTable();});}
+    defaultControl.parentElement.querySelector('span').textContent=t('language_default');
+    defaultControl.parentElement.querySelector('small').textContent=t('language_default_hint');
+    defaultControl.replaceChildren(...languages.map(key=>new Option(languageName(key)+' · '+key.toUpperCase(),key)));
+    defaultControl.value=languages.includes(draft.defaultLang)?draft.defaultLang:languages[0];
     list.innerHTML = languages.map(code => {
         const props = getLangProps(code);
         const canRemove = languages.length > 1;
@@ -8099,20 +8131,23 @@ window.addTextSection = () => {
     addTextSection(refresh);
     triggerAutoSave();
 };
-function insertFlowGroupAt(insertIndex, titlePage = false) {
-    endHistoryGroup();
-    pushState();
-    const sourceLanguage = state.defaultLang || state.activeLang || state.languages?.[0] || 'ja';
-    const writingMode = getWritingModeFromConfigs(sourceLanguage, state.languageConfigs);
+async function insertFlowGroupAt(insertIndex, titlePage = false) {
+    if(!canSwitchEditorLanguage())return;
+    const originalBlocks=state.blocks;
+    const choice=await chooseSourceLanguage({languages:state.languages,initial:state.defaultLang,configs:state.languageConfigs});
+    if(!choice||state.blocks!==originalBlocks||!canSwitchEditorLanguage())return;
+    const sourceLanguage=choice.languageKey,writingMode=choice.pageDirection==='rtl'?'vertical-rl':'horizontal-tb';
+    endHistoryGroup();pushState();clearFlowDirectEditRuntime();
+    state.activeLang=sourceLanguage;
     const group = createFlowGroupBlock({
         sourceLanguage,
         writingMode,
         document: {
             sourceLanguage,
             sections: [{
-                title: { [sourceLanguage]: titlePage ? t('flow_title_placeholder') : '新しいFlow原稿' },
+                title: { [sourceLanguage]: '' },
                 blocks: [
-                    { type: 'heading', level: 1, texts: { [sourceLanguage]: titlePage ? t('flow_title_placeholder') : '見出し' } },
+                    { type: 'heading', level: 1, texts: { [sourceLanguage]: '' } },
                     { type: 'paragraph', texts: { [sourceLanguage]: '' } },
                 ],
             }],
@@ -9770,8 +9805,11 @@ window.onBubbleTextBlur = () => {
 
 // 言語切替
 window.switchLang = (code) => {
+    if(!state.languages.includes(code)||code===state.activeLang)return;
+    if(!canSwitchEditorLanguage()){ const note=document.getElementById('ribbon-status');if(note)note.textContent=t('language_busy');return; }
+    clearFlowDirectEditRuntime();endHistoryGroup();
     state.activeLang = code;
-    refresh();
+    refresh();refreshEditorLanguagePresentation();
 };
 
 // lang-add-select を現在の追加済み言語を除いて生成する
@@ -9882,6 +9920,8 @@ window.loadAndRepress = async (pid) => {
 // 新規プロジェクト
 window.newProject = async () => {
     if (state.projectId && !confirm('現在のプロジェクトを閉じて新しいプロジェクトを作成しますか？')) return false;
+    const choice=await chooseSourceLanguage({initial:state.defaultLang,configs:state.languageConfigs,project:true});
+    if(!choice)return false;
     await flushPendingSave();
     resetFlowRuntimeForProjectChange();
     state.projectAssets = [];
@@ -9897,21 +9937,21 @@ window.newProject = async () => {
     dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'license', value: 'all-rights-reserved' } });
     dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'textPaperPreset', value: 'white' } });
     dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'meta', value: {} } });
-    dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'languages', value: ['ja'] } });
-    dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'defaultLang', value: 'ja' } });
-    dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'languageConfigs', value: { ja: { pageDirection: 'rtl' } } } });
+    dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'languages', value: [choice.languageKey] } });
+    dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'defaultLang', value: choice.languageKey } });
+    dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'languageConfigs', value: { [choice.languageKey]: { pageDirection: choice.pageDirection } } } });
     dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'bookMode', value: 'simple' } });
     dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'book', value: { mode: 'simple', covers: { c1: { pageIndex: 0 }, c4: { pageIndex: 0 } } } } });
     dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'uiPrefs', value: { desktop: { thumbColumns: 2 }, mobile: { thumbColumns: 2 } } } });
     applyThumbColumnsFromPrefs();
-    dispatch({ type: actionTypes.SET_ACTIVE_LANGUAGE, payload: 'ja' });
+    dispatch({ type: actionTypes.SET_ACTIVE_LANGUAGE, payload: choice.languageKey });
     const initialSections = [{
         type: 'image',
         background: 'https://picsum.photos/id/10/600/1066',
         backgrounds: {},
         bubbles: []
     }];
-    const initialBlocks = migrateSectionsToBlocks(initialSections, ['ja']);
+    const initialBlocks = migrateSectionsToBlocks(initialSections, [choice.languageKey]);
     dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'sections', value: initialSections } });
     dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'blocks', value: initialBlocks } });
     dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'pages', value: blocksToPages(initialBlocks) } });
@@ -10153,7 +10193,6 @@ window.psColDrop = (e, targetLang) => {
     langs.splice(fromIdx, 1);
     langs.splice(toIdx, 0, _psDragLang);
     draft.languages = langs;
-    draft.defaultLang = langs[0];
     _psDragLang = null;
 
     renderProjectSettingsTable();
@@ -10175,7 +10214,7 @@ function renderProjectSettingsTable() {
             const props = getLangProps(lang);
             const dir = (configs?.[lang]?.pageDirection || 'ltr').toUpperCase();
             const code = lang.toUpperCase();
-            const isDefault = idx === 0;
+            const isDefault = lang === draft.defaultLang;
             const defaultBadge = isDefault
                 ? `<span class="ps-default-badge">${t('ps_default_badge')}</span>`
                 : '';
@@ -10220,7 +10259,7 @@ function renderProjectSettingsTable() {
         const props = getLangProps(lang);
         const dir  = (configs?.[lang]?.pageDirection || 'ltr').toUpperCase();
         const code = lang.toUpperCase();
-        const isDefault = idx === 0;
+        const isDefault = lang === draft.defaultLang;
         const defaultBadge = isDefault
             ? `<span class="ps-default-badge">${t('ps_default_badge')}</span>`
             : '';
@@ -10993,7 +11032,7 @@ window.setStudioUILang = (lang) => {
         void refreshWorksRoomLanguage(true);
     }
     syncStudioShell();
-    refreshFlowRibbon();
+    refreshFlowRibbon();refreshEditorLanguagePresentation();
 };
 
 // --- 初回描画: UI 骨組み → リダイレクト認証結果 → GIS 初期化 → ローカル復元 → ?room= ---
