@@ -50,7 +50,11 @@ const {chromium}=require(process.env.DSF_PLAYWRIGHT_MODULE),assert=require('node
  assert.ok(Math.min(...boxes.map(r=>r.y))>100,JSON.stringify(boxes));
  await viewer.screenshot({path:require('node:os').tmpdir()+'/flow-placement-viewer.png'});
  await p.screenshot({path:require('node:os').tmpdir()+'/flow-page-placement.png'});
- const reflow=await p.evaluate(async()=>{
+ // Isolate the pure reflow check from the editor's autosave/cache invalidations.
+ const harness=await browser.newPage();
+ await harness.route('**/placement-verification',route=>route.fulfill({contentType:'text/html',body:'<!doctype html><html><head><meta charset="utf-8"></head><body></body></html>'}));
+ await harness.goto('http://127.0.0.1:5178/placement-verification');
+ const reflow=await harness.evaluate(async()=>{
    const {createFlowGroupBlock}=await import('/js/flow-project-model.js'),{createFlowRuntimePageProjection}=await import('/js/flow-runtime-pages.js');
    const {setFlowPagePlacement}=await import('/js/flow-page-placement.js'),{applyFlowAuthoringOperation}=await import('/js/flow-authoring.js');
    let project={version:6,defaultLang:'ja',blocks:[createFlowGroupBlock({id:'long-placement',sourceLanguage:'ja',writingMode:'vertical-rl',document:{sourceLanguage:'ja',sections:[{id:'s',blocks:[{id:'p',type:'paragraph',texts:{ja:'夜の灯台が光っていた。'.repeat(120),en:'Keep this translation intact.'}}]}]}})]};

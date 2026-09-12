@@ -42,7 +42,7 @@ const removed = createFlowAnnotationEdit(combined,{...edit,action:'remove',id:'r
 assert.equal(removed.sections[0].blocks[0].annotations.ja[0].type,'emphasis');
 assert.equal(removed.schemaVersion,2);
 assert.throws(()=>createFlowAnnotationEdit(combined,{...edit,expectedText:'stale'}),/ANNOTATION_SOURCE_CHANGED/);
-assert.throws(()=>createFlowAnnotationEdit({...document,schemaVersion:5},edit),/ANNOTATION_DOCUMENT_UNSUPPORTED/);
+assert.throws(()=>createFlowAnnotationEdit({...document,schemaVersion:6},edit),/ANNOTATION_DOCUMENT_UNSUPPORTED/);
 assert.throws(()=>createFlowAnnotationEdit(document,{...edit,annotation:{...edit.annotation,start:1,end:1}}),/ANNOTATION_RANGE_INVALID/);
 const left=fixture(),right=fixture();mergeAnnotatedText(left,right,'ja',4);left.texts.ja+=right.texts.ja;validateFlowAnnotations(left);
 assert.equal(new Set(left.annotations.ja.map(a=>a.id)).size,4);

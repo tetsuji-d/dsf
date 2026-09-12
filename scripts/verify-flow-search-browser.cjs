@@ -30,7 +30,7 @@ const {chromium}=require(process.env.DSF_PLAYWRIGHT_MODULE),assert=require('node
  await p.waitForFunction(()=>document.querySelector('#flow-search-bar [role=status]').textContent==='0 / 1');
  await bar.getByRole('button',{name:'Next match',exact:true}).click();
  await p.waitForFunction(()=>{const e=document.querySelector('.flow-direct-input-proxy');return e&&e.lang==='en-GB'&&e.value.slice(e.selectionStart,e.selectionEnd)==='distant'});
- await p.evaluate(async()=>{const {selectFlowSource}=await import('/js/flow-editor-session.js');selectFlowSource('b',{languageKey:'en-GB'});window.changeBlock(1);});
+ await p.locator('[data-ribbon-original=flow-open-source]').click();
  await p.waitForFunction(()=>[...document.querySelectorAll('[data-flow-field="block-text"]')].some(e=>e.getClientRects().length&&e.value==='A distant lighthouse.'));
  await bar.getByRole('button',{name:'Next match',exact:true}).click();
  await p.waitForFunction(()=>{const e=document.activeElement;return e?.dataset.flowField==='block-text'&&e.value.slice(e.selectionStart,e.selectionEnd)==='distant'});

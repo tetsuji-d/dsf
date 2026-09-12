@@ -39,9 +39,10 @@ export function setFlowPagePlacement(blocks,groupId,page,language,value){
     validateFlowPagePlacements(group.flow.layout,group.flow.document);
     return {blocks:next,activeBlockIndex:index};
 }
-export function remapPlacementText(group,blockId,language,before,after){
+export function remapPlacementText(group,blockId,language,before,after,range){
     let start=0;while(start<before.length&&start<after.length&&before[start]===after[start])start++;
     let end=before.length,nextEnd=after.length;while(end>start&&nextEnd>start&&before[end-1]===after[nextEnd-1]){end--;nextEnd--;}
+    if(range){start=range.start;end=range.end;nextEnd=end+after.length-before.length;}
     for(const a of group.flow.layout.pagePlacements||[])if(a.blockId===blockId&&a.languageKey===language){
         if(a.utf16Offset>=end)a.utf16Offset+=nextEnd-end;
         else if(a.utf16Offset>start)a.utf16Offset=nextEnd;

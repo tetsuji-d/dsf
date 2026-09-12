@@ -7,14 +7,12 @@ export function resolveFlowSearchTarget(blocks, match) {
     return { group, section, block };
 }
 
-export function searchFlowText(blocks, { query = '', languageKey, groupId = null, caseSensitive = false, limit = 1000 } = {}) {
+export function* iterateFlowTextMatches(blocks, { query = '', languageKey, groupId = null, caseSensitive = false } = {}) {
     if (typeof query !== 'string' || query.length > 512 || !languageKey) throw new Error('INVALID_SEARCH');
-    const matches = [];
-    if (!query) return { matches, truncated: false };
+    if (!query) return;
     // Literal matching only. RegExp keeps offsets in the original string even for case folding.
     const escaped = query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     const pattern = new RegExp(escaped, caseSensitive ? 'gu' : 'giu');
-    const maximum = Math.min(1000, Math.max(1, Number(limit) || 1000));
     const segmenter = new Intl.Segmenter(languageKey, { granularity: 'grapheme' });
     for (const group of blocks || []) {
         if (group.kind !== 'flow' || groupId && group.id !== groupId) continue;
@@ -28,11 +26,18 @@ export function searchFlowText(blocks, { query = '', languageKey, groupId = null
             for (const found of text.matchAll(pattern)) {
                 const start = found.index, end = start + found[0].length;
                 if (!boundaries.has(start) || !boundaries.has(end)) continue;
-                if (matches.length >= maximum) return { matches, truncated: true };
-                matches.push({ groupId: group.id, sectionId: section.id, blockId: block.id,
-                    languageKey, start, end, expectedText: text });
+                yield { groupId: group.id, sectionId: section.id, blockId: block.id,
+                    languageKey, start, end, expectedText: text };
             }
         }
     }
-    return { matches, truncated: false };
+}
+
+export function searchFlowText(blocks, options = {}) {
+    const matches = [], maximum = Math.min(1000, Math.max(1, Number(options.limit) || 1000));
+    for (const match of iterateFlowTextMatches(blocks, options)) {
+        if (matches.length >= maximum) return {matches, truncated:true};
+        matches.push(match);
+    }
+    return {matches, truncated:false};
 }

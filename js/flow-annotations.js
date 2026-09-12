@@ -46,7 +46,7 @@ export function convertLegacyRuby(text, idFactory) {
     return { text: plain + text.slice(cursor), annotations };
 }
 
-export function replaceAnnotatedText(block, language, nextText) {
+export function replaceAnnotatedText(block, language, nextText, range) {
     validateFlowAnnotations(block);
     if (typeof nextText !== 'string') fail('ANNOTATION_TEXT_INVALID');
     const oldText = block.texts?.[language] ?? '';
@@ -57,9 +57,14 @@ export function replaceAnnotatedText(block, language, nextText) {
     while (prefix < old.length && prefix < next.length && old[prefix].segment === next[prefix].segment) prefix++;
     while (suffix < old.length - prefix && suffix < next.length - prefix
         && old[old.length - 1 - suffix].segment === next[next.length - 1 - suffix].segment) suffix++;
-    const start = old[prefix]?.index ?? oldText.length;
-    const end = suffix ? old[old.length - suffix].index : oldText.length;
-    const nextEnd = suffix ? next[next.length - suffix].index : nextText.length;
+    const start = range ? range.start : old[prefix]?.index ?? oldText.length;
+    const end = range ? range.end : suffix ? old[old.length - suffix].index : oldText.length;
+    const nextEnd = range ? end + nextText.length - oldText.length : suffix ? next[next.length - suffix].index : nextText.length;
+    if (range) {
+        const boundaries = new Set([0,...old.map(g=>g.end)]);
+        if (!boundaries.has(start) || !boundaries.has(end) || start>=end || nextEnd<start
+            || oldText.slice(0,start)!==nextText.slice(0,start) || oldText.slice(end)!==nextText.slice(nextEnd)) fail('ANNOTATION_RANGE_INVALID');
+    }
     const delta = nextEnd - end;
     block.annotations[language] = annotations.flatMap(a => {
         if (a.end <= start) return [{ ...a }];

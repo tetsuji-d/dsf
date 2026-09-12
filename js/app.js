@@ -1,3 +1,4 @@
+import {applyFlowReplacePlan} from './flow-replace.js';
 import {setFlowPagePlacement,resolvePagePlacement} from './flow-page-placement.js';
 import { createStudioFlowSearch } from './studio-flow-search.js';
 import { resolveFlowSearchTarget } from './flow-search.js';
@@ -216,6 +217,14 @@ const objectToolbar = createStudioObjectToolbar({
 const flowSearch = createStudioFlowSearch({
     state,
     canNavigate: () => !_flowAuthoringComposing && _flowTranslationJob?.state !== 'running',
+    canReplace: () => !editorDragBlocked() && !_editorFlowProjectionController,
+    applyReplacement: plan => {
+        if(editorDragBlocked()||_editorFlowProjectionController)throw Object.assign(new Error('REPLACE_BUSY'),{code:'REPLACE_STALE'});
+        const active=getActiveBlock(),source=active?.kind==='flow'&&isFlowSourceSelected(active.id);
+        const result=applyFlowReplacePlan(state.blocks,plan);
+        if(result.count)applyEditorSpineChange({...result,activeBlockIndex:state.activeBlockIdx},{flowPageIndex:getSelectedFlowRuntimePageIndex(active?.id),preserveFlowSource:source});
+        return result;
+    },
     reveal: async (match, isCurrent) => {
         const target = resolveFlowSearchTarget(state.blocks, match);
         if (!target) return false;
@@ -461,7 +470,7 @@ function hideFlowCanvas() {
 }
 
 function rememberFlowDirectSelection(session = _flowDirectEditSession) {
-    if (!session) return;
+    if (!session || isFlowSourceSelected(session.groupId)) return;
     selectFlowDirectEditing(session.groupId, {
         ...session.sourcePoint,
         selectionStart: session.selectionStart,
@@ -3825,6 +3834,7 @@ function requestEditorFlowProjection(activeBlock) {
             syncEditorPageCounters();
             renderUnifiedFixedCanvas();
         }
+        flowSearch.update();
     }).catch((error) => {
         if (error?.name === 'AbortError' || controller.signal.aborted) return;
         console.error('[Flow pages] Editor preview failed:', error);
@@ -8970,6 +8980,7 @@ window.changeFlowSourceBlock = (blockIndex) => {
     const languageKey = getFlowAuthoringLanguage(block);
     if (point && point.languageKey !== languageKey) point = { ...point, languageKey, utf16Offset: 0, graphemeOffset: 0 };
     objectToolbar.clearSelection();
+    clearFlowDirectEditRuntime();
     selectFlowSource(block.id, point || {});
     changeBlock(blockIndex, refresh);
     if (point) restoreMappedFlowSourceCaret(block.id, point);
@@ -9062,7 +9073,7 @@ function applyEditorSpineChange(result, options = {}) {
     dispatch({ type: actionTypes.SET_ACTIVE_BUBBLE_INDEX, payload: null });
     const active = result.blocks[result.activeBlockIndex];
     if (active.kind === 'flow') {
-        selectFlowGeneratedPage(active.id);
+        if(options.preserveFlowSource)selectFlowSource(active.id);else selectFlowGeneratedPage(active.id);
         setSelectedFlowRuntimePageIndex(active.id, options.flowPageIndex || 0);
     }
     _flowAuthoringSourceRevision += 1;

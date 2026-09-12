@@ -7,3 +7,9 @@
 #flow-search-bar [role=status] { font-size:12px; min-width:65px; }
 #flow-search-bar .search-close { margin-left:auto; }
 @media(max-width:750px) { #flow-search-bar { flex-wrap:wrap; } #flow-search-bar input { flex:1; } }
+
+#flow-search-bar { flex-wrap:wrap; }
+#flow-search-bar .search-replace-row { flex-basis:100%; display:flex; align-items:center; gap:6px; flex-wrap:wrap; }
+#flow-search-bar .search-replace-row[hidden] { display:none; }
+#flow-search-bar .replace-status { flex:1; min-width:170px; font-size:12px; }
+#flow-search-bar button:disabled { opacity:.5; cursor:default; }
