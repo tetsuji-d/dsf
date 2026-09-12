@@ -615,6 +615,54 @@ function clearFlowDirectEditRuntime(options = {}) {
 }
 
 
+// Alignment belongs to semantic paragraphs, never generated page slices.
+function flowParagraphAlignmentTargets(group, languageKey) {
+    let points;
+    if (_flowTextSelection) {
+        const selection = validateFlowTextSelection(group, _flowTextSelection);
+        if (!selection || selection.languageKey !== languageKey) return [];
+        points = selection.ranges.filter((r,i,rows) => r.end > r.start
+            || (i < rows.length-1 && r.text.length === 0));
+    } else {
+        const saved = isFlowSourceSelected(group.id) ? getFlowEditorSelection(group.id) : _flowDirectEditSession;
+        if (!saved || saved.groupId !== group.id || (!isFlowSourceSelected(group.id) && !isFlowDirectEditing(group.id))) return [];
+        if (saved.languageKey && saved.languageKey !== languageKey) return [];
+        points = [saved];
+    }
+    return points.flatMap(point => {
+        const block = group.flow.document.sections.find(s => s.id === point.sectionId)?.blocks.find(b => b.id === point.blockId);
+        if (!['paragraph','heading'].includes(block?.type) || typeof block.texts?.[languageKey] !== 'string') return [];
+        return [{sectionId:point.sectionId,blockId:block.id,expectedText:block.texts[languageKey],
+            expectedAlignment:block.textAlignByLanguage?.[languageKey] ?? null,
+            effectiveAlignment:block.textAlignByLanguage?.[languageKey] || block.titleRegion?.textAlign
+                || group.flow.layout.typographyByLanguage[languageKey]?.textAlign || 'start'}];
+    });
+}
+
+function syncFlowParagraphAlignment(group, languageKey) {
+    const control = document.getElementById('flow-placement-inline');
+    const targets = flowParagraphAlignmentTargets(group, languageKey);
+    const values = new Set(targets.map(target => target.effectiveAlignment));
+    control.value = values.size === 1 ? targets[0].effectiveAlignment : '';
+    control.disabled = !targets.length || editorDragBlocked(false) || !!_editorFlowProjectionController
+        || _flowDirectEditProxy?.dataset.flowReflowPending === 'true';
+    control.onchange = () => {
+        if (control.disabled || getActiveBlock()?.id !== group.id || getFlowAuthoringLanguage(group) !== languageKey
+            || editorDragBlocked(false) || _editorFlowProjectionController) return;
+        const current = flowParagraphAlignmentTargets(getFlowGroupById(group.id),languageKey);
+        if (JSON.stringify(current) !== JSON.stringify(targets)) { syncFlowPageSourceControls(); return; }
+        const value = control.value;
+        if (current.every(target => target.effectiveAlignment === value)) return;
+        const editorFocus = isFlowSourceSelected(group.id) ? captureFlowAuthoringFocusSnapshot() : captureFlowDirectEditFocusSnapshot();
+        endHistoryGroup();
+        try {
+            applyFlowAuthoringEdit({type:'setTextAlign',groupId:group.id,languageKey,value,
+                targets:current.map(({effectiveAlignment,...target})=>target)}, {immediate:true,editorFocus});
+        } catch (error) { alert(t('flow_alignment_stale')); }
+        syncFlowPageSourceControls();
+    };
+}
+
 function syncFlowPageSourceControls() {
     const panel = document.getElementById('flow-page-source-props');
     const group = getActiveBlock();
@@ -669,7 +717,7 @@ function syncFlowPageSourceControls() {
     restoreButton.disabled=editorDragBlocked(false)||!profile||(!!titleRegion && !canChangeStructure);
     restoreButton.onclick=()=>applyPlacement(null,null,true);
     scope.onchange=()=>syncFlowPageSourceControls();
-    for (const [id,field] of [['flow-placement-inline','textAlign'],['flow-placement-block','blockAlign']]) {
+    for (const [id,field] of [['flow-placement-block','blockAlign']]) {
         const control = document.getElementById(id);
         control.value = (scope.value==='page' ? titleRegion?.[field] : undefined) || profile?.[field] || 'start';
         control.disabled = !profile || editorDragBlocked(false) || (scope.value==='page' && !canAlignPage);
@@ -678,6 +726,7 @@ function syncFlowPageSourceControls() {
             applyPlacement(field,control.value);
         };
     }
+    syncFlowParagraphAlignment(group,languageKey);
     const source = isFlowSourceSelected(group.id);
     const button = document.getElementById('flow-open-source');
     button.textContent = t(source ? 'flow_return_page' : 'flow_open_source');
@@ -3616,7 +3665,8 @@ function handleFlowAuthoringAction(event) {
 function handleFlowAuthoringFocus(event) {
     const target = getFlowAuthoringTarget(event.target);
     if (!target.groupId) return;
-    selectFlowSource(target.groupId, { sectionId: target.sectionId, blockId: target.blockId });
+    selectFlowSource(target.groupId, { sectionId: target.sectionId, blockId: target.blockId, languageKey:target.root?.dataset.languageKey });
+    syncFlowPageSourceControls();
 }
 
 function handleFlowAuthoringCompositionStart() {

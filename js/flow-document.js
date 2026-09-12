@@ -196,7 +196,7 @@ export function validateFlowDocument(document) {
     if (document.layoutType !== FLOW_LAYOUT_TYPE) {
         addIssue(issues, 'invalid_layout_type', 'layoutType', 'layoutType must be "flow".');
     }
-    if (![1, 2, 3, 4].includes(document.schemaVersion)) {
+    if (![1, 2, 3, 4, 5].includes(document.schemaVersion)) {
         addIssue(issues, 'unsupported_schema_version', 'schemaVersion', 'Unsupported Flow document schema version.', {
             supportedVersion: FLOW_DOCUMENT_SCHEMA_VERSION,
         });
@@ -240,15 +240,23 @@ export function validateFlowDocument(document) {
             }
             if (block.titleRegion !== undefined) {
                 const r=block.titleRegion;
-                if(![3,4].includes(document.schemaVersion) || !FLOW_TEXT_BLOCK_TYPE_SET.has(block.type) || !isRecord(r)
+                if(![3,4,5].includes(document.schemaVersion) || !FLOW_TEXT_BLOCK_TYPE_SET.has(block.type) || !isRecord(r)
                     || typeof r.id!=='string' || !r.id.trim() || r.languageKey!==document.sourceLanguage
                     || !['start','center','end','justify'].includes(r.textAlign)
                     || !['start','center','end'].includes(r.blockAlign)) {
                     addIssue(issues,'invalid_title_region',blockPath,'Invalid title region.');
                 }
             }
+            if (block.textAlignByLanguage !== undefined) {
+                const map = block.textAlignByLanguage;
+                if (document.schemaVersion !== 5 || !isFlowTextBlock(block) || !isRecord(map)
+                    || Object.entries(map).some(([language,value]) => !language.trim() || language !== language.trim()
+                        || !['start','center','end','justify'].includes(value))) {
+                    addIssue(issues,'invalid_text_alignment',blockPath,'Paragraph alignment requires FlowDocument v5 and valid language values.');
+                }
+            }
             if (block.indentByLanguage !== undefined) {
-                if (document.schemaVersion !== 4 || !isFlowTextBlock(block) || !isRecord(block.indentByLanguage)) {
+                if (![4,5].includes(document.schemaVersion) || !isFlowTextBlock(block) || !isRecord(block.indentByLanguage)) {
                     addIssue(issues,'invalid_indent',blockPath,'Paragraph indent requires FlowDocument v4.');
                 } else for (const [language,value] of Object.entries(block.indentByLanguage)) {
                     try { if (!language.trim() || language!==language.trim()) throw new Error(); validateFlowIndent(value); }
@@ -256,7 +264,7 @@ export function validateFlowDocument(document) {
                 }
             }
             if (block.annotations !== undefined) {
-                if (![2,3,4].includes(document.schemaVersion)) addIssue(issues, 'annotation_version_required', blockPath, 'Annotations require FlowDocument v2.');
+                if (![2,3,4,5].includes(document.schemaVersion)) addIssue(issues, 'annotation_version_required', blockPath, 'Annotations require FlowDocument v2.');
                 try { validateFlowAnnotations(block); } catch { addIssue(issues, 'invalid_annotations', blockPath, 'Invalid text annotations.'); }
             }
             if (isFlowTextBlock(block)) validateLocalizedTextMap(block.texts, `${blockPath}.texts`, issues);

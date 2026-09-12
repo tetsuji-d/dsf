@@ -94,6 +94,7 @@ const PAGINATION_PAGE_KEYS = new Set(['index', 'manualBreakBefore', 'fragments',
 const MANUAL_BREAK_KEYS = new Set(['sectionId', 'blockId']);
 const FRAGMENT_KEYS = new Set([
     'titleRegion',
+    'textAlign',
     'indent',
     'annotations',
     'sectionId',
@@ -321,6 +322,8 @@ function validatePagination(pagination, context) {
                 fail('FLOW_PUBLICATION_TITLE_REGION_MISMATCH',path,'Title region differs from source or crosses a page boundary.');
             }
             if(!sameValue(fragment.indent || null,expected.block.indentByLanguage?.[language] || null)) fail('FLOW_PUBLICATION_INDENT_MISMATCH',path,'Indent differs from source.');
+            if ((fragment.textAlign ?? null) !== (expected.block.textAlignByLanguage?.[language] ?? null))
+                fail('FLOW_PUBLICATION_ALIGNMENT_MISMATCH',path,'Paragraph alignment differs from source.');
             const range = fragment.sourceRange;
             assertExactKeys(range, SOURCE_RANGE_KEYS, `${path}.sourceRange`);
             const startGrapheme = finiteNumber(range.startGrapheme, `${path}.sourceRange.startGrapheme`, {

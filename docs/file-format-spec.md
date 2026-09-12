@@ -491,3 +491,15 @@ FlowLayout v1は引き続き受理する。v2の自動降格やv1への画像配
 `anchoredObjects[].graphic.caption`に配置方向・言語別文字列・文字サイズ・間隔・色・揃えを保存する。
 同一段落の複数配置を許可する。公開配信ではキャプションを画像背景へ合成し、本文はfixedTextを維持する。
 Project/Firestore Rules変更はない。詳細は[画像キャプション仕様](flow-image-captions.md)。
+
+
+### FlowDocument v5: 段落の言語別行揃え（2026-09-12承認）
+
+paragraph／headingの任意フィールド `textAlignByLanguage` に、保存言語キーをキーとする
+`start | center | end | justify` を保存する。機能を明示適用したFlowだけ `flow.document.schemaVersion:5` とし、
+既存v1–v4は自動変換しない。Project v6／DSP meta v2／FlowLayoutのバージョンはこの操作だけでは変更しない。
+値がない言語は扉領域、次にFlow言語別組版設定を継承する。段落設定は生成ページをまたいでも保持する。
+原稿本文・翻訳文・翻訳の確認状態・段落IDを変更せず、段落の分割や扉領域作成は行わない。
+旧Editorは未知のFlowDocumentバージョンとして編集保存を停止する。
+DSF delivery v2では既存の固定行座標へ投影するため、配信スキーマは変更しない。
+詳細は[段落行揃え契約](flow-paragraph-alignment.md)を参照。

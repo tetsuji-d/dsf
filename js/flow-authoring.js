@@ -182,6 +182,30 @@ export function applyFlowAuthoringOperation(blocks, operation, options = {}) {
         return nextBlocks;
     }
 
+    if (operation.type === 'setTextAlign') {
+        // Do not turn an unknown future document into a supported version.
+        assertValidFlowProjectData({version:PROJECT_SCHEMA_VERSION,blocks:nextBlocks});
+        const language = validateLanguageKey(operation.languageKey);
+        if (!['start','center','end','justify'].includes(operation.value)
+            || !Array.isArray(operation.targets) || !operation.targets.length) fail('FLOW_ALIGNMENT_INVALID','Invalid paragraph alignment.');
+        const seen = new Set();
+        for (const target of operation.targets) {
+            if (!target || typeof target !== 'object') fail('FLOW_ALIGNMENT_INVALID','Invalid paragraph target.');
+            const section = groupContext.group.flow.document.sections.find(s => s.id === target.sectionId);
+            const block = section?.blocks.find(b => b.id === target.blockId);
+            if (!block || seen.has(block.id) || !TEXT_BLOCK_TYPES.has(block.type)
+                || typeof target.expectedText !== 'string' || block.texts?.[language] !== target.expectedText
+                || (block.textAlignByLanguage?.[language] ?? null) !== target.expectedAlignment) {
+                fail('FLOW_ALIGNMENT_STALE','Paragraph or alignment changed.');
+            }
+            seen.add(block.id);
+            block.textAlignByLanguage = {...block.textAlignByLanguage,[language]:operation.value};
+        }
+        groupContext.group.flow.document.schemaVersion = 5;
+        assertValidFlowProjectData({version:PROJECT_SCHEMA_VERSION,blocks:nextBlocks});
+        return nextBlocks;
+    }
+
     if (operation.type === 'deleteTextSelection') {
         const group = groupContext.group;
         const selection = validateFlowTextSelection(group, operation.selection);
@@ -221,7 +245,7 @@ export function applyFlowAuthoringOperation(blocks, operation, options = {}) {
                 fail('FLOW_INDENT_STALE','Paragraph changed while adjusting its indent.');
             const indent=validateFlowIndent(operation.indent);
             block.indentByLanguage={...block.indentByLanguage,[language]:{...indent}};
-            context.group.flow.document.schemaVersion=4;
+            context.group.flow.document.schemaVersion=Math.max(4,context.group.flow.document.schemaVersion);
             break;
         }
         case 'setAnnotations': {
@@ -411,6 +435,7 @@ export function applyFlowAuthoringOperation(blocks, operation, options = {}) {
             block.texts = { ...(block.texts || {}), [sourceLanguage]: beforeText };
             const tailOptions = {
                 ...(block.indentByLanguage ? {indentByLanguage:deepClone(block.indentByLanguage)} : {}),
+                ...(block.textAlignByLanguage ? {textAlignByLanguage:deepClone(block.textAlignByLanguage)} : {}),
                 ...(block.titleRegion ? {titleRegion:deepClone(block.titleRegion)} : {}),
                 ...(trailingAnnotations.length ? { annotations: { [sourceLanguage]: trailingAnnotations } } : {}),
                 ...(requestedId ? { id: requestedId } : {}),
@@ -473,6 +498,7 @@ export function applyFlowAuthoringOperation(blocks, operation, options = {}) {
             }
             const trailingOptions = { id: newBlockId, idFactory, texts: { [sourceLanguage]: afterText },
                 ...(block.indentByLanguage ? {indentByLanguage:deepClone(block.indentByLanguage)} : {}),
+                ...(block.textAlignByLanguage ? {textAlignByLanguage:deepClone(block.textAlignByLanguage)} : {}),
                 ...(block.titleRegion ? {titleRegion:deepClone(block.titleRegion)} : {}) };
             if (trailingAnnotations.length) trailingOptions.annotations = { [sourceLanguage]: trailingAnnotations };
             const trailingBlock = block.type === 'heading' && afterText.length > 0
@@ -507,6 +533,8 @@ export function applyFlowAuthoringOperation(blocks, operation, options = {}) {
                     previousBlockType: previousBlock?.type || '',
                 });
             }
+            if (JSON.stringify(previousBlock.textAlignByLanguage || {}) !== JSON.stringify(block.textAlignByLanguage || {}))
+                fail('FLOW_MERGE_ALIGNMENT_BOUNDARY','Paragraph alignments differ.');
             const translatedLanguageKeys = Object.entries(block.texts || {})
                 .filter(([key, value]) => key !== sourceLanguage && typeof value === 'string')
                 .map(([key]) => key);

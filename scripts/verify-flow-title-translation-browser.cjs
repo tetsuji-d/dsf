@@ -6,7 +6,7 @@ const baseURL=process.env.DSF_TEST_BASE_URL || 'http://127.0.0.1:5178';
 if(!['127.0.0.1','localhost','[::1]'].includes(new URL(baseURL).hostname)) throw new Error('This fixture runs only against a local development server.');
 const assert=require('node:assert/strict');
 (async()=>{const browser=await chromium.launch({channel:'chrome',headless:true});const errors=[];let page;try{
-page=await browser.newPage({viewport:{width:1440,height:900}});page.on('pageerror',e=>errors.push(e.message));
+page=await browser.newPage({viewport:{width:1440,height:900}});page.on('pageerror',e=>errors.push(e.stack));
 await page.goto(baseURL+'/studio?room=editor',{waitUntil:'domcontentloaded'});await page.waitForFunction(()=>typeof window.changeFlowGeneratedPage==='function');
 await page.evaluate(async()=>{
  const {state}=await import('/js/state.js'); const {createFlowGroupBlock}=await import('/js/flow-project-model.js');
@@ -47,7 +47,7 @@ assert.equal(await page.locator('#flow-ribbon-placement [data-ribbon-original=fl
 assert.match(await page.locator('#ribbon-flow-scope').textContent(),/全言語共通/);
 await choice('inline','end').click();
 await page.waitForFunction(()=>getComputedStyle(document.querySelector('[data-compare-side=target] [data-flow-block-id=heading]')).textAlign==='end');
-let after=await read();assert.equal(after.sections[0].blocks[0].titleRegion.textAlign,'end');
+let after=await read();assert.equal(after.sections[0].blocks[0].textAlignByLanguage['en-GB'],'end');assert.equal(after.sections[0].blocks[0].titleRegion.textAlign,'center');
 assert.deepEqual(after.sections.map(s=>s.blocks.map(b=>b.texts)),before.sections.map(s=>s.blocks.map(b=>b.texts)));
 await page.locator('#btn-undo').click();assert.deepEqual(await read(),before);
 await choice('block','end').click();
@@ -56,9 +56,16 @@ await page.locator('#btn-undo').click();assert.deepEqual(await read(),before);
 // Source still has the shared centered title, while ordinary target body remains start aligned.
 assert.equal(await page.locator('[data-compare-side=source] [data-flow-block-id=heading]').first().evaluate(el=>getComputedStyle(el).textAlign),'center');
 await page.locator('[data-compare-side=target] [data-flow-block-id=body]').first().click();
-await page.waitForFunction(()=>document.querySelector('#flow-placement-inline').disabled);
-assert.equal(await choice('inline','center').isDisabled(),true);
+await page.waitForFunction(()=>!document.querySelector('#flow-placement-inline').disabled);
+assert.equal(await choice('inline','center').isEnabled(),true);
 assert.equal(await page.locator('[data-compare-side=target] [data-flow-block-id=body]').first().evaluate(el=>getComputedStyle(el).textAlign),'start');
+await choice('inline','center').click();
+await page.waitForFunction(()=>getComputedStyle(document.querySelector('[data-compare-side=target] [data-flow-block-id=body]')).textAlign==='center');
+const bodyAfter=await read();assert.equal(bodyAfter.sections[0].blocks[1].textAlignByLanguage['en-GB'],'center');
+assert.equal(bodyAfter.sections[0].blocks[1].textAlignByLanguage.ja,undefined);
+assert.equal(bodyAfter.sections[0].blocks[1].titleRegion,undefined);
+assert.deepEqual(bodyAfter.sections[0].blocks[1].texts,before.sections[0].blocks[1].texts);
+await page.locator('#btn-undo').click();assert.deepEqual(await read(),before);
 // Normal mode has the same alignment as split mode.
 await page.locator('#flow-compare-normal').click();
 await page.locator('#page-strip-thumbs [data-flow-page-index="0"]').first().click();

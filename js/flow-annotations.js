@@ -105,7 +105,7 @@ export function mergeAnnotatedText(target, source, language, offset) {
 
 /** Build a v2 annotation edit without mutating a document or calling persistence. */
 export function createFlowAnnotationEdit(document, operation) {
-    if (![1, 2, 3, 4].includes(document?.schemaVersion)) fail('ANNOTATION_DOCUMENT_UNSUPPORTED');
+    if (![1, 2, 3, 4, 5].includes(document?.schemaVersion)) fail('ANNOTATION_DOCUMENT_UNSUPPORTED');
     const next = structuredClone(document);
     const block = next.sections?.find(s => s.id === operation.sectionId)?.blocks?.find(b => b.id === operation.blockId);
     if (!block || !['heading', 'paragraph'].includes(block.type)) fail('ANNOTATION_BLOCK_REQUIRED');

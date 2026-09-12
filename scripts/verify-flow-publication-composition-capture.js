@@ -22,7 +22,7 @@ const item = (text, startGrapheme, rects) => ({
 
 assert.equal(FLOW_PUBLICATION_COMPOSITION_CAPTURE_VERSION, 1);
 assert.equal(FLOW_PUBLICATION_COMPOSITION_HYPHENATION, 'none');
-assert.equal(FLOW_DOM_RENDERER_VERSION, 17);
+assert.equal(FLOW_DOM_RENDERER_VERSION, 18);
 assert.equal(resolveFlowDomHyphenation(undefined, 'horizontal-tb'), 'auto');
 assert.equal(resolveFlowDomHyphenation(undefined, 'vertical-rl'), 'none');
 assert.equal(resolveFlowDomHyphenation('none', 'horizontal-tb'), 'none');

@@ -16,7 +16,7 @@ import {
 
 export const FLOW_DOM_SUPPORTED_WRITING_MODE = 'horizontal-tb';
 export const FLOW_DOM_SUPPORTED_WRITING_MODES = Object.freeze(['horizontal-tb', 'vertical-rl']);
-export const FLOW_DOM_RENDERER_VERSION = 17;
+export const FLOW_DOM_RENDERER_VERSION = 18;
 export const FLOW_DOM_HYPHENATION_MODES = Object.freeze(['auto', 'none']);
 
 const DEFAULT_MEASUREMENT_CACHE_SIZE = 2048;
@@ -214,7 +214,7 @@ function createFragmentElement(ownerDocument, fragment, fragmentIndex, typograph
         fontWeight: isHeading ? '700' : typography.fontWeight,
         lineHeight: String(lineHeight),
         letterSpacing: 'inherit',
-        textAlign: 'inherit',
+        textAlign: fragment.textAlign || 'inherit',
         color: 'inherit',
         whiteSpace: 'pre-wrap',
         overflowWrap: 'anywhere',
@@ -285,6 +285,7 @@ function createMeasurementCacheKey(context, pageBox, writingMode, languageKey, t
             fragment.annotations || null,
             fragment.titleRegion || null,
             fragment.indent || null,
+            fragment.textAlign || null,
             fragment.isBlockStart === true,
             fragment.isBlockEnd === true,
         ]),

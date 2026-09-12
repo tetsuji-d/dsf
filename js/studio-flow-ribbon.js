@@ -53,7 +53,7 @@ function selectMirror(parent, id, key) {
     parent.append(select); mirrors.push({ element: select, id, kind: 'select' }); return select;
 }
 function alignment(parent, id, names, keys) {
-    const div = group(parent, 'ribbon_page_alignment'); div.classList.add('flow-ribbon-alignment');
+    const div = group(parent, id.endsWith('inline') ? 'ribbon_paragraph_alignment' : 'ribbon_page_alignment'); div.classList.add('flow-ribbon-alignment');
     const values = id.endsWith('inline') ? ['start', 'center', 'end', 'justify'] : ['start', 'center', 'end'];
     values.forEach((value, index) => {
         const b = button(names[index], keys[index], () => {

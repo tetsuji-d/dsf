@@ -32,6 +32,13 @@ const beforeSelection=await p.evaluate(()=>JSON.stringify(window.wrapTestState.b
 await p.locator('.flow-direct-input-proxy').press('Control+Shift+End');
 assert.equal(await p.evaluate(()=>JSON.stringify(window.wrapTestState.blocks)),beforeSelection);
 console.log('Wrapped multi-paragraph text selection leaves alignment and authoring data unchanged');
+await p.locator('#flow-ribbon-placement [data-ribbon-original=flow-placement-inline][data-ribbon-value=center]').click();
+await p.waitForFunction(()=>window.wrapTestState.blocks[0].flow.document.sections[0].blocks.every(b=>b.textAlignByLanguage?.ja==='center'));
+await p.waitForFunction(()=>[...document.querySelectorAll('.flow-dom-block')].every(e=>getComputedStyle(e).textAlign==='center'));
+const alignedWrap=await p.evaluate(()=>window.wrapTestState.blocks[0]);
+assert.deepEqual(alignedWrap.flow.layout,JSON.parse(beforeSelection)[0].flow.layout);
+console.log('Wrapped multi-paragraph alignment preserved anchors; aligned source will be used for Viewer preview');
+
 console.log('Image ribbon selection is retained for controls and cleared on another text page');
 if(process.env.DSF_TEST_CAPTIONS==='1'){
  const image=p.locator('.flow-graphic-layer .graphic-hit').last();await image.dblclick();
