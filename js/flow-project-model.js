@@ -1,3 +1,4 @@
+import {validateFlowPagePlacements} from './flow-page-placement.js';
 import {validateFlowAnchoredObjects} from './flow-anchored-objects.js';
 /**
  * Pure Project v6 authoring model for mixed Fixed and Flow content.
@@ -52,6 +53,7 @@ const FORBIDDEN_FLOW_RUNTIME_KEYS = Object.freeze([
     'fragments',
     'pagination',
     'paginationCache',
+    'placementOffset',
 ]);
 
 function isRecord(value) {
@@ -160,11 +162,12 @@ export function validateFlowLayoutSettings(layout) {
         return { valid: false, issues };
     }
 
-    if (![1,2,3].includes(layout.schemaVersion)) {
+    if (![1,2,3,4].includes(layout.schemaVersion)) {
         addIssue(issues, 'unsupported_flow_layout_schema_version', 'schemaVersion', 'Unsupported Flow layout schema version.', {
             supportedVersion: FLOW_LAYOUT_SCHEMA_VERSION,
         });
     }
+    try { validateFlowPagePlacements(layout); } catch { addIssue(issues,'invalid_flow_placements','pagePlacements','Invalid page placements.'); }
     try { validateFlowAnchoredObjects(layout); } catch { addIssue(issues,'invalid_flow_objects','anchoredObjects','Invalid Flow anchored objects.'); }
     if (layout.pagePreset !== FLOW_CANONICAL_PAGE_PRESET) {
         addIssue(issues, 'unsupported_flow_page_preset', 'pagePreset', 'Flow layout must use the canonical DSF page preset.');
@@ -358,6 +361,7 @@ export function validateFlowGroupBlock(block) {
         addIssue(issues, 'invalid_flow_layout', 'flow.layout', 'Flow group must contain FlowLayout settings.');
     } else {
         prefixIssues(issues, 'flow.layout', validateFlowLayoutSettings(block.flow.layout).issues);
+        if(block.flow.document?.sections)try{validateFlowPagePlacements(block.flow.layout,block.flow.document);}catch{addIssue(issues,'invalid_flow_placement_anchor','flow.layout.pagePlacements','Invalid placement anchor.');}
     }
     if (hasOwn(block.flow, 'translationState')) {
         prefixIssues(

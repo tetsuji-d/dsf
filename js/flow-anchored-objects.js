@@ -5,7 +5,7 @@ const failure=code=>Object.assign(new Error(code),{code});
 
 export function validateFlowAnchoredObjects(layout, assets) {
     if (layout.anchoredObjects === undefined) return;
-    if (![2,3].includes(layout.schemaVersion) || !Array.isArray(layout.anchoredObjects)) throw failure('FLOW_OBJECT_COLLECTION_INVALID');
+    if (![2,3,4].includes(layout.schemaVersion) || !Array.isArray(layout.anchoredObjects)) throw failure('FLOW_OBJECT_COLLECTION_INVALID');
     const ids = new Set(), graphicIds = new Set();
     for (const entry of layout.anchoredObjects) {
         if (!entry || typeof entry.id !== 'string' || !entry.id.trim() || entry.id !== entry.id.trim() || ids.has(entry.id)
@@ -13,7 +13,7 @@ export function validateFlowAnchoredObjects(layout, assets) {
             || entry.anchorBlockId !== entry.anchorBlockId.trim() || !['square','band'].includes(entry.wrap)
             || !Number.isFinite(entry.gapEm) || entry.gapEm < 0 || entry.gapEm > 4
             || !['image','shape'].includes(entry.graphic?.kind)) throw failure('FLOW_OBJECT_INVALID');
-        if(entry.graphic.caption && layout.schemaVersion!==3)throw failure('FLOW_CAPTION_REQUIRES_V3');
+        if(entry.graphic.caption && layout.schemaVersion<3)throw failure('FLOW_CAPTION_REQUIRES_V3');
         ids.add(entry.id);
         if(graphicIds.has(entry.graphic.id))throw failure('FLOW_GRAPHIC_ID_DUPLICATE');
         graphicIds.add(entry.graphic.id);
@@ -30,7 +30,7 @@ export function resolveFlowAnchoredObjects(group, language, typography) {
     const seen=new Set();
     const resolved=(layout.anchoredObjects || []).filter(e=>e.graphic.visible).map(entry=>{
         if(!paragraphs.has(entry.anchorBlockId)) throw failure('FLOW_OBJECT_ANCHOR_MISSING');
-        if(layout.schemaVersion!==3 && seen.has(entry.anchorBlockId)) throw failure('FLOW_OBJECT_ANCHOR_CONFLICT');
+        if(layout.schemaVersion<3 && seen.has(entry.anchorBlockId)) throw failure('FLOW_OBJECT_ANCHOR_CONFLICT');
         seen.add(entry.anchorBlockId);
         const graphic=structuredClone(entry.graphic);
         if(graphic.caption && graphic.caption.texts[language]===undefined)graphic.caption.texts[language]=graphic.caption.texts[group.flow.document.sourceLanguage] || '';
@@ -43,7 +43,7 @@ export function resolveFlowAnchoredObjects(group, language, typography) {
             x:graphic.frame.x+(f.width-width)/2-stroke,y:graphic.frame.y+(f.height-height)/2-stroke,
             width:width+stroke*2,height:height+stroke*2,...(imageCaptionBounds(graphic,language)||{})};
     });
-    if(layout.schemaVersion!==3)return resolved;
+    if(layout.schemaVersion<3)return resolved;
     const bundles=[];
     for(const object of resolved){let bundle=bundles.find(b=>b.anchorBlockId===object.anchorBlockId);if(!bundle){bundle={...object,items:[]};bundles.push(bundle);}bundle.items.push(object);}
     return bundles.map(bundle=>{if(bundle.items.length===1){const {items,...single}=bundle;return single;}
@@ -55,6 +55,10 @@ export function retargetFlowObjects(group, oldId, newId) {
     for(const entry of group.flow.layout.anchoredObjects || []) if(entry.anchorBlockId===oldId)entry.anchorBlockId=newId;
 }
 export function partitionFlowObjects(leading,trailing,trailingIds) {
+    if(leading.flow.layout.pagePlacements){
+        trailing.flow.layout.pagePlacements=structuredClone(leading.flow.layout.pagePlacements.filter(a=>trailingIds.has(a.blockId)));
+        leading.flow.layout.pagePlacements=leading.flow.layout.pagePlacements.filter(a=>!trailingIds.has(a.blockId));
+    }
     const all=leading.flow.layout.anchoredObjects;
     if(!all)return;
     trailing.flow.layout.anchoredObjects=structuredClone(all.filter(e=>trailingIds.has(e.anchorBlockId)));

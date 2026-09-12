@@ -1,3 +1,4 @@
+import {initializeViewerReadingGuides} from './viewer-reading-guides.js';
 /**
  * viewer.js — DSF Viewer (Gen 3)
  *
@@ -61,6 +62,7 @@ let viewerFixedTextContext = null;
 let viewerLocalFixtureAssetUrls = new Map();
 let viewerLocalPortableSession = null;
 let viewerMinimap = null;
+let readingGuides = null;
 let viewerDocumentRevision = 0;
 let viewerResizeFrame = null;
 let viewerInfoPanelResizeObserver = null;
@@ -376,6 +378,7 @@ async function init() {
         layer.addEventListener('click', suppressClickAfterSwipe, true);
     });
     initializeViewerMinimap();
+    readingGuides = initializeViewerReadingGuides();
 
     document.addEventListener('keydown', onKeydown);
     document.addEventListener('wheel', onWheel, { passive: false });
@@ -2918,6 +2921,7 @@ window.setViewerUiLang = (lang) => {
 
 function applyViewerUiLanguage() {
     document.documentElement.lang = viewerUiLang === 'en' ? 'en' : 'ja';
+    readingGuides?.refreshLabels();
     document.querySelectorAll('.viewer-ui-lang-btn').forEach((btn) => {
         btn.classList.toggle('active', btn.dataset.uiLang === viewerUiLang);
     });
@@ -5027,7 +5031,10 @@ function onPointerUp(e) {
                         e.preventDefault();
                     }
                 }
-                // シングルタップはゾーンの onclick に委任
+                if(viewScale<=1.05 && readingGuides?.highlightAt(e.clientX,e.clientY)) {
+                    suppressZoneClickUntil=Date.now()+500;e.preventDefault();
+                }
+                // Unhandled taps continue to the ordinary navigation zones.
             } else if (
                 e.pointerType !== 'mouse'
                 && fromBottom

@@ -503,3 +503,16 @@ paragraph／headingの任意フィールド `textAlignByLanguage` に、保存�
 旧Editorは未知のFlowDocumentバージョンとして編集保存を停止する。
 DSF delivery v2では既存の固定行座標へ投影するため、配信スキーマは変更しない。
 詳細は[段落行揃え契約](flow-paragraph-alignment.md)を参照。
+
+
+### FlowLayout v4：言語別のページまとまり配置（2026-09-12承認）
+
+任意の `flow.layout.pagePlacements` 配列に `{id, blockId, languageKey, utf16Offset, blockAlign}` を保存する。
+`blockAlign` は `start | center | end`、`utf16Offset` は対象言語の本文内の書記素境界。
+ページ番号や生成座標は保存しない。再ページ化後、アンカー位置を含むページの本文・画像・キャプションを一組として配置する。
+明示操作したGroupだけv4に移行し、旧v1–v3は自動変換しない。v4の画像操作で旧バージョンへ降格しない。
+既存段落・翻訳・改ページを配置操作で分割しない。原文・翻訳の配置は独立し、本文編集でアンカーを追随させる。
+異なる配置が同一ページに集まった場合は保存したまま競合を表示し、配置ボタンで明示解消する。
+扉作成は既存共有titleRegionを使用し、対象段落の配置アンカーを除去する。
+実行時の `placementOffset` は保存不可。DSF配信は従来の確定座標へ投影し、配信スキーマは変更しない。
+詳細・入力検証・編集追随の規則は[行ガイドと配置契約](flow-guides-and-placement.md)を参照。

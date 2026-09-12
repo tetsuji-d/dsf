@@ -5,6 +5,9 @@ export function selectEditorPreviewLanguages(project) {
 }
 
 const reasons = {
+    FLOW_PLACEMENT_CONFLICT: ['ページのまとまり配置が競合しています。該当ページの配置ボタンで統一してください。', 'Conflicting group alignment settings landed on one page. Choose its alignment again to resolve them.'],
+    FLOW_PLACEMENT_UNRESOLVED: ['本文・画像・キャプションが本文領域に収まりません。画像の大きさや本文領域を調整してください。', 'The text, images and captions do not fit within the text area. Adjust the image size or text area.'],
+    FLOW_PLACEMENT_MISSING: ['配置設定の本文位置を確認できません。組版を再実行してください。', 'The text anchor for page alignment could not be located. Repaginate and try again.'],
     PREVIEW_CHANGED: ['準備中に原稿が変更されました。編集を終えてから再度プレビューしてください。', 'The manuscript changed during preparation. Finish editing and try again.'],
     FLOW_PUBLICATION_TRANSLATION_NOT_READY: ['翻訳が未作成、または原文変更後の確認が必要です。該当原稿の翻訳を確認してください。', 'Translation is missing or needs review after source changes. Check this manuscript translation.'],
     FLOW_PUBLICATION_BOOK_COMPOSITION_INVALID: ['表紙あり構成では合計を偶数（2ページ以上）にしてください。', 'With covers, the total must be even and at least two pages.'],

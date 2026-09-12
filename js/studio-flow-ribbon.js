@@ -234,7 +234,7 @@ export function initFlowRibbon() {
         });
     };
     flatLayout(); window.matchMedia('(min-width: 1024px)').addEventListener('change', flatLayout);
-    const status = document.createElement('div'); status.className = 'flow-ribbon-status'; status.innerHTML = '<span id="ribbon-flow-context"></span><span id="ribbon-flow-note"></span><span id="ribbon-flow-scope"></span><span id="ribbon-status" role="status"></span>'; root.append(status);
+    const status = document.createElement('div'); status.className = 'flow-ribbon-status'; status.innerHTML = '<span id="ribbon-flow-context"></span><span id="ribbon-flow-note"></span><span id="ribbon-flow-scope"></span><span id="ribbon-status" role="status"></span><span id="flow-placement-status" role="status"></span>'; root.append(status);
     root.addEventListener('mousedown', event => {
         // Toolbar clicks must not collapse the semantic text selection; fields retain native focus.
         if (context.active && event.target.closest('.flow-ribbon-tools button')) event.preventDefault();

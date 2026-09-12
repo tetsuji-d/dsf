@@ -35,7 +35,7 @@ function getFlowResult(flowResults, groupId) {
 function hashRuntimePage(page) {
     const source = JSON.stringify([
         page?.manualBreakBefore || null,
-        page?.anchoredObject || null, page?.wrapRegions || null,
+        page?.anchoredObject || null, page?.wrapRegions || null, page?.placementOffset || null,
         (Array.isArray(page?.fragments) ? page.fragments : []).map((fragment) => [
             fragment?.blockId || '',
             fragment?.blockType || '',

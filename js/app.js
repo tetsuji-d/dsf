@@ -1,3 +1,4 @@
+import {setFlowPagePlacement,resolvePagePlacement} from './flow-page-placement.js';
 import { createStudioFlowSearch } from './studio-flow-search.js';
 import { resolveFlowSearchTarget } from './flow-search.js';
 import {createFlowObjectToolbarAdapter} from './flow-object-toolbar-adapter.js';
@@ -671,7 +672,11 @@ function syncFlowPageSourceControls() {
     const languageKey = active ? getFlowAuthoringLanguage(group) : '';
     syncFlowRibbonContext({active, source:active && isFlowSourceSelected(group.id), language:languageKey,
         writingMode:group?.flow?.layout?.typographyByLanguage?.[languageKey]?.writingMode || group?.flow?.layout?.writingMode || 'horizontal-tb'});
-    if (!active) return;
+    if (!active) {
+        const status=document.getElementById('flow-placement-status');
+        if(status)status.textContent='';
+        return;
+    }
     const profile = group.flow.layout.typographyByLanguage[languageKey];
     const scope = document.getElementById('flow-placement-scope');
     const page = getEditorPageProjection()?.pages.find(p=>p.kind==='flow' && p.groupId===group.id
@@ -681,20 +686,24 @@ function syncFlowPageSourceControls() {
         && !isFlowSourceSelected(group.id) && !editorDragBlocked(false)
         && !_editorFlowProjectionController && _flowDirectEditProxy?.dataset.flowReflowPending!=='true';
     const canChangeStructure = canUsePage && languageKey===group.flow.document.sourceLanguage;
-    const canAlignPage = canUsePage && (!!titleRegion || canChangeStructure);
+    const canAlignPage = canUsePage;
+    const pagePlacement=page ? resolvePagePlacement(group,page.page,languageKey) : {};
     scope.dataset.sharedTitle = String(!!titleRegion);
     scope.title = t(titleRegion ? 'flow_scope_shared_title' : 'flow_placement_scope');
     const applyPlacement = (field,value,restore=false) => {
         if (getActiveBlock()?.id!==group.id || getFlowAuthoringLanguage(group)!==languageKey || editorDragBlocked(false)) return;
-        const effective = field => (scope.value==='page' ? titleRegion?.[field] : undefined) || profile?.[field] || 'start';
+        const effective = field => (scope.value==='page' ? titleRegion?.[field] || (field==='blockAlign'?pagePlacement.blockAlign:null) : undefined) || profile?.[field] || 'start';
         // Re-selecting the current value must not isolate/split a page or add history.
-        if (field && !restore && effective(field)===value) return;
+        if (field && !restore && !pagePlacement.conflict && effective(field)===value && !(scope.value==='page' && !titleRegion && !pagePlacement.anchors?.length)) return;
         if (scope.value==='page' && (!page || page.flowPageIndex!==getSelectedFlowRuntimePageIndex(group.id))) return;
         try {
             let result;
             if(titleRegion && (restore || scope.value==='page')) {
                 if(!canAlignPage || (restore && !canChangeStructure)) return;
                 result=updateFlowTitleRegion(state.blocks,group.id,titleRegion.id,{field,value,remove:restore});
+            } else if(scope.value==='page' && !restore && field==='blockAlign') {
+                if(!canAlignPage)return;
+                result=setFlowPagePlacement(state.blocks,group.id,page.page,languageKey,value);
             } else if(scope.value==='page' && !restore) {
                 if(!canChangeStructure) return;
                 result=isolateFlowTitlePage(state.blocks,group.id,page.page,field ? {initialAlignment:{textAlign:effective('textAlign'),blockAlign:effective('blockAlign')}} : {});
@@ -703,11 +712,12 @@ function syncFlowPageSourceControls() {
             if(restore && !titleRegion) {
                 delete target.flow.pageRole;
                 Object.assign(target.flow.layout.typographyByLanguage[languageKey],{textAlign:'start',blockAlign:'start'});
-            } else if(field && (!titleRegion || scope.value==='group') && !result.regionId) target.flow.layout.typographyByLanguage[languageKey][field]=value;
+            } else if(field && scope.value==='group' && !result.regionId) target.flow.layout.typographyByLanguage[languageKey][field]=value;
             if(result.regionId && field) result=updateFlowTitleRegion(result.blocks,group.id,result.regionId,{field,value});
             applyEditorSpineChange(result,{flowPageIndex:getSelectedFlowRuntimePageIndex(group.id)});
             syncFlowPageSourceControls();
-        } catch(error) { alert(t(error.code==='translation'?'flow_title_translation_blocked':'flow_title_stale')); }
+        } catch(error) { console.warn('[Flow page placement]',error.code || error.name);
+            alert(t(error.code==='translation'?'flow_title_translation_blocked':error.code==='wrap'?'flow_placement_wrap_blocked':['stale','source','FLOW_PLACEMENT_STALE'].includes(error.code)?'flow_title_stale':'flow_placement_invalid'));  }
     };
     const titleButton=document.getElementById('flow-make-title');
     titleButton.disabled=!canChangeStructure;
@@ -719,13 +729,15 @@ function syncFlowPageSourceControls() {
     scope.onchange=()=>syncFlowPageSourceControls();
     for (const [id,field] of [['flow-placement-block','blockAlign']]) {
         const control = document.getElementById(id);
-        control.value = (scope.value==='page' ? titleRegion?.[field] : undefined) || profile?.[field] || 'start';
+        control.value = (scope.value==='page' ? titleRegion?.[field] || pagePlacement.blockAlign : undefined) || profile?.[field] || 'start';
         control.disabled = !profile || editorDragBlocked(false) || (scope.value==='page' && !canAlignPage);
         control.onchange = () => {
             if (getActiveBlock()?.id !== group.id || editorDragBlocked(false)) return;
             applyPlacement(field,control.value);
         };
     }
+    const placementStatus=document.getElementById('flow-placement-status');
+    if(placementStatus)placementStatus.textContent=pagePlacement.conflict?t('flow_placement_conflict'):page?.page?.placementOffset?.blocked?t('flow_placement_blocked'):'';
     syncFlowParagraphAlignment(group,languageKey);
     const source = isFlowSourceSelected(group.id);
     const button = document.getElementById('flow-open-source');

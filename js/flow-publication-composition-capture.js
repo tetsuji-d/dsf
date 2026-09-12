@@ -1,3 +1,5 @@
+import {applyFlowPagePlacements} from './flow-page-placement-layout.js';
+import {validatePlacementPagination} from './flow-page-placement.js';
 import {composeFlowWithAnchoredObjects} from './flow-wrap-composition.js';
 import {getFlowPublicationAnnotationGlyphs} from './flow-publication-annotations.js';
 import {getFlowFragmentDomPosition} from './flow-source-mapping.js';
@@ -1047,7 +1049,7 @@ export async function createFlowPublicationCompositionCaptureSession(options = {
             const paginate = context.flowGroup.flow.layout.anchoredObjects?.length
                 ? (_document, opts) => composeFlowWithAnchoredObjects(context.flowGroup, {...opts, ownerDocument:context.ownerDocument, typography:context.measurementTypography})
                 : paginateFlowDocument;
-            const pagination = paginate(context.document, {
+            const unplacedPagination = paginate(context.document, {
                 languageKey: context.language,
                 writingMode: context.writingMode,
                 pageBox: context.pageBox,
@@ -1056,6 +1058,8 @@ export async function createFlowPublicationCompositionCaptureSession(options = {
                     ? {}
                     : { maxPages: paginationOptions.maxPages }),
             });
+            const pagination=applyFlowPagePlacements(context.flowGroup,unplacedPagination,{ownerDocument:context.ownerDocument,typography:context.measurementTypography});
+            validatePlacementPagination(context.flowGroup,pagination);
             ownedPaginations.add(pagination);
             return pagination;
         },

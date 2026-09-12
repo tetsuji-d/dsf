@@ -141,3 +141,5 @@ assertInvalid((entry) => { entry.capabilities.fontWeights = [450]; }, 'invalid_f
 assertInvalid((entry) => { entry.declaration.extra = true; }, 'unsupported_font_registry_property', 'unknown property');
 
 console.log('DSF production font registry verification passed');
+
+assert.equal(resolveDsfProductionFont(DSF_PRODUCTION_FONT_REGISTRY,'noto-sans-jp-2.004-h2',{language:'en-GB',writingMode:'horizontal-tb'}).ok,true);

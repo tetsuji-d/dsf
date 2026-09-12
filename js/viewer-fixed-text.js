@@ -204,6 +204,7 @@ export function createDsfFixedTextPageElement({
     persistedPage.lines.forEach((line) => {
         const lineElement = documentRef.createElement('div');
         lineElement.className = 'viewer-fixed-text-line';
+        if(!/-(ruby|emphasis)$/.test(line.styleRef || ''))lineElement.dataset.readingLine=line.writingMode==='vertical-rl'?'vertical':'horizontal';
         lineElement.style.left = `${line.x}px`;
         lineElement.style.top = `${line.y}px`;
         lineElement.style.width = `${line.width}px`;

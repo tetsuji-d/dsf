@@ -1,3 +1,4 @@
+import {remapPlacementText} from './flow-page-placement.js';
 /** Atomic state.blocks transaction for an already validated Flow translation plan. */
 
 import { replaceAnnotatedText } from './flow-annotations.js';
@@ -77,6 +78,7 @@ export function applyFlowTranslationPlan(blocks, options = {}) {
         if (block.type !== 'heading' && block.type !== 'paragraph') {
             failUnit(unitId, `Unsupported Flow translation Block: ${unitId}`);
         }
+        remapPlacementText(group,block.id,targetLang,block.texts?.[targetLang]||'',edit.text);
         replaceAnnotatedText(block, targetLang, edit.text);
         block.texts = { ...(block.texts || {}), [targetLang]: edit.text };
         stateUnits.push({

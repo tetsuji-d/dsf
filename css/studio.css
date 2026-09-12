@@ -8962,33 +8962,15 @@ body[data-device="mobile"] #works-room .works-release-audit-group li {
     cursor: text;
 }
 
-/* Editor-only body rules. They paint on the existing canonical content box,
-   so they scale with the page without changing layout or hit testing. */
-.flow-editor-page-surface > .flow-dom-content[data-flow-page-guide="ruled"] {
-    --flow-page-guide-color: rgba(37, 99, 235, 0.2);
-}
-
-.flow-editor-page-surface > .flow-dom-content[data-flow-page-guide="ruled"][data-flow-page-guide-axis="horizontal"] {
-    background-image: repeating-linear-gradient(
-        to bottom,
-        transparent 0,
-        transparent calc(var(--flow-page-rule-pitch) - 1px),
-        var(--flow-page-guide-color) calc(var(--flow-page-rule-pitch) - 1px),
-        var(--flow-page-guide-color) var(--flow-page-rule-pitch)
-    );
-    background-position: left top;
-}
-
-.flow-editor-page-surface > .flow-dom-content[data-flow-page-guide="ruled"][data-flow-page-guide-axis="vertical"] {
-    background-image: repeating-linear-gradient(
-        to left,
-        transparent 0,
-        transparent calc(var(--flow-page-rule-pitch) - 1px),
-        var(--flow-page-guide-color) calc(var(--flow-page-rule-pitch) - 1px),
-        var(--flow-page-guide-color) var(--flow-page-rule-pitch)
-    );
-    background-position: right top;
-}
+/* Actual composed line guides; never participate in layout or hit testing. */
+.flow-line-guides {position:absolute;inset:0;width:100%;height:100%;pointer-events:none;z-index:3;overflow:hidden;}
+.flow-line-guides line {stroke:rgba(37,99,235,.22);stroke-width:.6;}
+.flow-line-guides line.active {stroke:rgba(37,99,235,.55);}
+.flow-zone-fence {position:absolute;pointer-events:none;box-sizing:border-box;border:1px dashed #2585d9;box-shadow:0 0 0 700px #2585d914;z-index:5;display:none;}
+.flow-graphic-layer:has(.graphic-hit.selected) .flow-zone-fence {display:block;}
+.flow-zone-fence[data-invalid=true] {border-color:#d54b27;box-shadow:0 0 0 700px #d54b271c;}
+.flow-fence-note {position:absolute;left:0;top:-17px;font-size:10px;line-height:14px;color:#174f85;background:#fff;white-space:nowrap;}
+.flow-zone-fence[data-invalid=true] .flow-fence-note {color:#a52b12;}
 
 .flow-direct-input-proxy {
     box-sizing: border-box;

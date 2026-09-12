@@ -157,7 +157,7 @@ export function composeFlowWithAnchoredObjects(group, options) {
             const targets=objects.filter(o=>!placed.has(o.id)&&containsStart(candidate,o.anchorBlockId));
             const target=targets[0];
             if(target) {
-                if(group.flow.layout.schemaVersion===3 && targets.length>1){
+                if(group.flow.layout.schemaVersion>=3 && targets.length>1){
                   for(let count=targets.length;count>1;count--){
                     const batch=targets.slice(0,count),combined=combineObjects(batch);activeObject=combined;
                     const regions=createWrapRegions(pageBox,combined,writingMode,measurer.typography);

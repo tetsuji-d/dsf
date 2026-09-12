@@ -1,3 +1,4 @@
+import {placedFlowObject} from './flow-page-placement.js';
 // Fixed-page authoring objects. Public delivery uses flattened WebP pages.
 import { getShape } from "./shapes.js";
 import { getLangProps } from "./lang.js";
@@ -230,7 +231,7 @@ export {
 /** Graphics only: Flow text and annotations remain semantic DOM/fixedText. */
 export async function appendFlowGraphicPreview(element,page,assets,language,defaultLanguage){
   if(!page?.anchoredObject)return;
-  const canvas=await renderGraphicLayerCanvas(page.anchoredObject.graphic,assets,language,defaultLanguage);
+  const canvas=await renderGraphicLayerCanvas(placedFlowObject(page).graphic,assets,language,defaultLanguage);
   if(!element.isConnected)return;
   canvas.className='graphic-paint';canvas.style.pointerEvents='none';element.append(canvas);
 }

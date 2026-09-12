@@ -39,7 +39,7 @@ const typographyKeys = ['writingMode','fontFamily','fontSize','fontWeight','line
 
 /** Compare effective known settings; never discard unknown layout metadata. */
 export function getFlowJoinLayoutDifferences(left, right, options = {}) {
-    compatible(left, right, ['padding','typographyByLanguage','anchoredObjects','schemaVersion'],'layout_extension');
+    compatible(left, right, ['padding','typographyByLanguage','anchoredObjects','pagePlacements','schemaVersion'],'layout_extension');
     compatible(left.padding, right.padding, ['top','right','bottom','left'],'layout_extension');
     const differences = [];
     for (const side of ['top','right','bottom','left']) {
@@ -83,6 +83,7 @@ export function joinFlowWithPrevious(blocks, groupId, {mergeParagraphs=false, us
     }
     joined.flow.document.schemaVersion = Math.max(left.flow.document.schemaVersion, right.flow.document.schemaVersion);
     joined.flow.layout.schemaVersion=Math.max(left.flow.layout.schemaVersion,right.flow.layout.schemaVersion);
+    if(left.flow.layout.pagePlacements || right.flow.layout.pagePlacements){joined.flow.layout.pagePlacements=deepClone([...(left.flow.layout.pagePlacements||[]),...(right.flow.layout.pagePlacements||[])]);if(new Set(joined.flow.layout.pagePlacements.map(a=>a.id)).size!==joined.flow.layout.pagePlacements.length)fail('ids');}
     if(left.flow.layout.anchoredObjects || right.flow.layout.anchoredObjects){
         joined.flow.layout.anchoredObjects=deepClone([...(left.flow.layout.anchoredObjects||[]),...(right.flow.layout.anchoredObjects||[])]);
         if(new Set(joined.flow.layout.anchoredObjects.map(e=>e.id)).size!==joined.flow.layout.anchoredObjects.length)fail('ids');

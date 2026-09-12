@@ -706,13 +706,14 @@ function createStudioObjectToolbar({ state, commit, refresh, prepareImage, selec
       hit.classList.add("selected");
       const f = { ...getGraphicFrame(o, state.activeLang) }, px = e.clientX, py = e.clientY, scale = hit.parentElement.getBoundingClientRect().width / 360, resize = e.target.dataset.corner, rotating = e.target === rotation, context = key();
       const box = hit.getBoundingClientRect(), cx = box.x + box.width / 2, cy = box.y + box.height / 2, startAngle = Math.atan2(py - cy, px - cx);
-      let next = f;
+      let next = f, frameAllowed = true;
       hit.setPointerCapture(e.pointerId);
       hit.onpointermove = (ev) => {
         const dx = (ev.clientX - px) / scale, dy = (ev.clientY - py) / scale;
         if (rotating) next = rotateGraphicFrame(f, startAngle, Math.atan2(ev.clientY - cy, ev.clientX - cx), ev.shiftKey);
         else if (resize) next = resizeGraphicFrame(f, resize, dx, dy, o.kind === "image" && !ev.shiftKey);
         else next = { ...f, x: clamp(f.x + dx, -3600, 3600), y: clamp(f.y + dy, -6400, 6400) };
+        if(flow?.active()){const preview=flow.previewFrame(o,next,{snap:!resize&&!rotating});next=preview.frame;frameAllowed=preview.valid;}
         Object.assign(hit.style, { left: next.x + "px", top: next.y + "px", width: next.width + "px", height: next.height + "px", transform: `rotate(${next.rotation}deg)` });
         const paint = hit.parentElement.querySelector(`.graphic-paint[data-object-id="${o.id}"]`);
         if (paint) {
@@ -725,6 +726,7 @@ function createStudioObjectToolbar({ state, commit, refresh, prepareImage, selec
         hit.onpointermove = null;
         hit.onpointerup = null;
         if (key() !== context) return;
+        if(!frameAllowed){refresh();return;}
         if (JSON.stringify(f) !== JSON.stringify(next)) update((o2) => setFrame(o2, next));
       };
       hit.onpointercancel = () => {

@@ -1,7 +1,8 @@
+import {paintFlowLineGuides} from './flow-line-guides.js';
 import { renderFlowGeneratedPage } from './flow-dom-measurer.js';
 import { calculateFlowCanvasLayout, calculateFlowCanvasWindow,
     getFlowCanvasPagePosition, getFlowCanvasPageScrollLeft } from './flow-canvas-layout.js';
-import { normalizeFlowPageGuideMode, resolveFlowPageRuleGuide } from './flow-page-guides.js';
+import { normalizeFlowPageGuideMode } from './flow-page-guides.js';
 
 /** Editor-only virtual page strip. Page geometry and saved publication data never change. */
 export function createFlowCanvasView({ container, getPinnedPageIndex, onPageCreate,
@@ -33,21 +34,11 @@ export function createFlowCanvasView({ container, getPinnedPageIndex, onPageCrea
     function applyPageGuide(entry) {
         const contentElement = entry?.contentElement;
         if (!contentElement) return;
-        const guide = resolveFlowPageRuleGuide({
-            mode: guideMode,
-            languageKey: entry.page.languageKey,
-            writingMode: entry.page.writingMode,
-            typography: entry.page.typography,
-        });
-        if (guide.mode === 'off') {
-            delete contentElement.dataset.flowPageGuide;
-            delete contentElement.dataset.flowPageGuideAxis;
-            contentElement.style.removeProperty('--flow-page-rule-pitch');
-            return;
-        }
-        contentElement.dataset.flowPageGuide = guide.mode;
-        contentElement.dataset.flowPageGuideAxis = guide.axis;
-        contentElement.style.setProperty('--flow-page-rule-pitch', `${guide.linePitch}px`);
+        // Coalesce until the mounted page has its final zoom and layout.
+        cancelAnimationFrame(entry.guideFrame);
+        if(guideMode==='off') paintFlowLineGuides(entry.pageElement,entry.page.pageBox,false);
+        else entry.guideFrame=requestAnimationFrame(()=>paintFlowLineGuides(entry.pageElement,entry.page.pageBox,guideMode!=='off'));
+
     }
 
     function setGuideMode(value) {
@@ -138,6 +129,7 @@ export function createFlowCanvasView({ container, getPinnedPageIndex, onPageCrea
         }
         viewport.dataset.visiblePageCount = String(layout.visibleCount);
         viewport.dataset.mountedPageCount = String(mounted.size);
+        mounted.forEach(applyPageGuide);
         onGeometryChange?.();
     }
 

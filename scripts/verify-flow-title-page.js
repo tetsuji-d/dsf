@@ -44,3 +44,17 @@ assert.equal(aligned.blocks[0].flow.document.sections[0].blocks[0].titleRegion.t
 assert.equal(aligned.blocks[0].flow.document.sections[0].blocks[0].titleRegion.blockAlign,'start');
 assert.equal(JSON.stringify(group),original);
 console.log('Page alignment preserves the independently supplied axis; explicit title remains centered.');
+
+const joined=isolateFlowTitlePage([group],group.id,{fragments:[fragment(0,2),fragment(2,7)]});
+assert.equal(text(joined.blocks[0]),text(group));
+assert.equal(joined.blocks[0].flow.document.sections[0].blocks.length,1);
+assert.throws(()=>isolateFlowTitlePage([group],group.id,{fragments:[fragment(0,2),fragment(3,7)]}),e=>e.code==='stale');
+console.log('Contiguous regions of one paragraph are accepted; missing source remains rejected.');
+
+const {createGraphicObject}=await import('../js/graphic-object-model.js');
+const wrapped=structuredClone(group);
+wrapped.flow.layout.schemaVersion=2;
+wrapped.flow.layout.anchoredObjects=[{id:'object',anchorBlockId:'p',wrap:'square',gapEm:.75,graphic:createGraphicObject('shape','shape','ja')}];
+assert.throws(()=>isolateFlowTitlePage([wrapped],group.id,{fragments:[fragment(0,2),fragment(2,7)]}),e=>e.code==='wrap');
+assert.deepEqual(group,JSON.parse(original));
+console.log('Wrapped title constraint is reported distinctly, with no source mutation.');

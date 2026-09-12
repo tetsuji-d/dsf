@@ -1,3 +1,4 @@
+import {applyFlowPagePlacements} from './flow-page-placement-layout.js';
 import {composeFlowWithAnchoredObjects} from './flow-wrap-composition.js';
 /** Browser-only runtime pagination for persisted Project v6 Flow groups. */
 
@@ -336,7 +337,7 @@ async function paginateFlowGroup(group, options) {
             }
         }
     }
-    const { pagination, changeSet } = group.flow.layout.anchoredObjects?.length
+    const { pagination:unplacedPagination, changeSet } = group.flow.layout.anchoredObjects?.length
         ? {pagination:composeFlowWithAnchoredObjects({...group,flow:{...group.flow,document:paginationDocument}},
             {pageBox,languageKey,writingMode,typography,ownerDocument,signal,maxPages:options.maxPagesPerGroup||DEFAULT_MAX_PAGES_PER_GROUP}),changeSet:null}
         : await session.paginator.paginateAsync(paginationDocument, {
@@ -355,6 +356,7 @@ async function paginateFlowGroup(group, options) {
             },
         });
     throwIfAborted(signal);
+    const pagination=applyFlowPagePlacements(group,unplacedPagination,{ownerDocument,typography});
     const result = Object.freeze({
         groupId: group.id,
         documentId: group.flow.document.id,

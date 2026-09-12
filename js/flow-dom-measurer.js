@@ -16,7 +16,7 @@ import {
 
 export const FLOW_DOM_SUPPORTED_WRITING_MODE = 'horizontal-tb';
 export const FLOW_DOM_SUPPORTED_WRITING_MODES = Object.freeze(['horizontal-tb', 'vertical-rl']);
-export const FLOW_DOM_RENDERER_VERSION = 18;
+export const FLOW_DOM_RENDERER_VERSION = 19;
 export const FLOW_DOM_HYPHENATION_MODES = Object.freeze(['auto', 'none']);
 
 const DEFAULT_MEASUREMENT_CACHE_SIZE = 2048;
@@ -360,6 +360,7 @@ export function renderFlowGeneratedPage(pageElement, options = {}) {
     pageElement.replaceChildren();
     const contentElement = pageElement.ownerDocument.createElement('div');
     pageElement.appendChild(contentElement);
+    if(options.page?.placementOffset){const {x,y}=options.page.placementOffset;contentElement.style.transform=`translate(${x}px,${y}px)`;}
     if(options.page?.wrapRegions){
         contentElement.className='flow-dom-content flow-dom-wrapped';
         setContentStyles(contentElement,pageBox,typography,languageKey,writingMode,hyphenation);

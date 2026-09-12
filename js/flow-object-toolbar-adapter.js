@@ -30,7 +30,7 @@ export function createFlowObjectToolbarAdapter({state,getAnchor,save,canEdit,sto
             mutate(content);
             const all=group.flow.layout.anchoredObjects || [], pad=group.flow.layout.padding;
             const anchor=getAnchor(group);
-            next.flow.layout.schemaVersion=3;
+            next.flow.layout.schemaVersion=Math.max(3,next.flow.layout.schemaVersion);
             next.flow.layout.anchoredObjects=content.graphicObjects.map(graphic=>{
                 const old=all.find(e=>e.graphic.id===graphic.id);
                 const o=convert(graphic,pad,-1);
@@ -78,9 +78,41 @@ export function createFlowObjectToolbarAdapter({state,getAnchor,save,canEdit,sto
         if(entry.graphic.locked)return false;
         const previousAnchor=entry.anchorBlockId;fn(entry);
         try{
-            next.flow.layout.schemaVersion=3;
+            next.flow.layout.schemaVersion=Math.max(3,next.flow.layout.schemaVersion);
             if(entry.anchorBlockId!==previousAnchor && (next.flow.document.sections.flatMap(s=>s.blocks).find(b=>b.id===entry.anchorBlockId)?.titleRegion))throw Error('ANCHOR_CONFLICT');
             validate(next);save(next,state.projectAssets);return true;}catch{alert(label('紐づけ先または配置が重複・範囲外です。別の本文段落か配置を選んでください。','The anchor or placement conflicts. Choose another body paragraph or position.'));return false;}
+    }
+    function previewFrame(object,frame,{snap=false}={}) {
+        if(!active())return {frame,valid:true};
+        const group=current(),language=state.activeLang,pad=group.flow.layout.padding;
+        const box=createCanonicalFlowPageBox({padding:pad}).contentBox;
+        const visualOffset=layer(object.id)?._placementOffset||{x:0,y:0};
+        const boundsFor=f=>{
+            const copy=structuredClone(group),entry=copy.flow.layout.anchoredObjects.find(e=>e.graphic.id===object.id);
+            if(!entry)throw Error('MISSING_OBJECT');
+            const local={...f,x:f.x-pad.left,y:f.y-pad.top};
+            if(language===state.defaultLang)entry.graphic.frame=local;
+            else {entry.graphic.frames ||= {};entry.graphic.frames[language]=local;}
+            copy.flow.layout.anchoredObjects=[entry];
+            const profile=copy.flow.layout.typographyByLanguage[language];
+            const bounds=resolveFlowAnchoredObjects(copy,language,resolveFlowDomTypography(language,profile,profile.writingMode))[0];
+            return {...bounds,x:bounds.x+visualOffset.x,y:bounds.y+visualOffset.y};
+        };
+        let next={...frame},valid=false;
+        try {
+            let b=boundsFor(next);
+            if(snap){
+                const dx=[box.x-b.x,box.x+box.width-b.x-b.width].sort((a,b)=>Math.abs(a)-Math.abs(b))[0];
+                const dy=[box.y-b.y,box.y+box.height-b.y-b.height].sort((a,b)=>Math.abs(a)-Math.abs(b))[0];
+                if(Math.abs(dx)<=5)next.x+=dx;
+                if(Math.abs(dy)<=5)next.y+=dy;
+                b=boundsFor(next);
+            }
+            valid=b.x>=box.x-.001&&b.y>=box.y-.001&&b.x+b.width<=box.x+box.width+.001&&b.y+b.height<=box.y+box.height+.001;
+        } catch {valid=false;}
+        const fence=layer(object.id)?.querySelector('.flow-zone-fence');
+        if(fence){fence.dataset.invalid=String(!valid);fence.firstChild.textContent=valid?label('本文領域','Text area'):label('範囲外・ここには配置できません','Outside text area — cannot place here');}
+        return {frame:next,valid};
     }
     function editCaption(id){
         const entry=current()?.flow.layout.anchoredObjects?.find(e=>e.graphic.id===id);if(!entry||entry.graphic.locked||!canEdit())return;
@@ -134,6 +166,10 @@ export function createFlowObjectToolbarAdapter({state,getAnchor,save,canEdit,sto
         for(const object of page.page.anchoredObject.graphic.members || [page.page.anchoredObject.graphic]){
         const layer=document.createElement('div');layer.className='flow-graphic-layer';layer.dataset.objectId=object.id;
         Object.assign(layer.style,{position:'absolute',inset:'0',width:'360px',height:'640px',pointerEvents:'none',zIndex:'4'});surface.append(layer);
+        const offset=page.page.placementOffset||{x:0,y:0};layer._placementOffset=offset;layer.style.transform=`translate(${offset.x}px,${offset.y}px)`;
+        const fence=document.createElement('div');fence.className='flow-zone-fence';fence.setAttribute('aria-hidden','true');
+        const pad=page.pageBox.padding;Object.assign(fence.style,{left:(pad.left-offset.x)+'px',top:(pad.top-offset.y)+'px',width:page.pageBox.contentBox.width+'px',height:page.pageBox.contentBox.height+'px'});
+        const note=document.createElement('span');note.className='flow-fence-note';note.textContent=label('本文領域','Text area');fence.append(note);layer.append(fence);layer.style.overflow='visible';
         renderGraphicLayerCanvas(object,state.projectAssets || [],page.languageKey,state.defaultLang).then(canvas=>{
             if(!layer.isConnected)return;canvas.className='graphic-paint';canvas.dataset.objectId=object.id;layer.prepend(canvas);
         }).catch(()=>{layer.textContent=label('画像を表示できません','Image unavailable');});
@@ -153,5 +189,5 @@ export function createFlowObjectToolbarAdapter({state,getAnchor,save,canEdit,sto
         for(const [surface,{page,activate}] of mounted){if(!surface.isConnected){mounted.delete(surface);continue;}paint(surface,page,activate);}
     }
     function layer(id){return [...mounted.entries()].filter(([e,{page}])=>e.isConnected&&page.groupId===current()?.id&&page.languageKey===state.activeLang).flatMap(([e])=>[...e.querySelectorAll('.flow-graphic-layer')]).find(e=>e.dataset.objectId===id);}
-    return {active,asBlock,commit,controls,mount,render,layer,canEdit,editCaption,anchorFor:id=>current().flow.layout.anchoredObjects?.find(e=>e.graphic.id===id)?.anchorBlockId};
+    return {active,asBlock,commit,controls,mount,render,layer,canEdit,editCaption,previewFrame,anchorFor:id=>current().flow.layout.anchoredObjects?.find(e=>e.graphic.id===id)?.anchorBlockId};
 }

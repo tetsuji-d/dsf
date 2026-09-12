@@ -1,3 +1,4 @@
+import {remapPlacementText,splitPlacementAnchors,mergePlacementAnchors,removePlacementAnchors} from './flow-page-placement.js';
 import {retargetFlowObjects} from './flow-anchored-objects.js';
 import { validateFlowIndent } from './flow-indent.js';
 import { validateFlowTextSelection, createFlowTextSelection } from './flow-text-selection.js';
@@ -281,6 +282,7 @@ export function applyFlowAuthoringOperation(blocks, operation, options = {}) {
                 });
                 if (captured.changed) context.group.flow.translationState = captured.translationState;
             }
+            remapPlacementText(context.group,block.id,languageKey,block.texts?.[languageKey]||'',operation.text);
             replaceAnnotatedText(block, languageKey, operation.text);
             block.texts = { ...(block.texts || {}), [languageKey]: operation.text };
             if (languageKey !== sourceLanguage) {
@@ -444,6 +446,7 @@ export function applyFlowAuthoringOperation(blocks, operation, options = {}) {
             };
             const inserted = block.type === 'heading' && afterText.length
                 ? createFlowHeading({ ...tailOptions, level: block.level }) : createFlowParagraph(tailOptions);
+            splitPlacementAnchors(context.group,block.id,sourceLanguage,utf16Offset,utf16EndOffset,inserted.id);
             section.blocks.splice(blockIndex + 1, 0, inserted);
             break;
         }
@@ -504,6 +507,7 @@ export function applyFlowAuthoringOperation(blocks, operation, options = {}) {
             const trailingBlock = block.type === 'heading' && afterText.length > 0
                 ? createFlowHeading({ ...trailingOptions, level: block.level })
                 : createFlowParagraph(trailingOptions);
+            splitPlacementAnchors(context.group,block.id,sourceLanguage,utf16Offset,utf16Offset,trailingBlock.id);
             section.blocks.splice(blockIndex + 1, 0,
                 createFlowPageBreak({ id: pageBreakId, idFactory }), trailingBlock);
             break;
@@ -552,6 +556,7 @@ export function applyFlowAuthoringOperation(blocks, operation, options = {}) {
                 fail('INVALID_FLOW_TEXT', 'Paragraph source text must be a string.');
             }
 
+            mergePlacementAnchors(context.group,block.id,previousBlock.id,Object.fromEntries(Object.keys(block.texts||{}).map(key=>{const left=previousBlock.texts?.[key]||'',right=block.texts[key];return [key,left.length+(key!==sourceLanguage&&left&&right?1:0)];})));
             if (operation.preserveTranslations) {
                 const reason = inspectFlowParagraphMerge(previousBlock, block);
                 if (reason) fail('FLOW_MERGE_' + reason, 'Paragraph settings differ.');
@@ -595,11 +600,13 @@ export function applyFlowAuthoringOperation(blocks, operation, options = {}) {
                 if (language.sourceFingerprints?.blocks) delete language.sourceFingerprints.blocks[block.id];
                 if (language.lockedUnitIds?.includes(block.id)) language.lockedUnitIds = [...new Set(language.lockedUnitIds.map(id=>id===block.id?neighbor.id:id))];
             }
+            mergePlacementAnchors(context.group,block.id,neighbor.id,{});
             section.blocks.splice(index,1);
             break;
         }
         case 'removeBlock': {
             const blockIndex = findBlockIndex(section, operation.blockId);
+            removePlacementAnchors(context.group,new Set([section.blocks[blockIndex].id]));
             section.blocks.splice(blockIndex, 1);
             break;
         }

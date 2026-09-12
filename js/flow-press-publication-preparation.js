@@ -15,6 +15,10 @@ import { prepareFlowPressPreflight } from './flow-press-preflight-preparation.js
 export const FLOW_PRESS_PUBLICATION_PREPARATION_VERSION = 1;
 
 const ISSUE_MESSAGES = Object.freeze({
+    FLOW_PLACEMENT_CONFLICT: '同じページに異なるまとまり配置が集まっています。該当ページの配置ボタンで統一してください。',
+    FLOW_PLACEMENT_UNRESOLVED: '本文・画像・キャプションが本文領域に収まらず、まとまり配置を適用できません。画像の大きさや本文領域を調整してください。',
+    FLOW_PLACEMENT_MISSING: '配置設定の本文位置を確認できません。組版を再実行してから準備してください。',
+
     FLOW_OBJECT_ANCHOR_MISSING: '画像・図形の紐づけ先がありません。Flow画像一覧から本文段落を指定してください。',
     FLOW_OBJECT_ANCHOR_CONFLICT: '同じ段落に複数の画像・図形があります。紐づけ先を別の段落へ変更してください。',
     FLOW_OBJECT_TITLE_REGION: '扉の段落には画像を回り込ませられません。通常の本文段落を選んでください。',

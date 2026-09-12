@@ -1,3 +1,4 @@
+import {removePlacementAnchors} from './flow-page-placement.js';
 import { deepClone, createId } from './utils.js';
 import { assertValidFlowProjectData } from './flow-project-model.js';
 import { applyFlowAuthoringOperation } from './flow-authoring.js';
@@ -8,7 +9,16 @@ export function isolateFlowTitlePage(blocks, groupId, page, {idFactory=createId,
     assertValidFlowProjectData({version:6,blocks});
     const index=blocks.findIndex(b=>b.id===groupId), group=blocks[index];
     const language=group?.flow?.document?.sourceLanguage;
-    const fragments=page?.fragments;
+    // Wrapping can split one semantic paragraph into several adjacent regions.
+    // Rejoin only contiguous ranges; never mistake these for changed source.
+    const fragments=[];
+    for(const fragment of page?.fragments || []) {
+        const previous=fragments.at(-1);
+        if(previous?.sectionId===fragment.sectionId && previous.blockId===fragment.blockId
+            && previous.languageKey===fragment.languageKey && previous.sourceRange?.end===fragment.sourceRange?.start) {
+            previous.text+=fragment.text;previous.sourceRange.end=fragment.sourceRange.end;
+        } else fragments.push({...fragment,sourceRange:{...fragment.sourceRange}});
+    }
     if (!group || !fragments?.length || fragments.some(f=>f.languageKey!==language)) fail('source');
     const flat=group.flow.document.sections.flatMap(s=>s.blocks.map(b=>({section:s,block:b})));
     let previous=-1;
@@ -21,6 +31,7 @@ export function isolateFlowTitlePage(blocks, groupId, page, {idFactory=createId,
         if(previous>=0 && i!==previous+1) fail('stale');
         previous=i;
     }
+    if(group.flow.layout.anchoredObjects?.some(o=>o.graphic.visible && fragments.some(f=>f.blockId===o.anchorBlockId)))fail('wrap');
     const first=fragments[0],last=fragments.at(-1);
     for(const f of fragments) {
         const text=flat.find(e=>e.block.id===f.blockId).block.texts[language];
@@ -42,6 +53,7 @@ export function isolateFlowTitlePage(blocks, groupId, page, {idFactory=createId,
     const source=next[index], entries=source.flow.document.sections.flatMap(s=>s.blocks.map(b=>({section:s,block:b})));
     const start=entries.findIndex(e=>e.block.id===startId),end=entries.findIndex(e=>e.block.id===endId);
     const region = deepClone(fragments[0].titleRegion || {id:idFactory('flow_title'),languageKey:language,textAlign:initialAlignment?.textAlign || 'center',blockAlign:initialAlignment?.blockAlign || 'center'});
+    removePlacementAnchors(source,new Set(entries.slice(start,end+1).map(e=>e.block.id)));
     for (const entry of entries.slice(start,end+1)) entry.block.titleRegion=deepClone(region);
     source.flow.document.schemaVersion=Math.max(3,source.flow.document.schemaVersion);
     assertValidFlowProjectData({version:6,blocks:next});
