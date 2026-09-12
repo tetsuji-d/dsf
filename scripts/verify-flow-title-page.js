@@ -38,3 +38,9 @@ paginator.paginate(group.flow.document);
 assert.deepEqual(paginator.paginate(result.blocks[0].flow.document).pagination.pages,pages.pages);
 assert.equal(paginator.paginate(removed.blocks[0].flow.document).pagination.pages.length,1);
 console.log('Title region: incremental add/remove agrees with cold pagination.');
+
+const aligned=isolateFlowTitlePage([group],group.id,{fragments:[fragment(0,7)]},{initialAlignment:{textAlign:'end',blockAlign:'start'}});
+assert.equal(aligned.blocks[0].flow.document.sections[0].blocks[0].titleRegion.textAlign,'end');
+assert.equal(aligned.blocks[0].flow.document.sections[0].blocks[0].titleRegion.blockAlign,'start');
+assert.equal(JSON.stringify(group),original);
+console.log('Page alignment preserves the independently supplied axis; explicit title remains centered.');

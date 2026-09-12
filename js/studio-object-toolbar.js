@@ -536,6 +536,7 @@ function createStudioObjectToolbar({ state, commit, refresh, prepareImage, selec
   }
   function controls() {
     root.replaceChildren();
+    delete root.dataset.selected;
     if(!flow?.active()) button(root, "text_fields", label("テキストボックスを追加", "Add text box"), () => add("text"));
     const shapes = button(root, "category", label("図形を追加", "Add shape"), () => {
       const p = pop(shapes), grid = el("div", null, "graphic-shape-gallery");
@@ -813,7 +814,13 @@ function createStudioObjectToolbar({ state, commit, refresh, prepareImage, selec
       attachHandle(hit, o);
     }
   }
-  return { render, placeAsset, upload, addText: () => add("text") };
+  function clearSelection() {
+    if (selected === null) return;
+    selected = null;
+    closePopup();
+    render();
+  }
+  return { render, clearSelection, placeAsset, upload, addText: () => add("text") };
 }
 export {
   createStudioObjectToolbar

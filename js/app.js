@@ -1,3 +1,5 @@
+import { createStudioFlowSearch } from './studio-flow-search.js';
+import { resolveFlowSearchTarget } from './flow-search.js';
 import {createFlowObjectToolbarAdapter} from './flow-object-toolbar-adapter.js';
 import {openEditorViewerPreview} from './editor-viewer-preview.js';
 import { createStudioObjectToolbar } from './studio-object-toolbar.js';
@@ -148,7 +150,11 @@ import { collection, getDocs, query, where, limit } from "https://www.gstatic.co
 const flowObjectToolbar=createFlowObjectToolbarAdapter({
     state,
     canEdit:()=>!_flowAuthoringComposing && _flowTranslationJob?.state!=='running',
-    stopEditing:()=>clearFlowDirectEditRuntime(),
+    stopEditing:()=>{
+        clearFlowDirectEditRuntime();
+        const group=getActiveBlock();
+        if(group?.kind==='flow')selectFlowGeneratedPage(group.id);
+    },
     getAnchor:group=>{
         if(_flowDirectEditSession?.groupId===group.id)return _flowDirectEditSession.blockId;
         const index=getSelectedFlowRuntimePageIndex(group.id);
@@ -205,6 +211,50 @@ const objectToolbar = createStudioObjectToolbar({
         state.sections=extractSectionsFromBlocks(state.blocks);state.pages=blocksToPages(state.blocks);
         refresh();updateHistoryButtons();triggerAutoSave();
     }
+});
+const flowSearch = createStudioFlowSearch({
+    state,
+    canNavigate: () => !_flowAuthoringComposing && _flowTranslationJob?.state !== 'running',
+    reveal: async (match, isCurrent) => {
+        const target = resolveFlowSearchTarget(state.blocks, match);
+        if (!target) return false;
+        const sourceMode = getActiveBlock()?.kind === 'flow' && isFlowSourceSelected(getActiveBlock().id);
+        endHistoryGroup(); clearFlowDirectEditRuntime(); objectToolbar.clearSelection();
+        state.activeLang = match.languageKey;
+        const point = { sectionId: match.sectionId, blockId: match.blockId, languageKey: match.languageKey,
+            utf16Offset: match.start, ...mapFlowTextUtf16OffsetToGrapheme(match.expectedText, match.start, match.languageKey, 'forward'),
+            affinity: 'forward', selectionStart: match.start, selectionEnd: match.end };
+        if (sourceMode) selectFlowSource(match.groupId, point); else selectFlowDirectEditing(match.groupId, point);
+        changeBlock(state.blocks.indexOf(target.group), refresh);
+        for (let attempt = 0; attempt < 100 && isCurrent(); attempt++) {
+            if (!resolveFlowSearchTarget(state.blocks, match) || state.activeLang !== match.languageKey || getActiveBlock()?.id !== match.groupId) return false;
+            if (sourceMode) {
+                const root = [...document.querySelectorAll('.flow-authoring-editor, #flow-authoring-surface')].find(el => el.getClientRects().length && el.dataset.flowGroupId === match.groupId && el.dataset.languageKey === match.languageKey);
+                const input = [...(root?.querySelectorAll('[data-flow-field="block-text"]') || [])].find(el => {
+                    const target = getFlowAuthoringTarget(el); return target.sectionId === match.sectionId && target.blockId === match.blockId;
+                });
+                if (input && input.value === match.expectedText) {
+                    input.focus({ preventScroll: true });input.setSelectionRange(match.start, match.end);
+                    scrollFlowSourceCaretIntoView(root, input, match.start);return true;
+                }
+            }
+            const pages = !sourceMode && getEditorPageProjection()?.pages.filter(p => p.kind === 'flow' && p.groupId === match.groupId && p.languageKey === match.languageKey);
+            const location = pages && findFlowSourcePointInPages(pages, point);
+            const page = location && pages[location.pageIndex];
+            if (page && !_editorFlowProjectionController) {
+                const surface = ensureFlowCanvasPage(page.flowPageIndex, true);
+                const session = tryCreateFlowDirectEditSession(target.group, page, point);
+                if (surface && session) {
+                    selectFlowDirectEditing(match.groupId, point);
+                    mountFlowDirectEditProxy(target.group, page, surface, { ...session, selectionStart: match.start, selectionEnd: match.end });
+                    setSelectedFlowRuntimePageIndex(match.groupId, page.flowPageIndex, page.flowPageCount);
+                    syncThumbSelectionDom(); syncPageNavigationSlider(); return true;
+                }
+            }
+            await new Promise(resolve => setTimeout(resolve, 50));
+        }
+        return false;
+    },
 });
 const projectAssetPanel = createProjectAssetPanel({
     state, prepareImage: prepareAuthoringImage,
@@ -580,13 +630,18 @@ function syncFlowPageSourceControls() {
         && p.flowPageIndex===getSelectedFlowRuntimePageIndex(group.id));
     const titleRegion=page?.page?.fragments?.[0]?.titleRegion;
     const canUsePage = !!page && !page.isSourceFallback && page.languageKey===languageKey
-        && !isFlowSourceSelected(group.id) && !editorDragBlocked(false);
+        && !isFlowSourceSelected(group.id) && !editorDragBlocked(false)
+        && !_editorFlowProjectionController && _flowDirectEditProxy?.dataset.flowReflowPending!=='true';
     const canChangeStructure = canUsePage && languageKey===group.flow.document.sourceLanguage;
     const canAlignPage = canUsePage && (!!titleRegion || canChangeStructure);
     scope.dataset.sharedTitle = String(!!titleRegion);
     scope.title = t(titleRegion ? 'flow_scope_shared_title' : 'flow_placement_scope');
     const applyPlacement = (field,value,restore=false) => {
-        if (getActiveBlock()?.id!==group.id || editorDragBlocked(false)) return;
+        if (getActiveBlock()?.id!==group.id || getFlowAuthoringLanguage(group)!==languageKey || editorDragBlocked(false)) return;
+        const effective = field => (scope.value==='page' ? titleRegion?.[field] : undefined) || profile?.[field] || 'start';
+        // Re-selecting the current value must not isolate/split a page or add history.
+        if (field && !restore && effective(field)===value) return;
+        if (scope.value==='page' && (!page || page.flowPageIndex!==getSelectedFlowRuntimePageIndex(group.id))) return;
         try {
             let result;
             if(titleRegion && (restore || scope.value==='page')) {
@@ -594,7 +649,7 @@ function syncFlowPageSourceControls() {
                 result=updateFlowTitleRegion(state.blocks,group.id,titleRegion.id,{field,value,remove:restore});
             } else if(scope.value==='page' && !restore) {
                 if(!canChangeStructure) return;
-                result=isolateFlowTitlePage(state.blocks,group.id,page.page);
+                result=isolateFlowTitlePage(state.blocks,group.id,page.page,field ? {initialAlignment:{textAlign:effective('textAlign'),blockAlign:effective('blockAlign')}} : {});
             } else result={blocks:structuredClone(state.blocks),activeBlockIndex:state.activeBlockIdx};
             const target=result.blocks[result.activeBlockIndex];
             if(restore && !titleRegion) {
@@ -1824,6 +1879,7 @@ function exitFlowDirectEdit(groupId) {
 }
 
 function mountFlowDirectEditProxy(activeBlock, page, pageElement, session) {
+    objectToolbar.clearSelection();
     _flowTextSelection = validateFlowTextSelection(activeBlock, _flowTextSelection);
     clearFlowDirectEditRuntime({ resetComposition: false, preserveSelection: true, preservePointer: true });
     _flowDirectEditSession = session;
@@ -5450,6 +5506,7 @@ function refresh(options = {}) {
         position: editableFixedSection?.type === 'image' ? getActiveImagePosition() : null });
 
     objectToolbar.render();
+    flowSearch.update();
     const hasGraphicObjects=!!getActiveBlock()?.content?.graphicObjects?.length;
     document.getElementById('image-upload-placeholder')?.classList.toggle('graphic-page-placeholder',hasGraphicObjects);
 
@@ -8850,6 +8907,7 @@ window.changeFlowSourceBlock = (blockIndex) => {
     // Fallback text has no equivalent translated character offset. Open the same block.
     const languageKey = getFlowAuthoringLanguage(block);
     if (point && point.languageKey !== languageKey) point = { ...point, languageKey, utf16Offset: 0, graphemeOffset: 0 };
+    objectToolbar.clearSelection();
     selectFlowSource(block.id, point || {});
     changeBlock(blockIndex, refresh);
     if (point) restoreMappedFlowSourceCaret(block.id, point);

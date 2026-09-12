@@ -1,0 +1,42 @@
+const {chromium}=require(process.env.DSF_PLAYWRIGHT_MODULE),assert=require('node:assert/strict');
+(async()=>{const b=await chromium.launch({channel:'chrome',headless:true});try{
+ const p=await b.newPage({viewport:{width:1500,height:950}}),errors=[];p.on('pageerror',e=>errors.push(e.message));p.on('dialog',d=>d.dismiss());
+ await p.goto('http://127.0.0.1:5178/studio?room=editor');await p.waitForFunction(()=>window.changeBlock);
+ await p.evaluate(async()=>{
+ const {state}=await import('/js/state.js'),{createFlowGroupBlock}=await import('/js/flow-project-model.js');window.searchState=state;
+ const make=(id,ja,en)=>createFlowGroupBlock({id,sourceLanguage:'ja',writingMode:'vertical-rl',document:{sourceLanguage:'ja',sections:[{id:'s'+id,blocks:[{id:'p'+id,type:'paragraph',texts:{ja,'en-GB':en}}]}]}});
+ state.blocks=[make('a','海辺の灯台。'.repeat(180),'The lighthouse by the Sea. '.repeat(80)),make('b','遠くの灯台。','A distant lighthouse.')];
+ const {confirmFlowTranslationAgainstCurrentSource}=await import('/js/flow-translation-state.js');
+ for(const g of state.blocks){g.flow.layout.typographyByLanguage['en-GB']={...g.flow.layout.typographyByLanguage.ja,writingMode:'horizontal-tb'};g.flow.translationState=confirmFlowTranslationAgainstCurrentSource(g,'en-GB').translationState;}
+ Object.assign(state,{projectAssets:[],version:6,activeLang:'ja',defaultLang:'ja',languages:['ja','en-GB'],activeBlockIdx:0,activeIdx:0,activeBubbleIdx:null,sections:[],pages:[],projectId:null,localProjectId:'search-test',bookMode:'none',book:{mode:'none'}});
+ window.setStudioUILang('en');window.changeFlowGeneratedPage(0,0);
+ });
+ await p.locator('[data-testid=flow-editor-generated-page]').first().waitFor();
+ const before=await p.evaluate(()=>JSON.stringify(window.searchState.blocks));
+ await p.keyboard.press('Control+f');const bar=p.locator('#flow-search-bar');await bar.waitFor();
+ await bar.getByRole('searchbox').fill('灯台');await p.waitForFunction(()=>document.querySelector('#flow-search-bar [role=status]').textContent==='0 / 180');
+ await bar.getByRole('button',{name:'Next match',exact:true}).click();
+ await p.waitForFunction(()=>{const e=document.querySelector('.flow-direct-input-proxy');return e&&e.value.slice(e.selectionStart,e.selectionEnd)==='灯台'});
+ await p.waitForFunction(()=>document.querySelector('#flow-search-bar [role=status]').textContent==='1 / 180');
+ await bar.getByRole('button',{name:'Previous match',exact:true}).click();
+ await p.waitForFunction(()=>document.querySelector('#flow-search-bar [role=status]').textContent==='180 / 180');
+ assert.ok(await p.evaluate(()=>document.querySelector('.flow-direct-input-proxy').selectionStart>900));
+ await bar.getByRole('combobox',{name:'Search scope',exact:true}).selectOption('all');
+ await p.waitForFunction(()=>document.querySelector('#flow-search-bar [role=status]').textContent==='0 / 181');
+ await bar.getByRole('button',{name:'Previous match',exact:true}).click();
+ await p.waitForFunction(()=>window.searchState.blocks[window.searchState.activeBlockIdx].id==='b');
+ await p.waitForFunction(()=>document.querySelector('.flow-direct-input-proxy')?.value==='遠くの灯台。');
+ await bar.getByRole('combobox',{name:'Search language',exact:true}).selectOption('en-GB');await bar.getByRole('searchbox').fill('distant');
+ await p.waitForFunction(()=>document.querySelector('#flow-search-bar [role=status]').textContent==='0 / 1');
+ await bar.getByRole('button',{name:'Next match',exact:true}).click();
+ await p.waitForFunction(()=>{const e=document.querySelector('.flow-direct-input-proxy');return e&&e.lang==='en-GB'&&e.value.slice(e.selectionStart,e.selectionEnd)==='distant'});
+ await p.evaluate(async()=>{const {selectFlowSource}=await import('/js/flow-editor-session.js');selectFlowSource('b',{languageKey:'en-GB'});window.changeBlock(1);});
+ await p.waitForFunction(()=>[...document.querySelectorAll('[data-flow-field="block-text"]')].some(e=>e.getClientRects().length&&e.value==='A distant lighthouse.'));
+ await bar.getByRole('button',{name:'Next match',exact:true}).click();
+ await p.waitForFunction(()=>{const e=document.activeElement;return e?.dataset.flowField==='block-text'&&e.value.slice(e.selectionStart,e.selectionEnd)==='distant'});
+ assert.equal(await p.evaluate(()=>JSON.stringify(window.searchState.blocks)),before);
+ await p.evaluate(()=>window.setStudioUILang('ja'));
+ await bar.getByRole('searchbox').fill('distant');await bar.getByRole('searchbox').press('Escape');assert.equal(await bar.isVisible(),false);
+ assert.deepEqual(errors,[]);console.log('Search browser: shortcut, ranges, cross-page and cross-Flow navigation, translation, JA/EN, no authoring mutation passed');
+ await p.locator('#btn-flow-search').click();await p.screenshot({path:require('node:os').tmpdir()+'/flow-search-ui.png'});
+}finally{await b.close()}})().catch(e=>{console.error(e);process.exitCode=1});

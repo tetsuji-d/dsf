@@ -1,0 +1,9 @@
+#flow-search-bar { flex: 0 0 auto; display:flex; align-items:center; gap:6px; padding:4px 8px; border-bottom:1px solid var(--studio-border, #465369); background:var(--studio-surface, #fff); color:var(--studio-text, #1a1f29); }
+#flow-search-bar[hidden] { display:none; }
+#flow-search-bar input, #flow-search-bar select, #flow-search-bar button { box-sizing:border-box; height:30px; min-height:30px; padding:3px 7px; font:inherit; font-size:12px; border:1px solid #718096; border-radius:5px; }
+#flow-search-bar input { width:240px; min-width:100px; }
+#flow-search-bar button { min-width:30px; cursor:pointer; }
+#flow-search-bar button[aria-pressed=true] { background:#146bdb; color:white; }
+#flow-search-bar [role=status] { font-size:12px; min-width:65px; }
+#flow-search-bar .search-close { margin-left:auto; }
+@media(max-width:750px) { #flow-search-bar { flex-wrap:wrap; } #flow-search-bar input { flex:1; } }

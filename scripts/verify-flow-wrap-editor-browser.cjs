@@ -1,6 +1,8 @@
 const {chromium}=require(process.env.DSF_PLAYWRIGHT_MODULE),assert=require('node:assert/strict');
 (async()=>{const b=await chromium.launch({channel:'chrome',headless:true});try{const p=await b.newPage({viewport:{width:1600,height:1000}});const errors=[];p.on('pageerror',e=>errors.push(e.message));p.on('dialog',async d=>{console.log('dialog',d.message());await d.dismiss()});p.on('console',m=>{if(m.type()==='error'||m.text().includes('[Editor preview]'))console.log('console',m.text().slice(0,400))});await p.goto('http://127.0.0.1:5178/studio?room=editor');await p.waitForFunction(()=>window.changeBlock);await p.evaluate(async()=>{const {state}=await import('/js/state.js'),{createFlowGroupBlock}=await import('/js/flow-project-model.js');window.wrapTestState=state;state.blocks=[createFlowGroupBlock({id:'flow',sourceLanguage:'ja',writingMode:'vertical-rl',document:{sourceLanguage:'ja',sections:[{id:'s',blocks:[{id:'p',type:'paragraph',texts:{ja:'灯台と約束。'.repeat(80)}},{id:'q',type:'paragraph',texts:{ja:'海の向こうから手紙が届く。'.repeat(35)}}]}]}})];Object.assign(state,{projectAssets:[],version:6,activeLang:'ja',defaultLang:'ja',languages:['ja'],activeBlockIdx:0,activeIdx:0,activeBubbleIdx:null,sections:[],pages:[],projectId:null,localProjectId:'flow-wrap-integration-test',bookMode:'none',book:{mode:'none'}});window.setStudioUILang('en');window.changeFlowGeneratedPage(0,0);});await p.locator('[data-testid=flow-editor-generated-page]').first().waitFor();await p.getByRole('button',{name:'Add shape',exact:true}).click();await p.getByRole('button',{name:'Rectangle',exact:true}).click();await p.waitForFunction(()=>!!window.wrapTestState.blocks[0].flow.layout.anchoredObjects?.length);await p.locator('.flow-graphic-layer .graphic-hit').first().waitFor();console.log('shape inserted');const original=await p.evaluate(async()=>structuredClone((await import('/js/state.js')).state.blocks[0].flow.layout));const r=await p.locator('.flow-graphic-layer .graphic-hit').first().boundingBox();await p.mouse.move(r.x+r.width/2,r.y+r.height/2);await p.mouse.down();await p.mouse.move(r.x+r.width/2+8,r.y+r.height/2+8,{steps:5});await p.mouse.up();await p.waitForFunction(old=>window.wrapTestState.blocks[0].flow.layout.anchoredObjects[0].graphic.frame.x!==old,original.anchoredObjects[0].graphic.frame.x);await p.locator('#btn-undo').click();assert.deepEqual(await p.evaluate(()=>window.wrapTestState.blocks[0].flow.layout),original);await p.screenshot({path:require('node:os').tmpdir()+'/flow-wrap-editor.png'});await p.locator('[data-testid=flow-editor-generated-page] .flow-dom-block[data-flow-block-id=p]').first().click({position:{x:5,y:5}});
 await p.locator('.flow-direct-input-proxy').waitFor();
+assert.equal(await p.locator('.graphic-hit.selected').count(),0);
+assert.equal(await p.locator('.graphic-object-tools input').count(),0);
 assert.equal(await p.locator('#flow-image-insert,#fab-add-bubble').count(),0);
 await p.locator('[data-testid=flow-editor-generated-page] .flow-dom-block[data-flow-block-id=p]').first().click({button:'right',position:{x:5,y:5}});
 assert.equal(await p.locator('.graphic-context-menu').count(),1);
@@ -18,6 +20,19 @@ await p.waitForFunction(()=>window.wrapTestState.blocks[0].flow.layout.anchoredO
 const imageState=await p.evaluate(async()=>{const {state}=await import('/js/state.js');return {asset:state.projectAssets[0],objects:state.blocks[0].flow.layout.anchoredObjects,anchor:state.blocks[0].flow.layout.anchoredObjects.find(e=>e.graphic.kind==='image')?.anchorBlockId};});
 assert.equal(imageState.anchor,'q');assert.equal(imageState.asset.width,500);assert.equal(imageState.asset.height,800);assert.equal(imageState.asset.mimeType,'image/webp');
 console.log('Wrapped text editing and paragraph-anchored full-resolution image upload passed');
+await p.locator('.flow-graphic-layer .graphic-hit').last().click();
+assert.equal(await p.locator('.graphic-hit.selected').count(),1);
+await p.getByRole('spinbutton',{name:'Rotate °',exact:true}).fill('5');
+await p.getByRole('spinbutton',{name:'Rotate °',exact:true}).press('Tab');
+assert.equal(await p.locator('.graphic-hit.selected').count(),1);
+await p.locator('[data-testid=flow-editor-generated-page] .flow-dom-block[data-flow-block-id=p]').first().click({position:{x:5,y:5}});
+assert.equal(await p.locator('.graphic-hit.selected').count(),0);
+assert.equal(await p.getByRole('spinbutton',{name:'Rotate °',exact:true}).count(),0);
+const beforeSelection=await p.evaluate(()=>JSON.stringify(window.wrapTestState.blocks));
+await p.locator('.flow-direct-input-proxy').press('Control+Shift+End');
+assert.equal(await p.evaluate(()=>JSON.stringify(window.wrapTestState.blocks)),beforeSelection);
+console.log('Wrapped multi-paragraph text selection leaves alignment and authoring data unchanged');
+console.log('Image ribbon selection is retained for controls and cleared on another text page');
 if(process.env.DSF_TEST_CAPTIONS==='1'){
  const image=p.locator('.flow-graphic-layer .graphic-hit').last();await image.dblclick();
  const input=p.getByRole('textbox',{name:'Caption text',exact:true});await input.fill('灯台の記録\n海辺を歩く');await input.press('Control+Enter');

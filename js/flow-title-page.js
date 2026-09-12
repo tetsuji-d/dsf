@@ -4,7 +4,7 @@ import { applyFlowAuthoringOperation } from './flow-authoring.js';
 
 function fail(code) { const error=new Error('Cannot isolate the selected Flow page.');error.code=code;throw error; }
 /** Isolate a verified source page without persisting generated page indices. */
-export function isolateFlowTitlePage(blocks, groupId, page, {idFactory=createId}={}) {
+export function isolateFlowTitlePage(blocks, groupId, page, {idFactory=createId, initialAlignment=null}={}) {
     assertValidFlowProjectData({version:6,blocks});
     const index=blocks.findIndex(b=>b.id===groupId), group=blocks[index];
     const language=group?.flow?.document?.sourceLanguage;
@@ -41,7 +41,7 @@ export function isolateFlowTitlePage(blocks, groupId, page, {idFactory=createId}
     if(newStart){startId=newStart;if(endId===first.blockId)endId=newStart;}
     const source=next[index], entries=source.flow.document.sections.flatMap(s=>s.blocks.map(b=>({section:s,block:b})));
     const start=entries.findIndex(e=>e.block.id===startId),end=entries.findIndex(e=>e.block.id===endId);
-    const region = deepClone(fragments[0].titleRegion || {id:idFactory('flow_title'),languageKey:language,textAlign:'center',blockAlign:'center'});
+    const region = deepClone(fragments[0].titleRegion || {id:idFactory('flow_title'),languageKey:language,textAlign:initialAlignment?.textAlign || 'center',blockAlign:initialAlignment?.blockAlign || 'center'});
     for (const entry of entries.slice(start,end+1)) entry.block.titleRegion=deepClone(region);
     source.flow.document.schemaVersion=Math.max(3,source.flow.document.schemaVersion);
     assertValidFlowProjectData({version:6,blocks:next});
