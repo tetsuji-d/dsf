@@ -483,6 +483,7 @@ function createStudioObjectToolbar({ state, commit, refresh, prepareImage, selec
     });
     window.addEventListener("resize", () => requestAnimationFrame(render));
     document.addEventListener("contextmenu", (e) => {
+      if (popup?.classList.contains("graphic-context-menu")) closePopup();
       if (e.target.closest(".graphic-hit,input,textarea,[contenteditable=true]")) return;
       if (!e.target.closest('#canvas-stage,[data-testid="editor-fixed-page"],[data-testid="flow-editor-generated-page"]')) return;
       if (activateAt?.(e.target) === false || block()?.kind !== "page") return;
@@ -492,11 +493,16 @@ function createStudioObjectToolbar({ state, commit, refresh, prepareImage, selec
       controls();
       contextMenu(e.clientX, e.clientY, true);
     }, true);
+    // Canvas editors stop bubbling pointer events; dismiss before those handlers run.
     document.addEventListener("pointerdown", (e) => {
-      if (popup && !popup.contains(e.target) && !root.contains(e.target) && !e.target.closest(".graphic-crop-overlay")) closePopup();
-    });
+      if (!popup || popup.contains(e.target)) return;
+      if (popup.classList.contains("graphic-context-menu") || (!root.contains(e.target) && !e.target.closest(".graphic-crop-overlay"))) closePopup();
+    }, true);
+    document.addEventListener("keydown", (e) => { if (e.key === "Escape") closePopup(); }, true);
+    const dismissContextMenu = () => { if (popup?.classList.contains("graphic-context-menu")) closePopup(); };
+    document.addEventListener("scroll", dismissContextMenu, true);
+    window.addEventListener("blur", dismissContextMenu);
     document.addEventListener("keydown", (e) => {
-      if (e.key === "Escape") closePopup();
       if (e.target.closest("input,textarea,select,[contenteditable=true]") || !canEdit()) return;
       if ((e.ctrlKey || e.metaKey) && !e.altKey) {
         const k = e.key.toLowerCase();

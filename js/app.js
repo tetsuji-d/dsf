@@ -5351,8 +5351,6 @@ function refresh(options = {}) {
     }
 
     // FAB「テキスト追加」ボタンをテキストページでは非表示
-    const fabAddBubble = document.getElementById('fab-add-bubble');
-    if (fabAddBubble) fabAddBubble.style.display = (isTextSection || isFlowReadOnly) ? 'none' : '';
 
     // テキストページではキャンバスのクリックカーソルをデフォルトに戻す
     const canvasView = document.getElementById('canvas-view');

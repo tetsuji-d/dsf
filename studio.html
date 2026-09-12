@@ -358,8 +358,6 @@
                     ondragover="handleCanvasDragOver(event)"
                     ondragleave="handleCanvasDragLeave(event)"
                     ondrop="handleCanvasDrop(event)">
-                    <button type="button" id="flow-image-insert" class="flow-image-insert btn-sm" data-flow-insert-image
-                        data-i18n="flow_image_insert_short" data-i18n-title="flow_image_insert_hint" hidden>＋ 画像ページ</button>
                     <input type="file" id="flow-image-file" accept="image/*" hidden>
                     <div id="flow-authoring-surface" data-testid="flow-authoring" hidden></div>
                     <div id="canvas-stage">
@@ -427,9 +425,6 @@
                         <button id="image-flip-btn" class="btn-sm zoom-btn img-zoom-btn" onmousedown="event.stopPropagation()"
                             ontouchstart="event.stopPropagation()" onclick="toggleImageFlipX()" title="左右反転">⇄</button>
                     </div>
-                    <button id="fab-add-bubble" class="fab-btn" onclick="addBubbleFab()" title="テキスト追加" data-fixed-page-edit>
-                        <span class="material-icons">text_fields</span>
-                    </button>
                 </div>
                 <div id="page-strip">
                     <div id="page-strip-handle">

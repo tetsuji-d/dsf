@@ -19,6 +19,18 @@ const assert = require("node:assert/strict");
       window.setStudioUILang("en");
       window.changeBlock(0);
     });
+    assert.equal(await p.locator('#flow-image-insert,#fab-add-bubble').count(),0);
+    const openPasteMenu=()=>p.locator('#canvas-stage').click({button:'right',position:{x:20,y:40}});
+    const menuCount=()=>p.locator('.graphic-context-menu').count();
+    await openPasteMenu();assert.equal(await menuCount(),1);
+    await p.locator('#canvas-stage').evaluate(e=>{
+      e.addEventListener('pointerdown',event=>event.stopPropagation(),{once:true});
+      e.dispatchEvent(new PointerEvent('pointerdown',{bubbles:true}));
+    });assert.equal(await menuCount(),0);
+    await openPasteMenu();await p.keyboard.press('Escape');assert.equal(await menuCount(),0);
+    await openPasteMenu();await p.locator('#canvas-view').dispatchEvent('scroll');assert.equal(await menuCount(),0);
+    await openPasteMenu();await p.locator('#ribbon-print').click({button:'right'});assert.equal(await menuCount(),0);
+    console.log('Context menu closes after stopped pointer events, Escape, scroll and another right click');
     await p.getByRole("button", { name: "Add shape", exact: true }).click();
     await p.getByRole("button", { name: "Ellipse", exact: true }).click();
     assert.equal(await p.locator(".graphic-resize").count(), 4);
