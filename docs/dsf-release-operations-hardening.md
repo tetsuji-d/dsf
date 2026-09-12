@@ -1,5 +1,7 @@
 # DSF Release Operations Hardening
 
+> 保持・ダウンロード・版管理の将来方針は [DSFプラットフォーム基本方針](dsf-platform-policy.md) を参照。本書の読み取り専用・`safeToDelete:false`契約は継続する。保持世代数や自動削除の検討案は、この契約を変更しない。
+
 最終更新: 2026-09-05
 
 この文書は、DSF delivery v1/v2 の公開運用を安全にする Unit P3 の契約をまとめる。Project／Work／Release schema、Firestore Rules、R2 object はこの単位では変更しない。

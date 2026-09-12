@@ -1,5 +1,7 @@
 # Data Model Documentation
 
+> 製品の提供方針と将来のDL許可・版番号・保持管理は [DSFプラットフォーム基本方針](dsf-platform-policy.md) を参照。本書がFirestoreの現行schemaの正本であり、方針文書中の候補項目は新フィールドやRules変更を意味しない。
+
 **最終更新**: 2026-08-23
 **ステータス**: Architect 管理下（変更には Architect 承認が必要）
 

@@ -1,5 +1,7 @@
 # Library / Viewer / Studio — ログインの一貫性（YouTube 的 UX の前提）
 
+> 認証が必要なクラウド機能と、ログイン不要のローカルDSF閲覧の目標境界は [DSFプラットフォーム基本方針](dsf-platform-policy.md) を参照。本書は現在の認証共有の説明。Viewerのオフライン起動・認証依存の分離は未実装であり、以下の共有構成だけで保証されない。
+
 ## いまコード上で共有しているもの
 
 - **単一の Firebase アプリ** — `js/firebase-core.js` の `initializeApp(firebaseConfig)` が 1 回だけ走り、`auth` / `db` / `storage` がシングルトン。

@@ -1,5 +1,7 @@
 # DSF & DSP File Format Specification
 
+> 製品のWeb提供・PWA・オフラインViewer・ダウンロード／版管理の方針は [DSFプラットフォーム基本方針](dsf-platform-policy.md) に集約する。本書は既存ZIP構造の正本。portable DSFの自己完結性はViewer本体のオフライン起動を保証しない。新しい版番号等は基本方針上の設計案であり、現行schemaへの追加ではない。
+
 ## 概要
 
 **DSF（Digital Spread Format）** は、スマートフォン向け固定レイアウト出版のためのフォーマット総称です。リフロー型の EPUB とは対照的に、ZIP コンテナ内の **`manifest.json` / `meta.json` / `content.json`** とアセットにより、ページ構成・多言語・表示メタ（アスペクト比・綴じ方向など）を管理します。
