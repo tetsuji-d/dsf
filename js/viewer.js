@@ -2800,6 +2800,10 @@ function renderViewerAuthSlot(user = state.user || null) {
             </button>
             <div class="viewer-auth-dropdown">
                 <div class="viewer-auth-name">${esc(nameRaw)}</div>
+                <div class="viewer-auth-section-label">${viewerUiLang === 'en' ? 'Language' : '表示言語'}</div>
+                <div class="viewer-ui-lang-switcher" role="group" aria-label="Language / 表示言語">
+                    ${['ja', 'en'].map(lang => `<button type="button" class="viewer-ui-lang-btn ${viewerUiLang === lang ? 'active' : ''}" data-ui-lang="${lang}" aria-pressed="${viewerUiLang === lang}" lang="${lang}">${lang === 'ja' ? '日本語' : 'English'}</button>`).join('')}
+                </div>
                 <div class="viewer-auth-section-label">${esc(vt('themeLabel'))}</div>
                 <div class="viewer-theme-switcher">
                     <button type="button" class="viewer-theme-btn ${themeMode === 'device' ? 'active' : ''}" data-theme-mode="device">${esc(vt('modeDevice'))}</button>
@@ -2827,6 +2831,21 @@ function renderViewerAuthSlot(user = state.user || null) {
                 });
             }
         }
+    });
+
+    slot.querySelectorAll('[data-ui-lang]').forEach(btn => {
+        btn.addEventListener('click', event => {
+            event.stopPropagation();
+            const lang = btn.dataset.uiLang;
+            window.setViewerUiLang(lang);
+            slot.querySelector('.viewer-auth')?.classList.add('open');
+            slot.querySelector('.viewer-auth-trigger')?.setAttribute('aria-expanded', 'true');
+            slot.querySelector(`[data-ui-lang="${lang}"]`)?.focus();
+        });
+    });
+    slot.querySelector('.viewer-auth-dropdown')?.addEventListener('keydown', event => {
+        event.stopPropagation();
+        if (event.key === 'Escape') { closeViewerAuthDropdown(); trigger?.focus(); }
     });
 
     slot.querySelectorAll('[data-theme-mode]').forEach((btn) => {

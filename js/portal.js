@@ -410,6 +410,14 @@ function mountPortalGisButton() {
     }).catch((err) => console.warn('[Portal] GIS button render failed:', err));
 }
 
+function renderProfileLanguageSetting() {
+    return `<div class="auth-panel-section">
+        <div class="auth-panel-label">${currentLang === 'en' ? 'Language' : '表示言語'}</div>
+        <div class="lang-switcher js-lang-switcher" role="group" aria-label="Language / 表示言語">
+            ${['ja', 'en'].map(lang => `<button type="button" class="lang-btn ${lang === currentLang ? 'active' : ''}" data-lang="${lang}" aria-pressed="${lang === currentLang}" lang="${lang}">${lang === 'ja' ? '日本語' : 'English'}</button>`).join('')}
+        </div></div>`;
+}
+
 function renderAuthArea(user) {
     const authArea = document.getElementById("auth-area");
     if (!authArea) return;
@@ -432,6 +440,7 @@ function renderAuthArea(user) {
                         <span class="auth-dropdown-display-name">${displayName}</span>
                         <span class="auth-dropdown-plan">${planName}</span>
                     </div>
+                    ${renderProfileLanguageSetting()}
                     <div class="auth-panel-section">
                         <div class="auth-panel-label">${escapeHtml(t("themeLabel"))}</div>
                         <div class="theme-mode-switcher js-theme-switcher" role="group" aria-label="${escapeHtml(t("themeLabel"))}">
@@ -477,6 +486,7 @@ function renderAuthArea(user) {
                 </button>
                 <div class="auth-dropdown auth-panel" id="auth-dropdown">
                     <div class="auth-dropdown-name">${escapeHtml(t('signinBtn'))}</div>
+                    ${renderProfileLanguageSetting()}
                     <div class="auth-panel-section">
                         <div class="auth-panel-label">${escapeHtml(t("themeLabel"))}</div>
                         <div class="theme-mode-switcher js-theme-switcher" role="group" aria-label="${escapeHtml(t("themeLabel"))}">
@@ -525,6 +535,16 @@ function renderAuthArea(user) {
         });
         bindThemeSwitcher();
     }
+    bindLangSwitcher();
+    const dropdown = authArea.querySelector('#auth-dropdown');
+    dropdown?.addEventListener('keydown', event => {
+        if (event.key === 'Escape') {
+            dropdown.classList.remove('open');
+            const trigger = authArea.querySelector('#btn-avatar');
+            trigger?.setAttribute('aria-expanded', 'false');
+            trigger?.focus();
+        }
+    });
 }
 
 // ---- Language Switcher ---------------------------------------------------
@@ -548,7 +568,13 @@ function setThemeMode(mode) {
 function bindLangSwitcher() {
     document.querySelectorAll(".js-lang-switcher").forEach((switcher) => switcher.addEventListener("click", (e) => {
         const btn = e.target.closest(".lang-btn");
-        if (btn?.dataset.lang) setLang(btn.dataset.lang);
+        if (!btn?.dataset.lang) return;
+        e.stopPropagation();
+        const lang = btn.dataset.lang;
+        setLang(lang);
+        document.getElementById('auth-dropdown')?.classList.add('open');
+        document.getElementById('btn-avatar')?.setAttribute('aria-expanded', 'true');
+        document.querySelector(`#auth-dropdown [data-lang="${lang}"]`)?.focus();
     }));
 }
 
@@ -640,7 +666,6 @@ document.addEventListener("DOMContentLoaded", () => {
         });
         applyI18n();
         updateLangSwitcher();
-        bindLangSwitcher();
         updateThemeSwitcher();
         bindEvents();
 

@@ -148,10 +148,6 @@
 
             <!-- Right: Controls -->
             <div class="ui-controls">
-                <div class="viewer-ui-lang-switcher">
-                    <button class="viewer-ui-lang-btn" data-ui-lang="ja" onclick="setViewerUiLang('ja')">JA</button>
-                    <button class="viewer-ui-lang-btn" data-ui-lang="en" onclick="setViewerUiLang('en')">EN</button>
-                </div>
                 <div id="viewer-lang-picker" class="viewer-lang-picker" style="display:none;">
                     <button id="lang-picker-button" class="viewer-lang-picker-button" type="button" onclick="toggleViewerLangMenu()"></button>
                     <div id="lang-picker-menu" class="viewer-lang-picker-menu"></div>
@@ -164,6 +160,7 @@
                     <summary class="btn-icon header-btn" title="読書ガイド" aria-label="読書ガイド"><span class="material-icons" aria-hidden="true">format_line_spacing</span></summary>
                     <div class="reading-guide-popover">
                         <label><input id="reading-guide-enabled" type="checkbox"><span id="reading-guide-label">行ガイドを表示</span></label>
+                        <label><span id="reading-guide-mode-label">表示</span><select id="reading-guide-mode"><option value="active">読んでいる行だけ</option><option value="all">すべての行</option></select></label>
                         <label><span id="reading-guide-strength-label">濃さ</span><input id="reading-guide-strength" type="range" min="10" max="70" value="25"></label>
                         <p id="reading-guide-note"></p>
                     </div>
