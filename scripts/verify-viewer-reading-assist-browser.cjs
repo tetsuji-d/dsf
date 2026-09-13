@@ -30,57 +30,88 @@ for(const language of ['ja','en-GB']){
  start=await offset();await dragLens(-30);assert.ok(await offset()>start+10,'Reverse dragging must immediately move back');
  await v.locator('#viewer-reading-guide summary').click();await v.locator('#reading-guide-zoom').selectOption('2');await v.locator('#viewer-reading-guide summary').click();
 
+ // Continue advances a viewport first, then the next composed line.
  let prev=await v.locator('#reader-assist-prev').boundingBox(),next=await v.locator('#reader-assist-next').boundingBox();assert.ok(language==='ja'?next.x<prev.x:prev.y<next.y);
- await v.locator('#reader-assist-next').click();assert.match(await v.locator('#reader-assist-status').innerText(),language==='ja'?/^2 \/ /:/^4 \/ /);await v.locator('#reader-assist-prev').click();
- // Reading interactions preserve both explicitly hidden and visible chrome.
- await v.evaluate(()=>window.toggleUi(false));await v.locator('#reader-assist-next').click();await v.locator('#reader-assist-prev').click();
- assert.equal(await v.locator('#viewer-ui').evaluate(e=>e.classList.contains('visible')),false);
- await v.evaluate(()=>window.toggleUi(true));await v.locator('#reader-assist-next').click();await v.waitForTimeout(5200);
- assert.equal(await v.locator('#viewer-ui').evaluate(e=>e.classList.contains('visible')),true);
- await v.locator('#reader-assist-prev').click();
- await v.screenshot({path:require('node:os').tmpdir()+`/viewer-assist-${language}.png`});
-
- await v.setViewportSize({width:390,height:844});await v.waitForTimeout(200);r=await first.boundingBox();
- // On a phone, focus retains the exact unassisted page size too.
- await v.locator('#viewer-reading-guide summary').click();await v.locator('#reading-guide-enabled').uncheck();await v.waitForTimeout(180);
- const mobilePageBefore=await v.locator('#viewer-stage .viewer-fixed-text-page').first().boundingBox();
- await v.locator('#reading-guide-enabled').check();await v.locator('#reading-guide-mode').selectOption('focus');await v.waitForTimeout(180);
- assert.deepEqual(await v.locator('#viewer-stage .viewer-fixed-text-page').first().boundingBox(),mobilePageBefore);
- await v.locator('#viewer-reading-guide summary').click();await v.screenshot({path:require('node:os').tmpdir()+`/viewer-focus-mobile-${language}.png`});
- await v.locator('#viewer-reading-guide summary').click();await v.locator('#reading-guide-mode').selectOption('lens');await v.locator('#viewer-reading-guide summary').click();await v.waitForTimeout(180);r=await first.boundingBox();
- const cdp=await v.context().newCDPSession(v);await cdp.send('Input.dispatchTouchEvent',{type:'touchStart',touchPoints:[{x:r.x+r.width/2,y:r.y+20}]});await cdp.send('Input.dispatchTouchEvent',{type:'touchMove',touchPoints:[{x:r.x+r.width/2,y:r.y+Math.min(90,r.height-2)}]});await cdp.send('Input.dispatchTouchEvent',{type:'touchEnd',touchPoints:[]});
- // Touch-drag inside the magnified text, with captured motion in both directions.
+ const selectedText=()=>v.locator('#viewer-stage .reading-line-active').textContent();
+ const originalText=await selectedText();let clicks=0;
+ while(await selectedText()===originalText&&clicks++<30)await v.locator('#reader-assist-next').click();
+ assert.notEqual(await selectedText(),originalText);await v.locator('#reader-assist-prev').click();assert.equal(await selectedText(),originalText);
+ await v.evaluate(()=>window.toggleUi(false));await v.locator('#reader-assist-next').click();assert.equal(await v.locator('#viewer-ui').evaluate(e=>e.classList.contains('visible')),false);
+ await v.evaluate(()=>window.toggleUi(true));await v.locator('#reader-assist-prev').click();await v.waitForTimeout(5200);assert.equal(await v.locator('#viewer-ui').evaluate(e=>e.classList.contains('visible')),true);
+ // Phone layout reserves an inert zone ABOVE the OS home indicator too.
+ await v.setViewportSize({width:390,height:844});
+ await v.evaluate(()=>document.documentElement.style.setProperty('--viewer-safe-bottom','34px'));
+ await v.waitForTimeout(200);
+ let footer=v.locator('#viewer-bottom-navigation');
+ const checkFooter=async()=>{
+   const fr=await footer.boundingBox();assert.ok(fr.y+fr.height<=845);
+   for(const id of ['viewer-nav-left','viewer-nav-right','reader-assist-prev','reader-assist-next']){const r=await v.locator('#'+id).boundingBox();assert(r.height>=44);assert(r.y+r.height<=844-50+.5,'Home indicator + 16px must be inert');}
+   const lr=await lens.boundingBox();assert(lr.y+lr.height<=fr.y+.5,'Footer must not cover magnified text');
+ };
+ await checkFooter();
+ assert.ok(await v.locator('#reader-assist-locator .reader-window-marker').count());
+ // Reset to the first window through the actual locator keyboard interaction.
+ await v.locator('#reader-assist-locator').focus();await v.keyboard.press('Enter');
+ const textBefore=await selectedText(),tBefore=await offset();await v.locator('#reader-assist-next').click();
+ assert.equal(await selectedText(),textBefore);assert.notEqual(await offset(),tBefore,'Continue must move the magnified viewport');
+ await v.locator('#reader-assist-prev').click();assert.ok(Math.abs((await offset())-tBefore)<1,'Back restores the preceding window');
+ const cdp=await v.context().newCDPSession(v);
  lr=await lens.boundingBox();let tx=lr.x+lr.width*.6,ty=lr.y+lr.height*.6;
- start=await offset();
- await cdp.send('Input.dispatchTouchEvent',{type:'touchStart',touchPoints:[{x:tx,y:ty}]});
- await cdp.send('Input.dispatchTouchEvent',{type:'touchMove',touchPoints:[{x:tx-(language==='ja'?0:60),y:ty-(language==='ja'?60:0)}]});
- await cdp.send('Input.dispatchTouchEvent',{type:'touchEnd',touchPoints:[]});
- assert.ok(await offset()<start-20,'Touch inside lens must advance text');
- assert.ok(await v.locator('#reader-assist-lens .viewer-fixed-text-page').count());const dock=await v.locator('#reader-assist-panel').boundingBox();assert.ok(dock.x>=0&&dock.x+dock.width<=390&&dock.y+dock.height<=844);
- await v.screenshot({path:require('node:os').tmpdir()+`/viewer-assist-mobile-${language}.png`});
- // Paging must discard the old line and lens, and remain available in assistance mode.
+ start=await offset();await cdp.send('Input.dispatchTouchEvent',{type:'touchStart',touchPoints:[{x:tx,y:ty}]});
+ await cdp.send('Input.dispatchTouchEvent',{type:'touchMove',touchPoints:[{x:tx-(language==='ja'?0:50),y:ty-(language==='ja'?50:0)}]});
+ await cdp.send('Input.dispatchTouchEvent',{type:'touchEnd',touchPoints:[]});assert.ok(await offset()<start-10);
+ await v.screenshot({path:require('node:os').tmpdir()+`/viewer-window-mobile-${language}.png`});
+ // Narrow phones and landscape keep a usable lens and controls above the home band.
+ for(const size of [{width:320,height:568},{width:844,height:390}]){
+   await v.setViewportSize(size);await v.waitForTimeout(180);
+   const panelBox=await v.locator('#reader-assist-panel').boundingBox(),lensBox=await lens.boundingBox(),footerBox=await footer.boundingBox();
+   assert(panelBox.x>=0&&panelBox.x+panelBox.width<=size.width+.5);
+   assert(lensBox.width>200&&lensBox.height>60,JSON.stringify({size,lensBox}));
+   assert(lensBox.y+lensBox.height<=footerBox.y+.5);
+   for(const id of ['viewer-nav-left','viewer-nav-right','reader-assist-next','reader-assist-prev']){const r=await v.locator('#'+id).boundingBox();assert(r.y+r.height<=size.height-50+.5);}
+   await v.screenshot({path:require('node:os').tmpdir()+`/viewer-window-${language}-${size.width}.png`});
+ }
+ await v.setViewportSize({width:390,height:844});await v.waitForTimeout(180);
+ // Tapping the reserved home-bar band must not turn a page or toggle chrome.
+ const beforePage=await v.locator('#page-slider').inputValue(),chrome=await v.locator('#viewer-ui').getAttribute('class');
+ await v.mouse.click(195,830);assert.equal(await v.locator('#page-slider').inputValue(),beforePage);assert.equal(await v.locator('#viewer-ui').getAttribute('class'),chrome);
  await v.waitForTimeout(950);await first.evaluate(e=>window.previousAssistLine=e);
  await v.locator(language==='ja'?'#viewer-nav-left':'#viewer-nav-right').click();
  await v.waitForFunction(()=>!document.querySelector('#viewer-stage').contains(window.previousAssistLine));
- await v.waitForFunction(()=>!document.querySelector('#reader-assist-lens .viewer-fixed-text-page'));
- await first.evaluate(e=>window.previousAssistLine=e);await v.locator(language==='ja'?'#viewer-nav-right':'#viewer-nav-left').click();await v.waitForFunction(()=>!document.querySelector('#viewer-stage').contains(window.previousAssistLine));await first.waitFor();await v.waitForTimeout(250);
- r=await first.boundingBox();await v.mouse.click(r.x+r.width/2,r.y+r.height*.3);
+ await v.locator('#reader-assist-lens [data-reading-line]').waitFor();
+ assert.equal((await v.locator('#reader-assist-status').innerText()).startsWith('1 / '),true,'New page starts at its first line');
+ // Reader UI translations and a non-text page fallback do not trap navigation.
+ await v.evaluate(()=>document.documentElement.lang='en');
+ await v.locator('#viewer-reading-guide summary').click();await v.locator('#reading-guide-zoom').selectOption('1.5');await v.locator('#viewer-reading-guide summary').click();
+ assert.equal(await v.locator('#reader-assist-next').innerText(),'Continue');assert.equal(await v.locator('#reader-assist-prev').innerText(),'Back');
+ await v.evaluate(()=>document.documentElement.lang='ja');
+ // Simulate the next projection being an image surface; only the reader DOM changes.
+ await v.evaluate(()=>{const content=document.querySelector('#viewer-content');window.readerSavedProjection=content.innerHTML;content.innerHTML='<img alt="Image page" style="width:100%;height:100%" src="data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 width=%22360%22 height=%22640%22/%3E">';});
+ await v.waitForFunction(()=>!document.body.classList.contains('reader-primary-lens'));
+ assert.equal(await v.locator('#reader-assist-lens .viewer-fixed-text-page').count(),0);assert.equal(await v.locator('#reader-assist-next').isVisible(),false);assert.equal(await v.locator('#viewer-nav-left').isVisible(),true);
+ await v.evaluate(()=>document.querySelector('#viewer-content').innerHTML=window.readerSavedProjection);
  await v.locator('#reader-assist-lens .viewer-fixed-text-page').waitFor();
- // Two-finger pinch retains Viewer zoom; a subsequent drag pans the zoomed page.
- const stage=v.locator('#viewer-stage');const beforePinch=await stage.evaluate(e=>new DOMMatrix(getComputedStyle(e).transform).a);
+ // Normal/focus have identical page dimensions on mobile, with footer always reserved.
+ await v.locator('#viewer-reading-guide summary').click();await v.locator('#reading-guide-enabled').uncheck();await v.waitForTimeout(180);
+ const mobilePageBefore=await v.locator('#viewer-stage .viewer-fixed-text-page').first().boundingBox();
+ await v.locator('#reading-guide-enabled').check();await v.locator('#reading-guide-mode').selectOption('focus');await v.waitForTimeout(180);
+ const mobileFocus=await v.locator('#viewer-stage .viewer-fixed-text-page').first().boundingBox();
+ assert.deepEqual(mobileFocus,mobilePageBefore,'Focus keeps the ordinary mobile page dimensions');
+ // The guide-only mode keeps the same reserved footer as well.
+ await v.locator('#reading-guide-mode').selectOption('active');await v.waitForTimeout(180);
+ assert.deepEqual(await v.locator('#viewer-stage .viewer-fixed-text-page').first().boundingBox(),mobileFocus);
+ await v.locator('#reading-guide-enabled').uncheck();await v.locator('#viewer-reading-guide summary').click();
+ const canvas=await v.locator('#viewer-canvas').boundingBox(),fr=await footer.boundingBox();assert(canvas.y+canvas.height<=fr.y+.5);
+ // Existing pinch/pan remains available after leaving the magnified window.
+ const stage=v.locator('#viewer-stage'),beforePinch=await stage.evaluate(e=>new DOMMatrix(getComputedStyle(e).transform).a);
  const box=await v.locator('#viewer-stage .viewer-fixed-text-page').first().boundingBox(),cx=box.x+box.width/2,cy=box.y+box.height/2;
  await cdp.send('Input.dispatchTouchEvent',{type:'touchStart',touchPoints:[{id:1,x:cx-25,y:cy},{id:2,x:cx+25,y:cy}]});
- await cdp.send('Input.dispatchTouchEvent',{type:'touchMove',touchPoints:[{id:1,x:cx-50,y:cy},{id:2,x:cx+50,y:cy}]});
- await cdp.send('Input.dispatchTouchEvent',{type:'touchEnd',touchPoints:[]});await v.waitForTimeout(120);
+ await cdp.send('Input.dispatchTouchEvent',{type:'touchMove',touchPoints:[{id:1,x:cx-50,y:cy},{id:2,x:cx+50,y:cy}]});await cdp.send('Input.dispatchTouchEvent',{type:'touchEnd',touchPoints:[]});await v.waitForTimeout(150);
  assert.ok(await stage.evaluate(e=>new DOMMatrix(getComputedStyle(e).transform).a)>beforePinch*1.4);
- const beforePan=await stage.getAttribute('style');
- await cdp.send('Input.dispatchTouchEvent',{type:'touchStart',touchPoints:[{x:cx,y:cy}]});
- await cdp.send('Input.dispatchTouchEvent',{type:'touchMove',touchPoints:[{x:cx-20,y:cy-20}]});
- await cdp.send('Input.dispatchTouchEvent',{type:'touchEnd',touchPoints:[]});
- assert.notEqual(await stage.getAttribute('style'),beforePan);
- await v.emulateMedia({media:'print'});assert.equal(await v.locator('#reader-assist-panel').isVisible(),false);await v.emulateMedia({media:'screen'});
+ const beforePan=await stage.getAttribute('style');await cdp.send('Input.dispatchTouchEvent',{type:'touchStart',touchPoints:[{x:cx,y:cy}]});await cdp.send('Input.dispatchTouchEvent',{type:'touchMove',touchPoints:[{x:cx-20,y:cy-20}]});await cdp.send('Input.dispatchTouchEvent',{type:'touchEnd',touchPoints:[]});assert.notEqual(await stage.getAttribute('style'),beforePan);
+ await v.emulateMedia({media:'print'});assert.equal(await footer.isVisible(),false);assert.equal(await v.locator('#reader-assist-panel').isVisible(),false);await v.emulateMedia({media:'screen'});
  assert.equal(await p.evaluate(()=>JSON.stringify(window.assistTestState.blocks)),snapshot);
- await v.locator('#reader-assist-close').click();assert.equal(await v.locator('body').getAttribute('data-reading-assist-dock'),'0');assert.equal(await v.locator('#viewer-stage .reader-line-muted').count(),0);assert.equal(await v.locator('#reader-assist-panel').isVisible(),false);
+ await v.setViewportSize({width:1440,height:950});await v.waitForTimeout(180);assert.equal(await footer.isVisible(),false);assert.equal(await v.locator('#viewer-footer #page-slider').count(),1);
  assert.deepEqual(errors,[]);await v.close();await p.close();console.log(language,'focus/annotations/lens/zoom/line navigation/touch/mobile/paging/pinch/pan/print/disable and unchanged authoring passed');
 }
 }finally{await b.close()}})().catch(e=>{console.error(e);process.exitCode=1});

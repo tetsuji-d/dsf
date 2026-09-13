@@ -4191,7 +4191,7 @@ function bindViewerHoverChrome() {
         const canvas = document.getElementById('viewer-canvas');
         const ui = document.getElementById('viewer-ui');
         const target = event.target;
-        if (readingGuides?.isAssisting() && (canvas?.contains(target) || target.closest?.('#reader-assist-panel'))) {
+        if (readingGuides?.isAssisting() && (canvas?.contains(target) || target.closest?.('#reader-assist-panel, #viewer-bottom-navigation'))) {
             clearViewerUiAutoHide();
             return;
         }
@@ -4355,7 +4355,7 @@ function bindViewerSliderPreview() {
 
 document.addEventListener('click', (e) => {
     // Reading controls are not a request to toggle the surrounding chrome.
-    if (e.target.closest?.('#reader-assist-panel')) return;
+    if (e.target.closest?.('#reader-assist-panel, #viewer-bottom-navigation')) return;
     if (!isUiVisible) {
         if (Date.now() <= suppressZoneClickUntil) return;
         if (e.target.closest?.('#viewer-ui')) return;
@@ -4468,7 +4468,8 @@ function resizeCanvas() {
     const safeY = Math.max(viewport.safeTop, viewport.safeBottom);
     const readerDock = Number(document.body.dataset.readingAssistDock || 0);
     const W = Math.max(readerDock ? 120 : 280, viewport.width - readerDock - (drawerOpen ? VIEWER_DRAWER_WIDTH + VIEWER_DRAWER_GAP : 0) - (safeX * 2));
-    const H = Math.max(1, viewport.height - Number(document.body.dataset.readingAssistBottom || 0) - (safeY * 2));
+    const bottomNavigation = Number(document.body.dataset.viewerBottomHeight || 0);
+    const H = Math.max(1, viewport.height - Number(document.body.dataset.readingAssistBottom || 0) - bottomNavigation - (safeY * 2));
     const aspect = CANONICAL_PAGE_ASPECT;
     const bookSingle = spreadMode && hasBookModel() && getCurrentBookUnit()?.type === 'single';
     const fallbackSingle = spreadMode && !hasBookModel() && !_hasFallbackSpreadSecondPage();

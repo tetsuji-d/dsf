@@ -1,3 +1,5 @@
+import {buildReadingWindows, measureReadingGlyphs} from './viewer-reading-window.js';
+import {initializeViewerBottomNavigation} from './viewer-bottom-navigation.js';
 import {paintViewerReadingGuides} from './viewer-reading-guide-geometry.js';
 import {collectReadingLineGroups} from './viewer-reading-assist-lines.js';
 /** Reader-local paint/zoom preferences; no authoring or delivery mutations. */
@@ -12,9 +14,11 @@ export function initializeViewerReadingGuides({onLayoutChange = () => {}, onAssi
     zoom.value=[1.5,2,3].includes(saved.zoom)?String(saved.zoom):'2';
     blur.value=Number.isFinite(saved.blur)?Math.max(.4,Math.min(2.4,saved.blur)):1.2;
     const panel=document.createElement('aside'); panel.id='reader-assist-panel'; panel.hidden=true;
-    panel.innerHTML='<div class="reader-assist-heading"><b id="reader-assist-title"></b><button id="reader-assist-close" type="button">×</button></div><div id="reader-assist-lens" tabindex="0" role="region"></div><p id="reader-assist-lens-hint"></p><p id="reader-assist-status" role="status" aria-live="polite"></p><div class="reader-assist-nav"><button id="reader-assist-prev" type="button"></button><button id="reader-assist-next" type="button"></button></div>';
+    panel.innerHTML='<div id="reader-assist-locator" role="button" tabindex="0"></div><div class="reader-assist-heading"><b id="reader-assist-title"></b><button id="reader-assist-close" type="button">×</button></div><div id="reader-assist-lens" tabindex="0" role="region"></div><p id="reader-assist-lens-hint"></p><p id="reader-assist-empty-note"></p><p id="reader-assist-status" role="status" aria-live="polite"></p><div class="reader-assist-nav"><button id="reader-assist-prev" type="button"></button><button id="reader-assist-next" type="button"></button></div>';
     document.body.append(panel);
-    const lens=$('reader-assist-lens'); let selected=null, groups=[], point=null, clone=null, drag=null, queued=false, dock=0, bottomDock=0, lensDrag=null, lensScale=1, lastAssisting=false;
+    const lens=$('reader-assist-lens'); let windowPosition=null, windowGeometry=null, locatorClone=null;
+    const navigation=initializeViewerBottomNavigation({panel,onLayoutChange});
+    let selected=null, groups=[], point=null, clone=null, drag=null, queued=false, dock=0, bottomDock=0, lensDrag=null, lensScale=1, lastAssisting=false;
     const assisting=()=>toggle.checked&&['focus','lens'].includes(mode.value);
     const labels=()=>{
         const en=document.documentElement.lang==='en';
@@ -24,17 +28,26 @@ export function initializeViewerReadingGuides({onLayoutChange = () => {}, onAssi
         ['Current line only','All lines','Focus','Magnifier'].forEach((label,i)=>mode.options[i].textContent=en?label:['読んでいる行だけ','すべての行','集中表示','拡大鏡'][i]);
         $('reading-guide-zoom-label').textContent=en?'Magnification':'倍率'; $('reading-guide-blur-label').textContent=en?'Blur':'ぼかし';
         $('reading-guide-note').textContent=assisting()?(en?'Move over text or trace with one finger. Ruby stays with its line. Use page arrows to turn pages; pinch zoom remains available.':'本文上でマウスを動かすか、指でなぞると追従します。ルビも一緒に表示。ページ移動は矢印、拡大はピンチで操作できます。'):(en?'Tap text for a left/bottom marker. Ruby and emphasis are avoided. Fixed text pages only.':'本文タップで縦書きは左、横書きは下に目印を表示。ルビ・圏点を避けます。固定テキストページ用。');
-        $('reader-assist-title').textContent=mode.value==='lens'?(en?'Magnifier':'拡大鏡'):(en?'Focus':'集中表示');
+        if(mode.value==='lens')$('reading-guide-note').textContent=en?'Continue advances the reading window, then the next line. Use the small page map to select a position. Page arrows turn pages.':'続きを読むで表示範囲から次の行へ。小さな原ページで読書位置を選べます。ページ移動は外側の矢印。';
+        $('reader-assist-empty-note').textContent=en?'No text line on this page. Turn a page to continue.':'このページには対象の本文がありません。ページを送って続けられます。';
+        $('reader-assist-title').textContent=mode.value==='lens'?(en?`Magnifier · ${zoom.value}×`:`拡大鏡 · ${zoom.value}倍`):(en?'Focus':'集中表示');
         $('reader-assist-close').title=en?'Turn off reading assistance':'読書補助を終了'; $('reader-assist-close').setAttribute('aria-label',$('reader-assist-close').title);
-        $('reader-assist-prev').textContent=en?'Previous line':'前の行'; $('reader-assist-next').textContent=en?'Next line':'次の行';
+        $('reader-assist-prev').textContent=mode.value==='lens'?(en?'Back':'戻る'):(en?'Previous line':'前の行'); $('reader-assist-next').textContent=mode.value==='lens'?(en?'Continue':'続きを読む'):(en?'Next line':'次の行');
+        $('reader-assist-locator').setAttribute('aria-label',en?'Original page and reading position. Tap to choose a line.':'原ページと読書位置。タップで行を選択。');
         lens.setAttribute('aria-label',en?'Magnified line. Drag or scroll to read.':'拡大した行。ドラッグやスクロールで文字送り。');
-        $('reader-assist-lens-hint').textContent=en?'Drag inside the magnifier to read along.':'拡大枠の中をなぞって文字送り';
+        $('reader-assist-lens-hint').textContent=en?'Continue or drag to read. At the line end, continue to the next line.':'続きを読む、またはなぞって文字送り。行末から次の行へ。';
         updateStatus();
     };
     function updateStatus(){
         const index=groups.findIndex(g=>g.node===selected), en=document.documentElement.lang==='en';
         $('reader-assist-status').textContent=index<0?(en?'Point to a text line. Image pages are not supported.':'本文を指して行を選択。画像ページは対象外です。'):`${index+1} / ${groups.length} ${en?'lines':'行'}`;
         $('reader-assist-prev').disabled=index<=0; $('reader-assist-next').disabled=index<0||index>=groups.length-1;
+        if(mode.value==='lens'&&index>=0&&windowGeometry){
+            const part=Math.max(0,windowGeometry.windows.findLastIndex(w=>w.start<=(windowPosition??0)+.1));
+            $('reader-assist-status').textContent+=` · ${part+1}/${windowGeometry.windows.length}`;
+            $('reader-assist-prev').disabled=index===0&&(windowPosition??0)<=windowGeometry.windows[0].start+.1;
+            $('reader-assist-next').disabled=index===groups.length-1&&(windowPosition??0)>=windowGeometry.windows.at(-1).start-.1;
+        }
         panel.dataset.writing=selected?.dataset.readingLine||stage.querySelector('[data-reading-line]')?.dataset.readingLine||'vertical';
         const rect=selected?.getBoundingClientRect();
         panel.dataset.focusSide=panel.dataset.writing==='vertical'?(rect && rect.left+rect.width/2>innerWidth/2?'left':'right'):(rect && rect.top+rect.height/2>innerHeight/2?'top':'bottom');
@@ -42,30 +55,50 @@ export function initializeViewerReadingGuides({onLayoutChange = () => {}, onAssi
     function clearPaint(){stage.querySelectorAll('.reader-line-muted,.reader-line-focused').forEach(n=>n.classList.remove('reader-line-muted','reader-line-focused'));}
     function renderLens(){
         const group=groups.find(g=>g.node===selected), page=selected?.closest('.viewer-fixed-text-page');
-        if (!group||!page||mode.value!=='lens'||!toggle.checked) {lens.replaceChildren();clone=null;return;}
+        const locator=$('reader-assist-locator');
+        if (!group||!page||mode.value!=='lens'||!toggle.checked) {lens.replaceChildren();locator.replaceChildren();clone=null;locatorClone=null;windowGeometry=null;return;}
         if(!clone){
-            clone=page.cloneNode(false); clone.removeAttribute('role');clone.removeAttribute('aria-label');clone.removeAttribute('id');clone.setAttribute('aria-hidden','true');
+            clone=page.cloneNode(false);clone.removeAttribute('role');clone.removeAttribute('aria-label');clone.removeAttribute('id');clone.setAttribute('aria-hidden','true');
             for(const node of group.members){const copy=node.cloneNode(true);copy.classList.remove('reader-line-muted','reader-line-focused','reading-line-active');copy.removeAttribute('id');clone.append(copy);}
-            lens.replaceChildren(clone);
+            const clip=document.createElement('div');clip.className='reader-window-clip';clip.append(clone);lens.replaceChildren(clip);
+            locatorClone=page.cloneNode(true);locatorClone.removeAttribute('id');locatorClone.setAttribute('aria-hidden','true');
+            locatorClone.querySelectorAll('[id]').forEach(n=>n.removeAttribute('id'));
+            locatorClone.querySelectorAll('.reader-line-overlay').forEach(n=>n.remove());
+            locatorClone.querySelectorAll('.reader-line-muted,.reader-line-focused,.reading-line-active').forEach(n=>n.classList.remove('reader-line-muted','reader-line-focused','reading-line-active'));
+            const marker=document.createElement('div');marker.className='reader-window-marker';locatorClone.append(marker);locator.replaceChildren(locatorClone);
         }
-        const rect=page.getBoundingClientRect(), scale=rect.width/parseFloat(page.style.width), z=scale*Number(zoom.value);
-        const b=group.box, vertical=selected.dataset.readingLine==='vertical';
+        const rect=page.getBoundingClientRect(),scale=rect.width/parseFloat(page.style.width);
+        if(!scale||!lens.clientWidth||!lens.clientHeight)return;
+        // Stable visual magnification; the tiny locator never determines glyph size.
+        const z=Number(zoom.value),b=group.box,vertical=selected.dataset.readingLine==='vertical';
         const members=group.members.map(n=>({x:parseFloat(n.style.left),y:parseFloat(n.style.top),w:parseFloat(n.style.width),h:parseFloat(n.style.height)}));
         const left=Math.min(...members.map(r=>r.x)),right=Math.max(...members.map(r=>r.x+r.w)),top=Math.min(...members.map(r=>r.y)),bottom=Math.max(...members.map(r=>r.y+r.h));
-        const px=vertical?(left+right)/2:(point?.x??b.x+b.w/2), py=vertical?(point?.y??b.y+b.h/2):(top+bottom)/2;
-        const clampAxis=(target,start,end,size)=>end-start<=size/z?(size-(start+end)*z)/2:Math.max(size-end*z,Math.min(-start*z,target));
-        const tx=vertical?lens.clientWidth/2-px*z:clampAxis(lens.clientWidth/2-px*z,left,right,lens.clientWidth);
-        const ty=vertical?clampAxis(lens.clientHeight/2-py*z,top,bottom,lens.clientHeight):lens.clientHeight/2-py*z;
+        const visible=Math.max(1,((vertical?lens.clientHeight:lens.clientWidth)-32)/z);
+        const glyphs=measureReadingGlyphs(selected,scale,vertical);
+        const windows=buildReadingWindows(glyphs,visible,{wordOverlap:!vertical});
+        windowGeometry={windows,visible};
+        if(windowPosition===null)windowPosition=point?(vertical?point.y-b.y:point.x-b.x)-visible/2:windows[0].start;
+        windowPosition=Math.max(windows[0].start,Math.min(windowPosition,windows.at(-1).start));
+        const at=windows.find(w=>Math.abs(w.start-windowPosition)<.1);
+        const extent=Math.max(...glyphs.map(g=>g.end),visible);
+        const shown=at?at.end-at.start:Math.min(visible,extent-windowPosition);
+        const clip=lens.querySelector('.reader-window-clip');
+        Object.assign(clip.style,vertical?{width:'auto',height:shown*z+'px',right:'16px',bottom:'auto'}:{height:'auto',width:shown*z+'px',bottom:'16px',right:'auto'});
+        const tx=vertical?(lens.clientWidth-32)/2-(left+right)/2*z:-(b.x+windowPosition)*z;
+        const ty=vertical?-(b.y+windowPosition)*z:(lens.clientHeight-32)/2-(top+bottom)/2*z;
         lens.style.backgroundColor=getComputedStyle(page).backgroundColor;
-        lensScale=z;
-        // Keep the position at the actual visible centre, including endpoint clamps.
-        // Starting another drag must move immediately, without a hidden dead zone.
-        point={x:(lens.clientWidth/2-tx)/z,y:(lens.clientHeight/2-ty)/z};
-        clone.style.transformOrigin='0 0';clone.style.transform=`translate(${tx}px,${ty}px) scale(${z})`;
+        lensScale=z;clone.style.transformOrigin='0 0';clone.style.transform=`translate(${tx}px,${ty}px) scale(${z})`;
+        point={x:vertical?b.x+b.w/2:b.x+windowPosition+visible/2,y:vertical?b.y+windowPosition+visible/2:b.y+b.h/2};
+        const miniScale=Math.min(locator.clientWidth/parseFloat(page.style.width),locator.clientHeight/parseFloat(page.style.height));
+        locatorClone.style.transformOrigin='0 0';locatorClone.style.transform=`scale(${miniScale})`;
+        const marker=locatorClone.querySelector('.reader-window-marker');
+        Object.assign(marker.style,{left:(vertical?left:b.x+windowPosition)+'px',top:(vertical?b.y+windowPosition:top)+'px',width:(vertical?right-left:shown)+'px',height:(vertical?shown:bottom-top)+'px'});
+        updateStatus();
     }
     function draw(){
         clearPaint();
-        if(selected&&!stage.contains(selected)){selected=null;groups=[];clone=null;point=null;}
+        if(selected&&!stage.contains(selected)){selected=null;groups=[];clone=null;point=null;windowPosition=null;windowGeometry=null;}
+        if(assisting()&&!selected){const first=[...stage.querySelectorAll('[data-reading-line]')].find(n=>n.getBoundingClientRect().width>0&&n.textContent.trim());if(first){selected=first;first.classList.add('reading-line-active');point=null;windowPosition=null;}}
         const page=selected?.closest('.viewer-fixed-text-page');
         if(page)groups=collectReadingLineGroups(page);
         if(assisting()&&mode.value==='focus'&&selected){
@@ -76,10 +109,13 @@ export function initializeViewerReadingGuides({onLayoutChange = () => {}, onAssi
         paintViewerReadingGuides(stage,{enabled:toggle.checked,mode:mode.value==='all'?'all':'active'});
         panel.hidden=!assisting();panel.dataset.mode=mode.value;lens.hidden=mode.value!=='lens';$('reader-assist-lens-hint').hidden=lens.hidden;
         updateStatus();
-        const horizontal=panel.dataset.writing==='horizontal';
-        const nextDock=assisting()&&mode.value==='lens'&&!horizontal?(innerWidth<=650?140:240):0;
-        const nextBottom=assisting()&&mode.value==='lens'&&horizontal?240:0;
-        if(nextDock!==dock||nextBottom!==bottomDock){dock=nextDock;bottomDock=nextBottom;document.body.dataset.readingAssistBottom=String(bottomDock);document.body.style.setProperty('--reader-assist-bottom',bottomDock+'px');document.body.dataset.readingAssistDock=String(dock);document.body.style.setProperty('--reader-assist-space',dock+'px');onLayoutChange();}
+        panel.dataset.empty=String(!selected);
+        const primary=assisting()&&mode.value==='lens'&&!!selected;
+        document.body.classList.toggle('reader-primary-lens',primary);
+        navigation.update({lensMode:primary,enabled:toggle.checked&&!!selected,writing:panel.dataset.writing});
+        if(dock||bottomDock){dock=0;bottomDock=0;onLayoutChange();}
+        document.body.dataset.readingAssistBottom='0';document.body.dataset.readingAssistDock='0';
+        document.body.style.setProperty('--reader-assist-bottom','0px');document.body.style.setProperty('--reader-assist-space','0px');
         updateStatus();renderLens();
     }
     function paint(){
@@ -87,7 +123,7 @@ export function initializeViewerReadingGuides({onLayoutChange = () => {}, onAssi
         document.body.style.setProperty('--reading-guide-alpha',Number(strength.value)/100);document.body.style.setProperty('--reader-blur',blur.value+'px');
         strength.disabled=!toggle.checked;mode.disabled=!toggle.checked;zoom.disabled=!toggle.checked;blur.disabled=!toggle.checked;
         $('reading-guide-zoom-control').hidden=mode.value!=='lens';$('reading-guide-blur-control').hidden=mode.value!=='focus';
-        clone=null;drag=null;lensDrag=null;draw();labels();
+        clone=null;drag=null;lensDrag=null;windowPosition=null;point=null;draw();labels();
         if(lastAssisting!==assisting()){lastAssisting=assisting();onAssistanceChange(lastAssisting);}
     }
     function save(){paint();try{localStorage.setItem('dsf-reader-line-guides',JSON.stringify({enabled:toggle.checked,strength:Number(strength.value),mode:mode.value,zoom:Number(zoom.value),blur:Number(blur.value)}));}catch{}}
@@ -106,15 +142,20 @@ export function initializeViewerReadingGuides({onLayoutChange = () => {}, onAssi
         const best=findAt(x,y);if(!best)return false;
         const page=best.closest('.viewer-fixed-text-page'),r=page.getBoundingClientRect();
         point={x:(x-r.left)*parseFloat(page.style.width)/r.width,y:(y-r.top)*parseFloat(page.style.height)/r.height};
+        windowPosition=null;
         if(best===selected){renderLens();return true;}
         stage.querySelectorAll('.reading-line-active').forEach(n=>n.classList.remove('reading-line-active'));selected=best;best.classList.add('reading-line-active');clone=null;draw();return true;
     }
     function step(delta) {
-        const index=groups.findIndex(g=>g.node===selected), next=groups[index+delta];
-        if (!next) return;
-        const r=next.node.getBoundingClientRect(), vertical=next.node.dataset.readingLine==='vertical';
-        // Start reading the new line at its beginning, rather than its midpoint.
-        highlightAt(r.left+(vertical?r.width/2:Math.min(20,r.width/2)), r.top+(vertical?Math.min(20,r.height/2):r.height/2));
+        const index=groups.findIndex(g=>g.node===selected);
+        if(mode.value==='lens'&&windowGeometry){
+            const target=delta>0?windowGeometry.windows.find(w=>w.start>(windowPosition??0)+.1):windowGeometry.windows.findLast(w=>w.start<(windowPosition??0)-.1);
+            if(target){windowPosition=target.start;renderLens();return;}
+        }
+        const next=groups[index+delta];if(!next)return;
+        selected?.classList.remove('reading-line-active');selected=next.node;selected.classList.add('reading-line-active');
+        clone=null;point=null;windowPosition=null;windowGeometry=null;draw();
+        if(delta<0&&mode.value==='lens'&&windowGeometry){windowPosition=windowGeometry.windows.at(-1).start;renderLens();}
     }
     function handleKey(e){
         if(!assisting()||!selected||e.ctrlKey||e.metaKey||e.altKey||e.target.closest('input,select,textarea'))return false;
@@ -123,8 +164,7 @@ export function initializeViewerReadingGuides({onLayoutChange = () => {}, onAssi
     }
     function moveLensBy(pixels) {
         if(!selected||!point||!clone||mode.value!=='lens') return;
-        const axis=selected.dataset.readingLine==='vertical'?'y':'x';
-        point[axis]+=pixels/lensScale;
+        windowPosition=(windowPosition??0)+pixels/lensScale;
         renderLens();
     }
     lens.addEventListener('pointerdown',e=>{
@@ -146,6 +186,16 @@ export function initializeViewerReadingGuides({onLayoutChange = () => {}, onAssi
         const amount=vertical?{ArrowDown:60,ArrowUp:-60}[e.key]:{ArrowRight:60,ArrowLeft:-60}[e.key];
         if(!amount)return;moveLensBy(amount);e.preventDefault();e.stopPropagation();
     });
+    const locator=$('reader-assist-locator');
+    locator.addEventListener('click',e=>{
+        if(!locatorClone||!groups.length)return;
+        const rect=locatorClone.getBoundingClientRect(),scale=rect.width/parseFloat(locatorClone.style.width);
+        const x=(e.clientX-rect.left)/scale,y=(e.clientY-rect.top)/scale;
+        const nearest=[...groups].sort((a,b)=>Math.hypot(Math.max(a.box.x-x,0,x-a.box.x-a.box.w),Math.max(a.box.y-y,0,y-a.box.y-a.box.h))-Math.hypot(Math.max(b.box.x-x,0,x-b.box.x-b.box.w),Math.max(b.box.y-y,0,y-b.box.y-b.box.h)))[0];
+        selected?.classList.remove('reading-line-active');selected=nearest.node;selected.classList.add('reading-line-active');
+        point={x,y};windowPosition=null;clone=null;draw();
+    });
+    locator.addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();point=null;windowPosition=null;clone=null;draw();}});
     toggle.onchange=save;strength.oninput=save;mode.onchange=save;zoom.onchange=save;blur.oninput=save;
     $('reader-assist-prev').onclick=()=>step(-1);$('reader-assist-next').onclick=()=>step(1);
     $('reader-assist-close').onclick=()=>{toggle.checked=false;save();menu.querySelector('summary').focus();};
@@ -155,6 +205,7 @@ export function initializeViewerReadingGuides({onLayoutChange = () => {}, onAssi
     const schedule=()=>{if(queued)return;queued=true;requestAnimationFrame(()=>{queued=false;draw();});};
     new MutationObserver(records=>{if(records.some(r=>[...r.addedNodes,...r.removedNodes].some(n=>n.nodeType===1&&!n.classList.contains('reader-line-overlay'))))schedule();}).observe(stage,{childList:true,subtree:true});
     document.fonts?.addEventListener('loadingdone',()=>{clone=null;schedule();});window.addEventListener('resize',schedule);
+    new ResizeObserver(()=>{if(mode.value==='lens')renderLens();}).observe(lens);
     paint();
     return {isAssisting:assisting,refreshLabels:labels,highlightAt,handleKey,onViewportChange:schedule,
         beginPointer(e){if(!assisting()||!highlightAt(e.clientX,e.clientY))return false;drag=e.pointerId;return true;},
