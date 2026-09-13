@@ -14,9 +14,9 @@ export function initializeViewerReadingGuides({onLayoutChange = () => {}, onAssi
     zoom.value=[1.5,2,3].includes(saved.zoom)?String(saved.zoom):'2';
     blur.value=Number.isFinite(saved.blur)?Math.max(.4,Math.min(2.4,saved.blur)):1.2;
     const panel=document.createElement('aside'); panel.id='reader-assist-panel'; panel.hidden=true;
-    panel.innerHTML='<div id="reader-assist-locator" role="button" tabindex="0"></div><div class="reader-assist-heading"><b id="reader-assist-title"></b><button id="reader-assist-close" type="button">×</button></div><div id="reader-assist-lens" tabindex="0" role="region"></div><p id="reader-assist-lens-hint"></p><p id="reader-assist-empty-note"></p><p id="reader-assist-status" role="status" aria-live="polite"></p><div class="reader-assist-nav"><button id="reader-assist-prev" type="button"></button><button id="reader-assist-next" type="button"></button></div>';
+    panel.innerHTML='<div class="reader-assist-heading"><b id="reader-assist-title"></b><button id="reader-assist-close" type="button">×</button></div><div id="reader-assist-lens" tabindex="0" role="region"></div><p id="reader-assist-lens-hint"></p><p id="reader-assist-empty-note"></p><p id="reader-assist-status" role="status" aria-live="polite"></p><div class="reader-assist-nav"><button id="reader-assist-prev" type="button"></button><button id="reader-assist-next" type="button"></button></div>';
     document.body.append(panel);
-    const lens=$('reader-assist-lens'); let windowPosition=null, windowGeometry=null, locatorClone=null;
+    const lens=$('reader-assist-lens'); let windowPosition=null, windowGeometry=null;
     const navigation=initializeViewerBottomNavigation({panel,onLayoutChange});
     let selected=null, groups=[], point=null, clone=null, drag=null, queued=false, dock=0, bottomDock=0, lensDrag=null, lensScale=1, lastAssisting=false;
     const assisting=()=>toggle.checked&&['focus','lens'].includes(mode.value);
@@ -28,12 +28,11 @@ export function initializeViewerReadingGuides({onLayoutChange = () => {}, onAssi
         ['Current line only','All lines','Focus','Magnifier'].forEach((label,i)=>mode.options[i].textContent=en?label:['読んでいる行だけ','すべての行','集中表示','拡大鏡'][i]);
         $('reading-guide-zoom-label').textContent=en?'Magnification':'倍率'; $('reading-guide-blur-label').textContent=en?'Blur':'ぼかし';
         $('reading-guide-note').textContent=assisting()?(en?'Move over text or trace with one finger. Ruby stays with its line. Use page arrows to turn pages; pinch zoom remains available.':'本文上でマウスを動かすか、指でなぞると追従します。ルビも一緒に表示。ページ移動は矢印、拡大はピンチで操作できます。'):(en?'Tap text for a left/bottom marker. Ruby and emphasis are avoided. Fixed text pages only.':'本文タップで縦書きは左、横書きは下に目印を表示。ルビ・圏点を避けます。固定テキストページ用。');
-        if(mode.value==='lens')$('reading-guide-note').textContent=en?'Continue advances the reading window, then the next line. Use the small page map to select a position. Page arrows turn pages.':'続きを読むで表示範囲から次の行へ。小さな原ページで読書位置を選べます。ページ移動は外側の矢印。';
+        if(mode.value==='lens')$('reading-guide-note').textContent=en?'Continue advances the reading window, then the next line. Tap the original page to select a position. Page arrows turn pages.':'続きを読むで表示範囲から次の行へ。原ページの本文で読書位置を選べます。ページ移動は外側の矢印。';
         $('reader-assist-empty-note').textContent=en?'No text line on this page. Turn a page to continue.':'このページには対象の本文がありません。ページを送って続けられます。';
         $('reader-assist-title').textContent=mode.value==='lens'?(en?`Magnifier · ${zoom.value}×`:`拡大鏡 · ${zoom.value}倍`):(en?'Focus':'集中表示');
         $('reader-assist-close').title=en?'Turn off reading assistance':'読書補助を終了'; $('reader-assist-close').setAttribute('aria-label',$('reader-assist-close').title);
         $('reader-assist-prev').textContent=mode.value==='lens'?(en?'Back':'戻る'):(en?'Previous line':'前の行'); $('reader-assist-next').textContent=mode.value==='lens'?(en?'Continue':'続きを読む'):(en?'Next line':'次の行');
-        $('reader-assist-locator').setAttribute('aria-label',en?'Original page and reading position. Tap to choose a line.':'原ページと読書位置。タップで行を選択。');
         lens.setAttribute('aria-label',en?'Magnified line. Drag or scroll to read.':'拡大した行。ドラッグやスクロールで文字送り。');
         $('reader-assist-lens-hint').textContent=en?'Continue or drag to read. At the line end, continue to the next line.':'続きを読む、またはなぞって文字送り。行末から次の行へ。';
         updateStatus();
@@ -55,21 +54,16 @@ export function initializeViewerReadingGuides({onLayoutChange = () => {}, onAssi
     function clearPaint(){stage.querySelectorAll('.reader-line-muted,.reader-line-focused').forEach(n=>n.classList.remove('reader-line-muted','reader-line-focused'));}
     function renderLens(){
         const group=groups.find(g=>g.node===selected), page=selected?.closest('.viewer-fixed-text-page');
-        const locator=$('reader-assist-locator');
-        if (!group||!page||mode.value!=='lens'||!toggle.checked) {lens.replaceChildren();locator.replaceChildren();clone=null;locatorClone=null;windowGeometry=null;return;}
+        if (!group||!page||mode.value!=='lens'||!toggle.checked) {lens.replaceChildren();clone=null;windowGeometry=null;return;}
         if(!clone){
             clone=page.cloneNode(false);clone.removeAttribute('role');clone.removeAttribute('aria-label');clone.removeAttribute('id');clone.setAttribute('aria-hidden','true');
             for(const node of group.members){const copy=node.cloneNode(true);copy.classList.remove('reader-line-muted','reader-line-focused','reading-line-active');copy.removeAttribute('id');clone.append(copy);}
             const clip=document.createElement('div');clip.className='reader-window-clip';clip.append(clone);lens.replaceChildren(clip);
-            locatorClone=page.cloneNode(true);locatorClone.removeAttribute('id');locatorClone.setAttribute('aria-hidden','true');
-            locatorClone.querySelectorAll('[id]').forEach(n=>n.removeAttribute('id'));
-            locatorClone.querySelectorAll('.reader-line-overlay').forEach(n=>n.remove());
-            locatorClone.querySelectorAll('.reader-line-muted,.reader-line-focused,.reading-line-active').forEach(n=>n.classList.remove('reader-line-muted','reader-line-focused','reading-line-active'));
-            const marker=document.createElement('div');marker.className='reader-window-marker';locatorClone.append(marker);locator.replaceChildren(locatorClone);
+
         }
         const rect=page.getBoundingClientRect(),scale=rect.width/parseFloat(page.style.width);
         if(!scale||!lens.clientWidth||!lens.clientHeight)return;
-        // Stable visual magnification; the tiny locator never determines glyph size.
+        // Stable visual magnification; the original page scale does not determine glyph size.
         const z=Number(zoom.value),b=group.box,vertical=selected.dataset.readingLine==='vertical';
         const members=group.members.map(n=>({x:parseFloat(n.style.left),y:parseFloat(n.style.top),w:parseFloat(n.style.width),h:parseFloat(n.style.height)}));
         const left=Math.min(...members.map(r=>r.x)),right=Math.max(...members.map(r=>r.x+r.w)),top=Math.min(...members.map(r=>r.y)),bottom=Math.max(...members.map(r=>r.y+r.h));
@@ -89,10 +83,6 @@ export function initializeViewerReadingGuides({onLayoutChange = () => {}, onAssi
         lens.style.backgroundColor=getComputedStyle(page).backgroundColor;
         lensScale=z;clone.style.transformOrigin='0 0';clone.style.transform=`translate(${tx}px,${ty}px) scale(${z})`;
         point={x:vertical?b.x+b.w/2:b.x+windowPosition+visible/2,y:vertical?b.y+windowPosition+visible/2:b.y+b.h/2};
-        const miniScale=Math.min(locator.clientWidth/parseFloat(page.style.width),locator.clientHeight/parseFloat(page.style.height));
-        locatorClone.style.transformOrigin='0 0';locatorClone.style.transform=`scale(${miniScale})`;
-        const marker=locatorClone.querySelector('.reader-window-marker');
-        Object.assign(marker.style,{left:(vertical?left:b.x+windowPosition)+'px',top:(vertical?b.y+windowPosition:top)+'px',width:(vertical?right-left:shown)+'px',height:(vertical?shown:bottom-top)+'px'});
         updateStatus();
     }
     function draw(){
@@ -186,16 +176,6 @@ export function initializeViewerReadingGuides({onLayoutChange = () => {}, onAssi
         const amount=vertical?{ArrowDown:60,ArrowUp:-60}[e.key]:{ArrowRight:60,ArrowLeft:-60}[e.key];
         if(!amount)return;moveLensBy(amount);e.preventDefault();e.stopPropagation();
     });
-    const locator=$('reader-assist-locator');
-    locator.addEventListener('click',e=>{
-        if(!locatorClone||!groups.length)return;
-        const rect=locatorClone.getBoundingClientRect(),scale=rect.width/parseFloat(locatorClone.style.width);
-        const x=(e.clientX-rect.left)/scale,y=(e.clientY-rect.top)/scale;
-        const nearest=[...groups].sort((a,b)=>Math.hypot(Math.max(a.box.x-x,0,x-a.box.x-a.box.w),Math.max(a.box.y-y,0,y-a.box.y-a.box.h))-Math.hypot(Math.max(b.box.x-x,0,x-b.box.x-b.box.w),Math.max(b.box.y-y,0,y-b.box.y-b.box.h)))[0];
-        selected?.classList.remove('reading-line-active');selected=nearest.node;selected.classList.add('reading-line-active');
-        point={x,y};windowPosition=null;clone=null;draw();
-    });
-    locator.addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();point=null;windowPosition=null;clone=null;draw();}});
     toggle.onchange=save;strength.oninput=save;mode.onchange=save;zoom.onchange=save;blur.oninput=save;
     $('reader-assist-prev').onclick=()=>step(-1);$('reader-assist-next').onclick=()=>step(1);
     $('reader-assist-close').onclick=()=>{toggle.checked=false;save();menu.querySelector('summary').focus();};

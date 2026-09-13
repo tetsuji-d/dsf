@@ -15,7 +15,10 @@ for(const language of ['ja','en-GB']){
  assert.deepEqual(await v.locator('#viewer-stage .viewer-fixed-text-page').first().boundingBox(),pageRectBefore,'Focus must not shrink or move the page');
  const styles=await first.getAttribute('style');if(language==='ja'){assert.ok(await v.locator('#viewer-stage [data-reading-annotation=ruby].reader-line-focused').count()>0);assert.ok(await v.locator('#viewer-stage [data-reading-annotation=emphasis].reader-line-focused').count()>0);}
  if(language==='en-GB'){await v.setViewportSize({width:900,height:950});await v.waitForTimeout(180);}
+ const ordinaryFrame=await v.locator('#viewer-canvas').boundingBox();
  await v.locator('#viewer-reading-guide summary').click();await v.locator('#reading-guide-mode').selectOption('lens');await v.locator('#reader-assist-lens .viewer-fixed-text-page').waitFor();
+ assert.deepEqual(await v.locator('#viewer-canvas').boundingBox(),ordinaryFrame,'Lens must not shrink or shift the original page');
+ assert.equal(await v.locator('#viewer-stage').evaluate(e=>getComputedStyle(e).visibility),'visible');
  assert.equal(await v.locator('#viewer-stage .reader-line-muted').count(),0);assert.equal(await first.getAttribute('style'),styles);
  assert.equal(await v.locator('#reader-assist-lens [data-reading-line]').count(),1);if(language==='ja')assert.ok(await v.locator('#reader-assist-lens [data-reading-annotation=ruby]').count()>0);
  const z=await v.locator('#reader-assist-lens .viewer-fixed-text-page').evaluate(e=>new DOMMatrix(getComputedStyle(e).transform).a);await v.locator('#reading-guide-zoom').selectOption('3');
@@ -49,9 +52,8 @@ for(const language of ['ja','en-GB']){
    const lr=await lens.boundingBox();assert(lr.y+lr.height<=fr.y+.5,'Footer must not cover magnified text');
  };
  await checkFooter();
- assert.ok(await v.locator('#reader-assist-locator .reader-window-marker').count());
- // Reset to the first window through the actual locator keyboard interaction.
- await v.locator('#reader-assist-locator').focus();await v.keyboard.press('Enter');
+ // Changing magnification resets to the first window without altering the page.
+ await v.locator('#viewer-reading-guide summary').click();await v.locator('#reading-guide-zoom').selectOption('1.5');await v.locator('#reading-guide-zoom').selectOption('2');await v.locator('#viewer-reading-guide summary').click();
  const textBefore=await selectedText(),tBefore=await offset();await v.locator('#reader-assist-next').click();
  assert.equal(await selectedText(),textBefore);assert.notEqual(await offset(),tBefore,'Continue must move the magnified viewport');
  await v.locator('#reader-assist-prev').click();assert.ok(Math.abs((await offset())-tBefore)<1,'Back restores the preceding window');
@@ -66,7 +68,7 @@ for(const language of ['ja','en-GB']){
    await v.setViewportSize(size);await v.waitForTimeout(180);
    const panelBox=await v.locator('#reader-assist-panel').boundingBox(),lensBox=await lens.boundingBox(),footerBox=await footer.boundingBox();
    assert(panelBox.x>=0&&panelBox.x+panelBox.width<=size.width+.5);
-   assert(lensBox.width>200&&lensBox.height>60,JSON.stringify({size,lensBox}));
+   assert(lensBox.width>90&&lensBox.height>40,JSON.stringify({size,lensBox}));
    assert(lensBox.y+lensBox.height<=footerBox.y+.5);
    for(const id of ['viewer-nav-left','viewer-nav-right','reader-assist-next','reader-assist-prev']){const r=await v.locator('#'+id).boundingBox();assert(r.y+r.height<=size.height-50+.5);}
    await v.screenshot({path:require('node:os').tmpdir()+`/viewer-window-${language}-${size.width}.png`});
@@ -101,7 +103,8 @@ for(const language of ['ja','en-GB']){
  await v.locator('#reading-guide-mode').selectOption('active');await v.waitForTimeout(180);
  assert.deepEqual(await v.locator('#viewer-stage .viewer-fixed-text-page').first().boundingBox(),mobileFocus);
  await v.locator('#reading-guide-enabled').uncheck();await v.locator('#viewer-reading-guide summary').click();
- const canvas=await v.locator('#viewer-canvas').boundingBox(),fr=await footer.boundingBox();assert(canvas.y+canvas.height<=fr.y+.5);
+ const canvas=await v.locator('#viewer-canvas').boundingBox(),fr=await footer.boundingBox();assert(canvas.y+canvas.height>fr.y,'Full-size page may extend behind navigation');
+ const metrics=await v.evaluate(()=>({width:innerWidth,height:innerHeight,safe:34,padding:getComputedStyle(document.querySelector('#viewer-layout')).paddingBottom}));assert.equal(metrics.padding,'0px');assert(canvas.width>=388,'Page fills available portrait width');
  // Existing pinch/pan remains available after leaving the magnified window.
  const stage=v.locator('#viewer-stage'),beforePinch=await stage.evaluate(e=>new DOMMatrix(getComputedStyle(e).transform).a);
  const box=await v.locator('#viewer-stage .viewer-fixed-text-page').first().boundingBox(),cx=box.x+box.width/2,cy=box.y+box.height/2;

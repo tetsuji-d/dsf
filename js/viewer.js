@@ -4468,8 +4468,7 @@ function resizeCanvas() {
     const safeY = Math.max(viewport.safeTop, viewport.safeBottom);
     const readerDock = Number(document.body.dataset.readingAssistDock || 0);
     const W = Math.max(readerDock ? 120 : 280, viewport.width - readerDock - (drawerOpen ? VIEWER_DRAWER_WIDTH + VIEWER_DRAWER_GAP : 0) - (safeX * 2));
-    const bottomNavigation = Number(document.body.dataset.viewerBottomHeight || 0);
-    const H = Math.max(1, viewport.height - Number(document.body.dataset.readingAssistBottom || 0) - bottomNavigation - (safeY * 2));
+    const H = Math.max(1, viewport.height - Number(document.body.dataset.readingAssistBottom || 0) - (safeY * 2));
     const aspect = CANONICAL_PAGE_ASPECT;
     const bookSingle = spreadMode && hasBookModel() && getCurrentBookUnit()?.type === 'single';
     const fallbackSingle = spreadMode && !hasBookModel() && !_hasFallbackSpreadSecondPage();
