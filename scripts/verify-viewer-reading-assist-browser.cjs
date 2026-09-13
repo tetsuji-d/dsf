@@ -39,7 +39,8 @@ for(const language of ['ja','en-GB']){
  const originalText=await selectedText();let clicks=0;
  while(await selectedText()===originalText&&clicks++<30)await v.locator('#reader-assist-next').click();
  assert.notEqual(await selectedText(),originalText);await v.locator('#reader-assist-prev').click();assert.equal(await selectedText(),originalText);
- await v.evaluate(()=>window.toggleUi(false));await v.locator('#reader-assist-next').click();assert.equal(await v.locator('#viewer-ui').evaluate(e=>e.classList.contains('visible')),false);
+ await v.evaluate(()=>window.toggleUi(false));assert.equal(await v.locator('#viewer-bottom-navigation').isVisible(),false,'Hidden chrome must also hide bottom navigation');
+ await v.evaluate(()=>window.toggleUi(true));await v.locator('#reader-assist-next').click();
  await v.evaluate(()=>window.toggleUi(true));await v.locator('#reader-assist-prev').click();await v.waitForTimeout(5200);assert.equal(await v.locator('#viewer-ui').evaluate(e=>e.classList.contains('visible')),true);
  // Phone layout reserves an inert zone ABOVE the OS home indicator too.
  await v.setViewportSize({width:390,height:844});
@@ -52,6 +53,12 @@ for(const language of ['ja','en-GB']){
    const lr=await lens.boundingBox();assert(lr.y+lr.height<=fr.y+.5,'Footer must not cover magnified text');
  };
  await checkFooter();
+ // Actual background taps hide and restore mobile chrome without resizing the page.
+ const beforeChromeToggle=await v.locator('#viewer-canvas').boundingBox();
+ await v.mouse.click(2,80);assert.equal(await footer.isVisible(),false);
+ assert.equal(await footer.evaluate(e=>getComputedStyle(e).pointerEvents),'none');
+ await v.mouse.click(2,80);assert.equal(await footer.isVisible(),true);
+ assert.deepEqual(await v.locator('#viewer-canvas').boundingBox(),beforeChromeToggle);
  // Changing magnification resets to the first window without altering the page.
  await v.locator('#viewer-reading-guide summary').click();await v.locator('#reading-guide-zoom').selectOption('1.5');await v.locator('#reading-guide-zoom').selectOption('2');await v.locator('#viewer-reading-guide summary').click();
  const textBefore=await selectedText(),tBefore=await offset();await v.locator('#reader-assist-next').click();
