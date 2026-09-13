@@ -4,6 +4,8 @@ export function initializeViewerBottomNavigation({panel,onLayoutChange}) {
     root.id='viewer-bottom-navigation';root.hidden=true;
     root.innerHTML='<div class="reader-bottom-controls"><div class="reader-bottom-middle"><div class="reader-bottom-meta"><output id="reader-page-count"></output></div></div></div>';
     document.body.append(root);
+    const count=document.createElement('button');count.id='viewer-mobile-page-count';count.type='button';count.hidden=true;
+    count.onclick=()=>window.toggleUi();document.body.append(count);
     const mobile=matchMedia('(max-width:650px), (pointer:coarse) and (max-height:650px)');
     const slider=document.querySelector('.slider-wrapper'),left=$('viewer-nav-left'),right=$('viewer-nav-right');
     const nav=panel.querySelector('.reader-assist-nav'),status=$('reader-assist-status');
@@ -13,13 +15,17 @@ export function initializeViewerBottomNavigation({panel,onLayoutChange}) {
         const height=attached?root.getBoundingClientRect().height:0;
         if(Number(document.body.dataset.viewerBottomHeight||0)!==height){
             document.body.dataset.viewerBottomHeight=String(height);
-            document.body.style.setProperty('--viewer-bottom-height',height+'px');onLayoutChange();
+            document.body.style.setProperty('--viewer-bottom-height',height+'px');requestAnimationFrame(onLayoutChange);
         }
     };
-    new ResizeObserver(measure).observe(root);
+    new ResizeObserver(measure).observe(root,{box:'border-box'});
     return {
         update({lensMode,enabled,writing}) {
             const use=mobile.matches||lensMode;
+            count.hidden=!mobile.matches;
+            count.textContent=($('page-slider-label')?.textContent||'1')+' / '+($('page-slider-total')?.textContent||'1');
+            count.setAttribute('aria-label',count.textContent+(document.documentElement.lang==='en'?' — Show/hide menu':' — メニュー表示／非表示'));
+            count.setAttribute('aria-expanded',String(document.body.classList.contains('viewer-ui-visible')));
             if(use!==attached){
                 attached=use;root.hidden=!use;document.body.classList.toggle('viewer-bottom-navigation',use);
                 if(use){

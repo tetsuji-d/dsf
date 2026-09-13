@@ -3100,3 +3100,9 @@ body.reader-primary-lens #viewer-minimap {display:none;}
 #viewer-bottom-navigation .reader-assist-nav button {background:#101114dc;}
 #viewer-bottom-navigation .viewer-side-nav-btn {background:#24262bea;}
 #viewer-bottom-navigation .page-slider-rail {box-shadow:0 0 2px #0008;}
+
+/* Page-count entry remains reachable without reserving page space. */
+#viewer-mobile-page-count{position:fixed;z-index:970;left:calc(var(--viewer-viewport-left,0px) + var(--viewer-viewport-width,100vw)/2);transform:translateX(-50%);bottom:calc(100dvh - var(--viewer-viewport-top,0px) - var(--viewer-viewport-height,100dvh) + max(28px,calc(var(--viewer-safe-bottom,0px) + 16px)));min-width:72px;min-height:44px;padding:0 10px;border:0;background:transparent;color:white;text-shadow:0 1px 3px #000,0 0 4px #000;font:12px system-ui;touch-action:manipulation;cursor:pointer}
+#viewer-mobile-page-count[hidden]{display:none}
+body.viewer-ui-visible #viewer-mobile-page-count{bottom:calc(100dvh - var(--viewer-viewport-top,0px) - var(--viewer-viewport-height,100dvh) + var(--viewer-bottom-height,100px))}
+@media print{#viewer-mobile-page-count{display:none!important}}

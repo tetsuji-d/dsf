@@ -4141,7 +4141,8 @@ function refreshChrome() {
 }
 
 // ── UI ───────────────────────────────────────────────────────
-let isUiVisible = true;
+function usesMobileTapMenu() { return matchMedia('(max-width:650px), (pointer:coarse) and (max-height:650px)').matches; }
+let isUiVisible = !usesMobileTapMenu();
 
 window.toggleUi = (force) => {
     isUiVisible = typeof force === 'boolean' ? force : !isUiVisible;
@@ -4153,9 +4154,12 @@ function updateUiVisibility() {
     ui?.classList.toggle('visible', isUiVisible);
     document.body.classList.toggle('viewer-ui-visible', isUiVisible);
     syncViewerInfoChromeState();
+    document.getElementById('viewer-mobile-page-count')?.setAttribute('aria-expanded',String(isUiVisible));
+    if (usesMobileTapMenu()) resizeCanvas();
 }
 
 function usesPointerHoverChrome() {
+    if (usesMobileTapMenu()) return false;
     return window.matchMedia?.('(hover: hover) and (pointer: fine)')?.matches === true;
 }
 
@@ -4353,6 +4357,38 @@ function bindViewerSliderPreview() {
     slider.addEventListener('input', (event) => updateSliderPreview(event));
 }
 
+let mobileMarginStart=null;
+document.addEventListener('pointerdown',e=>{
+    mobileMarginStart=null;
+    if(!usesMobileTapMenu()||!e.target.closest?.('#viewer-layout'))return;
+    const r=document.getElementById('viewer-canvas')?.getBoundingClientRect();
+    if(r&&(e.clientX<r.left||e.clientX>r.right||e.clientY<r.top||e.clientY>r.bottom)){
+        mobileMarginStart={id:e.pointerId,x:e.clientX,y:e.clientY};e.stopPropagation();
+    }
+},true);
+document.addEventListener('pointerup',e=>{
+    if(mobileMarginStart?.id!==e.pointerId)return;
+    const tap=Math.hypot(e.clientX-mobileMarginStart.x,e.clientY-mobileMarginStart.y)<10;
+    mobileMarginStart=null;e.stopPropagation();
+    if(tap)window.toggleUi(true);
+},true);
+document.addEventListener('pointercancel',()=>mobileMarginStart=null,true);
+
+// Mobile page taps never reveal chrome; the margin and page count are its entry points.
+document.addEventListener('click', e => {
+    if (!usesMobileTapMenu()) return;
+    if (e.target.closest?.('#viewer-mobile-page-count')) { e.stopPropagation();window.toggleUi();return; }
+    if (e.target.closest?.('#viewer-ui,#viewer-info-panel,#reader-assist-panel,#viewer-bottom-navigation')) return;
+    const canvas=document.getElementById('viewer-canvas');
+    if (!e.target.closest?.('#viewer-layout')) return;
+    e.stopPropagation();
+    if (Date.now()<=suppressZoneClickUntil) return;
+    const rect=canvas?.getBoundingClientRect();
+    const onPage=rect&&e.clientX>=rect.left&&e.clientX<=rect.right&&e.clientY>=rect.top&&e.clientY<=rect.bottom;
+    if (onPage) { if(isUiVisible&&!readingGuides?.isAssisting())window.toggleUi(false); }
+    else window.toggleUi(true);
+},true);
+
 document.addEventListener('click', (e) => {
     // Reading controls are not a request to toggle the surrounding chrome.
     if (e.target.closest?.('#reader-assist-panel, #viewer-bottom-navigation')) return;
@@ -4468,7 +4504,11 @@ function resizeCanvas() {
     const safeY = Math.max(viewport.safeTop, viewport.safeBottom);
     const readerDock = Number(document.body.dataset.readingAssistDock || 0);
     const W = Math.max(readerDock ? 120 : 280, viewport.width - readerDock - (drawerOpen ? VIEWER_DRAWER_WIDTH + VIEWER_DRAWER_GAP : 0) - (safeX * 2));
-    const H = Math.max(1, viewport.height - Number(document.body.dataset.readingAssistBottom || 0) - (safeY * 2));
+    const menuInset=usesMobileTapMenu()&&isUiVisible?Math.max(
+        Number(document.body.dataset.viewerBottomHeight||0),
+        document.getElementById('viewer-header')?.getBoundingClientRect().bottom-viewport.top||0,
+        safeY):safeY;
+    const H = Math.max(1, viewport.height - Number(document.body.dataset.readingAssistBottom || 0) - (menuInset * 2));
     const aspect = CANONICAL_PAGE_ASPECT;
     const bookSingle = spreadMode && hasBookModel() && getCurrentBookUnit()?.type === 'single';
     const fallbackSingle = spreadMode && !hasBookModel() && !_hasFallbackSpreadSecondPage();

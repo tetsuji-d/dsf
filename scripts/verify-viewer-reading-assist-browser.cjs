@@ -50,14 +50,14 @@ for(const language of ['ja','en-GB']){
  const checkFooter=async()=>{
    const fr=await footer.boundingBox();assert.ok(fr.y+fr.height<=845);
    for(const id of ['viewer-nav-left','viewer-nav-right','reader-assist-prev','reader-assist-next']){const r=await v.locator('#'+id).boundingBox();assert(r.height>=44);assert(r.y+r.height<=844-50+.5,'Home indicator + 16px must be inert');}
-   const lr=await lens.boundingBox();assert(lr.y+lr.height<=fr.y+.5,'Footer must not cover magnified text');
+   const lr=await lens.boundingBox();assert(lr.y+lr.height<=fr.y+.5,'Footer must not cover magnified text '+JSON.stringify({lr,fr,info:await v.locator('#reader-assist-panel').evaluate(e=>({bottom:getComputedStyle(e).bottom,height:getComputedStyle(e).height,vars:document.body.style.cssText}))}));
  };
  await checkFooter();
  // Actual background taps hide and restore mobile chrome without resizing the page.
  const beforeChromeToggle=await v.locator('#viewer-canvas').boundingBox();
- await v.mouse.click(2,80);assert.equal(await footer.isVisible(),false);
+ await v.locator('#viewer-mobile-page-count').click();assert.equal(await footer.isVisible(),false);
  assert.equal(await footer.evaluate(e=>getComputedStyle(e).pointerEvents),'none');
- await v.mouse.click(2,80);assert.equal(await footer.isVisible(),true);
+ await v.mouse.click(2,2);assert.equal(await footer.isVisible(),true);
  assert.deepEqual(await v.locator('#viewer-canvas').boundingBox(),beforeChromeToggle);
  // Changing magnification resets to the first window without altering the page.
  await v.locator('#viewer-reading-guide summary').click();await v.locator('#reading-guide-zoom').selectOption('1.5');await v.locator('#reading-guide-zoom').selectOption('2');await v.locator('#viewer-reading-guide summary').click();
@@ -110,7 +110,12 @@ for(const language of ['ja','en-GB']){
  await v.locator('#reading-guide-mode').selectOption('active');await v.waitForTimeout(180);
  assert.deepEqual(await v.locator('#viewer-stage .viewer-fixed-text-page').first().boundingBox(),mobileFocus);
  await v.locator('#reading-guide-enabled').uncheck();await v.locator('#viewer-reading-guide summary').click();
- const canvas=await v.locator('#viewer-canvas').boundingBox(),fr=await footer.boundingBox();assert(canvas.y+canvas.height>fr.y,'Full-size page may extend behind navigation');
+ const shrunk=await v.locator('#viewer-canvas').boundingBox();
+ assert(Math.abs(shrunk.x+shrunk.width/2-195)<1&&Math.abs(shrunk.y+shrunk.height/2-422)<1,'Menu page stays at viewport center');
+ await v.locator('#viewer-mobile-page-count').click();
+ const canvas=await v.locator('#viewer-canvas').boundingBox();assert(canvas.height>shrunk.height,'Closing menu restores maximum page');
+ assert(Math.abs(canvas.y+canvas.height/2-422)<1,'Reading page stays centered');
+ await v.mouse.click(canvas.x+canvas.width/2,canvas.y+canvas.height/2);assert.equal(await footer.isVisible(),false,'Body tap must not reveal mobile menus');
  const metrics=await v.evaluate(()=>({width:innerWidth,height:innerHeight,safe:34,padding:getComputedStyle(document.querySelector('#viewer-layout')).paddingBottom}));assert.equal(metrics.padding,'0px');assert(canvas.width>=388,'Page fills available portrait width');
  // Existing pinch/pan remains available after leaving the magnified window.
  const stage=v.locator('#viewer-stage'),beforePinch=await stage.evaluate(e=>new DOMMatrix(getComputedStyle(e).transform).a);
@@ -121,7 +126,7 @@ for(const language of ['ja','en-GB']){
  const beforePan=await stage.getAttribute('style');await cdp.send('Input.dispatchTouchEvent',{type:'touchStart',touchPoints:[{x:cx,y:cy}]});await cdp.send('Input.dispatchTouchEvent',{type:'touchMove',touchPoints:[{x:cx-20,y:cy-20}]});await cdp.send('Input.dispatchTouchEvent',{type:'touchEnd',touchPoints:[]});assert.notEqual(await stage.getAttribute('style'),beforePan);
  await v.emulateMedia({media:'print'});assert.equal(await footer.isVisible(),false);assert.equal(await v.locator('#reader-assist-panel').isVisible(),false);await v.emulateMedia({media:'screen'});
  assert.equal(await p.evaluate(()=>JSON.stringify(window.assistTestState.blocks)),snapshot);
- await v.setViewportSize({width:1440,height:950});await v.waitForTimeout(180);assert.equal(await footer.isVisible(),false);assert.equal(await v.locator('#viewer-footer #page-slider').count(),1);
+ await v.evaluate(()=>window.toggleUi(true));await v.setViewportSize({width:1440,height:950});await v.waitForTimeout(180);assert.equal(await footer.isVisible(),false);assert.equal(await v.locator('#viewer-footer #page-slider').count(),1);
  assert.deepEqual(errors,[]);await v.close();await p.close();console.log(language,'focus/annotations/lens/zoom/line navigation/touch/mobile/paging/pinch/pan/print/disable and unchanged authoring passed');
 }
 }finally{await b.close()}})().catch(e=>{console.error(e);process.exitCode=1});
