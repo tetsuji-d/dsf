@@ -8,21 +8,54 @@ for(const language of ['ja','en-GB']){
  Object.assign(state,{blocks:[g],version:6,sections:[],pages:[],projectAssets:[],projectId:null,localProjectId:'reader-assist-test',activeLang:language,defaultLang:language,languages:[language],languageConfigs:{[language]:{pageDirection:language==='ja'?'rtl':'ltr'}},activeBlockIdx:0,activeIdx:0,activeBubbleIdx:null,bookMode:'none',book:{mode:'none'}});window.assistTestState=state;window.changeFlowGeneratedPage(0,0);},language);
  await p.locator('[data-testid=flow-editor-generated-page]').first().waitFor();const snapshot=await p.evaluate(()=>JSON.stringify(window.assistTestState.blocks));
  const pending=p.waitForEvent('popup');await p.locator('#btn-editor-preview').click();const v=await pending;const errors=[];v.on('pageerror',e=>errors.push(e.message));await v.locator('#viewer-stage [data-reading-line]').first().waitFor();
+ const pageRectBefore=await v.locator('#viewer-stage .viewer-fixed-text-page').first().boundingBox();
  await v.locator('#viewer-reading-guide summary').click();await v.locator('#reading-guide-enabled').check();await v.locator('#reading-guide-mode').selectOption('focus');
  const first=v.locator('#viewer-stage [data-reading-line]').nth(language==='ja'?0:2);await v.waitForTimeout(150);let r=await first.boundingBox();await v.mouse.click(r.x+r.width/2,r.y+r.height*.3);
  await v.locator('#viewer-stage .reader-line-focused').first().waitFor();assert.ok(await v.locator('#viewer-stage .reader-line-muted').count()>0);
+ assert.deepEqual(await v.locator('#viewer-stage .viewer-fixed-text-page').first().boundingBox(),pageRectBefore,'Focus must not shrink or move the page');
  const styles=await first.getAttribute('style');if(language==='ja'){assert.ok(await v.locator('#viewer-stage [data-reading-annotation=ruby].reader-line-focused').count()>0);assert.ok(await v.locator('#viewer-stage [data-reading-annotation=emphasis].reader-line-focused').count()>0);}
+ if(language==='en-GB'){await v.setViewportSize({width:900,height:950});await v.waitForTimeout(180);}
  await v.locator('#viewer-reading-guide summary').click();await v.locator('#reading-guide-mode').selectOption('lens');await v.locator('#reader-assist-lens .viewer-fixed-text-page').waitFor();
  assert.equal(await v.locator('#viewer-stage .reader-line-muted').count(),0);assert.equal(await first.getAttribute('style'),styles);
  assert.equal(await v.locator('#reader-assist-lens [data-reading-line]').count(),1);if(language==='ja')assert.ok(await v.locator('#reader-assist-lens [data-reading-annotation=ruby]').count()>0);
  const z=await v.locator('#reader-assist-lens .viewer-fixed-text-page').evaluate(e=>new DOMMatrix(getComputedStyle(e).transform).a);await v.locator('#reading-guide-zoom').selectOption('3');
  assert.ok(Math.abs((await v.locator('#reader-assist-lens .viewer-fixed-text-page').evaluate(e=>new DOMMatrix(getComputedStyle(e).transform).a))/z-1.5)<.01);
- await v.locator('#reading-guide-zoom').selectOption('2');
+ // Drag the magnifier itself; check actual text movement, not just its presence.
+ await v.locator('#viewer-reading-guide summary').click();
+ const lens=v.locator('#reader-assist-lens'), lensPage=lens.locator('.viewer-fixed-text-page');
+ let lr=await lens.boundingBox();const axis=language==='ja'?'f':'e';
+ const offset=()=>lensPage.evaluate((e,axis)=>new DOMMatrix(getComputedStyle(e).transform)[axis],axis);
+ const dragLens=async(distance)=>{lr=await lens.boundingBox();const x=lr.x+lr.width*.6,y=lr.y+lr.height*.6;await v.mouse.move(x,y);await v.mouse.down();await v.mouse.move(x-(language==='ja'?0:distance),y-(language==='ja'?distance:0),{steps:8});await v.mouse.up();};
+ let start=await offset();await dragLens(60);assert.ok(await offset()<start-20,'Dragging inside the lens must advance text');
+ start=await offset();await dragLens(-30);assert.ok(await offset()>start+10,'Reverse dragging must immediately move back');
+ await v.locator('#viewer-reading-guide summary').click();await v.locator('#reading-guide-zoom').selectOption('2');await v.locator('#viewer-reading-guide summary').click();
+
  let prev=await v.locator('#reader-assist-prev').boundingBox(),next=await v.locator('#reader-assist-next').boundingBox();assert.ok(language==='ja'?next.x<prev.x:prev.y<next.y);
  await v.locator('#reader-assist-next').click();assert.match(await v.locator('#reader-assist-status').innerText(),language==='ja'?/^2 \/ /:/^4 \/ /);await v.locator('#reader-assist-prev').click();
+ // Reading interactions preserve both explicitly hidden and visible chrome.
+ await v.evaluate(()=>window.toggleUi(false));await v.locator('#reader-assist-next').click();await v.locator('#reader-assist-prev').click();
+ assert.equal(await v.locator('#viewer-ui').evaluate(e=>e.classList.contains('visible')),false);
+ await v.evaluate(()=>window.toggleUi(true));await v.locator('#reader-assist-next').click();await v.waitForTimeout(5200);
+ assert.equal(await v.locator('#viewer-ui').evaluate(e=>e.classList.contains('visible')),true);
+ await v.locator('#reader-assist-prev').click();
  await v.screenshot({path:require('node:os').tmpdir()+`/viewer-assist-${language}.png`});
+
  await v.setViewportSize({width:390,height:844});await v.waitForTimeout(200);r=await first.boundingBox();
+ // On a phone, focus retains the exact unassisted page size too.
+ await v.locator('#viewer-reading-guide summary').click();await v.locator('#reading-guide-enabled').uncheck();await v.waitForTimeout(180);
+ const mobilePageBefore=await v.locator('#viewer-stage .viewer-fixed-text-page').first().boundingBox();
+ await v.locator('#reading-guide-enabled').check();await v.locator('#reading-guide-mode').selectOption('focus');await v.waitForTimeout(180);
+ assert.deepEqual(await v.locator('#viewer-stage .viewer-fixed-text-page').first().boundingBox(),mobilePageBefore);
+ await v.locator('#viewer-reading-guide summary').click();await v.screenshot({path:require('node:os').tmpdir()+`/viewer-focus-mobile-${language}.png`});
+ await v.locator('#viewer-reading-guide summary').click();await v.locator('#reading-guide-mode').selectOption('lens');await v.locator('#viewer-reading-guide summary').click();await v.waitForTimeout(180);r=await first.boundingBox();
  const cdp=await v.context().newCDPSession(v);await cdp.send('Input.dispatchTouchEvent',{type:'touchStart',touchPoints:[{x:r.x+r.width/2,y:r.y+20}]});await cdp.send('Input.dispatchTouchEvent',{type:'touchMove',touchPoints:[{x:r.x+r.width/2,y:r.y+Math.min(90,r.height-2)}]});await cdp.send('Input.dispatchTouchEvent',{type:'touchEnd',touchPoints:[]});
+ // Touch-drag inside the magnified text, with captured motion in both directions.
+ lr=await lens.boundingBox();let tx=lr.x+lr.width*.6,ty=lr.y+lr.height*.6;
+ start=await offset();
+ await cdp.send('Input.dispatchTouchEvent',{type:'touchStart',touchPoints:[{x:tx,y:ty}]});
+ await cdp.send('Input.dispatchTouchEvent',{type:'touchMove',touchPoints:[{x:tx-(language==='ja'?0:60),y:ty-(language==='ja'?60:0)}]});
+ await cdp.send('Input.dispatchTouchEvent',{type:'touchEnd',touchPoints:[]});
+ assert.ok(await offset()<start-20,'Touch inside lens must advance text');
  assert.ok(await v.locator('#reader-assist-lens .viewer-fixed-text-page').count());const dock=await v.locator('#reader-assist-panel').boundingBox();assert.ok(dock.x>=0&&dock.x+dock.width<=390&&dock.y+dock.height<=844);
  await v.screenshot({path:require('node:os').tmpdir()+`/viewer-assist-mobile-${language}.png`});
  // Paging must discard the old line and lens, and remain available in assistance mode.

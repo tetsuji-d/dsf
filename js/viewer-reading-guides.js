@@ -1,7 +1,7 @@
 import {paintViewerReadingGuides} from './viewer-reading-guide-geometry.js';
 import {collectReadingLineGroups} from './viewer-reading-assist-lines.js';
 /** Reader-local paint/zoom preferences; no authoring or delivery mutations. */
-export function initializeViewerReadingGuides({onLayoutChange = () => {}} = {}) {
+export function initializeViewerReadingGuides({onLayoutChange = () => {}, onAssistanceChange = () => {}} = {}) {
     const $ = id => document.getElementById(id);
     const menu=$('viewer-reading-guide'), toggle=$('reading-guide-enabled'), strength=$('reading-guide-strength'), mode=$('reading-guide-mode');
     const zoom=$('reading-guide-zoom'), blur=$('reading-guide-blur'), stage=$('viewer-stage');
@@ -12,9 +12,9 @@ export function initializeViewerReadingGuides({onLayoutChange = () => {}} = {}) 
     zoom.value=[1.5,2,3].includes(saved.zoom)?String(saved.zoom):'2';
     blur.value=Number.isFinite(saved.blur)?Math.max(.4,Math.min(2.4,saved.blur)):1.2;
     const panel=document.createElement('aside'); panel.id='reader-assist-panel'; panel.hidden=true;
-    panel.innerHTML='<div class="reader-assist-heading"><b id="reader-assist-title"></b><button id="reader-assist-close" type="button">×</button></div><div id="reader-assist-lens" aria-hidden="true"></div><p id="reader-assist-status" role="status" aria-live="polite"></p><div class="reader-assist-nav"><button id="reader-assist-prev" type="button"></button><button id="reader-assist-next" type="button"></button></div>';
+    panel.innerHTML='<div class="reader-assist-heading"><b id="reader-assist-title"></b><button id="reader-assist-close" type="button">×</button></div><div id="reader-assist-lens" tabindex="0" role="region"></div><p id="reader-assist-lens-hint"></p><p id="reader-assist-status" role="status" aria-live="polite"></p><div class="reader-assist-nav"><button id="reader-assist-prev" type="button"></button><button id="reader-assist-next" type="button"></button></div>';
     document.body.append(panel);
-    const lens=$('reader-assist-lens'); let selected=null, groups=[], point=null, clone=null, drag=null, queued=false, dock=0, bottomDock=0;
+    const lens=$('reader-assist-lens'); let selected=null, groups=[], point=null, clone=null, drag=null, queued=false, dock=0, bottomDock=0, lensDrag=null, lensScale=1, lastAssisting=false;
     const assisting=()=>toggle.checked&&['focus','lens'].includes(mode.value);
     const labels=()=>{
         const en=document.documentElement.lang==='en';
@@ -27,6 +27,8 @@ export function initializeViewerReadingGuides({onLayoutChange = () => {}} = {}) 
         $('reader-assist-title').textContent=mode.value==='lens'?(en?'Magnifier':'拡大鏡'):(en?'Focus':'集中表示');
         $('reader-assist-close').title=en?'Turn off reading assistance':'読書補助を終了'; $('reader-assist-close').setAttribute('aria-label',$('reader-assist-close').title);
         $('reader-assist-prev').textContent=en?'Previous line':'前の行'; $('reader-assist-next').textContent=en?'Next line':'次の行';
+        lens.setAttribute('aria-label',en?'Magnified line. Drag or scroll to read.':'拡大した行。ドラッグやスクロールで文字送り。');
+        $('reader-assist-lens-hint').textContent=en?'Drag inside the magnifier to read along.':'拡大枠の中をなぞって文字送り';
         updateStatus();
     };
     function updateStatus(){
@@ -34,6 +36,8 @@ export function initializeViewerReadingGuides({onLayoutChange = () => {}} = {}) 
         $('reader-assist-status').textContent=index<0?(en?'Point to a text line. Image pages are not supported.':'本文を指して行を選択。画像ページは対象外です。'):`${index+1} / ${groups.length} ${en?'lines':'行'}`;
         $('reader-assist-prev').disabled=index<=0; $('reader-assist-next').disabled=index<0||index>=groups.length-1;
         panel.dataset.writing=selected?.dataset.readingLine||stage.querySelector('[data-reading-line]')?.dataset.readingLine||'vertical';
+        const rect=selected?.getBoundingClientRect();
+        panel.dataset.focusSide=panel.dataset.writing==='vertical'?(rect && rect.left+rect.width/2>innerWidth/2?'left':'right'):(rect && rect.top+rect.height/2>innerHeight/2?'top':'bottom');
     }
     function clearPaint(){stage.querySelectorAll('.reader-line-muted,.reader-line-focused').forEach(n=>n.classList.remove('reader-line-muted','reader-line-focused'));}
     function renderLens(){
@@ -53,6 +57,10 @@ export function initializeViewerReadingGuides({onLayoutChange = () => {}} = {}) 
         const tx=vertical?lens.clientWidth/2-px*z:clampAxis(lens.clientWidth/2-px*z,left,right,lens.clientWidth);
         const ty=vertical?clampAxis(lens.clientHeight/2-py*z,top,bottom,lens.clientHeight):lens.clientHeight/2-py*z;
         lens.style.backgroundColor=getComputedStyle(page).backgroundColor;
+        lensScale=z;
+        // Keep the position at the actual visible centre, including endpoint clamps.
+        // Starting another drag must move immediately, without a hidden dead zone.
+        point={x:(lens.clientWidth/2-tx)/z,y:(lens.clientHeight/2-ty)/z};
         clone.style.transformOrigin='0 0';clone.style.transform=`translate(${tx}px,${ty}px) scale(${z})`;
     }
     function draw(){
@@ -66,11 +74,11 @@ export function initializeViewerReadingGuides({onLayoutChange = () => {}} = {}) 
             for(const p of stage.querySelectorAll('.viewer-fixed-text-page'))for(const g of collectReadingLineGroups(p))for(const node of g.members)node.classList.add(group?.members.includes(node)?'reader-line-focused':'reader-line-muted');
         }
         paintViewerReadingGuides(stage,{enabled:toggle.checked,mode:mode.value==='all'?'all':'active'});
-        panel.hidden=!assisting();lens.hidden=mode.value!=='lens';
+        panel.hidden=!assisting();panel.dataset.mode=mode.value;lens.hidden=mode.value!=='lens';$('reader-assist-lens-hint').hidden=lens.hidden;
         updateStatus();
         const horizontal=panel.dataset.writing==='horizontal';
-        const nextDock=assisting()&&!horizontal?(innerWidth<=650?140:240):0;
-        const nextBottom=assisting()&&horizontal?240:0;
+        const nextDock=assisting()&&mode.value==='lens'&&!horizontal?(innerWidth<=650?140:240):0;
+        const nextBottom=assisting()&&mode.value==='lens'&&horizontal?240:0;
         if(nextDock!==dock||nextBottom!==bottomDock){dock=nextDock;bottomDock=nextBottom;document.body.dataset.readingAssistBottom=String(bottomDock);document.body.style.setProperty('--reader-assist-bottom',bottomDock+'px');document.body.dataset.readingAssistDock=String(dock);document.body.style.setProperty('--reader-assist-space',dock+'px');onLayoutChange();}
         updateStatus();renderLens();
     }
@@ -79,7 +87,8 @@ export function initializeViewerReadingGuides({onLayoutChange = () => {}} = {}) 
         document.body.style.setProperty('--reading-guide-alpha',Number(strength.value)/100);document.body.style.setProperty('--reader-blur',blur.value+'px');
         strength.disabled=!toggle.checked;mode.disabled=!toggle.checked;zoom.disabled=!toggle.checked;blur.disabled=!toggle.checked;
         $('reading-guide-zoom-control').hidden=mode.value!=='lens';$('reading-guide-blur-control').hidden=mode.value!=='focus';
-        clone=null;drag=null;draw();labels();
+        clone=null;drag=null;lensDrag=null;draw();labels();
+        if(lastAssisting!==assisting()){lastAssisting=assisting();onAssistanceChange(lastAssisting);}
     }
     function save(){paint();try{localStorage.setItem('dsf-reader-line-guides',JSON.stringify({enabled:toggle.checked,strength:Number(strength.value),mode:mode.value,zoom:Number(zoom.value),blur:Number(blur.value)}));}catch{}}
     function findAt(x,y){
@@ -112,6 +121,31 @@ export function initializeViewerReadingGuides({onLayoutChange = () => {}} = {}) 
         const vertical=selected.dataset.readingLine==='vertical';const delta=vertical?{ArrowLeft:1,ArrowRight:-1}[e.key]:{ArrowDown:1,ArrowUp:-1}[e.key];
         if(!delta)return false;e.preventDefault();step(delta);return true;
     }
+    function moveLensBy(pixels) {
+        if(!selected||!point||!clone||mode.value!=='lens') return;
+        const axis=selected.dataset.readingLine==='vertical'?'y':'x';
+        point[axis]+=pixels/lensScale;
+        renderLens();
+    }
+    lens.addEventListener('pointerdown',e=>{
+        if(e.button!==0||!selected||!clone)return;
+        menu.open=false;lensDrag={id:e.pointerId,x:e.clientX,y:e.clientY};
+        lens.setPointerCapture(e.pointerId);e.preventDefault();e.stopPropagation();lens.focus({preventScroll:true});
+    });
+    lens.addEventListener('pointermove',e=>{
+        if(lensDrag?.id!==e.pointerId)return;
+        const vertical=selected?.dataset.readingLine==='vertical';
+        moveLensBy(vertical?lensDrag.y-e.clientY:lensDrag.x-e.clientX);
+        lensDrag.x=e.clientX;lensDrag.y=e.clientY;e.preventDefault();e.stopPropagation();
+    });
+    const endLensDrag=e=>{if(lensDrag?.id!==e.pointerId)return;lensDrag=null;if(lens.hasPointerCapture(e.pointerId))lens.releasePointerCapture(e.pointerId);e.stopPropagation();};
+    ['pointerup','pointercancel','lostpointercapture'].forEach(type=>lens.addEventListener(type,endLensDrag));
+    lens.addEventListener('wheel',e=>{if(!selected||e.ctrlKey||e.metaKey)return;const unit=e.deltaMode===1?16:e.deltaMode===2?lens.clientHeight:1;moveLensBy((selected.dataset.readingLine==='vertical'?e.deltaY:(e.deltaX||e.deltaY))*unit);e.preventDefault();e.stopPropagation();},{passive:false});
+    lens.addEventListener('keydown',e=>{
+        const vertical=selected?.dataset.readingLine==='vertical';
+        const amount=vertical?{ArrowDown:60,ArrowUp:-60}[e.key]:{ArrowRight:60,ArrowLeft:-60}[e.key];
+        if(!amount)return;moveLensBy(amount);e.preventDefault();e.stopPropagation();
+    });
     toggle.onchange=save;strength.oninput=save;mode.onchange=save;zoom.onchange=save;blur.oninput=save;
     $('reader-assist-prev').onclick=()=>step(-1);$('reader-assist-next').onclick=()=>step(1);
     $('reader-assist-close').onclick=()=>{toggle.checked=false;save();menu.querySelector('summary').focus();};
@@ -122,7 +156,7 @@ export function initializeViewerReadingGuides({onLayoutChange = () => {}} = {}) 
     new MutationObserver(records=>{if(records.some(r=>[...r.addedNodes,...r.removedNodes].some(n=>n.nodeType===1&&!n.classList.contains('reader-line-overlay'))))schedule();}).observe(stage,{childList:true,subtree:true});
     document.fonts?.addEventListener('loadingdone',()=>{clone=null;schedule();});window.addEventListener('resize',schedule);
     paint();
-    return {refreshLabels:labels,highlightAt,handleKey,onViewportChange:schedule,
+    return {isAssisting:assisting,refreshLabels:labels,highlightAt,handleKey,onViewportChange:schedule,
         beginPointer(e){if(!assisting()||!highlightAt(e.clientX,e.clientY))return false;drag=e.pointerId;return true;},
         movePointer(e,allowHover){if(drag===e.pointerId){highlightAt(e.clientX,e.clientY);return true;}if(allowHover&&e.pointerType==='mouse'&&!e.buttons&&assisting())highlightAt(e.clientX,e.clientY);return false;},
         endPointer(e){if(drag!==e.pointerId)return false;drag=null;return true;},cancelPointer(){drag=null;}};

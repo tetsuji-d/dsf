@@ -378,7 +378,10 @@ async function init() {
         layer.addEventListener('click', suppressClickAfterSwipe, true);
     });
     initializeViewerMinimap();
-    readingGuides = initializeViewerReadingGuides({onLayoutChange: scheduleViewerResize});
+    readingGuides = initializeViewerReadingGuides({onLayoutChange: scheduleViewerResize, onAssistanceChange: active => {
+        clearViewerUiAutoHide();
+        if (!active) scheduleViewerUiAutoHide();
+    }});
 
     document.addEventListener('keydown', onKeydown);
     document.addEventListener('wheel', onWheel, { passive: false });
@@ -4166,6 +4169,7 @@ function clearViewerUiAutoHide() {
 function scheduleViewerUiAutoHide() {
     if (!usesPointerHoverChrome()) return;
     clearViewerUiAutoHide();
+    if (readingGuides?.isAssisting()) return;
     viewerUiAutoHideTimer = setTimeout(() => {
         window.toggleUi(false);
     }, 5000);
@@ -4187,6 +4191,10 @@ function bindViewerHoverChrome() {
         const canvas = document.getElementById('viewer-canvas');
         const ui = document.getElementById('viewer-ui');
         const target = event.target;
+        if (readingGuides?.isAssisting() && (canvas?.contains(target) || target.closest?.('#reader-assist-panel'))) {
+            clearViewerUiAutoHide();
+            return;
+        }
         const overViewer = !!(canvas?.contains(target) || ui?.contains(target) || target.closest?.('.viewer-side-nav'));
         if (overViewer) {
             revealViewerUiForPointer();
@@ -4346,6 +4354,8 @@ function bindViewerSliderPreview() {
 }
 
 document.addEventListener('click', (e) => {
+    // Reading controls are not a request to toggle the surrounding chrome.
+    if (e.target.closest?.('#reader-assist-panel')) return;
     if (!isUiVisible) {
         if (Date.now() <= suppressZoneClickUntil) return;
         if (e.target.closest?.('#viewer-ui')) return;

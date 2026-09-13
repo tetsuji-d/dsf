@@ -2971,7 +2971,7 @@ body[data-theme="dark"] .reading-guide-popover {background:#172131;color:#eef3f9
 #reader-assist-panel button {min-height:34px;min-width:0;padding:5px 6px;border:1px solid #94a3b8;border-radius:6px;background:#fff;color:#243144;font:inherit;font-size:12px;cursor:pointer;}
 #reader-assist-panel button:disabled {opacity:.45;cursor:default;}
 #reader-assist-panel button:focus-visible {outline:2px solid #2563eb;outline-offset:2px;}
-#reader-assist-lens {position:relative;flex:1;min-height:80px;overflow:hidden;border:1px solid #137970;border-radius:7px;pointer-events:none;}
+#reader-assist-lens {position:relative;flex:1;min-height:80px;overflow:hidden;border:1px solid #137970;border-radius:7px;pointer-events:auto;touch-action:none;cursor:grab;user-select:none;-webkit-user-select:none;}
 #reader-assist-lens .viewer-fixed-text-page {position:absolute;left:0;top:0;pointer-events:none;}
 #reader-assist-status {font:12px/1.5 system-ui;margin:0;}
 .reader-assist-nav {display:flex;flex-direction:row-reverse;gap:4px;}
@@ -2994,3 +2994,18 @@ body[data-theme=dark] #reader-assist-panel button {background:#263244;color:#eef
 
 /* A closed information sheet must not intercept the reading controls beneath it. */
 .viewer-info-panel[data-state="closed"] .viewer-info-panel-shell {pointer-events:none;}
+
+#reader-assist-lens:active {cursor:grabbing;}
+#reader-assist-lens:focus-visible {outline:2px solid #137970;outline-offset:2px;}
+#reader-assist-lens-hint {font:11px/1.4 system-ui;margin:0;}
+#reader-assist-lens-hint[hidden] {display:none;}
+#reader-assist-panel[data-writing=horizontal] {grid-template-rows:auto minmax(0,1fr) auto auto;}
+#reader-assist-panel[data-writing=horizontal] #reader-assist-lens-hint {grid-column:1;grid-row:3;}
+#reader-assist-panel[data-writing=horizontal] #reader-assist-status {grid-row:4;}
+/* Focus never reserves page space. Only compact floating controls remain. */
+#reader-assist-panel[data-mode=focus] {display:flex;flex-direction:row;flex-wrap:wrap;align-items:center;top:auto;bottom:max(64px,env(safe-area-inset-bottom));left:auto;right:8px;width:210px;max-width:calc(100vw - 16px);height:auto;gap:4px 8px;}
+#reader-assist-panel[data-mode=focus] .reader-assist-heading {width:100%;}
+#reader-assist-panel[data-mode=focus] .reader-assist-nav {flex:1;}
+
+#reader-assist-panel[data-mode=focus][data-focus-side=left] {left:8px;right:auto;}
+#reader-assist-panel[data-mode=focus][data-focus-side=top] {top:max(82px,env(safe-area-inset-top));bottom:auto;}
