@@ -97,6 +97,11 @@ for(const language of ['ja','en-GB']){
  // Simulate the next projection being an image surface; only the reader DOM changes.
  await v.evaluate(()=>{const content=document.querySelector('#viewer-content');window.readerSavedProjection=content.innerHTML;content.innerHTML='<img alt="Image page" style="width:100%;height:100%" src="data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 width=%22360%22 height=%22640%22/%3E">';});
  await v.waitForFunction(()=>!document.body.classList.contains('reader-primary-lens'));
+ assert.equal(await v.locator('#reader-page-count').isVisible(),false,'Mobile page count must not be duplicated');
+ await v.locator('#viewer-mobile-page-count').click();await v.waitForTimeout(2300);
+ assert.equal(await v.locator('#viewer-mobile-page-count').evaluate(e=>getComputedStyle(e).opacity),'0','Image page count fades after two seconds');
+ await v.locator('#viewer-mobile-page-count').click();
+ assert.equal(await v.locator('#viewer-mobile-page-count').evaluate(e=>e.classList.contains('is-faded')),false);
  assert.equal(await v.locator('#reader-assist-lens .viewer-fixed-text-page').count(),0);assert.equal(await v.locator('#reader-assist-next').isVisible(),false);assert.equal(await v.locator('#viewer-nav-left').isVisible(),true);
  await v.evaluate(()=>document.querySelector('#viewer-content').innerHTML=window.readerSavedProjection);
  await v.locator('#reader-assist-lens .viewer-fixed-text-page').waitFor();
@@ -115,6 +120,7 @@ for(const language of ['ja','en-GB']){
  await v.locator('#viewer-mobile-page-count').click();
  const canvas=await v.locator('#viewer-canvas').boundingBox();assert(canvas.height>shrunk.height,'Closing menu restores maximum page');
  assert(Math.abs(canvas.y+canvas.height/2-422)<1,'Reading page stays centered');
+ const countBox=await v.locator('#viewer-mobile-page-count').boundingBox();assert(Math.abs(countBox.y+await v.locator('#viewer-mobile-page-count').evaluate(e=>parseFloat(e.style.getPropertyValue('--count-label-y')))-(canvas.y+canvas.height+844-50)/2)<1,'Page count centered between page and home-safe edge');
  await v.mouse.click(canvas.x+canvas.width/2,canvas.y+canvas.height/2);assert.equal(await footer.isVisible(),false,'Body tap must not reveal mobile menus');
  const metrics=await v.evaluate(()=>({width:innerWidth,height:innerHeight,safe:34,padding:getComputedStyle(document.querySelector('#viewer-layout')).paddingBottom}));assert.equal(metrics.padding,'0px');assert(canvas.width>=388,'Page fills available portrait width');
  // Existing pinch/pan remains available after leaving the magnified window.

@@ -3106,3 +3106,23 @@ body.reader-primary-lens #viewer-minimap {display:none;}
 #viewer-mobile-page-count[hidden]{display:none}
 body.viewer-ui-visible #viewer-mobile-page-count{bottom:calc(100dvh - var(--viewer-viewport-top,0px) - var(--viewer-viewport-height,100dvh) + var(--viewer-bottom-height,100px))}
 @media print{#viewer-mobile-page-count{display:none!important}}
+
+#viewer-mobile-page-count{bottom:auto;height:44px;transition:opacity .2s}
+body.viewer-ui-visible #viewer-mobile-page-count{bottom:auto}
+#viewer-mobile-page-count.is-faded:not(:focus-visible){opacity:0}
+@media(max-width:650px),(pointer:coarse) and (max-height:650px){#reader-page-count{display:none}#viewer-bottom-navigation[data-lines=false] .reader-bottom-meta{display:none}}
+@media(prefers-reduced-motion:reduce){#viewer-mobile-page-count{transition:none}}
+
+#viewer-mobile-page-count{font-size:0}
+#viewer-mobile-page-count::after{content:attr(data-label);position:absolute;left:50%;top:var(--count-label-y,22px);transform:translate(-50%,-50%);font:12px system-ui;white-space:nowrap;pointer-events:none}
+
+/* Curved visual sheet is discarded at rest: no sliced text or shadow remains. */
+.viewer-page-curl{position:fixed;z-index:940;overflow:hidden;pointer-events:none;perspective:1800px;contain:layout style}
+.vpc-world{position:absolute;left:0;top:0;transform-style:preserve-3d}
+.vpc-page{position:absolute;top:0;width:var(--vpc-w);height:var(--vpc-h);overflow:hidden;background:var(--page-bg,#fff)}
+.vpc-blank{background:transparent}.vpc-content{position:absolute;left:0;top:0;transform:scale(var(--vpc-scale));transform-origin:0 0;overflow:hidden}
+.vpc-strip{position:absolute;left:0;top:0;transform-origin:0 50%;transform-style:preserve-3d}
+.vpc-face{position:absolute;top:0;bottom:0;left:-1.25px;right:-1.25px;overflow:hidden;background:var(--page-bg,#fff);backface-visibility:hidden;-webkit-backface-visibility:hidden}
+.vpc-back{transform:rotateY(180deg)}.vpc-face:after{content:'';position:absolute;inset:0;background:#18202b;opacity:var(--vpc-shade,0);pointer-events:none}
+body.viewer-curl-active #reader-assist-panel,body.viewer-curl-active #viewer-minimap{visibility:hidden}
+@media print{.viewer-page-curl{display:none!important}}

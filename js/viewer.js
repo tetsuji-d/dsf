@@ -1,3 +1,4 @@
+import {createViewerPageCurl} from './viewer-page-curl.js';
 import {initializeViewerReadingGuides} from './viewer-reading-guides.js';
 /**
  * viewer.js — DSF Viewer (Gen 3)
@@ -3815,6 +3816,7 @@ function transitionToIndex(nextIndex, kind = 'jump') {
     const fromPage = pages[currentIndex];
     const toPage = pages[nextIndex];
     const animType = kind === 'jump' ? 'slide' : getTransitionAnimType(currentIndex, nextIndex);
+    if(committingPageCurl||matchMedia('(prefers-reduced-motion:reduce)').matches){clearTransitionLayers();renderDisplayIndexIntoDom(nextIndex,state.activeLang);refreshChrome();if(spreadMode)renderSpreadPage();preloadNearbyViewerImages();queueBookmarkSave();trackPageView('navigation');return;}
 
     if (animType === 'turn') {
         animatePageTurn(toPage, state.activeLang, motionDir);
@@ -3847,7 +3849,49 @@ function transitionToBookUnit(nextIndex) {
     trackPageView('book_navigation');
 }
 
+let activePageCurl=null, committingPageCurl=false;
+function curlUnit(index){
+    if(hasBookModel()){
+        const unit=normalizeSpreadUnitForLang(getBookUnits()[findBookUnitIndexForPage(index)],state.activeLang);
+        if(!unit)return null;
+        return {...unit,focus:unit.left?.sourcePageIndex===index?'left':'right'};
+    }
+    const ids=getViewerFallbackSpreadPageIndices({currentIndex:index,totalPages:getTotal(),pageDirection:getPageDirection()});
+    const pages=getPages();
+    return ids.length===1?{type:'single',center:pages[ids[0]],key:ids.join(',')}:{type:'spread',left:pages[ids[0]],right:pages[ids[1]],focus:ids[0]===index?'left':'right',key:ids.join(',')};
+}
+function startPageCurl(delta,interactive=false){
+    if(committingPageCurl)return false;
+    if(activePageCurl?.active)return true;
+    if(viewScale>1.05||readingGuides?.isAssisting()||matchMedia('(prefers-reduced-motion:reduce)').matches)return false;
+    const before=getIndex(),lang=state.activeLang;
+    let after,from,to,sameUnit;
+    if(spreadMode&&hasBookModel()){
+        const next=bookSpreadIndex+delta,units=getBookUnits();
+        if(next<0||next>=units.length)return false;
+        from=normalizeSpreadUnitForLang(units[bookSpreadIndex],lang);to=normalizeSpreadUnitForLang(units[next],lang);
+        after=getBookUnitPrimaryPageIndex(units[next]);sameUnit=false;
+    }else{
+        after=getViewerPageNavigationTarget({currentIndex:before,totalPages:getTotal(),delta,spreadMode,pageDirection:getPageDirection()});
+        if(after===before)return false;
+        from=curlUnit(before);to=curlUnit(after);
+        sameUnit=hasBookModel()?findBookUnitIndexForPage(before)===findBookUnitIndexForPage(after):from?.key===to?.key;
+    }
+    if(!from||!to)return false;
+    clearTransitionLayers();
+    const viewport=getViewerViewportMetrics(),safeY=Math.max(viewport.safeTop,viewport.safeBottom);
+    const inset=usesMobileTapMenu()&&isUiVisible?Math.max(Number(document.body.dataset.viewerBottomHeight||0),document.getElementById('viewer-header')?.getBoundingClientRect().bottom-viewport.top||0,safeY):safeY;
+    const targetWidth=Math.min((viewport.height-inset*2)*CANONICAL_PAGE_ASPECT,(viewport.width-2*Math.max(viewport.safeLeft,viewport.safeRight))/(spreadMode&&to.type==='spread'?2:1));
+    activePageCurl=createViewerPageCurl({canvas:document.getElementById('viewer-canvas'),from,to,rtl:getPageDirection()==='rtl',forward:delta>0,spread:spreadMode,sameUnit,targetWidth,width:CANONICAL_PAGE_WIDTH,height:CANONICAL_PAGE_HEIGHT,
+        render:surface=>renderSurfaceContentHTML(surface,lang)+renderSurfaceBubblesHTML(surface,lang),
+        commit:()=>{if(getIndex()!==before||state.activeLang!==lang)return;committingPageCurl=true;try{delta>0?goNext():goPrev();}finally{committingPageCurl=false;}}
+    });
+    if(!interactive)activePageCurl.finish(true);
+    return true;
+}
+
 function goNext() {
+    if(startPageCurl(1))return;
     if (spreadMode && hasBookModel()) {
         transitionToBookUnit(bookSpreadIndex + 1);
         return;
@@ -3865,6 +3909,7 @@ function goNext() {
 }
 
 function goPrev() {
+    if(startPageCurl(-1))return;
     if (spreadMode && hasBookModel()) {
         transitionToBookUnit(bookSpreadIndex - 1);
         return;
@@ -3921,6 +3966,7 @@ window.jumpToPage = (val) => {
 
 // ── Render ────────────────────────────────────────────────────
 function refresh() {
+    activePageCurl?.cancel();
     const pages = getPages();
     if (pages.length === 0) return;
 
@@ -4156,6 +4202,7 @@ function updateUiVisibility() {
     syncViewerInfoChromeState();
     document.getElementById('viewer-mobile-page-count')?.setAttribute('aria-expanded',String(isUiVisible));
     if (usesMobileTapMenu()) resizeCanvas();
+    document.dispatchEvent(new Event('viewer-chrome-change'));
 }
 
 function usesPointerHoverChrome() {
@@ -4526,6 +4573,15 @@ function resizeCanvas() {
     }
     canvas.style.width = w + 'px';
     canvas.style.height = h + 'px';
+    const mobileCount=document.getElementById('viewer-mobile-page-count');
+    if(mobileCount&&usesMobileTapMenu()){
+        const pageBottom=viewport.top+(viewport.height+h)/2;
+        const lowerEdge=viewport.top+viewport.height-(isUiVisible?Number(document.body.dataset.viewerBottomHeight||0):Math.max(28,viewport.safeBottom+16));
+        const center=(pageBottom+lowerEdge)/2;
+        const countTop=Math.min(viewport.top+viewport.height-Math.max(28,viewport.safeBottom+16)-44,center-22);
+        mobileCount.style.top=countTop+'px';
+        mobileCount.style.setProperty('--count-label-y',(center-countTop)+'px');
+    }
 
     const rawScale = showSpread
         ? Math.min(w / (CANONICAL_PAGE_WIDTH * 2), h / CANONICAL_PAGE_HEIGHT)
@@ -4990,6 +5046,35 @@ function setViewScaleAtClientPoint(nextScale, clientX, clientY) {
     viewX = next.x;
     viewY = next.y;
 }
+
+let curlGesture=null;
+document.addEventListener('pointerdown',e=>{
+    if(e.pointerType==='mouse'||!e.target.closest?.('#viewer-canvas')||viewScale>1.05||readingGuides?.isAssisting())return;
+    if(curlGesture){activePageCurl?.cancel();curlGesture=null;return;}
+    const r=document.getElementById('viewer-canvas').getBoundingClientRect();
+    if(e.clientX<r.left||e.clientX>r.right||e.clientY<r.top||e.clientY>r.bottom)return;
+    if(e.clientX-r.left>r.width*.25&&r.right-e.clientX>r.width*.25)return;
+    curlGesture={id:e.pointerId,x:e.clientX,y:e.clientY,width:r.width,started:false};
+},true);
+document.addEventListener('pointermove',e=>{
+    if(curlGesture?.id!==e.pointerId)return;
+    const dx=e.clientX-curlGesture.x,dy=e.clientY-curlGesture.y;
+    if(!curlGesture.started){
+        if(Math.abs(dy)>12&&Math.abs(dy)>Math.abs(dx)){curlGesture=null;return;}
+        if(Math.abs(dx)<12)return;
+        const delta=(dx>0?1:-1)*(getPageDirection()==='rtl'?1:-1);
+        if(!startPageCurl(delta,true)||!activePageCurl?.active){curlGesture=null;return;}
+        curlGesture.started=true;curlGesture.sign=Math.sign(dx);resetSingleSpreadSwipe();
+    }
+    e.stopPropagation();e.preventDefault();activePageCurl.draw(dx*curlGesture.sign/(curlGesture.width*.8));
+}, {capture:true,passive:false});
+document.addEventListener('pointerup',e=>{
+    if(curlGesture?.id!==e.pointerId)return;
+    const started=curlGesture.started;curlGesture=null;if(!started)return;
+    e.stopPropagation();e.preventDefault();pointerCache=[];activeGesturePointerId=null;resetSingleSpreadSwipe();suppressZoneClickUntil=Date.now()+900;
+    activePageCurl?.finish(activePageCurl.progress>.4);
+},true);
+document.addEventListener('pointercancel',()=>{if(curlGesture?.started)activePageCurl?.cancel();curlGesture=null;},true);
 
 function onPointerDown(e) {
     if (!pointerCache.some(p => p.pointerId === e.pointerId)) {

@@ -10,7 +10,17 @@ export function initializeViewerBottomNavigation({panel,onLayoutChange}) {
     const slider=document.querySelector('.slider-wrapper'),left=$('viewer-nav-left'),right=$('viewer-nav-right');
     const nav=panel.querySelector('.reader-assist-nav'),status=$('reader-assist-status');
     const originals=[slider,left,right,nav,status].map(node=>({node,parent:node.parentNode,next:node.nextSibling}));
-    let attached=false;
+    let attached=false, fadeTimer=null, countKey='';
+    const syncCount=()=>{
+        const open=document.body.classList.contains('viewer-ui-visible');
+        const image=!document.querySelector('#viewer-content .viewer-fixed-text-page');
+        const key=count.textContent+'|'+image+'|'+open;
+        count.setAttribute('aria-expanded',String(open));
+        if(key===countKey)return;
+        countKey=key;clearTimeout(fadeTimer);count.classList.remove('is-faded');
+        if(image&&!open&&!count.hidden)fadeTimer=setTimeout(()=>count.classList.add('is-faded'),2000);
+    };
+    document.addEventListener('viewer-chrome-change',syncCount);
     const measure=()=>{
         const height=attached?root.getBoundingClientRect().height:0;
         if(Number(document.body.dataset.viewerBottomHeight||0)!==height){
@@ -24,6 +34,7 @@ export function initializeViewerBottomNavigation({panel,onLayoutChange}) {
             const use=mobile.matches||lensMode;
             count.hidden=!mobile.matches;
             count.textContent=($('page-slider-label')?.textContent||'1')+' / '+($('page-slider-total')?.textContent||'1');
+            count.dataset.label=count.textContent;
             count.setAttribute('aria-label',count.textContent+(document.documentElement.lang==='en'?' — Show/hide menu':' — メニュー表示／非表示'));
             count.setAttribute('aria-expanded',String(document.body.classList.contains('viewer-ui-visible')));
             if(use!==attached){
@@ -38,7 +49,7 @@ export function initializeViewerBottomNavigation({panel,onLayoutChange}) {
             root.dataset.writing=writing;root.dataset.lines=String(enabled);nav.hidden=use&&!enabled;status.hidden=use&&!enabled;
             root.setAttribute('aria-label',document.documentElement.lang==='en'?'Page and reading navigation':'ページと読書の操作');
             $('reader-page-count').textContent=($('page-slider-label')?.textContent||'1')+' / '+($('page-slider-total')?.textContent||'1');
-            measure();
+            syncCount();measure();
             return use;
         },
         contains:node=>root.contains(node)
