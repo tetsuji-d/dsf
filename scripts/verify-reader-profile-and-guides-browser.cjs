@@ -43,9 +43,10 @@ const {chromium}=require(process.env.DSF_PLAYWRIGHT_MODULE),assert=require('node
  assert.equal(await line.evaluate(e=>getComputedStyle(e).color),color);
  assert.equal(await line.evaluate(e=>getComputedStyle(e).backgroundColor),'rgba(0, 0, 0, 0)');
  assert.equal(await other.evaluate(e=>getComputedStyle(e).boxShadow),'none');
- const shadow=await line.evaluate(e=>getComputedStyle(e).boxShadow);assert.ok(shadow.includes('0px 2px'),shadow);
+ const guide=v.locator('.reader-line-overlay line[data-active=true]').first();
+ assert.ok(await guide.evaluate(g=>{const a=g.closest('.viewer-fixed-text-page').querySelector('.reading-line-active');const r=document.createRange();r.selectNodeContents(a.firstChild);return g.getBoundingClientRect().top>r.getBoundingClientRect().bottom;}));
  await v.locator('#viewer-reading-guide summary').click();await v.locator('#reading-guide-mode').selectOption('all');
- assert.notEqual(await other.evaluate(e=>getComputedStyle(e).boxShadow),'none');
+ assert.ok(await v.locator('.reader-line-overlay line[data-active=false]').count()>0);
  await v.locator('#reading-guide-mode').selectOption('active');
  await v.screenshot({path:require('node:os').tmpdir()+'/viewer-horizontal-reading-marker.png'});
  await v.reload();await v.locator('#reading-guide-enabled').waitFor({state:'attached'});

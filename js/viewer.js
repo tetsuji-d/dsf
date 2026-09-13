@@ -378,7 +378,7 @@ async function init() {
         layer.addEventListener('click', suppressClickAfterSwipe, true);
     });
     initializeViewerMinimap();
-    readingGuides = initializeViewerReadingGuides();
+    readingGuides = initializeViewerReadingGuides({onLayoutChange: scheduleViewerResize});
 
     document.addEventListener('keydown', onKeydown);
     document.addEventListener('wheel', onWheel, { passive: false });
@@ -4456,8 +4456,9 @@ function resizeCanvas() {
     const drawerOpen = viewerInfoLayoutMode === 'drawer' && viewerInfoPanelState !== 'closed';
     const safeX = Math.max(viewport.safeLeft, viewport.safeRight);
     const safeY = Math.max(viewport.safeTop, viewport.safeBottom);
-    const W = Math.max(280, viewport.width - (drawerOpen ? VIEWER_DRAWER_WIDTH + VIEWER_DRAWER_GAP : 0) - (safeX * 2));
-    const H = Math.max(1, viewport.height - (safeY * 2));
+    const readerDock = Number(document.body.dataset.readingAssistDock || 0);
+    const W = Math.max(readerDock ? 120 : 280, viewport.width - readerDock - (drawerOpen ? VIEWER_DRAWER_WIDTH + VIEWER_DRAWER_GAP : 0) - (safeX * 2));
+    const H = Math.max(1, viewport.height - Number(document.body.dataset.readingAssistBottom || 0) - (safeY * 2));
     const aspect = CANONICAL_PAGE_ASPECT;
     const bookSingle = spreadMode && hasBookModel() && getCurrentBookUnit()?.type === 'single';
     const fallbackSingle = spreadMode && !hasBookModel() && !_hasFallbackSpreadSecondPage();
@@ -4521,7 +4522,7 @@ function updateViewerSideNavPlacement(canvas, canvasWidth) {
     if (!canvas) return;
     const rect = canvas.getBoundingClientRect();
     const viewport = getViewerViewportMetrics();
-    const viewportEnd = viewport.left + viewport.width;
+    const viewportEnd = viewport.left + viewport.width - Number(document.body.dataset.readingAssistDock || 0);
     const panel = document.getElementById('viewer-info-panel');
     const panelRect = panel?.getBoundingClientRect();
     const readingEnd = panel?.dataset.layout === 'drawer' && panelRect?.width > 0
@@ -4741,6 +4742,7 @@ function applyTransform(fromInteraction = false) {
     clampViewPan();
     const stage = document.getElementById('viewer-stage');
     if (stage) stage.style.transform = `translate(${viewX}px,${viewY}px) scale(${viewScale})`;
+    readingGuides?.onViewportChange();
     viewerMinimap?.update({ fromInteraction });
 }
 
@@ -4945,6 +4947,7 @@ function onPointerDown(e) {
     }
     try { e.currentTarget?.setPointerCapture?.(e.pointerId); } catch (_) { /* ignore */ }
     if (pointerCache.length === 2) {
+        readingGuides?.cancelPointer();
         isPinching = true;
         isPanning = false;
         pinchStartDist = getPinchDist(pointerCache[0], pointerCache[1]);
@@ -4961,7 +4964,9 @@ function onPointerDown(e) {
         pointerStartY = e.clientY;
         lastPanX = e.clientX;
         lastPanY = e.clientY;
-        if (viewScale > 1.05) {
+        if (viewScale <= 1.05 && readingGuides?.beginPointer(e)) {
+            pointerGestureConsumed = true;resetSingleSpreadSwipe();e.preventDefault();
+        } else if (viewScale > 1.05) {
             isPanning = true;
             resetSingleSpreadSwipe();
         } else {
@@ -4993,6 +4998,8 @@ function onPointerMove(e) {
             viewY = next.y;
             applyTransform(true);
         }
+    } else if (readingGuides?.movePointer(e, viewScale <= 1.05)) {
+        e.preventDefault();return;
     } else if (updateSingleSpreadSwipe(e)) {
         return;
     } else if (isPanning) {
@@ -5026,6 +5033,10 @@ function onPointerUp(e) {
             applyTransform(true);
             activeGesturePointerId = null;
             return;
+        }
+
+        if (readingGuides?.endPointer(e)) {
+            suppressZoneClickUntil=Date.now()+900;activeGesturePointerId=null;e.preventDefault();return;
         }
 
         if (finishSingleSpreadSwipe(e)) {
@@ -5092,6 +5103,7 @@ function suppressClickAfterSwipe(e) {
 }
 
 function onPointerCancel(e) {
+    readingGuides?.cancelPointer();
     const idx = pointerCache.findIndex(p => p.pointerId === e.pointerId);
     if (idx !== -1) pointerCache.splice(idx, 1);
     try { e.currentTarget?.releasePointerCapture?.(e.pointerId); } catch (_) { /* ignore */ }
@@ -5128,6 +5140,7 @@ function onWheel(e) {
 }
 
 function onKeydown(e) {
+    if (readingGuides?.handleKey(e)) return;
     if (e.key === 'ArrowRight') window.viewerNavRight();
     else if (e.key === 'ArrowLeft') window.viewerNavLeft();
     else if (e.key === 'Escape') window.toggleUi(false);

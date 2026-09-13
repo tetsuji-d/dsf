@@ -115,11 +115,13 @@ console.log('starting preview',await p.locator('#btn-editor-preview').isEnabled(
  const active=viewer.locator('#viewer-stage .reading-line-active');
  assert.equal(await active.evaluate(e=>getComputedStyle(e).backgroundColor),'rgba(0, 0, 0, 0)');
  assert.equal(await active.evaluate(e=>getComputedStyle(e).outlineStyle),'none');
- assert.notEqual(await active.evaluate(e=>getComputedStyle(e).boxShadow),'none');
+ assert.ok(await viewer.locator('.reader-line-overlay line[data-active=true]').count()>0);
+ const guide=viewer.locator('.reader-line-overlay line[data-active=true]').first();
+ assert.ok(await guide.evaluate((g)=>{const active=g.closest('.viewer-fixed-text-page').querySelector('.reading-line-active');const r=document.createRange();r.selectNodeContents(active.firstChild);return g.getBoundingClientRect().left<r.getBoundingClientRect().left;}));
  assert.deepEqual(await line.boundingBox(),rect);
  await viewer.locator('#viewer-reading-guide > summary').click();
  await viewer.locator('#reading-guide-mode').selectOption('all');
- assert.notEqual(await line.evaluate(e=>getComputedStyle(e).boxShadow),'none');
+ assert.ok(await viewer.locator('.reader-line-overlay line[data-active=false]').count()>0);
  await viewer.locator('#reading-guide-mode').selectOption('active');
  await viewer.locator('#reading-guide-strength').fill('45');
  assert.equal(await viewer.evaluate(()=>JSON.parse(localStorage.getItem('dsf-reader-line-guides')).strength),45);

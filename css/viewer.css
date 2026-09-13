@@ -2939,18 +2939,18 @@ body[data-theme="dark"] .viewer-empty-open-btn {
     }
 }
 
-/* Reader-local guides: inset shadows do not affect composed geometry. */
+/* Reader-local guides do not affect composed geometry. */
 #viewer-reading-guide {position:relative;}
 #viewer-reading-guide summary {list-style:none;cursor:pointer;}
 #viewer-reading-guide summary::-webkit-details-marker {display:none;}
 .reading-guide-popover {position:absolute;right:0;top:40px;width:250px;max-width:80vw;padding:14px;background:#fff;color:#243144;border:1px solid #64748b;border-radius:8px;box-shadow:0 5px 20px #0005;}
 .reading-guide-popover label {display:flex;align-items:center;gap:8px;margin:6px 0;}
 .reading-guide-popover p {font-size:12px;line-height:1.5;margin:10px 0 0;}
-body[data-reading-guides=on][data-reading-guide-mode=all] #viewer-stage [data-reading-line=horizontal] {box-shadow:0 0.65px 0 rgba(71,85,105,var(--reading-guide-alpha,.25));}
-body[data-reading-guides=on][data-reading-guide-mode=all] #viewer-stage [data-reading-line=vertical] {box-shadow:0.65px 0 0 rgba(71,85,105,var(--reading-guide-alpha,.25));}
-/* Outside the line box: keep original glyph/background contrast and geometry. */
-body[data-reading-guides=on] #viewer-stage .reading-line-active[data-reading-line=horizontal] {box-shadow:0 2px 0 rgba(15,118,110,calc(.55 + var(--reading-guide-alpha,.25) * .6));}
-body[data-reading-guides=on] #viewer-stage .reading-line-active[data-reading-line=vertical] {box-shadow:2px 0 0 rgba(15,118,110,calc(.55 + var(--reading-guide-alpha,.25) * .6));}
+/* Guides share canonical page coordinates, with collisions removed. */
+.reader-line-overlay {position:absolute;inset:0;width:100%;height:100%;pointer-events:none;z-index:2;overflow:hidden;}
+.reader-line-overlay line {stroke:rgba(71,85,105,var(--reading-guide-alpha,.25));stroke-width:.65;}
+.reader-line-overlay line[data-active=true] {stroke:rgba(15,118,110,calc(.55 + var(--reading-guide-alpha,.25) * .6));stroke-width:1;}
+@media print {.reader-line-overlay {display:none!important;}}
 .reading-guide-popover select {max-width:190px;min-height:32px;border:1px solid #64748b;border-radius:4px;background:transparent;color:inherit;}
 .viewer-auth-dropdown .viewer-ui-lang-switcher {display:flex;margin-bottom:12px;}
 .viewer-auth-dropdown .viewer-ui-lang-btn {flex:1;min-height:36px;}
@@ -2962,3 +2962,35 @@ body[data-theme="dark"] .reading-guide-popover {background:#172131;color:#eef3f9
     #viewer-header .viewer-auth-slot, #viewer-header .viewer-auth, #viewer-reading-guide {position:static;}
     #viewer-header .viewer-auth-dropdown, #viewer-header .reading-guide-popover {top:calc(100% + 4px);right:8px;max-height:calc(100dvh - 74px);overflow-y:auto;}
 }
+
+/* Reading assistance keeps the fixed page layout, reserving space for a reader-only dock. */
+#viewer-layout {padding-right:var(--reader-assist-space,0px);}
+#reader-assist-panel {position:fixed;right:8px;top:max(82px,env(safe-area-inset-top));bottom:max(74px,env(safe-area-inset-bottom));width:calc(var(--reader-assist-space,240px) - 16px);z-index:950;display:flex;flex-direction:column;gap:8px;padding:8px;background:#f4f7fb;color:#243144;border:1px solid #cad5df;border-radius:10px;}
+#reader-assist-panel[hidden],#reader-assist-lens[hidden],.reading-guide-popover [hidden] {display:none!important;}
+.reader-assist-heading {display:flex;align-items:center;justify-content:space-between;gap:4px;}
+#reader-assist-panel button {min-height:34px;min-width:0;padding:5px 6px;border:1px solid #94a3b8;border-radius:6px;background:#fff;color:#243144;font:inherit;font-size:12px;cursor:pointer;}
+#reader-assist-panel button:disabled {opacity:.45;cursor:default;}
+#reader-assist-panel button:focus-visible {outline:2px solid #2563eb;outline-offset:2px;}
+#reader-assist-lens {position:relative;flex:1;min-height:80px;overflow:hidden;border:1px solid #137970;border-radius:7px;pointer-events:none;}
+#reader-assist-lens .viewer-fixed-text-page {position:absolute;left:0;top:0;pointer-events:none;}
+#reader-assist-status {font:12px/1.5 system-ui;margin:0;}
+.reader-assist-nav {display:flex;flex-direction:row-reverse;gap:4px;}
+.reader-assist-nav button {flex:1;}
+#reader-assist-panel[data-writing=horizontal] .reader-assist-nav {flex-direction:column;}
+#viewer-stage .reader-line-muted {filter:blur(var(--reader-blur,1.2px));}
+body[data-theme=dark] #reader-assist-panel {background:#172131;color:#eef3f9;border-color:#64748b;}
+body[data-theme=dark] #reader-assist-panel button {background:#263244;color:#eef3f9;}
+@media(max-width:650px) {#reader-assist-panel{padding:6px;top:66px;bottom:66px;}.reader-assist-heading{font-size:12px;}#reader-assist-panel button{font-size:11px;padding:4px;}.reader-assist-nav{flex-wrap:wrap;}}
+@media print {#reader-assist-panel{display:none!important;}#viewer-stage .reader-line-muted{filter:none!important;}#viewer-layout{padding-right:0;}}
+
+/* A horizontal line needs a wide lens; retain physical up/down line controls. */
+#viewer-layout {padding-bottom:var(--reader-assist-bottom,0px);}
+#reader-assist-panel[data-writing=horizontal] {top:auto;bottom:64px;left:8px;right:8px;width:auto;height:168px;display:grid;grid-template-columns:minmax(0,1fr) 106px;grid-template-rows:auto minmax(0,1fr) auto;gap:4px 8px;}
+#reader-assist-panel[data-writing=horizontal] .reader-assist-heading {grid-column:1/-1;}
+#reader-assist-panel[data-writing=horizontal] #reader-assist-lens {grid-column:1;grid-row:2;min-height:0;}
+#reader-assist-panel[data-writing=horizontal] .reader-assist-nav {grid-column:2;grid-row:2;flex-wrap:nowrap;}
+#reader-assist-panel[data-writing=horizontal] #reader-assist-status {grid-column:1/-1;grid-row:3;}
+@media print {#viewer-layout{padding-bottom:0;}}
+
+/* A closed information sheet must not intercept the reading controls beneath it. */
+.viewer-info-panel[data-state="closed"] .viewer-info-panel-shell {pointer-events:none;}

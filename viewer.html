@@ -160,8 +160,10 @@
                     <summary class="btn-icon header-btn" title="読書ガイド" aria-label="読書ガイド"><span class="material-icons" aria-hidden="true">format_line_spacing</span></summary>
                     <div class="reading-guide-popover">
                         <label><input id="reading-guide-enabled" type="checkbox"><span id="reading-guide-label">行ガイドを表示</span></label>
-                        <label><span id="reading-guide-mode-label">表示</span><select id="reading-guide-mode"><option value="active">読んでいる行だけ</option><option value="all">すべての行</option></select></label>
+                        <label><span id="reading-guide-mode-label">表示</span><select id="reading-guide-mode"><option value="active">読んでいる行だけ</option><option value="all">すべての行</option><option value="focus">集中表示</option><option value="lens">拡大鏡</option></select></label>
                         <label><span id="reading-guide-strength-label">濃さ</span><input id="reading-guide-strength" type="range" min="10" max="70" value="25"></label>
+                        <label id="reading-guide-zoom-control" hidden><span id="reading-guide-zoom-label">倍率</span><select id="reading-guide-zoom"><option value="1.5">1.5×</option><option value="2" selected>2×</option><option value="3">3×</option></select></label>
+                        <label id="reading-guide-blur-control" hidden><span id="reading-guide-blur-label">ぼかし</span><input id="reading-guide-blur" type="range" min="0.4" max="2.4" step="0.2" value="1.2"></label>
                         <p id="reading-guide-note"></p>
                     </div>
                 </details>
