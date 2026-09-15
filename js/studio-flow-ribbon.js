@@ -1,3 +1,4 @@
+import { helpTooltip } from './studio-help-registry.js';
 /** Desktop presentation adapter. Authoring, history, assets and persistence stay with their existing controllers. */
 import { t } from './i18n-studio.js';
 import '../css/studio-flow-ribbon.css';
@@ -86,7 +87,7 @@ function installTooltip(root) {
     const show = event => {
         const target = event.target.closest('button,select,input');
         if (!target || !root.contains(target)) return;
-        const text = target.getAttribute('title') || target.getAttribute('aria-label'); if (!text) return;
+        const text = helpTooltip(target) || target.getAttribute('title') || target.getAttribute('aria-label'); if (!text) return;
         tip.textContent = text; tip.hidden = false;
         const rect = target.getBoundingClientRect();
         tip.style.left = Math.max(8, Math.min(innerWidth - tip.offsetWidth - 8, rect.left)) + 'px';

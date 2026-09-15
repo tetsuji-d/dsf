@@ -1,3 +1,4 @@
+import { initStudioHelp } from './studio-help.js';
 import {applyFlowReplacePlan} from './flow-replace.js';
 import {setFlowPagePlacement,resolvePagePlacement} from './flow-page-placement.js';
 import { createStudioFlowSearch } from './studio-flow-search.js';
@@ -4923,7 +4924,7 @@ function getStudioAccountLinksMarkup(user) {
             <button type="button" class="auth-panel-link"><span class="material-icons">visibility_off</span><span>${escapeStudioHtml(t('restrictedMode'))}</span></button>
             <button type="button" class="auth-panel-link"><span class="material-icons">public</span><span>${escapeStudioHtml(t('location'))}</span></button>
             <button type="button" class="auth-panel-link"><span class="material-icons">settings</span><span>${escapeStudioHtml(t('settings'))}</span></button>
-            <button type="button" class="auth-panel-link"><span class="material-icons">help_outline</span><span>${escapeStudioHtml(t('help'))}</span></button>
+            <button type="button" class="auth-panel-link" data-open-studio-help><span class="material-icons">help_outline</span><span>${escapeStudioHtml(t('help'))}</span></button>
             <button type="button" class="auth-panel-link"><span class="material-icons">feedback</span><span>${escapeStudioHtml(t('feedback'))}</span></button>
         </div>
     `;
@@ -11593,3 +11594,5 @@ window.deleteSelectedBubble = function (bubbleIndex) {
     refresh();
     triggerAutoSave();
 };
+
+initStudioHelp();

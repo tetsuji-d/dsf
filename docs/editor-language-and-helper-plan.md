@@ -1,7 +1,7 @@
 # Editor 言語表示とヘルパーの実装計画
 
 更新日: 2026-09-12
-状態: L1/L2の表示・設定面をローカル実装・検証済み（2026-09-13）。H1/H2/H3、全文翻訳取り込みは未着手。保存形式は維持。
+状態: L1/L2の表示・設定面をローカル実装・検証済み（2026-09-13）。H1はローカル実装・検証済み（2026-09-15）。H2/H3、全文翻訳取り込みは未着手。保存形式は維持。
 調査対象: `feature/flow-layout-foundation` / `2f01cc9`
 関連: [翻訳比較](flow-translation-compare.md)、[検索・WebMCP計画](editor-search-and-webmcp-plan.md)、[プラットフォーム方針](dsf-platform-policy.md)
 
@@ -136,3 +136,22 @@ JA/EN双方を用意し、目的の同義語でも検索可能にする。例:�
 - 既存の多言語authoring、直接編集、検索、置換、比較、画像リボン、末尾Flow追加の検証とstaging buildが通過。既存fixtureはモジュール読込後に一括初期化し、bootstrap中の一時的な不整合を回避した。
 - 検証: `scripts/verify-editor-language-settings-browser.cjs`。既存 `verify-flow-multilingual-authoring.js`, `verify-flow-direct-edit.js`, `verify-flow-replace.js`, `verify-flow-search-browser.cjs`, `verify-flow-replace-browser.cjs`, `verify-flow-translation-compare-browser.cjs`, `verify-studio-ribbon-followups-browser.cjs`。
 - 発行/Viewer/印刷の既定resolverは変更しない。全ての既存メニューの英訳、ヘルパー、全文取り込みは今回の完了範囲に含まない。コミット・デプロイは未実施。
+
+## H1 実装記録（2026-09-15）
+
+- 常設「?」とプロフィールHelpを同じ検索可能なオーバーレイへ接続。JA/EN対応。
+- 本文言語、通常/分割、UI言語、検索/置換、行内揃え、行のまとまり配置、Undo/Redo、保存、Viewerプレビュー、印刷、Horizon発行の11項目。
+- `studio-help-registry.js` の安定ID・selector・説明・条件・ショートカット・関連項目を共通定義とし、`data-help-id`を再描画後も付与する。リボンtooltipも同じ定義を参照。
+- 利用可否は既存UIのdisabled/aria-disabledを参照する。data-disabled-reasonがあれば表示し、なければ必要条件を案内する。現段階で全コマンドの詳細な無効理由が提供されているわけではない。
+- 「操作場所を示す」は対象を強調するのみ。「場所を指して調べる」は全面シールドでポインター操作を受け取り、編集を実行しない。未登録/非表示の対象は説明付きで案内。
+- Escape、キーボードフォーカス、狭幅、プロフィールからの再表示に対応。ヘルプのUI状態は保存しない。外部AI通信なし。
+- `scripts/verify-studio-help-browser.cjs`で検索・JA/EN・強調・無効対象の選択・Escape・プロフィール・390px幅・原稿不変を検証。
+- キャラクター、ドラッグ追随、説明項目の拡充はH2/H3で扱う。WebMCP登録、保存形式変更、公開操作は含まない。
+
+## 作業保留の決定（2026-09-15）
+
+ユーザーの希望によりヘルプの拡張を保留し、WebMCPの読み取り専用接続を次に進める。
+H1の実装は保持する。H2のキャラクター・チュートリアルと状況別自動ヒントは試作のみで、実エディターには接続しない。
+試作は `scripts/fixtures/studio-bookmark-helper-ui.html` と `studio-context-hints-ui.html`、説明用スクリーンショットは `helper-screenshots/` に保存する。
+H3の説明拡充・最初の一冊ガイドも今は着手しない。この区切りではデプロイしない。
+次の作業範囲は [WebMCP読み取り専用接続](webmcp-readonly-plan.md) を参照。
