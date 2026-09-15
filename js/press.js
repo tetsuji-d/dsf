@@ -1,3 +1,4 @@
+import { renderPressModuleLoadError } from './press-module-load-error.js';
 import {appendFlowGraphicPreview} from './graphic-object-renderer.js';
 import {drawGraphicObject} from './graphic-object-renderer.js';
 import { compositeGraphicObjects, appendGraphicThumbnail } from './graphic-object-renderer.js';
@@ -1360,6 +1361,11 @@ function _renderPressFlowLocalReleaseSummary() {
         return;
     }
     if (_pressFlowLocalReleasePlanningState === 'error') {
+        const recovery = renderPressModuleLoadError(_pressFlowLocalReleasePlanningError, t, _esc);
+        if (recovery) {
+            summary.innerHTML = `<strong>${_esc(t('press_flow_release_title'))}</strong>${recovery}`;
+            return;
+        }
         const issue = _pressFlowLocalReleasePlanningError?.issues?.[0];
         const code = issue?.code || _pressFlowLocalReleasePlanningError?.code || 'FLOW_LOCAL_RELEASE_FAILED';
         summary.innerHTML = `
@@ -1514,6 +1520,11 @@ function _renderPressFlowLocalReleasePackageSummary() {
         return;
     }
     if (_pressFlowLocalReleasePackageState === 'error') {
+        const recovery = renderPressModuleLoadError(_pressFlowLocalReleasePackageError, t, _esc);
+        if (recovery) {
+            summary.innerHTML = `<strong>${_esc(t('press_flow_zip_title'))}</strong>${recovery}`;
+            return;
+        }
         const issue = _pressFlowLocalReleasePackageError?.issues?.[0];
         const code = issue?.code || _pressFlowLocalReleasePackageError?.code || 'FLOW_LOCAL_PACKAGE_FAILED';
         summary.innerHTML = `
