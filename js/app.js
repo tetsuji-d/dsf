@@ -1,3 +1,6 @@
+import { initStudioWebMCP, studioWebMCPMarkup } from './studio-webmcp.js';
+import { getProjectSessionIdentity, resetProjectSession, subscribeProjectSession } from './state.js';
+let studioAI = null;
 import { initStudioHelp } from './studio-help.js';
 import {applyFlowReplacePlan} from './flow-replace.js';
 import {setFlowPagePlacement,resolvePagePlacement} from './flow-page-placement.js';
@@ -513,6 +516,7 @@ let _flowTranslationJob = null;
 let _flowTranslationJobSequence = 0;
 
 function resetFlowRuntimeForProjectChange() {
+    resetProjectSession();
     if (_flowAuthoringReflowTimer) clearTimeout(_flowAuthoringReflowTimer);
     _flowAuthoringReflowTimer = null;
     _flowAuthoringSourceRevision = 0;
@@ -4962,6 +4966,7 @@ function getStudioAuthMarkup(user, { mobile = false, slotName = 'nav' } = {}) {
                 </div>
                 <div class="auth-panel-section"><div class="auth-panel-label">表示言語 / Language</div><div class="ui-lang-switcher" role="group" aria-label="表示言語 / Language">${['ja','en'].map(key=>`<button type="button" class="ui-lang-btn ${getUILang()===key?'active':''}" data-lang="${key}" data-ui-language="${key}" aria-pressed="${getUILang()===key}">${key==='ja'?'日本語':'English'}</button>`).join('')}</div></div>
                 ${getStudioThemeButtonsMarkup()}
+                ${studioWebMCPMarkup()}
                 ${signedOutSection}
                 ${getStudioAccountLinksMarkup(user)}
                 ${user ? `<button type="button" class="btn-signout" data-auth-signout>${escapeStudioHtml(t('btn_signout'))}</button>` : ''}
@@ -5016,6 +5021,7 @@ function mountStudioGisButton(container, { mobile = false } = {}) {
 }
 
 function bindStudioAuthSlot(container, user, { mobile = false } = {}) {
+    studioAI?.sync();
     const trigger = container.querySelector('[data-auth-trigger]');
     const dropdown = container.querySelector('[data-auth-dropdown]');
     trigger?.addEventListener('click', (event) => {
@@ -10617,6 +10623,7 @@ window.saveProjectSettings = async () => {
 window.switchRoom = (room) => {
     const targetRoom = getValidStudioRoom(room);
     const previousRoom = getCurrentRoom();
+    if (targetRoom !== 'editor') studioAI?.disable();
     if (previousRoom === 'press' && targetRoom !== 'press') {
         leavePressRoom();
     }
@@ -11596,3 +11603,28 @@ window.deleteSelectedBubble = function (bubbleIndex) {
 };
 
 initStudioHelp();
+studioAI = initStudioWebMCP({ getUILang, subscribeProjectSession, readState: readStudioAIState });
+
+// Snapshot existing semantic selection only; never focus, commit, reflow or navigate.
+function readStudioAIState() {
+    // getActiveBlock() repairs invalid indices by dispatching; tools must not do so.
+    const group = Number.isInteger(state.activeBlockIdx) ? state.blocks?.[state.activeBlockIdx] : null;
+    const languageKey = state.activeLang || state.defaultLang;
+    const session = _flowDirectEditSession, proxy = _flowDirectEditProxy;
+    const busy = Boolean(editorDragBlocked(false) || _flowAuthoringReflowTimer
+        || proxy?.dataset.flowReflowPending === 'true'
+        || (session && proxy?.isConnected && proxy.value !== session.expectedText));
+    let selection = _flowTextSelection;
+    if (!selection && !busy && group?.kind === 'flow' && session?.groupId === group.id
+        && session.languageKey === languageKey && proxy?.isConnected) {
+        const block = group.flow.document.sections.find(s => s.id === session.sectionId)?.blocks.find(b => b.id === session.blockId);
+        if (block?.texts?.[languageKey] === session.expectedText) {
+            const point = offset => ({ sectionId: session.sectionId, blockId: session.blockId,
+                languageKey, utf16Offset: offset });
+            selection = createFlowTextSelection(group, point(proxy.selectionStart), point(proxy.selectionEnd));
+        }
+    }
+    return { room: getCurrentRoom(), workIdentity: getProjectSessionIdentity(), blocks: state.blocks,
+        languageKeys: state.languages, languageKey, sourceLanguage: group?.flow?.document?.sourceLanguage || state.defaultLang,
+        activeGroupId: group?.kind === 'flow' ? group.id : null, selection, busy };
+}

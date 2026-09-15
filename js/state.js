@@ -72,9 +72,22 @@ export const state = {
     }
 };
 
-/**
- * Action Types
- */
+// Runtime only: never added to state or exported project data.
+let projectSessionIdentity = {};
+const projectSessionListeners = new Set();
+export const getProjectSessionIdentity = () => projectSessionIdentity;
+export function subscribeProjectSession(listener) {
+    projectSessionListeners.add(listener);
+    return () => projectSessionListeners.delete(listener);
+}
+export function resetProjectSession() {
+    projectSessionIdentity = {};
+    for (const listener of projectSessionListeners) {
+        try { listener(); } catch { console.warn('[State] Project session listener failed'); }
+    }
+}
+
+/** Action Types */
 export const actionTypes = {
     // Project loading
     LOAD_PROJECT: 'LOAD_PROJECT',
@@ -110,6 +123,7 @@ export function dispatch(action) {
 
     switch (type) {
         case actionTypes.LOAD_PROJECT: {
+            resetProjectSession();
             // バックアップ/DSP 復元に含まれる uid・user は古いセッションの残骸で
             // Firebase Auth の現在ユーザーとズレると R2 の path と ID トークンが不一致になる。
             const projectPayload = {

@@ -1,6 +1,6 @@
-# WebMCP 読み取り専用接続：着手準備
+# WebMCP 読み取り専用接続
 
-確認日：2026-09-15。状態：既存作業の整理・仕様調査済み。WebMCP接続コードは未実装。
+確認日：2026-09-15。状態：共通読み取りツール・Studioの状態reader・ブラウザ登録adapter・プロフィールUIを実装済み。隔離Chromeの実API検証済み。外部AIクライアント検証は未実施。
 
 ## 最初の単位
 
@@ -24,7 +24,7 @@ Chrome公式はローカル開発用 `chrome://flags/#enable-webmcp-testing` と
 `document.modelContext` / `navigator.modelContext` ともに未提供。ユーザーが使用中のChromeやCodex内ブラウザの対応状態を意味しない。
 この環境での単体・モック試験を実クライアント接続成功とは扱わない。
 
-## ツール契約案
+## ツール契約
 
 | ツール名 | 入力 | 出力 |
 |---|---|---|
@@ -57,3 +57,31 @@ IME変換中・原稿反映待ちはbusyを返す。検索のために入力を�
 
 ChatGPT/Claude/Gemini/Apple Intelligenceのすべてから接続できるという保証はしない。
 初期検証は合成した原稿のみ。ユーザーの実作品を発行・外部送信しない。commitとstagingデプロイは別の依頼単位。
+
+## 共通処理の実装（2026-09-15）
+
+- `js/editor-readonly-tools.js` の `createEditorReadonlyTools` が2つのツール定義（名称・説明・JSON Schema・readOnlyHint・execute）を供給する。DOM、document.modelContext、ネットワーク、保存・履歴モジュールには依存しない。
+- `readState` は信頼するStudio専用の同期readerとして後続単位で接続する。契約は `{ room, workIdentity, blocks, languageKeys, languageKey, sourceLanguage, activeGroupId, selection, busy }`。workIdentityは永続IDではなく、作品の新規作成・開き直し・importごとに変わる内部識別子とする。
+- 初期無効。`enable()` ごとにランダムなworkTokenを発行し、`disable()` で破棄する。`getTools()` は有効化後に呼ぶ。返されたexecuteはその有効化世代に固定され、再有効化後も古い登録から新作品を読み出せない。
+- 毎回、ルーム・作品identity・有効状態を検査する。ホスト側で退出／切替／pagehideイベントからdisableを呼ぶ必要がある（呼出し間に退出して戻るケースをポーリングだけで検知しない）。
+- contextは現在のFlowを特定できるときだけtargetを返す。Fixed／画像など他対象と、未検証の翻訳・DOM選択はnull。原文の既存Flow selectionはsignatureと範囲・文字境界を照合し、本文を含めず返す。100段落超の選択はunverified扱い。
+- 検索は1〜20件、各抜粋160grapheme以内。抜粋と一致範囲のUTF-16オフセットを別に返し、長い一致も原稿位置を失わない。内部expectedText・署名・アカウント・作品名・クラウドIDは出力しない。
+- エラーは `{error:{code}}` の機械可読結果。原稿を含む可能性のある例外メッセージを公開しない。登録APIが要求するエラー表現への変換はadapter側で行う。
+- `npm run verify:editor-readonly-tools` と既存 `node scripts/verify-flow-search.cjs` で、凍結した原稿・ルビ・履歴の不変、英語原文、日本語翻訳、空翻訳、grapheme、件数制限、busy、古い選択／作品トークン／登録世代を検証。
+
+### ブラウザ接続へ引き継ぐ点
+
+ChromeとEdgeは試験対応。ChatGPT内蔵ブラウザは「サイトツール」としてJavaScript登録方式の一部に対応するため、まずトップレベルページの命令的登録を共通経路とする。
+[Chrome公式](https://developer.chrome.com/docs/ai/webmcp)／[Edge試験](https://developer.microsoft.com/en-us/microsoft-edge/origin-trials/trials/0b76fe60-b266-458e-a285-04e375c0c31a)／[ChatGPTサイトツール](https://learn.chatgpt.com/docs/webmcp)。
+共通モジュールは `js/studio-webmcp.js` を通じてStudioへ接続済み。外部AIクライアントからの呼出し、本文書込み・画像挿入は未対応／未検証。
+
+## Studioへの接続・実API検証（2026-09-15）
+
+- プロフィールにJA/EN対応の「AI連携（読み取り専用）」を追加。初期オフ、タブ内のみ。検索した本文の抜粋を接続AIへ提供する旨を表示する。非対応／オフ／登録中／ツール提供中／登録失敗を区別する。
+- トップレベルのsecure contextにある `document.modelContext.registerTool` のみ使用する。本文・保存形式は変更しない。無効化・画面退出・作品変更・pagehideでAbortControllerを中断し、2つの自分のツールだけ解除する。登録途中の失敗と再有効化の競合も処理する。
+- `js/state.js` に保存対象外のproject session identityと購読を追加。LOAD_PROJECT（同一作品の再読込を含む）と既存の新規／読込準備で世代を更新する。履歴や通常の本文編集では更新しない。
+- `readStudioAIState` は確定済みのstateと既存direct-editセッションを参照する。対象indexが不明ならnullとし、既存getActiveBlockの選択補正dispatchを呼ばない。原文のdirect／複数段落選択を検証して返し、未検証の原稿textarea／翻訳の選択は推測しない。IME・原稿反映待ちはbusy。
+- `verify:studio-webmcp-browser`: 実プロフィールの操作、英語原文検索、JA/EN、モバイル幅、登録途中失敗、他ツール保持、画面退出、同一作品再読込、pagehide、遅い登録の競合を合成原稿＋注入registryで検証。
+- `verify:studio-webmcp-native`: 隔離Chrome 153で `--enable-experimental-web-platform-features` を使用。実際のregisterTool／getTools／executeTool／abort解除、UI検索で選択した範囲、古いツール拒否、無効indexの不変を検証。通常ChromeではAPI未提供でスイッチが無効になることも確認。
+- 検証用のChrome 153はexecuteToolの引数・結果がJSON文字列。この差は検証用の呼出し側に限定し、DSFが登録するexecuteはオブジェクト引数・結果を維持する。[Chrome実装の変更記録](https://chromium.googlesource.com/external/github.com/web-platform-tests/wpt/+/refs/tags/merge_pr_62069)により、今後のバージョンでは呼出し側がオブジェクト形式へ移行する。ツール登録の共通処理に旧呼出し方式を持ち込まない。
+- 通常利用中のChrome設定は変更していない。外部AIへの実原稿送信、ChatGPT等のクライアントからの受け入れ試験、commit／デプロイは実施していない。
