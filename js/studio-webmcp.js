@@ -1,5 +1,6 @@
 import { createEditorReadonlyTools } from './editor-readonly-tools.js';
 import '../css/studio-webmcp.css';
+import { initStudioGemini, geminiHandoffMarkup } from './studio-gemini.js';
 
 /** Register only our own tools; aborting one session never removes another owner's tools. */
 export function createStudioWebMCP({ readState, getModelContext, onChange = () => {} }) {
@@ -58,9 +59,11 @@ const labels = {
 };
 
 export function initStudioWebMCP({ readState, getUILang, subscribeProjectSession, doc = document, win = window }) {
+    const gemini = initStudioGemini({ readState, getUILang, doc, win });
     const text = () => labels[getUILang() === 'en' ? 'en' : 'ja'];
     const getModelContext = () => win.top === win && win.isSecureContext ? doc.modelContext : null;
     function sync() {
+        gemini.sync();
         const status = connection.getStatus(), inEditor = readState().room === 'editor', copy = text();
         doc.querySelectorAll('[data-studio-ai]').forEach(root => {
             const input = root.querySelector('input');
@@ -79,20 +82,21 @@ export function initStudioWebMCP({ readState, getUILang, subscribeProjectSession
     doc.addEventListener('studio-ui-language-change', sync);
     win.addEventListener('pagehide', () => connection.disable());
     win.addEventListener('pageshow', sync);
-    subscribeProjectSession(() => connection.disable());
+    subscribeProjectSession(() => { connection.disable(); gemini.close(); });
     // Catch room changes even if a future caller bypasses switchRoom. Per-execution
     // checks still apply before this observer's microtask runs.
     const observer = new MutationObserver(records => {
-        if (records.some(record => record.oldValue === 'editor') || readState().room !== 'editor') connection.disable();
+        if (records.some(record => record.oldValue === 'editor') || readState().room !== 'editor') { connection.disable(); gemini.close(); }
         else sync();
     });
     observer.observe(doc.body, { attributes: true, attributeFilter: ['data-room'], attributeOldValue: true });
     sync();
-    return { disable: () => connection.disable(), sync };
+    return { disable: () => { connection.disable(); gemini.close(); }, sync };
 }
 
 export function studioWebMCPMarkup() {
     return `<div class="auth-panel-section studio-ai-tools" data-studio-ai>
+        ${geminiHandoffMarkup()}
         <label><input type="checkbox" disabled><span data-ai-title>AI tools</span></label>
         <small data-ai-status role="status"></small><p data-ai-notice></p>
     </div>`;

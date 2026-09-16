@@ -1,6 +1,6 @@
 # WebMCP 読み取り専用接続
 
-確認日：2026-09-15。状態：共通読み取りツール・Studioの状態reader・ブラウザ登録adapter・プロフィールUIを実装済み。隔離Chromeの実API検証済み。外部AIクライアント検証は未実施。
+確認日：2026-09-15。状態：共通読み取りツール・Studioの状態reader・ブラウザ登録adapter・プロフィールUIを実装済み。隔離Chromeの実API検証済み。Codex内蔵ブラウザから合成原稿の検証ページへのWebMCP呼出しも確認済み（下記参照）。
 
 ## 最初の単位
 
@@ -73,7 +73,7 @@ ChatGPT/Claude/Gemini/Apple Intelligenceのすべてから接続できるとい�
 
 ChromeとEdgeは試験対応。ChatGPT内蔵ブラウザは「サイトツール」としてJavaScript登録方式の一部に対応するため、まずトップレベルページの命令的登録を共通経路とする。
 [Chrome公式](https://developer.chrome.com/docs/ai/webmcp)／[Edge試験](https://developer.microsoft.com/en-us/microsoft-edge/origin-trials/trials/0b76fe60-b266-458e-a285-04e375c0c31a)／[ChatGPTサイトツール](https://learn.chatgpt.com/docs/webmcp)。
-共通モジュールは `js/studio-webmcp.js` を通じてStudioへ接続済み。外部AIクライアントからの呼出し、本文書込み・画像挿入は未対応／未検証。
+共通モジュールは `js/studio-webmcp.js` を通じてStudioへ接続済み。Codexからの読み取り呼出しは下記の範囲で確認済み。本文書込み・画像挿入は未実装。
 
 ## Studioへの接続・実API検証（2026-09-15）
 
@@ -85,3 +85,45 @@ ChromeとEdgeは試験対応。ChatGPT内蔵ブラウザは「サイトツール
 - `verify:studio-webmcp-native`: 隔離Chrome 153で `--enable-experimental-web-platform-features` を使用。実際のregisterTool／getTools／executeTool／abort解除、UI検索で選択した範囲、古いツール拒否、無効indexの不変を検証。通常ChromeではAPI未提供でスイッチが無効になることも確認。
 - 検証用のChrome 153はexecuteToolの引数・結果がJSON文字列。この差は検証用の呼出し側に限定し、DSFが登録するexecuteはオブジェクト引数・結果を維持する。[Chrome実装の変更記録](https://chromium.googlesource.com/external/github.com/web-platform-tests/wpt/+/refs/tags/merge_pr_62069)により、今後のバージョンでは呼出し側がオブジェクト形式へ移行する。ツール登録の共通処理に旧呼出し方式を持ち込まない。
 - 通常利用中のChrome設定は変更していない。外部AIへの実原稿送信、ChatGPT等のクライアントからの受け入れ試験、commit／デプロイは実施していない。
+
+
+## 外部AIクライアント受け入れ確認（2026-09-15）
+
+Codex内蔵ブラウザで `scripts/fixtures/studio-webmcp-client.html` を開き、サイトツールの `fetchTools()` / `call()` を通じて、この会話のAIから実際に呼び出した。ページ内のexecuteToolを直接実行する試験ではない。
+
+検証ページは本番と同じ `js/studio-webmcp.js` と共通読み取りツールを使用し、readStateのみを凍結した合成原稿に置き換える。Studioの実作品・認証・保存モジュールは読み込まない。
+
+| 確認項目 | 結果 |
+|---|---|
+| AI連携オンでツール発見 | context/searchの2ツールを取得 |
+| 編集対象の取得 | ja原文、sample-aのFlow、作品トークンを取得 |
+| 日本語「灯台」 | currentFlowで2件、workで3件 |
+| 英語「lighthouse」 | en-GBのworkで3件 |
+| 未入力翻訳 | en-USで0件、原文へfallbackしない |
+| 合成作品の切替 | 連携がオフになり、サイトツール一覧から消える |
+| 再有効化 | 新しい作品トークンを発行 |
+| 古い作品トークンで検索 | DSF_STALE_WORK_TOKENで拒否 |
+| 最後にオフ | ツール一覧が空になり、原稿不変：OK |
+
+確認範囲はCodex内蔵ブラウザと合成原稿ページの組合せ。実エディターのstate reader・選択範囲との接続は前節のブラウザ試験で確認しており、今回の外部AI呼出しでは実作品を使っていない。ChatGPT、Claude、Gemini等の各クライアントでの接続成功を意味しない。外部AIへの書込み操作・保存・発行は今回の対象外。
+
+再確認する場合は上記fixtureをlocalhostで開き、AI連携をオンにする。contextで取得したworkTokenを検索へ渡し、最後にオフへ戻す。ブラウザが非対応と表示された場合、通常利用中のブラウザ設定を変更せず対応クライアントで確認する。
+
+
+## ChromeのGeminiへの相談準備（2026-09-16）
+
+プロフィール内の「Geminiに相談」から、現在のFlow原稿・表示中の本文言語と依頼文を確認してコピーし、Chrome右上のGeminiに貼り付けて送信する導線を追加。
+
+- WebMCPの有効化、拡張機能、APIキーは不要。WebMCP非対応環境でも利用できる。
+- これは手動の受け渡し。Geminiの起動・送信、原稿の自動編集は行わず、接続済みとは表示しない。
+- 対象は現在のFlow内の見出し・段落本文。画像・ルビの読み・書式、他のFlow、他作品は含めない。翻訳未入力箇所を原文で補わない。
+- 12,000書記素を超える場合は冒頭のみ。抜粋であることを画面と依頼文に明記する。
+- コピー前に対象・言語・原稿を再照合。変更があれば取り込み直しを要求し、作品切替・Editor退出・言語UI切替では相談画面を閉じる。
+- 依頼内容は保存しない。DSFから外部へ送信しない。利用者がGeminiに貼り付けて送信した時点でGoogleへ渡ることを画面に表示する。
+- コピー失敗時は依頼全文を選択して手動コピーできる。
+
+Google公式のWebMCPツール検証拡張とGemini in Chromeは別機能。DSFからGemini in Chromeを直接起動・送信する公開インターフェースは確認できていない。自動操作との接続は対応クライアントが確認できた段階で別途検証する。
+
+参照: [WebMCP](https://developer.chrome.com/docs/ai/webmcp)、[Gemini in Chrome](https://support.google.com/gemini/answer/16283624)。
+
+検証: 合成原稿を用いた通常Chromeでの画面表示・コピー・空依頼の無効化。Gemini側への送信と回答は未検証。
