@@ -138,7 +138,7 @@ Google公式のWebMCPツール検証拡張とGemini in Chromeは別機能。DSF�
 | ツール | 契約 |
 |---|---|
 | `dsf_read_flow_paragraph` | context/searchで得たworkToken・groupId・sectionId・blockId・languageKeyを指定。現在のFlow・表示中の本文言語の1見出し/段落全文とeditTokenを返す。翻訳がなければ空文字とmissingTranslation=true。原文fallbackなし。 |
-| `dsf_replace_flow_paragraph` | workToken・editToken・textを指定。取得時のFlow全体と現在の対象・言語・busy状態を再照合してから変更。1段落の平文、最大12,000 UTF-16 code units、改行なし。 |
+| `dsf_replace_flow_paragraph` | workToken・editToken・textを指定。取得時のFlow全体と現在の対象・言語・busy状態を再照合してから変更。1段落の平文、最大12,000 UTF-16 code units。既存改行は種類・数・順序を保持したまま全文を更新できる。改行の追加・削除・種類変更はLINE_BREAKS_CHANGEDで拒否する。 |
 
 - 編集券はメモリ内で最新1件のみ。他段落の取得は古い券を失効させる。成功後の同一引数再送は直前の結果にreplayed=trueを付けて返すだけで、再適用・履歴追加しない。
 - 段落ID、種類、分割、他言語本文を維持する。既存の注釈更新・配置anchor再対応・原文変更時の翻訳状態記録／翻訳手動更新を使う。ルビ対象文字の変更はneeds-reviewとなり、画面で確認が必要。
@@ -154,3 +154,7 @@ Google公式のWebMCPツール検証拡張とGemini in Chromeは別機能。DSF�
 `/scripts/fixtures/studio-webmcp-write.html` は合成原稿専用で、本番と同じ登録adapter・編集処理・Undo履歴を使う。Chrome実APIで段落取得・更新・再送・Undo・手動変更後の拒否を確認。検証ページは保存せず、通常のビルド成果物には含まれない。
 
 Chrome内ChatGPTの会話から実際にツールを選択すること、Studio上での実作品編集・クラウド自動保存は今回のChrome検証範囲に含めない。対応UIが表示されても、そのクライアントからの呼出し成功は別途確認する。
+
+### 改行を含む貼り付け原稿の修正
+
+複数行の貼り付けが1つのsemantic Paragraphになる場合も、既存改行を保持して語句を置換できる。改行を含むだけでINVALID_ARGUMENTSにしない。改行構成の変更は専用エラーを返し、編集券を保持して修正再送できる。5行・空行入り原稿の取得→置換→再取得、他言語保持、Undo/Redo、およびLF/CRLF/CR/Unicode改行の保持を回帰検証する。段落の分割・結合は行わない。

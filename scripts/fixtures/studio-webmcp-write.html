@@ -12,7 +12,8 @@ import {createFlowGroupBlock} from '/js/flow-project-model.js';
 import {state} from '/js/state.js';
 import {pushState,undo,redo,getHistoryInfo} from '/js/history.js';
 let identity={},languageKey='ja',paragraph; const subscribers=new Set();
-state.version=6; state.blocks=[createFlowGroupBlock({id:'sample',sourceLanguage:'ja',document:{sourceLanguage:'ja',sections:[{id:'s',blocks:[{id:'p',type:'paragraph',texts:{ja:'灯台の光。','en-GB':'A lighthouse.'}}]}]}})];
+const sampleText=new URLSearchParams(location.search).has('multiline') ? '灯台のある町\n\n海辺の町に、小さな灯台がありました。\n\n夕暮れになると、灯台の光。遠くの船を静かに照らします。\n\n少年は港で、その光を眺めていました。\n\n明日も、この町には穏やかな朝が訪れるでしょう。' : '灯台の光。';
+state.version=6; state.blocks=[createFlowGroupBlock({id:'sample',sourceLanguage:'ja',document:{sourceLanguage:'ja',sections:[{id:'s',blocks:[{id:'p',type:'paragraph',texts:{ja:sampleText,'en-GB':'A lighthouse.'}}]}]}})];
 document.body.dataset.room='editor'; document.querySelector('#controls').innerHTML=studioWebMCPMarkup();
 const render=()=>{document.querySelector('#text').textContent=JSON.stringify(state.blocks[0].flow.document.sections[0].blocks[0].texts,null,2);document.querySelector('#status').textContent=JSON.stringify(getHistoryInfo());};
 initStudioWebMCP({getUILang:()=> 'ja',readState:()=>({room:'editor',workIdentity:identity,blocks:state.blocks,languageKeys:['ja','en-GB','en-US'],languageKey,activeGroupId:'sample',busy:false}),subscribeProjectSession:fn=>subscribers.add(fn),applyEdit:result=>{pushState();state.blocks=result.blocks;render();}});
@@ -23,5 +24,5 @@ document.querySelector('#switch').onclick=()=>{identity={};subscribers.forEach(f
 async function call(name,args){const api=document.modelContext;const tool=(await api.getTools()).find(t=>t.name===name);if(!tool)throw Error('Tool unavailable');const raw=await api.executeTool(tool,JSON.stringify(args));return typeof raw==='string'?JSON.parse(raw):raw;}
 const report=async fn=>{try{document.querySelector('#result').textContent=JSON.stringify(await fn(),null,2);}catch(e){document.querySelector('#result').textContent=e.message;}};
 document.querySelector('#read').onclick=()=>report(async()=>{const ctx=await call('dsf_get_editor_context',{});paragraph=await call('dsf_read_flow_paragraph',{workToken:ctx.workToken,groupId:'sample',sectionId:'s',blockId:'p',languageKey});return paragraph;});
-document.querySelector('#write').onclick=()=>report(()=>call('dsf_replace_flow_paragraph',{workToken:paragraph?.workToken,editToken:paragraph?.editToken,text:'灯台の明かり。'}));render();
+document.querySelector('#write').onclick=()=>report(()=>call('dsf_replace_flow_paragraph',{workToken:paragraph?.workToken,editToken:paragraph?.editToken,text:paragraph?.text?.replace('灯台の光。','灯台の明かり。')}));render();
 </script></html>

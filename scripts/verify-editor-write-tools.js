@@ -32,7 +32,8 @@ assert.equal(state.blocks[0].flow.document.sections[0].blocks[0].texts.ja, '手�
 languageKey = 'en-US'; const missing = read(token); assert.equal(missing.text, ''); assert.equal(missing.missingTranslation, true);
 assert.equal(write(missing, 'New translation.').changed, true);
 const latest = read(token); const snap = JSON.stringify(state.blocks);
-for (const text of ['x\ny', 'x'.repeat(12001), 12]) assert.equal(write(latest, text).error.code, 'INVALID_ARGUMENTS');
+assert.equal(write(latest, 'x\ny').error.code, 'LINE_BREAKS_CHANGED');
+for (const text of ['x'.repeat(12001), 12]) assert.equal(write(latest, text).error.code, 'INVALID_ARGUMENTS');
 assert.equal(JSON.stringify(state.blocks), snap);
 activeGroupId = 'another'; assert.equal(write(latest, 'x').error.code, 'TARGET_CHANGED'); activeGroupId = 'g';
 readonly.disable(); assert.equal(write(latest, 'x').error.code, 'DISABLED');
@@ -53,4 +54,29 @@ assert.equal(unicode.blocks[0].flow.document.sections[0].blocks[0].texts.ja, '�
 assert.equal(group.flow.document.sections[0].blocks[0].texts.ja, '灯台の光。');
 const changedRuby = editFlowParagraph([group], target, '灯台の光。', '灯塔の光。').blocks[0].flow.document.sections[0].blocks[0];
 assert.equal(changedRuby.annotations.ja[0].reviewState, 'needs-review');
+// Pasted manuscripts can contain all visible lines inside one semantic paragraph.
+readonly.disable(); identity = {}; languageKey = 'ja'; state.blocks = [make()]; clearHistory();
+const multiline = '灯台のある町\n\n海辺の町に、小さな灯台がありました。\n\n夕暮れになると、灯台の光。遠くの船を静かに照らします。\n\n少年は港で、その光を眺めていました。\n\n明日も、この町には穏やかな朝が訪れるでしょう。';
+state.blocks[0].flow.document.sections[0].blocks[0].texts.ja = multiline;
+const multilineBefore = JSON.stringify(state.blocks), commitsBefore = commits;
+readonly.enable(); const multi = read(readonly.execute('dsf_get_editor_context', {}).workToken);
+const replacement = multiline.replace('灯台の光。', '灯台の明かり。');
+for (const text of [replacement.replace(/\n/g, ''), replacement + '\n', replacement.replace('\n', '\r\n')]) {
+    assert.equal(write(multi, text).error.code, 'LINE_BREAKS_CHANGED');
+    assert.equal(JSON.stringify(state.blocks), multilineBefore);
+}
+assert.equal(write(multi, replacement).changed, true); assert.equal(commits, commitsBefore + 1);
+assert.equal(state.blocks[0].flow.document.sections[0].blocks.length, 1);
+assert.equal(state.blocks[0].flow.document.sections[0].blocks[0].texts.ja, replacement);
+assert.equal(state.blocks[0].flow.document.sections[0].blocks[0].texts['en-GB'], 'A lighthouse.');
+assert.equal(read(multi.workToken).text, replacement);
+undo(() => {}); assert.equal(JSON.stringify(state.blocks), multilineBefore);
+redo(() => {}); assert.equal(state.blocks[0].flow.document.sections[0].blocks[0].texts.ja, replacement);
+for (const separator of ['\n', '\r\n', '\r', '\u2028', '\u2029']) {
+    const g = make(), original = '前の行' + separator + '灯台の光。' + separator + '後の行';
+    g.flow.document.sections[0].blocks[0].texts.ja = original;
+    const updated = original.replace('光', '明かり');
+    assert.equal(editFlowParagraph([g], target, original, updated).blocks[0].flow.document.sections[0].blocks[0].texts.ja, updated);
+    assert.throws(() => editFlowParagraph([g], target, original, updated + separator), { code: 'LINE_BREAKS_CHANGED' });
+}
 console.log('Write tools passed: exact target, stale/replay/revoke guards, Unicode text, translations, annotations, Undo/Redo and one history step.');
