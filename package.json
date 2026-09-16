@@ -23,6 +23,7 @@
     "test:firebase": "node scripts/verify-firebase.js",
     "verify:studio-webmcp-browser": "node scripts/verify-studio-webmcp-browser.cjs",
     "verify:studio-webmcp-native": "node scripts/verify-studio-webmcp-native.cjs",
+    "verify:editor-write-tools": "node scripts/verify-editor-write-tools.js",
     "verify:editor-readonly-tools": "node scripts/verify-editor-readonly-tools.js",
     "verify:flow-foundation": "node scripts/verify-flow-foundation.js",
     "verify:flow-model": "node scripts/verify-flow-model.js",

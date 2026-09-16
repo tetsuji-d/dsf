@@ -1,6 +1,6 @@
-# WebMCP 読み取り専用接続
+# WebMCP 接続・段落編集
 
-確認日：2026-09-15。状態：共通読み取りツール・Studioの状態reader・ブラウザ登録adapter・プロフィールUIを実装済み。隔離Chromeの実API検証済み。Codex内蔵ブラウザから合成原稿の検証ページへのWebMCP呼出しも確認済み（下記参照）。
+確認日：2026-09-16。追加実装：段落書き込み（ローカル、未デプロイ）。下記の読み取り専用段階に加え、末尾の書き込み契約を参照。従来の状態：共通読み取りツール・Studioの状態reader・ブラウザ登録adapter・プロフィールUIを実装済み。隔離Chromeの実API検証済み。Codex内蔵ブラウザから合成原稿の検証ページへのWebMCP呼出しも確認済み（下記参照）。
 
 ## 最初の単位
 
@@ -127,3 +127,30 @@ Google公式のWebMCPツール検証拡張とGemini in Chromeは別機能。DSF�
 参照: [WebMCP](https://developer.chrome.com/docs/ai/webmcp)、[Gemini in Chrome](https://support.google.com/gemini/answer/16283624)。
 
 検証: 合成原稿を用いた通常Chromeでの画面表示・コピー・空依頼の無効化。Gemini側への送信と回答は未検証。
+
+
+## 段落書き込み（2026-09-16）
+
+プロフィールの読み取り連携をオンにした後、「段落の書き込みを許可」を明示的にオンにする。初期オフ、作品切替・Editor退出・pagehide・連携オフで失効。書き込み許可の切替時には登録世代と作品トークンを更新する。読み取りだけでは従来の2ツールのみ。
+
+書き込み時は次の2ツールを追加する。
+
+| ツール | 契約 |
+|---|---|
+| `dsf_read_flow_paragraph` | context/searchで得たworkToken・groupId・sectionId・blockId・languageKeyを指定。現在のFlow・表示中の本文言語の1見出し/段落全文とeditTokenを返す。翻訳がなければ空文字とmissingTranslation=true。原文fallbackなし。 |
+| `dsf_replace_flow_paragraph` | workToken・editToken・textを指定。取得時のFlow全体と現在の対象・言語・busy状態を再照合してから変更。1段落の平文、最大12,000 UTF-16 code units、改行なし。 |
+
+- 編集券はメモリ内で最新1件のみ。他段落の取得は古い券を失効させる。成功後の同一引数再送は直前の結果にreplayed=trueを付けて返すだけで、再適用・履歴追加しない。
+- 段落ID、種類、分割、他言語本文を維持する。既存の注釈更新・配置anchor再対応・原文変更時の翻訳状態記録／翻訳手動更新を使う。ルビ対象文字の変更はneeds-reviewとなり、画面で確認が必要。
+- 純粋な編集結果を生成・検証してからStudioのapplyEditorSpineChangeへ渡し、既存Undo/Redo、再組版、通常の自動保存へ接続する。AIだけの別保存経路や公開操作は追加しない。
+- 原稿反映待ちや組版処理中はBUSY。古い編集券はSTALE_EDIT_TOKEN、原稿変更はSTALE_TEXT、対象変更はTARGET_CHANGED。エラーには原稿を含む例外文字列を返さない。
+- 書き込みツールにはreadOnlyHint=false、consequentialHint=trueを付ける。ただし注釈だけに依存せず実装でも境界を検証する。
+- 画像挿入・段落追加/削除・一括置換・スタイル変更・AIからのUndo・発行は未提供。DSP/DSF/Firestore形式変更なし。
+
+### 検証
+
+`npm run verify:editor-write-tools`：対象と言語の分離、古い券/作品の拒否、重複再送、空翻訳への入力、長さ・改行制限、Unicode、注釈維持、翻訳状態、履歴1件・Undo/Redoを確認。既存readonlyとFlow置換の検証も通過。
+
+`/scripts/fixtures/studio-webmcp-write.html` は合成原稿専用で、本番と同じ登録adapter・編集処理・Undo履歴を使う。Chrome実APIで段落取得・更新・再送・Undo・手動変更後の拒否を確認。検証ページは保存せず、通常のビルド成果物には含まれない。
+
+Chrome内ChatGPTの会話から実際にツールを選択すること、Studio上での実作品編集・クラウド自動保存は今回のChrome検証範囲に含めない。対応UIが表示されても、そのクライアントからの呼出し成功は別途確認する。

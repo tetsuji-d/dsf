@@ -11603,7 +11603,15 @@ window.deleteSelectedBubble = function (bubbleIndex) {
 };
 
 initStudioHelp();
-studioAI = initStudioWebMCP({ getUILang, subscribeProjectSession, readState: readStudioAIState });
+studioAI = initStudioWebMCP({ getUILang, subscribeProjectSession, readState: readStudioAIState,
+    applyEdit: result => {
+        if (readStudioAIState().busy || _editorFlowProjectionController) throw new Error('AI_EDIT_BUSY');
+        const active = state.blocks[state.activeBlockIdx];
+        applyEditorSpineChange({ ...result, activeBlockIndex: state.activeBlockIdx }, {
+            flowPageIndex: getSelectedFlowRuntimePageIndex(active.id), preserveFlowSource: isFlowSourceSelected(active.id),
+        });
+    },
+});
 
 // Snapshot existing semantic selection only; never focus, commit, reflow or navigate.
 function readStudioAIState() {
@@ -11611,7 +11619,7 @@ function readStudioAIState() {
     const group = Number.isInteger(state.activeBlockIdx) ? state.blocks?.[state.activeBlockIdx] : null;
     const languageKey = state.activeLang || state.defaultLang;
     const session = _flowDirectEditSession, proxy = _flowDirectEditProxy;
-    const busy = Boolean(editorDragBlocked(false) || _flowAuthoringReflowTimer
+    const busy = Boolean(editorDragBlocked(false) || _editorFlowProjectionController || _flowAuthoringReflowTimer
         || proxy?.dataset.flowReflowPending === 'true'
         || (session && proxy?.isConnected && proxy.value !== session.expectedText));
     let selection = _flowTextSelection;

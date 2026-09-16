@@ -5,7 +5,7 @@ const {chromium}=require(process.env.DSF_PLAYWRIGHT_MODULE),assert=require('node
  await p.goto('http://127.0.0.1:5178/studio?room=editor');
  await p.waitForFunction(()=>document.querySelector('[data-ai-status]')?.textContent!=='');
  const native=await p.evaluate(()=>typeof document.modelContext?.registerTool==='function');
- if(!native){assert.equal(await p.locator('[data-studio-ai] input').first().isDisabled(),true);assert.match(await p.locator('[data-ai-status]').first().innerText(),/非対応|Unavailable/);}
+ if(!native){assert.equal(await p.locator('[data-studio-ai] [data-ai-read]').first().isDisabled(),true);assert.match(await p.locator('[data-ai-status]').first().innerText(),/非対応|Unavailable/);}
  // Injected registry tests the real profile and application reader, not native compatibility.
  await p.addInitScript(()=>{
   const registry=new Map();window.testTools=registry;window.testMode='ok';window.testSaved=[];
@@ -29,7 +29,7 @@ const {chromium}=require(process.env.DSF_PLAYWRIGHT_MODULE),assert=require('node
  await p.locator('[data-testid=flow-editor-generated-page]').first().waitFor().catch(async e=>{console.log('DIAGNOSTICS',errors,await p.locator('body').innerText());throw e;});
  const before=await p.evaluate(()=>JSON.stringify(window.testState.blocks));
  const openProfile=async()=>{if(!await p.locator('[data-auth-dropdown].open').count())await p.locator('[data-auth-trigger]').filter({visible:true}).first().click();};
- const toggle=()=>p.locator('[data-auth-dropdown].open [data-studio-ai] input');
+ const toggle=()=>p.locator('[data-auth-dropdown].open [data-studio-ai] [data-ai-read]');
  await openProfile();await toggle().check();await p.waitForFunction(()=>document.querySelector('[data-ai-status]').textContent==='ツール提供中');
  assert.equal(await p.evaluate(()=>window.testTools.size),2);
  const output=await p.evaluate(async()=>{const context=await testTools.get('dsf_get_editor_context').execute({});const result=await testTools.get('dsf_search_flow_text').execute({workToken:context.workToken,query:'sea',languageKey:'en-GB',scope:'currentFlow'});return {context,result};});
