@@ -4,27 +4,32 @@
 <section id="controls"></section><section><label>本文言語<select id="language"><option>ja</option><option>en-GB</option><option>en-US</option></select></label>
 <button id="undo">元に戻す</button><button id="redo">やり直す</button><button id="manual">手動変更を模擬</button><button id="switch">作品切替を模擬</button>
 <pre id="text"></pre><p id="status" role="status"></p></section>
-<section><h2>Chrome実APIの検証操作</h2><p>AI連携と書き込みをオンにしてから実行。Chrome 153のJSON引数形式用。合成原稿のpのみを編集します。</p>
-<button id="list">段落一覧</button><button id="invalid">期限切れトークンを検証</button><button id="read">段落取得</button><button id="write">「灯台の明かり。」に更新</button><pre id="result"></pre></section>
+<section><h2>Chrome実APIの検証操作</h2><p>AI連携と書き込みをオンにしてから実行。Chrome 153のJSON引数形式用。新規作成・追加も合成原稿内のみ。新規作成前の退避はメモリ内に保持します。</p>
+<button id="create">英語の新規作品</button><button id="append">見出しと2段落を追加</button><button id="retry-append">追加を再送</button><button id="list">段落一覧</button><button id="invalid">期限切れトークンを検証</button><button id="read">段落取得</button><button id="write">「灯台の明かり。」に更新</button><pre id="result"></pre></section>
 <script type="module">
 import {initStudioWebMCP,studioWebMCPMarkup} from '/js/studio-webmcp.js';
 import {createFlowGroupBlock} from '/js/flow-project-model.js';
+import {createProjectWithBackup} from '/js/editor-project-create.js';
 import {state} from '/js/state.js';
-import {pushState,undo,redo,getHistoryInfo} from '/js/history.js';
-let identity={},languageKey='ja',paragraph; const subscribers=new Set();
+import {pushState,undo,redo,getHistoryInfo,clearHistory} from '/js/history.js';
+let identity={},languageKey='ja',paragraph,appendArgs,backup;  const subscribers=new Set();
 const sampleText=new URLSearchParams(location.search).has('multiline') ? '灯台のある町\n\n海辺の町に、小さな灯台がありました。\n\n夕暮れになると、灯台の光。遠くの船を静かに照らします。\n\n少年は港で、その光を眺めていました。\n\n明日も、この町には穏やかな朝が訪れるでしょう。' : '灯台の光。';
 state.version=6; state.blocks=[createFlowGroupBlock({id:'sample',sourceLanguage:'ja',document:{sourceLanguage:'ja',sections:[{id:'s',blocks:[{id:'p',type:'paragraph',texts:{ja:sampleText,'en-GB':'A lighthouse.'}}]}]}})];
 document.body.dataset.room='editor'; document.querySelector('#controls').innerHTML=studioWebMCPMarkup();
-const render=()=>{document.querySelector('#text').textContent=JSON.stringify(state.blocks[0].flow.document.sections[0].blocks[0].texts,null,2);document.querySelector('#status').textContent=JSON.stringify(getHistoryInfo());};
-initStudioWebMCP({getUILang:()=> 'ja',readState:()=>({room:'editor',workIdentity:identity,blocks:state.blocks,languageKeys:['ja','en-GB','en-US'],languageKey,activeGroupId:'sample',busy:false}),subscribeProjectSession:fn=>subscribers.add(fn),applyEdit:result=>{pushState();state.blocks=result.blocks;render();}});
+const render=()=>{document.querySelector('#text').textContent=JSON.stringify(state.blocks[0].flow.document.sections,null,2);document.querySelector('#status').textContent=JSON.stringify(getHistoryInfo());};
+initStudioWebMCP({getUILang:()=> 'ja',readState:()=>({room:'editor',workIdentity:identity,blocks:state.blocks,languageKeys:['ja','en-GB','en-US'],languageKey,activeGroupId:state.blocks[0].id,busy:false}),subscribeProjectSession:fn=>subscribers.add(fn),createProject:(draft,guard)=>createProjectWithBackup(draft,guard,{
+ readProject:()=>state,flushPendingSave:async()=>{},backup:async snapshot=>{backup=snapshot;},commit:next=>{state.blocks=next.blocks;state.title=next.title;state.projectName=next.projectName;languageKey=next.languageKey;document.querySelector('#language').value=languageKey;identity={};subscribers.forEach(fn=>fn());clearHistory();render();}}),applyEdit:result=>{pushState();state.blocks=result.blocks;render();}});
 document.querySelector('#language').onchange=e=>{languageKey=e.target.value;};
 document.querySelector('#undo').onclick=()=>undo(render);document.querySelector('#redo').onclick=()=>redo(render);
 document.querySelector('#manual').onclick=()=>{pushState();state.blocks[0].flow.document.sections[0].blocks[0].texts.ja='人が編集した原稿。';render();};
 document.querySelector('#switch').onclick=()=>{identity={};subscribers.forEach(fn=>fn());};
 async function call(name,args){const api=document.modelContext;const tool=(await api.getTools()).find(t=>t.name===name);if(!tool)throw Error('Tool unavailable');const raw=await api.executeTool(tool,JSON.stringify(args));return typeof raw==='string'?JSON.parse(raw):raw;}
 const report=async fn=>{try{document.querySelector('#result').textContent=JSON.stringify(await fn(),null,2);}catch(e){document.querySelector('#result').textContent=e.message;}};
+document.querySelector('#create').onclick=()=>report(async()=>{const ctx=await call('dsf_get_editor_context',{});return call('dsf_create_flow_project',{workToken:ctx.workToken,projectName:'AI検証作品',title:'The Lighthouse',languageKey:'en-GB',writingMode:'horizontal-tb'});});
+document.querySelector('#append').onclick=()=>report(async()=>{const ctx=await call('dsf_get_editor_context',{});const prepared=await call('dsf_prepare_flow_append',{workToken:ctx.workToken});if(prepared.error)return prepared;appendArgs={workToken:ctx.workToken,appendToken:prepared.appendToken,blocks:[{type:'heading',text:'Chapter 1',level:1},{type:'paragraph',text:'A light shone across the sea.'},{type:'paragraph',text:'The journey began.'}]};return call('dsf_append_flow_blocks',appendArgs);});
+document.querySelector('#retry-append').onclick=()=>report(()=>call('dsf_append_flow_blocks',appendArgs));
 document.querySelector('#list').onclick=()=>report(async()=>{const ctx=await call('dsf_get_editor_context',{});return call('dsf_list_flow_paragraphs',{workToken:ctx.workToken});});
 document.querySelector('#invalid').onclick=()=>report(()=>call('dsf_list_flow_paragraphs',{workToken:'expired'}));
-document.querySelector('#read').onclick=()=>report(async()=>{const ctx=await call('dsf_get_editor_context',{});paragraph=await call('dsf_read_flow_paragraph',{workToken:ctx.workToken,groupId:'sample',sectionId:'s',blockId:'p',languageKey});return paragraph;});
+document.querySelector('#read').onclick=()=>report(async()=>{const ctx=await call('dsf_get_editor_context',{});paragraph=await call('dsf_read_flow_paragraph',{workToken:ctx.workToken,groupId:state.blocks[0].id,sectionId:state.blocks[0].flow.document.sections[0].id,blockId:state.blocks[0].flow.document.sections[0].blocks[0].id,languageKey});return paragraph;});
 document.querySelector('#write').onclick=()=>report(()=>call('dsf_replace_flow_paragraph',{workToken:paragraph?.workToken,editToken:paragraph?.editToken,text:paragraph?.text?.replace('灯台の光。','灯台の明かり。')}));render();
 </script></html>

@@ -1,5 +1,7 @@
 // Public, static recovery guidance. Never include manuscript or exception messages.
 const guidance = {
+    SOURCE_LANGUAGE_REQUIRED: ['Switch to the original manuscript language before appending blocks.', '見出し・段落の追加は原文言語に切り替えて行ってください。'],
+    PROJECT_CREATE_FAILED: ['Project creation failed. Check local storage and the current project before retrying.', '新規作成に失敗しました。ローカル保存領域と現在の作品を確認してください。'],
     INVALID_ARGUMENTS: ['Check the tool input schema and supply only the declared fields.', '入力項目と型を確認してください。'],
     BUSY: ['Wait for typing/composition and layout to finish, then retry.', '入力・組版の完了後に再試行してください。'],
     STALE_TEXT: ['Read the paragraph again and review its current text before editing.', '本文が変わりました。段落を取得し直してください。'],

@@ -1,3 +1,4 @@
+import { createProjectWithBackup } from './editor-project-create.js';
 import { initStudioWebMCP, studioWebMCPMarkup } from './studio-webmcp.js';
 import { getProjectSessionIdentity, resetProjectSession, subscribeProjectSession } from './state.js';
 let studioAI = null;
@@ -9930,20 +9931,26 @@ window.newProject = async () => {
     const choice=await chooseSourceLanguage({initial:state.defaultLang,configs:state.languageConfigs,project:true});
     if(!choice)return false;
     await flushPendingSave();
+    return initializeNewProject(choice);
+};
+
+function initializeNewProject(choice, draft = null) {
     resetFlowRuntimeForProjectChange();
     state.projectAssets = [];
+    state.localProjectId = null;
+    state.dsfPages = [];
     dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'projectId', value: null } });
-    dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'version', value: 5 } });
+    dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'version', value: draft ? PROJECT_SCHEMA_VERSION : 5 } });
     dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'workId', value: createId('work') } });
     dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'releaseId', value: null } });
-    dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'projectName', value: '' } });
-    dispatch({ type: actionTypes.SET_TITLE, payload: '' });
+    dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'projectName', value: draft?.projectName || '' } });
+    dispatch({ type: actionTypes.SET_TITLE, payload: draft?.title || '' });
     dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'publicationThumbnailUrl', value: '' } });
     dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'labelName', value: '' } });
     dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'rating', value: 'all' } });
     dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'license', value: 'all-rights-reserved' } });
     dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'textPaperPreset', value: 'white' } });
-    dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'meta', value: {} } });
+    dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'meta', value: draft ? { [choice.languageKey]: { title: draft.title } } : {} } });
     dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'languages', value: [choice.languageKey] } });
     dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'defaultLang', value: choice.languageKey } });
     dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'languageConfigs', value: { [choice.languageKey]: { pageDirection: choice.pageDirection } } } });
@@ -9952,13 +9959,13 @@ window.newProject = async () => {
     dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'uiPrefs', value: { desktop: { thumbColumns: 2 }, mobile: { thumbColumns: 2 } } } });
     applyThumbColumnsFromPrefs();
     dispatch({ type: actionTypes.SET_ACTIVE_LANGUAGE, payload: choice.languageKey });
-    const initialSections = [{
+    const initialSections = draft ? [] : [{
         type: 'image',
         background: 'https://picsum.photos/id/10/600/1066',
         backgrounds: {},
         bubbles: []
     }];
-    const initialBlocks = migrateSectionsToBlocks(initialSections, [choice.languageKey]);
+    const initialBlocks = draft?.blocks || migrateSectionsToBlocks(initialSections, [choice.languageKey]);
     dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'sections', value: initialSections } });
     dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'blocks', value: initialBlocks } });
     dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'pages', value: blocksToPages(initialBlocks) } });
@@ -9966,9 +9973,11 @@ window.newProject = async () => {
     dispatch({ type: actionTypes.SET_ACTIVE_BLOCK_INDEX, payload: Math.max(0, getBlockIndexFromPageIndex(initialBlocks, 0)) });
     dispatch({ type: actionTypes.SET_ACTIVE_BUBBLE_INDEX, payload: null });
     clearHistory();
+    if (draft) selectFlowSource(initialBlocks[0].id);
     refresh();
     renderLangSettings();
     closeProjectModal();
+    if (draft) triggerAutoSave();
     return true;
 };
 
@@ -11604,6 +11613,11 @@ window.deleteSelectedBubble = function (bubbleIndex) {
 
 initStudioHelp();
 studioAI = initStudioWebMCP({ getUILang, subscribeProjectSession, readState: readStudioAIState,
+    createProject: (draft, guard) => createProjectWithBackup(draft, guard, {
+        readProject: () => state, flushPendingSave,
+        backup: snapshot => cacheLocalRecentProject(snapshot, window.localImageMap),
+        commit: next => initializeNewProject({ languageKey: next.languageKey, pageDirection: next.writingMode === 'vertical-rl' ? 'rtl' : 'ltr' }, next),
+    }),
     applyEdit: result => {
         if (readStudioAIState().busy || _editorFlowProjectionController) throw new Error('AI_EDIT_BUSY');
         const active = state.blocks[state.activeBlockIdx];

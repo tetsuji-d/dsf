@@ -1,3 +1,4 @@
+import { createEditorAuthoringTools } from './editor-authoring-tools.js';
 import { editorToolErrorMessage, withEditorToolRecovery } from './editor-tool-errors.js';
 import { createEditorWriteTools } from './editor-write-tools.js';
 import { createEditorReadonlyTools } from './editor-readonly-tools.js';
@@ -5,10 +6,11 @@ import '../css/studio-webmcp.css';
 import { initStudioGemini, geminiHandoffMarkup } from './studio-gemini.js';
 
 /** Register only our own tools; aborting one session never removes another owner's tools. */
-export function createStudioWebMCP({ readState, getModelContext, applyEdit, onChange = () => {} }) {
+export function createStudioWebMCP({ readState, getModelContext, applyEdit, createProject, onChange = () => {} }) {
     const service = createEditorReadonlyTools({ readState });
     const writer = createEditorWriteTools({ readState, readonly: service, applyEdit });
-    let writable = false, activity = null;
+    const authoring = createEditorAuthoringTools({ readState, readonly: service, applyEdit, createProject });
+    let writable = false, activity = null, toolCount = 0;
     let controller = null, status = 'off';
     const supported = () => {
         try { return typeof getModelContext()?.registerTool === 'function'; } catch { return false; }
@@ -18,7 +20,7 @@ export function createStudioWebMCP({ readState, getModelContext, applyEdit, onCh
     function disable(next = 'off') {
         const previous = controller;
         controller = null;
-        service.disable(); writer.reset(); writable = false; activity = null;
+        service.disable(); writer.reset(); authoring.reset(); writable = false; activity = null; toolCount = 0;
         previous?.abort();
         status = next;
         notify();
@@ -33,27 +35,28 @@ export function createStudioWebMCP({ readState, getModelContext, applyEdit, onCh
         status = 'registering'; notify();
         try {
             const api = getModelContext();
-            for (const tool of [...service.getTools(), ...(writable ? writer.getTools() : [])]) {
+            const tools = [...service.getTools(), ...(writable ? [...writer.getTools(), ...authoring.getTools()] : [])];
+            for (const tool of tools) {
                 await api.registerTool({ ...tool, annotations: { ...tool.annotations, untrustedContentHint: true },
                     execute: async (args, options = {}) => {
                         if (active.signal.aborted || controller !== active || status !== 'on') throw Error('DSF_DISABLED');
                         if (options.signal?.aborted) throw Error('DSF_CANCELLED');
-                        const result = tool.execute(args);
+                        const result = await tool.execute(args, options);
                         if (result.error && ['WORK_CHANGED', 'NOT_IN_EDITOR', 'UNAVAILABLE', 'DISABLED'].includes(result.error.code)) disable();
                         activity = { tool: tool.name, code: result.error?.code || null,
-                            changed: result.changed === true, replayed: result.replayed === true };
+                            created: result.created === true, changed: result.changed === true, replayed: result.replayed === true };
                         notify();
                         return withEditorToolRecovery(result);
                     },
                 }, { signal: active.signal });
                 if (active.signal.aborted || controller !== active) return;
             }
-            status = 'on'; notify();
+            toolCount = tools.length; status = 'on'; notify();
         } catch {
             if (controller === active) disable('error');
         }
     }
-    return { enable, disable, getStatus, isWritable: () => writable, getActivity: () => activity ? { ...activity } : null };
+    return { enable, disable, getStatus, isWritable: () => writable, getToolCount: () => toolCount, getActivity: () => activity ? { ...activity } : null };
 }
 
 const labels = {
@@ -63,7 +66,7 @@ const labels = {
         unsupported: 'Unavailable in this browser', off: 'Off', on: 'Tools available', registering: 'Registering…', error: 'Registration failed: retry available', room: 'Enable in the editor' },
 };
 
-export function initStudioWebMCP({ readState, getUILang, subscribeProjectSession, applyEdit, doc = document, win = window }) {
+export function initStudioWebMCP({ readState, getUILang, subscribeProjectSession, applyEdit, createProject, doc = document, win = window }) {
     const gemini = initStudioGemini({ readState, getUILang, doc, win });
     const text = () => labels[getUILang() === 'en' ? 'en' : 'ja'];
     const getModelContext = () => win.top === win && win.isSecureContext ? doc.modelContext : null;
@@ -77,23 +80,23 @@ export function initStudioWebMCP({ readState, getUILang, subscribeProjectSession
             const write = root.querySelector('[data-ai-write]');
             write.checked = connection.isWritable();
             write.disabled = input.disabled || !['on', 'registering'].includes(status) || typeof applyEdit !== 'function';
-            root.querySelector('[data-ai-write-title]').textContent = getUILang() === 'en' ? 'Allow paragraph editing' : '段落の書き込みを許可';
-            root.querySelector('[data-ai-write-notice]').textContent = getUILang() === 'en' ? 'The connected AI can read full paragraphs and change the current Flow in its displayed language. Normal autosave applies. Use Undo to revert.' : '接続AIが段落全文を読み、現在のFlow・表示言語の本文を書き換えます。通常の自動保存対象です。「元に戻す」で戻せます。';
+            root.querySelector('[data-ai-write-title]').textContent = getUILang() === 'en' ? 'Allow manuscript creation and editing' : '原稿の作成・編集を許可';
+            root.querySelector('[data-ai-write-notice]').textContent = getUILang() === 'en' ? 'The AI can create a new Flow project, append original-language headings/paragraphs, and edit existing text. Creating a project closes the current one after a local backup and resets AI permission. Normal autosave applies. Appends and edits support Undo.' : 'AIが新規Flowプロジェクトを作成し、原文の見出し・段落の追加と本文編集を行えます。新規作成時は現在の作品をローカル退避して切り替え、AI許可を解除します。追加・編集は通常の自動保存対象で、元に戻せます。';
             root.querySelector('[data-ai-title]').textContent = connection.isWritable() ? (getUILang() === 'en' ? 'AI tools (paragraph editing)' : 'AI連携（本文編集可）') : copy.title;
-            root.querySelector('[data-ai-notice]').textContent = connection.isWritable() ? (getUILang() === 'en' ? 'Read and paragraph editing tools are available in this tab. Publishing is not exposed.' : 'このタブで読み取り・段落編集ツールを提供中です。発行操作は提供しません。') : copy.notice;
+            root.querySelector('[data-ai-notice]').textContent = connection.isWritable() ? (getUILang() === 'en' ? 'Manuscript creation and editing tools are available in this tab. Publishing is not exposed.' : 'このタブで原稿の作成・編集ツールを提供中です。発行操作は提供しません。') : copy.notice;
             root.querySelector('[data-ai-status]').textContent = status === 'unsupported' ? copy.unsupported : !inEditor ? copy.room : copy[status];
             const ja = getUILang() !== 'en', last = connection.getActivity();
             root.querySelector('[data-ai-diagnostics]').textContent = status === 'on'
-                ? (ja ? `登録済み ${connection.isWritable() ? 5 : 3}ツール · document.modelContext` : `${connection.isWritable() ? 5 : 3} tools registered · document.modelContext`)
+                ? (ja ? `登録済み ${connection.getToolCount()}ツール · document.modelContext` : `${connection.getToolCount()} tools registered · document.modelContext`)
                 : '';
             root.querySelector('[data-ai-activity]').textContent = !last ? (ja ? 'このセッションでは呼び出し未確認' : 'No calls observed in this session')
                 : `${last.tool}: ${last.code ? `${last.code} — ${editorToolErrorMessage(last.code, ja ? 'ja' : 'en')}`
-                    : (ja ? (last.replayed ? '再送受付（再適用なし）' : last.changed ? '本文更新を実行' : '成功（本文変更なし）')
-                        : (last.replayed ? 'Replayed without applying again' : last.changed ? 'Text updated' : 'Success (no text change)'))}`;
+                    : (ja ? (last.created ? '新規作品を作成（AI許可を再設定してください）' : last.replayed ? '再送受付（再適用なし）' : last.changed ? '本文更新を実行' : '成功（本文変更なし）')
+                        : (last.created ? 'Project created (enable AI permission again)' : last.replayed ? 'Replayed without applying again' : last.changed ? 'Text updated' : 'Success (no text change)'))}`;
 
         });
     }
-    const connection = createStudioWebMCP({ readState, getModelContext, applyEdit, onChange: sync });
+    const connection = createStudioWebMCP({ readState, getModelContext, applyEdit, createProject, onChange: sync });
     doc.addEventListener('change', event => {
         if (!event.target.matches('[data-studio-ai] input')) return;
         if (event.target.matches('[data-ai-write]')) { void connection.enable(event.target.checked); }
