@@ -2,3 +2,5 @@
 .studio-ai-tools input { width:16px; height:16px; flex:0 0 auto; }
 .studio-ai-tools small { display:block; margin-top:5px; }
 .studio-ai-tools p { margin:5px 0 0; font-size:12px; line-height:1.5; opacity:.8; }
+
+.studio-ai-tools [data-ai-activity], .studio-ai-tools [data-ai-diagnostics]{overflow-wrap:anywhere}

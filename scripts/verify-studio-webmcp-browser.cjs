@@ -31,7 +31,7 @@ const {chromium}=require(process.env.DSF_PLAYWRIGHT_MODULE),assert=require('node
  const openProfile=async()=>{if(!await p.locator('[data-auth-dropdown].open').count())await p.locator('[data-auth-trigger]').filter({visible:true}).first().click();};
  const toggle=()=>p.locator('[data-auth-dropdown].open [data-studio-ai] [data-ai-read]');
  await openProfile();await toggle().check();await p.waitForFunction(()=>document.querySelector('[data-ai-status]').textContent==='ツール提供中');
- assert.equal(await p.evaluate(()=>window.testTools.size),2);
+ assert.equal(await p.evaluate(()=>window.testTools.size),3);
  const output=await p.evaluate(async()=>{const context=await testTools.get('dsf_get_editor_context').execute({});const result=await testTools.get('dsf_search_flow_text').execute({workToken:context.workToken,query:'sea',languageKey:'en-GB',scope:'currentFlow'});return {context,result};});
  assert.equal(output.context.sourceLanguage,'en-GB');assert.equal(output.result.matches.length,2);
  assert.ok(!JSON.stringify(output).includes('expectedText'));
@@ -61,6 +61,6 @@ const {chromium}=require(process.env.DSF_PLAYWRIGHT_MODULE),assert=require('node
   const c=createStudioWebMCP({readState:()=>({room:'editor',workIdentity:'test',blocks:[],languageKeys:['ja']}),getModelContext:()=>api});
   const first=c.enable();c.disable();slow=false;await c.enable();finish();await first;
   const on=c.getStatus(),count=registered.size;c.disable();return {on,count,after:registered.size};
- });assert.deepEqual(race,{on:'on',count:2,after:0});
+ });assert.deepEqual(race,{on:'on',count:3,after:0});
  console.log('WebMCP browser checks passed: default support='+native+'; injected registry: JA/EN profile, English original search, read-only, abort, partial failure, other tools, room exit, reload same work, pagehide, mobile and registration race.');
 }finally{await browser.close();}})().catch(e=>{console.error(e);process.exitCode=1;});

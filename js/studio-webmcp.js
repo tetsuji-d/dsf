@@ -1,3 +1,4 @@
+import { editorToolErrorMessage, withEditorToolRecovery } from './editor-tool-errors.js';
 import { createEditorWriteTools } from './editor-write-tools.js';
 import { createEditorReadonlyTools } from './editor-readonly-tools.js';
 import '../css/studio-webmcp.css';
@@ -7,7 +8,7 @@ import { initStudioGemini, geminiHandoffMarkup } from './studio-gemini.js';
 export function createStudioWebMCP({ readState, getModelContext, applyEdit, onChange = () => {} }) {
     const service = createEditorReadonlyTools({ readState });
     const writer = createEditorWriteTools({ readState, readonly: service, applyEdit });
-    let writable = false;
+    let writable = false, activity = null;
     let controller = null, status = 'off';
     const supported = () => {
         try { return typeof getModelContext()?.registerTool === 'function'; } catch { return false; }
@@ -17,7 +18,7 @@ export function createStudioWebMCP({ readState, getModelContext, applyEdit, onCh
     function disable(next = 'off') {
         const previous = controller;
         controller = null;
-        service.disable(); writer.reset(); writable = false;
+        service.disable(); writer.reset(); writable = false; activity = null;
         previous?.abort();
         status = next;
         notify();
@@ -38,12 +39,11 @@ export function createStudioWebMCP({ readState, getModelContext, applyEdit, onCh
                         if (active.signal.aborted || controller !== active || status !== 'on') throw Error('DSF_DISABLED');
                         if (options.signal?.aborted) throw Error('DSF_CANCELLED');
                         const result = tool.execute(args);
-                        if (result.error) {
-                            if (['WORK_CHANGED', 'NOT_IN_EDITOR', 'UNAVAILABLE', 'DISABLED'].includes(result.error.code)) disable();
-                            if (tool.name === 'dsf_read_flow_paragraph' || tool.name === 'dsf_replace_flow_paragraph') return result;
-                            throw Error(`DSF_${result.error.code}`);
-                        }
-                        return result;
+                        if (result.error && ['WORK_CHANGED', 'NOT_IN_EDITOR', 'UNAVAILABLE', 'DISABLED'].includes(result.error.code)) disable();
+                        activity = { tool: tool.name, code: result.error?.code || null,
+                            changed: result.changed === true, replayed: result.replayed === true };
+                        notify();
+                        return withEditorToolRecovery(result);
                     },
                 }, { signal: active.signal });
                 if (active.signal.aborted || controller !== active) return;
@@ -53,13 +53,13 @@ export function createStudioWebMCP({ readState, getModelContext, applyEdit, onCh
             if (controller === active) disable('error');
         }
     }
-    return { enable, disable, getStatus, isWritable: () => writable };
+    return { enable, disable, getStatus, isWritable: () => writable, getActivity: () => activity ? { ...activity } : null };
 }
 
 const labels = {
-    ja: { title: 'AI連携（読み取り専用）', notice: 'オンにすると、このタブの編集対象と検索した本文の抜粋を接続AIに提供します。本文の変更・保存・発行は行いません。',
+    ja: { title: 'AI連携（読み取り専用）', notice: 'オンにすると、このタブの編集対象・原稿一覧・本文の抜粋を接続AIに提供します。本文の変更・保存・発行は行いません。',
         unsupported: 'このブラウザでは非対応', off: 'オフ', on: 'ツール提供中', registering: '登録中…', error: '登録失敗：再試行できます', room: 'エディターで有効にできます' },
-    en: { title: 'AI tools (read-only)', notice: 'When enabled, the connected AI can read this tab’s editor context and searched text excerpts. It cannot edit, save or publish.',
+    en: { title: 'AI tools (read-only)', notice: 'When enabled, the connected AI can read this tab’s editor context and manuscript lists and searched text excerpts. It cannot edit, save or publish.',
         unsupported: 'Unavailable in this browser', off: 'Off', on: 'Tools available', registering: 'Registering…', error: 'Registration failed: retry available', room: 'Enable in the editor' },
 };
 
@@ -82,6 +82,15 @@ export function initStudioWebMCP({ readState, getUILang, subscribeProjectSession
             root.querySelector('[data-ai-title]').textContent = connection.isWritable() ? (getUILang() === 'en' ? 'AI tools (paragraph editing)' : 'AI連携（本文編集可）') : copy.title;
             root.querySelector('[data-ai-notice]').textContent = connection.isWritable() ? (getUILang() === 'en' ? 'Read and paragraph editing tools are available in this tab. Publishing is not exposed.' : 'このタブで読み取り・段落編集ツールを提供中です。発行操作は提供しません。') : copy.notice;
             root.querySelector('[data-ai-status]').textContent = status === 'unsupported' ? copy.unsupported : !inEditor ? copy.room : copy[status];
+            const ja = getUILang() !== 'en', last = connection.getActivity();
+            root.querySelector('[data-ai-diagnostics]').textContent = status === 'on'
+                ? (ja ? `登録済み ${connection.isWritable() ? 5 : 3}ツール · document.modelContext` : `${connection.isWritable() ? 5 : 3} tools registered · document.modelContext`)
+                : '';
+            root.querySelector('[data-ai-activity]').textContent = !last ? (ja ? 'このセッションでは呼び出し未確認' : 'No calls observed in this session')
+                : `${last.tool}: ${last.code ? `${last.code} — ${editorToolErrorMessage(last.code, ja ? 'ja' : 'en')}`
+                    : (ja ? (last.replayed ? '再送受付（再適用なし）' : last.changed ? '本文更新を実行' : '成功（本文変更なし）')
+                        : (last.replayed ? 'Replayed without applying again' : last.changed ? 'Text updated' : 'Success (no text change)'))}`;
+
         });
     }
     const connection = createStudioWebMCP({ readState, getModelContext, applyEdit, onChange: sync });
@@ -109,7 +118,7 @@ export function studioWebMCPMarkup() {
     return `<div class="auth-panel-section studio-ai-tools" data-studio-ai>
         ${geminiHandoffMarkup()}
         <label><input type="checkbox" data-ai-read disabled><span data-ai-title>AI tools</span></label>
-        <small data-ai-status role="status"></small><p data-ai-notice></p>
+        <small data-ai-status role="status"></small><small data-ai-diagnostics></small><p data-ai-activity role="status"></p><p data-ai-notice></p>
         <label><input type="checkbox" data-ai-write disabled><span data-ai-write-title></span></label><p data-ai-write-notice></p>
     </div>`;
 }

@@ -5,7 +5,7 @@
 <button id="undo">元に戻す</button><button id="redo">やり直す</button><button id="manual">手動変更を模擬</button><button id="switch">作品切替を模擬</button>
 <pre id="text"></pre><p id="status" role="status"></p></section>
 <section><h2>Chrome実APIの検証操作</h2><p>AI連携と書き込みをオンにしてから実行。Chrome 153のJSON引数形式用。合成原稿のpのみを編集します。</p>
-<button id="read">段落取得</button><button id="write">「灯台の明かり。」に更新</button><pre id="result"></pre></section>
+<button id="list">段落一覧</button><button id="invalid">期限切れトークンを検証</button><button id="read">段落取得</button><button id="write">「灯台の明かり。」に更新</button><pre id="result"></pre></section>
 <script type="module">
 import {initStudioWebMCP,studioWebMCPMarkup} from '/js/studio-webmcp.js';
 import {createFlowGroupBlock} from '/js/flow-project-model.js';
@@ -23,6 +23,8 @@ document.querySelector('#manual').onclick=()=>{pushState();state.blocks[0].flow.
 document.querySelector('#switch').onclick=()=>{identity={};subscribers.forEach(fn=>fn());};
 async function call(name,args){const api=document.modelContext;const tool=(await api.getTools()).find(t=>t.name===name);if(!tool)throw Error('Tool unavailable');const raw=await api.executeTool(tool,JSON.stringify(args));return typeof raw==='string'?JSON.parse(raw):raw;}
 const report=async fn=>{try{document.querySelector('#result').textContent=JSON.stringify(await fn(),null,2);}catch(e){document.querySelector('#result').textContent=e.message;}};
+document.querySelector('#list').onclick=()=>report(async()=>{const ctx=await call('dsf_get_editor_context',{});return call('dsf_list_flow_paragraphs',{workToken:ctx.workToken});});
+document.querySelector('#invalid').onclick=()=>report(()=>call('dsf_list_flow_paragraphs',{workToken:'expired'}));
 document.querySelector('#read').onclick=()=>report(async()=>{const ctx=await call('dsf_get_editor_context',{});paragraph=await call('dsf_read_flow_paragraph',{workToken:ctx.workToken,groupId:'sample',sectionId:'s',blockId:'p',languageKey});return paragraph;});
 document.querySelector('#write').onclick=()=>report(()=>call('dsf_replace_flow_paragraph',{workToken:paragraph?.workToken,editToken:paragraph?.editToken,text:paragraph?.text?.replace('灯台の光。','灯台の明かり。')}));render();
 </script></html>

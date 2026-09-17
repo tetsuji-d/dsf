@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { withEditorToolRecovery, editorToolErrorMessage } from '../js/editor-tool-errors.js';
 import { createEditorReadonlyTools } from '../js/editor-readonly-tools.js';
 import { createFlowTextSelection } from '../js/flow-text-selection.js';
 
@@ -86,7 +87,7 @@ assert.equal(search({ scope: 'work' }).matches.length, 10);
 
 // Returned schemas and responses are detached from the private source and future calls.
 const tools = service.getTools();
-assert.equal(tools.length, 2);
+assert.equal(tools.length, 3);
 assert.ok(tools.every(tool => tool.annotations.readOnlyHint));
 tools[1].inputSchema.properties.limit.maximum = 999;
 assert.equal(service.getTools()[1].inputSchema.properties.limit.maximum, 20);
@@ -119,3 +120,54 @@ const broken = createEditorReadonlyTools({ readState: () => { throw Error('priva
 assert.deepEqual(broken.enable(), { error: { code: 'UNAVAILABLE' } });
 assert.ok(!JSON.stringify(broken.execute('dsf_get_editor_context', {})).includes('private manuscript'));
 console.log('Editor readonly tools: language separation, scope, graphemes, bounded output, immutable source, busy, stale tokens, revoked callbacks and fail-closed reads passed.');
+
+// Cursor listing discovers headings, empty paragraphs and missing translations without a query.
+const many = Array.from({ length: 25 }, (_, i) => paragraph(`p${i}`, { ja: `原文${i}`, 'en-GB': `English ${i}` }));
+many[0].type = 'heading';
+many[1].texts['en-GB'] = '';
+delete many[2].texts['en-GB'];
+many[3].texts['en-GB'] = '👨‍👩‍👧‍👦'.repeat(90);
+state = { ...state, blocks: [group('list', many)], activeGroupId: 'list', languageKey: 'en-GB' };
+state.blocks[0].flow.document.sections.push({ id: 's2', blocks: [{ id: 'image', type: 'image' }, paragraph('last', { ja: '末尾' })] });
+service.enable();
+const listToken = context().workToken;
+const list = (extra = {}) => service.execute('dsf_list_flow_paragraphs', { workToken: listToken, ...extra });
+const listingBefore = JSON.stringify(state);
+const first = list();
+assert.equal(first.total, 26);
+assert.equal(first.items.length, 20);
+assert.equal(first.items[0].type, 'heading');
+assert.equal(first.items[1].empty, true);
+assert.equal(first.items[1].missingTranslation, false);
+assert.equal(first.items[2].missingTranslation, true);
+assert.equal(first.items[2].excerpt, '', 'Never substitute source text for a missing translation');
+assert.equal(first.items[3].excerpt, '👨‍👩‍👧‍👦'.repeat(80));
+assert.equal(first.items[3].textLength, many[3].texts['en-GB'].length);
+const second = list({ cursor: first.nextCursor });
+assert.equal(second.items.length, 6);
+assert.equal(second.items[0].index, 21);
+assert.equal(second.items[5].sectionId, 's2');
+assert.equal(second.nextCursor, null);
+assert.equal(new Set([...first.items, ...second.items].map(x => x.blockId)).size, 26);
+code(list({ cursor: first.nextCursor }), 'STALE_CURSOR');
+assert.equal(JSON.stringify(state), listingBefore);
+const detached = context(); detached.languageKeys.push('fr');
+assert.ok(!context().languageKeys.includes('fr'));
+for (const bad of [{ cursor: '' }, { cursor: 1 }, { cursor: 'x'.repeat(257) }, { unexpected: true }]) code(list(bad), 'INVALID_ARGUMENTS');
+code(list({ workToken: 'old' }), 'STALE_WORK_TOKEN');
+const stale = list().nextCursor;
+state = structuredClone(state);
+state.blocks[0].flow.document.sections[0].blocks[0].texts['en-GB'] += ' changed';
+code(list({ cursor: stale }), 'STALE_CURSOR');
+const languageCursor = list().nextCursor;
+state = { ...state, languageKey: 'ja' };
+code(list({ cursor: languageCursor }), 'STALE_CURSOR');
+state = { ...state, busy: true }; code(list(), 'BUSY');
+state = { ...state, busy: false, activeGroupId: 'missing' }; code(list(), 'NO_CURRENT_FLOW');
+state = { ...state, activeGroupId: 'list', languageKey: 'fr' }; code(list(), 'UNKNOWN_LANGUAGE');
+service.disable(); code(list(), 'DISABLED');
+const success = { changed: true }; assert.equal(withEditorToolRecovery(success), success);
+assert.match(withEditorToolRecovery({ error: { code: 'STALE_CURSOR' } }).error.recovery, /without cursor/);
+assert.match(editorToolErrorMessage('BUSY', 'ja'), /完了/);
+assert.ok(!editorToolErrorMessage('PRIVATE_SOURCE').includes('PRIVATE_SOURCE'));
+console.log('Paragraph listing: pagination, empty/missing translation, grapheme bounds, stale cursors, immutable reads and recovery guidance passed.');
