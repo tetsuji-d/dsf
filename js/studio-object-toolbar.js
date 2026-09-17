@@ -179,6 +179,13 @@ function createStudioObjectToolbar({ state, commit, refresh, prepareImage, selec
     const o = object();
     if (!o || cut && (o.locked || flow?.active())) return;
     clipboard = { project: projectKey(), source: block().id, object: structuredClone(o), cut, signature: JSON.stringify(o) };
+    // Mark a successful object copy in the system clipboard so an older PNG does
+    // not take priority. The object itself remains project-local.
+    const copied = clipboard;
+    clipboard.systemWritten = false;
+    if (navigator.clipboard?.writeText) {
+      void navigator.clipboard.writeText('DSF object').then(() => { if (clipboard === copied) copied.systemWritten = true; }).catch(() => {});
+    }
     closePopup();
   }
   function canPaste() {
@@ -502,16 +509,20 @@ function createStudioObjectToolbar({ state, commit, refresh, prepareImage, selec
     const dismissContextMenu = () => { if (popup?.classList.contains("graphic-context-menu")) closePopup(); };
     document.addEventListener("scroll", dismissContextMenu, true);
     window.addEventListener("blur", dismissContextMenu);
+    document.addEventListener("paste", (e) => {
+      if (e.target.closest("input,textarea,select,[contenteditable=true]") || !canPaste()) return;
+      // System image paste belongs to the new-page importer, even after copying an object.
+      if (Array.from(e.clipboardData?.items || []).some(item => item.type.startsWith('image/'))
+          || Array.from(e.clipboardData?.files || []).some(file => file.type.startsWith('image/'))) return;
+      e.preventDefault(); e.stopImmediatePropagation(); paste();
+    }, true);
     document.addEventListener("keydown", (e) => {
       if (e.target.closest("input,textarea,select,[contenteditable=true]") || !canEdit()) return;
       if ((e.ctrlKey || e.metaKey) && !e.altKey) {
         const k = e.key.toLowerCase();
         if(k === "d" && object() && !getSelection()?.toString()){e.preventDefault();e.stopImmediatePropagation();duplicate();return;}
-        if (k === "v" && canPaste()) {
-          e.preventDefault();
-          e.stopImmediatePropagation();
-          paste();
-          return;
+        if (k === "v" && canPaste() && !clipboard.systemWritten) {
+          e.preventDefault(); e.stopImmediatePropagation(); paste(); return;
         }
         if ((k === "c" || k === "x" && !flow?.active()) && object() && !getSelection()?.toString()) {
           e.preventDefault();

@@ -16,7 +16,7 @@ import { state, dispatch, actionTypes } from './state.js';
 import { getBlockIndexFromPageIndex } from './blocks.js';
 import { PAGE_SCHEMA_VERSION } from './pages.js';
 import { composeCanonicalLayoutsForSections } from './layout.js';
-import { set as idbSet, get as idbGet } from 'idb-keyval';
+import { set as idbSet, get as idbGet, del as idbDel } from 'idb-keyval';
 import { createId } from './utils.js';
 import { loadImageForCanvas, fetchAssetBlob, shouldEmbedAsset } from './asset-fetch.js';
 import { db, storage, auth, authReady, firebaseConfig } from './firebase-core.js';
@@ -1373,6 +1373,17 @@ function applyUploadedImageToSectionGroup(sections, activeIdx, lang, mainUrl, th
         section.imagePosition = sharedPosition;
         section.imageBasePosition = getDefaultImagePosition();
     });
+}
+
+/** Release a prepared local image when its import was cancelled before committing. */
+export async function discardPreparedAuthoringImage(image) {
+    for (const url of [image.mainUrl, image.thumbUrl]) {
+        const key = window.localImageMap?.[url];
+        if (!key || !url.startsWith('blob:')) continue;
+        URL.revokeObjectURL(url);
+        delete window.localImageMap[url];
+        await idbDel(key).catch(() => {});
+    }
 }
 
 /** Prepare the existing authoring image assets without mutating the project. */

@@ -1,5 +1,11 @@
 // Public, static recovery guidance. Never include manuscript or exception messages.
 const guidance = {
+    INVALID_IMAGE_DATA: ['Supply real PNG/JPEG/WebP bytes as raw base64 with the matching MIME type, or ask the user to upload the image.', '実際のPNG・JPEG・WebP画像のBase64と対応する形式を指定してください。画像アップロードも利用できます。'],
+    IMAGE_TOO_LARGE: ['Use an image of at most 8 MiB, 16384px per edge and 40 million pixels, or use the normal image upload UI.', '画像受け渡しの上限は8MiB・各辺16384px・4000万画素です。縮小するか通常の画像アップロードを利用してください。'],
+    IMAGE_IMPORT_FAILED: ['Image conversion failed. Check the image and local storage, then prepare it again.', '画像変換に失敗しました。画像とローカル保存領域を確認して再度準備してください。'],
+    STALE_IMAGE_TOKEN: ['Call dsf_prepare_image_page again and review the placement before adding.', '配置を確認して画像ページの追加準備をやり直してください。'],
+    INVALID_IMAGE_ASSET: ['Use an assetId from dsf_list_image_assets; import the image in Assets first.', '画像素材一覧にあるIDを指定してください。画像は先にアセットへ取り込んでください。'],
+    INVALID_IMAGE_TARGET: ['Select a page or Flow, or use start/end for the whole work.', 'ページかFlowを選択するか、作品の先頭・末尾を指定してください。'],
     SOURCE_LANGUAGE_REQUIRED: ['Switch to the original manuscript language before appending blocks.', '見出し・段落の追加は原文言語に切り替えて行ってください。'],
     PROJECT_CREATE_FAILED: ['Project creation failed. Check local storage and the current project before retrying.', '新規作成に失敗しました。ローカル保存領域と現在の作品を確認してください。'],
     INVALID_ARGUMENTS: ['Check the tool input schema and supply only the declared fields.', '入力項目と型を確認してください。'],

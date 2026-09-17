@@ -10428,3 +10428,5 @@ body.strip-collapsed #page-strip:has(.flow-thumb-group) { height: 42px; }
 .project-asset-menu button:disabled { opacity: .45; cursor: default; }
 .project-asset-card strong { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 .asset-upload-area.drag-over { outline: 2px solid #3b82f6; background: #3b82f622; }
+
+#image-paste-status { position: fixed; z-index: 20000; bottom: max(28px, env(safe-area-inset-bottom)); left: 50%; transform: translateX(-50%); max-width: min(90vw, 600px); padding: 12px 18px; border-radius: 10px; background: #142339; color: #fff; box-shadow: 0 3px 18px #0004; pointer-events: none; }

@@ -48,6 +48,8 @@ export function createProjectAssetPanel({ state, prepareImage, addAsset, useAsse
     const label = (ja, english) => en() ? english : ja;
     const identity = () => [state.projectId, state.localProjectId, state.uid, state.workId].join('|');
     function render() {
+        const pasteButton = document.querySelector('[data-image-paste-button]');
+        if (pasteButton) pasteButton.textContent = label('画像を貼り付けてページ追加', 'Paste image as a new page');
         const grid = document.getElementById('asset-grid');
         if (!grid) return;
         if (!initialized) {

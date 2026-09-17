@@ -23,6 +23,8 @@
     "test:firebase": "node scripts/verify-firebase.js",
     "verify:studio-webmcp-browser": "node scripts/verify-studio-webmcp-browser.cjs",
     "verify:studio-webmcp-native": "node scripts/verify-studio-webmcp-native.cjs",
+    "verify:editor-image-import": "node scripts/verify-editor-image-import.js",
+    "verify:editor-image-tools": "node scripts/verify-editor-image-tools.js",
     "verify:editor-authoring-tools": "node scripts/verify-editor-authoring-tools.js",
     "verify:editor-write-tools": "node scripts/verify-editor-write-tools.js",
     "verify:editor-readonly-tools": "node scripts/verify-editor-readonly-tools.js",

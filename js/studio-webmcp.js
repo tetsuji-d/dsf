@@ -1,3 +1,4 @@
+import { createEditorImageTools } from './editor-image-tools.js';
 import { createEditorAuthoringTools } from './editor-authoring-tools.js';
 import { editorToolErrorMessage, withEditorToolRecovery } from './editor-tool-errors.js';
 import { createEditorWriteTools } from './editor-write-tools.js';
@@ -6,10 +7,11 @@ import '../css/studio-webmcp.css';
 import { initStudioGemini, geminiHandoffMarkup } from './studio-gemini.js';
 
 /** Register only our own tools; aborting one session never removes another owner's tools. */
-export function createStudioWebMCP({ readState, getModelContext, applyEdit, createProject, onChange = () => {} }) {
+export function createStudioWebMCP({ readState, getModelContext, applyEdit, createProject, applyImagePage, prepareImage, discardImage, onChange = () => {} }) {
     const service = createEditorReadonlyTools({ readState });
     const writer = createEditorWriteTools({ readState, readonly: service, applyEdit });
     const authoring = createEditorAuthoringTools({ readState, readonly: service, applyEdit, createProject });
+    const images = createEditorImageTools({ readState, readonly: service, applyImagePage, prepareImage, discardImage });
     let writable = false, activity = null, toolCount = 0;
     let controller = null, status = 'off';
     const supported = () => {
@@ -20,7 +22,7 @@ export function createStudioWebMCP({ readState, getModelContext, applyEdit, crea
     function disable(next = 'off') {
         const previous = controller;
         controller = null;
-        service.disable(); writer.reset(); authoring.reset(); writable = false; activity = null; toolCount = 0;
+        service.disable(); writer.reset(); authoring.reset(); images.reset(); writable = false; activity = null; toolCount = 0;
         previous?.abort();
         status = next;
         notify();
@@ -35,7 +37,7 @@ export function createStudioWebMCP({ readState, getModelContext, applyEdit, crea
         status = 'registering'; notify();
         try {
             const api = getModelContext();
-            const tools = [...service.getTools(), ...(writable ? [...writer.getTools(), ...authoring.getTools()] : [])];
+            const tools = [...service.getTools(), ...images.getTools(writable), ...(writable ? [...writer.getTools(), ...authoring.getTools()] : [])];
             for (const tool of tools) {
                 await api.registerTool({ ...tool, annotations: { ...tool.annotations, untrustedContentHint: true },
                     execute: async (args, options = {}) => {
@@ -60,13 +62,13 @@ export function createStudioWebMCP({ readState, getModelContext, applyEdit, crea
 }
 
 const labels = {
-    ja: { title: 'AI連携（読み取り専用）', notice: 'オンにすると、このタブの編集対象・原稿一覧・本文の抜粋を接続AIに提供します。本文の変更・保存・発行は行いません。',
+    ja: { title: 'AI連携（読み取り専用）', notice: 'オンにすると、このタブの編集対象・原稿一覧・画像素材一覧・本文の抜粋を接続AIに提供します。本文の変更・保存・発行は行いません。',
         unsupported: 'このブラウザでは非対応', off: 'オフ', on: 'ツール提供中', registering: '登録中…', error: '登録失敗：再試行できます', room: 'エディターで有効にできます' },
-    en: { title: 'AI tools (read-only)', notice: 'When enabled, the connected AI can read this tab’s editor context and manuscript lists and searched text excerpts. It cannot edit, save or publish.',
+    en: { title: 'AI tools (read-only)', notice: 'When enabled, the connected AI can read this tab’s editor context, image asset lists and manuscript lists and searched text excerpts. It cannot edit, save or publish.',
         unsupported: 'Unavailable in this browser', off: 'Off', on: 'Tools available', registering: 'Registering…', error: 'Registration failed: retry available', room: 'Enable in the editor' },
 };
 
-export function initStudioWebMCP({ readState, getUILang, subscribeProjectSession, applyEdit, createProject, doc = document, win = window }) {
+export function initStudioWebMCP({ readState, getUILang, subscribeProjectSession, applyEdit, createProject, applyImagePage, prepareImage, discardImage, doc = document, win = window }) {
     const gemini = initStudioGemini({ readState, getUILang, doc, win });
     const text = () => labels[getUILang() === 'en' ? 'en' : 'ja'];
     const getModelContext = () => win.top === win && win.isSecureContext ? doc.modelContext : null;
@@ -80,9 +82,9 @@ export function initStudioWebMCP({ readState, getUILang, subscribeProjectSession
             const write = root.querySelector('[data-ai-write]');
             write.checked = connection.isWritable();
             write.disabled = input.disabled || !['on', 'registering'].includes(status) || typeof applyEdit !== 'function';
-            root.querySelector('[data-ai-write-title]').textContent = getUILang() === 'en' ? 'Allow manuscript creation and editing' : '原稿の作成・編集を許可';
-            root.querySelector('[data-ai-write-notice]').textContent = getUILang() === 'en' ? 'The AI can create a new Flow project, append original-language headings/paragraphs, and edit existing text. Creating a project closes the current one after a local backup and resets AI permission. Normal autosave applies. Appends and edits support Undo.' : 'AIが新規Flowプロジェクトを作成し、原文の見出し・段落の追加と本文編集を行えます。新規作成時は現在の作品をローカル退避して切り替え、AI許可を解除します。追加・編集は通常の自動保存対象で、元に戻せます。';
-            root.querySelector('[data-ai-title]').textContent = connection.isWritable() ? (getUILang() === 'en' ? 'AI tools (paragraph editing)' : 'AI連携（本文編集可）') : copy.title;
+            root.querySelector('[data-ai-write-title]').textContent = getUILang() === 'en' ? 'Allow manuscript and image page editing' : '原稿・画像ページの作成と編集を許可';
+            root.querySelector('[data-ai-write-notice]').textContent = getUILang() === 'en' ? 'The AI can create a new Flow project, append original-language headings/paragraphs, edit existing text, and receive image data, convert it to WebP, and add image pages. Creating a project closes the current one after a local backup and resets AI permission. Normal autosave applies. Appends and edits support Undo.' : 'AIが新規Flowプロジェクトを作成し、原文の見出し・段落の追加、本文編集、画像データの受け取り・WebP変換と画像ページ追加を行えます。新規作成時は現在の作品をローカル退避して切り替え、AI許可を解除します。追加・編集は通常の自動保存対象で、元に戻せます。';
+            root.querySelector('[data-ai-title]').textContent = connection.isWritable() ? (getUILang() === 'en' ? 'AI tools (editing)' : 'AI連携（編集可）') : copy.title;
             root.querySelector('[data-ai-notice]').textContent = connection.isWritable() ? (getUILang() === 'en' ? 'Manuscript creation and editing tools are available in this tab. Publishing is not exposed.' : 'このタブで原稿の作成・編集ツールを提供中です。発行操作は提供しません。') : copy.notice;
             root.querySelector('[data-ai-status]').textContent = status === 'unsupported' ? copy.unsupported : !inEditor ? copy.room : copy[status];
             const ja = getUILang() !== 'en', last = connection.getActivity();
@@ -91,12 +93,12 @@ export function initStudioWebMCP({ readState, getUILang, subscribeProjectSession
                 : '';
             root.querySelector('[data-ai-activity]').textContent = !last ? (ja ? 'このセッションでは呼び出し未確認' : 'No calls observed in this session')
                 : `${last.tool}: ${last.code ? `${last.code} — ${editorToolErrorMessage(last.code, ja ? 'ja' : 'en')}`
-                    : (ja ? (last.created ? '新規作品を作成（AI許可を再設定してください）' : last.replayed ? '再送受付（再適用なし）' : last.changed ? '本文更新を実行' : '成功（本文変更なし）')
-                        : (last.created ? 'Project created (enable AI permission again)' : last.replayed ? 'Replayed without applying again' : last.changed ? 'Text updated' : 'Success (no text change)'))}`;
+                    : (ja ? (last.created ? '新規作品を作成（AI許可を再設定してください）' : last.replayed ? '再送受付（再適用なし）' : last.changed ? '作品の更新を実行' : '成功（変更なし）')
+                        : (last.created ? 'Project created (enable AI permission again)' : last.replayed ? 'Replayed without applying again' : last.changed ? 'Work updated' : 'Success (no change)'))}`;
 
         });
     }
-    const connection = createStudioWebMCP({ readState, getModelContext, applyEdit, createProject, onChange: sync });
+    const connection = createStudioWebMCP({ readState, getModelContext, applyEdit, createProject, applyImagePage, prepareImage, discardImage, onChange: sync });
     doc.addEventListener('change', event => {
         if (!event.target.matches('[data-studio-ai] input')) return;
         if (event.target.matches('[data-ai-write]')) { void connection.enable(event.target.checked); }

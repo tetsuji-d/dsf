@@ -294,6 +294,7 @@
                         <button class="btn" onclick="document.getElementById('asset-upload').click()">
                             <span class="material-icons inline-icon">upload</span> <span data-i18n="btn_upload_image">画像をアップロード</span>
                         </button>
+                        <button class="btn" type="button" onclick="pasteImagePage()" title="Ctrl+V / ⌘V" data-image-paste-button>画像を貼り付けてページ追加</button>
                         <input type="file" id="asset-upload" accept="image/*" multiple style="display:none;" onchange="uploadAsset(event)">
                     </div>
                     <div id="asset-grid" class="asset-grid"></div>

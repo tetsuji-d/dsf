@@ -1,3 +1,6 @@
+import { createImagePagePlan } from './editor-image-page.js';
+import { createImagePageImporter, installImagePagePaste } from './editor-image-paste.js';
+import { discardPreparedAuthoringImage } from './firebase.js';
 import { createProjectWithBackup } from './editor-project-create.js';
 import { initStudioWebMCP, studioWebMCPMarkup } from './studio-webmcp.js';
 import { getProjectSessionIdentity, resetProjectSession, subscribeProjectSession } from './state.js';
@@ -305,15 +308,12 @@ const projectAssetPanel = createProjectAssetPanel({
         if (!asset || _flowAuthoringComposing || _flowTranslationJob?.state === 'running') return;
         const active = getActiveBlock();
         if (kind === 'apply' && !(active?.kind === 'page' && active.content?.pageKind !== 'text')) return;
-        endHistoryGroup(); pushState();
         if (kind === 'add') {
-            let index = state.activeBlockIdx;
-            const group = active?.content?.spreadImage?.groupId;
-            if (group) index = state.blocks.findLastIndex(block => block.content?.spreadImage?.groupId === group);
-            const before = state.blocks;
-            insertPageNearBlock(index, active?.kind === 'cover_back' ? 'before' : 'after', () => {}, 'image');
-            if (state.blocks === before) return;
+            if (readStudioAIState().busy) return;
+            applyEditorSpineChange(createImagePagePlan(readStudioAIState(), id));
+            return;
         }
+        endHistoryGroup(); pushState();
         const target = getActiveBlock();
         if (target?.kind !== 'page') return;
         const group = target.content?.spreadImage?.groupId;
@@ -2012,7 +2012,7 @@ function mountFlowDirectEditProxy(activeBlock, page, pageElement, session) {
             if (event.key === 'Delete' || event.key === 'Backspace') {
                 event.preventDefault(); event.stopPropagation(); deleteFlowSelectedText(); return;
             }
-            if (event.key !== 'Tab' && (!(event.ctrlKey || event.metaKey) || !['c', 'C'].includes(event.key))) {
+            if (event.key !== 'Tab' && (!(event.ctrlKey || event.metaKey) || !['c', 'C', 'v', 'V'].includes(event.key))) {
                 event.preventDefault();
                 event.stopPropagation();
             }
@@ -9108,6 +9108,7 @@ function applyEditorSpineChange(result, options = {}) {
     endHistoryGroup();
     pushState({ editorFocus });
     clearFlowDirectEditRuntime();
+    if (result.projectAssets) { state.version = 6; state.projectAssets = result.projectAssets; }
     dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'blocks', value: result.blocks } });
     dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'sections', value: result.blocks.some(block=>block.kind==='page') ? extractSectionsFromBlocks(result.blocks) : [] } });
     dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'pages', value: blocksToPages(result.blocks) } });
@@ -11613,6 +11614,11 @@ window.deleteSelectedBubble = function (bubbleIndex) {
 
 initStudioHelp();
 studioAI = initStudioWebMCP({ getUILang, subscribeProjectSession, readState: readStudioAIState,
+    prepareImage: prepareAuthoringImage, discardImage: discardPreparedAuthoringImage,
+    applyImagePage: result => {
+        if (readStudioAIState().busy) throw Error('AI_EDIT_BUSY');
+        applyEditorSpineChange(result);
+    },
     createProject: (draft, guard) => createProjectWithBackup(draft, guard, {
         readProject: () => state, flushPendingSave,
         backup: snapshot => cacheLocalRecentProject(snapshot, window.localImageMap),
@@ -11648,5 +11654,30 @@ function readStudioAIState() {
     }
     return { room: getCurrentRoom(), workIdentity: getProjectSessionIdentity(), blocks: state.blocks,
         languageKeys: state.languages, languageKey, sourceLanguage: group?.flow?.document?.sourceLanguage || state.defaultLang,
+        projectAssets: state.projectAssets, activeBlockId: group?.id || null,
         activeGroupId: group?.kind === 'flow' ? group.id : null, selection, busy };
 }
+
+// Pasted image bytes share the same WebP conversion and image-page command as imported assets.
+let imagePasteStatusTimer;
+function showImagePasteStatus(code) {
+    let note = document.getElementById('image-paste-status');
+    if (!note) { note = document.createElement('div'); note.id = 'image-paste-status'; note.setAttribute('role', 'status'); document.body.append(note); }
+    const messages = {
+        converting: ['画像をWebPに変換中…', 'Converting image to WebP…'],
+        added: ['画像ページを追加しました。元に戻す操作で取り消せます。', 'Image page added. Undo is available.'],
+        busy: ['入力・組版・画像取り込みの完了後に貼り付けてください。', 'Wait for editing, layout or image import to finish.'],
+        cancelled: ['編集対象が変わったため、画像の追加を中止しました。貼り付け直してください。', 'The editor changed. Image import was cancelled; paste again.'],
+        invalid: ['画像を1〜20枚指定してください。', 'Choose 1–20 images.'],
+        empty: ['クリップボードに画像がありません。画像自体をコピーしてください。', 'No image on the clipboard. Copy the image itself.'],
+        clipboard: ['画像をコピーして、本文ページ上でCtrl+V（Macは⌘V）を押してください。', 'Copy an image, then press Ctrl+V (⌘V on Mac) over the page.'],
+        failed: ['画像を取り込めませんでした。形式と容量を確認してください。', 'Could not import the image. Check its format and size.'],
+    };
+    note.textContent = (messages[code] || messages.failed)[getUILang() === 'en' ? 1 : 0];
+    note.hidden = false; clearTimeout(imagePasteStatusTimer);
+    if (code !== 'converting') imagePasteStatusTimer = setTimeout(() => { note.hidden = true; }, 7000);
+}
+const imagePageImporter = createImagePageImporter({ readState: readStudioAIState, prepareImage: prepareAuthoringImage,
+    discardImage: discardPreparedAuthoringImage, applyImagePage: result => applyEditorSpineChange(result), onStatus: showImagePasteStatus });
+window.pasteImagePage = installImagePagePaste({ importer: imagePageImporter,
+    inEditor: () => getCurrentRoom() === 'editor', onStatus: showImagePasteStatus });
