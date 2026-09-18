@@ -1,3 +1,4 @@
+import { createStudioAIPreferences, AI_PREFERENCE_KEY } from './studio-ai-preferences.js';
 import { createEditorImageTools } from './editor-image-tools.js';
 import { createEditorAuthoringTools } from './editor-authoring-tools.js';
 import { editorToolErrorMessage, withEditorToolRecovery } from './editor-tool-errors.js';
@@ -44,12 +45,13 @@ export function createStudioWebMCP({ readState, readComposition, getModelContext
                         if (active.signal.aborted || controller !== active || status !== 'on') throw Error('DSF_DISABLED');
                         if (options.signal?.aborted) throw Error('DSF_CANCELLED');
                         const result = await tool.execute(args, options);
+                        if (controller !== active || active.signal.aborted) return withEditorToolRecovery(result);
                         if (result.error && ['WORK_CHANGED', 'NOT_IN_EDITOR', 'UNAVAILABLE', 'DISABLED'].includes(result.error.code)) disable();
                         activity = { tool: tool.name, code: result.error?.code || null,
                             created: result.created === true, changed: result.changed === true, replayed: result.replayed === true };
                         notify();
                         return withEditorToolRecovery(result.changed === true || result.created === true
-                            ? { ...result, compositionCheck: 'After layout completes, read dsf_get_editor_context and dsf_get_book_composition for every content language. Page counts and positional covers may have changed. New projects require re-enabling AI permission first.' } : result);
+                            ? { ...result, compositionCheck: 'After layout completes, read dsf_get_editor_context and dsf_get_book_composition for every content language. Page counts and positional covers may have changed. After switching projects, obtain a fresh workToken; saved access preferences are retained.' } : result);
                     },
                 }, { signal: active.signal });
                 if (active.signal.aborted || controller !== active) return;
@@ -63,68 +65,91 @@ export function createStudioWebMCP({ readState, readComposition, getModelContext
 }
 
 const labels = {
-    ja: { title: 'AI連携（読み取り専用）', notice: 'オンにすると、このタブの編集対象・制作ルール・ページ構成・原稿一覧・画像素材一覧・本文の抜粋を接続AIに提供します。本文の変更・保存・発行は行いません。',
-        unsupported: 'このブラウザでは非対応', off: 'オフ', on: 'ツール提供中', registering: '登録中…', error: '登録失敗：再試行できます', room: 'エディターで有効にできます' },
-    en: { title: 'AI tools (read-only)', notice: 'When enabled, the connected AI can read this tab’s editor context, authoring rules, page composition, image asset lists, manuscript lists and searched text excerpts. It cannot edit, save or publish.',
-        unsupported: 'Unavailable in this browser', off: 'Off', on: 'Tools available', registering: 'Registering…', error: 'Registration failed: retry available', room: 'Enable in the editor' },
+    ja: { title: 'AI連携', access: 'AIに許可する操作', read: '閲覧のみ', edit: '閲覧・編集',
+        notice: 'AIが本文・素材・ページ構成を読み取り、検索や相談に使えます。作品は変更できません。',
+        editNotice: 'AIが読み取りに加え、新規作品の作成、本文編集、画像ページの追加を行えます。変更は元に戻せます。発行は含みません。',
+        remembered: 'このブラウザーに保存します。作品の切り替えや再読み込み後も有効です。',
+        temporary: 'ブラウザーに設定を保存できないため、このタブを開いている間だけ有効です。',
+        unsupported: 'このブラウザーでは非対応', off: 'オフ', on: '利用可能', registering: '接続準備中…', error: '接続できませんでした', room: 'エディターに戻ると自動で再開します', retry: '再接続', details: '接続の詳細' },
+    en: { title: 'AI connection', access: 'AI access', read: 'Read only', edit: 'Read and edit',
+        notice: 'AI can read text, assets and page composition for search and advice. It cannot change your work.',
+        editNotice: 'AI can also create projects, edit text and add image pages. Changes support Undo. Publishing is not included.',
+        remembered: 'Saved in this browser. Stays enabled across project changes and reloads.',
+        temporary: 'Browser storage is unavailable. This setting lasts only while this tab is open.',
+        unsupported: 'Unavailable in this browser', off: 'Off', on: 'Available', registering: 'Connecting…', error: 'Could not connect', room: 'Resumes automatically when you return to the editor', retry: 'Reconnect', details: 'Connection details' },
 };
 
 export function initStudioWebMCP({ readState, readComposition, getUILang, subscribeProjectSession, applyEdit, createProject, applyImagePage, prepareImage, discardImage, doc = document, win = window }) {
     const gemini = initStudioGemini({ readState, getUILang, doc, win });
     const text = () => labels[getUILang() === 'en' ? 'en' : 'ja'];
     const getModelContext = () => win.top === win && win.isSecureContext ? doc.modelContext : null;
+    let access;
     function sync() {
         gemini.sync();
         const status = connection.getStatus(), inEditor = readState().room === 'editor', copy = text();
+        const preference = access?.get() || { enabled: false, access: 'read', stored: true };
         doc.querySelectorAll('[data-studio-ai]').forEach(root => {
             const input = root.querySelector('[data-ai-read]');
-            input.checked = status === 'on' || status === 'registering';
-            input.disabled = status === 'unsupported' || !inEditor;
-            const write = root.querySelector('[data-ai-write]');
-            write.checked = connection.isWritable();
-            write.disabled = input.disabled || !['on', 'registering'].includes(status) || typeof applyEdit !== 'function';
-            root.querySelector('[data-ai-write-title]').textContent = getUILang() === 'en' ? 'Allow manuscript and image page editing' : '原稿・画像ページの作成と編集を許可';
-            root.querySelector('[data-ai-write-notice]').textContent = getUILang() === 'en' ? 'The AI can create a new Flow project, append original-language headings/paragraphs, edit existing text, and receive image data, convert it to WebP, and add image pages. Creating a project closes the current one after a local backup and resets AI permission. Normal autosave applies. Appends and edits support Undo.' : 'AIが新規Flowプロジェクトを作成し、原文の見出し・段落の追加、本文編集、画像データの受け取り・WebP変換と画像ページ追加を行えます。新規作成時は現在の作品をローカル退避して切り替え、AI許可を解除します。追加・編集は通常の自動保存対象で、元に戻せます。';
-            root.querySelector('[data-ai-title]').textContent = connection.isWritable() ? (getUILang() === 'en' ? 'AI tools (editing)' : 'AI連携（編集可）') : copy.title;
-            root.querySelector('[data-ai-notice]').textContent = connection.isWritable() ? (getUILang() === 'en' ? 'Manuscript creation and editing tools are available in this tab. Publishing is not exposed.' : 'このタブで原稿の作成・編集ツールを提供中です。発行操作は提供しません。') : copy.notice;
-            root.querySelector('[data-ai-status]').textContent = status === 'unsupported' ? copy.unsupported : !inEditor ? copy.room : copy[status];
+            input.checked = preference.enabled;
+            input.disabled = status === 'unsupported' && !preference.enabled;
+            const mode = root.querySelector('[data-ai-access]');
+            mode.value = preference.access;
+            mode.disabled = !preference.enabled || typeof applyEdit !== 'function';
+            mode.querySelector('[value="read"]').textContent = copy.read;
+            mode.querySelector('[value="edit"]').textContent = copy.edit;
+            mode.setAttribute('aria-label', copy.access);
+            root.querySelector('[data-ai-access-title]').textContent = copy.access;
+            root.querySelector('[data-ai-title]').textContent = copy.title;
+            root.querySelector('[data-ai-notice]').textContent = preference.access === 'edit' ? copy.editNotice : copy.notice;
+            root.querySelector('[data-ai-persistence]').textContent = preference.stored ? copy.remembered : copy.temporary;
+            root.querySelector('[data-ai-status]').textContent = status === 'unsupported' ? copy.unsupported
+                : !preference.enabled ? copy.off : !inEditor ? copy.room : copy[status];
+            const retry = root.querySelector('[data-ai-retry]');
+            retry.textContent = copy.retry;
+            retry.hidden = !preference.enabled || !inEditor || !['error', 'off'].includes(status);
+            root.querySelector('[data-ai-details-title]').textContent = copy.details;
             const ja = getUILang() !== 'en', last = connection.getActivity();
             root.querySelector('[data-ai-diagnostics]').textContent = status === 'on'
-                ? (ja ? `登録済み ${connection.getToolCount()}ツール · document.modelContext` : `${connection.getToolCount()} tools registered · document.modelContext`)
-                : '';
-            root.querySelector('[data-ai-activity]').textContent = !last ? (ja ? 'このセッションでは呼び出し未確認' : 'No calls observed in this session')
+                ? (ja ? `登録済み ${connection.getToolCount()}ツール · document.modelContext` : `${connection.getToolCount()} tools registered · document.modelContext`) : '';
+            root.querySelector('[data-ai-activity]').textContent = !last ? (ja ? 'この接続では呼び出し未確認' : 'No calls observed in this connection')
                 : `${last.tool}: ${last.code ? `${last.code} — ${editorToolErrorMessage(last.code, ja ? 'ja' : 'en')}`
-                    : (ja ? (last.created ? '新規作品を作成（AI許可を再設定してください）' : last.replayed ? '再送受付（再適用なし）' : last.changed ? '作品の更新を実行' : '成功（変更なし）')
-                        : (last.created ? 'Project created (enable AI permission again)' : last.replayed ? 'Replayed without applying again' : last.changed ? 'Work updated' : 'Success (no change)'))}`;
-
+                    : (ja ? (last.created ? '新規作品を作成' : last.replayed ? '再送受付（再適用なし）' : last.changed ? '作品の更新を実行' : '成功（変更なし）')
+                        : (last.created ? 'Project created' : last.replayed ? 'Replayed without applying again' : last.changed ? 'Work updated' : 'Success (no change)'))}`;
         });
     }
     const connection = createStudioWebMCP({ readState, readComposition, getModelContext, applyEdit, createProject, applyImagePage, prepareImage, discardImage, onChange: sync });
+    let storage; try { storage = win.localStorage; } catch { /* Session-only fallback. */ }
+    access = createStudioAIPreferences({ connection, readState, storage, onChange: sync });
     doc.addEventListener('change', event => {
-        if (!event.target.matches('[data-studio-ai] input')) return;
-        if (event.target.matches('[data-ai-write]')) { void connection.enable(event.target.checked); }
-        else if (event.target.checked) void connection.enable(); else connection.disable();
+        if (event.target.matches('[data-studio-ai] [data-ai-read]')) void access.set({ ...access.get(), enabled: event.target.checked });
+        if (event.target.matches('[data-studio-ai] [data-ai-access]')) void access.set({ ...access.get(), access: event.target.value });
     });
+    doc.addEventListener('click', event => { if (event.target.closest('[data-ai-retry]')) void access.retry(); });
     doc.addEventListener('studio-ui-language-change', sync);
-    win.addEventListener('pagehide', () => connection.disable());
-    win.addEventListener('pageshow', sync);
-    subscribeProjectSession(() => { connection.disable(); gemini.close(); });
-    // Catch room changes even if a future caller bypasses switchRoom. Per-execution
-    // checks still apply before this observer's microtask runs.
+    win.addEventListener('storage', event => { if (event.key === AI_PREFERENCE_KEY || event.key === null) void access.reload(); });
+    win.addEventListener('pagehide', () => access.suspend());
+    win.addEventListener('pageshow', () => { void access.resume(); });
+    subscribeProjectSession(() => {
+        access.pause(); gemini.close();
+        // LOAD_PROJECT notifies before replacing the state. Rebind only after that synchronous change completes.
+        queueMicrotask(() => { void access.refresh(); });
+    });
     const observer = new MutationObserver(records => {
-        if (records.some(record => record.oldValue === 'editor') || readState().room !== 'editor') { connection.disable(); gemini.close(); }
-        else sync();
+        if (records.some(record => record.oldValue === 'editor') || readState().room !== 'editor') { access.pause(); gemini.close(); }
+        void access.refresh();
     });
     observer.observe(doc.body, { attributes: true, attributeFilter: ['data-room'], attributeOldValue: true });
-    sync();
-    return { disable: () => { connection.disable(); gemini.close(); }, sync };
+    void access.refresh(); sync();
+    return { disable: () => { access.pause(); gemini.close(); }, sync };
 }
 
 export function studioWebMCPMarkup() {
     return `<div class="auth-panel-section studio-ai-tools" data-studio-ai>
         ${geminiHandoffMarkup()}
-        <label><input type="checkbox" data-ai-read disabled><span data-ai-title>AI tools</span></label>
-        <small data-ai-status role="status"></small><small data-ai-diagnostics></small><p data-ai-activity role="status"></p><p data-ai-notice></p>
-        <label><input type="checkbox" data-ai-write disabled><span data-ai-write-title></span></label><p data-ai-write-notice></p>
+        <label class="studio-ai-toggle"><span data-ai-title>AI connection</span><input type="checkbox" role="switch" data-ai-read disabled><span class="studio-ai-toggle-track" aria-hidden="true"></span></label>
+        <small data-ai-status role="status"></small>
+        <label class="studio-ai-access"><span data-ai-access-title>AI access</span><select data-ai-access><option value="read">Read only</option><option value="edit">Read and edit</option></select></label>
+        <p data-ai-notice></p><p data-ai-persistence></p><button type="button" data-ai-retry hidden></button>
+        <details><summary data-ai-details-title>Connection details</summary><small data-ai-diagnostics></small><p data-ai-activity role="status"></p></details>
     </div>`;
 }

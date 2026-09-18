@@ -18,6 +18,7 @@ export function createFlowManuscriptCompare({host, model, activate, canSwitch, r
     const keys=()=>model().languages.filter(key=>key!==group?.flow.document.sourceLanguage);
     const active=()=>split && model().activeLang===target ? right : left;
     function labels(){
+        modes.setAttribute('aria-label',t('compare_mode'));language.setAttribute('aria-label',t('compare_language'));
         sourceLabel.textContent=split ? `${t('compare_source')} · ${group?.flow.document.sourceLanguage.toUpperCase()}` : '';
         normal.textContent=t('compare_normal');both.textContent=t('compare_split');linked.textContent=t('compare_sync');
         normal.setAttribute('aria-pressed',String(!split));both.setAttribute('aria-pressed',String(split));linked.setAttribute('aria-pressed',String(sync));
@@ -51,7 +52,7 @@ export function createFlowManuscriptCompare({host, model, activate, canSwitch, r
             }
         },{passive:true});
     }
-    return {activeRoot:active,
+    return {activeRoot:active, refreshLabels:labels,
         render(next,render){group=next;renderOne=render;const source=group.flow.document.sourceLanguage;
             if(!keys().includes(target))target=model().activeLang!==source && keys().includes(model().activeLang)?model().activeLang:keys()[0];
             if(!keys().length)split=false;

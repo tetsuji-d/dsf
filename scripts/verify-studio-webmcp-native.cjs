@@ -14,7 +14,7 @@ const {chromium}=require(process.env.DSF_PLAYWRIGHT_MODULE),assert=require('node
  await p.locator('[data-testid=flow-editor-generated-page]').first().waitFor();
  const before=await p.evaluate(()=>JSON.stringify(nativeState.state.blocks));
  await p.locator('[data-auth-trigger]').filter({visible:true}).first().click();const toggle=p.locator('[data-auth-dropdown].open [data-studio-ai] [data-ai-read]');
- await toggle.check();await p.waitForFunction(()=>document.querySelector('[data-ai-status]').textContent==='ツール提供中');
+ await toggle.check();await p.waitForFunction(()=>document.querySelector('[data-ai-status]').textContent==='利用可能');
  const result=await p.evaluate(async()=>{
   const api=document.modelContext,tools=await api.getTools();const mine=tools.filter(t=>t.name.startsWith('dsf_'));
   // Chrome 153 uses JSON strings for caller arguments/results. This is the

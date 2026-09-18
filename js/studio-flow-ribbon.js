@@ -302,7 +302,7 @@ export function refreshFlowRibbon() {
         }
         if (item.id === 'flow-make-title') element.setAttribute('aria-pressed',String(!byId('flow-restore-body').hidden));
         if (item.id === 'flow-restore-body') element.hidden = original.hidden;
-        if (item.id === 'flow-open-source') { element.title = original.textContent; element.setAttribute('aria-label', original.textContent); }
+        if (item.id === 'flow-open-source') { const label=t(context.source ? 'flow_return_page' : 'flow_open_source'); original.textContent=label; element.title=label; element.setAttribute('aria-label',label); }
     }
     const annotationDisabled = document.querySelector('#flow-direct-format-props [data-flow-annotation-button]')?.disabled ?? true;
     document.querySelectorAll('.flow-ribbon-tools [data-flow-annotation-button]').forEach(b => b.disabled = !direct || annotationDisabled);

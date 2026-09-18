@@ -222,6 +222,7 @@ export function createFlowTranslationCompare({ container, createView, model, can
     }, true);
     labels();
     return { get enabled(){return enabled;}, getView, update, follow, highlight, labels, setEnabled,
+        refreshLabels() { labels(); views.forEach(view => view.refreshLabels()); },
         resize() { if (enabled) views.forEach(view => { if (!view.viewport.hidden) view.resize({reveal:false}); }); },
         activateView(view, language) { if (!enabled || !canSwitch()) return false; primary = view; activate(language,view); labels(); return true; },
     };

@@ -36,7 +36,7 @@ const creating=service.execute('dsf_create_flow_project',createArgs);assert.ok(d
 code(await service.execute('dsf_create_flow_project',createArgs),'BUSY');
 service.reset();assert.equal(guardSeen(),false);complete();code(await creating,'TARGET_CHANGED');
 const signal=new AbortController();const cancelled=service.execute('dsf_create_flow_project',createArgs,{signal:signal.signal});signal.abort();assert.equal(guardSeen(),false);complete();code(await cancelled,'TARGET_CHANGED');
-const success=service.execute('dsf_create_flow_project',createArgs);complete();assert.equal((await success).permissionReset,true);
+const success=service.execute('dsf_create_flow_project',createArgs);complete();assert.equal((await success).workTokenExpired,true);
 readonly.disable();code(await service.execute('dsf_create_flow_project',createArgs),'DISABLED');
 console.log('Authoring tools passed: original languages, bounded append, unchanged prior content, undo, replay, stale source, creation guards, cancellation and reset.');
 

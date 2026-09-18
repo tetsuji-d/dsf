@@ -247,6 +247,16 @@ export function createFlowCanvasView({ container, getPinnedPageIndex, onPageCrea
             if (!visible) mounted.forEach(entry => onBeforeRemove?.(entry));
             viewport.hidden = !visible;
         },
+        refreshLabels() {
+            const en = document.documentElement.lang === 'en';
+            viewport.setAttribute('aria-label', en ? 'Work pages, horizontal scrolling' : '作品ページ・横スクロール');
+            for (const { slot, page } of mounted.values()) {
+                slot.querySelector('.flow-canvas-page-label').textContent = getPageLabel(page);
+                const grip = slot.querySelector('.editor-canvas-frame-grip');
+                if (grip) grip.title = en ? 'Hold to move page / Flow group' : '長押ししてページ／Flow全体を移動';
+                slot.querySelector('.editor-canvas-boundary')?.setAttribute('aria-label', en ? 'Insert page here' : 'ここにページを挿入');
+            }
+        },
         resize, ensurePage, setGuideMode,
         getReadingPosition() {
             if (!layout) return 0;

@@ -81,14 +81,14 @@ export function createEditorAuthoringTools({ readState, readonly, applyEdit, cre
             const result=await createProject(draft,guard);
             if(result?.error)return result;
             return {created:true,changed:true,projectName:draft.projectName,title:draft.title,languageKey:draft.languageKey,
-                groupId:draft.blocks[0].id,permissionReset:true,nextAction:'Enable AI tools and editing again for the new project, then get context and list paragraphs.'};
+                groupId:draft.blocks[0].id,workTokenExpired:true,nextAction:'Wait for tools to reconnect using the saved AI access setting, then get a fresh context and list paragraphs. If AI connection is off, enable it in the profile.'};
         }catch{return error('PROJECT_CREATE_FAILED');}
         finally{creating=false;}
     }
     function getTools(){return [
         {name:'dsf_prepare_flow_append',description:'Prepare appending headings/paragraphs at the end of the current Flow original-language manuscript. Returns a one-use appendToken and exact target. No mutation. Translation view is rejected.',inputSchema:prepareSchema,annotations:{readOnlyHint:true}},
         {name:'dsf_append_flow_blocks',description:'Append 1-20 new heading/paragraph blocks with at most 12000 UTF-16 text units total, using the latest appendToken. Existing paragraphs, translations, annotations and layout are preserved. New paragraphs may contain line breaks. One Undo step and normal autosave. Identical retry is not applied twice. Does not publish.',inputSchema:appendSchema,annotations:{readOnlyHint:false,consequentialHint:true}},
-        ...(typeof createProject==='function'?[{name:'dsf_create_flow_project',description:'Create and open a NEW Flow project with projectName, title, original languageKey and writingMode. The current project is backed up locally before switching; backup failure or concurrent change cancels creation. Does not publish. Opening the new project revokes AI permission; the user must enable it again in the profile. Never use this to rename or edit the current project.',inputSchema:projectSchema,annotations:{readOnlyHint:false,consequentialHint:true}}]:[])
+        ...(typeof createProject==='function'?[{name:'dsf_create_flow_project',description:'Create and open a NEW Flow project with projectName, title, original languageKey and writingMode. The current project is backed up locally before switching; backup failure or concurrent change cancels creation. Does not publish. Opening the new project expires old work/edit tokens. Studio reconnects using the saved browser AI access setting; get a fresh context before continuing. Never use this to rename or edit the current project.',inputSchema:projectSchema,annotations:{readOnlyHint:false,consequentialHint:true}}]:[])
     ].map(t=>({...t,inputSchema:structuredClone(t.inputSchema),execute:(args,options)=>execute(t.name,args,options)}));}
     return {execute,getTools,reset};
 }

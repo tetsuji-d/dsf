@@ -2,6 +2,7 @@ import { createImagePagePlan } from './editor-image-page.js';
 import { createImagePageImporter, installImagePagePaste } from './editor-image-paste.js';
 import { discardPreparedAuthoringImage } from './firebase.js';
 import { createProjectWithBackup } from './editor-project-create.js';
+import { formatFlowPageStatus } from './editor-flow-labels.js';
 import { initStudioWebMCP, studioWebMCPMarkup } from './studio-webmcp.js';
 import { getProjectSessionIdentity, resetProjectSession, subscribeProjectSession } from './state.js';
 let studioAI = null;
@@ -2612,16 +2613,11 @@ function renderEditorFlowGeneratedPage(activeBlock, projection) {
     render.dataset.publicationPageCount = String(projection.totalPageCount);
     const pageLockNote = document.getElementById('page-lock-note');
     if (pageLockNote) {
-        const sourceLabel = page.isSourceFallback ? ` / 原文 ${page.languageKey.toUpperCase()}` : '';
-        const directEditing = isFlowDirectEditing(activeBlock.id) && _flowDirectEditProxy;
-        const mappingLabel = page.isSourceFallback
-            ? ''
-            : directEditing
-                ? '・直接編集中'
-                : directCapability === 'editable'
-                    ? '・本文クリックで直接編集'
-                    : '・本文クリックで原稿位置へ';
-        pageLockNote.textContent = `Flow原稿 ${selectedIndex + 1} / ${groupPages.length}（作品内 ${pageLabel}ページ${sourceLabel}${mappingLabel}）`;
+        pageLockNote._flowStatus = { index: selectedIndex, count: groupPages.length, pageLabel,
+            sourceLanguage: page.isSourceFallback ? page.languageKey : '',
+            mapping: page.isSourceFallback ? '' : isFlowDirectEditing(activeBlock.id) && _flowDirectEditProxy
+                ? 'editing' : directCapability === 'editable' ? 'editable' : 'source' };
+        pageLockNote.textContent = formatFlowPageStatus(pageLockNote._flowStatus, getUILang());
         pageLockNote.style.display = 'block';
     }
     syncPageNavigationSlider();
@@ -4965,7 +4961,7 @@ function getStudioAuthMarkup(user, { mobile = false, slotName = 'nav' } = {}) {
                     <span class="auth-dropdown-display-name">${displayName}</span>
                     ${user ? `<span class="auth-dropdown-plan">${planName}</span>` : ''}
                 </div>
-                <div class="auth-panel-section"><div class="auth-panel-label">表示言語 / Language</div><div class="ui-lang-switcher" role="group" aria-label="表示言語 / Language">${['ja','en'].map(key=>`<button type="button" class="ui-lang-btn ${getUILang()===key?'active':''}" data-lang="${key}" data-ui-language="${key}" aria-pressed="${getUILang()===key}">${key==='ja'?'日本語':'English'}</button>`).join('')}</div></div>
+                <div class="auth-panel-section"><div class="auth-panel-label">${getUILang()==='en'?'Language':'表示言語'}</div><div class="ui-lang-switcher" role="group" aria-label="${getUILang()==='en'?'Language':'表示言語'}">${['ja','en'].map(key=>`<button type="button" class="ui-lang-btn ${getUILang()===key?'active':''}" data-lang="${key}" data-ui-language="${key}" aria-pressed="${getUILang()===key}">${key==='ja'?'日本語':'English'}</button>`).join('')}</div></div>
                 ${getStudioThemeButtonsMarkup()}
                 ${studioWebMCPMarkup()}
                 ${signedOutSection}
@@ -5329,7 +5325,7 @@ function refresh(options = {}) {
         syncFlowDirectFormatControls();
         const pageLockNote = document.getElementById('page-lock-note');
         if (pageLockNote) {
-            pageLockNote.textContent = 'Flow原稿のページを生成中…（読取専用）';
+            pageLockNote.textContent = getUILang() === 'en' ? 'Generating Flow pages… (read-only)' : 'Flow原稿のページを生成中…（読取専用）';
             pageLockNote.style.display = 'block';
         }
         requestEditorFlowProjection(flowPreviewTargetBlock);
@@ -11051,6 +11047,16 @@ window.setStudioUILang = (lang) => {
     }
     syncStudioShell();
     refreshFlowRibbon();refreshEditorLanguagePresentation();
+    // Update labels in place; keep text DOM, caret, selection, zoom and scroll intact.
+    _flowNormalCanvasView?.refreshLabels();
+    _flowCanvasView?.refreshLabels();
+    _flowCompare?.refreshLabels();
+    _flowManuscriptCompare?.refreshLabels();
+    const active = state.blocks?.[state.activeBlockIdx];
+    const note = document.getElementById('page-lock-note');
+    if (active?.kind === 'flow' && !isFlowSourceSelected(active.id) && note?._flowStatus) {
+        note.textContent = formatFlowPageStatus(note._flowStatus, getUILang());
+    }
 };
 
 // --- 初回描画: UI 骨組み → リダイレクト認証結果 → GIS 初期化 → ローカル復元 → ?room= ---

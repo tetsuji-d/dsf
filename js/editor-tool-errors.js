@@ -21,8 +21,8 @@ const guidance = {
     TEXT_TOO_LONG: ['This paragraph exceeds the 12000 UTF-16 code unit limit. Use manual editing.', 'この段落はAI編集の文字数上限を超えています。'],
     INVALID_TARGET: ['List current Flow paragraphs and use an exact heading or paragraph ID.', '原稿一覧から対象の段落を確認してください。'],
     DISABLED: ['Ask the user to enable AI tools in the profile menu.', 'プロフィールでAI連携を有効にしてください。'],
-    WORK_CHANGED: ['The work changed. Ask the user to enable AI tools for this work.', '作品が変わりました。AI連携を有効にし直してください。'],
-    NOT_IN_EDITOR: ['Ask the user to return to the editor and enable AI tools.', 'エディターでAI連携を有効にしてください。'],
+    WORK_CHANGED: ['The work changed. Wait for reconnection, obtain fresh tools and get a new editor context.', '作品が変わりました。再接続後にツールと編集対象を取得し直してください。'],
+    NOT_IN_EDITOR: ['Return to the editor. Saved AI access resumes automatically when enabled.', 'エディターに戻ってください。保存済みのAI連携設定で自動再開します。'],
     EDIT_FAILED: ['An edit failed. Re-read the paragraph to check its current state before retrying.', '編集に失敗しました。現在の本文を取得し直してください。'],
 };
 export function editorToolErrorMessage(code, language = 'en') {

@@ -1,5 +1,7 @@
 # WebMCP 接続・段落編集
 
+> 現行のプロフィールUIと設定保持は [webmcp-authoring-workflow.md](webmcp-authoring-workflow.md) を参照。以下の「タブ内のみ」「作品切替時に再許可」は初期版の仕様で、現在はブラウザーに設定を保存し、作品切替時は旧操作トークンのみ失効させる。
+
 確認日：2026-09-17。
 
 新規作成から発行までの実装順と今回の追加は [WebMCP制作ワークフロー](webmcp-authoring-workflow.md) を参照。
