@@ -1,5 +1,5 @@
-import { ASSET_MAX_LONG_EDGE, getAssetUsage } from './project-assets.js';
-export function createProjectAssetPanel({ state, prepareImage, addAsset, useAsset, renameAsset, dropAsset }) {
+import { ASSET_MAX_LONG_EDGE, getAssetUsage, listUnregisteredPageImages } from './project-assets.js';
+export function createProjectAssetPanel({ state, prepareImage, addAsset, useAsset, renameAsset, dropAsset, inspectPageImage, projectIdentity = () => null }) {
     let busy = false;
     let status = '';
     let initialized = false;
@@ -116,7 +116,34 @@ export function createProjectAssetPanel({ state, prepareImage, addAsset, useAsse
             card.addEventListener('dragend', () => { dragged = null; });
             grid.append(card);
         }
+        for (const [index, image] of listUnregisteredPageImages(state.blocks, state.projectAssets).entries()) {
+            const name = label(`ページの画像 ${index + 1}`, `Page image ${index + 1}`);
+            if (!`${name} ${image.languages.join(' ')}`.toLocaleLowerCase().includes(query)) continue;
+            const card = element('div', '', 'project-asset-card');
+            const img = element('img'); img.src = image.thumbnail; img.alt = name; img.loading = 'lazy';
+            card.append(img, element('strong', name), element('small', label('ページ内の画像 · 未登録', 'Page image · Not in asset library')));
+            if (image.languages.length) card.append(element('small', image.languages.join(' / ').toUpperCase()));
+            const button = element('button', label('アセットに登録', 'Add to assets'));
+            button.type = 'button'; button.disabled = busy || !inspectPageImage;
+            button.onclick = event => { event.stopPropagation(); void registerPageImage(image, name); };
+            card.append(button); grid.append(card);
+        }
         if (!grid.childElementCount) grid.append(element('p', label('画像がありません。「画像を追加」から取り込めます。', 'No images. Add images to this project.')));
+    }
+    async function registerPageImage(image, name) {
+        if (busy || !inspectPageImage) return;
+        const key = identity(), session = projectIdentity();
+        busy = true; status = label('元画像を確認中…', 'Checking original image…'); render();
+        try {
+            const prepared = await inspectPageImage(image);
+            if (identity() !== key || projectIdentity() !== session) return;
+            // Page replacement/removal during the download must not register stale artwork.
+            if (!listUnregisteredPageImages(state.blocks, state.projectAssets).some(item => item.background === image.background)) return;
+            addAsset({ name, ...prepared });
+            status = label('アセットに登録しました。右クリックから再利用できます。', 'Added to assets. Right-click to reuse.');
+        } catch {
+            if (identity() === key && projectIdentity() === session) status = label('登録できませんでした。画像の取得状態とWebP形式・容量を確認してください。', 'Could not register the image. Check availability, WebP format and size.');
+        } finally { busy = false; render(); }
     }
     async function upload(event) {
         const input = event?.target;

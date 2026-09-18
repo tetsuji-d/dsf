@@ -1,6 +1,7 @@
+import { appendPreparedProjectAsset } from './project-assets.js';
 import { createImagePagePlan } from './editor-image-page.js';
 import { createImagePageImporter, installImagePagePaste } from './editor-image-paste.js';
-import { discardPreparedAuthoringImage } from './firebase.js';
+import { discardPreparedAuthoringImage, inspectPageImageAsset } from './firebase.js';
 import { createProjectWithBackup } from './editor-project-create.js';
 import { formatFlowPageStatus } from './editor-flow-labels.js';
 import { initStudioWebMCP, studioWebMCPMarkup } from './studio-webmcp.js';
@@ -277,7 +278,8 @@ const flowSearch = createStudioFlowSearch({
     },
 });
 const projectAssetPanel = createProjectAssetPanel({
-    state, prepareImage: prepareAuthoringImage,
+    state, prepareImage: prepareAuthoringImage, inspectPageImage: inspectPageImageAsset,
+    projectIdentity: getProjectSessionIdentity,
     renameAsset: (id, name) => {
         if (!state.projectAssets?.some(asset => asset.id === id)) return;
         endHistoryGroup(); pushState();
@@ -295,12 +297,11 @@ const projectAssetPanel = createProjectAssetPanel({
     },
 
     addAsset: ({ name, mainUrl, thumbUrl, width, height, byteLength }) => {
+        const assets = appendPreparedProjectAsset(state.projectAssets, { mainUrl, thumbUrl, width, height, byteLength }, name, createId('asset'));
+        if (assets === state.projectAssets) return;
         endHistoryGroup(); pushState();
         state.version = 6;
-        state.projectAssets = [...(state.projectAssets || []), {
-            id: createId('asset'), name, background: mainUrl, thumbnail: thumbUrl,
-            width, height, byteLength, mimeType: 'image/webp',
-        }];
+        state.projectAssets = assets;
         refresh(); updateHistoryButtons(); triggerAutoSave();
     },
     useAsset: (id, kind) => {
@@ -1346,18 +1347,24 @@ function chooseFlowImageAtCaret() {
     picker.onchange = async () => {
         const file = picker.files?.[0];
         if (!file) { finish(); return; }
+        let prepared, committed = false;
         try {
             if (!current()) throw new Error('stale');
             setFlowDirectEditNote(t('flow_image_preparing'));
-            const { mainUrl, thumbUrl } = await prepareAuthoringImage(file, { uid: original.uid });
+            prepared = await prepareAuthoringImage(file, { uid: original.uid });
+            const { mainUrl, thumbUrl } = prepared;
             // File selection/upload can outlive edits, project switches or sign-out.
             if (!current()) throw new Error('stale');
             const inserted = plan.blocks[plan.activeBlockIndex];
             inserted.content.background = mainUrl;
             inserted.content.backgrounds = { [session.languageKey]: mainUrl };
             inserted.content.thumbnail = thumbUrl;
+            const assets = appendPreparedProjectAsset(state.projectAssets, prepared, file.name, createId('asset'));
             endHistoryGroup();
             pushState({ editorFocus });
+            state.projectAssets = assets;
+            state.version = 6;
+            committed = true;
             clearFlowDirectEditRuntime();
             dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'blocks', value: plan.blocks } });
             dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'sections', value: extractSectionsFromBlocks(plan.blocks) } });
@@ -1374,6 +1381,7 @@ function chooseFlowImageAtCaret() {
             setFlowDirectEditNote(t('flow_image_failed'));
             alert(t('flow_image_failed'));
         } finally {
+            if (prepared && !committed) await discardPreparedAuthoringImage(prepared);
             finish();
         }
     };
@@ -9395,8 +9403,7 @@ window.uploadToStorage = (input) => {
         if (input) input.value = '';
         return;
     }
-    pushState();
-    uploadToStorage(input, refresh);
+    uploadToStorage(input, () => { refresh(); updateHistoryButtons(); });
 };
 
 window.performUndo = performProjectUndo;

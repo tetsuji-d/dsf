@@ -41,3 +41,30 @@ export async function mapProjectAssetUrls(assets, resolve) {
         thumbnail: await resolve(asset.thumbnail, asset, 'thumbnail') });
     return result;
 }
+
+/** Register a prepared image once, reusing its stored bytes and thumbnail. */
+export function appendPreparedProjectAsset(assets = [], image, name, id) {
+    if (assets.some(asset => asset.background === image.mainUrl)) return assets;
+    const asset = { id, name: String(name || 'Image').slice(0, 512), background: image.mainUrl,
+        thumbnail: image.thumbUrl || image.mainUrl, width: image.width, height: image.height,
+        byteLength: image.byteLength, mimeType: 'image/webp' };
+    validateProjectAssets([asset]);
+    return [...assets, asset];
+}
+
+/** Display old page backgrounds without silently rewriting or downloading the project. */
+export function listUnregisteredPageImages(blocks = [], assets = []) {
+    const registered = new Set(assets.map(asset => asset.background)), images = new Map();
+    for (const block of blocks) {
+        const content = block.content;
+        if (!content || block.kind === 'flow' || (block.kind === 'page' && content.pageKind === 'text')) continue;
+        for (const [language, url] of Object.entries({ '': content.background, ...content.backgrounds })) {
+            if (typeof url !== 'string' || !/^(https:\/\/|blob:|assets\/)/.test(url) || registered.has(url)) continue;
+            if (!images.has(url)) images.set(url, { background: url, thumbnail: url, blockIds: [], languages: [] });
+            const image = images.get(url);
+            if (!image.blockIds.includes(block.id)) image.blockIds.push(block.id);
+            if (language && !image.languages.includes(language)) image.languages.push(language);
+        }
+    }
+    return [...images.values()];
+}

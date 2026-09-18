@@ -1,5 +1,5 @@
 import { getUILang } from './i18n-studio.js';
-import { ASSET_MAX_LONG_EDGE, ASSET_MAX_BYTES, mapProjectAssetUrls } from './project-assets.js';
+import { ASSET_MAX_LONG_EDGE, ASSET_MAX_BYTES, mapProjectAssetUrls, appendPreparedProjectAsset } from './project-assets.js';
 import { decodeDspPublicationThumbnailImage } from './dsp-publication-thumbnail-import.js';
 /**
  * firebase.js — Firebase初期化・クラウド保存/読込・自動保存
@@ -12,7 +12,8 @@ import { doc, setDoc, getDoc, deleteDoc, serverTimestamp, writeBatch } from "htt
 import {
     onAuthStateChanged
 } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js";
-import { state, dispatch, actionTypes } from './state.js';
+import { pushState, endHistoryGroup } from './history.js';
+import { state, dispatch, actionTypes, getProjectSessionIdentity } from './state.js';
 import { getBlockIndexFromPageIndex } from './blocks.js';
 import { PAGE_SCHEMA_VERSION } from './pages.js';
 import { composeCanonicalLayoutsForSections } from './layout.js';
@@ -1414,6 +1415,16 @@ export async function prepareAuthoringImage(file, { uid = state.uid, maxLongEdge
     return { mainUrl, thumbUrl, ...metadata };
 }
 
+/** Recover asset metadata from an existing WebP, without recompression or upload. */
+export async function inspectPageImageAsset(image) {
+    const blob = await fetchAssetBlob(image.background);
+    if (blob.size > ASSET_MAX_BYTES || !(await isWebPBlob(blob))) throw Error('Invalid WebP asset');
+    const dimensions = await decodeDspPublicationThumbnailImage(blob);
+    const prepared = { mainUrl: image.background, thumbUrl: image.background, ...dimensions, byteLength: blob.size };
+    appendPreparedProjectAsset([], prepared, 'Image', 'validation');
+    return prepared;
+}
+
 /**
  * 画像をアップロードし、セクションの背景に設定する
  * クライアント側でWebP変換・サムネイル生成を行う
@@ -1430,16 +1441,25 @@ export async function uploadToStorage(input, refresh) {
     const setLabel = (text) => { if (labelEl) labelEl.innerText = text; };
 
     setLabel("処理中...");
-
+    const identity = getProjectSessionIdentity();
+    const snapshot = () => JSON.stringify([state.blocks, state.sections, state.projectAssets, state.activeIdx, state.activeLang]);
+    const before = snapshot();
+    let prepared, committed = false;
     try {
-        const { mainUrl, thumbUrl } = await prepareAuthoringImage(file);
-
-        // 4. ステート更新
+        if (!state.sections?.[state.activeIdx]) throw Error('No image page selected');
+        prepared = await prepareAuthoringImage(file);
+        if (getProjectSessionIdentity() !== identity || snapshot() !== before) throw Error('編集中のページが変わりました。もう一度画像を選択してください。');
+        const { mainUrl, thumbUrl } = prepared;
+        const assets = appendPreparedProjectAsset(state.projectAssets, prepared, file.name, createId('asset'));
         const lang = state.activeLang || state.defaultLang || 'ja';
         const isMultiLang = (state.languages || ['ja']).length > 1;
-        const newSections = [...state.sections];
+        const newSections = structuredClone(state.sections);
         applyUploadedImageToSectionGroup(newSections, state.activeIdx, lang, mainUrl, thumbUrl, isMultiLang);
+        endHistoryGroup(); pushState();
+        state.version = 6;
+        state.projectAssets = assets;
         dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'sections', value: newSections } });
+        committed = true;
 
         refresh();
         triggerAutoSave();
@@ -1451,6 +1471,7 @@ export async function uploadToStorage(input, refresh) {
         alert("保存失敗: " + e.message);
         setLabel(originalText);
     } finally {
+        if (prepared && !committed) await discardPreparedAuthoringImage(prepared);
         console.log("[DSF] Upload process finished.");
         input.value = ''; // Reset input to allow same file selection
     }
