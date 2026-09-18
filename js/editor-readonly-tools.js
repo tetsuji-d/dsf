@@ -115,6 +115,8 @@ export function createEditorReadonlyTools({ readState, readComposition = () => n
             workToken,
             authoringGuide: getAIAuthoringGuide(),
             compositionTool: 'dsf_get_book_composition',
+            pageUnitsTool: 'dsf_list_page_units',
+            activeBlockId: state.activeBlockId || null,
             target: group ? { kind: 'flow', groupId: group.id } : null,
             languageKey: state.languageKeys?.includes(state.languageKey) ? state.languageKey : null,
             sourceLanguage: textId(state.sourceLanguage) ? state.sourceLanguage : null,

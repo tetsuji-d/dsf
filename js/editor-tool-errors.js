@@ -1,5 +1,10 @@
 // Public, static recovery guidance. Never include manuscript or exception messages.
 const guidance = {
+    INVALID_PAGE_TARGET: ['List page units again and use a supported unitId/blockId. Flow pages and spreads cannot be separated for moves; replacement requires a single image page.', 'ページ一覧を取得し直してください。Flow・見開きは全体を移動し、画像差し替えは単独の画像ページを指定します。'],
+    STALE_PAGE_CHANGE: ['Prepare the page move/replacement again, review the new placement and apply the new token.', '作品・選択・言語が変わりました。ページ操作を準備し直してください。'],
+    PAGE_MOVE_BLOCKED: ['A structure boundary prevents this move. Keep structural blocks intact and choose a target in the same section.', '構造の区切りをまたぐ移動はできません。同じ区切り内の移動先を指定してください。'],
+    PAGE_LAYOUT_UNAVAILABLE: ['Wait for current-language layout to finish, then read book composition and select again.', '現在の本文言語のページ生成後、構成を取得して選択し直してください。'],
+    PAGE_SELECTION_FAILED: ['Selection did not complete. Read editor context and select again after layout finishes.', 'ページ選択が完了しませんでした。組版後に編集状態を確認してください。'],
     INVALID_IMAGE_DATA: ['Supply real PNG/JPEG/WebP bytes as raw base64 with the matching MIME type, or ask the user to upload the image.', '実際のPNG・JPEG・WebP画像のBase64と対応する形式を指定してください。画像アップロードも利用できます。'],
     IMAGE_TOO_LARGE: ['Use an image of at most 8 MiB, 16384px per edge and 40 million pixels, or use the normal image upload UI.', '画像受け渡しの上限は8MiB・各辺16384px・4000万画素です。縮小するか通常の画像アップロードを利用してください。'],
     IMAGE_IMPORT_FAILED: ['Image conversion failed. Check the image and local storage, then prepare it again.', '画像変換に失敗しました。画像とローカル保存領域を確認して再度準備してください。'],

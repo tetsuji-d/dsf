@@ -11624,6 +11624,22 @@ studioAI = initStudioWebMCP({ getUILang, subscribeProjectSession, readState: rea
         projection: hasFlowGroups(state)
             ? getCachedFlowRuntimePageProjection(state, languageKey, state.sections || [], document, editorFlowScope())
             : buildFlowPageProjection({ blocks: state.blocks || [], fixedPages: state.sections || [], requestedLanguageKey: languageKey }) }),
+    selectPage: ({ blockId, flowPageIndex }) => {
+        if (readStudioAIState().busy) throw Error('AI_EDIT_BUSY');
+        const index = state.blocks.findIndex(block => block.id === blockId);
+        if (index < 0) throw Error('INVALID_PAGE_TARGET');
+        endHistoryGroup();
+        if (state.blocks[index].kind === 'flow') {
+            const count = getEditorPageProjection()?.pages?.filter(page => page.groupId === blockId).length || 1;
+            selectFlowGeneratedPage(blockId);
+            setSelectedFlowRuntimePageIndex(blockId, flowPageIndex, count);
+        }
+        changeBlock(index, refreshForThumbSelection);
+    },
+    applyPageChange: result => {
+        if (readStudioAIState().busy) throw Error('AI_EDIT_BUSY');
+        applyEditorSpineChange(result);
+    },
     prepareImage: prepareAuthoringImage, discardImage: discardPreparedAuthoringImage,
     applyImagePage: result => {
         if (readStudioAIState().busy) throw Error('AI_EDIT_BUSY');
@@ -11665,6 +11681,7 @@ function readStudioAIState() {
     return { room: getCurrentRoom(), workIdentity: getProjectSessionIdentity(), blocks: state.blocks,
         languageKeys: state.languages, languageKey, sourceLanguage: group?.flow?.document?.sourceLanguage || state.defaultLang,
         projectAssets: state.projectAssets, activeBlockId: group?.id || null,
+        activeFlowPageIndex: group?.kind === 'flow' ? getSelectedFlowRuntimePageIndex(group.id) : null,
         book: state.book, bookMode: state.bookMode,
         activeGroupId: group?.kind === 'flow' ? group.id : null, selection, busy };
 }

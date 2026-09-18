@@ -1,3 +1,4 @@
+import { createEditorPageTools } from './editor-page-tools.js';
 import { createStudioAIPreferences, AI_PREFERENCE_KEY } from './studio-ai-preferences.js';
 import { createEditorImageTools } from './editor-image-tools.js';
 import { createEditorAuthoringTools } from './editor-authoring-tools.js';
@@ -8,11 +9,12 @@ import '../css/studio-webmcp.css';
 import { initStudioGemini, geminiHandoffMarkup } from './studio-gemini.js';
 
 /** Register only our own tools; aborting one session never removes another owner's tools. */
-export function createStudioWebMCP({ readState, readComposition, getModelContext, applyEdit, createProject, applyImagePage, prepareImage, discardImage, onChange = () => {} }) {
+export function createStudioWebMCP({ readState, readComposition, getModelContext, selectPage, applyPageChange, applyEdit, createProject, applyImagePage, prepareImage, discardImage, onChange = () => {} }) {
     const service = createEditorReadonlyTools({ readState, readComposition });
     const writer = createEditorWriteTools({ readState, readonly: service, applyEdit });
     const authoring = createEditorAuthoringTools({ readState, readonly: service, applyEdit, createProject });
     const images = createEditorImageTools({ readState, readonly: service, applyImagePage, prepareImage, discardImage });
+    const pages = createEditorPageTools({ readState, readonly: service, readComposition, selectPage, applyPageChange });
     let writable = false, activity = null, toolCount = 0;
     let controller = null, status = 'off';
     const supported = () => {
@@ -23,7 +25,7 @@ export function createStudioWebMCP({ readState, readComposition, getModelContext
     function disable(next = 'off') {
         const previous = controller;
         controller = null;
-        service.disable(); writer.reset(); authoring.reset(); images.reset(); writable = false; activity = null; toolCount = 0;
+        service.disable(); writer.reset(); authoring.reset(); images.reset(); pages.reset(); writable = false; activity = null; toolCount = 0;
         previous?.abort();
         status = next;
         notify();
@@ -38,7 +40,7 @@ export function createStudioWebMCP({ readState, readComposition, getModelContext
         status = 'registering'; notify();
         try {
             const api = getModelContext();
-            const tools = [...service.getTools(), ...images.getTools(writable), ...(writable ? [...writer.getTools(), ...authoring.getTools()] : [])];
+            const tools = [...service.getTools(), ...images.getTools(writable), ...pages.getTools(writable), ...(writable ? [...writer.getTools(), ...authoring.getTools()] : [])];
             for (const tool of tools) {
                 await api.registerTool({ ...tool, annotations: { ...tool.annotations, untrustedContentHint: true },
                     execute: async (args, options = {}) => {
@@ -67,19 +69,19 @@ export function createStudioWebMCP({ readState, readComposition, getModelContext
 const labels = {
     ja: { title: 'AI連携', access: 'AIに許可する操作', read: '閲覧のみ', edit: '閲覧・編集',
         notice: 'AIが本文・素材・ページ構成を読み取り、検索や相談に使えます。作品は変更できません。',
-        editNotice: 'AIが読み取りに加え、新規作品の作成、本文編集、画像ページの追加を行えます。変更は元に戻せます。発行は含みません。',
+        editNotice: 'AIが読み取りに加え、新規作品の作成、本文編集、ページの選択・並べ替え、画像ページの追加・差し替えを行えます。変更は元に戻せます。発行は含みません。',
         remembered: 'このブラウザーに保存します。作品の切り替えや再読み込み後も有効です。',
         temporary: 'ブラウザーに設定を保存できないため、このタブを開いている間だけ有効です。',
         unsupported: 'このブラウザーでは非対応', off: 'オフ', on: '利用可能', registering: '接続準備中…', error: '接続できませんでした', room: 'エディターに戻ると自動で再開します', retry: '再接続', details: '接続の詳細' },
     en: { title: 'AI connection', access: 'AI access', read: 'Read only', edit: 'Read and edit',
         notice: 'AI can read text, assets and page composition for search and advice. It cannot change your work.',
-        editNotice: 'AI can also create projects, edit text and add image pages. Changes support Undo. Publishing is not included.',
+        editNotice: 'AI can also create projects, edit text, select or reorder pages, and add or replace page images. Changes support Undo. Publishing is not included.',
         remembered: 'Saved in this browser. Stays enabled across project changes and reloads.',
         temporary: 'Browser storage is unavailable. This setting lasts only while this tab is open.',
         unsupported: 'Unavailable in this browser', off: 'Off', on: 'Available', registering: 'Connecting…', error: 'Could not connect', room: 'Resumes automatically when you return to the editor', retry: 'Reconnect', details: 'Connection details' },
 };
 
-export function initStudioWebMCP({ readState, readComposition, getUILang, subscribeProjectSession, applyEdit, createProject, applyImagePage, prepareImage, discardImage, doc = document, win = window }) {
+export function initStudioWebMCP({ readState, readComposition, getUILang, subscribeProjectSession, selectPage, applyPageChange, applyEdit, createProject, applyImagePage, prepareImage, discardImage, doc = document, win = window }) {
     const gemini = initStudioGemini({ readState, getUILang, doc, win });
     const text = () => labels[getUILang() === 'en' ? 'en' : 'ja'];
     const getModelContext = () => win.top === win && win.isSecureContext ? doc.modelContext : null;
@@ -117,7 +119,7 @@ export function initStudioWebMCP({ readState, readComposition, getUILang, subscr
                         : (last.created ? 'Project created' : last.replayed ? 'Replayed without applying again' : last.changed ? 'Work updated' : 'Success (no change)'))}`;
         });
     }
-    const connection = createStudioWebMCP({ readState, readComposition, getModelContext, applyEdit, createProject, applyImagePage, prepareImage, discardImage, onChange: sync });
+    const connection = createStudioWebMCP({ readState, readComposition, getModelContext, selectPage, applyPageChange, applyEdit, createProject, applyImagePage, prepareImage, discardImage, onChange: sync });
     let storage; try { storage = win.localStorage; } catch { /* Session-only fallback. */ }
     access = createStudioAIPreferences({ connection, readState, storage, onChange: sync });
     doc.addEventListener('change', event => {
