@@ -31,7 +31,7 @@ const {chromium}=require(process.env.DSF_PLAYWRIGHT_MODULE),assert=require('node
  const openProfile=async()=>{if(!await p.locator('[data-auth-dropdown].open').count())await p.locator('[data-auth-trigger]').filter({visible:true}).first().click();};
  const toggle=()=>p.locator('[data-auth-dropdown].open [data-studio-ai] [data-ai-read]');
  await openProfile();await toggle().check();await p.waitForFunction(()=>document.querySelector('[data-ai-status]').textContent==='ツール提供中');
- assert.equal(await p.evaluate(()=>window.testTools.size),4);
+ assert.equal(await p.evaluate(()=>window.testTools.size),5);
  const output=await p.evaluate(async()=>{const context=await testTools.get('dsf_get_editor_context').execute({});const result=await testTools.get('dsf_search_flow_text').execute({workToken:context.workToken,query:'sea',languageKey:'en-GB',scope:'currentFlow'});return {context,result};});
  assert.equal(output.context.sourceLanguage,'en-GB');assert.equal(output.result.matches.length,2);
  assert.ok(!JSON.stringify(output).includes('expectedText'));

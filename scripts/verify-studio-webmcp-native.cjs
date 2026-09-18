@@ -26,7 +26,7 @@ const {chromium}=require(process.env.DSF_PLAYWRIGHT_MODULE),assert=require('node
   const search=await callNative(mine.find(t=>t.name==='dsf_search_flow_text'),{workToken:context.workToken,query:'灯台',languageKey:'ja',scope:'work'});
   window.nativeOldTool=mine[0];return {names:mine.map(t=>t.name),context,search};
  });
- assert.equal(result.names.length,4);assert.equal(result.context.target.groupId,'native-test');assert.equal(result.search.matches.length,2);
+ assert.equal(result.names.length,5);assert.equal(result.context.target.groupId,'native-test');assert.equal(result.search.matches.length,2);
  const invalidIndex=await p.evaluate(async()=>{const previous=nativeState.state.activeBlockIdx;nativeState.state.activeBlockIdx=-1;try{const tool=(await document.modelContext.getTools()).find(t=>t.name==='dsf_get_editor_context');const value=await callNative(tool,{});return {target:value.target,index:nativeState.state.activeBlockIdx};}finally{nativeState.state.activeBlockIdx=previous;}});
  assert.deepEqual(invalidIndex,{target:null,index:-1});
  // The UI search selects actual text; context reports only verified source offsets.

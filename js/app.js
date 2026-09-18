@@ -11614,6 +11614,10 @@ window.deleteSelectedBubble = function (bubbleIndex) {
 
 initStudioHelp();
 studioAI = initStudioWebMCP({ getUILang, subscribeProjectSession, readState: readStudioAIState,
+    readComposition: languageKey => ({ direction: getEditorLangDirection(languageKey),
+        projection: hasFlowGroups(state)
+            ? getCachedFlowRuntimePageProjection(state, languageKey, state.sections || [], document, editorFlowScope())
+            : buildFlowPageProjection({ blocks: state.blocks || [], fixedPages: state.sections || [], requestedLanguageKey: languageKey }) }),
     prepareImage: prepareAuthoringImage, discardImage: discardPreparedAuthoringImage,
     applyImagePage: result => {
         if (readStudioAIState().busy) throw Error('AI_EDIT_BUSY');
@@ -11655,6 +11659,7 @@ function readStudioAIState() {
     return { room: getCurrentRoom(), workIdentity: getProjectSessionIdentity(), blocks: state.blocks,
         languageKeys: state.languages, languageKey, sourceLanguage: group?.flow?.document?.sourceLanguage || state.defaultLang,
         projectAssets: state.projectAssets, activeBlockId: group?.id || null,
+        book: state.book, bookMode: state.bookMode,
         activeGroupId: group?.kind === 'flow' ? group.id : null, selection, busy };
 }
 

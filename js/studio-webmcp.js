@@ -7,8 +7,8 @@ import '../css/studio-webmcp.css';
 import { initStudioGemini, geminiHandoffMarkup } from './studio-gemini.js';
 
 /** Register only our own tools; aborting one session never removes another owner's tools. */
-export function createStudioWebMCP({ readState, getModelContext, applyEdit, createProject, applyImagePage, prepareImage, discardImage, onChange = () => {} }) {
-    const service = createEditorReadonlyTools({ readState });
+export function createStudioWebMCP({ readState, readComposition, getModelContext, applyEdit, createProject, applyImagePage, prepareImage, discardImage, onChange = () => {} }) {
+    const service = createEditorReadonlyTools({ readState, readComposition });
     const writer = createEditorWriteTools({ readState, readonly: service, applyEdit });
     const authoring = createEditorAuthoringTools({ readState, readonly: service, applyEdit, createProject });
     const images = createEditorImageTools({ readState, readonly: service, applyImagePage, prepareImage, discardImage });
@@ -48,7 +48,8 @@ export function createStudioWebMCP({ readState, getModelContext, applyEdit, crea
                         activity = { tool: tool.name, code: result.error?.code || null,
                             created: result.created === true, changed: result.changed === true, replayed: result.replayed === true };
                         notify();
-                        return withEditorToolRecovery(result);
+                        return withEditorToolRecovery(result.changed === true || result.created === true
+                            ? { ...result, compositionCheck: 'After layout completes, read dsf_get_editor_context and dsf_get_book_composition for every content language. Page counts and positional covers may have changed. New projects require re-enabling AI permission first.' } : result);
                     },
                 }, { signal: active.signal });
                 if (active.signal.aborted || controller !== active) return;
@@ -62,13 +63,13 @@ export function createStudioWebMCP({ readState, getModelContext, applyEdit, crea
 }
 
 const labels = {
-    ja: { title: 'AI連携（読み取り専用）', notice: 'オンにすると、このタブの編集対象・原稿一覧・画像素材一覧・本文の抜粋を接続AIに提供します。本文の変更・保存・発行は行いません。',
+    ja: { title: 'AI連携（読み取り専用）', notice: 'オンにすると、このタブの編集対象・制作ルール・ページ構成・原稿一覧・画像素材一覧・本文の抜粋を接続AIに提供します。本文の変更・保存・発行は行いません。',
         unsupported: 'このブラウザでは非対応', off: 'オフ', on: 'ツール提供中', registering: '登録中…', error: '登録失敗：再試行できます', room: 'エディターで有効にできます' },
-    en: { title: 'AI tools (read-only)', notice: 'When enabled, the connected AI can read this tab’s editor context, image asset lists and manuscript lists and searched text excerpts. It cannot edit, save or publish.',
+    en: { title: 'AI tools (read-only)', notice: 'When enabled, the connected AI can read this tab’s editor context, authoring rules, page composition, image asset lists, manuscript lists and searched text excerpts. It cannot edit, save or publish.',
         unsupported: 'Unavailable in this browser', off: 'Off', on: 'Tools available', registering: 'Registering…', error: 'Registration failed: retry available', room: 'Enable in the editor' },
 };
 
-export function initStudioWebMCP({ readState, getUILang, subscribeProjectSession, applyEdit, createProject, applyImagePage, prepareImage, discardImage, doc = document, win = window }) {
+export function initStudioWebMCP({ readState, readComposition, getUILang, subscribeProjectSession, applyEdit, createProject, applyImagePage, prepareImage, discardImage, doc = document, win = window }) {
     const gemini = initStudioGemini({ readState, getUILang, doc, win });
     const text = () => labels[getUILang() === 'en' ? 'en' : 'ja'];
     const getModelContext = () => win.top === win && win.isSecureContext ? doc.modelContext : null;
@@ -98,7 +99,7 @@ export function initStudioWebMCP({ readState, getUILang, subscribeProjectSession
 
         });
     }
-    const connection = createStudioWebMCP({ readState, getModelContext, applyEdit, createProject, applyImagePage, prepareImage, discardImage, onChange: sync });
+    const connection = createStudioWebMCP({ readState, readComposition, getModelContext, applyEdit, createProject, applyImagePage, prepareImage, discardImage, onChange: sync });
     doc.addEventListener('change', event => {
         if (!event.target.matches('[data-studio-ai] input')) return;
         if (event.target.matches('[data-ai-write]')) { void connection.enable(event.target.checked); }

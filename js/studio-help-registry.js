@@ -1,8 +1,10 @@
 /** H1 help metadata: UI-only; never executes authoring commands. */
+import { authoringGuide } from './authoring-guide.js';
 import { getUILang } from './i18n-studio.js';
 const item = (id, selector, ja, en, related = []) => ({id, selector, ja, en, related});
 // Localized tuples: name, summary, steps, prerequisites, shortcuts, search aliases.
 export const studioHelpItems = [
+ ...authoringGuide,
  item('content-language','#lang-tabs-top button,#lang-tabs-mobile button',
  ['本文言語','表示・編集する本文の言語を選びます。UI言語とは別の設定です。','本文言語からEN-GBなどを選び、通常表示でその言語を編集します。未翻訳は入力し、要確認の翻訳は内容を確認してください。','作品を開いてエディターへ移動してください。','','英語だけ 横書き 翻訳 原文 English'],
  ['Content language','Choose the language of your content, independently of the interface language.','Choose EN-GB or another content language, then use Normal view to edit it. Enter missing translations and review outdated translations.','Open a project in the editor.','','English only translation source'],['compare','ui-language']),

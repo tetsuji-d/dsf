@@ -87,7 +87,7 @@ assert.equal(search({ scope: 'work' }).matches.length, 10);
 
 // Returned schemas and responses are detached from the private source and future calls.
 const tools = service.getTools();
-assert.equal(tools.length, 3);
+assert.equal(tools.length, 4);
 assert.ok(tools.every(tool => tool.annotations.readOnlyHint));
 tools[1].inputSchema.properties.limit.maximum = 999;
 assert.equal(service.getTools()[1].inputSchema.properties.limit.maximum, 20);
