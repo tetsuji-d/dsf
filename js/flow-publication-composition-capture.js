@@ -1,3 +1,6 @@
+import {applyFlowPagePlacements} from './flow-page-placement-layout.js';
+import {validatePlacementPagination} from './flow-page-placement.js';
+import {composeFlowWithAnchoredObjects} from './flow-wrap-composition.js';
 import {getFlowPublicationAnnotationGlyphs} from './flow-publication-annotations.js';
 import {getFlowFragmentDomPosition} from './flow-source-mapping.js';
 /**
@@ -546,7 +549,14 @@ function resolveCaptureContext(options) {
 async function nextPaint(ownerDocument) {
     const requestFrame = ownerDocument.defaultView?.requestAnimationFrame?.bind(ownerDocument.defaultView);
     if (!requestFrame) return;
-    await new Promise((resolve) => requestFrame(() => requestFrame(resolve)));
+    // Background tabs may never receive an animation frame. Fonts are awaited
+    // separately and the subsequent geometry reads synchronously flush layout.
+    await new Promise(resolve => {
+        const view=ownerDocument.defaultView;let first,second,settled=false;
+        const finish=()=>{if(settled)return;settled=true;clearTimeout(timer);if(first)view?.cancelAnimationFrame?.(first);if(second)view?.cancelAnimationFrame?.(second);resolve();};
+        const timer=setTimeout(finish,100);
+        first=requestFrame(()=>{second=requestFrame(finish);});
+    });
 }
 
 async function loadCertifiedFonts(context) {
@@ -972,7 +982,7 @@ function capturePage(page, context, surface) {
         });
     }
     decorations.forEach(node=>{node.style.display='';});
-    const elements = Array.from(contentElement.children);
+    const elements = Array.from(contentElement.querySelectorAll('.flow-dom-block'));
     if (elements.length !== page.fragments.length) {
         fail('FLOW_PUBLICATION_CAPTURE_DOM_SOURCE_MISMATCH', 'Rendered Flow block count differs from pagination.', {
             pageIndex: page.index,
@@ -990,6 +1000,7 @@ function capturePage(page, context, surface) {
         index: page.index,
         manualBreakBefore: cloneManualBreak(page.manualBreakBefore),
         lines,
+        ...(page.anchoredObject ? {wrapLayout: structuredClone({object:page.anchoredObject,regions:page.wrapRegions})} : {}),
         ...(page.fragments.some(f=>f.annotations?.length)?{annotations:elements.flatMap((element,index)=>captureFragmentAnnotations(element,page.fragments[index],context,pageRect,surface))}:{}),
     };
 }
@@ -1035,7 +1046,10 @@ export async function createFlowPublicationCompositionCaptureSession(options = {
         }),
         paginate(paginationOptions = {}) {
             assertActive();
-            const pagination = paginateFlowDocument(context.document, {
+            const paginate = context.flowGroup.flow.layout.anchoredObjects?.length
+                ? (_document, opts) => composeFlowWithAnchoredObjects(context.flowGroup, {...opts, ownerDocument:context.ownerDocument, typography:context.measurementTypography})
+                : paginateFlowDocument;
+            const unplacedPagination = paginate(context.document, {
                 languageKey: context.language,
                 writingMode: context.writingMode,
                 pageBox: context.pageBox,
@@ -1044,6 +1058,8 @@ export async function createFlowPublicationCompositionCaptureSession(options = {
                     ? {}
                     : { maxPages: paginationOptions.maxPages }),
             });
+            const pagination=applyFlowPagePlacements(context.flowGroup,unplacedPagination,{ownerDocument:context.ownerDocument,typography:context.measurementTypography});
+            validatePlacementPagination(context.flowGroup,pagination);
             ownedPaginations.add(pagination);
             return pagination;
         },

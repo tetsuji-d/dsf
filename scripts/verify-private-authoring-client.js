@@ -94,9 +94,10 @@ await test('revocation and disabled API remain errors, never fall back to Firest
     assert.equal(t.f.db.docs.get(`${root}/authoringHeads/current`).revision, 1);
 });
 await test('asset resolution preserves prose/local source, deduplicates blobs and rejects missing images', async () => {
-    const p = { title: 'blob: prose', blocks: [{ content: { background: 'blob:a', layers: [{ type: 'image', src: 'blob:a' }] } }], sections: [{ thumbnail: 'blob:b' }] };
+    const p = { title: 'blob: prose', projectAssets: [{ background: 'blob:a', thumbnail: 'blob:a' }], blocks: [{ content: { background: 'blob:a', layers: [{ type: 'image', src: 'blob:a' }] } }], sections: [{ thumbnail: 'blob:b' }] };
     const calls = []; const result = await resolvePrivateAuthoringAssets(p, async url => { calls.push(url); return 'https://assets.test/a.webp'; });
     assert.equal(result.title, p.title); assert.equal(p.blocks[0].content.background, 'blob:a');
+    assert.equal(result.projectAssets[0].background, 'https://assets.test/a.webp');
     assert.deepEqual(calls, ['blob:a', 'blob:b']); assert.equal(result.blocks[0].content.layers[0].src, 'https://assets.test/a.webp');
     await assert.rejects(resolvePrivateAuthoringAssets(p, async () => ''), code('AUTHORING_ASSET_UNRESOLVED'));
     assert(usesPrivateAuthoring({ authoringBackend: 'unknown' })); assert(!usesPrivateAuthoring({ authoringRef: 'authoring/current' }));

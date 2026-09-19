@@ -1,5 +1,7 @@
 # DSF 固定テキスト配信契約
 
+> Web／PWA／portable DSFの製品方針は [DSFプラットフォーム基本方針](dsf-platform-policy.md) を参照。本書は描画・フォント配信契約の正本。以下のステータスは2026-09-03時点の記録であり、現ブランチではWorksのv2公開／限定公開と匿名Viewer経路は接続済み。現在地は基本方針の実装確認表・実コード・実装計画を照合する。
+
 ステータス: 9A-6C-C-C-1C-GでFlowの明示操作をverified R2 uploadとowner-only非公開draft保存へ接続した。Horizonは共有CDN、ダウンロード`.dsf`は使用font必須同梱とするartifact分離を維持する。公開Viewer remote loaderは接続済みだが、Worksのv2公開／限定公開操作と実共有URL確認は未実施である。
 active branchのslider previewは対応済み。別branchの未統合full minimapへの接続は行っていない。
 

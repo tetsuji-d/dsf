@@ -204,6 +204,10 @@ export function createDsfFixedTextPageElement({
     persistedPage.lines.forEach((line) => {
         const lineElement = documentRef.createElement('div');
         lineElement.className = 'viewer-fixed-text-line';
+        const annotation = /-(ruby|emphasis)$/.exec(line.styleRef || '');
+        if (!annotation) lineElement.dataset.readingLine = line.writingMode === 'vertical-rl' ? 'vertical' : 'horizontal';
+        else lineElement.dataset.readingAnnotation = annotation[1];
+        lineElement.dataset.readingStyle = (line.styleRef || '').replace(/-(ruby|emphasis)$/, '');
         lineElement.style.left = `${line.x}px`;
         lineElement.style.top = `${line.y}px`;
         lineElement.style.width = `${line.width}px`;

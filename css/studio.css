@@ -8883,7 +8883,7 @@ body[data-device="mobile"] #works-room .works-release-audit-group li {
     touch-action: pan-x pan-y;
 }
 
-#flow-canvas-viewport {
+.flow-canvas-viewport {
     position: absolute;
     inset: 0;
     z-index: 25;
@@ -8893,9 +8893,9 @@ body[data-device="mobile"] #works-room .works-release-audit-group li {
     touch-action: pan-x pan-y;
 }
 
-#flow-canvas-viewport[hidden] { display: none; }
+.flow-canvas-viewport[hidden] { display: none; }
 
-#flow-canvas-track {
+.flow-canvas-track {
     position: relative;
     direction: ltr;
 }
@@ -8962,33 +8962,15 @@ body[data-device="mobile"] #works-room .works-release-audit-group li {
     cursor: text;
 }
 
-/* Editor-only body rules. They paint on the existing canonical content box,
-   so they scale with the page without changing layout or hit testing. */
-.flow-editor-page-surface > .flow-dom-content[data-flow-page-guide="ruled"] {
-    --flow-page-guide-color: rgba(37, 99, 235, 0.2);
-}
-
-.flow-editor-page-surface > .flow-dom-content[data-flow-page-guide="ruled"][data-flow-page-guide-axis="horizontal"] {
-    background-image: repeating-linear-gradient(
-        to bottom,
-        transparent 0,
-        transparent calc(var(--flow-page-rule-pitch) - 1px),
-        var(--flow-page-guide-color) calc(var(--flow-page-rule-pitch) - 1px),
-        var(--flow-page-guide-color) var(--flow-page-rule-pitch)
-    );
-    background-position: left top;
-}
-
-.flow-editor-page-surface > .flow-dom-content[data-flow-page-guide="ruled"][data-flow-page-guide-axis="vertical"] {
-    background-image: repeating-linear-gradient(
-        to left,
-        transparent 0,
-        transparent calc(var(--flow-page-rule-pitch) - 1px),
-        var(--flow-page-guide-color) calc(var(--flow-page-rule-pitch) - 1px),
-        var(--flow-page-guide-color) var(--flow-page-rule-pitch)
-    );
-    background-position: right top;
-}
+/* Actual composed line guides; never participate in layout or hit testing. */
+.flow-line-guides {position:absolute;inset:0;width:100%;height:100%;pointer-events:none;z-index:3;overflow:hidden;}
+.flow-line-guides line {stroke:rgba(37,99,235,.22);stroke-width:.6;}
+.flow-line-guides line.active {stroke:rgba(37,99,235,.55);}
+.flow-zone-fence {position:absolute;pointer-events:none;box-sizing:border-box;border:1px dashed #2585d9;box-shadow:0 0 0 700px #2585d914;z-index:5;display:none;}
+.flow-graphic-layer:has(.graphic-hit.selected) .flow-zone-fence {display:block;}
+.flow-zone-fence[data-invalid=true] {border-color:#d54b27;box-shadow:0 0 0 700px #d54b271c;}
+.flow-fence-note {position:absolute;left:0;top:-17px;font-size:10px;line-height:14px;color:#174f85;background:#fff;white-space:nowrap;}
+.flow-zone-fence[data-invalid=true] .flow-fence-note {color:#a52b12;}
 
 .flow-direct-input-proxy {
     box-sizing: border-box;
@@ -10418,15 +10400,35 @@ body.strip-collapsed #page-strip:has(.flow-thumb-group) { height: 42px; }
 .flow-canvas-page-slot[data-group-end="true"] .flow-canvas-group-band { width: 100%; }
 .flow-canvas-page-slot[data-group-start="true"] .flow-canvas-group-band { border-left: 2px solid #94a3b8; border-radius: 4px 0 0 4px; }
 .flow-canvas-page-slot[data-group-end="true"] .flow-canvas-group-band { border-right: 2px solid #94a3b8; border-radius: 0 4px 4px 0; }
-#flow-canvas-viewport[data-direction="rtl"] .flow-canvas-group-band { left: -24px; }
-#flow-canvas-viewport[data-direction="rtl"] [data-group-end="true"] .flow-canvas-group-band { left: 0; border-left: 2px solid #94a3b8; border-right: 0; border-radius: 4px 0 0 4px; }
-#flow-canvas-viewport[data-direction="rtl"] [data-group-start="true"] .flow-canvas-group-band { border-right: 2px solid #94a3b8; border-left: 0; border-radius: 0 4px 4px 0; }
+.flow-canvas-viewport[data-direction="rtl"] .flow-canvas-group-band { left: -24px; }
+.flow-canvas-viewport[data-direction="rtl"] [data-group-end="true"] .flow-canvas-group-band { left: 0; border-left: 2px solid #94a3b8; border-right: 0; border-radius: 4px 0 0 4px; }
+.flow-canvas-viewport[data-direction="rtl"] [data-group-start="true"] .flow-canvas-group-band { border-right: 2px solid #94a3b8; border-left: 0; border-radius: 0 4px 4px 0; }
 .flow-canvas-page-slot[data-group-selected="true"] .flow-canvas-group-band { background: #3b82f640; border-color: #60a5fa; }
 .flow-canvas-page-slot[data-group-selected="true"][data-selected="false"] .flow-canvas-page-frame { outline: 1px solid #60a5fa88; outline-offset: 3px; }
 .flow-thumb-group { min-width: 96px; justify-content: center; margin-inline: 4px; }
 .flow-thumb-group-label, .flow-canvas-group-band { color: #dbe5f3; }
 #page-strip-thumbs[data-dir="rtl"] .flow-thumb-group-label { text-align: right; }
 .flow-canvas-page-slot[data-group-start="true"][data-group-end="true"] .flow-canvas-group-band,
-#flow-canvas-viewport[data-direction="rtl"] [data-group-start="true"][data-group-end="true"] .flow-canvas-group-band { border-inline: 2px solid #94a3b8; border-radius: 4px; }
+.flow-canvas-viewport[data-direction="rtl"] [data-group-start="true"][data-group-end="true"] .flow-canvas-group-band { border-inline: 2px solid #94a3b8; border-radius: 4px; }
+
+/* Project media library */
+#asset-search { width: 100%; padding: 8px; margin: 8px 0; }
+.asset-status { font-size: 12px; padding: 4px 8px; overflow-wrap: anywhere; }
+.project-asset-card { min-width: 0; display: flex; flex-direction: column; gap: 5px; padding: 8px; border: 1px solid var(--border-color, #475569); border-radius: 6px; }
+.project-asset-card img { width: 100%; height: 110px; object-fit: contain; background: #e2e8f0; }
+.project-asset-card strong { font-size: 12px; overflow-wrap: anywhere; }
+.project-asset-card small { font-size: 11px; }
+.project-asset-card button { white-space: normal; }
+
+#asset-grid { grid-template-columns: repeat(auto-fit, minmax(125px, 1fr)); }
+
+.project-asset-menu { position: fixed; z-index: 20000; display: flex; flex-direction: column; padding: 6px; max-width: min(300px, 100vw); background: var(--panel, #172033); color: var(--text, #fff); border: 1px solid var(--line, #64748b); border-radius: 8px; box-shadow: 0 8px 24px #0005; }
+.project-asset-menu button { text-align: left; padding: 10px; background: transparent; color: inherit; border: 0; cursor: pointer; }
+.project-asset-menu button:hover, .project-asset-menu button:focus-visible { background: #3b82f633; }
+.project-asset-menu button:disabled { opacity: .45; cursor: default; }
+.project-asset-card strong { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.asset-upload-area.drag-over { outline: 2px solid #3b82f6; background: #3b82f622; }
+
+#image-paste-status { position: fixed; z-index: 20000; bottom: max(28px, env(safe-area-inset-bottom)); left: 50%; transform: translateX(-50%); max-width: min(90vw, 600px); padding: 12px 18px; border-radius: 10px; background: #142339; color: #fff; box-shadow: 0 3px 18px #0004; pointer-events: none; }
 
 #btn-restore-private-authoring[hidden] { display: none; }

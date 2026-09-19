@@ -323,6 +323,8 @@ assert.match(exportSource, /getFlowPortableDsfDownloadArtifact/);
 assert.match(exportSource, /saveAs\(currentArtifact\.blob, currentArtifact\.filename\)/);
 assert.match(pressSource, /hasFlowGroups\(state\)/);
 assert.match(sectionsSource, /data-testid="flow-generated-thumb"/);
+// Source editing is opened from a generated page; source cards no longer belong in thumbnails.
+assert.doesNotMatch(sectionsSource, /data-testid="flow-source-card"/);
 assert.match(sectionsSource, /changeFlowGeneratedPage/);
 assert.match(firebaseSource, /rootData\.version === 6/);
 assert.match(firebaseSource, /prepareFirestoreProjectIngress\(persistedData\)/);

@@ -1,3 +1,5 @@
+import {createViewerPageCurl} from './viewer-page-curl.js';
+import {initializeViewerReadingGuides} from './viewer-reading-guides.js';
 /**
  * viewer.js — DSF Viewer (Gen 3)
  *
@@ -61,6 +63,7 @@ let viewerFixedTextContext = null;
 let viewerLocalFixtureAssetUrls = new Map();
 let viewerLocalPortableSession = null;
 let viewerMinimap = null;
+let readingGuides = null;
 let viewerDocumentRevision = 0;
 let viewerResizeFrame = null;
 let viewerInfoPanelResizeObserver = null;
@@ -376,6 +379,10 @@ async function init() {
         layer.addEventListener('click', suppressClickAfterSwipe, true);
     });
     initializeViewerMinimap();
+    readingGuides = initializeViewerReadingGuides({onLayoutChange: scheduleViewerResize, onAssistanceChange: active => {
+        clearViewerUiAutoHide();
+        if (!active) scheduleViewerUiAutoHide();
+    }});
 
     document.addEventListener('keydown', onKeydown);
     document.addEventListener('wheel', onWheel, { passive: false });
@@ -395,6 +402,23 @@ async function init() {
     applyViewerDevSmoothingClass();
 
     const params = new URLSearchParams(window.location.search);
+    const editorPreview=params.get('editorPreview');
+    if(editorPreview&&window.opener){
+        const source=window.opener,origin=location.origin;
+        const receive=async event=>{
+            if(event.source!==source||event.origin!==origin||event.data?.nonce!==editorPreview||event.data?.type!=='dsf-editor-preview-package'||!(event.data.blob instanceof Blob))return;
+            window.removeEventListener('message',receive);
+            try{await loadViewerFile(new File([event.data.blob],'editor-preview.dsf',{type:event.data.blob.type}),{preview:true});resizeCanvas();updateUiVisibility();source.postMessage({type:'dsf-editor-preview-loaded',nonce:editorPreview},origin);}catch{showStandaloneEmpty();document.getElementById('viewer-empty-title').textContent='プレビューを読み込めませんでした。 / Unable to load preview.';document.getElementById('viewer-empty-body').textContent='エディターへ戻り、プレビューをもう一度開いてください。 / Return to the editor and try again.';source.postMessage({type:'dsf-editor-preview-failed',nonce:editorPreview},origin);}
+        };
+        window.addEventListener('message',receive);
+        showStandaloneEmpty();
+        document.getElementById('viewer-empty-title').textContent='プレビューを準備中… / Preparing preview…';
+        document.getElementById('viewer-empty-body').textContent='画像と組版を準備しています。このタブでお待ちください。 / Preparing images and layout. Please wait here.';
+        document.getElementById('viewer-empty-open').hidden=true;
+        document.getElementById('viewer-empty-hint').textContent='';
+        source.postMessage({type:'dsf-editor-preview-ready',nonce:editorPreview},origin);
+        return;
+    }
     const ownerDraftPid = String(params.get('draft') || '').trim();
     const workId = params.get('work') || params.get('w');
     const requestedReleaseId = params.get('r') || '';
@@ -923,7 +947,7 @@ function updateStandaloneEmptyText() {
     if (hint) hint.textContent = vt('standaloneHint');
 }
 
-async function loadViewerFile(file) {
+async function loadViewerFile(file, {preview = false} = {}) {
     if (!file) return;
     document.body.style.cursor = 'wait';
     try {
@@ -952,6 +976,7 @@ async function loadViewerFile(file) {
             loadProjectData(JSON.parse(await file.text()), { source: 'file' });
         }
     } catch (e) {
+        if(preview)throw e;
         alert(vt('loadError', { message: e.message }));
         if (!projectLoaded) showStandaloneEmpty();
     } finally {
@@ -2779,6 +2804,10 @@ function renderViewerAuthSlot(user = state.user || null) {
             </button>
             <div class="viewer-auth-dropdown">
                 <div class="viewer-auth-name">${esc(nameRaw)}</div>
+                <div class="viewer-auth-section-label">${viewerUiLang === 'en' ? 'Language' : '表示言語'}</div>
+                <div class="viewer-ui-lang-switcher" role="group" aria-label="Language / 表示言語">
+                    ${['ja', 'en'].map(lang => `<button type="button" class="viewer-ui-lang-btn ${viewerUiLang === lang ? 'active' : ''}" data-ui-lang="${lang}" aria-pressed="${viewerUiLang === lang}" lang="${lang}">${lang === 'ja' ? '日本語' : 'English'}</button>`).join('')}
+                </div>
                 <div class="viewer-auth-section-label">${esc(vt('themeLabel'))}</div>
                 <div class="viewer-theme-switcher">
                     <button type="button" class="viewer-theme-btn ${themeMode === 'device' ? 'active' : ''}" data-theme-mode="device">${esc(vt('modeDevice'))}</button>
@@ -2806,6 +2835,21 @@ function renderViewerAuthSlot(user = state.user || null) {
                 });
             }
         }
+    });
+
+    slot.querySelectorAll('[data-ui-lang]').forEach(btn => {
+        btn.addEventListener('click', event => {
+            event.stopPropagation();
+            const lang = btn.dataset.uiLang;
+            window.setViewerUiLang(lang);
+            slot.querySelector('.viewer-auth')?.classList.add('open');
+            slot.querySelector('.viewer-auth-trigger')?.setAttribute('aria-expanded', 'true');
+            slot.querySelector(`[data-ui-lang="${lang}"]`)?.focus();
+        });
+    });
+    slot.querySelector('.viewer-auth-dropdown')?.addEventListener('keydown', event => {
+        event.stopPropagation();
+        if (event.key === 'Escape') { closeViewerAuthDropdown(); trigger?.focus(); }
     });
 
     slot.querySelectorAll('[data-theme-mode]').forEach((btn) => {
@@ -2900,6 +2944,7 @@ window.setViewerUiLang = (lang) => {
 
 function applyViewerUiLanguage() {
     document.documentElement.lang = viewerUiLang === 'en' ? 'en' : 'ja';
+    readingGuides?.refreshLabels();
     document.querySelectorAll('.viewer-ui-lang-btn').forEach((btn) => {
         btn.classList.toggle('active', btn.dataset.uiLang === viewerUiLang);
     });
@@ -3771,6 +3816,7 @@ function transitionToIndex(nextIndex, kind = 'jump') {
     const fromPage = pages[currentIndex];
     const toPage = pages[nextIndex];
     const animType = kind === 'jump' ? 'slide' : getTransitionAnimType(currentIndex, nextIndex);
+    if(committingPageCurl||matchMedia('(prefers-reduced-motion:reduce)').matches){clearTransitionLayers();renderDisplayIndexIntoDom(nextIndex,state.activeLang);refreshChrome();if(spreadMode)renderSpreadPage();preloadNearbyViewerImages();queueBookmarkSave();trackPageView('navigation');return;}
 
     if (animType === 'turn') {
         animatePageTurn(toPage, state.activeLang, motionDir);
@@ -3803,7 +3849,49 @@ function transitionToBookUnit(nextIndex) {
     trackPageView('book_navigation');
 }
 
+let activePageCurl=null, committingPageCurl=false;
+function curlUnit(index){
+    if(hasBookModel()){
+        const unit=normalizeSpreadUnitForLang(getBookUnits()[findBookUnitIndexForPage(index)],state.activeLang);
+        if(!unit)return null;
+        return {...unit,focus:unit.left?.sourcePageIndex===index?'left':'right'};
+    }
+    const ids=getViewerFallbackSpreadPageIndices({currentIndex:index,totalPages:getTotal(),pageDirection:getPageDirection()});
+    const pages=getPages();
+    return ids.length===1?{type:'single',center:pages[ids[0]],key:ids.join(',')}:{type:'spread',left:pages[ids[0]],right:pages[ids[1]],focus:ids[0]===index?'left':'right',key:ids.join(',')};
+}
+function startPageCurl(delta,interactive=false){
+    if(committingPageCurl)return false;
+    if(activePageCurl?.active)return true;
+    if(viewScale>1.05||readingGuides?.isAssisting()||matchMedia('(prefers-reduced-motion:reduce)').matches)return false;
+    const before=getIndex(),lang=state.activeLang;
+    let after,from,to,sameUnit;
+    if(spreadMode&&hasBookModel()){
+        const next=bookSpreadIndex+delta,units=getBookUnits();
+        if(next<0||next>=units.length)return false;
+        from=normalizeSpreadUnitForLang(units[bookSpreadIndex],lang);to=normalizeSpreadUnitForLang(units[next],lang);
+        after=getBookUnitPrimaryPageIndex(units[next]);sameUnit=false;
+    }else{
+        after=getViewerPageNavigationTarget({currentIndex:before,totalPages:getTotal(),delta,spreadMode,pageDirection:getPageDirection()});
+        if(after===before)return false;
+        from=curlUnit(before);to=curlUnit(after);
+        sameUnit=hasBookModel()?findBookUnitIndexForPage(before)===findBookUnitIndexForPage(after):from?.key===to?.key;
+    }
+    if(!from||!to)return false;
+    clearTransitionLayers();
+    const viewport=getViewerViewportMetrics(),safeY=Math.max(viewport.safeTop,viewport.safeBottom);
+    const inset=usesMobileTapMenu()&&isUiVisible?Math.max(Number(document.body.dataset.viewerBottomHeight||0),document.getElementById('viewer-header')?.getBoundingClientRect().bottom-viewport.top||0,safeY):safeY;
+    const targetWidth=Math.min((viewport.height-inset*2)*CANONICAL_PAGE_ASPECT,(viewport.width-2*Math.max(viewport.safeLeft,viewport.safeRight))/(spreadMode&&to.type==='spread'?2:1));
+    activePageCurl=createViewerPageCurl({canvas:document.getElementById('viewer-canvas'),from,to,rtl:getPageDirection()==='rtl',forward:delta>0,spread:spreadMode,sameUnit,targetWidth,width:CANONICAL_PAGE_WIDTH,height:CANONICAL_PAGE_HEIGHT,
+        render:surface=>renderSurfaceContentHTML(surface,lang)+renderSurfaceBubblesHTML(surface,lang),
+        commit:()=>{if(getIndex()!==before||state.activeLang!==lang)return;committingPageCurl=true;try{delta>0?goNext():goPrev();}finally{committingPageCurl=false;}}
+    });
+    if(!interactive)activePageCurl.finish(true);
+    return true;
+}
+
 function goNext() {
+    if(startPageCurl(1))return;
     if (spreadMode && hasBookModel()) {
         transitionToBookUnit(bookSpreadIndex + 1);
         return;
@@ -3821,6 +3909,7 @@ function goNext() {
 }
 
 function goPrev() {
+    if(startPageCurl(-1))return;
     if (spreadMode && hasBookModel()) {
         transitionToBookUnit(bookSpreadIndex - 1);
         return;
@@ -3877,6 +3966,7 @@ window.jumpToPage = (val) => {
 
 // ── Render ────────────────────────────────────────────────────
 function refresh() {
+    activePageCurl?.cancel();
     const pages = getPages();
     if (pages.length === 0) return;
 
@@ -4097,7 +4187,8 @@ function refreshChrome() {
 }
 
 // ── UI ───────────────────────────────────────────────────────
-let isUiVisible = true;
+function usesMobileTapMenu() { return matchMedia('(max-width:650px), (pointer:coarse) and (max-height:650px)').matches; }
+let isUiVisible = !usesMobileTapMenu();
 
 window.toggleUi = (force) => {
     isUiVisible = typeof force === 'boolean' ? force : !isUiVisible;
@@ -4109,9 +4200,13 @@ function updateUiVisibility() {
     ui?.classList.toggle('visible', isUiVisible);
     document.body.classList.toggle('viewer-ui-visible', isUiVisible);
     syncViewerInfoChromeState();
+    document.getElementById('viewer-mobile-page-count')?.setAttribute('aria-expanded',String(isUiVisible));
+    if (usesMobileTapMenu()) resizeCanvas();
+    document.dispatchEvent(new Event('viewer-chrome-change'));
 }
 
 function usesPointerHoverChrome() {
+    if (usesMobileTapMenu()) return false;
     return window.matchMedia?.('(hover: hover) and (pointer: fine)')?.matches === true;
 }
 
@@ -4125,6 +4220,7 @@ function clearViewerUiAutoHide() {
 function scheduleViewerUiAutoHide() {
     if (!usesPointerHoverChrome()) return;
     clearViewerUiAutoHide();
+    if (readingGuides?.isAssisting()) return;
     viewerUiAutoHideTimer = setTimeout(() => {
         window.toggleUi(false);
     }, 5000);
@@ -4146,6 +4242,10 @@ function bindViewerHoverChrome() {
         const canvas = document.getElementById('viewer-canvas');
         const ui = document.getElementById('viewer-ui');
         const target = event.target;
+        if (readingGuides?.isAssisting() && (canvas?.contains(target) || target.closest?.('#reader-assist-panel, #viewer-bottom-navigation'))) {
+            clearViewerUiAutoHide();
+            return;
+        }
         const overViewer = !!(canvas?.contains(target) || ui?.contains(target) || target.closest?.('.viewer-side-nav'));
         if (overViewer) {
             revealViewerUiForPointer();
@@ -4304,7 +4404,41 @@ function bindViewerSliderPreview() {
     slider.addEventListener('input', (event) => updateSliderPreview(event));
 }
 
+let mobileMarginStart=null;
+document.addEventListener('pointerdown',e=>{
+    mobileMarginStart=null;
+    if(!usesMobileTapMenu()||!e.target.closest?.('#viewer-layout'))return;
+    const r=document.getElementById('viewer-canvas')?.getBoundingClientRect();
+    if(r&&(e.clientX<r.left||e.clientX>r.right||e.clientY<r.top||e.clientY>r.bottom)){
+        mobileMarginStart={id:e.pointerId,x:e.clientX,y:e.clientY};e.stopPropagation();
+    }
+},true);
+document.addEventListener('pointerup',e=>{
+    if(mobileMarginStart?.id!==e.pointerId)return;
+    const tap=Math.hypot(e.clientX-mobileMarginStart.x,e.clientY-mobileMarginStart.y)<10;
+    mobileMarginStart=null;e.stopPropagation();
+    if(tap)window.toggleUi(true);
+},true);
+document.addEventListener('pointercancel',()=>mobileMarginStart=null,true);
+
+// Mobile page taps never reveal chrome; the margin and page count are its entry points.
+document.addEventListener('click', e => {
+    if (!usesMobileTapMenu()) return;
+    if (e.target.closest?.('#viewer-mobile-page-count')) { e.stopPropagation();window.toggleUi();return; }
+    if (e.target.closest?.('#viewer-ui,#viewer-info-panel,#reader-assist-panel,#viewer-bottom-navigation')) return;
+    const canvas=document.getElementById('viewer-canvas');
+    if (!e.target.closest?.('#viewer-layout')) return;
+    e.stopPropagation();
+    if (Date.now()<=suppressZoneClickUntil) return;
+    const rect=canvas?.getBoundingClientRect();
+    const onPage=rect&&e.clientX>=rect.left&&e.clientX<=rect.right&&e.clientY>=rect.top&&e.clientY<=rect.bottom;
+    if (onPage) { if(isUiVisible&&!readingGuides?.isAssisting())window.toggleUi(false); }
+    else window.toggleUi(true);
+},true);
+
 document.addEventListener('click', (e) => {
+    // Reading controls are not a request to toggle the surrounding chrome.
+    if (e.target.closest?.('#reader-assist-panel, #viewer-bottom-navigation')) return;
     if (!isUiVisible) {
         if (Date.now() <= suppressZoneClickUntil) return;
         if (e.target.closest?.('#viewer-ui')) return;
@@ -4415,8 +4549,13 @@ function resizeCanvas() {
     const drawerOpen = viewerInfoLayoutMode === 'drawer' && viewerInfoPanelState !== 'closed';
     const safeX = Math.max(viewport.safeLeft, viewport.safeRight);
     const safeY = Math.max(viewport.safeTop, viewport.safeBottom);
-    const W = Math.max(280, viewport.width - (drawerOpen ? VIEWER_DRAWER_WIDTH + VIEWER_DRAWER_GAP : 0) - (safeX * 2));
-    const H = Math.max(1, viewport.height - (safeY * 2));
+    const readerDock = Number(document.body.dataset.readingAssistDock || 0);
+    const W = Math.max(readerDock ? 120 : 280, viewport.width - readerDock - (drawerOpen ? VIEWER_DRAWER_WIDTH + VIEWER_DRAWER_GAP : 0) - (safeX * 2));
+    const menuInset=usesMobileTapMenu()&&isUiVisible?Math.max(
+        Number(document.body.dataset.viewerBottomHeight||0),
+        document.getElementById('viewer-header')?.getBoundingClientRect().bottom-viewport.top||0,
+        safeY):safeY;
+    const H = Math.max(1, viewport.height - Number(document.body.dataset.readingAssistBottom || 0) - (menuInset * 2));
     const aspect = CANONICAL_PAGE_ASPECT;
     const bookSingle = spreadMode && hasBookModel() && getCurrentBookUnit()?.type === 'single';
     const fallbackSingle = spreadMode && !hasBookModel() && !_hasFallbackSpreadSecondPage();
@@ -4434,6 +4573,15 @@ function resizeCanvas() {
     }
     canvas.style.width = w + 'px';
     canvas.style.height = h + 'px';
+    const mobileCount=document.getElementById('viewer-mobile-page-count');
+    if(mobileCount&&usesMobileTapMenu()){
+        const pageBottom=viewport.top+(viewport.height+h)/2;
+        const lowerEdge=viewport.top+viewport.height-(isUiVisible?Number(document.body.dataset.viewerBottomHeight||0):Math.max(28,viewport.safeBottom+16));
+        const center=(pageBottom+lowerEdge)/2;
+        const countTop=Math.min(viewport.top+viewport.height-Math.max(28,viewport.safeBottom+16)-44,center-22);
+        mobileCount.style.top=countTop+'px';
+        mobileCount.style.setProperty('--count-label-y',(center-countTop)+'px');
+    }
 
     const rawScale = showSpread
         ? Math.min(w / (CANONICAL_PAGE_WIDTH * 2), h / CANONICAL_PAGE_HEIGHT)
@@ -4480,7 +4628,7 @@ function updateViewerSideNavPlacement(canvas, canvasWidth) {
     if (!canvas) return;
     const rect = canvas.getBoundingClientRect();
     const viewport = getViewerViewportMetrics();
-    const viewportEnd = viewport.left + viewport.width;
+    const viewportEnd = viewport.left + viewport.width - Number(document.body.dataset.readingAssistDock || 0);
     const panel = document.getElementById('viewer-info-panel');
     const panelRect = panel?.getBoundingClientRect();
     const readingEnd = panel?.dataset.layout === 'drawer' && panelRect?.width > 0
@@ -4700,6 +4848,7 @@ function applyTransform(fromInteraction = false) {
     clampViewPan();
     const stage = document.getElementById('viewer-stage');
     if (stage) stage.style.transform = `translate(${viewX}px,${viewY}px) scale(${viewScale})`;
+    readingGuides?.onViewportChange();
     viewerMinimap?.update({ fromInteraction });
 }
 
@@ -4898,12 +5047,42 @@ function setViewScaleAtClientPoint(nextScale, clientX, clientY) {
     viewY = next.y;
 }
 
+let curlGesture=null;
+document.addEventListener('pointerdown',e=>{
+    if(e.pointerType==='mouse'||!e.target.closest?.('#viewer-canvas')||viewScale>1.05||readingGuides?.isAssisting())return;
+    if(curlGesture){activePageCurl?.cancel();curlGesture=null;return;}
+    const r=document.getElementById('viewer-canvas').getBoundingClientRect();
+    if(e.clientX<r.left||e.clientX>r.right||e.clientY<r.top||e.clientY>r.bottom)return;
+    if(e.clientX-r.left>r.width*.25&&r.right-e.clientX>r.width*.25)return;
+    curlGesture={id:e.pointerId,x:e.clientX,y:e.clientY,width:r.width,started:false};
+},true);
+document.addEventListener('pointermove',e=>{
+    if(curlGesture?.id!==e.pointerId)return;
+    const dx=e.clientX-curlGesture.x,dy=e.clientY-curlGesture.y;
+    if(!curlGesture.started){
+        if(Math.abs(dy)>12&&Math.abs(dy)>Math.abs(dx)){curlGesture=null;return;}
+        if(Math.abs(dx)<12)return;
+        const delta=(dx>0?1:-1)*(getPageDirection()==='rtl'?1:-1);
+        if(!startPageCurl(delta,true)||!activePageCurl?.active){curlGesture=null;return;}
+        curlGesture.started=true;curlGesture.sign=Math.sign(dx);resetSingleSpreadSwipe();
+    }
+    e.stopPropagation();e.preventDefault();activePageCurl.draw(dx*curlGesture.sign/(curlGesture.width*.8));
+}, {capture:true,passive:false});
+document.addEventListener('pointerup',e=>{
+    if(curlGesture?.id!==e.pointerId)return;
+    const started=curlGesture.started;curlGesture=null;if(!started)return;
+    e.stopPropagation();e.preventDefault();pointerCache=[];activeGesturePointerId=null;resetSingleSpreadSwipe();suppressZoneClickUntil=Date.now()+900;
+    activePageCurl?.finish(activePageCurl.progress>.4);
+},true);
+document.addEventListener('pointercancel',()=>{if(curlGesture?.started)activePageCurl?.cancel();curlGesture=null;},true);
+
 function onPointerDown(e) {
     if (!pointerCache.some(p => p.pointerId === e.pointerId)) {
         pointerCache.push(e);
     }
     try { e.currentTarget?.setPointerCapture?.(e.pointerId); } catch (_) { /* ignore */ }
     if (pointerCache.length === 2) {
+        readingGuides?.cancelPointer();
         isPinching = true;
         isPanning = false;
         pinchStartDist = getPinchDist(pointerCache[0], pointerCache[1]);
@@ -4920,7 +5099,9 @@ function onPointerDown(e) {
         pointerStartY = e.clientY;
         lastPanX = e.clientX;
         lastPanY = e.clientY;
-        if (viewScale > 1.05) {
+        if (viewScale <= 1.05 && readingGuides?.beginPointer(e)) {
+            pointerGestureConsumed = true;resetSingleSpreadSwipe();e.preventDefault();
+        } else if (viewScale > 1.05) {
             isPanning = true;
             resetSingleSpreadSwipe();
         } else {
@@ -4952,6 +5133,8 @@ function onPointerMove(e) {
             viewY = next.y;
             applyTransform(true);
         }
+    } else if (readingGuides?.movePointer(e, viewScale <= 1.05)) {
+        e.preventDefault();return;
     } else if (updateSingleSpreadSwipe(e)) {
         return;
     } else if (isPanning) {
@@ -4987,6 +5170,10 @@ function onPointerUp(e) {
             return;
         }
 
+        if (readingGuides?.endPointer(e)) {
+            suppressZoneClickUntil=Date.now()+900;activeGesturePointerId=null;e.preventDefault();return;
+        }
+
         if (finishSingleSpreadSwipe(e)) {
             activeGesturePointerId = null;
             return;
@@ -5009,7 +5196,10 @@ function onPointerUp(e) {
                         e.preventDefault();
                     }
                 }
-                // シングルタップはゾーンの onclick に委任
+                if(viewScale<=1.05 && readingGuides?.highlightAt(e.clientX,e.clientY)) {
+                    suppressZoneClickUntil=Date.now()+500;e.preventDefault();
+                }
+                // Unhandled taps continue to the ordinary navigation zones.
             } else if (
                 e.pointerType !== 'mouse'
                 && fromBottom
@@ -5048,6 +5238,7 @@ function suppressClickAfterSwipe(e) {
 }
 
 function onPointerCancel(e) {
+    readingGuides?.cancelPointer();
     const idx = pointerCache.findIndex(p => p.pointerId === e.pointerId);
     if (idx !== -1) pointerCache.splice(idx, 1);
     try { e.currentTarget?.releasePointerCapture?.(e.pointerId); } catch (_) { /* ignore */ }
@@ -5084,6 +5275,7 @@ function onWheel(e) {
 }
 
 function onKeydown(e) {
+    if (readingGuides?.handleKey(e)) return;
     if (e.key === 'ArrowRight') window.viewerNavRight();
     else if (e.key === 'ArrowLeft') window.viewerNavLeft();
     else if (e.key === 'Escape') window.toggleUi(false);

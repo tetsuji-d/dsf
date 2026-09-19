@@ -1,0 +1,21 @@
+#studio-help-open { flex:none; width:32px; height:32px; border:1px solid #8492a6; border-radius:50%; background:#26354a; color:#fff; font-weight:bold; cursor:pointer; }
+.studio-help-backdrop,.studio-help-shield { position:fixed; inset:0; z-index:100000; }
+.studio-help-backdrop { background:#0003; }
+.studio-help-panel { position:absolute; right:12px; top:52px; bottom:12px; width:min(420px,calc(100vw - 24px)); box-sizing:border-box; padding:16px; background:var(--bg-panel,#fff); color:var(--text-primary,#172033); border:1px solid #8796ad; border-radius:12px; box-shadow:0 8px 28px #0005; overflow:auto; font-size:14px; }
+.studio-help-panel header { display:flex; align-items:center; justify-content:space-between; gap:12px; }
+.studio-help-panel h2 { font-size:18px; margin:0; }
+.studio-help-panel h3 { font-size:17px; }.studio-help-panel h4 { margin:16px 0 4px; }
+.studio-help-panel p { line-height:1.65; }
+.studio-help-panel button,.studio-help-panel input,.studio-help-pick-bar button { min-height:40px; max-width:100%; box-sizing:border-box; padding:8px 10px; border:1px solid #8796ad; border-radius:6px; color:inherit; background:transparent; font:inherit; }
+.studio-help-panel button { cursor:pointer; }
+.studio-help-panel input { width:100%; margin:12px 0; }
+.studio-help-list { display:flex; flex-wrap:wrap; gap:6px; margin:12px 0; }
+.studio-help-list button { text-align:left; }
+.studio-help-related { margin:8px 6px 0 0; }
+.studio-help-status { border-left:3px solid #517da5; padding-left:10px; }
+.studio-help-panel :focus-visible,.studio-help-pick-bar button:focus-visible { outline:3px solid #267de0; outline-offset:2px; }
+.studio-help-shield { cursor:help; touch-action:none; }
+.studio-help-pick-bar { position:absolute; top:8px; left:50%; transform:translateX(-50%); width:max-content; max-width:calc(100vw - 16px); box-sizing:border-box; display:flex; align-items:center; gap:10px; padding:10px; background:#fff; color:#172033; border:2px solid #267de0; border-radius:8px; }
+.studio-help-spot { position:fixed; z-index:100001; pointer-events:none; box-sizing:border-box; border:3px dashed #d46600; outline:2px solid white; border-radius:5px; }
+.studio-help-backdrop[hidden],.studio-help-shield[hidden],.studio-help-spot[hidden] { display:none!important; }
+@media(max-width:650px){.studio-help-panel{top:8px;bottom:max(8px,env(safe-area-inset-bottom));}.studio-help-panel button{min-height:44px;}}

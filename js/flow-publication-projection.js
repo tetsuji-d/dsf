@@ -1,3 +1,5 @@
+import {placedFlowObject,validatePlacementPagination} from './flow-page-placement.js';
+import {validateFlowWrapPagination} from './flow-wrap-composition.js';
 import {getFlowPublicationAnnotationGlyphs} from './flow-publication-annotations.js';
 /**
  * Pure Flow publication projection for DSF delivery v2.
@@ -76,7 +78,7 @@ const SNAPSHOT_KEYS = new Set([
     'pages',
 ]);
 const SNAPSHOT_EVIDENCE_KEYS = new Set(['fontId', 'fontSha256', 'hyphenation']);
-const SNAPSHOT_PAGE_KEYS = new Set(['index', 'manualBreakBefore', 'lines', 'annotations']);
+const SNAPSHOT_PAGE_KEYS = new Set(['index', 'manualBreakBefore', 'lines', 'annotations', 'wrapLayout']);
 const SNAPSHOT_LINE_KEYS = new Set([
     'x',
     'y',
@@ -89,9 +91,12 @@ const SNAPSHOT_LINE_KEYS = new Set([
 const SNAPSHOT_RUN_KEYS = new Set(['text', 'source']);
 const RUN_SOURCE_KEYS = new Set(['blockId', 'startGrapheme', 'endGrapheme']);
 const PAGINATION_KEYS = new Set(['documentId', 'languageKey', 'writingMode', 'pageBox', 'pages']);
-const PAGINATION_PAGE_KEYS = new Set(['index', 'manualBreakBefore', 'fragments']);
+const PAGINATION_PAGE_KEYS = new Set(['index', 'manualBreakBefore', 'fragments', 'anchoredObject', 'wrapRegions', 'placementOffset']);
 const MANUAL_BREAK_KEYS = new Set(['sectionId', 'blockId']);
 const FRAGMENT_KEYS = new Set([
+    'titleRegion',
+    'textAlign',
+    'indent',
     'annotations',
     'sectionId',
     'blockId',
@@ -286,6 +291,8 @@ function validatePagination(pagination, context) {
         fail('FLOW_PUBLICATION_PAGES_INVALID', 'pagination.pages', 'Completed pagination must contain at least one page.');
     }
 
+    validatePlacementPagination(context.flowGroup,pagination);
+    validateFlowWrapPagination(context.flowGroup, pagination, context.typography);
     let textEntryIndex = 0;
     let nextGrapheme = 0;
     const manualBreaks = [];
@@ -312,6 +319,13 @@ function validatePagination(pagination, context) {
             const expectedAnnotations=(expected.block.annotations?.[language] || []).filter(a=>a.start<fragment.sourceRange.end && fragment.sourceRange.start<a.end)
                 .map(a=>({...a,start:Math.max(fragment.sourceRange.start,a.start)-fragment.sourceRange.start,end:Math.min(fragment.sourceRange.end,a.end)-fragment.sourceRange.start}));
             if(!sameValue(fragment.annotations || [],expectedAnnotations))fail('FLOW_PUBLICATION_ANNOTATION_MISMATCH',path,'Pagination annotations differ from source.');
+            if(!sameValue(fragment.titleRegion || null,expected.block.titleRegion || null)
+                || (page.fragments[0]?.titleRegion?.id || '') !== (fragment.titleRegion?.id || '')) {
+                fail('FLOW_PUBLICATION_TITLE_REGION_MISMATCH',path,'Title region differs from source or crosses a page boundary.');
+            }
+            if(!sameValue(fragment.indent || null,expected.block.indentByLanguage?.[language] || null)) fail('FLOW_PUBLICATION_INDENT_MISMATCH',path,'Indent differs from source.');
+            if ((fragment.textAlign ?? null) !== (expected.block.textAlignByLanguage?.[language] ?? null))
+                fail('FLOW_PUBLICATION_ALIGNMENT_MISMATCH',path,'Paragraph alignment differs from source.');
             const range = fragment.sourceRange;
             assertExactKeys(range, SOURCE_RANGE_KEYS, `${path}.sourceRange`);
             const startGrapheme = finiteNumber(range.startGrapheme, `${path}.sourceRange.startGrapheme`, {
@@ -432,6 +446,8 @@ export function validateSnapshotPage(snapshotPage, paginationPage, pageIndex, co
     if (!Array.isArray(snapshotPage.lines)) {
         fail('FLOW_PUBLICATION_SNAPSHOT_LINES_INVALID', `${path}.lines`, 'Snapshot lines must be an array.');
     }
+    const expectedWrap = paginationPage.anchoredObject ? {object:paginationPage.anchoredObject,regions:paginationPage.wrapRegions} : null;
+    if(!sameValue(snapshotPage.wrapLayout || null, expectedWrap)) fail('FLOW_PUBLICATION_WRAP_MISMATCH',path,'Background and text composition differ.');
     const fragments = paginationPage.fragments;
     let fragmentIndex = 0;
     let nextGrapheme = fragments[0]?.sourceRange?.startGrapheme ?? 0;
@@ -512,6 +528,11 @@ export function validateSnapshotPage(snapshotPage, paginationPage, pageIndex, co
         outputLines.push({...validateLineGeometry({...glyph,writingMode:context.writingMode,textOrientation:'mixed'},path,context.writingMode,{...context.pageBox,contentBox:{x:0,y:0,width:context.pageBox.width,height:context.pageBox.height}}),
             writingMode:context.writingMode,textOrientation:'mixed',styleRef:styleIdForEntry(context.source.byBlockId.get(glyph.blockId))+'-'+glyph.type,runs:[{text:glyph.text}]});
     });
+    const object=placedFlowObject(paginationPage);
+    if(object && outputLines.some(line=>line.x<object.x+object.width && line.x+line.width>object.x
+        && line.y<object.y+object.height && line.y+line.height>object.y)) {
+        fail('FLOW_PUBLICATION_OBJECT_TEXT_OVERLAP',path,'Measured text intersects its anchored background.');
+    }
     return outputLines;
 }
 
@@ -759,6 +780,7 @@ export function projectFlowPaginationToDsfV2(input = {}) {
             writingMode: context.writingMode,
             font: { id: context.fontId, declaration: context.fontDeclaration },
             manifest,
+            ...(context.pagination.pages.some(p=>p.anchoredObject) ? {backgrounds:context.pagination.pages.flatMap((p,index)=>p.anchoredObject ? [{pageIndex:index,object:placedFlowObject(p),revision:context.revision}] : [])} : {}),
             summary: {
                 pageCount: pages.length,
                 lineCount: pages.reduce((sum, page) => sum + page.lines.length, 0),

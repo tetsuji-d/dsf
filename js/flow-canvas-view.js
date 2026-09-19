@@ -1,21 +1,24 @@
+import {paintFlowLineGuides} from './flow-line-guides.js';
 import { renderFlowGeneratedPage } from './flow-dom-measurer.js';
 import { calculateFlowCanvasLayout, calculateFlowCanvasWindow,
     getFlowCanvasPagePosition, getFlowCanvasPageScrollLeft } from './flow-canvas-layout.js';
-import { normalizeFlowPageGuideMode, resolveFlowPageRuleGuide } from './flow-page-guides.js';
+import { normalizeFlowPageGuideMode } from './flow-page-guides.js';
 
 /** Editor-only virtual page strip. Page geometry and saved publication data never change. */
 export function createFlowCanvasView({ container, getPinnedPageIndex, onPageCreate,
-    onGeometryChange, onScrollPage, getPageLabel, getFlowGroupLabel, renderFixedPage, onBeforeRemove, getDirection, getJoinedPageIndices }) {
+    onGeometryChange, onScrollPage, onReadingScroll, getPageLabel, getFlowGroupLabel, renderFixedPage, onBeforeRemove, getDirection, getJoinedPageIndices, onBoundaryMenu }) {
     const viewport = document.createElement('div');
     viewport.id = 'flow-canvas-viewport';
+    viewport.className = 'flow-canvas-viewport';
     viewport.dataset.testid = 'flow-canvas-viewport';
     viewport.setAttribute('role', 'region');
-    viewport.setAttribute('aria-label', '作品ページ・横スクロール');
+    viewport.setAttribute('aria-label', document.documentElement.lang==='en'?'Work pages, horizontal scrolling':'作品ページ・横スクロール');
     viewport.tabIndex = 0;
     viewport.hidden = true;
     viewport.dataset.flowPageGuideMode = 'off';
     const track = document.createElement('div');
     track.id = 'flow-canvas-track';
+    track.className = 'flow-canvas-track';
     viewport.appendChild(track);
     container.appendChild(viewport);
     const mounted = new Map();
@@ -31,21 +34,11 @@ export function createFlowCanvasView({ container, getPinnedPageIndex, onPageCrea
     function applyPageGuide(entry) {
         const contentElement = entry?.contentElement;
         if (!contentElement) return;
-        const guide = resolveFlowPageRuleGuide({
-            mode: guideMode,
-            languageKey: entry.page.languageKey,
-            writingMode: entry.page.writingMode,
-            typography: entry.page.typography,
-        });
-        if (guide.mode === 'off') {
-            delete contentElement.dataset.flowPageGuide;
-            delete contentElement.dataset.flowPageGuideAxis;
-            contentElement.style.removeProperty('--flow-page-rule-pitch');
-            return;
-        }
-        contentElement.dataset.flowPageGuide = guide.mode;
-        contentElement.dataset.flowPageGuideAxis = guide.axis;
-        contentElement.style.setProperty('--flow-page-rule-pitch', `${guide.linePitch}px`);
+        // Coalesce until the mounted page has its final zoom and layout.
+        cancelAnimationFrame(entry.guideFrame);
+        if(guideMode==='off') paintFlowLineGuides(entry.pageElement,entry.page.pageBox,false);
+        else entry.guideFrame=requestAnimationFrame(()=>paintFlowLineGuides(entry.pageElement,entry.page.pageBox,guideMode!=='off'));
+
     }
 
     function setGuideMode(value) {
@@ -82,6 +75,9 @@ export function createFlowCanvasView({ container, getPinnedPageIndex, onPageCrea
                 slot.dataset.flowPageIndex = String(index);
                 slot.dataset.pageKind = page.kind;
                 slot.dataset.runtimeKey = page.runtimeKey;
+                slot.dataset.editorUnitId=page.groupId||page.blockId;
+                slot.dataset.blockIndex=String(page.blockIndex);
+                slot.dataset.generatedPageIndex=String(page.flowPageIndex||0);
                 const pageFrame = document.createElement('div');
                 pageFrame.className = 'flow-canvas-page-frame';
                 const pageElement = document.createElement('div');
@@ -92,11 +88,16 @@ export function createFlowCanvasView({ container, getPinnedPageIndex, onPageCrea
                 pageElement.dataset.flowPageIndex = String(index);
                 pageElement._flowPageEntry = page;
                 pageFrame.appendChild(pageElement);
+                const grip=document.createElement('span');grip.className='editor-canvas-drag-handle editor-canvas-frame-grip';grip.dataset.editorUnitId=page.blockId;grip.dataset.flowPageIndex=String(page.flowPageIndex||0);grip.title=document.documentElement.lang==='en'?'Hold to move page / Flow group':'長押ししてページ／Flow全体を移動';pageFrame.append(grip);
                 slot.appendChild(pageFrame);
                 const label = document.createElement('div');
                 label.className = 'flow-canvas-page-label';
                 label.textContent = getPageLabel(page);
+                label.dataset.editorUnitId=page.groupId||page.blockId;label.dataset.flowPageIndex=String(page.flowPageIndex||0);
+                label.classList.add('editor-canvas-drag-handle');label.tabIndex=0;
                 slot.appendChild(label);
+                if(index<pages.length-1){const gap=document.createElement('button');gap.type='button';gap.className='editor-canvas-boundary';gap.textContent='+';gap.setAttribute('aria-label',document.documentElement.lang==='en'?'Insert page here':'ここにページを挿入');gap.oncontextmenu=e=>{e.preventDefault();e.stopPropagation();onBoundaryMenu?.(e,page,'after');};gap.onclick=e=>{e.stopPropagation();onBoundaryMenu?.(e,page,'after');};slot.append(gap);}
+
                 if (page.kind === 'flow') {
                     const band = document.createElement('div'); band.className = 'flow-canvas-group-band';
                     band.textContent = (getFlowGroupLabel?.(page) || 'Flow') + ' · ' + (page.flowPageIndex + 1) + '/' + page.flowPageCount;
@@ -119,6 +120,8 @@ export function createFlowCanvasView({ container, getPinnedPageIndex, onPageCrea
                 left: `${position.left}px`, top: `${position.top}px`, width: `${position.width}px`,
                 height: `${position.height + layout.labelHeight}px`,
             });
+            entry.slot.dataset.direction=getDirection?.()||'ltr';
+            entry.slot.dataset.joinedAfter=String(getJoinedPageIndices?.(pages)?.includes(index+1)||false);
             entry.slot.dataset.groupSelected = String(page.kind === 'flow' && pages[selected]?.groupId === page.groupId);
             const selectedSpread = pages[selected]?.section?.spreadImage?.groupId;
             entry.slot.dataset.selected = String(index === selected || !!(selectedSpread
@@ -126,6 +129,7 @@ export function createFlowCanvasView({ container, getPinnedPageIndex, onPageCrea
         }
         viewport.dataset.visiblePageCount = String(layout.visibleCount);
         viewport.dataset.mountedPageCount = String(mounted.size);
+        mounted.forEach(applyPageGuide);
         onGeometryChange?.();
     }
 
@@ -199,6 +203,7 @@ export function createFlowCanvasView({ container, getPinnedPageIndex, onPageCrea
                 && Math.abs(viewport.scrollLeft - programmaticScrollLeft) < 0.5;
             programmaticScrollLeft = null;
             if (programmatic) return;
+            onReadingScroll?.();
             if (getPinnedPageIndex?.() !== null && getPinnedPageIndex?.() !== undefined) return;
             const center = viewport.scrollLeft + viewport.clientWidth / 2;
             const visible = calculateFlowCanvasWindow(layout, { scrollLeft: viewport.scrollLeft, overscan: 0 });
@@ -242,7 +247,29 @@ export function createFlowCanvasView({ container, getPinnedPageIndex, onPageCrea
             if (!visible) mounted.forEach(entry => onBeforeRemove?.(entry));
             viewport.hidden = !visible;
         },
+        refreshLabels() {
+            const en = document.documentElement.lang === 'en';
+            viewport.setAttribute('aria-label', en ? 'Work pages, horizontal scrolling' : '作品ページ・横スクロール');
+            for (const { slot, page } of mounted.values()) {
+                slot.querySelector('.flow-canvas-page-label').textContent = getPageLabel(page);
+                const grip = slot.querySelector('.editor-canvas-frame-grip');
+                if (grip) grip.title = en ? 'Hold to move page / Flow group' : '長押ししてページ／Flow全体を移動';
+                slot.querySelector('.editor-canvas-boundary')?.setAttribute('aria-label', en ? 'Insert page here' : 'ここにページを挿入');
+            }
+        },
         resize, ensurePage, setGuideMode,
+        getReadingPosition() {
+            if (!layout) return 0;
+            const stride = pages.length > 1 ? Math.abs(getFlowCanvasPagePosition(layout, 1).left - getFlowCanvasPagePosition(layout, 0).left) : 1;
+            return (layout.direction === 'rtl' ? layout.maxScrollLeft - viewport.scrollLeft : viewport.scrollLeft) / stride;
+        },
+        setReadingPosition(value) {
+            if (!layout) return;
+            const stride = pages.length > 1 ? Math.abs(getFlowCanvasPagePosition(layout, 1).left - getFlowCanvasPagePosition(layout, 0).left) : 1;
+            const offset = Math.max(0, Math.min(layout.maxScrollLeft, value * stride));
+            setScrollLeft(layout.direction === 'rtl' ? layout.maxScrollLeft - offset : offset);
+            renderWindow();
+        },
         getScale() { return layout?.scale || 1; },
         getPages() { return pages; },
         refreshFixedPreviews(predicate) {

@@ -54,10 +54,7 @@
                 </button>
             </div>
             <div class="room-nav-right">
-                <div class="ui-lang-switcher">
-                    <button class="ui-lang-btn" data-lang="ja" onclick="setStudioUILang('ja')">JA</button>
-                    <button class="ui-lang-btn" data-lang="en" onclick="setStudioUILang('en')">EN</button>
-                </div>
+                <button id="studio-help-open" type="button" data-open-studio-help aria-label="操作ヘルプ" aria-controls="studio-help-panel" aria-expanded="false">?</button>
                 <div id="studio-auth-slot-nav" class="studio-auth-slot studio-auth-slot-nav"></div>
             </div>
         </nav>
@@ -160,6 +157,8 @@
                         </button>
                     </div>
                     <div class="ribbon-group">
+                        <button id="btn-flow-search" type="button" class="btn-tool btn-tool-icon" aria-expanded="false" aria-controls="flow-search-bar" title="Flow原稿を検索 (Ctrl+F)"><span class="material-icons" aria-hidden="true">search</span></button>
+                        <button id="btn-editor-preview" class="btn-tool btn-tool-icon" onclick="previewEditorInViewer()" data-i18n-title="editor_viewer_preview" data-i18n-aria="editor_viewer_preview" title="Viewerでプレビュー"><span class="material-icons">visibility</span></button>
                         <button id="btn-save" class="btn-tool btn-tool-icon" onclick="saveProject()" title="保存 (Ctrl+S)" data-auth-required>
                             <span class="material-icons" aria-hidden="true">save</span><span data-i18n="btn_save">保存</span>
                         </button>
@@ -298,6 +297,7 @@
                         <button class="btn" onclick="document.getElementById('asset-upload').click()">
                             <span class="material-icons inline-icon">upload</span> <span data-i18n="btn_upload_image">画像をアップロード</span>
                         </button>
+                        <button class="btn" type="button" onclick="pasteImagePage()" title="Ctrl+V / ⌘V" data-image-paste-button>画像を貼り付けてページ追加</button>
                         <input type="file" id="asset-upload" accept="image/*" multiple style="display:none;" onchange="uploadAsset(event)">
                     </div>
                     <div id="asset-grid" class="asset-grid"></div>
@@ -360,8 +360,6 @@
                     ondragover="handleCanvasDragOver(event)"
                     ondragleave="handleCanvasDragLeave(event)"
                     ondrop="handleCanvasDrop(event)">
-                    <button type="button" id="flow-image-insert" class="flow-image-insert btn-sm" data-flow-insert-image
-                        data-i18n="flow_image_insert_short" data-i18n-title="flow_image_insert_hint" hidden>＋ 画像ページ</button>
                     <input type="file" id="flow-image-file" accept="image/*" hidden>
                     <div id="flow-authoring-surface" data-testid="flow-authoring" hidden></div>
                     <div id="canvas-stage">
@@ -429,9 +427,6 @@
                         <button id="image-flip-btn" class="btn-sm zoom-btn img-zoom-btn" onmousedown="event.stopPropagation()"
                             ontouchstart="event.stopPropagation()" onclick="toggleImageFlipX()" title="左右反転">⇄</button>
                     </div>
-                    <button id="fab-add-bubble" class="fab-btn" onclick="addBubbleFab()" title="テキスト追加" data-fixed-page-edit>
-                        <span class="material-icons">text_fields</span>
-                    </button>
                 </div>
                 <div id="page-strip">
                     <div id="page-strip-handle">
@@ -477,6 +472,31 @@
 
                     <div id="flow-page-source-props" class="flow-direct-format-props" hidden>
                         <button type="button" id="flow-open-source" class="btn-sm" data-testid="flow-open-source">原稿を開く</button>
+                        <details id="flow-page-placement">
+                            <summary data-i18n="flow_placement_title">Flowのページ内配置</summary>
+                            <button type="button" id="flow-make-title" class="btn-sm" data-i18n="flow_make_title">このページを扉にする</button>
+                            <button type="button" id="flow-restore-body" class="btn-sm" data-i18n="flow_restore_body" hidden>通常の本文に戻す</button>
+                            <label for="flow-placement-scope" data-i18n="flow_placement_scope">適用範囲</label>
+                            <select id="flow-placement-scope">
+                                <option value="page" data-i18n="flow_scope_page">このページ</option>
+                                <option value="group" data-i18n="flow_scope_group">Flow全体</option>
+                            </select>
+                            <p data-i18n="flow_placement_hint">このFlowの選択言語に適用します。扉は本文とは別のFlowで作成してください。</p>
+                            <label for="flow-placement-inline" data-i18n="flow_placement_inline">行内の文字揃え</label>
+                            <select id="flow-placement-inline">
+                                <option value="start" data-i18n="flow_placement_start">先頭</option>
+                                <option value="center" data-i18n="flow_placement_center">中央</option>
+                                <option value="end" data-i18n="flow_placement_end">末尾</option>
+                                <option value="justify" data-i18n="flow_placement_justify">均等揃え</option>
+                            </select>
+                            <label for="flow-placement-block" data-i18n="flow_placement_block">行のまとまりの配置</label>
+                            <select id="flow-placement-block">
+                                <option value="start" data-i18n="flow_placement_start">先頭</option>
+                                <option value="center" data-i18n="flow_placement_center">中央</option>
+                                <option value="end" data-i18n="flow_placement_end">末尾</option>
+                            </select>
+                            <p data-i18n="flow_placement_axes">縦書き：文字揃えは上下、まとまりは左右。横書き：文字揃えは左右、まとまりは上下。</p>
+                        </details>
                         <p data-i18n="flow_source_location_hint">編集中の位置から原稿全体を開きます。ページのドラッグでFlow全体を移動できます。</p>
                     </div>
                     <div id="flow-direct-format-props" class="flow-direct-format-props" data-testid="flow-direct-format" hidden>
@@ -646,10 +666,6 @@
                 <span id="mobile-header-title" class="mobile-title">DSF Studio</span>
             </div>
             <div class="mobile-header-actions">
-                <div class="ui-lang-switcher mobile-header-lang-switcher">
-                    <button class="ui-lang-btn" data-lang="ja" onclick="setStudioUILang('ja')">JA</button>
-                    <button class="ui-lang-btn" data-lang="en" onclick="setStudioUILang('en')">EN</button>
-                </div>
                 <div id="studio-auth-slot-mobile" class="studio-auth-slot studio-auth-slot-mobile"></div>
             </div>
         </div>

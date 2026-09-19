@@ -161,6 +161,7 @@ export async function resolvePrivateAuthoringAssets(project, upload) {
         }
     }
     await owner(result);
+    for (const asset of result.projectAssets || []) await owner(asset);
     for (const block of result.blocks || []) await owner(block.content);
     for (const section of result.sections || []) await owner(section);
     for (const page of result.pages || []) await owner(page);

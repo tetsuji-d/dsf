@@ -1,0 +1,20 @@
+.studio-gemini-open { display:block; width:100%; padding:9px 12px; margin-bottom:12px; border:1px solid #6184c4; border-radius:8px; background:#eef4ff; color:#183c79; font:inherit; cursor:pointer; }
+.studio-gemini-dialog { box-sizing:border-box; width:min(680px, calc(100vw - 24px)); max-height:calc(100dvh - 32px); margin:auto; padding:22px; overflow:auto; border:1px solid #7892bc; border-radius:14px; background:#f8faff; color:#172b49; font:14px/1.6 system-ui,sans-serif; box-shadow:0 16px 60px #0005; }
+.studio-gemini-dialog::backdrop { background:#07132988; }
+.studio-gemini-dialog header { display:flex; align-items:center; justify-content:space-between; gap:16px; }
+.studio-gemini-dialog h2 { margin:0; font-size:20px; }
+.studio-gemini-dialog p { margin:10px 0; }
+.studio-gemini-dialog label { display:block; font-weight:600; }
+.studio-gemini-dialog textarea { display:block; box-sizing:border-box; width:100%; min-height:70px; margin:5px 0 10px; padding:10px; border:1px solid #a6b5cb; border-radius:6px; background:#fff; color:#14253f; font:14px/1.6 system-ui,sans-serif; resize:vertical; white-space:pre-wrap; }
+.studio-gemini-dialog textarea[readonly] { background:#f0f3f8; }
+.studio-gemini-dialog button { padding:8px 14px; border:1px solid #a6b5cb; border-radius:7px; background:white; color:#1b355c; font:inherit; cursor:pointer; }
+.studio-gemini-dialog button:disabled { opacity:.5; cursor:default; }
+.studio-gemini-dialog :focus-visible { outline:3px solid #316dd8; outline-offset:2px; }
+.studio-gemini-dialog .gemini-primary { background:#285dcc; color:white; border-color:#285dcc; }
+.studio-gemini-dialog .gemini-actions { display:flex; gap:10px; flex-wrap:wrap; margin:12px 0; }
+.studio-gemini-dialog .gemini-steps { color:#315b9a; font-weight:600; }
+.studio-gemini-dialog .gemini-warning { color:#8d4b00; font-weight:600; }
+.studio-gemini-dialog a { color:#225ac0; }
+.studio-gemini-dialog summary { cursor:pointer; }
+.studio-gemini-dialog [role=status]:empty, .studio-gemini-dialog .gemini-warning:empty { display:none; }
+@media (max-width:480px) { .studio-gemini-dialog { padding:16px; } .studio-gemini-dialog h2 { font-size:18px; } }

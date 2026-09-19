@@ -273,20 +273,25 @@ function validateAssemblyShape(assembly, issues) {
             assetPlanByKey.set(key, { asset, path });
         }
         const page = assembly.bundle?.manifests?.[asset.language]?.pages?.[asset.pageIndex];
-        if (page?.renderKind !== 'image'
+        const backgroundMatches=asset.purpose==='fixedTextBackground' && page?.renderKind==='fixedText'
+            && page.sourceAnchor?.kind==='flow' && page.sourceAnchor.flowGroupId===asset.blockId
+            && page.background?.imageHref===`../${asset.path}` && asset.mimeType==='image/webp'
+            && Number.isSafeInteger(asset.width) && Number.isSafeInteger(asset.height) && asset.width>0 && asset.height>0
+            && asset.width*640===asset.height*360;
+        if (asset.purpose==='fixedTextBackground' ? !backgroundMatches : (asset.purpose!==undefined || page?.renderKind !== 'image'
             || page.sourceAnchor?.kind !== 'fixed'
             || page.sourceAnchor.blockId !== asset.blockId
             || page.image?.href !== `../${asset.path}`
             || page.image?.width !== asset.width
             || page.image?.height !== asset.height
-            || page.image?.mimeType !== asset.mimeType) {
+            || page.image?.mimeType !== asset.mimeType)) {
             issues.push(createIssue('RELEASE_ASSEMBLY_ASSET_PAGE_MISMATCH', path, 'Release asset plan does not match its image page.'));
         }
     }
     for (const language of bundleLanguages) {
         for (const [pageIndex, page] of (assembly.bundle?.manifests?.[language]?.pages || []).entries()) {
-            if (page?.renderKind !== 'image') continue;
-            const key = assetKey(language, page.sourceAnchor?.blockId, pageIndex);
+            if (page?.renderKind !== 'image' && !page.background?.imageHref) continue;
+            const key = assetKey(language, page.renderKind==='image' ? page.sourceAnchor?.blockId : page.sourceAnchor?.flowGroupId, pageIndex);
             if (!assetPlanByKey.has(key)) {
                 issues.push(createIssue('RELEASE_ASSEMBLY_ASSET_MISSING', `assembly.bundle.manifests.${language}.pages[${pageIndex}]`, 'Image page is missing from the release asset plan.'));
             }

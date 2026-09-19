@@ -1,0 +1,31 @@
+<!doctype html><html lang="ja"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>DSF WebMCP ページ操作検証</title>
+<style>body{font:15px/1.6 system-ui;margin:24px;color:#17223b;background:#f4f7fb}button,select{font:inherit;padding:8px;margin:4px}#controls{max-width:390px}#pages{display:flex;gap:12px;padding:20px;overflow:auto}.page{min-width:120px;height:205px;padding:12px;border:3px solid #adb6c5;background:#fff;white-space:pre-wrap}.page.selected{border-color:#1670ed}pre{white-space:pre-wrap;overflow-wrap:anywhere}section{margin:12px 0}</style>
+<h1>WebMCP ページ操作検証</h1><p>合成原稿のみ。実際の作品・クラウドは変更しません。移動前後の本文・画像ID・翻訳保持とUndoを確認します。</p>
+<section id="controls"></section>
+<button id="list">ページ一覧</button><button id="select">挿絵を選択</button><button id="prepare">途中の表紙を先頭へ移動準備</button><button id="apply">準備した操作を適用</button><button id="replace">表紙画像の差し替え準備</button><button id="stale">古い操作の拒否を確認</button><button id="undo">元に戻す</button>
+<div id="pages"></div><pre id="history"></pre><pre id="result"></pre>
+<script type="module">
+import {initStudioWebMCP,studioWebMCPMarkup} from '/js/studio-webmcp.js';
+import {createFlowGroupBlock} from '/js/flow-project-model.js';
+import {state} from '/js/state.js';
+import {pushState,undo,getHistoryInfo,clearHistory} from '/js/history.js';
+const canvas=document.createElement('canvas');canvas.width=360;canvas.height=640;const paint=canvas.getContext('2d');paint.fillStyle='#134578';paint.fillRect(0,0,360,640);const blob=await new Promise(r=>canvas.toBlob(r,'image/webp'));const url=URL.createObjectURL(blob);
+state.version=6;state.activeBlockIdx=0;state.activeLang='ja';state.languages=['ja','en-GB'];state.projectAssets=[{id:'cover-art',name:'検証表紙',background:url,thumbnail:url,width:360,height:640,byteLength:blob.size,mimeType:'image/webp'}];
+const page=id=>({id,kind:'page',content:{pageKind:'image',background:'',backgrounds:{ja:'','en-GB':'assets/unchanged.webp'},bubbles:[],headings:{ja:id}}});
+state.blocks=[createFlowGroupBlock({id:'story',document:{sourceLanguage:'ja',sections:[{id:'section',blocks:[{id:'paragraph',type:'paragraph',texts:{ja:'図書館の灯り。本文は変えない。','en-GB':'The library light. Keep this text.'}}]}]}}),page('illustration'),page('cover'),page('back')];clearHistory();
+const identity={},readState=()=>({room:'editor',workIdentity:identity,blocks:state.blocks,activeBlockId:state.blocks[state.activeBlockIdx].id,activeGroupId:state.blocks[state.activeBlockIdx].kind==='flow'?state.blocks[state.activeBlockIdx].id:null,projectAssets:state.projectAssets,languageKeys:state.languages,languageKey:state.activeLang,busy:false});
+const readComposition=()=>({direction:'rtl',projection:{languageKey:state.activeLang,pages:state.blocks.map((b,index)=>({index,blockId:b.id,groupId:b.kind==='flow'?b.id:null,flowPageIndex:0,kind:b.kind==='flow'?'flow':'fixed'}))}});
+const render=()=>{document.querySelector('#pages').replaceChildren(...state.blocks.map((b,index)=>{const el=document.createElement('div');el.className='page'+(index===state.activeBlockIdx?' selected':'');el.textContent=b.id+'\n'+(b.kind==='flow'?b.flow.document.sections[0].blocks[0].texts.ja:b.content.backgrounds.ja===url?'新しい表紙画像':'既存画像');if(b.content?.backgrounds.ja===url){el.style.background='#134578';el.style.color='white';}return el;}));document.querySelector('#history').textContent=JSON.stringify(getHistoryInfo());};
+document.body.dataset.room='editor';document.querySelector('#controls').innerHTML=studioWebMCPMarkup();
+const apply=plan=>{pushState();state.blocks=plan.blocks;state.activeBlockIdx=plan.activeBlockIndex;render();};
+initStudioWebMCP({readState,readComposition,getUILang:()=> 'ja',subscribeProjectSession:()=>{},applyEdit:apply,applyPageChange:apply,selectPage:({blockId})=>{state.activeBlockIdx=state.blocks.findIndex(b=>b.id===blockId);render();}});
+let ticket;async function call(name,args){const api=document.modelContext;const tool=(await api.getTools()).find(t=>t.name===name);if(!tool)throw Error('操作が未登録です。AI連携で閲覧・編集を選択してください。');const raw=await api.executeTool(tool,JSON.stringify(args));return typeof raw==='string'?JSON.parse(raw):raw;}
+const context=()=>call('dsf_get_editor_context',{});const report=async(fn)=>{try{document.querySelector('#result').textContent=JSON.stringify(await fn(),null,2);}catch(e){document.querySelector('#result').textContent=e.message;}};
+document.querySelector('#list').onclick=()=>report(async()=>call('dsf_list_page_units',{workToken:(await context()).workToken}));
+document.querySelector('#select').onclick=()=>report(async()=>call('dsf_select_page',{workToken:(await context()).workToken,blockId:'illustration'}));
+document.querySelector('#prepare').onclick=()=>report(async()=>ticket=await call('dsf_prepare_page_move',{workToken:(await context()).workToken,unitId:'cover',position:'start'}));
+document.querySelector('#replace').onclick=()=>report(async()=>ticket=await call('dsf_prepare_image_replacement',{workToken:(await context()).workToken,blockId:'cover',assetId:'cover-art'}));
+document.querySelector('#apply').onclick=()=>report(()=>call('dsf_apply_page_change',{workToken:ticket?.workToken,pageChangeToken:ticket?.pageChangeToken}));
+document.querySelector('#stale').onclick=()=>report(async()=>{ticket=await call('dsf_prepare_page_move',{workToken:(await context()).workToken,unitId:'cover',position:'end'});await call('dsf_select_page',{workToken:ticket.workToken,blockId:state.blocks[state.activeBlockIdx].id==='back'?'illustration':'back'});return call('dsf_apply_page_change',{workToken:ticket.workToken,pageChangeToken:ticket.pageChangeToken});});
+document.querySelector('#undo').onclick=()=>undo(render);render();
+</script></html>

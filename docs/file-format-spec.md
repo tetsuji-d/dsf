@@ -1,5 +1,7 @@
 # DSF & DSP File Format Specification
 
+> 製品のWeb提供・PWA・オフラインViewer・ダウンロード／版管理の方針は [DSFプラットフォーム基本方針](dsf-platform-policy.md) に集約する。本書は既存ZIP構造の正本。portable DSFの自己完結性はViewer本体のオフライン起動を保証しない。新しい版番号等は基本方針上の設計案であり、現行schemaへの追加ではない。
+
 ## 概要
 
 **DSF（Digital Spread Format）** は、スマートフォン向け固定レイアウト出版のためのフォーマット総称です。リフロー型の EPUB とは対照的に、ZIP コンテナ内の **`manifest.json` / `meta.json` / `content.json`** とアセットにより、ページ構成・多言語・表示メタ（アスペクト比・綴じ方向など）を管理します。
@@ -252,7 +254,7 @@ fingerprintで記録するauthoring metadataである。本文は従来どおり
 翻訳job、進捗、error、cancel状態も収録しない。
 
 translationStateはProject v6 DSPの任意拡張なので、`meta.json.schemaVersion:2`、`project.json.version:6`、
-FlowDocumentは注釈未使用のv1と明示適用後のv2を受け入れ、FlowLayout v1は変更しない。v2では本文をplain textに保ち、annotations[language]へルビ・圏点の範囲を保存する（[注釈契約](flow-annotations.md)）。既存原稿の自動変換は行わない。注釈付き言語のDSF発行は、本文・読み・圏点を実測した既存fixedText文字行へ投影する。注釈の欠落・重複・不一致は発行前に拒否する。translationState自身が`schemaVersion:1`を持つ。stateがない
+FlowDocumentは注釈未使用のv1と明示適用後のv2を受け入れ、注釈機能単体ではFlowLayout v1を維持する（段落画像を使う場合は末尾のFlowLayout v2契約を参照）。FlowDocument v2では本文をplain textに保ち、annotations[language]へルビ・圏点の範囲を保存する（[注釈契約](flow-annotations.md)）。既存原稿の自動変換は行わない。注釈付き言語のDSF発行は、本文・読み・圏点を実測した既存fixedText文字行へ投影する。注釈の欠落・重複・不一致は発行前に拒否する。translationState自身が`schemaVersion:1`を持つ。stateがない
 8B-1以前の手動翻訳は有効な`untracked`本文として読み込み、暗黙生成・暗黙上書きしない。futureまたは不正な
 translationState schemaは本文欠落を防ぐためProject validationで停止する。
 
@@ -451,3 +453,66 @@ Excel（`.xlsx`）が Ooxml ベースで新機能（新しいグラフ、新し�
 1.  **未知データの扱い**: 表示に影響しない未知metadataは無視できる。一方、配信の未知style／必須描画capabilityは数値schemaVersionが既知でも拒否し、誤描画を避ける。authoring内容や順序に影響する未知Blockはround-tripのため保持し、対応できないEditorは編集保存を停止する。未知のFlow semantic Blockも保持したうえでvalidation／paginationを停止し、本文を黙って欠落させない。
 2.  **`fallback` プロパティの推奨**: 新しい機能（例：動画背景 `type: "video"`）を追加した場合、ビューアが非対応なら代替表示ができるよう、`fallback_image` のようなプロパティを標準化する。
 3.  **`schemaVersion` によるマイグレーション**: スキーマが根本的に変わる場合（例：旧来は配列だったものがオブジェクトのMapになる等）は、`schemaVersion` をインクリメントし、アプリ側で旧データを新データ構造にオンザフライで変換するマイグレーション関数を通してから読み込む (`syncModelsFromLegacy` 関数などの拡張)。
+
+
+### Fixedページの編集用オブジェクト（Project v6 / DSP v2、2026-09-10）
+
+ユーザー承認済みの任意拡張。Fixed Blockの `content.graphicObjects` と `content.objectOrder` は一緒に保存する。新機能の使用時にProject v6へ移行し、未使用の旧Project/DSPには一括変換を行わない。
+
+- `graphicObjects`: `id`, `kind`（text/image/shape）, `name`, `visible`, `locked`, `frame`, `style`, 言語別 `texts`。
+- `frame`: 正規360×640座標のx/y/width/height/rotation。必要に応じて `frames[language]` が言語別位置を上書きする。
+- `style`: 塗り・枠線・文字のRGB色、独立したfillOpacity/strokeOpacity、線幅、文字サイズ・書体・太字・斜体・下線、余白、文字揃え、まとまりの配置、縦横書き。
+- image: `assetId` で既存 `projectAssets` の元WebPを参照。opacity、flipX/flipY、元画像に対する0〜1のcrop矩形を保持する。元画像は長辺最大7680px。サムネイルを本文画像として使用しない。
+- shape: rect / roundRect / ellipse / line / arrow / speech。線・矢印以外は言語別本文を持てる。
+- `objectOrder`: 背面から前面のID列。背景は常に最下層で列に含めない。対象ページの旧bubblesは初めて重なりを編集するときにIDだけを付与し、従来本文・形状・位置を維持する。
+
+保存と読込ではID重複・重なり参照・元画像参照・有限座標・色・crop範囲を検証する。DSPは既存projectAssets同梱経路で元WebPとサムネイルを収録する。Undo/Redoはオブジェクトとライブラリを同じスナップショットに含める。
+
+公開DSFへこの編集用モデルを渡さず、Fixedページの背景・重なり順・文字・配置画像をWebPに合成する。非表示は書き出しからも除外し、ロックは編集操作だけに作用する。オブジェクト付きFixedテキストページはWebPにフォールバックする。FlowのfixedTextは変更しない。
+
+
+### FlowLayout v2：段落に紐づく画像・図形（承認済み）
+
+Project v6 / DSP meta schema v2のまま、使用するFlowだけ `flow.layout.schemaVersion:2` とする。
+`anchoredObjects` は `id`、`anchorBlockId`、既存image/shape `graphic`、`wrap: square|band`、`gapEm` を持つ。
+画像は既存 `projectAssets` の `assetId` を参照し、DSPには元WebPを保存する。`graphic.frame` と言語別 `frames` の位置は本文領域の左上からの論理座標である。
+生成ページ・回り込み領域・実測キャッシュは保存しない。未解決anchorは削除せず保持し、修復前の発行は拒否する。
+FlowLayout v1は引き続き受理する。v2の自動降格やv1への画像配置データ混入は許可しない。
+
+配信は既存DSF delivery v2の `fixedText.background.imageHref` を使用する。
+画像・図形だけをWebPに合成し、本文・ルビ・圏点は実測したfixedTextのまま残す。
+内部asset planの `purpose: fixedTextBackground` は公開manifestに持ち込まない。背景ファイルはページ数へ加算しない。
+詳細は [Flow回り込みの接続仕様](flow-wrap-integration-contract.md) を参照。
+
+
+## FlowLayout v3：複数配置と画像キャプション
+
+2026-09-11承認済み。v1/v2の読み込みを維持し、新しい画像操作時に対象Groupのみv3へ移行する。
+`anchoredObjects[].graphic.caption`に配置方向・言語別文字列・文字サイズ・間隔・色・揃えを保存する。
+同一段落の複数配置を許可する。公開配信ではキャプションを画像背景へ合成し、本文はfixedTextを維持する。
+Project/Firestore Rules変更はない。詳細は[画像キャプション仕様](flow-image-captions.md)。
+
+
+### FlowDocument v5: 段落の言語別行揃え（2026-09-12承認）
+
+paragraph／headingの任意フィールド `textAlignByLanguage` に、保存言語キーをキーとする
+`start | center | end | justify` を保存する。機能を明示適用したFlowだけ `flow.document.schemaVersion:5` とし、
+既存v1–v4は自動変換しない。Project v6／DSP meta v2／FlowLayoutのバージョンはこの操作だけでは変更しない。
+値がない言語は扉領域、次にFlow言語別組版設定を継承する。段落設定は生成ページをまたいでも保持する。
+原稿本文・翻訳文・翻訳の確認状態・段落IDを変更せず、段落の分割や扉領域作成は行わない。
+旧Editorは未知のFlowDocumentバージョンとして編集保存を停止する。
+DSF delivery v2では既存の固定行座標へ投影するため、配信スキーマは変更しない。
+詳細は[段落行揃え契約](flow-paragraph-alignment.md)を参照。
+
+
+### FlowLayout v4：言語別のページまとまり配置（2026-09-12承認）
+
+任意の `flow.layout.pagePlacements` 配列に `{id, blockId, languageKey, utf16Offset, blockAlign}` を保存する。
+`blockAlign` は `start | center | end`、`utf16Offset` は対象言語の本文内の書記素境界。
+ページ番号や生成座標は保存しない。再ページ化後、アンカー位置を含むページの本文・画像・キャプションを一組として配置する。
+明示操作したGroupだけv4に移行し、旧v1–v3は自動変換しない。v4の画像操作で旧バージョンへ降格しない。
+既存段落・翻訳・改ページを配置操作で分割しない。原文・翻訳の配置は独立し、本文編集でアンカーを追随させる。
+異なる配置が同一ページに集まった場合は保存したまま競合を表示し、配置ボタンで明示解消する。
+扉作成は既存共有titleRegionを使用し、対象段落の配置アンカーを除去する。
+実行時の `placementOffset` は保存不可。DSF配信は従来の確定座標へ投影し、配信スキーマは変更しない。
+詳細・入力検証・編集追随の規則は[行ガイドと配置契約](flow-guides-and-placement.md)を参照。

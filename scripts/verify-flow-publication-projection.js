@@ -607,3 +607,16 @@ for(const writingMode of ['horizontal-tb','vertical-rl']){
  assert.equal(projectFlowPaginationToDsfV2(bad).ok,false);
 }
 console.log('Flow annotation projection: base/reading/emphasis preservation, JSON roundtrip, missing/duplicate/changed annotations and bounds rejection passed.');
+
+// Paragraph alignment must survive the authoring-to-publication boundary exactly.
+const alignedGroup=createFlowGroup();alignedGroup.flow.document.schemaVersion=5;
+for(const section of alignedGroup.flow.document.sections) for(const block of section.blocks)
+ if(block.type==='paragraph'||block.type==='heading')block.textAlignByLanguage={ja:'center'};
+const alignedPages=paginateGroup(alignedGroup,10);
+const alignedInput=createInput(alignedGroup,alignedPages,createCompositionSnapshot(alignedGroup,alignedPages));
+assert.equal(projectFlowPaginationToDsfV2(alignedInput).ok,true);
+const lostAlignment=clone(alignedInput);delete lostAlignment.pagination.pages[0].fragments[0].textAlign;
+expectBlocked(lostAlignment,'FLOW_PUBLICATION_ALIGNMENT_MISMATCH','Paragraph alignment lost');
+const alteredAlignment=clone(alignedInput);alteredAlignment.pagination.pages[0].fragments[0].textAlign='end';
+expectBlocked(alteredAlignment,'FLOW_PUBLICATION_ALIGNMENT_MISMATCH','Paragraph alignment altered');
+console.log('Paragraph alignment publication: valid projection and missing/altered formatting rejection passed.');

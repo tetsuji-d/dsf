@@ -1257,3 +1257,8 @@ body[data-theme="light"] .btn-signout {
     background: rgba(0,0,0,0.45);
     color: #fff;
 }
+
+/* Account language settings remain available while signed out. */
+.auth-dropdown .lang-btn {flex:1;min-height:36px;font-size:12px;}
+body[data-theme="light"] .auth-dropdown .lang-btn {color:#334155;}
+body[data-theme="light"] .auth-dropdown .lang-btn.active {background:#dbeafe;color:#1e40af;}

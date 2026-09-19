@@ -1,0 +1,20 @@
+import assert from 'node:assert/strict';
+import { appendPreparedProjectAsset, listUnregisteredPageImages } from '../js/project-assets.js';
+const prepared={mainUrl:'blob:source',thumbUrl:'blob:thumb',width:1200,height:1800,byteLength:2000};
+const first=appendPreparedProjectAsset([],prepared,'cover.webp','a');
+assert.equal(first.length,1);assert.equal(first[0].background,prepared.mainUrl);
+assert.equal(appendPreparedProjectAsset(first,prepared,'duplicate','b'),first);
+assert.throws(()=>appendPreparedProjectAsset([], {...prepared,width:0},'invalid','c'));
+const page=(id,url,extra={})=>({id,kind:'page',content:{pageKind:'image',background:url,...extra}});
+const blocks=[page('left','blob:source',{backgrounds:{ja:'blob:source','en-GB':'blob:english'},spreadImage:{groupId:'spread'}}),page('right','blob:source',{backgrounds:{ja:'blob:source','en-GB':'blob:english'},spreadImage:{groupId:'spread'}}),page('old','blob:old'),{id:'text',kind:'page',content:{pageKind:'text',background:'blob:paper'}},{id:'flow',kind:'flow',content:{background:'blob:flow'}},{id:'unsafe',kind:'page',content:{background:'javascript:alert(1)'}}];
+const before=JSON.stringify(blocks);
+let images=listUnregisteredPageImages(blocks,first);
+assert.deepEqual(images.map(x=>x.background),['blob:english','blob:old']);
+assert.deepEqual(images[0].blockIds,['left','right']);assert.deepEqual(images[0].languages,['en-GB']);
+assert.equal(images[0].thumbnail,'blob:english'); // Never use a thumbnail from a different language.
+assert.equal(JSON.stringify(blocks),before);
+const second=appendPreparedProjectAsset(first,{...prepared,mainUrl:'blob:english',thumbUrl:'blob:english'},'English','b');
+assert.deepEqual(listUnregisteredPageImages(blocks,second).map(x=>x.background),['blob:old']);
+assert.deepEqual(listUnregisteredPageImages([],first),[]);
+assert.equal(listUnregisteredPageImages(blocks,[]).filter(x=>x.background==='blob:source').length,1);
+console.log('Page image assets: shared bytes, duplicate suppression, language images, whole-spread deduplication, metadata validation and immutable discovery passed.');

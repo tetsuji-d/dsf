@@ -13,6 +13,7 @@ const INPUT_KEYS = new Set([
     'languages',
     'pageDirections',
     'imageAssets',
+    'backgroundAssets',
     'fontRegistry',
     'hashBytes',
 ]);
@@ -136,6 +137,7 @@ export async function createFlowPressLocalReleasePlanning(input = {}) {
             pageDirection,
             preflight: result.preflight,
             imageAssets: input.imageAssets[language],
+            ...(input.backgroundAssets ? {backgroundAssets:input.backgroundAssets[language]} : {}),
         };
     });
 

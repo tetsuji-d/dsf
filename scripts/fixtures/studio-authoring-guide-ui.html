@@ -1,0 +1,23 @@
+<!doctype html><html lang="ja"><meta charset="utf-8"><title>DSF 制作ルール・作品構成検証</title>
+<style>body{font:16px system-ui;max-width:1000px;margin:30px auto;background:#f4f7fa;color:#192b46}button,select{font:inherit;padding:8px;margin:5px}pre{white-space:pre-wrap;background:white;padding:16px}#app-shell{padding:20px}</style>
+<div id="app-shell"><h1>制作ルール・作品構成（合成データ）</h1><p>保存・発行は行いません。実際のWebMCP登録と共通ヘルプを確認します。</p>
+<button data-open-studio-help>ヘルプ</button><button id="english">JA / EN</button><button id="ribbon-print">印刷</button><button onclick="openProjectSettings()">プロジェクト設定</button>
+<select id="scenario" aria-label="検証シナリオ"><option value="ja">日本語14ページ</option><option value="en-GB">英語16ページ</option><option value="pending">未生成</option><option value="busy">組版中</option><option value="fallback">原文代替</option></select>
+<button id="enable">検証用AI読み取りを有効にする</button><button id="inspect">WebMCPで制作ルールと構成を読む</button><pre id="result" role="status">待機中</pre></div>
+<script type="module">
+import {initStudioHelp} from '/js/studio-help.js';
+import {setUILang,getUILang} from '/js/i18n-studio.js';
+import {createStudioWebMCP} from '/js/studio-webmcp.js';
+const state={room:'editor',workIdentity:'synthetic-guide',languageKeys:['ja','en-GB'],languageKey:'ja',sourceLanguage:'ja',blocks:[],book:{mode:'full'},busy:false};
+window.openProjectSettings=()=>{};
+const connection=createStudioWebMCP({readState:()=>state,getModelContext:()=>document.modelContext,readComposition:languageKey=>{
+ const mode=document.querySelector('#scenario').value;
+ return {direction:languageKey==='ja'?'rtl':'ltr',projection:mode==='pending'?null:{languageKey,pages:Array.from({length:languageKey==='ja'?14:16},(_,i)=>({kind:'flow',blockId:'flow',groupId:'flow',flowPageNumber:i+1,languageKey:mode==='fallback'?'ja':languageKey,isSourceFallback:mode==='fallback',writingMode:languageKey==='ja'?'vertical-rl':'horizontal-tb'}))}};
+}});
+const report=result=>document.querySelector('#result').textContent=JSON.stringify(result,null,2);
+document.querySelector('#enable').onclick=async()=>{await connection.enable();report({status:connection.getStatus(),tools:connection.getToolCount()});};
+document.querySelector('#scenario').onchange=e=>{state.busy=e.target.value==='busy';state.languageKey=e.target.value==='en-GB'?'en-GB':'ja';};
+document.querySelector('#inspect').onclick=async()=>{try{const api=document.modelContext,tools=await api.getTools();const call=async(name,args)=>{const result=await api.executeTool(tools.find(t=>t.name===name),JSON.stringify(args));return typeof result==='string'?JSON.parse(result):result;};const context=await call('dsf_get_editor_context',{});const composition=await call('dsf_get_book_composition',{workToken:context.workToken,languageKey:state.languageKey});report({context,composition});}catch(e){report({error:e.message});}};
+document.querySelector('#english').onclick=()=>{setUILang(getUILang()==='en'?'ja':'en');document.dispatchEvent(new Event('studio-ui-language-change'));};
+initStudioHelp();
+</script></html>

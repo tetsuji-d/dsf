@@ -1,3 +1,5 @@
+import { validateGraphicObjects } from './graphic-object-model.js';
+import { validateProjectAssets } from './project-assets.js';
 /**
  * Project persistence boundary for legacy Fixed projects and Project v6 Flow.
  *
@@ -229,6 +231,11 @@ export function hydrateProjectFromPersistence(input) {
     assertProjectJsonSafe(input);
     assertNoProjectRuntimeData(input);
     assertSupportedPersistedVersion(input);
+    validateProjectAssets(input.projectAssets);
+    validateGraphicObjects(input);
+    if (input.projectAssets?.length && input.version !== PROJECT_SCHEMA_VERSION) {
+        input = normalizeFlowProjectData(input);
+    }
 
     const containsFlow = hasFlowGroups(input);
     if (input.version === PROJECT_SCHEMA_VERSION) {
@@ -278,6 +285,11 @@ export function prepareProjectForSave(input) {
     assertProjectJsonSafe(input);
     assertNoProjectRuntimeData(input);
     assertSupportedPersistedVersion(input);
+    validateProjectAssets(input.projectAssets);
+    validateGraphicObjects(input);
+    if (input.projectAssets?.length && input.version !== PROJECT_SCHEMA_VERSION) {
+        input = normalizeFlowProjectData(input);
+    }
 
     const containsFlow = hasFlowGroups(input);
     const isProjectV6 = input.version === PROJECT_SCHEMA_VERSION;
@@ -320,10 +332,12 @@ export function prepareProjectForSave(input) {
         const normalized = normalizeFlowProjectData(snapshot);
         assertValidFlowProjectData(normalized);
         assertProjectJsonSafe(normalized);
+        validateGraphicObjects(normalized);
         return normalized;
     }
 
     assertProjectJsonSafe(snapshot);
+    validateGraphicObjects(snapshot);
     return snapshot;
 }
 

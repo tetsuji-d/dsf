@@ -1,5 +1,7 @@
 # DSF Environment Topology
 
+> Web専用運営とPWA／Viewerオフライン化の範囲は [DSFプラットフォーム基本方針](dsf-platform-policy.md) に集約する。本書は環境配置の正本。PWAは同じWeb配信の拡張案であり、別OSアプリや新ホスティング基盤を追加する決定ではない。
+
 DSF は **Cloudflare Pages + Firebase + Cloudflare R2** で運用する。
 
 ## 結論

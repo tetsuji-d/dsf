@@ -11,7 +11,7 @@ Published DSF data and Viewer delivery remain separate from the editable source.
   implicitly upgrade them to v6.
 - A project containing a top-level `kind: "flow"` group must explicitly be
   Project v6.
-- Project v6, FlowDocument v1, and FlowLayout v1 are validated before any
+- Project v6, FlowDocument v1–v4, and FlowLayout v1/v2 are validated before any
   state mutation or persistence write. Unsupported future versions fail closed.
 
 ## Private R2 authoring (Unit C, test projects only)
@@ -200,3 +200,20 @@ the same normalize-and-validate ingress before dispatching to Studio state.
 DSP schema v1 remains readable for legacy Fixed projects. Project v6 archives
 use `meta.json.schemaVersion: 2` and `project.json.version: 6`. DSF metadata and
 Viewer behavior remain schema v1 in this unit.
+
+
+## Anchored Flow graphics (FlowLayout v2)
+
+The approved [Flow wrapping contract](flow-wrap-integration-contract.md) extends only the Flow layout authoring snapshot.
+Groups using anchored graphics persist `flow.layout.schemaVersion: 2` and `anchoredObjects` through the existing owner-only `authoring/current` path.
+Full WebP images use the existing `projectAssets` mapping. Runtime pages, wrap regions and capture snapshots are not saved.
+Project v6, Firestore collections, Rules and public root projections are unchanged. Layout v1 remains readable; v2 is never silently downgraded.
+Public delivery contains fixedText and sealed background WebP assets, not the authoring Flow layout.
+
+
+## FlowLayout v3：複数配置と画像キャプション
+
+2026-09-11承認済み。v1/v2の読み込みを維持し、新しい画像操作時に対象Groupのみv3へ移行する。
+`anchoredObjects[].graphic.caption`に配置方向・言語別文字列・文字サイズ・間隔・色・揃えを保存する。
+同一段落の複数配置を許可する。公開配信ではキャプションを画像背景へ合成し、本文はfixedTextを維持する。
+Project/Firestore Rules変更はない。詳細は[画像キャプション仕様](flow-image-captions.md)。

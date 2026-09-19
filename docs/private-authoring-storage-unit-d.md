@@ -50,7 +50,7 @@ R2オブジェクト、head、各台帳、Work/Release、旧authoring childは�
 - 既存persistence検査の古いUI selectorを現在の`flow-generated-thumb`に修正。
 - staging Vite build、Pages Functions build、workerdで3ルートの既定無効状態を検証。
 - ローカル専用ブラウザーfixtureで実firebase.js/client/APIを操作。
-  10万字×4言語、1,001,045 bytesを保存してCloud保存済み表示を確認。
+  10万字×4言語を保存してCloud保存済み表示を確認（統合前1,001,045 bytes、最新staging統合後1,001,064 bytes）。
   一つ前の「試験原稿」へ復元しrevision 2→3、R2 put 2→3、直接Firestore原稿書込0を確認。
   削除後の再保存は停止し、原稿objectは増えない。
 - fixtureのAuth／Firestore／R2はローカル代替。実アカウントでのprivate API有効化・IAM疎通、
@@ -65,3 +65,13 @@ R2オブジェクト、head、各台帳、Work/Release、旧authoring childは�
 5. その後のUnit FでRules配備・private binding/secret・限定allowlist・実環境疎通を確認して段階的に有効化。
 
 通常の新規プロジェクトは引き続きFirestore保存。D1へのデータ移行はこの実装に含めない。
+
+## 最新ステージングとの統合
+
+配備履歴をCloudflareで確認し、既存stagingの`290eca5`を取り込んだ。
+別系列のViewerリファクタブランチではなく、配備済みFlow/WebMCP系列を基準にする。
+素材ライブラリーのprojectAssetsにもblob URL解決とAPI側の未解決拒否を適用。
+WebMCP等の新規Project作成によるsession resetも、進行中のR2保存を無効化する。
+既存UI翻訳に伴い変更されたタイトルplaceholderの検査を現在の仕様へ合わせた。
+
+統合後の製品Studioもローカルのstaging buildで開き、Dashboard→Editorの操作、従来Projectで復元ボタンが非表示、ブラウザーerrorログ0件を確認した。

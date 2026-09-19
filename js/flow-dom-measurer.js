@@ -16,7 +16,7 @@ import {
 
 export const FLOW_DOM_SUPPORTED_WRITING_MODE = 'horizontal-tb';
 export const FLOW_DOM_SUPPORTED_WRITING_MODES = Object.freeze(['horizontal-tb', 'vertical-rl']);
-export const FLOW_DOM_RENDERER_VERSION = 12;
+export const FLOW_DOM_RENDERER_VERSION = 19;
 export const FLOW_DOM_HYPHENATION_MODES = Object.freeze(['auto', 'none']);
 
 const DEFAULT_MEASUREMENT_CACHE_SIZE = 2048;
@@ -107,6 +107,8 @@ export function resolveFlowDomTypography(
     const defaultFontFamily = cjk
         ? defaults.fontFamily
         : (FLOW_PORTABLE_LATIN_FONT_FAMILIES[fontPreset] || defaults.fontFamily);
+    const blockAlign = String(overrides.blockAlign || 'start');
+    if (!['start','center','end'].includes(blockAlign)) throw new FlowDomMeasurementError('INVALID_TYPOGRAPHY', 'blockAlign is unsupported.');
     const textAlign = String(overrides.textAlign || 'start');
     if (!['start', 'center', 'end', 'justify'].includes(textAlign)) {
         throw new FlowDomMeasurementError('INVALID_TYPOGRAPHY', 'textAlign is unsupported.', {
@@ -116,12 +118,14 @@ export function resolveFlowDomTypography(
     }
     return Object.freeze({
         writingMode: mode,
+        blockGrid: overrides.blockGrid === true,
         fontFamily: String(overrides.fontFamily || defaultFontFamily),
         fontSize: requireFiniteNumber(overrides.fontSize, defaults.fontSize, 'fontSize', { positive: true }),
         fontWeight: String(overrides.fontWeight ?? '400'),
         lineHeight: requireFiniteNumber(overrides.lineHeight, defaults.lineHeight, 'lineHeight', { positive: true }),
         letterSpacing: requireFiniteNumber(overrides.letterSpacing, defaults.letterSpacing, 'letterSpacing'),
         textAlign,
+        blockAlign,
         paragraphSpacing: requireFiniteNumber(overrides.paragraphSpacing, defaults.paragraphSpacing, 'paragraphSpacing', { minimum: 0 }),
         headingSpacing: requireFiniteNumber(overrides.headingSpacing, 18, 'headingSpacing', { minimum: 0 }),
         textColor: String(overrides.textColor || '#1f1b16'),
@@ -210,7 +214,7 @@ function createFragmentElement(ownerDocument, fragment, fragmentIndex, typograph
         fontWeight: isHeading ? '700' : typography.fontWeight,
         lineHeight: String(lineHeight),
         letterSpacing: 'inherit',
-        textAlign: 'inherit',
+        textAlign: fragment.textAlign || 'inherit',
         color: 'inherit',
         whiteSpace: 'pre-wrap',
         overflowWrap: 'anywhere',
@@ -218,6 +222,13 @@ function createFragmentElement(ownerDocument, fragment, fragmentIndex, typograph
         lineBreak: typography.lineBreak,
         hyphens: hyphenation,
     });
+    if (fragment.indent) {
+        const {start,first,end}=fragment.indent;
+        element.style.boxSizing='border-box';
+        element.style.paddingInlineStart=`${start}em`;
+        element.style.paddingInlineEnd=`${end}em`;
+        element.style.textIndent=fragment.isBlockStart ? `${first}em` : '0px';
+    }
     if (fragment.text) {
         if (fragment.annotations?.length) {
             element.dataset.writing = typography.writingMode || 'horizontal-tb';
@@ -257,8 +268,10 @@ function createMeasurementCacheKey(context, pageBox, writingMode, languageKey, t
         typography.fontSize,
         typography.fontWeight,
         typography.lineHeight,
+        typography.blockGrid,
         typography.letterSpacing,
         typography.textAlign,
+        typography.blockAlign,
         typography.paragraphSpacing,
         typography.headingSpacing,
         typography.textColor,
@@ -270,6 +283,9 @@ function createMeasurementCacheKey(context, pageBox, writingMode, languageKey, t
             fragment.headingLevel ?? null,
             fragment.text,
             fragment.annotations || null,
+            fragment.titleRegion || null,
+            fragment.indent || null,
+            fragment.textAlign || null,
             fragment.isBlockStart === true,
             fragment.isBlockEnd === true,
         ]),
@@ -285,8 +301,10 @@ export function renderFlowFragments(contentElement, options = {}) {
     const languageKey = String(options.languageKey || 'ja');
     const writingMode = assertFlowDomWritingMode(options.writingMode, languageKey);
     const hyphenation = resolveFlowDomHyphenation(options.hyphenation, writingMode);
-    const typography = resolveFlowDomTypography(languageKey, options.typography, writingMode);
     const fragments = Array.isArray(options.fragments) ? options.fragments : [];
+    const region=fragments[0]?.titleRegion;
+    const typography = resolveFlowDomTypography(languageKey, region
+        ? {...options.typography,textAlign:region.textAlign,blockAlign:region.blockAlign} : options.typography, writingMode);
 
     contentElement.replaceChildren();
     contentElement.className = 'flow-dom-content';
@@ -300,6 +318,31 @@ export function renderFlowFragments(contentElement, options = {}) {
             hyphenation,
         ));
     });
+    // Flex's column axis follows the writing mode's block axis. This also works
+    // before attachment (thumbnails) and never shrinks text to conceal overflow.
+    contentElement.style.flexDirection = 'column';
+    contentElement.style.justifyContent = 'flex-start';
+    if (typography.blockAlign !== 'start' && contentElement.children.length) {
+        contentElement.style.display = 'flex';
+        contentElement.style.justifyContent = typography.blockAlign === 'center' ? 'center' : 'flex-end';
+        const children = [...contentElement.children];
+        children.at(-1).style.paddingBlockEnd = '0px';
+        for (const child of children) child.style.flexShrink = '0';
+    }
+    if(typography.blockGrid && contentElement.children.length){
+        // Measure without editor zoom; align each block footprint to the page grid.
+        const probe=contentElement.cloneNode(true);
+        Object.assign(probe.style,{left:'-10000px',top:'0px',visibility:'hidden',pointerEvents:'none'});
+        contentElement.ownerDocument.body.append(probe);
+        try{
+            const advance=typography.fontSize*typography.lineHeight;
+            const pads=[...probe.children].map(child=>{
+                const rect=child.getBoundingClientRect(),extent=writingMode==='vertical-rl'?rect.width:rect.height;
+                return parseFloat(child.style.paddingBlockEnd||'0')+Math.max(0,Math.ceil((extent-.05)/advance)*advance-extent);
+            });
+            [...contentElement.children].forEach((child,i)=>child.style.paddingBlockEnd=`${pads[i]}px`);
+        }finally{probe.remove();}
+    }
     return { pageBox, typography, hyphenation };
 }
 
@@ -317,6 +360,22 @@ export function renderFlowGeneratedPage(pageElement, options = {}) {
     pageElement.replaceChildren();
     const contentElement = pageElement.ownerDocument.createElement('div');
     pageElement.appendChild(contentElement);
+    if(options.page?.placementOffset){const {x,y}=options.page.placementOffset;contentElement.style.transform=`translate(${x}px,${y}px)`;}
+    if(options.page?.wrapRegions){
+        contentElement.className='flow-dom-content flow-dom-wrapped';
+        setContentStyles(contentElement,pageBox,typography,languageKey,writingMode,hyphenation);
+        // Region coordinates are page-relative; use a full-page wrapper for source mapping.
+        Object.assign(contentElement.style,{left:'0px',top:'0px',width:pageBox.width+'px',height:pageBox.height+'px'});
+        for(const region of options.page.wrapRegions){
+            const element=pageElement.ownerDocument.createElement('div');
+            renderFlowFragments(element,{pageBox:region.pageBox,languageKey,writingMode,typography:{...typography,blockGrid:true},hyphenation,
+                fragments:options.page.fragments.slice(region.fragmentStart,region.fragmentStart+region.fragmentCount)});
+            element.className='flow-dom-region';
+            [...element.children].forEach((child,index)=>child.dataset.flowFragmentIndex=String(region.fragmentStart+index));
+            contentElement.append(element);
+        }
+        return contentElement;
+    }
     renderFlowFragments(contentElement, {
         fragments: options.page?.fragments,
         pageBox,

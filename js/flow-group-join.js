@@ -1,3 +1,4 @@
+import { resolveFlowDomTypography } from './flow-dom-measurer.js';
 import { deepClone } from './utils.js';
 import { assertValidFlowProjectData } from './flow-project-model.js';
 import { applyFlowAuthoringOperation } from './flow-authoring.js';
@@ -6,12 +7,12 @@ const canonical = value => JSON.stringify(value, (_, v) => v && typeof v === 'ob
     ? Object.fromEntries(Object.keys(v).sort().map(k => [k, v[k]])) : v);
 const omit = (value, keys) => Object.fromEntries(Object.entries(value || {}).filter(([key]) => !keys.includes(key)));
 const same = (a,b) => canonical(a) === canonical(b);
-function fail(code) { const error = new Error('Flow groups cannot be joined safely.'); error.code = code; throw error; }
-function compatible(a,b,keys=[]) { if (!same(omit(a,keys),omit(b,keys))) fail('metadata'); }
-function union(a={},b={}) {
+function fail(code, detail='') { const error = new Error('Flow groups cannot be joined safely.'); error.code = code; error.detail = detail; throw error; }
+function compatible(a,b,keys=[],detail='other') { if (!same(omit(a,keys),omit(b,keys))) fail('metadata',detail); }
+function union(a={},b={},detail='fingerprint') {
     const out = deepClone(a);
     for (const [id,value] of Object.entries(b)) {
-        if (Object.hasOwn(out,id) && !same(out[id],value)) fail('metadata');
+        if (Object.hasOwn(out,id) && !same(out[id],value)) fail('metadata',detail);
         out[id] = deepClone(value);
     }
     return out;
@@ -19,39 +20,82 @@ function union(a={},b={}) {
 function mergeTranslation(a,b) {
     if (!a) return deepClone(b);
     if (!b) return deepClone(a);
-    compatible(a,b,['languages']);
+    compatible(a,b,['languages'],'translation');
     const result = deepClone(a);
     for (const [language,right] of Object.entries(b.languages)) {
         const left = result.languages[language];
         if (!left) { result.languages[language] = deepClone(right); continue; }
-        compatible(left,right,['sourceFingerprints','lockedUnitIds']);
-        compatible(left.sourceFingerprints,right.sourceFingerprints,['blocks','sectionTitles']);
+        compatible(left,right,['sourceFingerprints','lockedUnitIds','origin','reviewState'],'translation');
+        left.origin = left.origin === right.origin ? left.origin : 'mixed';
+        left.reviewState = left.reviewState === 'reviewed' && right.reviewState === 'reviewed' ? 'reviewed' : 'needs-review';
+        compatible(left.sourceFingerprints,right.sourceFingerprints,['blocks','sectionTitles'],'fingerprint');
         for (const map of ['blocks','sectionTitles']) left.sourceFingerprints[map] = union(left.sourceFingerprints[map],right.sourceFingerprints[map]);
         if (left.lockedUnitIds || right.lockedUnitIds) left.lockedUnitIds = [...new Set([...(left.lockedUnitIds||[]),...(right.lockedUnitIds||[])])];
     }
     return result;
 }
 
+const typographyKeys = ['writingMode','fontFamily','fontSize','fontWeight','lineHeight','letterSpacing','textAlign','blockAlign','paragraphSpacing','headingSpacing','textColor','paperColor'];
+
+/** Compare effective known settings; never discard unknown layout metadata. */
+export function getFlowJoinLayoutDifferences(left, right, options = {}) {
+    compatible(left, right, ['padding','typographyByLanguage','anchoredObjects','pagePlacements','schemaVersion'],'layout_extension');
+    compatible(left.padding, right.padding, ['top','right','bottom','left'],'layout_extension');
+    const differences = [];
+    for (const side of ['top','right','bottom','left']) {
+        if (!same(left.padding[side],right.padding[side])) differences.push({field:'padding_' + side,language:''});
+    }
+    const a = left.typographyByLanguage, b = right.typographyByLanguage;
+    // Adding a profile may change fallback routing, so require explicit layout confirmation.
+    for (const language of new Set([...Object.keys(a),...Object.keys(b)])) {
+        if (!Object.hasOwn(a,language) || !Object.hasOwn(b,language)) {
+            differences.push({field:'language_profile',language});
+            continue;
+        }
+        compatible(a[language],b[language],typographyKeys,'layout_extension');
+        const before = resolveFlowDomTypography(language,a[language],a[language].writingMode,options);
+        const after = resolveFlowDomTypography(language,b[language],b[language].writingMode,options);
+        for (const field of typographyKeys) {
+            if (!same(before[field],after[field])) differences.push({field,language});
+        }
+    }
+    return differences;
+}
+
 /** Immutable authoring transaction. No page snapshots, assets, or schema additions. */
-export function joinFlowWithPrevious(blocks, groupId, {mergeParagraphs=false}={}) {
+export function joinFlowWithPrevious(blocks, groupId, {mergeParagraphs=false, usePreviousLayout=false, languageConfigs}={}) {
     assertValidFlowProjectData({version:6,blocks});
     const index = blocks.findIndex(b=>b.id===groupId);
     const right = blocks[index], left = blocks[index-1];
     if (right?.kind!=='flow' || left?.kind!=='flow') fail('adjacent');
     if (left.flow.document.sourceLanguage!==right.flow.document.sourceLanguage) fail('language');
-    if (!same(left.flow.layout,right.flow.layout)) fail('layout');
-    compatible(left,right,['id','flow']);
-    compatible(left.flow,right.flow,['document','translationState']);
-    compatible(left.flow.document,right.flow.document,['id','sections','schemaVersion']);
+    const differences = getFlowJoinLayoutDifferences(left.flow.layout,right.flow.layout,{languageConfigs});
+    if (differences.length && !usePreviousLayout) fail('layout');
+    compatible(left,right,['id','flow'],'group');
+    compatible(left.flow,right.flow,['document','translationState','layout'],'flow');
+    compatible(left.flow.document,right.flow.document,['id','sections','schemaVersion'],'document');
     const joined = deepClone(left);
+    if (usePreviousLayout) {
+        joined.flow.layout.typographyByLanguage = {
+            ...deepClone(right.flow.layout.typographyByLanguage),
+            ...deepClone(left.flow.layout.typographyByLanguage),
+        };
+    }
     joined.flow.document.schemaVersion = Math.max(left.flow.document.schemaVersion, right.flow.document.schemaVersion);
+    joined.flow.layout.schemaVersion=Math.max(left.flow.layout.schemaVersion,right.flow.layout.schemaVersion);
+    if(left.flow.layout.pagePlacements || right.flow.layout.pagePlacements){joined.flow.layout.pagePlacements=deepClone([...(left.flow.layout.pagePlacements||[]),...(right.flow.layout.pagePlacements||[])]);if(new Set(joined.flow.layout.pagePlacements.map(a=>a.id)).size!==joined.flow.layout.pagePlacements.length)fail('ids');}
+    if(left.flow.layout.anchoredObjects || right.flow.layout.anchoredObjects){
+        joined.flow.layout.anchoredObjects=deepClone([...(left.flow.layout.anchoredObjects||[]),...(right.flow.layout.anchoredObjects||[])]);
+        if(new Set(joined.flow.layout.anchoredObjects.map(e=>e.id)).size!==joined.flow.layout.anchoredObjects.length)fail('ids');
+    }
     const sections = joined.flow.document.sections, incoming = deepClone(right.flow.document.sections);
     const last = sections.at(-1), first = incoming[0];
     const sharedBoundary = last && first && last.id === first.id;
     const leftTailId = last?.blocks.at(-1)?.id;
     const rightHeadId = first?.blocks[0]?.id;
     if (sharedBoundary) {
-        compatible(last,first,['blocks']);
+        compatible(last,first,['blocks','title'],'section');
+        last.title = union(last.title,first.title,'section_title');
         last.blocks.push(...first.blocks);
         incoming.shift();
     }
@@ -66,7 +110,7 @@ export function joinFlowWithPrevious(blocks, groupId, {mergeParagraphs=false}={}
         if (!sharedBoundary) fail('paragraph');
         const before = last.blocks.find(b=>b.id===leftTailId), after = last.blocks.find(b=>b.id===rightHeadId);
         if (before?.type!=='paragraph' || after?.type!=='paragraph') fail('paragraph');
-        compatible(before,after,['id','texts','annotations']);
+        compatible(before,after,['id','texts','annotations'],'paragraph_format');
         const language = joined.flow.document.sourceLanguage;
         if (Object.keys(after.texts||{}).some(k=>k!==language)) fail('translation');
         // The removed block must not carry locks or translation records.
@@ -82,5 +126,5 @@ export function joinFlowWithPrevious(blocks, groupId, {mergeParagraphs=false}={}
 
 export function inspectFlowJoin(blocks,groupId,options={}) {
     try { joinFlowWithPrevious(blocks,groupId,options); return {eligible:true,reason:''}; }
-    catch(error) { return {eligible:false,reason:['adjacent','language','layout','metadata','ids','paragraph','translation'].includes(error.code)?error.code:'invalid'}; }
+    catch(error) { return {eligible:false,reason:['adjacent','language','layout','metadata','ids','paragraph','translation'].includes(error.code)?error.code:'invalid',detail: ['other','translation','fingerprint','layout_extension','group','flow','document','section','section_title','paragraph_format'].includes(error.detail) ? error.detail : ''}; }
 }

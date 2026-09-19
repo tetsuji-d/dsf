@@ -1,4 +1,7 @@
 import { preparePrivateProjectAction, runPrivateProjectAction } from './private-project-actions.js';
+import { getUILang } from './i18n-studio.js';
+import { ASSET_MAX_LONG_EDGE, ASSET_MAX_BYTES, mapProjectAssetUrls, appendPreparedProjectAsset } from './project-assets.js';
+import { decodeDspPublicationThumbnailImage } from './dsp-publication-thumbnail-import.js';
 /**
  * firebase.js — Firebase初期化・クラウド保存/読込・自動保存
  *
@@ -10,13 +13,14 @@ import { doc, setDoc, getDoc, deleteDoc, serverTimestamp, writeBatch } from "htt
 import {
     onAuthStateChanged
 } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js";
-import { state, dispatch, actionTypes, getProjectSessionEpoch } from './state.js';
+import { state, dispatch, actionTypes, getProjectSessionEpoch, getProjectSessionIdentity } from './state.js';
 import { createPrivateAuthoringClient, usesPrivateAuthoring, assertPrivateAuthoringRoot,
     resolvePrivateAuthoringAssets, authoringSaveMessage, AuthoringClientError } from './private-authoring-client.js';
+import { pushState, endHistoryGroup } from './history.js';
 import { getBlockIndexFromPageIndex } from './blocks.js';
 import { PAGE_SCHEMA_VERSION } from './pages.js';
 import { composeCanonicalLayoutsForSections } from './layout.js';
-import { set as idbSet, get as idbGet } from 'idb-keyval';
+import { set as idbSet, get as idbGet, del as idbDel } from 'idb-keyval';
 import { createId } from './utils.js';
 import { loadImageForCanvas, fetchAssetBlob, shouldEmbedAsset } from './asset-fetch.js';
 import { db, storage, auth, authReady, firebaseConfig } from './firebase-core.js';
@@ -590,6 +594,7 @@ function collectProjectAssetUrls(snapshotState) {
     visit(snapshotState.pages || []);
     visit(snapshotState.blocks || []);
     visit(snapshotState.sections || []);
+    visit(snapshotState.projectAssets || []);
     return [...urls];
 }
 
@@ -610,6 +615,7 @@ async function getAssetByteSize(url) {
 
 async function computeProjectBytes(snapshotState) {
     const data = {
+        projectAssets: snapshotState.projectAssets || [],
         version: snapshotState.version || PAGE_SCHEMA_VERSION,
         projectName: snapshotState.projectName || '',
         title: snapshotState.title || '',
@@ -763,7 +769,10 @@ export function onAuthChanged(callback) {
 /**
  * 保存ステータスを更新してUIに反映する
  */
+let lastSaveIndicatorMessage = '';
+document.addEventListener('studio-ui-language-change',()=>{if(lastSaveIndicatorMessage)updateSaveIndicator(saveStatus,lastSaveIndicatorMessage);});
 function updateSaveIndicator(status, message) {
+    lastSaveIndicatorMessage=message||'';
     saveStatus = status;
     const el = document.getElementById('save-status');
     if (!el) return;
@@ -771,7 +780,11 @@ function updateSaveIndicator(status, message) {
     const icons = { idle: '', saving: '●', saved: '✓', error: '!' };
     const colors = { idle: '#999', saving: '#f0ad4e', saved: '#34c759', error: '#ff3b30' };
 
-    el.textContent = `${icons[status]} ${message || ''}`;
+    const target=message?.includes('(Cloud)')?'Cloud':message?.includes('(Local)')?'Local':'';
+    el.dataset.saveStatus=status;el.dataset.saveTarget=target;
+    const en={idle:'Unsaved',saving:'Saving…',saved:'Saved',error:'Save failed'};
+    const display=getUILang()==='en'?(en[status]||message)+(target?' ('+target+')':''):message||'';
+    el.textContent = `${icons[status]} ${display}`;
     el.style.color = colors[status];
 }
 
@@ -838,18 +851,21 @@ export async function flushPendingSave() {
  * blob: URL を Firebase Storage にアップロードして実 URL を返す。
  * localImageMap にエントリがなければ '' を返す（ゲストセッション切れなど）。
  */
+const recoveredAssetUrls = new Map();
 async function _uploadBlobUrlToStorage(blobUrl, uid) {
+    const cacheKey = `${uid}|${blobUrl}`;
+    if (recoveredAssetUrls.has(cacheKey)) return recoveredAssetUrls.get(cacheKey);
     const localId = window.localImageMap?.[blobUrl];
     if (!localId) return '';
     try {
         const blob = await idbGet(localId);
         if (!blob) return '';
-        const timestamp = Date.now();
-        const path = `users/${uid}/dsf/recovered/${timestamp}.webp`;
+        const path = `users/${uid}/dsf/recovered/${createId('img')}.webp`;
         const downloadUrl = await _storeFile(blob, path);
         if (downloadUrl) {
             window.localImageMap[downloadUrl] = localId;
-            delete window.localImageMap[blobUrl];
+            // Keep the local mapping for Undo/local snapshots and shared library references.
+            recoveredAssetUrls.set(cacheKey, downloadUrl);
         }
         return downloadUrl;
     } catch (e) {
@@ -1150,11 +1166,14 @@ async function performSaveOnce() {
             const cleanPublicationThumbnailUrl = await ensurePublicationThumbnailCloudUrl(
                 authoringProject.publicationThumbnailUrl || '',
             );
+            const cleanProjectAssets = await mapProjectAssetUrls(authoringProject.projectAssets || [], async (url) =>
+                url.startsWith('blob:') ? _uploadBlobUrlToStorage(url, saveIdentity.uid) : url);
             const persistedProject = prepareProjectForSave({
                 ...authoringProject,
                 blocks: cleanBlocks,
                 sections: cleanSections,
                 publicationThumbnailUrl: cleanPublicationThumbnailUrl,
+                projectAssets: cleanProjectAssets,
             });
             if (state.publicationThumbnailUrl !== cleanPublicationThumbnailUrl) {
                 state.publicationThumbnailUrl = cleanPublicationThumbnailUrl;
@@ -1446,12 +1465,26 @@ function applyUploadedImageToSectionGroup(sections, activeIdx, lang, mainUrl, th
     });
 }
 
+/** Release a prepared local image when its import was cancelled before committing. */
+export async function discardPreparedAuthoringImage(image) {
+    for (const url of [image.mainUrl, image.thumbUrl]) {
+        const key = window.localImageMap?.[url];
+        if (!key || !url.startsWith('blob:')) continue;
+        URL.revokeObjectURL(url);
+        delete window.localImageMap[url];
+        await idbDel(key).catch(() => {});
+    }
+}
+
 /** Prepare the existing authoring image assets without mutating the project. */
-export async function prepareAuthoringImage(file, { uid = state.uid } = {}) {
+export async function prepareAuthoringImage(file, { uid = state.uid, maxLongEdge = AUTHORING_IMAGE_MAX_LONG_EDGE } = {}) {
     const [mainBlob, thumbBlob] = await Promise.all([
-        compressImage(file, AUTHORING_IMAGE_MAX_LONG_EDGE, AUTHORING_IMAGE_WEBP_QUALITY),
+        compressImage(file, maxLongEdge, AUTHORING_IMAGE_WEBP_QUALITY),
         compressImage(file, THUMBNAIL_IMAGE_MAX_LONG_EDGE, THUMBNAIL_IMAGE_WEBP_QUALITY),
     ]);
+    if (maxLongEdge === ASSET_MAX_LONG_EDGE && mainBlob.size > ASSET_MAX_BYTES) throw new Error('Asset too large');
+    const dimensions = await decodeDspPublicationThumbnailImage(mainBlob);
+    const metadata = { width: dimensions.width, height: dimensions.height, byteLength: mainBlob.size };
     const timestamp = createId('img');
     if (!uid) {
         const mainKey = `local_img_main_${timestamp}`;
@@ -1462,13 +1495,23 @@ export async function prepareAuthoringImage(file, { uid = state.uid } = {}) {
         window.localImageMap ||= {};
         window.localImageMap[mainUrl] = mainKey;
         window.localImageMap[thumbUrl] = thumbKey;
-        return { mainUrl, thumbUrl };
+        return { mainUrl, thumbUrl, ...metadata };
     }
     const [mainUrl, thumbUrl] = await Promise.all([
         _storeFile(mainBlob, `users/${uid}/dsf/${timestamp}.webp`),
         _storeFile(thumbBlob, `users/${uid}/dsf/thumbs/${timestamp}_thumb.webp`),
     ]);
-    return { mainUrl, thumbUrl };
+    return { mainUrl, thumbUrl, ...metadata };
+}
+
+/** Recover asset metadata from an existing WebP, without recompression or upload. */
+export async function inspectPageImageAsset(image) {
+    const blob = await fetchAssetBlob(image.background);
+    if (blob.size > ASSET_MAX_BYTES || !(await isWebPBlob(blob))) throw Error('Invalid WebP asset');
+    const dimensions = await decodeDspPublicationThumbnailImage(blob);
+    const prepared = { mainUrl: image.background, thumbUrl: image.background, ...dimensions, byteLength: blob.size };
+    appendPreparedProjectAsset([], prepared, 'Image', 'validation');
+    return prepared;
 }
 
 /**
@@ -1487,16 +1530,25 @@ export async function uploadToStorage(input, refresh) {
     const setLabel = (text) => { if (labelEl) labelEl.innerText = text; };
 
     setLabel("処理中...");
-
+    const identity = getProjectSessionIdentity();
+    const snapshot = () => JSON.stringify([state.blocks, state.sections, state.projectAssets, state.activeIdx, state.activeLang]);
+    const before = snapshot();
+    let prepared, committed = false;
     try {
-        const { mainUrl, thumbUrl } = await prepareAuthoringImage(file);
-
-        // 4. ステート更新
+        if (!state.sections?.[state.activeIdx]) throw Error('No image page selected');
+        prepared = await prepareAuthoringImage(file);
+        if (getProjectSessionIdentity() !== identity || snapshot() !== before) throw Error('編集中のページが変わりました。もう一度画像を選択してください。');
+        const { mainUrl, thumbUrl } = prepared;
+        const assets = appendPreparedProjectAsset(state.projectAssets, prepared, file.name, createId('asset'));
         const lang = state.activeLang || state.defaultLang || 'ja';
         const isMultiLang = (state.languages || ['ja']).length > 1;
-        const newSections = [...state.sections];
+        const newSections = structuredClone(state.sections);
         applyUploadedImageToSectionGroup(newSections, state.activeIdx, lang, mainUrl, thumbUrl, isMultiLang);
+        endHistoryGroup(); pushState();
+        state.version = 6;
+        state.projectAssets = assets;
         dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'sections', value: newSections } });
+        committed = true;
 
         refresh();
         triggerAutoSave();
@@ -1508,6 +1560,7 @@ export async function uploadToStorage(input, refresh) {
         alert("保存失敗: " + e.message);
         setLabel(originalText);
     } finally {
+        if (prepared && !committed) await discardPreparedAuthoringImage(prepared);
         console.log("[DSF] Upload process finished.");
         input.value = ''; // Reset input to allow same file selection
     }

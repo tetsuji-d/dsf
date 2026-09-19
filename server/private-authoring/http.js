@@ -28,6 +28,7 @@ function assertResolvedAssets(project) {
         }
     }
     owner(project);
+    for (const asset of project.projectAssets || []) owner(asset);
     for (const block of project.blocks || []) owner(block.content);
     for (const page of project.pages || []) owner(page);
     for (const section of project.sections || []) owner(section);

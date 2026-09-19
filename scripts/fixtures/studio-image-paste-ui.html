@@ -1,0 +1,41 @@
+<!doctype html><html lang="ja"><meta charset="utf-8"><title>DSF 画像貼り付け・WebMCP検証</title>
+<style>body{font:16px system-ui;max-width:1000px;margin:30px auto;background:#f2f5fa;color:#192b46}button{font:inherit;padding:10px;margin:5px}#pages{display:flex;gap:10px;padding:20px;background:#263142}article{width:180px;height:320px;background:#fcf6e7;overflow:hidden;color:#152437}article img{width:100%;height:100%;object-fit:contain}pre{white-space:pre-wrap}#controls{padding:10px;background:white}</style>
+<h1>画像ページの貼り付けとAI追加</h1><p>合成原稿のみ。WebP変換・IndexedDB保存・履歴は本番と同じ処理。クラウド保存なし。</p>
+<button id="copy">検証PNGをコピー</button><button id="paste">画像を貼り付けてページ追加</button><button id="undo">元に戻す</button><button id="redo">やり直す</button><p id="status" role="status"></p>
+<img id="copy-preview" alt="検証用コピー画像" style="width:45px;height:80px" hidden><div id="pages" tabindex="0" aria-label="ページ領域"></div><input placeholder="通常の文字入力"><div contenteditable="true" aria-label="本文入力">原稿はそのまま残す。</div>
+<div id="controls"></div><button id="ai-add">WebMCPで先頭に画像ページ追加</button><button id="retry">同じ追加を再送</button><button id="ai-import">画像データをWebMCPへ渡す（準備のみ）</button><button id="ai-import-add">準備した画像ページを追加</button><button id="ai-invalid">不正画像を拒否する</button><pre id="result"></pre>
+<script type="module">
+import {prepareAuthoringImage,discardPreparedAuthoringImage} from '/js/firebase.js';
+import {createImagePageImporter,installImagePagePaste} from '/js/editor-image-paste.js';
+import {initStudioWebMCP,studioWebMCPMarkup} from '/js/studio-webmcp.js';
+import {createFlowGroupBlock} from '/js/flow-project-model.js';
+import {state} from '/js/state.js';
+import {pushState,undo,redo,clearHistory} from '/js/history.js';
+state.version=6;state.blocks=[createFlowGroupBlock({id:'sample'})];state.projectAssets=[];state.activeBlockIdx=0;clearHistory();
+document.body.dataset.room='editor';const readState=()=>({room:'editor',workIdentity:'fixture',blocks:state.blocks,projectAssets:state.projectAssets,activeBlockId:state.blocks[state.activeBlockIdx]?.id,activeGroupId:'sample',languageKey:'ja',languageKeys:['ja'],busy:false});
+const render=()=>{const pages=document.querySelector('#pages');pages.replaceChildren();for(const block of state.blocks){const page=document.createElement('article');if(block.kind==='flow')page.textContent='原稿：潮騒の図書館。本文を分割せず保持します。';else{const image=document.createElement('img');image.src=block.content.backgrounds.ja;page.append(image);}pages.append(page);}};
+const applyImagePage=plan=>{pushState();state.blocks=plan.blocks;state.activeBlockIdx=plan.activeBlockIndex;if(plan.projectAssets)state.projectAssets=plan.projectAssets;render();};
+const onStatus=async code=>{document.querySelector('#status').textContent=code;if(code==='added'){const a=state.projectAssets.at(-1),b=await (await fetch(a.background)).blob(),bytes=new Uint8Array(await b.arrayBuffer());document.querySelector('#status').textContent=`added · ${b.type} · ${a.width}×${a.height} · signature ${String.fromCharCode(...bytes.slice(0,4))}/${String.fromCharCode(...bytes.slice(8,12))}`;}};
+const importer=createImagePageImporter({readState,prepareImage:prepareAuthoringImage,applyImagePage,discardImage:discardPreparedAuthoringImage,onStatus});
+document.querySelector('#paste').onclick=installImagePagePaste({importer,inEditor:()=>true,onStatus});
+document.querySelector('#copy').onclick=async()=>{const c=document.createElement('canvas');c.width=360;c.height=640;const ctx=c.getContext('2d');const g=ctx.createLinearGradient(0,0,360,640);g.addColorStop(0,'#087f9a');g.addColorStop(1,'#ffe3a0');ctx.fillStyle=g;ctx.fillRect(0,0,360,640);ctx.fillStyle='#fff';ctx.font='32px sans-serif';ctx.fillText('潮騒の図書館',30,280);const preview=document.querySelector('#copy-preview');preview.src=c.toDataURL('image/png');preview.hidden=false;const blob=await new Promise(r=>c.toBlob(r,'image/png'));await navigator.clipboard.write([new ClipboardItem({'image/png':blob})]);onStatus('PNG copied');};
+document.querySelector('#undo').onclick=()=>undo(render);document.querySelector('#redo').onclick=()=>redo(render);
+document.querySelector('#controls').innerHTML=studioWebMCPMarkup();initStudioWebMCP({readState,getUILang:()=> 'ja',subscribeProjectSession:()=>{},applyEdit:()=>{},applyImagePage,prepareImage:prepareAuthoringImage,discardImage:discardPreparedAuthoringImage});
+let args, importArgs;
+const call=async(name,args)=>{const api=document.modelContext,t=(await api.getTools()).find(t=>t.name===name);const result=await api.executeTool(t,JSON.stringify(args));return typeof result==='string'?JSON.parse(result):result;};
+const report=async fn=>{try{document.querySelector('#result').textContent=JSON.stringify(await fn(),null,2);}catch(e){document.querySelector('#result').textContent=e.message;}};
+document.querySelector('#ai-add').onclick=()=>report(async()=>{const {workToken}=await call('dsf_get_editor_context',{});const listed=await call('dsf_list_image_assets',{workToken});const p=await call('dsf_prepare_image_page',{workToken,assetId:listed.assets[0]?.assetId,position:'start'});if(p.error)return p;args={workToken,imageToken:p.imageToken};return call('dsf_add_image_page',args);});
+document.querySelector('#retry').onclick=()=>report(()=>call('dsf_add_image_page',args));
+document.querySelector('#ai-import').onclick=()=>report(async()=>{
+ const c=document.createElement('canvas');c.width=360;c.height=640;const ctx=c.getContext('2d');
+ const gradient=ctx.createLinearGradient(0,0,360,640);gradient.addColorStop(0,'#122c52');gradient.addColorStop(1,'#e8bc70');ctx.fillStyle=gradient;ctx.fillRect(0,0,360,640);
+ ctx.fillStyle='#fff';ctx.font='30px sans-serif';ctx.fillText('AI画像受け渡し',55,270);ctx.font='20px sans-serif';ctx.fillText('PNG → WebP → ページ',40,320);
+ const dataBase64=c.toDataURL('image/png').split(',')[1];
+ const {workToken}=await call('dsf_get_editor_context',{});
+ const prepared=await call('dsf_prepare_image_import',{workToken,name:'AI image test.png',mimeType:'image/png',dataBase64,position:'start'});
+ importArgs={workToken,imageToken:prepared.imageToken};return {...prepared,pagesBeforeAdd:state.blocks.length,assetsBeforeAdd:state.projectAssets.length};
+});
+document.querySelector('#ai-import-add').onclick=()=>report(async()=>{const result=await call('dsf_add_image_page',importArgs);if(result.changed)await onStatus('added');return result;});
+document.querySelector('#ai-invalid').onclick=()=>report(async()=>{const {workToken}=await call('dsf_get_editor_context',{});return call('dsf_prepare_image_import',{workToken,name:'invalid.png',mimeType:'image/png',dataBase64:'bm90IGFuIGltYWdl',position:'start'});});
+render();
+</script></html>

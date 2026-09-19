@@ -1,0 +1,19 @@
+<!doctype html><html lang="ja"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>DSF WebMCP 外部AI受け入れ検証</title>
+<style>body{font:16px/1.65 system-ui,sans-serif;background:#f5f7fb;color:#18243a;max-width:880px;margin:40px auto;padding:0 20px}section{background:white;border:1px solid #ccd5e4;border-radius:12px;padding:20px;margin:16px 0}button{padding:10px;margin:5px}pre{white-space:pre-wrap}small{display:block}</style>
+<h1>DSF WebMCP 外部AI受け入れ検証</h1><p>合成原稿のみ。本番と同じ読み取り専用ツールと登録adapterを使用します。保存・ログインは行いません。AIへ渡るのは下記の合成原稿のみです。</p>
+<section id="controls"></section><section><button id="switch">別の合成作品へ切替</button><p id="integrity" role="status"></p><p id="work"></p></section>
+<section><h2>検証原稿</h2><p>日本語「灯台」：現在のFlow 2件／作品全体3件。英語「lighthouse」：作品全体3件。EN-USは未入力のため0件。</p><pre id="manuscript"></pre></section>
+<script type="module">
+import { initStudioWebMCP, studioWebMCPMarkup } from '/js/studio-webmcp.js';
+const make=(id,ja,en)=>({id,kind:'flow',flow:{document:{sourceLanguage:'ja',sections:[{id:'section-'+id,blocks:[{id:'paragraph-'+id,type:'paragraph',texts:{ja,'en-GB':en}}]}]}}});
+const blocks=[make('sample-a','海辺の灯台。灯台の光を見つけた。','The lighthouse by the sea. A lighthouse shines.'),make('sample-b','遠くにも灯台がある。','A distant lighthouse.')];
+const freeze=value=>{if(value&&typeof value==='object'){Object.values(value).forEach(freeze);Object.freeze(value);}return value;};freeze(blocks);
+const original=JSON.stringify(blocks);let identity={},number=1;const subscribers=new Set();
+document.body.dataset.room='editor';
+document.querySelector('#controls').innerHTML=studioWebMCPMarkup();
+const verify=()=>{document.querySelector('#integrity').textContent=JSON.stringify(blocks)===original?'原稿不変：OK':'原稿不変：失敗';document.querySelector('#work').textContent='合成作品 '+number;};
+initStudioWebMCP({getUILang:()=> 'ja',subscribeProjectSession:fn=>subscribers.add(fn),readState:()=>({room:'editor',workIdentity:identity,blocks,languageKeys:['ja','en-GB','en-US'],languageKey:'ja',sourceLanguage:'ja',activeGroupId:'sample-a',selection:null,busy:false})});
+document.querySelector('#switch').addEventListener('click',()=>{identity={};number++;for(const listener of subscribers)listener();verify();});
+document.querySelector('#controls').addEventListener('change',verify);
+document.querySelector('#manuscript').textContent=blocks.map(g=>Object.entries(g.flow.document.sections[0].blocks[0].texts).map(([lang,text])=>lang+': '+text).join('\n')).join('\n\n');verify();
+</script></html>

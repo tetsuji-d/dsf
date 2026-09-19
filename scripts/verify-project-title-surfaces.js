@@ -11,7 +11,7 @@ assert.match(studioHtml, /class="ribbon-project-name-label"[^>]+data-i18n="label
 assert.match(studioHtml, /id="prop-title-lang-badge"/);
 assert.match(studioHtml, /class="ribbon-work-title-field"[^>]+for="prop-title"/);
 assert.match(appSource, /propTitleLangBadge\.textContent = titleLanguageName/);
-assert.match(appSource, /propTitle\.placeholder = titleLanguageProps\.placeholders\?\.title/);
+assert.match(appSource, /propTitle\.placeholder = getUILang\(\)==='en'\?t\('placeholder_work_title'\):\(titleLanguageProps\.placeholders\?\.title/);
 assert.match(
     appSource,
     /const representativeTitle = nextMeta\?\.\[defaultLang\]\?\.title\s+\|\| \(lang === defaultLang \? '' : \(state\.title \|\| ''\)\);/,

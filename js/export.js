@@ -1,3 +1,4 @@
+import { mapProjectAssetUrls, validateProjectAssets } from './project-assets.js';
 import JSZip from 'jszip';
 import { saveAs } from 'file-saver';
 import { set as idbSet } from 'idb-keyval';
@@ -108,6 +109,7 @@ export async function buildDSP() {
     // archive work; Flow-generated pages are never part of this value.
     const initialProject = prepareProjectForSave({
         version: state.version || 5,
+        projectAssets: state.projectAssets || [],
         projectId: state.projectId,
         workId: state.workId || '',
         releaseId: state.releaseId || null,
@@ -165,10 +167,18 @@ export async function buildDSP() {
         imgIndex++;
     }
 
+    const projectAssets = await mapProjectAssetUrls(initialProject.projectAssets || [], async (url, asset, kind) => {
+        const path = `assets/library/${asset.id}-${kind}.webp`;
+        const blob = await fetchAssetBlob(url, 'プロジェクト画像');
+        zip.file(path, blob);
+        return path;
+    });
+
     // Reconcile the rewritten Fixed asset paths back into the opaque mixed
     // spine while preserving Flow groups and Fixed extension fields.
     const withArchiveAssets = prepareProjectForSave({
         ...initialProject,
+        projectAssets,
         sections: exportSections,
         publicationThumbnailUrl,
     });
@@ -211,7 +221,7 @@ export async function buildDSP() {
 }
 
 // --- Build .dsf (Content/Publish Archive) ---
-export async function buildDSF() {
+export async function buildDSF(options = {}) {
     if (hasFlowGroups(state)) {
         const artifact = getFlowPortableDsfDownloadArtifact();
         const currentArtifact = getFlowPortableDsfDownloadArtifact();
@@ -252,7 +262,7 @@ export async function buildDSF() {
         const rawResKey = resolvePressResolutionKey(document.getElementById('press-resolution')?.value || '1080x1920');
         const exportResKey = clampPressPublishResolutionKey(rawResKey);
         const { width: targetW, height: targetH } = getPressResolutionDims(exportResKey);
-        const langs = getSelectedPressLangs();
+        const langs = options.languages || getSelectedPressLangs();
         const pages = getRenderablePressPages();
         const qualityProfile = getPressQualityProfile(exportResKey);
 
@@ -266,6 +276,7 @@ export async function buildDSF() {
 
         for (let pageIndex = 0; pageIndex < pages.length; pageIndex++) {
             throwIfPressRenderCancelled();
+            options.check?.();
             const section = pages[pageIndex];
             const exportedBackgrounds = {};
             const bytesByLang = {};
@@ -274,6 +285,7 @@ export async function buildDSF() {
             for (const lang of langs) {
                 throwIfPressRenderCancelled();
                 const blob = await renderPressSectionToWebP(section, lang, targetW, targetH, pageIndex, pages);
+                if(!blob&&options.preview)throw new Error('PREVIEW_PAGE_NOT_RENDERABLE');
                 if (!blob) continue;
                 const filename = `page_${String(pageIndex + 1).padStart(3, '0')}_${lang}.webp`;
                 const assetPath = `assets/images/${filename}`;
@@ -348,6 +360,7 @@ export async function buildDSF() {
         // 4. Determine Filename
         const safeTitle = (meta.title || 'comic').replace(/[\\/:*?"<>|]/g, '_');
         const defaultFilename = `${safeTitle}.dsf`;
+        if(options.preview){const blob=await zip.generateAsync({type:"blob"});options.check?.();return blob;}
         let filename = prompt("配信データのエクスポート名を入力してください:", defaultFilename);
 
         if (filename === null) {
@@ -403,8 +416,24 @@ export async function parseAndLoadDSP(file) {
         getArchiveEntry: (relativePath) => zip.file(relativePath),
     });
 
+    // Validate unused library images too, before creating URLs or changing state.
+    validateProjectAssets(normalizedProject.projectAssets);
+    for (const asset of normalizedProject.projectAssets || []) {
+        for (const field of ['background', 'thumbnail']) {
+            const checked = await validateDspPublicationThumbnailArchiveAsset({
+                reference: asset[field], getArchiveEntry: path => zip.file(path),
+            });
+            if (!checked || checked.mimeType !== 'image/webp') throw new Error('Invalid DSP library image');
+            if (field === 'background' && (checked.bytes.byteLength !== asset.byteLength
+                || checked.width !== asset.width || checked.height !== asset.height)) {
+                throw new Error('DSP library image metadata mismatch');
+            }
+        }
+    }
+
     // Reconstruct Object URLs for assets
     const assetMap = new Map();
+    const importedImageUrls = new Map();
     for (const [relativePath, zipEntry] of Object.entries(zip.files)) {
         if (!zipEntry.dir && relativePath.startsWith("assets/")) {
             // Determine Mime Type
@@ -419,10 +448,12 @@ export async function parseAndLoadDSP(file) {
             const typedBlob = isPublicationThumbnail
                 ? new Blob([publicationThumbnailAsset.bytes], { type: publicationThumbnailAsset.mimeType })
                 : new Blob([await zipEntry.async("blob")], { type: mime });
-            const url = URL.createObjectURL(typedBlob);
+
             // Use content-addressed local keys so importing the same DSP again
             // reuses the existing asset instead of accumulating duplicates.
             const digest = await sha256DsfBytes(await typedBlob.arrayBuffer());
+            const url = importedImageUrls.get(digest) || URL.createObjectURL(typedBlob);
+            importedImageUrls.set(digest, url);
             const localKey = `dsp_asset_${digest}`;
             await idbSet(localKey, typedBlob);
             window.localImageMap = window.localImageMap || {};
