@@ -35,6 +35,42 @@
 
 ---
 
+## 非公開R2原稿の検証用モデル（Unit A–D、API無効）
+
+既存Firestoreモデルを全体移行する変更ではない。Unit CのStudioは、次のroot markerを持つ
+検証用Project v6だけを認証付きAPIへ接続する。
+
+```text
+users/{uid}/projects/{pid}
+  version: 6, projectId: pid, ownerUid: uid
+  authoringBackend: "r2-private"
+  authoringStorageVersion: 1
+  authoringRef: "authoringHeads/current"
+  blocks / sections / pages は持たない
+```
+
+| サーバー専用パス | 内容 |
+|---|---|
+| `users/{uid}/projects/{pid}/authoringControl/current` | `storageVersion`, `generationId`, `status`, `initialized`, `previousHead`, `mutationRevision` |
+| `users/{uid}/projects/{pid}/authoringHeads/current` | storage/schema version, generation/revision ID, objectKey, SHA-256, byteLength, revision |
+| `users/{uid}/projects/{pid}/authoringRevisions/{requestId}` | 元の版番号、immutable descriptor、pending/committed/rejected、期限と確定結果 |
+| `users/{uid}/projects/{pid}/authoringActions/{requestId}` | Unit Dの操作署名、確定結果、source/metadata版の再試行境界 |
+| `users/{uid}/authoringUsage/current` | API要求数、upload試行量、予約容量、台帳件数 |
+
+原稿JSONは非公開R2の
+`users/{uid}/projects/{pid}/generations/{generationId}/revisions/{revisionId}.json`。
+ブラウザーにR2公開URLを渡さず、取得もAPI経由とする。これらのFirestoreパスはクライアントから
+直接読み書きできない。APIのサービスアカウントには別途IAMを設定し、API内で所有・停止・失効を検証する。
+
+rootとcontrolのどちらかが移行を示す場合、旧クライアントからのroot更新・削除・再作成を拒否する。
+移行のmarker付与もサーバーのみ。削除後もcontrolを保持し、古いIDへの再作成を防ぐ設計とする。
+旧`authoring/current`の読込・書込と一覧summaryの直接書込も拒否する。
+通常の本文保存はAPIがhead／root metadata／summary／関連Work／保存要求結果を同時確定する。
+公開済みRelease情報は本文snapshotから更新しない。
+
+公開・削除・復元はUnit Dの認証APIへ接続。管理画面から移行済み公開snapshotの旧式再同期は拒否し、運営による公開行削除は維持する。移行・保持・掃除は後続単位で、一般利用は有効にしない。
+[Unit B](private-authoring-storage-unit-b.md)、[Unit C](private-authoring-storage-unit-c.md)、[Unit D](private-authoring-storage-unit-d.md)に詳細を記載する。
+
 ## Project / Work / Release の責務
 
 DSF の公開系IDは、名前や作者名ではなく不変IDで解決する。

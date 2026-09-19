@@ -248,6 +248,9 @@
                         <button class="btn-tool btn-tool-icon" onclick="exportDSP()" title=".dsp ファイルをローカルに保存">
                             <span class="material-icons" aria-hidden="true">download</span><span data-i18n="btn_save_dsp">DSP 保存</span>
                         </button>
+                        <button id="btn-restore-private-authoring" class="btn-tool btn-tool-icon" hidden onclick="restoreCloudManuscript()">
+                            <span class="material-icons" aria-hidden="true">restore</span><span data-i18n="authoring_restore">前のクラウド原稿に戻す</span>
+                        </button>
                     </div>
                     <div class="ribbon-group">
                         <button class="btn-tool ribbon-pressroom-btn" onclick="switchRoom('press')" title="Press Room でDSFを書き出す・発行する">

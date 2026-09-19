@@ -14,7 +14,7 @@ import '../css/flow-annotations.css';
 import { openAnnotationDialog } from './flow-annotation-ui.js';
 import { refreshFlowRichInput } from './flow-source-rich-input.js';
 import { state, dispatch, actionTypes } from './state.js';
-import { saveProject as persistProject, loadProject, uploadToStorage, prepareAuthoringImage, uploadCoverToStorage, uploadStructureToStorage, triggerAutoSave, flushSave, flushPendingSave, generateCroppedThumbnail, listLocalRecentProjects, loadLocalRecentProject, cacheLocalRecentProject, ensureUserBootstrap, storePublicationThumbnailFile, auth as firebaseAuth, authReady, db } from './firebase.js';
+import { restorePreviousCloudAuthoring, getLoadedPrivateAuthoringHead, saveProject as persistProject, loadProject, uploadToStorage, prepareAuthoringImage, uploadCoverToStorage, uploadStructureToStorage, triggerAutoSave, flushSave, flushPendingSave, generateCroppedThumbnail, listLocalRecentProjects, loadLocalRecentProject, cacheLocalRecentProject, ensureUserBootstrap, storePublicationThumbnailFile, auth as firebaseAuth, authReady, db } from './firebase.js';
 import { initGIS, renderGISButton, signInWithGoogle, signOutUser, onAuthChanged, handleRedirectResult } from './gis-auth.js';
 import { handleCanvasClick, selectBubble, renderBubbleHTML, getBubbleText, setBubbleText, addBubbleAtCenter, startDrag, startTailDrag, startSpikeDrag } from './bubbles.js';
 import { addSection, addTextSection, changeSection, changeBlock, insertStructureBlock, renderThumbs, canDeleteActive, deleteActive, deleteSectionAt, insertSectionAt, insertSpreadImageAt, duplicateSectionAt, moveSection, moveSectionRange, insertPageNearBlock, duplicateBlockAt, moveBlockAt, getOptimizedImageUrl } from './sections.js';
@@ -4713,6 +4713,13 @@ function setCurrentDeviceThumbColumns(cols) {
 //  refresh — 画面全体を再描画する (Gen3: image pages only)
 // ──────────────────────────────────────
 function refresh(options = {}) {
+    const restoreButton = document.getElementById('btn-restore-private-authoring');
+    if (restoreButton) {
+        let available = false;
+        try { available = !!getLoadedPrivateAuthoringHead(); } catch { /* stale auth session */ }
+        restoreButton.hidden = !available;
+    }
+
     const skipAncillary = !!options.skipAncillary;
     const skipThumbs = !!options.skipThumbs;
     const visSelect = document.getElementById('prop-visibility');
@@ -9027,6 +9034,16 @@ window.onProjectTitleBlur = () => {
         triggerAutoSave();
     }
 };
+window.restoreCloudManuscript = async () => {
+    if (!confirm(t('authoring_restore_confirm'))) return;
+    try {
+        await restorePreviousCloudAuthoring(() => {
+            resetFlowRuntimeForProjectChange(); clearHistory(); refresh(); renderLangSettings();
+        });
+        alert(t('authoring_restore_done'));
+    } catch (error) { alert(`${t('authoring_restore_failed')}\n${error?.code || error?.message}`); }
+};
+
 window.saveProject = async () => {
     ensureProjectIdentity();
     await persistProject();

@@ -1,3 +1,4 @@
+import { preparePrivateProjectAction, runPrivateProjectAction } from './private-project-actions.js';
 /**
  * projects.js — プロジェクト一覧モーダル管理
  */
@@ -43,13 +44,17 @@ export async function fetchCloudProjects() {
     return projects;
 }
 
-export async function deleteCloudProject(projectId) {
-    if (!state.uid) throw new Error('ログインしてください');
+export async function deleteCloudProject(projectId, expectedUid = state.uid) {
+    if (!state.uid || state.uid !== expectedUid) throw new Error('ログインしてください');
+    const privateContext = await preparePrivateProjectAction(projectId);
+    if (state.uid !== expectedUid || (privateContext && privateContext.uid !== expectedUid)) throw new Error('ログイン状態が変わりました');
+    if (privateContext) return runPrivateProjectAction(privateContext, 'delete');
     const projectRef = doc(db, "users", state.uid, "projects", projectId);
     const snap = await getDoc(projectRef);
     const workId = snap.exists() && typeof snap.data()?.workId === 'string'
         ? snap.data().workId
         : '';
+    if (state.uid !== expectedUid) throw new Error('ログイン状態が変わりました');
     const batch = writeBatch(db);
     batch.delete(doc(db, 'users', state.uid, 'projects', projectId, 'authoring', 'current'));
     batch.delete(projectRef);

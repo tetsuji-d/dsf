@@ -322,7 +322,7 @@ const firebaseSource = readFileSync(new URL('../js/firebase.js', import.meta.url
 assert.match(exportSource, /getFlowPortableDsfDownloadArtifact/);
 assert.match(exportSource, /saveAs\(currentArtifact\.blob, currentArtifact\.filename\)/);
 assert.match(pressSource, /hasFlowGroups\(state\)/);
-assert.match(sectionsSource, /data-testid="flow-source-card"/);
+assert.match(sectionsSource, /data-testid="flow-generated-thumb"/);
 assert.match(sectionsSource, /changeFlowGeneratedPage/);
 assert.match(firebaseSource, /rootData\.version === 6/);
 assert.match(firebaseSource, /prepareFirestoreProjectIngress\(persistedData\)/);

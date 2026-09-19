@@ -14,12 +14,77 @@ Published DSF data and Viewer delivery remain separate from the editable source.
 - Project v6, FlowDocument v1, and FlowLayout v1 are validated before any
   state mutation or persistence write. Unsupported future versions fail closed.
 
+## Private R2 authoring (Unit C, test projects only)
+
+The existing v5/v6 Firestore contracts below remain the default. A root explicitly
+marked `authoringBackend: "r2-private"`, `authoringStorageVersion: 1`,
+`authoringRef: "authoringHeads/current"` uses the authenticated same-origin API.
+Partial or unsupported migration markers fail closed. Studio never automatically
+migrates a project, changes its generation, or falls back to Firestore after an
+R2 read/write error. Missing private data does not become an empty project.
+
+The API validates the current Firebase identity/account and reads/writes the
+immutable JSON object in a separate private R2 binding. The source head, generation,
+request ledger, usage and metadata transactions are server-owned. Neither full
+source nor the R2 object key belongs in the public root. Studio validates returned
+size, SHA-256, scope and schema before loading the project into editor state.
+
+IndexedDB backup precedes cloud saving. The loaded generation/revision and pending
+immutable save request live only in the open editor session, outside authoring
+state and export files. Repeated saving first resolves the same pending request;
+new edits wait for that result. Conflicts, expired operations and stale sessions
+never automatically adopt a newer cloud base. Reloading a local backup cannot
+silently overwrite a migrated cloud project: export/retain the local draft first,
+then explicitly open the cloud project again. No automatic merge is implemented.
+
+Cloud failure rejects `flushSave`; it is not reported as successful saving merely
+because the local backup succeeded. Late responses after project load or auth
+changes do not change the active editor's cloud-save status. Edits during saving
+remain pending until the serialized save loop handles their snapshot.
+
+The limit for migrated JSON is 16 MiB; the old 850 KiB limit still applies to
+Firestore v6. Asset blob URLs must resolve successfully before uploading private
+JSON. Missing image data stops the cloud save instead of erasing references.
+The original local image mapping remains available for recovery; successful URL
+resolution is reused within that editor session.
+
+Rules block migrated roots/old authoring writes, old authoring reads, summary writes,
+and direct access to the new server-owned paths. Associated Work/Release/public
+listing client writes use the Unit D action adapters. Normal reader access and
+staff takedown authority are preserved; migrated public snapshots cannot be
+rewritten through the legacy admin resync. API default-off and the explicit
+test-project allowlist remain mandatory. No migration, Rules deployment, bucket,
+secret or live account configuration is performed by Unit C.
+
+See [Unit C implementation and verification](private-authoring-storage-unit-c.md).
+
+### Migrated project lifecycle (Unit D)
+
+The same-origin `/api/projects/{projectId}/actions` endpoint serves owner action
+context (GET) and typed draft/publication/listing/profile/delete/restore commands
+(POST). Every mutation carries an immutable request ID, authoring generation,
+source base revision and metadata mutation revision. Server transactions own
+root/summary/Work/Release/public-index updates. Stale retries cannot report an old
+successful state after another write. Publication permissions, plan dates and
+profile come from the current account, not caller-supplied account data.
+
+Draft creation reads the saved private source, verifies real release objects in
+the public bucket, and commits metadata with the captured source revision. Private
+source JSON is never copied into a public listing or Release. Delete removes the
+root, summary and public indexes atomically and retains a deletion control record;
+physical object/ledger retention is Unit E. Restoring the immediately previous
+source creates a new immutable revision via the normal save protocol and preserves
+publication state. The editor must load that revision again before further saves.
+
+See [Unit D implementation and verification](private-authoring-storage-unit-d.md).
+API activation, real migration and Rules deployment remain separate rollout work.
+
 ## Firestore ownership boundary
 
 `users/{uid}/projects/{pid}` can be publicly readable after publication, so it
 must not contain Flow semantic source.
 
-For Project v6:
+For Project v6 using the legacy Firestore backend:
 
 ```text
 users/{uid}/projects/{pid}

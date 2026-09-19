@@ -56,7 +56,7 @@ const summaryMatch = rules.slice(summaryMatchStart, rules.indexOf('// 読者向�
 assert.match(summaryMatch, /allow read: if isOwner\(uid\);/);
 assert.match(summaryMatch, /allow create, update: if accountCanEdit\(uid\)/);
 assert.match(summaryMatch, /&& projectSummaryWriteIsValid\(pid\);/);
-assert.match(summaryMatch, /allow delete: if accountCanEdit\(uid\);/);
+assert.match(summaryMatch, /allow delete: if accountCanEdit\(uid\) && !privateAuthoringProject\(uid, pid\);/);
 assert.doesNotMatch(summaryMatch, /isStaff\(|public|unlisted/);
 
 console.log('Project summary Firestore Rules contract verification passed.');

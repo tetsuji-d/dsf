@@ -1,3 +1,4 @@
+import { preparePrivateProjectAction, runPrivateProjectAction } from './private-project-actions.js';
 import { addDoc, collection, doc, getDocs, limit, orderBy, query, runTransaction, serverTimestamp, setDoc, where } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
 import { onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js";
 import { auth, db } from './firebase-core.js';
@@ -909,7 +910,13 @@ async function savePublicProfile() {
 async function syncPublicProfileSnapshots(profile) {
     if (!currentUser?.uid) return;
     const snap = await getDocs(query(collection(db, 'public_projects'), where('authorUid', '==', currentUser.uid), limit(50)));
-    const updates = snap.docs.map((entry) => setDoc(entry.ref, {
+    const updates = snap.docs.map(async (entry) => {
+        const projectId = entry.data()?.projectId;
+        if (projectId) {
+            const context = await preparePrivateProjectAction(projectId);
+            if (context) return runPrivateProjectAction(context, 'profile');
+        }
+        return setDoc(entry.ref, {
         authorName: profile.displayName || '',
         authorHandle: profile.handle || null,
         authorAvatarUrl: profile.avatarUrl || '',
@@ -921,8 +928,9 @@ async function syncPublicProfileSnapshots(profile) {
             bio: profile.bio || ''
         },
         updatedAt: serverTimestamp()
-    }, { merge: true }).catch((e) => {
-        console.warn('[MyPage] public project profile sync skipped:', entry.id, e?.message || e);
+    }, { merge: true });
+    }).map(promise => promise.catch((e) => {
+        console.warn('[MyPage] public project profile sync skipped:', e?.code || e?.message);
     }));
     await Promise.all(updates);
 }
