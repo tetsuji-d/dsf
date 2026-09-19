@@ -34,5 +34,7 @@ binding     = "R2_BUCKET"
 bucket_name = "dsf-media-staging"
 
 [env.preview.vars]
+# Units A-D ship dormant. Activation requires the later migration rollout.
+AUTHORING_API_ENABLED = "false"
 FIREBASE_PROJECT_ID = "vmnn-26345-stg"
 R2_PUBLIC_URL       = "https://media-staging.dsf.ink"

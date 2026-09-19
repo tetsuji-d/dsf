@@ -66,6 +66,7 @@ const ADMIN_UI = {
         sync_snapshot_not_allowed: 'このロールでは再同期できません',
         sync_snapshot_missing_release: 'releaseId または作者UIDがないため再同期できません。',
         sync_snapshot_empty_release: 'release snapshot に dsfPages がありません。',
+        sync_snapshot_private_authoring: 'この作品は作者のWorks画面から公開情報を更新してください。',
         review_status_title: 'レビュー状態',
         review_status_published: '公開',
         review_status_hidden: '非表示',
@@ -182,6 +183,7 @@ const ADMIN_UI = {
         sync_snapshot_not_allowed: 'This role cannot resync snapshots',
         sync_snapshot_missing_release: 'Cannot resync because releaseId or author UID is missing.',
         sync_snapshot_empty_release: 'The release snapshot has no dsfPages.',
+        sync_snapshot_private_authoring: 'Update this publication from the owner’s Works screen.',
         review_status_title: 'Review Status',
         review_status_published: 'Published',
         review_status_hidden: 'Hidden',
@@ -1326,6 +1328,7 @@ async function syncPublicWorkSnapshot(workId) {
     if (!workId || !canSyncPublicSnapshot()) return;
     const work = state.works.find((entry) => entry.workId === workId);
     if (!work) return;
+    if (work.authoringBackend === 'r2-private') throw new Error(t('sync_snapshot_private_authoring'));
     if (!work.authorUid || !work.releaseId) throw new Error(t('sync_snapshot_missing_release'));
     if (!window.confirm(t('sync_snapshot_confirm'))) return;
 

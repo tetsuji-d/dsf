@@ -63,9 +63,11 @@ assert.match(
 assert.match(projectsSource, /batch\.delete\(projectRef\);[\s\S]*stageProjectSummaryDelete\([\s\S]*await batch\.commit\(\);/);
 assert.match(
     worksSource,
-    /batch\.delete\(doc\(db, 'users', ownerUid, 'projects', pid\)\);[\s\S]*stageProjectSummaryDelete\(batch, db, ownerUid, pid\);[\s\S]*await batch\.commit\(\);/,
+    /await deleteCloudProject\(pid, ownerUid\);[\s\S]*if \(state\.uid !== ownerUid\) return;/,
     'Works project and summary deletion must stay bound to the owner that rendered the row',
 );
+
+assert.match(projectsSource, /state\.uid !== expectedUid[\s\S]*preparePrivateProjectAction[\s\S]*runPrivateProjectAction\(privateContext, 'delete'\)/, 'Shared deletion adapter must preserve owner binding and migrated API routing');
 
 const worksSummaryWrites = worksSource.match(/stageProjectSummaryWrite\(/g) || [];
 assert.equal(worksSummaryWrites.length, 1, 'Works publication paths must share one summary write boundary');

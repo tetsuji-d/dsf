@@ -58,6 +58,36 @@ service cloud.firestore {
       return accountCanEdit(uid) && !userIsOnModerationHold(uid);
     }
 
+    // Migration is server-only. Keep the control document as a tombstone even
+    // if a root disappears, so old clients cannot recreate it under the same ID.
+    function hasPrivateAuthoringMarker(data) {
+      return data.keys().hasAny(['authoringBackend', 'authoringStorageVersion'])
+        || data.get('authoringRef', '') == 'authoringHeads/current';
+    }
+
+    function privateAuthoringProject(uid, pid) {
+      return exists(/databases/$(database)/documents/users/$(uid)/projects/$(pid)/authoringControl/current)
+        || (exists(/databases/$(database)/documents/users/$(uid)/projects/$(pid))
+          && hasPrivateAuthoringMarker(get(/databases/$(database)/documents/users/$(uid)/projects/$(pid)).data));
+    }
+
+    function legacyProjectWrite(uid, pid) {
+      return !privateAuthoringProject(uid, pid)
+        && !hasPrivateAuthoringMarker(request.resource.data);
+    }
+
+    // Until the publication/deletion adapters are connected in Unit D, client
+    // writes to associated Works, Releases and public listings fail closed.
+    function legacyProjectLink(uid, data) {
+      return !data.keys().hasAny(['projectId'])
+        || (data.projectId is string && !privateAuthoringProject(uid, data.projectId));
+    }
+
+    function legacyWork(uid, workId) {
+      return !exists(/databases/$(database)/documents/users/$(uid)/works/$(workId))
+        || legacyProjectLink(uid, get(/databases/$(database)/documents/users/$(uid)/works/$(workId)).data);
+    }
+
     function projectWriteHasSupportedVersion() {
       return !request.resource.data.keys().hasAny(['version'])
         || (request.resource.data.version is int
@@ -823,47 +853,66 @@ service cloud.firestore {
       match /projects/{pid} {
         allow read: if isOwner(uid);
         allow create: if accountCanEdit(uid)
+                      && legacyProjectWrite(uid, pid)
                       && projectWriteHasSupportedVersion()
                       && projectV6RootIsSafe(uid, pid);
         allow update: if accountCanEdit(uid)
+                      && legacyProjectWrite(uid, pid)
                       && projectWriteHasSupportedVersion()
                       && projectVersionDoesNotRegress()
                       && projectV6RootIsSafe(uid, pid);
         allow delete: if accountCanEdit(uid)
+                      && !privateAuthoringProject(uid, pid)
                       && !existsAfter(/databases/$(database)/documents/users/$(uid)/projects/$(pid)/authoring/current);
         allow read: if resource.data.dsfStatus in ['public', 'unlisted'];
 
         // 完全なProject v6 authoring sourceは公開可能なrootへ置かない。
         // Flow本文・翻訳・レイアウトはowner専用の子documentに保存する。
         match /authoring/{authoringId} {
-          allow read: if isOwner(uid);
+          allow read: if isOwner(uid) && !privateAuthoringProject(uid, pid);
           allow create: if accountCanEdit(uid)
+                        && !privateAuthoringProject(uid, pid)
                         && projectAuthoringWriteIsValid(uid, pid, authoringId);
           allow update: if accountCanEdit(uid)
+                        && !privateAuthoringProject(uid, pid)
                         && projectAuthoringWriteIsValid(uid, pid, authoringId)
                         && projectVersionDoesNotRegress();
           allow delete: if accountCanEdit(uid)
+                        && !privateAuthoringProject(uid, pid)
                         && authoringId == 'current'
                         && !existsAfter(/databases/$(database)/documents/users/$(uid)/projects/$(pid));
         }
       }
 
+      // Auth + account status + generation checks are performed by the API.
+      match /projects/{pid}/authoringControl/{id} { allow read, write: if false; }
+      match /projects/{pid}/authoringHeads/{id} { allow read, write: if false; }
+      match /projects/{pid}/authoringActions/{id} { allow read, write: if false; }
+      match /projects/{pid}/authoringRevisions/{id} { allow read, write: if false; }
+      match /authoringUsage/{id} { allow read, write: if false; }
+
       // Dashboard用の軽量投影。公開データではなくowner専用。
       match /project_summaries/{pid} {
         allow read: if isOwner(uid);
         allow create, update: if accountCanEdit(uid)
+                              && !privateAuthoringProject(uid, pid)
                               && projectSummaryWriteIsValid(pid);
-        allow delete: if accountCanEdit(uid);
+        allow delete: if accountCanEdit(uid) && !privateAuthoringProject(uid, pid);
       }
 
       // 読者向けの恒久作品IDと発行履歴
       match /works/{workId} {
         allow read: if isOwner(uid) || isStaff();
-        allow create, update, delete: if accountCanEdit(uid);
+        allow create: if accountCanEdit(uid) && legacyProjectLink(uid, request.resource.data);
+        allow update: if accountCanEdit(uid) && legacyProjectLink(uid, resource.data)
+                      && legacyProjectLink(uid, request.resource.data);
+        allow delete: if accountCanEdit(uid) && legacyProjectLink(uid, resource.data);
 
         match /releases/{releaseId} {
           allow read: if isOwner(uid) || isStaff() || publicReleaseCanRead(uid, workId, releaseId);
-          allow create, update, delete: if accountCanEdit(uid);
+          allow create, update, delete: if accountCanEdit(uid) && legacyWork(uid, workId)
+            && (!existsAfter(/databases/$(database)/documents/users/$(uid)/works/$(workId))
+              || legacyProjectLink(uid, getAfter(/databases/$(database)/documents/users/$(uid)/works/$(workId)).data));
         }
       }
 
@@ -893,15 +942,30 @@ service cloud.firestore {
       allow update, delete: if isAdmin();
     }
 
+    // Staff may take down a migrated release, but may not rewrite its sealed delivery snapshot.
+    function staffPublicSnapshotWrite(pid) {
+      return (isAdmin() || isOperator())
+        && legacyProjectLink(request.resource.data.authorUid, request.resource.data)
+        && legacyWork(request.resource.data.authorUid, pid)
+        && (!exists(/databases/$(database)/documents/public_projects/$(pid))
+          || (legacyProjectLink(resource.data.authorUid, resource.data)
+            && legacyWork(resource.data.authorUid, pid)));
+    }
+
     match /public_projects/{pid} {
       allow read: if true;
       allow create, update: if (accountCanPublish(request.auth.uid)
                               && request.resource.data.authorUid == request.auth.uid
+                              && legacyProjectLink(request.auth.uid, request.resource.data)
+                              && legacyWork(request.auth.uid, pid)
+                              && (!exists(/databases/$(database)/documents/public_projects/$(pid))
+                                || legacyProjectLink(request.auth.uid, resource.data))
                               && publicProjectPublicationIsValid(request.auth.uid))
-                            || isAdmin()
-                            || isOperator();
+                            || staffPublicSnapshotWrite(pid);
       allow delete: if (isSignedIn()
                         && resource.data.authorUid == request.auth.uid
+                        && legacyProjectLink(request.auth.uid, resource.data)
+                        && legacyWork(request.auth.uid, pid)
                         && !userIsDisabled(request.auth.uid))
                     || isAdmin()
                     || isOperator();

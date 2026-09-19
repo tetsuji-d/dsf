@@ -8,6 +8,11 @@ const STORAGE_KEY = 'dsf_studio_ui_lang';
 
 export const STRINGS = {
     ja: {
+        authoring_restore: '前のクラウド原稿に戻す',
+        authoring_restore_confirm: '現在の編集を保存してから、直前のクラウド原稿を新しい保存として復元します。公開済みの作品は変更しません。続けますか？',
+        authoring_restore_done: '前のクラウド原稿を復元しました。',
+        authoring_restore_failed: '復元できませんでした。手元の原稿は保持されています。',
+
         flow_direct_text_split_done: '選択範囲を置き換えて分割しました。後続ページを再配置しています。',
         flow_direct_text_split_blocked: '文字境界または原稿の状態が変わったため分割できませんでした。位置を選び直してください。',
         history_title: 'Release履歴',
@@ -591,6 +596,11 @@ export const STRINGS = {
         zip_generating:          '⏳ ZIP生成中...',
     },
     en: {
+        authoring_restore: 'Restore previous cloud manuscript',
+        authoring_restore_confirm: 'Save current edits, then restore the previous cloud manuscript as a new save. Published releases stay unchanged. Continue?',
+        authoring_restore_done: 'Previous cloud manuscript restored.',
+        authoring_restore_failed: 'Restore failed. Your local manuscript is retained.',
+
         flow_direct_text_split_done: 'Split at the selection. Reflowing following pages.',
         flow_direct_text_split_blocked: 'The text boundary or source changed. Select the position again.',
         history_title: 'Release history',

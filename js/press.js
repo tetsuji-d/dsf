@@ -1,3 +1,4 @@
+import { preparePrivateProjectAction, runPrivateProjectAction } from './private-project-actions.js';
 /**
  * press.js — Press Room ロジック
  * DSP → DSF レンダリング・R2アップロード・Firestore発行
@@ -5,11 +6,13 @@
 import {
     doc, getDoc, serverTimestamp, writeBatch, runTransaction
 } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
-import { state, dispatch, actionTypes } from './state.js';
+import { state, dispatch, actionTypes, getProjectSessionEpoch } from './state.js';
 import { hasFlowGroups } from './flow-project-model.js';
 import { extractSectionsFromBlocks } from './blocks.js';
 import {
     assertAccountCanPublish,
+    flushSave,
+    getLoadedPrivateAuthoringHead,
     db,
     uploadPressPage,
     triggerAutoSave,
@@ -2437,7 +2440,14 @@ async function _resolveV1ReleaseThumbnail(pages, languages, customThumbnail = ''
     return _renderSectionPublicationThumbnail(section, defaultLanguage, pageIndex, pages);
 }
 
-async function _writePressFlowHorizonDraftMetadata(upload, account) {
+async function preparePrivateDraftContext() {
+    let context = await preparePrivateProjectAction(state.projectId, { expectedHead: getLoadedPrivateAuthoringHead() });
+    if (!context) return null;
+    await flushSave();
+    return preparePrivateProjectAction(state.projectId, { expectedHead: getLoadedPrivateAuthoringHead() });
+}
+
+async function _writePressFlowHorizonDraftMetadata(upload, account, privateContext) {
     const user = _assertCurrentFlowHorizonDraftIdentity(upload);
     if (!state.projectId) {
         const error = new Error('Project must be saved to the cloud before draft creation.');
@@ -2463,7 +2473,7 @@ async function _writePressFlowHorizonDraftMetadata(upload, account) {
         _pressFlowHorizonDraftModule ||= await import('./flow-press-horizon-draft-write.js');
         _assertCurrentFlowHorizonDraftIdentity(upload);
         const publishedAt = new Date();
-        const publication = createDefaultPublication(account, publishedAt);
+        let publication = createDefaultPublication(account, publishedAt);
         const pageCount = upload.seal.publicLocator.pageCount;
         const thumbnail = await _resolveFlowReleaseThumbnail(upload);
         _assertCurrentFlowHorizonDraftIdentity(upload);
@@ -2483,7 +2493,15 @@ async function _writePressFlowHorizonDraftMetadata(upload, account) {
         const publicRefs = draft.publicIndexDocumentIds.map((documentId) => (
             doc(db, 'public_projects', documentId)
         ));
-        await runTransaction(db, async (transaction) => {
+        if (privateContext === undefined) privateContext = await preparePrivateDraftContext();
+        if (privateContext) {
+            _assertCurrentFlowHorizonDraftIdentity(upload);
+            const result = await runPrivateProjectAction(privateContext, 'draft', {
+                upload, bookConfig: getPressBookConfigForExport(pageCount), thumbnail,
+            });
+            publication = result.projectPatch.publication;
+            _assertCurrentFlowHorizonDraftIdentity(upload);
+        } else await runTransaction(db, async (transaction) => {
             _assertCurrentFlowHorizonDraftIdentity(upload);
             if (state.projectId !== projectId) {
                 const stale = new Error('Flow Horizon project changed before draft transaction.');
@@ -2563,8 +2581,8 @@ async function _writePressFlowHorizonDraftMetadata(upload, account) {
 }
 
 /** Persist only owner-visible draft metadata; public_projects is deleted atomically. */
-export function writeFlowHorizonDraftMetadata(account) {
-    return _writePressFlowHorizonDraftMetadata(_pressFlowHorizonUploadResult, account);
+export function writeFlowHorizonDraftMetadata(account, privateContext) {
+    return _writePressFlowHorizonDraftMetadata(_pressFlowHorizonUploadResult, account, privateContext);
 }
 
 export function getFlowHorizonDraftMetadataState() {
@@ -3299,11 +3317,12 @@ window.publishToCloud = async () => {
         _openFlowHorizonPublishModal();
         _setFlowHorizonPublishProgress(t('press_preparing'), null);
         try {
+            const privateContext = await preparePrivateDraftContext();
             const upload = await uploadFlowHorizonReleaseFiles();
             cancelable = false;
             _setFlowHorizonPublishCancelable(false);
             _setFlowHorizonPublishProgress(t('press_flow_horizon_saving'), null);
-            const draft = await writeFlowHorizonDraftMetadata(account);
+            const draft = await writeFlowHorizonDraftMetadata(account, privateContext);
             _closeFlowHorizonPublishModal();
             alert(t('press_flow_horizon_success', {
                 files: upload.summary.fileCount,
@@ -3360,7 +3379,8 @@ window.publishToCloud = async () => {
     }
     if (!_validateBookCompositionForPress()) return;
 
-    const publication = createDefaultPublication(account, new Date());
+    let publication = createDefaultPublication(account, new Date());
+    const publishingProjectId = state.projectId, publishingEpoch = getProjectSessionEpoch();
 
     // 設定取得
     const rawResKey = resolvePressResolutionKey(document.getElementById('press-resolution')?.value);
@@ -3445,6 +3465,7 @@ window.publishToCloud = async () => {
     setModalProgress(t('press_preparing'), null);
 
     try {
+        const privateContext = await preparePrivateDraftContext();
         const dsfPages = [];
         let pageNum = 0;
         let totalBytes = 0;
@@ -3572,6 +3593,14 @@ window.publishToCloud = async () => {
                 dsfTotalBytes:  totalBytes,
                 visibility:     'private',
             };
+        if (privateContext) {
+            const result = await runPrivateProjectAction(privateContext, 'draft', { releaseId, dsfPages, bookConfig, thumbnail,
+                dsfLangs: langs, dsfResolution: resStr, dsfQuality: Math.round(qualityProfile.image * 100) });
+            publication = result.projectPatch.publication;
+            if (state.uid !== uid || state.projectId !== publishingProjectId || getProjectSessionEpoch() !== publishingEpoch) {
+                throw new Error('下書きは保存されましたが、編集中の作品が変わりました。Works画面で確認してください。');
+            }
+        } else {
         const projectBatch = writeBatch(db);
         projectBatch.set(projectRef, projectPatch, { merge: true });
         stageProjectSummaryWrite(
@@ -3640,6 +3669,7 @@ window.publishToCloud = async () => {
         // Project root、Dashboard summary、Work、Release、公開index削除は
         // 同じcommit境界で成功または失敗させ、発行スナップショットの部分保存を防ぐ。
         await projectBatch.commit();
+        }
 
         dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'publication', value: publication } });
 

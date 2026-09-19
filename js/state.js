@@ -104,11 +104,15 @@ export const actionTypes = {
  * Dispatch function to handle state mutations centrally.
  * Content edits should converge back to canonical `blocks` via sync helpers.
  */
+let projectSessionEpoch = 0;
+export const getProjectSessionEpoch = () => projectSessionEpoch;
+
 export function dispatch(action) {
     const { type, payload } = action;
 
     switch (type) {
         case actionTypes.LOAD_PROJECT: {
+            projectSessionEpoch += 1;
             // バックアップ/DSP 復元に含まれる uid・user は古いセッションの残骸で
             // Firebase Auth の現在ユーザーとズレると R2 の path と ID トークンが不一致になる。
             const projectPayload = {
@@ -129,6 +133,7 @@ export function dispatch(action) {
         }
 
         case actionTypes.SET_AUTH_STATE:
+            if (state.uid !== payload.uid || state.user !== payload.user) projectSessionEpoch += 1;
             state.user = payload.user;
             state.uid = payload.uid;
             break;

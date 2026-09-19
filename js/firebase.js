@@ -1,3 +1,4 @@
+import { preparePrivateProjectAction, runPrivateProjectAction } from './private-project-actions.js';
 /**
  * firebase.js — Firebase初期化・クラウド保存/読込・自動保存
  *
@@ -9,7 +10,9 @@ import { doc, setDoc, getDoc, deleteDoc, serverTimestamp, writeBatch } from "htt
 import {
     onAuthStateChanged
 } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js";
-import { state, dispatch, actionTypes } from './state.js';
+import { state, dispatch, actionTypes, getProjectSessionEpoch } from './state.js';
+import { createPrivateAuthoringClient, usesPrivateAuthoring, assertPrivateAuthoringRoot,
+    resolvePrivateAuthoringAssets, authoringSaveMessage, AuthoringClientError } from './private-authoring-client.js';
 import { getBlockIndexFromPageIndex } from './blocks.js';
 import { PAGE_SCHEMA_VERSION } from './pages.js';
 import { composeCanonicalLayoutsForSections } from './layout.js';
@@ -58,6 +61,24 @@ export const PUBLICATION_THUMBNAIL_MAX_SOURCE_EDGE = 16_384;
 export const PUBLICATION_THUMBNAIL_MAX_SOURCE_PIXELS = 80_000_000;
 const PUBLICATION_THUMBNAIL_WEBP_QUALITY = 0.86;
 const userBootstrapPromiseCache = new Map();
+let privateAuthoringSession = null;
+let projectLoadSequence = 0;
+let editorRevision = 0;
+export function getLoadedPrivateAuthoringHead(projectId = state.projectId) {
+    if (privateAuthoringSession?.projectId !== projectId || privateAuthoringSession?.epoch !== getProjectSessionEpoch()) return null;
+    return privateAuthoringSession.client.getHead();
+}
+export async function restorePreviousCloudAuthoring(refresh) {
+    const pid = state.projectId, epoch = getProjectSessionEpoch();
+    await flushSave();
+    if (epoch !== getProjectSessionEpoch() || state.projectId !== pid) throw new AuthoringClientError('AUTHORING_SESSION_CHANGED');
+    const context = await preparePrivateProjectAction(pid, { expectedHead: getLoadedPrivateAuthoringHead(pid) });
+    if (!context?.previousRevisionId) throw new AuthoringClientError('RESTORE_REVISION_UNAVAILABLE');
+    await runPrivateProjectAction(context, 'restore', { revisionId: context.previousRevisionId });
+    if (epoch !== getProjectSessionEpoch() || state.projectId !== pid) throw new AuthoringClientError('AUTHORING_SESSION_CHANGED');
+    await loadProject(pid, refresh);
+}
+
 
 /**
  * Upload a Blob to R2 via the /upload Pages Function.
@@ -758,6 +779,7 @@ function updateSaveIndicator(status, message) {
  * 自動保存をトリガーする（2秒デバウンス）
  */
 export function triggerAutoSave() {
+    editorRevision += 1;
     if (autoSaveTimer) clearTimeout(autoSaveTimer);
 
     updateSaveIndicator('idle', '未保存');
@@ -941,6 +963,10 @@ const AUTHORING_STATE_EXCLUDED_KEYS = new Set([
     'lastUpdated',
     'authoringRef',
     'authoringSchemaVersion',
+    'authoringBackend',
+    'authoringStorageVersion',
+    'generationId',
+    'revision',
     'visibility',
     'publication',
 ]);
@@ -982,15 +1008,28 @@ function buildAuthoringProjectInput(overrides = {}) {
  * 実際の保存処理
  */
 async function performSaveOnce() {
+    let privateSave = false;
+    const startedEpoch = getProjectSessionEpoch(), startedProjectId = state.projectId;
     try {
     const saveIdentity = Object.freeze({
         projectId: String(state.projectId || ''),
         uid: String(state.uid || ''),
         workId: String(state.workId || ''),
-        user: state.user || auth.currentUser || null,
+        user: auth.currentUser || state.user || null,
+        epoch: getProjectSessionEpoch(),
+        editorRevision,
+        session: privateAuthoringSession,
         ownerEmail: String(state.user?.email || auth.currentUser?.email || ''),
         visibility: state.visibility || 'private',
     });
+    privateSave = saveIdentity.session?.epoch === saveIdentity.epoch;
+    const saveIsCurrent = () => getProjectSessionEpoch() === saveIdentity.epoch
+        && state.projectId === saveIdentity.projectId && state.uid === saveIdentity.uid
+        && auth.currentUser === saveIdentity.user;
+    const cloudSaved = () => {
+        if (saveIsCurrent()) updateSaveIndicator(editorRevision === saveIdentity.editorRevision ? 'saved' : 'idle',
+            editorRevision === saveIdentity.editorRevision ? '保存済み (Cloud)' : '変更あり・保存待ち');
+    };
     // レイアウト確定: テキストセクションの layout[lang] を計算して state.sections に書き込む（意図的な mutation）
     composeCanonicalLayoutsForSections(state.sections, state.languages, state.languageConfigs);
     // Flow sourceを含むauthoring spineを検証し、Fixed互換面だけを再投影する。
@@ -1029,7 +1068,7 @@ async function performSaveOnce() {
             imageMap: window.localImageMap
         });
         await cacheLocalRecentProject(localSnapshot, window.localImageMap);
-        updateSaveIndicator('saved', '保存済み (Local)');
+        if (saveIsCurrent()) updateSaveIndicator('saved', '保存済み (Local)');
     } catch (e) {
         console.warn("[DSF] Local auto-save to IndexedDB failed:", e);
     }
@@ -1038,6 +1077,7 @@ async function performSaveOnce() {
     if (saveIdentity.projectId && saveIdentity.uid) {
         try {
             await assertAccountCanEdit(saveIdentity.user);
+            if (!saveIsCurrent()) throw new AuthoringClientError('AUTHORING_SESSION_CHANGED');
             const visibility = saveIdentity.visibility;
 
             // Read the current root before uploading blobs. A future/newer
@@ -1047,6 +1087,51 @@ async function performSaveOnce() {
             const existingData = existingSnap.exists() ? existingSnap.data() : {};
             if (!isProjectVersionTransitionAllowed(existingData.version, authoringProject.version)) {
                 throw new Error(`保存済みProject v${String(existingData.version)}をv${authoringProject.version}で上書きできません。`);
+            }
+
+            if (usesPrivateAuthoring(existingData)) {
+                privateSave = true;
+                assertPrivateAuthoringRoot(existingData, saveIdentity.uid, saveIdentity.projectId);
+                if (!saveIsCurrent() || !saveIdentity.session
+                    || saveIdentity.session !== privateAuthoringSession
+                    || saveIdentity.session.epoch !== saveIdentity.epoch
+                    || saveIdentity.session.projectId !== saveIdentity.projectId) {
+                    throw new AuthoringClientError('AUTHORING_RELOAD_REQUIRED');
+                }
+                const cleanProject = await resolvePrivateAuthoringAssets(authoringProject, async blobUrl => {
+                    if (!saveIsCurrent()) throw new AuthoringClientError('AUTHORING_SESSION_CHANGED');
+                    if (saveIdentity.session.assets.has(blobUrl)) return saveIdentity.session.assets.get(blobUrl);
+                    const localId = window.localImageMap?.[blobUrl];
+                    const blob = localId ? await idbGet(localId) : null;
+                    if (!blob) throw new AuthoringClientError('AUTHORING_ASSET_UNRESOLVED');
+                    if (!saveIsCurrent()) throw new AuthoringClientError('AUTHORING_SESSION_CHANGED');
+                    // Keep the local mapping and original editor snapshot for recovery.
+                    const url = await _storeFile(blob, `users/${saveIdentity.uid}/dsf/recovered/${crypto.randomUUID()}.webp`);
+                    saveIdentity.session.assets.set(blobUrl, url);
+                    return url;
+                });
+                if (!saveIsCurrent()) throw new AuthoringClientError('AUTHORING_SESSION_CHANGED');
+                await saveIdentity.session.client.save(cleanProject);
+                const head = saveIdentity.session.client.getHead();
+                const preview = getProjectPreviewSource(cleanProject);
+                const candidate = preview.thumbnail || preview.background || '';
+                const listThumbnail = candidate.startsWith(`${import.meta.env.VITE_R2_PUBLIC_URL}/users/${saveIdentity.uid}/`) ? candidate : '';
+                const assetBytes = await Promise.all(collectProjectAssetUrls(cleanProject).map(getAssetByteSize));
+                const projectBytes = head.byteLength + assetBytes.reduce((sum, size) => sum + size, 0);
+                if (!saveIsCurrent()) throw new AuthoringClientError('AUTHORING_SESSION_CHANGED');
+                const pageCount = getProjectPageCount(cleanProject);
+                if (existingData.projectBytes !== projectBytes || existingData.pageCount !== pageCount || existingData.listThumbnail !== listThumbnail) {
+                    const listingContext = await preparePrivateProjectAction(saveIdentity.projectId, { expectedHead: head });
+                    if (!saveIsCurrent()) throw new AuthoringClientError('AUTHORING_SESSION_CHANGED');
+                    await runPrivateProjectAction(listingContext, 'listing', { projectBytes, pageCount, listThumbnail });
+                }
+                cloudSaved();
+                return;
+            }
+            // An opened R2 project may not be silently downgraded by a changed root.
+            if (saveIdentity.session?.epoch === saveIdentity.epoch) {
+                privateSave = true;
+                throw new AuthoringClientError('AUTHORING_ROOT_INVALID');
             }
 
             // Obvious text-heavy over-limit projects stop before any asset
@@ -1144,16 +1229,20 @@ async function performSaveOnce() {
 
             // 公開インデックス（public_projects）は Press / Works が管理する。
             // 通常の編集保存では DSP 本体だけを更新し、公開状態は変えない。
-            updateSaveIndicator('saved', '保存済み (Cloud)');
+            cloudSaved();
             console.log(`[DSF] Auto-saved project to cloud: ${saveIdentity.projectId}`);
         } catch (e) {
-            console.error("[DSF] Cloud auto-save failed:", e);
-            updateSaveIndicator('error', '保存失敗 (Cloud)');
+            console.error('[DSF] Cloud auto-save failed:', privateSave ? e.code || 'AUTHORING_UNAVAILABLE' : e);
+            if (saveIsCurrent()) updateSaveIndicator('error', privateSave ? authoringSaveMessage(e) : '保存失敗 (Cloud)');
+            // flushSave callers (including publication) must observe cloud failure.
+            throw e;
         }
     }
     } catch (error) {
         console.error('[DSF] Project save failed before persistence:', error);
-        updateSaveIndicator('error', '保存失敗');
+        if (!privateSave && startedEpoch === getProjectSessionEpoch() && startedProjectId === state.projectId) {
+            updateSaveIndicator('error', '保存失敗');
+        }
         throw error;
     }
 }
@@ -1431,16 +1520,28 @@ export async function uploadToStorage(input, refresh) {
  */
 export async function loadProject(pid, refresh) {
     if (!state.uid) return;
-    const snap = await getDoc(projectDocRef(pid));
+    const uid = state.uid, user = auth.currentUser;
+    let epoch = getProjectSessionEpoch();
+    const sequence = ++projectLoadSequence;
+    privateAuthoringSession = null;
+    const isCurrent = () => sequence === projectLoadSequence && epoch === getProjectSessionEpoch()
+        && state.uid === uid && auth.currentUser === user;
+    const snap = await getDoc(projectDocRef(pid, uid));
+    if (!isCurrent()) throw new AuthoringClientError('AUTHORING_SESSION_CHANGED');
     if (snap.exists()) {
         const rootData = snap.data() || {};
         let persistedData = rootData;
-        if (
+        let privateClient = null;
+        if (usesPrivateAuthoring(rootData)) {
+            assertPrivateAuthoringRoot(rootData, uid, pid);
+            privateClient = createPrivateAuthoringClient({ uid, projectId: pid, user, isCurrent });
+            persistedData = await privateClient.load();
+        } else if (
             rootData.version === 6
             || rootData.authoringRef === 'authoring/current'
             || rootData.authoringSchemaVersion === 6
         ) {
-            const authoringSnap = await getDoc(projectAuthoringDocRef(pid));
+            const authoringSnap = await getDoc(projectAuthoringDocRef(pid, uid));
             if (!authoringSnap.exists()) {
                 throw new Error('Project v6 authoring/current が見つからないため、安全に読み込めません。');
             }
@@ -1452,8 +1553,9 @@ export async function loadProject(pid, refresh) {
 
         // Validate before state mutation. Blob cleanup is restricted to asset
         // fields, then validated again so Flow text such as "blob: ..." survives.
-        const normalized = hydrateProjectFromPersistence(prepareFirestoreProjectIngress(persistedData));
-        const data = hydrateProjectFromPersistence(stripBlobAssetUrls(normalized));
+        if (!isCurrent()) throw new AuthoringClientError('AUTHORING_SESSION_CHANGED');
+        const normalized = hydrateProjectFromPersistence(privateClient ? persistedData : prepareFirestoreProjectIngress(persistedData));
+        const data = privateClient ? normalized : hydrateProjectFromPersistence(stripBlobAssetUrls(normalized));
         const languages = data.languages && data.languages.length > 0 ? data.languages : ['ja'];
         const defaultLang = data.defaultLang || languages[0] || 'ja';
         dispatch({
@@ -1491,6 +1593,8 @@ export async function loadProject(pid, refresh) {
                 activeLang: defaultLang,
             },
         });
+        epoch = getProjectSessionEpoch();
+        privateAuthoringSession = privateClient ? { client: privateClient, projectId: pid, epoch, assets: new Map() } : null;
         dispatch({ type: actionTypes.SET_ACTIVE_LANGUAGE, payload: defaultLang });
         dispatch({ type: actionTypes.SET_ACTIVE_INDEX, payload: 0 });
         dispatch({ type: actionTypes.SET_ACTIVE_BLOCK_INDEX, payload: Math.max(0, getBlockIndexFromPageIndex(data.blocks || [], 0)) });

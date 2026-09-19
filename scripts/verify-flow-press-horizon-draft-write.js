@@ -225,11 +225,11 @@ assert.match(pressSource, /if \(hasFlow && isHorizonPublish\)[\s\S]*btn\.disable
     'Flow Horizon draft save must be enabled only after verified handoff readiness');
 assert.match(pressSource, /confirm\(t\('press_flow_horizon_confirm'\)\)/,
     'Flow Horizon draft save requires an explicit in-app confirmation');
-assert.match(pressSource, /const upload = await uploadFlowHorizonReleaseFiles\(\);[\s\S]*const draft = await writeFlowHorizonDraftMetadata\(account\)/,
+assert.match(pressSource, /const upload = await uploadFlowHorizonReleaseFiles\(\);[\s\S]*const draft = await writeFlowHorizonDraftMetadata\(account, privateContext\)/,
     'immutable upload must finish before the owner-only draft transaction');
 assert.match(
     pressSource,
-    /async function _writePressFlowHorizonDraftMetadata\(upload, account\) \{[\s\S]*const thumbnail = await _resolveFlowReleaseThumbnail\(upload\);[\s\S]*createFlowPressHorizonDraftWrite\(\{[\s\S]*thumbnail,/,
+    /async function _writePressFlowHorizonDraftMetadata\(upload, account, privateContext\) \{[\s\S]*const thumbnail = await _resolveFlowReleaseThumbnail\(upload\);[\s\S]*createFlowPressHorizonDraftWrite\(\{[\s\S]*thumbnail,/,
     'the release thumbnail must be resolved after upload and before draft metadata is created',
 );
 assert.match(pressSource, /window\.switchRoom\('works'\)/,

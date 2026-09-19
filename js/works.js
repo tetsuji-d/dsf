@@ -1,3 +1,5 @@
+import { preparePrivateProjectAction, runPrivateProjectAction } from './private-project-actions.js';
+import { deleteCloudProject } from './projects.js';
 /**
  * works.js — Works Room
  * 発行済み作品の DSF ステータス管理
@@ -270,15 +272,8 @@ export async function openWorksRoom(roomMode = false, options = {}) {
                 if (!confirm(t('works_delete_confirm', { name: _getWorksDisplayTitle(proj) }))) return;
                 if (!_beginWorksProjectMutation(listEl, ownerUid, pid)) return;
                 try {
-                    const batch = writeBatch(db);
-                    batch.delete(doc(db, 'users', ownerUid, 'projects', pid, 'authoring', 'current'));
-                    batch.delete(doc(db, 'users', ownerUid, 'projects', pid));
-                    stageProjectSummaryDelete(batch, db, ownerUid, pid);
-                    await batch.commit();
-                    if (proj?.workId) {
-                        await deleteDoc(doc(db, 'public_projects', proj.workId)).catch(() => {});
-                    }
-                    await deleteDoc(doc(db, 'public_projects', pid)).catch(() => {});
+                    await deleteCloudProject(pid, ownerUid);
+                    if (state.uid !== ownerUid) return;
                     _removeWorksProject(projects, pid);
                     if (_worksViewCache?.uid === ownerUid && _worksViewCache.projects !== projects) {
                         _removeWorksProject(_worksViewCache.projects, pid);
@@ -810,6 +805,17 @@ async function _commitWorksPublicationTransition(pid, status, publication, accou
     const expectedStatus = options.expectedStatus || null;
     const fallbackAuthorName = state.user?.displayName || state.user?.email || '';
 
+    const privateContext = await preparePrivateProjectAction(pid);
+    _assertCurrentWorksOwner(uid);
+    if (privateContext) {
+        const shown = _worksViewCache?.projects?.find(project => project.id === pid);
+        return runPrivateProjectAction(privateContext, 'publication', {
+            status, expectedStatus: expectedStatus || privateContext.dsfStatus,
+            expectedReleaseId: shown?.releaseId ?? privateContext.releaseId,
+            publicFrom: toDate(publication?.publicFrom)?.toISOString() || null,
+            publicUntil: toDate(publication?.publicUntil)?.toISOString() || null,
+        });
+    }
     return runTransaction(db, async (transaction) => {
         _assertCurrentWorksOwner(uid);
         const projectRef = doc(db, 'users', uid, 'projects', pid);
