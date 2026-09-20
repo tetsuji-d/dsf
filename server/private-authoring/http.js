@@ -33,6 +33,12 @@ function assertResolvedAssets(project) {
     for (const page of project.pages || []) owner(page);
     for (const section of project.sections || []) owner(section);
 }
+// Pages parameters may still be percent-encoded. Decode once, then validate;
+// encoded separators, double encoding and malformed escapes remain invalid.
+function routeSegment(value) {
+    try { return segment(decodeURIComponent(value)); }
+    catch { throw new AuthoringApiError('INVALID_ID', 400); }
+}
 function testProjects(env) {
     let entries;
     try { entries = JSON.parse(env.AUTHORING_TEST_PROJECTS); } catch { throw new AuthoringApiError('CONFIG_TEST_PROJECTS'); }
@@ -52,8 +58,8 @@ export function createAuthoringApi({ verifyToken, service, actions }) {
             const actionRoute = params.actionRoute === true;
             const operationRoute = params.requestId !== undefined;
             check(actionRoute ? ['GET', 'POST'].includes(request.method) : operationRoute ? request.method === 'GET' : ['GET', 'PUT'].includes(request.method), 'METHOD_NOT_ALLOWED', 405);
-            const projectId = segment(params.projectId);
-            const requestId = operationRoute ? segment(params.requestId) : undefined;
+            const projectId = routeSegment(params.projectId);
+            const requestId = operationRoute ? routeSegment(params.requestId) : undefined;
             const authorization = /^Bearer ([^\s]+)$/.exec(request.headers.get('Authorization') || '');
             check(authorization, 'AUTH_REQUIRED', 401);
             const identity = await verifyToken(authorization[1]);

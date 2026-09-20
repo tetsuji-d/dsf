@@ -28,9 +28,13 @@ await test('v5 root migrates without version conversion; Unicode HTTP, client, s
  assertPrivateAuthoringRoot(migrated,scope.uid,scope.projectId);
  const api=createAuthoringApi({verifyToken:async()=>({uid:scope.uid}),service:f.service});
  const env={AUTHORING_API_ENABLED:'true',AUTHORING_TEST_PROJECTS:JSON.stringify([`${scope.uid}/${scope.projectId}`])};
- const fetcher=async(url,options={})=>api({env,params:{projectId:scope.projectId},request:new Request(`https://studio.test${url}`,options)});
+ const fetcher=async(url,options={})=>api({env,params:{projectId:encodeURIComponent(scope.projectId)},request:new Request(`https://studio.test${url}`,options)});
  const user={uid:scope.uid,getIdToken:async()=> 'test'};
  const client=createPrivateAuthoringClient({...scope,user,isCurrent:()=>true,fetcher,newRequestId:()=> 'edit_5'});
+ for(const projectId of ['%2e%2e%2fsecret','%252F','%E0%A4']){
+  const response=await api({env,params:{projectId},request:new Request('https://studio.test/api/projects/x/authoring',{headers:{Authorization:'Bearer test'}})});
+  assert.equal(response.status,400);assert.equal((await response.json()).error,'INVALID_ID');
+ }
  const loaded=await client.load();assert.equal(loaded.version,5);assert.equal(loaded.blocks[0].content.text,f.source.blocks[0].content.text);assert.deepEqual(loaded.futurePrivate,f.source.futurePrivate);
  await client.save({...loaded,projectName:'最新原稿'});assert.equal(client.getHead().revision,2);
  f.set(r,{...f.get(r),releaseId:'release_2'});f.set(`${w}/releases/release_2`,{title:'New published'});
