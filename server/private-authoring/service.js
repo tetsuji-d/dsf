@@ -78,7 +78,7 @@ function receipt(operation, currentHead) {
     return { state: 'committed', requestId: operation.descriptor.revisionId,
         result: operation.result, committedHead: operation.committedHead, currentHead };
 }
-function metadataPatch(project, root, time) {
+export function metadataPatch(project, root, time) {
     check(project.workId === undefined || project.workId === (root.workId || ''), 'WORK_ID_CONFLICT', 409);
     // projectBytes includes image bytes in Studio; do not replace it with JSON-only size.
     check([5, 6].includes(project.version) && project.version >= root.version, 'AUTHORING_VERSION_REGRESSION', 409);

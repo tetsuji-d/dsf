@@ -6,6 +6,7 @@ import { AuthoringApiError, check, parseJson, readBounded, segment } from './com
 import { createGoogleClient, createIdTokenVerifier } from './google-auth.js';
 import { createFirestoreStore } from './firestore.js';
 import { createAuthoringBucket } from './r2.js';
+import { createProjectCreation } from './creation.js';
 import { createAuthoringService } from './service.js';
 
 const headers = () => ({ 'Cache-Control': 'private, no-store, max-age=0',
@@ -49,23 +50,41 @@ function testProjects(env) {
 }
 
 /** Dependencies are injected in tests only. Public routes construct their own runtime. */
-export function createAuthoringApi({ verifyToken, service, actions }) {
+export function createAuthoringApi({ verifyToken, service, actions, creation }) {
     return async ({ request, env, params }) => {
         try {
             check(env?.AUTHORING_API_ENABLED === 'true', 'AUTHORING_API_DISABLED');
             const allowlist = testProjects(env);
+            let creators;
+            try { creators = JSON.parse(env.AUTHORING_CREATOR_UIDS || '[]'); } catch { throw new AuthoringApiError('CONFIG_CREATORS'); }
+            check(Array.isArray(creators) && creators.length <= 20 && creators.every(isPrivateAuthoringId), 'CONFIG_CREATORS');
             const origin = request.headers.get('Origin');
             check(!origin || origin === new URL(request.url).origin, 'ORIGIN_FORBIDDEN', 403);
             const actionRoute = params.actionRoute === true;
             const operationRoute = params.requestId !== undefined;
-            check(actionRoute ? ['GET', 'POST'].includes(request.method) : operationRoute ? request.method === 'GET' : ['GET', 'PUT'].includes(request.method), 'METHOD_NOT_ALLOWED', 405);
+            check(actionRoute ? ['GET', 'POST'].includes(request.method) : operationRoute ? request.method === 'GET' : ['GET', 'PUT', 'POST'].includes(request.method), 'METHOD_NOT_ALLOWED', 405);
             const projectId = routeSegment(params.projectId);
             const requestId = operationRoute ? routeSegment(params.requestId) : undefined;
             const authorization = /^Bearer ([^\s]+)$/.exec(request.headers.get('Authorization') || '');
             check(authorization, 'AUTH_REQUIRED', 401);
             const identity = await verifyToken(authorization[1]);
             check(identity?.uid, 'AUTH_INVALID', 401);
-            check(allowlist.includes(`${identity.uid}/${projectId}`), 'PROJECT_NOT_ENABLED', 403);
+            const canCreate = creators.includes(identity.uid);
+            const createRoute = !actionRoute && !operationRoute && request.method === 'POST';
+            check(createRoute ? canCreate : (canCreate || allowlist.includes(`${identity.uid}/${projectId}`)), 'PROJECT_NOT_ENABLED', 403);
+            if (createRoute) {
+                check(creation, 'AUTHORING_API_DISABLED');
+                const id = segment(request.headers.get('X-Authoring-Request-Id'));
+                check(/^application\/json(?:\s*;\s*charset=utf-8)?$/i.test(request.headers.get('Content-Type') || ''), 'CONTENT_TYPE_INVALID', 415);
+                check(!request.headers.has('Content-Encoding') || request.headers.get('Content-Encoding') === 'identity', 'CONTENT_ENCODING_INVALID', 415);
+                const length = request.headers.get('Content-Length');
+                if (length !== null) check(/^\d+$/.test(length) && Number(length) <= PRIVATE_AUTHORING_MAX_BYTES, 'BODY_TOO_LARGE', 413);
+                await creation.access(identity);
+                const bytes = await readBounded(request.body, PRIVATE_AUTHORING_MAX_BYTES);
+                if (length !== null) check(Number(length) === bytes.byteLength, 'BODY_LENGTH_MISMATCH', 400);
+                const snapshot = await createPrivateAuthoringSnapshot(parseJson(bytes)); assertResolvedAssets(snapshot.project);
+                return json(await creation.create(identity, projectId, { snapshot, requestId: id }));
+            }
             if (actionRoute) {
                 check(actions, 'AUTHORING_API_DISABLED');
                 if (request.method === 'GET') return json(await actions.context(identity, projectId));
@@ -128,7 +147,7 @@ export async function handlePrivateAuthoring(context) {
             const service = createAuthoringService({ db, bucket, assertLiveIdentity: google.assertLiveIdentity });
             const actions = createProjectActions({ db, bucket, service, assertLiveIdentity: google.assertLiveIdentity,
                 verifyRelease: createReleaseVerifier(env.R2_BUCKET, env.R2_PUBLIC_URL), publicBaseUrl: env.R2_PUBLIC_URL });
-            handler = createAuthoringApi({ verifyToken: createIdTokenVerifier({ projectId: env.FIREBASE_PROJECT_ID }), service, actions });
+            handler = createAuthoringApi({ verifyToken: createIdTokenVerifier({ projectId: env.FIREBASE_PROJECT_ID }), service, actions, creation: createProjectCreation({ db, bucket, assertLiveIdentity: google.assertLiveIdentity }) });
             runtimes.set(env, handler);
         }
         return await handler(context);

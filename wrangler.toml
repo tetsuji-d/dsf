@@ -25,6 +25,7 @@ binding = "AUTHORING_BUCKET"
 bucket_name = "dsf-authoring-production"
 
 [vars]
+AUTHORING_CREATOR_UIDS = '["K53KsYUmTjOT0IhDEkPxPBWkUx72"]'
 AUTHORING_API_ENABLED = "true"
 AUTHORING_TEST_PROJECTS = '["K53KsYUmTjOT0IhDEkPxPBWkUx72/R2に移行","K53KsYUmTjOT0IhDEkPxPBWkUx72/テスト１"]'
 FIREBASE_PROJECT_ID = "vmnn-26345"
@@ -44,6 +45,7 @@ binding     = "AUTHORING_BUCKET"
 bucket_name = "dsf-authoring-staging"
 
 [env.preview.vars]
+AUTHORING_CREATOR_UIDS = '["authoring_unit_f_20260920","oweMVboBCNcr8FKMo6N7vAaGTvh2","aaGu1M3E5lQ5OD0Mwi7RLL7976i2"]'
 # Unit F verified and rolled back: keep API off until the next scoped rollout.
 AUTHORING_API_ENABLED = "false"
 AUTHORING_TEST_PROJECTS = '["authoring_unit_f_20260920/unit_f_private_authoring_20260920"]'

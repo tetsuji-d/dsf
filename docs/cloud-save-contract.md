@@ -16,7 +16,10 @@ Published DSF data and Viewer delivery remain separate from the editable source.
 
 ## Private R2 authoring (scoped rollout)
 
-The existing v5/v6 Firestore contracts below remain the default. A root explicitly
+Existing unmarked v5/v6 projects keep their Firestore contract. New projects use
+private R2 when the build flag and authenticated owner rollout are enabled; see
+[New project creation](private-authoring-new-projects.md).
+ A root explicitly
 marked `authoringBackend: "r2-private"`, `authoringStorageVersion: 1`,
 `authoringRef: "authoringHeads/current"` uses the authenticated same-origin API.
 Partial or unsupported migration markers fail closed. Studio never automatically
