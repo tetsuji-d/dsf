@@ -3,11 +3,12 @@ import fs from 'node:fs';
 import { customToken, scope, fixtureProject, operator, maintenance } from './operate-private-authoring-staging.js';
 import { createPrivateAuthoringSnapshot } from '../js/private-authoring-storage.js';
 import { createFlowGroupBlock } from '../js/flow-project-model.js';
+async function main() {
 assert.equal(process.env.DSF_RUN_STAGING_AUTHORING_TEST, '1', 'Explicit staging test opt-in required');
 const origin = 'https://staging.dsf-studio.pages.dev', url = `${origin}/api/projects/${scope.projectId}/authoring`;
 const key = fs.readFileSync(new URL('../.env.staging', import.meta.url), 'utf8').match(/^VITE_FIREBASE_API_KEY=(.+)$/m)[1].trim();
 const login = await fetch(`https://identitytoolkit.googleapis.com/v1/accounts:signInWithCustomToken?key=${key}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ token: await customToken(), returnSecureToken: true }) });
-const session = await login.json(); assert.equal(login.status, 200, session.error?.message); assert.equal(session.localId, scope.uid);
+const session = await login.json(); assert.equal(login.status, 200, session.error?.message); assert.equal(JSON.parse(Buffer.from(session.idToken.split('.')[1], 'base64url')).sub, scope.uid);
 const headers = { Authorization: `Bearer ${session.idToken}` };
 async function read() { const response = await fetch(url, { headers }); const bytes = new Uint8Array(await response.arrayBuffer()); assert.equal(response.status, 200, new TextDecoder().decode(bytes)); assert.match(response.headers.get('cache-control'), /private, no-store/); return { project: JSON.parse(new TextDecoder().decode(bytes)), head: JSON.parse(response.headers.get('X-Authoring-Head')) }; }
 async function put(project, id, base) { const snapshot = await createPrivateAuthoringSnapshot(project); const response = await fetch(url, { method: 'PUT', headers: { ...headers, 'Content-Type': 'application/json', 'X-Authoring-Generation': scope.generationId, 'X-Authoring-Request-Id': id, 'X-Authoring-Base-Revision': String(base) }, body: snapshot.json }); const data = await response.json(); return { status: response.status, data, snapshot }; }
@@ -28,4 +29,5 @@ try { op = await operator(); m = await maintenance(op); await assert.rejects(m.a
 finally { await m?.dispose(); await op?.close(); }
 const restored = await put(first.project, 'unit_f_small_1', loaded.head.revision); assert.equal(restored.status, 200, JSON.stringify(restored.data));
 console.log(JSON.stringify({ realFirebaseAuthentication: true, privateR2RoundTrip: true, largeBytes: saved.snapshot.byteLength, charactersPerLanguage: 100000, languages: 4, unchangedReplay: true, staleWriteRejected: true, unauthorizedAndForeignOriginRejected: true, otherProjectRejected: true, oversizedRollbackRejected: true, finalRevision: restored.data.committedHead.revision }));
-process.exit(0);
+}
+main().then(() => process.exit(0)).catch(e => { console.error(e.message); console.error(e.stack?.split('\n').find(line => line.includes('verify-private-authoring-staging.js')) || ''); process.exit(1); });

@@ -37,12 +37,18 @@ export function parseJson(bytes) {
 export async function fetchJson(fetcher, url, options = {}) {
     let response;
     try { response = await fetcher(url, { ...options, redirect: 'error', signal: AbortSignal.timeout(10_000) }); }
-    catch { throw new AuthoringApiError('UPSTREAM_UNAVAILABLE'); }
+    catch (error) {
+        console.warn('[PrivateAuthoringUpstream]', JSON.stringify({ host: new URL(url).hostname, stage: 'fetch', name: error?.name || 'Error' }));
+        throw new AuthoringApiError('UPSTREAM_UNAVAILABLE');
+    }
     let data;
     try { data = parseJson(await readBounded(response.body, 4 * 1024 * 1024)); }
     catch { throw new AuthoringApiError('UPSTREAM_INVALID_RESPONSE'); }
     if (!response.ok) {
         const error = new AuthoringApiError('UPSTREAM_UNAVAILABLE');
+        const upstreamCode = typeof data?.error === 'string' ? data.error : data?.error?.status;
+        console.warn('[PrivateAuthoringUpstream]', JSON.stringify({ host: new URL(url).hostname, stage: 'response', status: response.status,
+            code: typeof upstreamCode === 'string' && /^[A-Za-z_]{1,64}$/.test(upstreamCode) ? upstreamCode : 'UNKNOWN' }));
         // Never expose the upstream body, credentials, document data or token.
         error.aborted = response.status === 409 && data?.error?.status === 'ABORTED';
         throw error;
