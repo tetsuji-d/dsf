@@ -1,5 +1,6 @@
 // Test-only Worker fixture. Not a Pages route and never included in deployment.
 import { createPrivateAuthoringSnapshot, createPrivateAuthoringDescriptor } from '../../js/private-authoring-storage.js';
+import { createMaintenanceBackupStore, canonicalJson, hashBytes } from '../../server/private-authoring/maintenance-common.js';
 import { createAuthoringBucket } from '../../server/private-authoring/r2.js';
 function assert(condition, message) { if (!condition) throw new Error(message); }
 async function expectError(operation, code) {
@@ -24,6 +25,16 @@ export default {
         });
         await expectError(() => adapter.read(descriptor, scope), 'AUTHORING_OBJECT_CORRUPT');
         await expectError(() => adapter.put(snapshot, descriptor, scope), 'IMMUTABLE_COLLISION');
+        const backupJson = canonicalJson({ fields: { createdAt: { timestampValue: '2026-09-19T01:02:03.123456789Z' } }, source: snapshot.project });
+        const plan = { scope, kind: 'migrate', requestId: 'generation_1', backupJson, backup: {
+            objectKey: 'users/owner_1/projects/project_1/migrations/generation_1/migrate-generation_1.json',
+            sha256: await hashBytes(new TextEncoder().encode(backupJson)), byteLength: new TextEncoder().encode(backupJson).length } };
+        const backups = createMaintenanceBackupStore(env.AUTHORING_BUCKET);
+        await backups.put(plan); await backups.put(plan);
+        assert(await (await env.AUTHORING_BUCKET.get(plan.backup.objectKey)).text() === backupJson, 'typed backup changed');
+        await expectError(() => backups.put({ ...plan, backup: { ...plan.backup, objectKey: 'public/forged' } }), 'BACKUP_SCOPE_INVALID');
+        await env.AUTHORING_BUCKET.put(plan.backup.objectKey, 'corrupted backup');
+        await expectError(() => backups.put(plan), 'BACKUP_VERIFICATION_FAILED');
         return Response.json({ passed: true, byteLength: snapshot.byteLength });
     },
 };

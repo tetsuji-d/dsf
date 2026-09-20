@@ -39,7 +39,7 @@ class MemoryStore {
         } finally { release(); }
     }
 }
-class MemoryR2 {
+export class MemoryR2 {
     objects = new Map(); puts = 0; gets = 0; failPut = false; afterPut; afterGet;
     async put(key, bytes, options) {
         this.puts += 1;

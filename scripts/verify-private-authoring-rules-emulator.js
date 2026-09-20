@@ -3,6 +3,10 @@ import { initializeApp as initializeAdminApp, deleteApp as deleteAdminApp } from
 import { getFirestore } from 'firebase-admin/firestore';
 import { initializeApp, deleteApp } from 'firebase/app';
 import { initializeFirestore, connectFirestoreEmulator, doc, setDoc, getDoc, deleteDoc, writeBatch, terminate, setLogLevel } from 'firebase/firestore';
+import { createFirestoreStore, decodeFirestoreValue } from '../server/private-authoring/firestore.js';
+import { createAuthoringMaintenance } from '../server/private-authoring/maintenance.js';
+import { createMaintenanceBackupStore } from '../server/private-authoring/maintenance-common.js';
+import { maintenanceFixture, scope as maintenanceScope } from './fixtures/private-authoring-maintenance-fixture.js';
 import { createProjectSummary } from '../js/project-summary.js';
 const address = process.env.FIRESTORE_EMULATOR_HOST;
 assert(address && /^(127\.0\.0\.1|localhost):\d+$/.test(address), 'local emulator required');
@@ -47,7 +51,7 @@ try {
     await denied(() => setDoc(doc(owner, `${root}/authoring/current`), { version: 6, projectId: 'migrated', blocks: [] }));
     await denied(() => deleteDoc(doc(owner, `${root}/authoring/current`)));
     await denied(async () => { const b = writeBatch(owner); b.delete(doc(owner, `${root}/authoring/current`)); b.delete(doc(owner, root)); await b.commit(); });
-    for (const path of [`${root}/authoringControl/current`, `${root}/authoringHeads/current`, `${root}/authoringRevisions/request`, `${root}/authoringActions/action`, 'users/owner/authoringUsage/current']) {
+    for (const path of [`${root}/authoringControl/current`, `${root}/authoringHeads/current`, `${root}/authoringRevisions/request`, `${root}/authoringActions/action`, `${root}/authoringMigrations/generation`, `${root}/authoringRollbacks/rollback`, 'users/owner/authoringUsage/current']) {
         await admin.doc(path).set({ sentinel: true });
         for (const db of [owner, other, anon]) {
             await denied(() => getDoc(doc(db, path))); await denied(() => setDoc(doc(db, path), { forged: true }));
@@ -79,6 +83,40 @@ try {
     await batch.commit(); checks++;
     await denied(() => getDoc(doc(other, `${legacy}/authoring/current`)));
     const deletion = writeBatch(owner); deletion.delete(doc(owner, legacy)); deletion.delete(doc(owner, `${legacy}/authoring/current`)); await deletion.commit(); checks++;
+    // Real emulator REST transactions exercise typed exports and atomic migration/rollback.
+    const f = maintenanceFixture(), target = maintenanceScope, r = `users/${target.uid}/projects/${target.projectId}`;
+    for (const [path, raw] of f.docs) await admin.doc(path).set(decodeFirestoreValue({ mapValue: { fields: raw.fields } }));
+    const realStore = createFirestoreStore({ projectId, post: async (url, body) => {
+        assert(url.startsWith(`https://firestore.googleapis.com/v1/projects/${projectId}/`));
+        const response = await fetch(url.replace('https://firestore.googleapis.com', `http://${address}`), {
+            method: 'POST', headers: { Authorization: 'Bearer owner', 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+        const value = await response.json(); assert(response.ok, JSON.stringify(value)); return value;
+    } });
+    const maintenance = createAuthoringMaintenance({ db: realStore, bucket: f.bucket, backups: createMaintenanceBackupStore(f.rawBucket),
+        authorize: async candidate => assert.deepEqual(candidate, target), now: f.time });
+    const own = client('maintenance-owner', target.uid);
+    const plan = await maintenance.inspectMigration(target);
+    await maintenance.migrate(target, plan.planHash); checks++;
+    assert(!(await admin.doc(`${r}/authoring/current`).get()).exists); checks++;
+    await denied(() => getDoc(doc(own, `${r}/authoring/current`)));
+    const rollback = await maintenance.inspectRollback(target, 'restore');
+    await maintenance.rollback(target, 'restore', rollback.planHash); checks++;
+    const restored = (await getDoc(doc(own, `${r}/authoring/current`))).data();
+    assert.deepEqual(restored.futurePrivate, f.source.futurePrivate); checks++;
+    await denied(() => getDoc(doc(other, `${r}/authoring/current`)));
+    const rootData = (await getDoc(doc(own, r))).data();
+    const save = writeBatch(own);
+    save.set(doc(own, `${r}/authoring/current`), { ...restored, title: 'edit after rollback' });
+    save.set(doc(own, r), { ...rootData, title: 'edit after rollback' }); await save.commit(); checks++;
+    await setDoc(doc(own, `users/${target.uid}/works/work_1`), { title: 'after rollback' }, { merge: true }); checks++;
+    await setDoc(doc(own, `users/${target.uid}/project_summaries/${target.projectId}`), createProjectSummary({ ...rootData, title: 'after rollback' })); checks++;
+    const { authoringRollbackGeneration, ...withoutMarker } = rootData;
+    await denied(() => setDoc(doc(own, r), withoutMarker));
+    await denied(() => setDoc(doc(own, r), { ...rootData, authoringRollbackGeneration: 'forged' }));
+    await denied(() => setDoc(doc(own, `${r}/authoringControl/current`), { status: 'rolledBack', generationId: 'forged' }));
+    await denied(() => setDoc(doc(own, r), { ...rootData, authoringBackend: 'r2-private' }));
+    const remove = writeBatch(own); remove.delete(doc(own, `${r}/authoring/current`)); remove.delete(doc(own, r)); await remove.commit(); checks++;
+    await denied(() => setDoc(doc(own, r), rootData));
     console.log(`Private authoring Rules: ${checks} emulator checks passed`);
 } finally {
     await Promise.all(clients.map(async ({ app, db }) => { await terminate(db); await deleteApp(app); }));
