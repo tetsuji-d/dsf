@@ -17,7 +17,8 @@ DSF は **Cloudflare Pages + Firebase + Cloudflare R2** で運用する。
 |------|------|------|
 | 静的フロント配信 | Cloudflare Pages | `index.html`, `studio.html`, `viewer.html`, `mypage.html`, JS/CSS |
 | 認証 | Firebase Auth | Google GIS と連携 |
-| データ保存 | Firestore | users / projects / public_projects / reviews など |
+| メタデータ・保存管理 | Firestore | users / projects / public_projects / reviews、原稿の版・要求台帳など |
+| 編集原稿 | 非公開Cloudflare R2 | 移行済み作品と許可済みアカウントの新規作品。未移行原稿はFirestore |
 | Security Rules | Firebase | `firestore.rules`, `storage.rules` |
 | 画像保存（staging / prod） | Cloudflare R2 | Pages Function `/upload` 経由 |
 | 画像保存（ローカル開発） | Firebase Storage | `npm run dev` 時のみ |
@@ -144,11 +145,20 @@ Firebase Hosting の URL は通常確認先にしない。必要なときだけ 
 - `js/firebase-core.js`
 - `functions/upload.js`
 
-## 非公開原稿の本番限定移行（2026-09-20）
+## 非公開原稿の保存（2026-09-20）
 
-既存2作品の編集原稿を専用private R2 `dsf-authoring-production`へ移行済み。
-認証はFirebase Auth、公開情報と保存管理情報はFirestore、公開画像は従来のR2。
-新規作品の既定保存はFirestoreのままで、D1移行はしていない。
-本番runtimeは`d3be1a3`（`codex/private-authoring-production`）。
-mainから次回配備する前にこの対応を統合し、移行済み作品のAPI／Rules／private bindingを保持する。
-対象、バックアップ、検証結果、復旧手順は[本番移行記録](private-authoring-production-rollout.md)を参照。
+本番の既存2作品の編集原稿は専用private R2 `dsf-authoring-production`へ移行済み。
+本番・ステージングとも、許可された既存アカウントの新規作品は初回保存から非公開R2を使う。
+ステージングは`dsf-authoring-staging`。両環境の原稿APIを有効にし、
+UIDリストとアカウントの作成権限で対象を制限する。既存の未移行Firestore作品は変更しない。
+
+認証はFirebase Auth、アカウント・作品／公開情報・保存管理情報はFirestore、
+画像／公開ページは従来の公開R2。D1移行はしていない。
+本番runtimeはmainへ統合済みの`91db176`、配備はhttps://94fed8ad.dsf-studio.pages.dev 。
+ステージングruntimeは`cd6453a`、配備はhttps://5a5e6177.dsf-studio.pages.dev 。
+文書だけの後続コミットはruntimeの再配備を必要としない。
+
+[新規原稿の作成・検証結果](private-authoring-new-projects.md)、
+[既存2作品の移行・バックアップ・復旧手順](private-authoring-production-rollout.md)を参照。
+今後の配備でも原稿API／Rules／非公開bindingを保持する。
+APIを停止するだけでは移行済み作品を読めなくなるため、復旧方針を先に確認する。
