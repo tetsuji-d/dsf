@@ -1,6 +1,7 @@
 // Test-only Worker fixture. Not a Pages route and never included in deployment.
 import { createPrivateAuthoringSnapshot, createPrivateAuthoringDescriptor } from '../../js/private-authoring-storage.js';
 import { createMaintenanceBackupStore, canonicalJson, hashBytes } from '../../server/private-authoring/maintenance-common.js';
+import { fetchJson } from '../../server/private-authoring/common.js';
 import { createAuthoringBucket } from '../../server/private-authoring/r2.js';
 function assert(condition, message) { if (!condition) throw new Error(message); }
 async function expectError(operation, code) {
@@ -9,6 +10,13 @@ async function expectError(operation, code) {
 }
 export default {
     async fetch(request, env) {
+        const upstream = await fetchJson(async (url, options) => {
+            const outgoing = new Request(url, options); // Real workerd rejects redirect:error.
+            assert(outgoing.redirect === 'manual', 'upstream redirect must not be followed');
+            return Response.json({ ok: true });
+        }, 'https://upstream.test');
+        assert(upstream.data.ok, 'upstream request options incompatible with Workers');
+        await expectError(() => fetchJson(async () => new Response(null, { status: 302, headers: { Location: 'https://foreign.test' } }), 'https://upstream.test'), 'UPSTREAM_REDIRECT_BLOCKED');
         const adapter = createAuthoringBucket(env.AUTHORING_BUCKET);
         const scope = { uid: 'owner_1', projectId: 'project_1', generationId: 'generation_1' };
         const snapshot = await createPrivateAuthoringSnapshot({ version: 6, projectId: 'project_1', blocks: [],

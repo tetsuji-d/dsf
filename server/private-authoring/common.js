@@ -36,10 +36,16 @@ export function parseJson(bytes) {
 }
 export async function fetchJson(fetcher, url, options = {}) {
     let response;
-    try { response = await fetcher(url, { ...options, redirect: 'error', signal: AbortSignal.timeout(10_000) }); }
+    try { response = await fetcher(url, { ...options, redirect: 'manual', signal: AbortSignal.timeout(10_000) }); }
     catch (error) {
         console.warn('[PrivateAuthoringUpstream]', JSON.stringify({ host: new URL(url).hostname, stage: 'fetch', name: error?.name || 'Error' }));
         throw new AuthoringApiError('UPSTREAM_UNAVAILABLE');
+    }
+    // Workers supports manual/follow only. Reject redirects before reading a body;
+    // never forward bearer credentials to a Location chosen by an upstream.
+    if (response.status >= 300 && response.status < 400) {
+        await response.body?.cancel().catch(() => {});
+        throw new AuthoringApiError('UPSTREAM_REDIRECT_BLOCKED');
     }
     let data;
     try { data = parseJson(await readBounded(response.body, 4 * 1024 * 1024)); }

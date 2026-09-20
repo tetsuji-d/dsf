@@ -269,7 +269,7 @@ await test('OAuth assertion uses real service-account signature; disabled/revoke
     let oauthCalls = 0, lookupCalls = 0, account = { localId: 'owner_1', validSince: String(authTime - 100), disabled: false };
     const client = createGoogleClient({ projectId: 'dsf-test', serviceAccountJson: secret, now: () => authTime * 1000,
         fetcher: async (url, options) => {
-            assert.equal(options.redirect, 'error');
+            assert.equal(options.redirect, 'manual');
             if (url === 'https://oauth2.googleapis.com/token') {
                 oauthCalls += 1;
                 const form = new URLSearchParams(options.body);
