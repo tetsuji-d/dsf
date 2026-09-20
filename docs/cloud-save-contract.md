@@ -59,8 +59,7 @@ Rules block migrated roots/old authoring writes, old authoring reads, summary wr
 and direct access to the new server-owned paths. Associated Work/Release/public
 listing client writes use the Unit D action adapters. Normal reader access and
 staff takedown authority are preserved; migrated public snapshots cannot be
-rewritten through the legacy admin resync. API default-off and the explicit
-test-project allowlist remain mandatory. No migration, Rules deployment, bucket,
+rewritten through the legacy admin resync. The API requires explicit enablement and an owner or project allowlist. No migration, Rules deployment, bucket,
 secret or live account configuration is performed by Unit C.
 
 See [Unit C implementation and verification](private-authoring-storage-unit-c.md).

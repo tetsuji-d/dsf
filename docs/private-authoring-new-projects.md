@@ -33,7 +33,12 @@ Firestore Rulesの追加変更は不要。既存のcontrol保護がcreating状�
 新規作成10項目（v5/v6、850 KiB超、権限、旧ID、通信断、競合、削除、失効・期限、容量）、
 既存API24項目、client12項目、storage14項目、legacy3項目、actions8項目、
 maintenance11項目、retention6項目とProject persistenceの検証を実施。
-実環境での新規作成・編集・再読込の結果は配備後に追記する。
+ステージングcd6453a / https://5a5e6177.dsf-studio.pages.dev で実Chrome確認済み。
+専用検証ユーザーの新規作品proj_mu9grnul_lwhfseをUIで作成し、v5の初回R2保存、
+Flow追加によるv6保存、本文完全一致、再読込後の本文表示、旧authoring文書なし、
+headの直接読込403、page error 0を確認。Pressの非公開下書き
+rel_mu9gucm6_x0faneも保存成功。読者向け公開行は作られていない。
+APIは既存アカウントの新規保存に使用するため、有効な状態を維持する。
 
 ## 統合
 
