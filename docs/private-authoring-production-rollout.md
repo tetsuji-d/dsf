@@ -63,4 +63,21 @@ inspect / migrate / inspect-rollback / rollback / statusを用意。
 Firestore Rulesはローカルemulator 98項目が成功。v5復帰後のowner保存・他人の拒否・marker偽装拒否も含む。
 workerd実行環境で日本語ID、v5原稿、R2条件付き保存・改ざん拒否・型付きバックアップが成功。
 既存Project persistence確認とproduction buildが成功。
-実環境での切替結果は配備と検証後に追記する。
+ローカルの実Chromeから、実Studio保存・読込モジュールでv5／日本語IDの本文編集→Cloud保存完了→再読込を確認。
+page error 0、直接Firestore原稿書込0、本文一致。接続先はローカルfixtureであり、本番の操作検証ではない。
+
+## 現在の停止位置
+
+配備候補は`47a6fae`。本番配備を実行する直前の自動承認審査が、
+本番Pages／Rules更新・API有効化と`--skip-git-check`の明示承認が足りないと判断して拒否した。
+拒否されたコマンドは実行されておらず、別経路で配備していない。
+
+停止後の読取確認で、本番deployment `41a86a5a`、Rules ruleset `907a381c-2a44-4c5f-a95d-819fc01793cc`、
+2作品のFirestore保存と公開状態がすべて維持されていることを確認。
+本番専用private bucket、SA／2ロール、RSA鍵1個、production secretの準備は完了済み。
+`AUTHORING_BUCKET` binding、Rules、アプリ、原稿切替は未配備・未実行。
+
+次の明示承認の対象は、この専用配備版から本番RulesとPagesを配備すること、
+main限定チェックの例外を適用すること、バックアップ／hash再確認後に本番2作品だけを順次移行すること。
+先にAPI疎通を確認し、移行後は原稿hash・既存Release／公開行／Viewerを照合する。
+変更競合や不整合が出た作品は切替を進めず、完了作品もAPIを切る前に最新headの修復または復帰を行う。
