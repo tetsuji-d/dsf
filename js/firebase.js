@@ -1089,30 +1089,46 @@ async function performSaveOnce() {
                 throw new Error(`保存済みProject v${String(existingData.version)}をv${authoringProject.version}で上書きできません。`);
             }
 
-            if (usesPrivateAuthoring(existingData)) {
+            let session = saveIdentity.session;
+            if (session?.epoch !== saveIdentity.epoch || session?.projectId !== saveIdentity.projectId) session = null;
+            const newPrivate = (import.meta.env.VITE_PRIVATE_AUTHORING_NEW_PROJECTS === 'true' && !existingSnap.exists())
+                || session?.creating === true;
+            if (newPrivate && !session) {
+                if (!saveIsCurrent()) throw new AuthoringClientError('AUTHORING_SESSION_CHANGED');
+                const sequence = projectLoadSequence;
+                session = { projectId: saveIdentity.projectId, epoch: saveIdentity.epoch, assets: new Map(), creating: true,
+                    client: createPrivateAuthoringClient({ uid: saveIdentity.uid, projectId: saveIdentity.projectId,
+                        user: saveIdentity.user, isCurrent: () => sequence === projectLoadSequence && saveIsCurrent() }) };
+                privateAuthoringSession = session;
+            }
+            if (usesPrivateAuthoring(existingData) || newPrivate) {
                 privateSave = true;
-                assertPrivateAuthoringRoot(existingData, saveIdentity.uid, saveIdentity.projectId);
-                if (!saveIsCurrent() || !saveIdentity.session
-                    || saveIdentity.session !== privateAuthoringSession
-                    || saveIdentity.session.epoch !== saveIdentity.epoch
-                    || saveIdentity.session.projectId !== saveIdentity.projectId) {
+                if (existingSnap.exists()) assertPrivateAuthoringRoot(existingData, saveIdentity.uid, saveIdentity.projectId);
+                if (!saveIsCurrent() || !session
+                    || session !== privateAuthoringSession
+                    || session.epoch !== saveIdentity.epoch
+                    || session.projectId !== saveIdentity.projectId) {
                     throw new AuthoringClientError('AUTHORING_RELOAD_REQUIRED');
                 }
                 const cleanProject = await resolvePrivateAuthoringAssets(authoringProject, async blobUrl => {
                     if (!saveIsCurrent()) throw new AuthoringClientError('AUTHORING_SESSION_CHANGED');
-                    if (saveIdentity.session.assets.has(blobUrl)) return saveIdentity.session.assets.get(blobUrl);
+                    if (session.assets.has(blobUrl)) return session.assets.get(blobUrl);
                     const localId = window.localImageMap?.[blobUrl];
                     const blob = localId ? await idbGet(localId) : null;
                     if (!blob) throw new AuthoringClientError('AUTHORING_ASSET_UNRESOLVED');
                     if (!saveIsCurrent()) throw new AuthoringClientError('AUTHORING_SESSION_CHANGED');
                     // Keep the local mapping and original editor snapshot for recovery.
                     const url = await _storeFile(blob, `users/${saveIdentity.uid}/dsf/recovered/${crypto.randomUUID()}.webp`);
-                    saveIdentity.session.assets.set(blobUrl, url);
+                    session.assets.set(blobUrl, url);
                     return url;
                 });
                 if (!saveIsCurrent()) throw new AuthoringClientError('AUTHORING_SESSION_CHANGED');
-                await saveIdentity.session.client.save(cleanProject);
-                const head = saveIdentity.session.client.getHead();
+                if (session.creating) {
+                    await session.client.create(cleanProject);
+                    session.creating = false;
+                }
+                await session.client.save(cleanProject);
+                const head = session.client.getHead();
                 const preview = getProjectPreviewSource(cleanProject);
                 const candidate = preview.thumbnail || preview.background || '';
                 const listThumbnail = candidate.startsWith(`${import.meta.env.VITE_R2_PUBLIC_URL}/users/${saveIdentity.uid}/`) ? candidate : '';

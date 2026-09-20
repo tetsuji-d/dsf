@@ -56,7 +56,7 @@ export function createPrivateAuthoringClient({ uid, projectId, user, isCurrent,
     fetcher = globalThis.fetch, newRequestId = () => crypto.randomUUID(), timeoutMs = 30_000 }) {
     check(isPrivateAuthoringId(uid) && isPrivateAuthoringId(projectId), 'AUTHORING_SCOPE_INVALID');
     const path = `/api/projects/${encodeURIComponent(projectId)}/authoring`;
-    let head = null, pending = null, blocked = null, busy = false;
+    let head = null, pending = null, creating = null, blocked = null, busy = false;
     const current = () => check(isCurrent() && user?.uid === uid, 'AUTHORING_SESSION_CHANGED');
     const scope = value => ({ uid, projectId, generationId: value.generationId });
     const validateHead = value => {
@@ -119,6 +119,31 @@ export function createPrivateAuthoringClient({ uid, projectId, user, isCurrent,
                 const { revision, ...descriptor } = loadedHead;
                 const project = await readPrivateAuthoringSnapshot(bytes, descriptor, scope(loadedHead));
                 current(); head = copy(loadedHead); return project;
+            } finally { busy = false; }
+        },
+        async create(project) {
+            current(); check(!busy && !head, 'AUTHORING_RELOAD_REQUIRED');
+            if (blocked) throw blocked;
+            busy = true;
+            try {
+                // Freeze the first body even if the editor changes while retrying.
+                if (!creating) {
+                    const snapshot = await createPrivateAuthoringSnapshot(project); current();
+                    check(snapshot.project.projectId === projectId, 'AUTHORING_SCOPE_INVALID');
+                    creating = Object.freeze({ snapshot, requestId: newRequestId() });
+                }
+                const result = parse((await request('', { method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'X-Authoring-Request-Id': creating.requestId },
+                    body: creating.snapshot.json })).bytes);
+                check(result.state === 'committed' && result.result === 'commit' && result.requestId === creating.requestId, 'AUTHORING_RECEIPT_INVALID');
+                const committed = validateHead(result.committedHead), latest = validateHead(result.currentHead);
+                check(committed.generationId === creating.requestId && committed.revisionId === creating.requestId
+                    && committed.revision === 1 && committed.sha256 === creating.snapshot.sha256
+                    && committed.byteLength === creating.snapshot.byteLength && sameHead(committed, latest), 'AUTHORING_RECEIPT_INVALID');
+                current(); head = copy(committed); creating = null;
+            } catch (error) {
+                if ([409, 413, 422].includes(error.status) || /CONFLICT|REJECTED|RECEIPT|SCOPE|GENERATION/.test(error.code || '')) blocked = error;
+                throw error;
             } finally { busy = false; }
         },
         async save(project) {

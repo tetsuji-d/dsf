@@ -35,7 +35,12 @@
 
 ---
 
-## 非公開R2原稿（明示した作品だけを移行）
+## 非公開R2原稿（移行済み作品と新規作品）
+
+新規作品の初回保存は[新規作成契約](private-authoring-new-projects.md)に従い、
+許可済みUIDでは原稿を直接非公開R2へ保存する。既存の未移行作品はそのまま保持する。
+`authoringControl/current`の`status: creating`と`creation`は作成予約・再試行情報。
+原稿の照合後にroot/head/Work/summaryを同時確定し、statusをactiveにする。
 
 既存Firestoreモデルを全体移行する変更ではない。Unit CのStudioは、次のroot markerを持つ
 Project v5/v6だけを認証付きAPIへ接続する。v5は形式を変換せず、既存の日本語IDも保持する。

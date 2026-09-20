@@ -25,6 +25,7 @@
     "verify:flow-model": "node scripts/verify-flow-model.js",
     "verify:flow-project-model": "node scripts/verify-flow-project-model.js",
     "verify:project-persistence": "node scripts/verify-project-persistence.js",
+    "verify:private-authoring-creation": "node scripts/verify-private-authoring-creation.js",
     "verify:private-authoring-legacy": "node scripts/verify-private-authoring-legacy.js",
     "verify:private-authoring-storage": "node scripts/verify-private-authoring-storage.js",
     "verify:private-project-actions": "node scripts/verify-private-project-actions.js",
