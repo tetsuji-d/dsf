@@ -143,3 +143,12 @@ Firebase Hosting の URL は通常確認先にしない。必要なときだけ 
 - `js/firebase.js`
 - `js/firebase-core.js`
 - `functions/upload.js`
+
+## 非公開原稿の本番限定移行（2026-09-20）
+
+既存2作品の編集原稿を専用private R2 `dsf-authoring-production`へ移行済み。
+認証はFirebase Auth、公開情報と保存管理情報はFirestore、公開画像は従来のR2。
+新規作品の既定保存はFirestoreのままで、D1移行はしていない。
+本番runtimeは`d3be1a3`（`codex/private-authoring-production`）。
+mainから次回配備する前にこの対応を統合し、移行済み作品のAPI／Rules／private bindingを保持する。
+対象、バックアップ、検証結果、復旧手順は[本番移行記録](private-authoring-production-rollout.md)を参照。
