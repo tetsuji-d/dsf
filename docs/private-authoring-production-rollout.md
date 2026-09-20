@@ -4,7 +4,7 @@
 
 ## 配備と対象
 
-現在の本番は`4c4c8d8`、Cloudflare deployment `41a86a5a`。
+移行開始時の本番は`4c4c8d8`、Cloudflare deployment `41a86a5a`。
 同じmainを起点に`codex/private-authoring-production`を作成し、Unit A–Eと通信修正だけを取り込んだ。
 前回のstagingに含まれる他のFlow/WebMCP/UI変更は今回の本番配備に含めない。
 作業ツリーをcleanにし、現行本番commitを祖先に持つことを確認して、
@@ -66,7 +66,7 @@ workerd実行環境で日本語ID、v5原稿、R2条件付き保存・改ざん�
 ローカルの実Chromeから、実Studio保存・読込モジュールでv5／日本語IDの本文編集→Cloud保存完了→再読込を確認。
 page error 0、直接Firestore原稿書込0、本文一致。接続先はローカルfixtureであり、本番の操作検証ではない。
 
-## 現在の停止位置
+## 配備前の承認記録
 
 配備候補は`47a6fae`。本番配備を実行する直前の自動承認審査が、
 本番Pages／Rules更新・API有効化と`--skip-git-check`の明示承認が足りないと判断して拒否した。
@@ -77,7 +77,44 @@ page error 0、直接Firestore原稿書込0、本文一致。接続先はロー�
 本番専用private bucket、SA／2ロール、RSA鍵1個、production secretの準備は完了済み。
 `AUTHORING_BUCKET` binding、Rules、アプリ、原稿切替は未配備・未実行。
 
-次の明示承認の対象は、この専用配備版から本番RulesとPagesを配備すること、
+ユーザーに明示確認した範囲は、この専用配備版から本番RulesとPagesを配備すること、
 main限定チェックの例外を適用すること、バックアップ／hash再確認後に本番2作品だけを順次移行すること。
 先にAPI疎通を確認し、移行後は原稿hash・既存Release／公開行／Viewerを照合する。
 変更競合や不整合が出た作品は切替を進めず、完了作品もAPIを切る前に最新headの修復または復帰を行う。
+
+## 本番移行完了
+
+上記の具体的な配備・main限定チェックの例外・2作品の移行について、ユーザーの「承認します」を受けて実行。
+本番RulesとPagesを配備した後、原稿切替前の接続確認でPagesのroute parameterがURLエンコードされたまま
+渡されることを検出。`d3be1a3`で1回だけデコードしてからIDを検証するよう修正した。
+encoded separator、二重エンコード、不正escapeの拒否も回帰確認。
+
+- 本番runtimeコミット: `d3be1a351de5a778dbf4e109d6301002f94810fe`
+- 配備: https://5a46eef8.dsf-studio.pages.dev / https://dsf.ink
+- Rulesは本作業ツリーの`firestore.rules`と本番配備内容の一致を読み取りで確認。
+- 「テスト１」→「R2に移行」の順に、inspect済みplanHashを照合して1作品ずつ移行。
+- 両方`authoringBackend: r2-private`、control active、revision **1**。元のv5/v6と日本語IDを維持。
+- 実APIで移行前原稿と移行後原稿のSHA-256が一致。
+  - R2に移行: `dcae3bd3ffb03d3ce43464e7d0fb742e9f76790815f9fcb97192b82215ed3a45`
+  - テスト１: `5ed4be58d9524957829ad98e8b263850d8e2b11b81865d50495da7189f883c82`
+- 両方の同内容PUTが`unchanged`で成功、revisionは進めない。未認証401、別Origin403、head直接読込403。
+- 旧Firestore本文を除去し、rootにblocks/sections/pagesを持たせない。
+  Work、Release、public_projectsの全内容を移行前スナップショットと照合し、一致を確認。
+  公開行にblocks/sections/pagesは含まれず、引き続きpublic。
+- 実Chromeで本番Studioの2作品を読込み、Worksの公開表示を確認。
+- ログインなしの別ブラウザーcontextから既存のRelease付き公開URLを開き、両方**8ページ**を読込み。
+  左右の読み方向に合わせた実キー操作でページを送り、画像読み込みも確認。page error **0件**。
+- ブラウザー確認後も原稿はrevision 1。原稿編集・再発行・公開状態変更はしていない。
+- R2内の移行前バックアップを再読込してbyteLengthとSHA-256を確認。
+  バックアップは上表の77,523／107,839 bytesで保持。元の原稿オブジェクトも読み直し確認。
+- 本番R2はr2.dev無効・custom domainなし、user-managed RSA keyは1個。
+  本番APIは2作品だけ有効、preview APIは無効のまま。
+
+ローカルの`secrets/production-live-before.json`に公開情報の比較用スナップショットを保持し、
+`secrets/verify-production-project.mjs`、`verify-production-browser.mjs`、`audit-production-complete.mjs`で照合した。
+これらの補助スクリプトは本作業の所有者・本番接続を扱うため、Git管理の固定対象operatorと区別する。
+
+既に開いている旧版Studioは再読込して新しい保存経路を使用する。
+本番既存2作品の移行は完了したが、新規作品の自動R2保存とmainへの統合は今回含めない。
+今後の本番更新では必ずこの移行対応を保持する。API停止だけでは移行済み原稿を読めなくなるため、
+障害時は最新headの修復／Firestore復帰を先に行う。
