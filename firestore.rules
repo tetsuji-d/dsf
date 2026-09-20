@@ -69,10 +69,10 @@ service cloud.firestore {
       let control = get(/databases/$(database)/documents/users/$(uid)/projects/$(pid)/authoringControl/current).data;
       return control.get('status', '') == 'rolledBack'
         && control.get('generationId', '') is string && control.get('generationId', '').size() > 0
-        && data.get('version', 0) == 6
         && data.get('ownerUid', '') == uid && data.get('projectId', '') == pid
-        && data.get('authoringRef', '') == 'authoring/current'
-        && data.get('authoringSchemaVersion', 0) == 6
+        && ((data.get('version', 0) == 6 && data.get('authoringRef', '') == 'authoring/current'
+              && data.get('authoringSchemaVersion', 0) == 6)
+          || (data.get('version', 0) == 5 && !data.keys().hasAny(['authoringRef', 'authoringSchemaVersion'])))
         && data.get('authoringRollbackGeneration', '') == control.get('generationId', 'invalid')
         && !hasPrivateAuthoringMarker(data);
     }

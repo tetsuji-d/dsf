@@ -1,3 +1,4 @@
+import { isPrivateAuthoringId } from '../../js/private-authoring-ids.js';
 import { AuthoringApiError, check } from './common.js';
 
 export function encodeFirestoreValue(value) {
@@ -38,7 +39,8 @@ export function createFirestoreStore(google) {
     const prefix = `${database}/documents/`;
     const endpoint = `https://firestore.googleapis.com/v1/${database}/documents`;
     function name(path) {
-        check(typeof path === 'string' && /^(?:users\/[A-Za-z0-9_-]+(?:\/[A-Za-z0-9_-]+)*|public_projects\/[A-Za-z0-9_-]+)$/.test(path)
+        check(typeof path === 'string' && ['users', 'public_projects'].includes(path.split('/')[0]) && path.split('/').every(isPrivateAuthoringId)
+            && (path.startsWith('users/') || path.split('/').length === 2)
             && path.split('/').length % 2 === 0, 'INVALID_DOCUMENT_PATH');
         return prefix + path;
     }

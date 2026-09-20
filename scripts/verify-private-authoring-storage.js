@@ -136,7 +136,7 @@ await test('malformed JSON values and excessive depth/node count fail closed', a
 });
 
 await test('legacy/future schemas, invalid Flow, runtime pages and credentials are rejected', async () => {
-    for (const version of [undefined, 5, 7]) {
+    for (const version of [undefined, 4, 7]) {
         const input = simple(); if (version === undefined) delete input.version; else input.version = version;
         await assert.rejects(createPrivateAuthoringSnapshot(input), code('UNSUPPORTED_AUTHORING_PROJECT'));
     }

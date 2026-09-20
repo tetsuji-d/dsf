@@ -1,3 +1,4 @@
+import { isPrivateAuthoringId } from '../../js/private-authoring-ids.js';
 import { createProjectActions } from './actions.js';
 import { createReleaseVerifier } from './release-verifier.js';
 import { createPrivateAuthoringSnapshot, PRIVATE_AUTHORING_MAX_BYTES, PrivateAuthoringError } from '../../js/private-authoring-storage.js';
@@ -36,7 +37,7 @@ function testProjects(env) {
     let entries;
     try { entries = JSON.parse(env.AUTHORING_TEST_PROJECTS); } catch { throw new AuthoringApiError('CONFIG_TEST_PROJECTS'); }
     check(Array.isArray(entries) && entries.length > 0 && entries.length <= 20
-        && entries.every(value => typeof value === 'string' && /^[A-Za-z0-9_-]{1,128}\/[A-Za-z0-9_-]{1,128}$/.test(value)), 'CONFIG_TEST_PROJECTS');
+        && entries.every(value => typeof value === 'string' && value.split('/').length === 2 && value.split('/').every(isPrivateAuthoringId)), 'CONFIG_TEST_PROJECTS');
     return entries;
 }
 
@@ -74,7 +75,7 @@ export function createAuthoringApi({ verifyToken, service, actions }) {
             if (request.method === 'GET') {
                 const context = await service.access(identity, projectId);
                 const result = await service.load(identity, projectId, context);
-                return new Response(result.bytes, { headers: { ...headers(), 'X-Authoring-Head': JSON.stringify(result.head) } });
+                return new Response(result.bytes, { headers: { ...headers(), 'X-Authoring-Head': JSON.stringify(result.head).replace(/[\u007f-\uffff]/g, c => '\\u' + c.charCodeAt(0).toString(16).padStart(4, '0')) } });
             }
             const generationId = segment(request.headers.get('X-Authoring-Generation'));
             const id = segment(request.headers.get('X-Authoring-Request-Id'));

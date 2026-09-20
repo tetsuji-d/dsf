@@ -1,3 +1,4 @@
+import { isPrivateAuthoringId } from './private-authoring-ids.js';
 import {
     assertPrivateAuthoringHead, createPrivateAuthoringSnapshot,
     readPrivateAuthoringSnapshot, PRIVATE_AUTHORING_MAX_BYTES,
@@ -16,7 +17,7 @@ export function usesPrivateAuthoring(root) {
         || root.authoringRef === 'authoringHeads/current';
 }
 export function assertPrivateAuthoringRoot(root, uid, projectId) {
-    check(root.version === 6 && root.ownerUid === uid && root.projectId === projectId
+    check([5, 6].includes(root.version) && root.ownerUid === uid && root.projectId === projectId
         && root.authoringBackend === 'r2-private' && root.authoringStorageVersion === 1
         && root.authoringRef === 'authoringHeads/current'
         && !['blocks', 'pages', 'sections'].some(key => Object.hasOwn(root, key)), 'AUTHORING_ROOT_INVALID');
@@ -53,7 +54,7 @@ function parse(bytes) {
 /** One open editor session. No token, revision or pending body is placed in project state. */
 export function createPrivateAuthoringClient({ uid, projectId, user, isCurrent,
     fetcher = globalThis.fetch, newRequestId = () => crypto.randomUUID(), timeoutMs = 30_000 }) {
-    check(/^[A-Za-z0-9_-]{1,128}$/.test(uid) && /^[A-Za-z0-9_-]{1,128}$/.test(projectId), 'AUTHORING_SCOPE_INVALID');
+    check(isPrivateAuthoringId(uid) && isPrivateAuthoringId(projectId), 'AUTHORING_SCOPE_INVALID');
     const path = `/api/projects/${encodeURIComponent(projectId)}/authoring`;
     let head = null, pending = null, blocked = null, busy = false;
     const current = () => check(isCurrent() && user?.uid === uid, 'AUTHORING_SESSION_CHANGED');

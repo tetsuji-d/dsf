@@ -18,8 +18,8 @@ export default {
         assert(upstream.data.ok, 'upstream request options incompatible with Workers');
         await expectError(() => fetchJson(async () => new Response(null, { status: 302, headers: { Location: 'https://foreign.test' } }), 'https://upstream.test'), 'UPSTREAM_REDIRECT_BLOCKED');
         const adapter = createAuthoringBucket(env.AUTHORING_BUCKET);
-        const scope = { uid: 'owner_1', projectId: 'project_1', generationId: 'generation_1' };
-        const snapshot = await createPrivateAuthoringSnapshot({ version: 6, projectId: 'project_1', blocks: [],
+        const scope = { uid: 'owner_1', projectId: '作品１', generationId: 'generation_1' };
+        const snapshot = await createPrivateAuthoringSnapshot({ version: 5, projectId: '作品１', blocks: [],
             languages: ['ja'], defaultLang: 'ja', futurePrivate: { text: '日本語\r\n本文😀' } });
         const descriptor = createPrivateAuthoringDescriptor(snapshot, scope, 'request_1');
         await adapter.put(snapshot, descriptor, scope);
@@ -35,7 +35,7 @@ export default {
         await expectError(() => adapter.put(snapshot, descriptor, scope), 'IMMUTABLE_COLLISION');
         const backupJson = canonicalJson({ fields: { createdAt: { timestampValue: '2026-09-19T01:02:03.123456789Z' } }, source: snapshot.project });
         const plan = { scope, kind: 'migrate', requestId: 'generation_1', backupJson, backup: {
-            objectKey: 'users/owner_1/projects/project_1/migrations/generation_1/migrate-generation_1.json',
+            objectKey: 'users/owner_1/projects/作品１/migrations/generation_1/migrate-generation_1.json',
             sha256: await hashBytes(new TextEncoder().encode(backupJson)), byteLength: new TextEncoder().encode(backupJson).length } };
         const backups = createMaintenanceBackupStore(env.AUTHORING_BUCKET);
         await backups.put(plan); await backups.put(plan);

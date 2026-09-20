@@ -20,7 +20,8 @@ export function maintenancePaths(scope, kind, requestId) {
         initialOperation: `${p.root}/authoringRevisions/initial`, backupKey: `users/${scope.uid}/projects/${scope.projectId}/migrations/${scope.generationId}/${kind}-${requestId}.json` };
 }
 function legacyState(root, control, head) {
-    return root?.version === 6 && root.authoringRef === 'authoring/current' && root.authoringSchemaVersion === 6
+    return ((root?.version === 6 && root.authoringRef === 'authoring/current' && root.authoringSchemaVersion === 6)
+        || (root?.version === 5 && !Object.hasOwn(root, 'authoringRef') && !Object.hasOwn(root, 'authoringSchemaVersion')))
         && !Object.hasOwn(root, 'authoringBackend') && !Object.hasOwn(root, 'authoringStorageVersion')
         && ((!control && !head) || (control?.status === 'rolledBack' && root.authoringRollbackGeneration === control.generationId
             && head?.generationId === control.generationId));
@@ -49,10 +50,12 @@ async function collect(tx, scope, kind, requestId) {
 }
 async function buildPlan(c, scope, kind, requestId, snapshot) {
     if (kind === 'migrate') {
-        check(legacyState(c.root, c.control, c.head), 'MIGRATION_REQUIRES_LEGACY_V6', 409);
+        check(legacyState(c.root, c.control, c.head), 'MIGRATION_REQUIRES_LEGACY_PROJECT', 409);
         check(!c.control || c.control.generationId !== scope.generationId, 'MIGRATION_GENERATION_REUSED', 409);
-        check(c.legacy?.version === 6 && c.legacy.projectId === scope.projectId && c.legacy.workId === c.root.workId, 'MIGRATION_SOURCE_MISSING', 409);
-        snapshot = await createPrivateAuthoringSnapshot(prepareFirestoreProjectIngress(c.legacy));
+        const source = c.root.version === 5 ? c.root : c.legacy;
+        check(c.root.version !== 5 || c.legacy === null, 'MIGRATION_AMBIGUOUS_SOURCE', 409);
+        check(source?.version === c.root.version && source.projectId === scope.projectId && source.workId === c.root.workId, 'MIGRATION_SOURCE_MISSING', 409);
+        snapshot = await createPrivateAuthoringSnapshot(prepareFirestoreProjectIngress(source));
     } else {
         check(c.control?.status === 'active' && c.control.generationId === scope.generationId
             && c.root.authoringBackend === 'r2-private', 'ROLLBACK_REQUIRES_ACTIVE_R2', 409);
@@ -63,13 +66,17 @@ async function buildPlan(c, scope, kind, requestId, snapshot) {
     }
     check(snapshot.project.workId === c.root.workId, 'WORK_ID_CONFLICT', 409);
     const rawRoot = c.documents.find(row => row.path === c.p.root).document.fields;
-    const rootFields = Object.fromEntries(Object.entries(rawRoot).filter(([key]) => publicKeys.has(key)));
+    let rootFields = Object.fromEntries(Object.entries(rawRoot).filter(([key]) => publicKeys.has(key)));
     const removeFromRoot = Object.keys(rawRoot).filter(key => !publicKeys.has(key));
     if (kind === 'migrate') Object.assign(rootFields, fields({ authoringBackend: 'r2-private', authoringStorageVersion: 1, authoringRef: 'authoringHeads/current' }));
     else {
         const projection = createPublicProjectProjection(snapshot.project);
         delete projection.releaseId; // Current Release/publication always comes from the live root.
-        Object.assign(rootFields, fields(projection), fields({ authoringRollbackGeneration: scope.generationId }));
+        if (snapshot.project.version === 5) {
+            // v5 returns to its original root storage; live Release/publication wins.
+            rootFields = { ...fields(snapshot.project), ...rootFields };
+        } else Object.assign(rootFields, fields(projection));
+        Object.assign(rootFields, fields({ authoringRollbackGeneration: scope.generationId }));
         assertFirestoreAuthoringSize(decode({ fields: rootFields }));
     }
     boundedRoot(rootFields);
@@ -174,7 +181,8 @@ export function createAuthoringMaintenance({ db, bucket, backups, authorize, now
                 tx.delete(p.legacy);
             } else {
                 nextHead = c.head;
-                tx.set(p.legacy, { ...plan.snapshot.project, lastUpdated: new Date(time) });
+                if (plan.snapshot.project.version === 6) tx.set(p.legacy, { ...plan.snapshot.project, lastUpdated: new Date(time) });
+                else tx.delete(p.legacy);
                 tx.set(p.control, { ...c.control, status: 'rolledBack', rolledBackAtMs: time, mutationRevision: (c.control.mutationRevision || 0) + 1 });
                 for (const path of c.publicPaths) {
                     const doc = c.documents.find(row => row.path === path).document;
