@@ -1,3 +1,4 @@
+import { isPrivateAuthoringId } from './private-authoring-ids.js';
 /** Private R2 authoring contract, Unit A. No storage, network, or application state I/O. */
 import { prepareProjectForSave } from './project-persistence.js';
 
@@ -13,7 +14,7 @@ const OPERATIONAL_KEYS = new Set([
     'lastUpdated', 'updatedAt', 'createdAt', 'dsfPublishedAt', 'publication',
     'authoringBackend', 'authoringStorageVersion', 'authoringRef', 'authoringSchemaVersion',
     'generationId', 'revision', 'revisionId', 'objectKey', 'sha256', 'byteLength',
-    'storageVersion', 'projectSchemaVersion', 'baseRevision', 'committedAt', 'leaseExpiresAt',
+    'storageVersion', 'projectSchemaVersion', 'baseRevision', 'committedAt', 'leaseExpiresAt', 'authoringRollbackGeneration',
 ]);
 const RUNTIME_KEYS = new Set([
     'generatedPages', 'flowGeneratedPages', 'fragments', 'pagination', 'paginationCache',
@@ -125,10 +126,11 @@ function prepareSnapshot(input, { allowOperationalFields }) {
     }
     // Bound and detach before the existing normalizer clones/traverses the envelope.
     const detached = JSON.parse(stableJson(Object.fromEntries(entries)).json);
-    requireValue(detached.version === 6, 'UNSUPPORTED_AUTHORING_PROJECT', 'Private authoring requires explicit Project v6.');
+    requireValue([5, 6].includes(detached.version), 'UNSUPPORTED_AUTHORING_PROJECT', 'Private authoring requires explicit Project v5 or v6.');
     assertSegment(detached.projectId);
     const prepared = prepareProjectForSave(detached);
-    return stableJson(prepared);
+    // v5 fills a default page first, then derives its sections on normalization.
+    return stableJson(prepared.version === 5 ? prepareProjectForSave(prepared) : prepared);
 }
 async function sha256(bytes) {
     const digest = await globalThis.crypto.subtle.digest('SHA-256', bytes);
@@ -140,13 +142,13 @@ export async function createPrivateAuthoringSnapshot(project) {
     const { json, byteLength } = prepareSnapshot(project, { allowOperationalFields: true });
     const hash = await sha256(encoder.encode(json));
     return freeze({
-        storageVersion: PRIVATE_AUTHORING_STORAGE_VERSION, projectSchemaVersion: 6,
+        storageVersion: PRIVATE_AUTHORING_STORAGE_VERSION, projectSchemaVersion: JSON.parse(json).version,
         json, byteLength, sha256: hash, project: JSON.parse(json),
     });
 }
 
 function assertSegment(value) {
-    requireValue(typeof value === 'string' && /^[A-Za-z0-9_-]{1,128}$/.test(value),
+    requireValue(isPrivateAuthoringId(value),
         'INVALID_AUTHORING_ID', 'Storage IDs must be safe, non-empty path segments.');
 }
 function assertScope(scope) {
@@ -160,7 +162,7 @@ export function privateAuthoringObjectKey(scope, revisionId) {
     return `users/${scope.uid}/projects/${scope.projectId}/generations/${scope.generationId}/revisions/${revisionId}.json`;
 }
 function assertDigestFields(value) {
-    requireValue(value.storageVersion === PRIVATE_AUTHORING_STORAGE_VERSION && value.projectSchemaVersion === 6,
+    requireValue(value.storageVersion === PRIVATE_AUTHORING_STORAGE_VERSION && [5, 6].includes(value.projectSchemaVersion),
         'UNSUPPORTED_AUTHORING_STORAGE', 'Unsupported authoring storage or project version.');
     requireValue(typeof value.sha256 === 'string' && /^[a-f0-9]{64}$/.test(value.sha256),
         'INVALID_AUTHORING_HASH', 'Expected lowercase SHA-256 hex.');
@@ -224,6 +226,7 @@ export async function readPrivateAuthoringSnapshot(bytes, descriptor, scope) {
     }
     requireValue(parsed?.projectId === expectedProjectId, 'AUTHORING_SCOPE_MISMATCH', 'Stored project ID differs from the storage scope.');
     const prepared = prepareSnapshot(parsed, { allowOperationalFields: false });
+    requireValue(parsed.version === expected.projectSchemaVersion, 'UNSUPPORTED_AUTHORING_STORAGE', 'Descriptor and source versions differ.');
     requireValue(prepared.json === json, 'AUTHORING_NONCANONICAL_JSON', 'Stored JSON differs from the canonical snapshot.');
     return freeze(JSON.parse(json));
 }

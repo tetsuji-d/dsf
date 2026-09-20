@@ -45,6 +45,7 @@
     "verify:graphic-objects": "node scripts/verify-graphic-objects.js",
     "verify:graphic-objects-browser": "node scripts/verify-graphic-objects-browser.cjs",
     "verify:project-persistence": "node scripts/verify-project-persistence.js",
+    "verify:private-authoring-legacy": "node scripts/verify-private-authoring-legacy.js",
     "verify:private-authoring-storage": "node scripts/verify-private-authoring-storage.js",
     "verify:private-project-actions": "node scripts/verify-private-project-actions.js",
     "verify:private-authoring-api": "node scripts/verify-private-authoring-api.js",

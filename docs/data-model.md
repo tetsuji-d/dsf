@@ -37,14 +37,15 @@
 
 ---
 
-## 非公開R2原稿の検証用モデル（Unit A–E、API無効）
+## 非公開R2原稿（明示した作品だけを移行）
 
 既存Firestoreモデルを全体移行する変更ではない。Unit CのStudioは、次のroot markerを持つ
-検証用Project v6だけを認証付きAPIへ接続する。
+Project v5/v6だけを認証付きAPIへ接続する。v5は形式を変換せず、既存の日本語IDも保持する。
+本番の対象と移行記録は[本番移行](private-authoring-production-rollout.md)を参照。
 
 ```text
 users/{uid}/projects/{pid}
-  version: 6, projectId: pid, ownerUid: uid
+  version: 5 or 6, projectId: pid, ownerUid: uid
   authoringBackend: "r2-private"
   authoringStorageVersion: 1
   authoringRef: "authoringHeads/current"
@@ -73,7 +74,7 @@ rootとcontrolのどちらかが移行を示す場合、旧クライアントか
 公開・削除・復元はUnit Dの認証APIへ接続。管理画面から移行済み公開snapshotの旧式再同期は拒否し、運営による公開行削除は維持する。移行・保持候補の処理はUnit E、実接続はUnit F。物理削除は未実装で、一般利用は有効にしない。
 [Unit B](private-authoring-storage-unit-b.md)、[Unit C](private-authoring-storage-unit-c.md)、[Unit D](private-authoring-storage-unit-d.md)に詳細を記載する。
 
-Unit E追加（Unit Fでstaging Rules配備・実移行と復帰を確認。本番は未配備）:
+Unit E追加（Unit Fでstaging検証済み。本番移行版にも含む）:
 - `authoringMigrations/{generationId}` / `authoringRollbacks/{requestId}` はserver専用台帳。
   planHash、コピー元descriptor、バックアップ参照、lease、pending/committedを保持する。
 - serverによるFirestore復帰後は`control.status: rolledBack`とrootの

@@ -20,7 +20,13 @@ compatibility_date = "2024-09-01"
 binding        = "R2_BUCKET"
 bucket_name    = "dsf-media"
 
+[[r2_buckets]]
+binding = "AUTHORING_BUCKET"
+bucket_name = "dsf-authoring-production"
+
 [vars]
+AUTHORING_API_ENABLED = "true"
+AUTHORING_TEST_PROJECTS = '["K53KsYUmTjOT0IhDEkPxPBWkUx72/R2に移行","K53KsYUmTjOT0IhDEkPxPBWkUx72/テスト１"]'
 FIREBASE_PROJECT_ID = "vmnn-26345"
 R2_PUBLIC_URL       = "https://media.dsf.ink"
 

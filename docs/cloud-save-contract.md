@@ -14,7 +14,7 @@ Published DSF data and Viewer delivery remain separate from the editable source.
 - Project v6, FlowDocument v1–v4, and FlowLayout v1/v2 are validated before any
   state mutation or persistence write. Unsupported future versions fail closed.
 
-## Private R2 authoring (Unit C, test projects only)
+## Private R2 authoring (scoped rollout)
 
 The existing v5/v6 Firestore contracts below remain the default. A root explicitly
 marked `authoringBackend: "r2-private"`, `authoringStorageVersion: 1`,
@@ -41,6 +41,10 @@ Cloud failure rejects `flushSave`; it is not reported as successful saving merel
 because the local backup succeeded. Late responses after project load or auth
 changes do not change the active editor's cloud-save status. Edits during saving
 remain pending until the serialized save loop handles their snapshot.
+
+Production migration also supports Fixed-only Project v5 without converting its version.
+Legacy Japanese project/work IDs remain unchanged; path separators and URL escapes are rejected.
+A v5 rollback restores the source to the root, while v6 restores `authoring/current`.
 
 The limit for migrated JSON is 16 MiB; the old 850 KiB limit still applies to
 Firestore v6. Asset blob URLs must resolve successfully before uploading private

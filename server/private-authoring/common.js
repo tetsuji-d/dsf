@@ -1,3 +1,4 @@
+import { isPrivateAuthoringId } from '../../js/private-authoring-ids.js';
 export class AuthoringApiError extends Error {
     constructor(code, status = 503) { super(code); this.name = 'AuthoringApiError'; this.code = code; this.status = status; }
 }
@@ -5,7 +6,7 @@ export function check(condition, code, status = 503) {
     if (!condition) throw new AuthoringApiError(code, status);
 }
 export function segment(value) {
-    check(typeof value === 'string' && /^[A-Za-z0-9_-]{1,128}$/.test(value), 'INVALID_ID', 400);
+    check(isPrivateAuthoringId(value), 'INVALID_ID', 400);
     return value;
 }
 export async function readBounded(stream, limit) {

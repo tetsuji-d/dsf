@@ -117,6 +117,15 @@ try {
     await denied(() => setDoc(doc(own, r), { ...rootData, authoringBackend: 'r2-private' }));
     const remove = writeBatch(own); remove.delete(doc(own, `${r}/authoring/current`)); remove.delete(doc(own, r)); await remove.commit(); checks++;
     await denied(() => setDoc(doc(own, r), rootData));
+    const v5Path = 'users/owner/projects/R2に移行';
+    const v5Restored = {version:5, projectId:'R2に移行', ownerUid:'owner', blocks:[], authoringRollbackGeneration:'legacy_5'};
+    await admin.doc(v5Path).set(v5Restored);
+    await admin.doc(`${v5Path}/authoringControl/current`).set({status:'rolledBack',generationId:'legacy_5'});
+    await setDoc(doc(owner,v5Path),{...v5Restored,title:'v5 owner save'});checks++;
+    await denied(()=>setDoc(doc(other,v5Path),v5Restored));
+    await denied(()=>setDoc(doc(owner,v5Path),{...v5Restored,authoringRollbackGeneration:'forged'}));
+    await admin.doc(`${v5Path}/authoringControl/current`).set({status:'active',generationId:'legacy_5'});
+    await denied(()=>setDoc(doc(owner,v5Path),v5Restored));
     console.log(`Private authoring Rules: ${checks} emulator checks passed`);
 } finally {
     await Promise.all(clients.map(async ({ app, db }) => { await terminate(db); await deleteApp(app); }));
