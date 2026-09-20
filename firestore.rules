@@ -65,19 +65,33 @@ service cloud.firestore {
         || data.get('authoringRef', '') == 'authoringHeads/current';
     }
 
+    function rolledBackAuthoring(uid, pid, data) {
+      let control = get(/databases/$(database)/documents/users/$(uid)/projects/$(pid)/authoringControl/current).data;
+      return control.get('status', '') == 'rolledBack'
+        && control.get('generationId', '') is string && control.get('generationId', '').size() > 0
+        && data.get('version', 0) == 6
+        && data.get('ownerUid', '') == uid && data.get('projectId', '') == pid
+        && data.get('authoringRef', '') == 'authoring/current'
+        && data.get('authoringSchemaVersion', 0) == 6
+        && data.get('authoringRollbackGeneration', '') == control.get('generationId', 'invalid')
+        && !hasPrivateAuthoringMarker(data);
+    }
+
     function privateAuthoringProject(uid, pid) {
-      return exists(/databases/$(database)/documents/users/$(uid)/projects/$(pid)/authoringControl/current)
-        || (exists(/databases/$(database)/documents/users/$(uid)/projects/$(pid))
-          && hasPrivateAuthoringMarker(get(/databases/$(database)/documents/users/$(uid)/projects/$(pid)).data));
+      let rootExists = exists(/databases/$(database)/documents/users/$(uid)/projects/$(pid));
+      return (exists(/databases/$(database)/documents/users/$(uid)/projects/$(pid)/authoringControl/current)
+          && (!rootExists || !rolledBackAuthoring(uid, pid, get(/databases/$(database)/documents/users/$(uid)/projects/$(pid)).data)))
+        || (rootExists && hasPrivateAuthoringMarker(get(/databases/$(database)/documents/users/$(uid)/projects/$(pid)).data));
     }
 
     function legacyProjectWrite(uid, pid) {
       return !privateAuthoringProject(uid, pid)
-        && !hasPrivateAuthoringMarker(request.resource.data);
+        && !hasPrivateAuthoringMarker(request.resource.data)
+        && (!exists(/databases/$(database)/documents/users/$(uid)/projects/$(pid)/authoringControl/current)
+          || rolledBackAuthoring(uid, pid, request.resource.data));
     }
 
-    // Until the publication/deletion adapters are connected in Unit D, client
-    // writes to associated Works, Releases and public listings fail closed.
+    // Migrated Works, Releases and public listings use the Unit D API adapters.
     function legacyProjectLink(uid, data) {
       return !data.keys().hasAny(['projectId'])
         || (data.projectId is string && !privateAuthoringProject(uid, data.projectId));
@@ -888,6 +902,8 @@ service cloud.firestore {
       match /projects/{pid}/authoringControl/{id} { allow read, write: if false; }
       match /projects/{pid}/authoringHeads/{id} { allow read, write: if false; }
       match /projects/{pid}/authoringActions/{id} { allow read, write: if false; }
+      match /projects/{pid}/authoringMigrations/{id} { allow read, write: if false; }
+      match /projects/{pid}/authoringRollbacks/{id} { allow read, write: if false; }
       match /projects/{pid}/authoringRevisions/{id} { allow read, write: if false; }
       match /authoringUsage/{id} { allow read, write: if false; }
 

@@ -49,6 +49,7 @@ export function createFirestoreStore(google) {
                 check(typeof begun.transaction === 'string' && begun.transaction.length > 0, 'TRANSACTION_UNAVAILABLE');
                 const transaction = begun.transaction;
                 const reads = new Map();
+                const rawReads = new Map();
                 const writes = new Map();
                 let committed = false;
                 try {
@@ -64,12 +65,25 @@ export function createFirestoreStore(google) {
                                 for (const row of result) {
                                     const docName = row.found?.name || row.missing;
                                     check(expected.delete(docName), 'INVALID_TRANSACTION_READ');
+                                    rawReads.set(docName.slice(prefix.length), row.found ? { fields: row.found.fields || {}, updateTime: row.found.updateTime, createTime: row.found.createTime } : null);
                                     reads.set(docName.slice(prefix.length), row.found
                                         ? decodeFirestoreValue({ mapValue: { fields: row.found.fields || {} } }) : null);
                                 }
                                 check(expected.size === 0, 'INCOMPLETE_TRANSACTION_READ');
                             }
                             return paths.map(path => structuredClone(reads.get(path)));
+                        },
+                        exportDocument(path) {
+                            check(reads.has(path), 'EXPORT_WITHOUT_READ');
+                            const value = rawReads.get(path);
+                            if (value) check(typeof value.updateTime === 'string' && value.updateTime.length > 0, 'DOCUMENT_VERSION_MISSING');
+                            return structuredClone(value);
+                        },
+                        setEncoded(path, fields) {
+                            check(reads.has(path), 'WRITE_WITHOUT_READ');
+                            // Typed Firestore fields retain timestamp sub-millisecond precision.
+                            decodeFirestoreValue({ mapValue: { fields } });
+                            writes.set(path, { update: { name: name(path), fields: structuredClone(fields) }, currentDocument: { exists: reads.get(path) !== null } });
                         },
                         set(path, data) {
                             check(reads.has(path), 'WRITE_WITHOUT_READ');

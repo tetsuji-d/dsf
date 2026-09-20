@@ -77,6 +77,18 @@ source creates a new immutable revision via the normal save protocol and preserv
 publication state. The editor must load that revision again before further saves.
 
 See [Unit D implementation and verification](private-authoring-storage-unit-d.md).
+
+### Unit E maintenance (operator only, not activated)
+
+Migration backs up typed Firestore documents, verifies private R2 bytes, and checks
+original document update versions before atomically changing the storage head.
+Rollback copies the **current** R2 source into Firestore only when it fits the
+850 KiB authoring limit. A retained `rolledBack` control and matching
+`authoringRollbackGeneration` permit legacy owner saves while rejecting late R2 writes.
+Maintenance ledgers are server-only. Retention inventory is read-only; it cannot
+remove objects or refund quota. Rules and live migration remain undeployed.
+See [Unit E protocol, retention and recovery](private-authoring-storage-unit-e.md).
+
 API activation, real migration and Rules deployment remain separate rollout work.
 
 ## Firestore ownership boundary

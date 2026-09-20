@@ -37,7 +37,7 @@
 
 ---
 
-## 非公開R2原稿の検証用モデル（Unit A–D、API無効）
+## 非公開R2原稿の検証用モデル（Unit A–E、API無効）
 
 既存Firestoreモデルを全体移行する変更ではない。Unit CのStudioは、次のroot markerを持つ
 検証用Project v6だけを認証付きAPIへ接続する。
@@ -70,8 +70,19 @@ rootとcontrolのどちらかが移行を示す場合、旧クライアントか
 通常の本文保存はAPIがhead／root metadata／summary／関連Work／保存要求結果を同時確定する。
 公開済みRelease情報は本文snapshotから更新しない。
 
-公開・削除・復元はUnit Dの認証APIへ接続。管理画面から移行済み公開snapshotの旧式再同期は拒否し、運営による公開行削除は維持する。移行・保持・掃除は後続単位で、一般利用は有効にしない。
+公開・削除・復元はUnit Dの認証APIへ接続。管理画面から移行済み公開snapshotの旧式再同期は拒否し、運営による公開行削除は維持する。移行・保持候補の処理はUnit E、実接続はUnit F。物理削除は未実装で、一般利用は有効にしない。
 [Unit B](private-authoring-storage-unit-b.md)、[Unit C](private-authoring-storage-unit-c.md)、[Unit D](private-authoring-storage-unit-d.md)に詳細を記載する。
+
+Unit E追加（未配備）:
+- `authoringMigrations/{generationId}` / `authoringRollbacks/{requestId}` はserver専用台帳。
+  planHash、コピー元descriptor、バックアップ参照、lease、pending/committedを保持する。
+- serverによるFirestore復帰後は`control.status: rolledBack`とrootの
+  `authoringRollbackGeneration`を一致させる。従来のowner保存を許可し、古いR2保存を拒否する。
+  headとcontrolは保持し、root削除後の同一ID再作成は拒否する。
+- 非公開R2の`migrations/{generationId}/`以下に型付きFirestoreバックアップを保持する。
+  履歴の保持候補は読取専用で判定し、物理削除・quota返却は行わない。
+詳細は[Unit E](private-authoring-storage-unit-e.md)。
+
 
 ## Project / Work / Release の責務
 
