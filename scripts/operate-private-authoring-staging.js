@@ -40,8 +40,8 @@ export async function customToken() {
 export function fixtureProject() {
     const text = '非公開R2の実接続を確認する検証用原稿です。\r\n改行・空白・日本語 😀 を保持します。\nこれは公開テスト用の文章です。';
     return prepareProjectForSave({ version: 6, projectId: scope.projectId, workId, projectName: 'Unit F 接続検証（テスト作品）', title: 'Unit F 接続検証',
-        languages: ['ja'], defaultLang: 'ja', languageConfigs: { ja: { pageDirection: 'rtl' } }, bookMode: 'simple',
-        book: { mode: 'simple', covers: { c1: { pageIndex: 0 }, c4: { pageIndex: 0 } } }, rating: 'all', license: 'all-rights-reserved', textPaperPreset: 'white',
+        languages: ['ja'], defaultLang: 'ja', languageConfigs: { ja: { pageDirection: 'rtl' } }, bookMode: 'none',
+        book: { mode: 'none', covers: {} }, rating: 'all', license: 'all-rights-reserved', textPaperPreset: 'white',
         meta: { ja: { title: 'Unit F 接続検証', author: 'DSF接続検証', description: 'ステージング専用のテスト作品' } },
         blocks: [{ id: 'unit_f_page', kind: 'page', content: { pageKind: 'text', text, texts: { ja: text } } }],
         futurePrivate: { sentinel: 'UNIT_F_PRIVATE_DO_NOT_PUBLISH', '10': 'ten', '2': 'two' } });

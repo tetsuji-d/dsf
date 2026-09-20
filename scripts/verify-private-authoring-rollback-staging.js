@@ -1,0 +1,57 @@
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import { createRequire } from 'node:module';
+import { customToken, scope, operator, root, workId, projectId, maintenance } from './operate-private-authoring-staging.js';
+import { createPrivateAuthoringSnapshot } from '../js/private-authoring-storage.js';
+const origin='https://staging.dsf-studio.pages.dev',url=`${origin}/api/projects/${scope.projectId}/authoring`;
+async function main(){
+ assert.equal(process.env.DSF_RUN_STAGING_AUTHORING_TEST,'1','Explicit staging test opt-in required');
+ const require=createRequire(import.meta.url),{chromium}=require(process.env.DSF_PLAYWRIGHT_MODULE||'playwright');
+ const key=fs.readFileSync(new URL('../.env.staging',import.meta.url),'utf8').match(/^VITE_FIREBASE_API_KEY=(.+)$/m)[1].trim();
+ const login=await fetch(`https://identitytoolkit.googleapis.com/v1/accounts:signInWithCustomToken?key=${key}`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({token:await customToken(),returnSecureToken:true})});
+ assert.equal(login.status,200);const session=await login.json(),headers={Authorization:`Bearer ${session.idToken}`};
+ const response=await fetch(url,{headers});assert.equal(response.status,200);
+ const source=await response.json(),head=JSON.parse(response.headers.get('X-Authoring-Head'));
+ const snapshot=await createPrivateAuthoringSnapshot(source);assert.equal(snapshot.sha256,head.sha256);
+ const firestoreUrl=`https://firestore.googleapis.com/v1/projects/${projectId}/databases/(default)/documents/${root}`;
+ for(const path of ['authoringControl/current','authoringHeads/current','authoring/current'])assert.equal((await fetch(`${firestoreUrl}/${path}`,{headers})).status,403,`${path} must be inaccessible while active`);
+ const op=await operator();let m,browser;const errors=[];
+ try{
+  const before=(await op.db.doc(root).get()).data();assert.equal(before.dsfStatus,'private');assert(before.releaseId);
+  const releasePath=`users/${scope.uid}/works/${workId}/releases/${before.releaseId}`;
+  const releaseBefore=(await op.db.doc(releasePath).get()).data();assert(releaseBefore);
+  assert(!JSON.stringify(releaseBefore).includes('UNIT_F_PRIVATE_DO_NOT_PUBLISH'));
+  m=await maintenance(op);const plan=await m.api.inspectRollback(scope,'unit_f_rollback_1');
+  console.log(JSON.stringify({rollbackPlan:plan}));
+  const result=await m.api.rollback(scope,'unit_f_rollback_1',plan.planHash);assert.equal(result.currentStatus,'rolledBack');
+  assert.equal((await m.api.rollback(scope,'unit_f_rollback_1',plan.planHash)).replay,true);
+  const restored=(await op.db.doc(`${root}/authoring/current`).get()).data();
+  assert.equal((await createPrivateAuthoringSnapshot(restored)).sha256,snapshot.sha256);
+  const after=(await op.db.doc(root).get()).data();assert.equal(after.authoringBackend,undefined);assert.equal(after.releaseId,before.releaseId);assert.equal(after.dsfStatus,'private');
+  assert.deepEqual((await op.db.doc(releasePath).get()).data(),releaseBefore);
+  assert(!(await op.db.doc(`public_projects/${workId}`).get()).exists);
+  const late=await fetch(url,{method:'PUT',headers:{...headers,'Content-Type':'application/json','X-Authoring-Generation':scope.generationId,'X-Authoring-Request-Id':'unit_f_late_after_rollback','X-Authoring-Base-Revision':String(head.revision)},body:snapshot.json});
+  assert.equal(late.status,409);assert.equal((await late.json()).error,'PROJECT_NOT_MIGRATED');
+  console.log(JSON.stringify({rollbackCommitted:true,sourceHashPreserved:true,releaseUnchanged:true,rollbackReplay:true,lateWriteRejected:true,revision:head.revision}));
+  await m.dispose();m=null;
+  browser=await chromium.launch({channel:'chrome',headless:true});const page=await browser.newPage({viewport:{width:1440,height:1100}});page.setDefaultTimeout(45000);page.on('pageerror',e=>errors.push(e.message));
+  await page.goto(`${origin}/studio?id=${scope.projectId}&room=editor`,{waitUntil:'domcontentloaded'});
+  await page.waitForFunction(()=>typeof window.loadAndOpenProject==='function');
+  await page.evaluate(async token=>{const app=await import('https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js');const auth=await import('https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js');await auth.signInWithCustomToken(auth.getAuth(app.getApp()),token);},await customToken());
+  await page.waitForFunction(()=>document.querySelector('#project-title')?.textContent.includes('Unit F'));
+  const text=await page.locator('#prop-body-text').inputValue();assert(text.includes('Unit F 実画面保存確認'));
+  await page.locator('#prop-body-text').fill(text+'\nUnit F Firestore復元後の保存確認');
+  await page.locator('#btn-save').click();
+  await page.waitForFunction(()=>document.querySelector('#save-status')?.dataset.saveStatus==='saved'&&document.querySelector('#save-status')?.dataset.saveTarget==='Cloud');
+  await page.reload({waitUntil:'domcontentloaded'});await page.waitForFunction(()=>document.querySelector('#project-title')?.textContent.includes('Unit F'));
+  assert.equal(await page.locator('#prop-body-text').inputValue(),text+'\nUnit F Firestore復元後の保存確認');
+  const finalRoot=(await op.db.doc(root).get()).data();assert.equal(finalRoot.authoringBackend,undefined);assert.equal(finalRoot.releaseId,before.releaseId);
+  assert.equal((await op.db.doc(`${root}/authoringHeads/current`).get()).data().revision,head.revision);
+  assert.equal((await op.db.doc(`${root}/authoringControl/current`).get()).data().status,'rolledBack');
+  assert.equal((await fetch(`${firestoreUrl}/authoringControl/current`,{headers})).status,403);
+  assert.equal((await fetch(`${firestoreUrl}/authoring/current`,{headers})).status,200);
+  assert.deepEqual(errors,[]);
+  console.log(JSON.stringify({firestoreStudioSaveAndReload:true,privateControlDenied:true,legacyAuthoringReadable:true,pageErrors:errors}));
+ }finally{await m?.dispose();await browser?.close();await op.close();}
+}
+main().then(()=>process.exit(0)).catch(e=>{console.error(e.code||e.message);console.error(e.stack?.split('\n').find(line=>line.includes('verify-private-authoring-rollback-staging.js'))||'');process.exit(1)});

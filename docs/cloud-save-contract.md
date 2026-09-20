@@ -57,6 +57,9 @@ test-project allowlist remain mandatory. No migration, Rules deployment, bucket,
 secret or live account configuration is performed by Unit C.
 
 See [Unit C implementation and verification](private-authoring-storage-unit-c.md).
+Unit F verified a single staging fixture through real Firebase/R2, Studio/Press,
+and rollback to Firestore. The final staging API is disabled after that rollback;
+production and existing works are not migrated. See [Unit F results](private-authoring-storage-unit-f.md).
 
 ### Migrated project lifecycle (Unit D)
 

@@ -73,7 +73,7 @@ rootとcontrolのどちらかが移行を示す場合、旧クライアントか
 公開・削除・復元はUnit Dの認証APIへ接続。管理画面から移行済み公開snapshotの旧式再同期は拒否し、運営による公開行削除は維持する。移行・保持候補の処理はUnit E、実接続はUnit F。物理削除は未実装で、一般利用は有効にしない。
 [Unit B](private-authoring-storage-unit-b.md)、[Unit C](private-authoring-storage-unit-c.md)、[Unit D](private-authoring-storage-unit-d.md)に詳細を記載する。
 
-Unit E追加（未配備）:
+Unit E追加（Unit Fでstaging Rules配備・実移行と復帰を確認。本番は未配備）:
 - `authoringMigrations/{generationId}` / `authoringRollbacks/{requestId}` はserver専用台帳。
   planHash、コピー元descriptor、バックアップ参照、lease、pending/committedを保持する。
 - serverによるFirestore復帰後は`control.status: rolledBack`とrootの
@@ -81,7 +81,7 @@ Unit E追加（未配備）:
   headとcontrolは保持し、root削除後の同一ID再作成は拒否する。
 - 非公開R2の`migrations/{generationId}/`以下に型付きFirestoreバックアップを保持する。
   履歴の保持候補は読取専用で判定し、物理削除・quota返却は行わない。
-詳細は[Unit E](private-authoring-storage-unit-e.md)。
+詳細は[Unit E](private-authoring-storage-unit-e.md)、実環境の結果と停止状態は[Unit F](private-authoring-storage-unit-f.md)。
 
 
 ## Project / Work / Release の責務

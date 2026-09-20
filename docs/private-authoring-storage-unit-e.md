@@ -81,7 +81,7 @@ rootのmarker除去・世代偽装・control直接書込は拒否する。
 復帰後にrootとchildを削除してもcontrolを残すため、同じIDでの再作成は拒否する。
 再びR2へ移行する際は新しい世代を使う。
 
-このRulesはローカルで検証済みだが未配備。実移行・復帰の前にUnit Fで配備が必要。
+Unit E完了時はこのRulesは未配備だった。後続の[Unit F](private-authoring-storage-unit-f.md)でstagingへの配備と実移行・復帰を確認。本番は未配備。
 
 ## 保持候補の判定
 

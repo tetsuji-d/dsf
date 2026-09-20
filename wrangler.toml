@@ -38,8 +38,8 @@ binding     = "AUTHORING_BUCKET"
 bucket_name = "dsf-authoring-staging"
 
 [env.preview.vars]
-# Unit F: only the dedicated staging verification project can be enabled.
-AUTHORING_API_ENABLED = "true"
+# Unit F verified and rolled back: keep API off until the next scoped rollout.
+AUTHORING_API_ENABLED = "false"
 AUTHORING_TEST_PROJECTS = '["authoring_unit_f_20260920/unit_f_private_authoring_20260920"]'
 FIREBASE_PROJECT_ID = "vmnn-26345-stg"
 R2_PUBLIC_URL       = "https://media-staging.dsf.ink"
