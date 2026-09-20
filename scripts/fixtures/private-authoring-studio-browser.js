@@ -2,7 +2,7 @@ import { preparePrivateProjectAction, runPrivateProjectAction } from '../../js/p
 // Local-only harness for the real Studio save/load module. No cloud credentials.
 import { state, dispatch, actionTypes } from '../../js/state.js';
 import { auth } from '../../js/firebase-core.js';
-import { loadProject, flushSave, triggerAutoSave, restorePreviousCloudAuthoring } from '../../js/firebase.js';
+import { loadProject, flushSave, triggerAutoSave, restorePreviousCloudAuthoring, getEditorSaveStatus } from '../../js/firebase.js';
 import { get } from 'idb-keyval';
 const $ = id => document.getElementById(id);
 dispatch({ type: actionTypes.SET_AUTH_STATE, payload: { uid: auth.currentUser.uid, user: auth.currentUser } });
@@ -30,3 +30,19 @@ $('stats').onclick = stats;
 
 $('restore').onclick = async () => { try { await restorePreviousCloudAuthoring(() => { $('text').value = paragraph().texts.ja; }); $('result').textContent = '前の原稿を新しい版として復元しました'; } catch (e) { $('result').textContent = e.code || e.message; } await stats(); };
 $('delete').onclick = async () => { try { const c = await preparePrivateProjectAction('project_1'); await runPrivateProjectAction(c, 'delete'); $('result').textContent = '削除しました'; } catch(e) { $('result').textContent = e.code || e.message; } await stats(); };
+
+// Exposed only by this local test fixture; uses the production reader/writer and save path.
+import { getProjectSessionIdentity } from '../../js/state.js';
+import { createEditorReadonlyTools } from '../../js/editor-readonly-tools.js';
+import { createEditorWriteTools } from '../../js/editor-write-tools.js';
+import { pushState, undo, redo, listHistoryEntries, clearHistory } from '../../js/history.js';
+const readState=()=>({room:'editor',workIdentity:getProjectSessionIdentity(),blocks:state.blocks,languageKeys:state.languages,languageKey:state.activeLang,sourceLanguage:state.defaultLang,activeGroupId:'flow_1',busy:false});
+const readonly=createEditorReadonlyTools({readState,readSaveStatus:getEditorSaveStatus});
+const writer=createEditorWriteTools({readState,readonly,applyEdit: edit=>{
+    pushState({actor:'ai'});
+    state.blocks=edit.blocks; triggerAutoSave();
+}});
+window.saveFixture={state,readStatus:getEditorSaveStatus,flushSave,triggerAutoSave,
+    async load(id){await loadProject(id,()=>{});clearHistory();readonly.enable();writer.reset();},
+    tools:()=>[...readonly.getTools(),...writer.getTools()],
+    history:listHistoryEntries,undo:()=>{undo(()=>{});triggerAutoSave();},redo:()=>{redo(()=>{});triggerAutoSave();}};

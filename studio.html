@@ -155,6 +155,7 @@
                         <button id="btn-redo" class="btn-tool btn-tool-icon" onclick="performRedo()" title="やり直す (Ctrl+Shift+Z)" disabled>
                             <span class="material-icons" aria-hidden="true">redo</span><span data-i18n="btn_redo">やり直す</span>
                         </button>
+                        <button type="button" class="btn-tool btn-tool-icon" data-edit-history title="編集履歴" aria-label="編集履歴"><span class="material-icons" aria-hidden="true">history</span></button>
                     </div>
                     <div class="ribbon-group">
                         <button id="btn-flow-search" type="button" class="btn-tool btn-tool-icon" aria-expanded="false" aria-controls="flow-search-bar" title="Flow原稿を検索 (Ctrl+F)"><span class="material-icons" aria-hidden="true">search</span></button>
@@ -679,6 +680,7 @@
                 <button class="btn-tool btn-tool-icon" onclick="shareProject()" data-auth-required data-mobile-room-only="editor"><span class="material-icons" aria-hidden="true">share</span><span data-i18n="btn_share">共有</span></button>
                 <button class="btn-tool btn-tool-icon" onclick="performUndo()" data-mobile-room-only="editor"><span class="material-icons" aria-hidden="true">undo</span><span data-i18n="btn_undo">元に戻す</span></button>
                 <button class="btn-tool btn-tool-icon" onclick="performRedo()" data-mobile-room-only="editor"><span class="material-icons" aria-hidden="true">redo</span><span data-i18n="btn_redo">やり直す</span></button>
+                <button type="button" class="btn-tool btn-tool-icon" data-edit-history data-mobile-room-only="editor" aria-label="編集履歴"><span class="material-icons" aria-hidden="true">history</span></button>
                 <button class="btn-tool btn-tool-icon" onclick="closeMobileSheet(); openProjectSettings();" data-mobile-room-only="editor"><span class="material-icons" aria-hidden="true">settings</span><span data-i18n="mobile_home_project_settings">プロジェクト設定</span></button>
             </div>
             <div id="mobile-sheet-add" class="mobile-sheet-content">

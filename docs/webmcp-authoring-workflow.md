@@ -112,11 +112,11 @@ UI言語を変更すると、既存キャンバスの本文／画像ラベル、
 - `dsf_select_page(workToken, blockId, flowPageIndex?)`：指定ページへ選択を移す。Flowのページ添字は0始まり、現在言語の生成済みページのみ。本文・履歴を変更しない。閲覧・編集モードで公開。
 - `dsf_prepare_page_move(workToken, unitId, position, targetUnitId?)`：start/endは作品の読書順の先頭／末尾。before/afterは対象unitIdが必須。画像ページ・見開き・Flow全体を移動単位とし、構造マーカーをまたぐ移動は拒否。既存ページを削除せず移動する。
 - `dsf_prepare_image_replacement(workToken, blockId, assetId)`：単独の画像ページの現在言語背景を既存WebP素材に差し替える準備。位置と拡大率はリセット。ページID、本文、他言語画像、オーバーレイを保持。Flow／固定テキスト／見開きは対象外。
-- `dsf_apply_page_change(workToken, pageChangeToken)`：直近の準備内容を適用。作品・本文・素材・選択・言語・製本設定の変更時は拒否。1回のUndo、通常保存、同一要求再送の重複適用防止。発行・ページ削除は追加しない。
+- `dsf_apply_page_change(workToken, pageChangeToken)`：直近の準備内容を適用。作品・本文・素材・選択・言語・製本設定の変更時は拒否。1回のUndo、通常保存、同一要求再送の重複適用防止。発行は追加しない。固定ページ削除は下記の履歴対応で追加。
 
 例：途中の仮表紙を先頭へ移す場合、一覧の該当unitIdで移動を準備し、返された前後IDを確認して適用する。複製・削除やドラッグの推測は不要。完了後に組版を待ち、全言語のページ構成を読み直す。ユーザーが残すと指定したページを勝手に削除しない。
 
-保存形式は変更しない。既存のページ移動処理と編集履歴・自動保存経路を共用する。読取6ツール、全機能接続時の編集18ツール。接続側は件数を固定せず毎回登録スキーマを取得する。
+保存形式は変更しない。既存のページ移動処理と編集履歴・自動保存経路を共用する。ページ操作導入時は読取6ツール、全機能接続時18ツール。履歴・削除対応後は読取8ツール、全機能接続時23ツール。接続側は件数を固定せず毎回登録スキーマを取得する。
 
 
 検証：ページ操作の自動テストでFlow／見開きの一括移動、他言語保持、対象・選択変更時の拒否、再送、Undoを確認。ChromeのネイティブAPIでは専用fixtureと実Studioの合成原稿で実行し、18ツール登録、Flowの3ページ目への選択、既存表紙の先頭移動、元に戻す、現在言語だけの画像差し替えと画像復元を確認した。実Studioの検証ではユーザー許可のもとローカル環境の編集権限を一時的に有効化し、終了時に閲覧のみ・AI連携オフへ戻した。外部AIクライアントからの再試行とstaging反映は別途。
@@ -130,3 +130,30 @@ UI言語を変更すると、既存キャンバスの本文／画像ラベル、
 - 登録後は右クリックから画像ページへの適用／追加や画像オブジェクト配置に使え、WebMCPの `dsf_list_image_assets` にも含まれる。未登録表示だけの画像はAI素材IDを持たない。DSP保存形式の追加変更はない。
 
 検証：重複抑止・言語別検出・見開き・不正メタデータ・非破壊一覧を自動確認。Chromeの実StudioでPNGの画像ページへの直接取り込み→WebP素材登録→Undo/Redo、既存WebPの未登録表示→登録→Undoを確認。元データの共有とページ内容不変を確認し、保存互換性・画像取り込み・WebMCPページ操作の回帰テストとstagingビルドが通過。
+
+
+## 編集履歴・Undo／Redo・固定ページ削除（2026-09-18）
+
+- StudioのUndo／Redo近くに「編集履歴」。既存の最大50操作を共用し、時刻・手動／AI・変更対象・適用済み／取消済みを一覧表示する。本文の変更前後は変更位置周辺の抜粋、画像はサムネイル、ページ構成は変更前後の順序で確認できる。大きな差分には省略を明記する。AI名は推測しない。WebMCP経由の編集だけAIと記録し、他の操作は手動として扱う。
+- 履歴はタブ内のランタイムだけで、DSP／Firestoreへ追加しない。再読み込み・作品切替で消去。新規編集時はRedoを破棄。保存・発行の永続監査ログではなく、既存Undoが保持するblocks／sections／pages／assets範囲の履歴である。
+- `dsf_list_edit_history(workToken)`：最大50件、現在のUndo／Redo可否と次のentryId、保持範囲を返す。
+- `dsf_read_edit_history(workToken, entryId)`：変更前後の本文抜粋（最大20箇所、各1200文字）、対象と並び順（最大100件）。画像URL／バイト／全snapshotは公開しない。対象は最大50件。本文・タイトルは信頼しないデータとして扱う。
+- `dsf_prepare_history_step(workToken, direction, entryId)`：`undo`／`redo`の次の1操作のみ準備し、内容・操作元を確認する。任意の過去位置への一括復元はしない。
+- `dsf_apply_history_step(workToken, historyToken)`：現在の履歴と編集内容が準備時に一致した場合だけ1操作実行。同一要求の再送では追加操作しない。途中の手入力（同じ入力グループ内を含む）、作品切替、許可解除、busy時は拒否／無効化。通常のUI Undo／Redoと同じ再描画・自動保存を使う。
+- `dsf_prepare_page_deletion(workToken, unitId)`：固定ページまたは見開き全体を削除する準備。全言語の背景・本文・オーバーレイが対象と明示し、削除IDを返す。素材一覧は保持する。適用は既存`dsf_apply_page_change`で1回のUndo単位。最後の本文・画像単位、構造マーカー、不正な見開き、Flow原稿／Flow生成ページは拒否する。Flowの1ページを消す代わりに原稿全体を消してはいけない。
+- 削除後・Undo／Redo後は組版完了を待ち、全言語の作品構成を再確認。C1〜C4は位置で変わる。
+
+検証：`verify:edit-history`、`verify:editor-page-tools`、既存履歴フォーカス・編集・原稿作成・保存検証。`verify:edit-history-browser`は隔離Chromeの合成原稿を実Studioに読み込み、native document.modelContextから編集・履歴取得・Undo・固定ページ削除を実行し、履歴パネルのUndo／Redo・復元、日英表示とスマホ幅を確認する。外部AI製品自身のツール選択は別途確認する。
+
+## private R2保存基盤との統合（2026-09-20）
+
+統合基準は最新staging系 `9b09e02`。`codex/webmcp-private-authoring` で履歴・削除対応を統合する。旧 `dsf-dev` の差分は保全し、旧保存基盤から直接デプロイしない。
+
+- Firebase Authは認証、Firestoreはメタデータ・権限・保存head等、private R2は編集原稿JSON。既存Firestore原稿は従来経路を維持する。詳細は `environment-topology.md` と `private-authoring-new-projects.md` を正本とする。
+- `dsf_get_editor_context.persistence` と変更成功応答の `persistence` は保存処理から得たランタイム情報。`state` は `unknown` / `pending` / `saving` / `saved-local` / `saved-cloud` / `error`。`backend` は `unknown` / `local` / `firestore` / `r2-private`。
+- `localCurrent` と `cloudCurrent` は現在の編集内容について保存成功を確認した場合だけtrue。追加編集、作品切替、古い非同期応答で誤って保存済みにしない。読込直後は保守的にunknownとし、保存成功後に確定する。生のエラー文、原稿、アカウント、保存先URLは返さない。
+- `changed` / `created` は編集反映のみを示す。自動保存後にcontextを再取得する。保存失敗を理由に編集要求を繰り返さない。ローカル保存できてもクラウド保存・発行は別。
+- Undo／Redoはタブ内の編集履歴。前のクラウド原稿への復元は既存UIの別機能で、保存版を作成して再読込する。WebMCPへクラウド復元・発行は追加しない。
+- DSP／DSF、Firestoreスキーマ、API／Rules、公開状態は変更しない。既存のprivate R2保存失敗時の停止・再送・競合検出を維持する。
+
+検証：`verify:editor-save-status`、`verify:edit-history-browser` と既存WebMCP検証。`serve-private-authoring-studio-fixture.js` 起動後に `verify:webmcp-save-browser` で本体の保存・読込モジュールとWebMCP読取／編集サービスを使用し、private R2／legacy FirestoreのAI編集・Undo／Redo・再読込・応答消失・競合を検証する。保存先はローカルの擬似バックエンドであり、本番／stagingへの実保存や外部AIクライアント自身の接続試験とは区別する。

@@ -1,5 +1,10 @@
 // Public, static recovery guidance. Never include manuscript or exception messages.
 const guidance = {
+    STALE_HISTORY: ['List history again and prepare the intended next Undo/Redo. An intervening edit invalidated the target.', '履歴が変わりました。一覧からUndo／Redo対象を確認し直してください。'],
+    HISTORY_EMPTY: ['No operation is available in this direction.', 'この方向に戻せる履歴はありません。'],
+    HISTORY_ENTRY_MISSING: ['This entry expired or was cleared. List current history.', '履歴が消去されたか上限を超えています。一覧を取得し直してください。'],
+    FLOW_PAGE_DELETION_UNSUPPORTED: ['Generated Flow pages are not independently deletable. Edit the source manuscript with its translations preserved; do not delete the whole Flow as a substitute.', 'Flow生成ページだけの削除は未対応です。翻訳との対応を保って原稿を編集してください。'],
+    LAST_PAGE_DELETION: ['The last content unit cannot be deleted.', '最後の本文・画像単位は削除できません。'],
     INVALID_PAGE_TARGET: ['List page units again and use a supported unitId/blockId. Flow pages and spreads cannot be separated for moves; replacement requires a single image page.', 'ページ一覧を取得し直してください。Flow・見開きは全体を移動し、画像差し替えは単独の画像ページを指定します。'],
     STALE_PAGE_CHANGE: ['Prepare the page move/replacement again, review the new placement and apply the new token.', '作品・選択・言語が変わりました。ページ操作を準備し直してください。'],
     PAGE_MOVE_BLOCKED: ['A structure boundary prevents this move. Keep structural blocks intact and choose a target in the same section.', '構造の区切りをまたぐ移動はできません。同じ区切り内の移動先を指定してください。'],

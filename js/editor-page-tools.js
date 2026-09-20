@@ -93,6 +93,21 @@ export function createEditorPageTools({readState,readonly,readComposition=()=>nu
                 const order=listAuthoringUnits(plan.blocks),at=order.findIndex(u=>u.unitId===unit.unitId);
                 summary={operation:'move',unitId:unit.unitId,blockIds:unit.blockIds,position:args.position,
                     previousUnitId:order[at-1]?.unitId||null,nextUnitId:order[at+1]?.unitId||null,scope:'all-languages',noDeletion:true};
+            } else if(name==='dsf_prepare_page_deletion') {
+                if(!id(args.unitId)) return error('INVALID_ARGUMENTS');
+                const unit=units.find(u=>u.unitId===args.unitId);
+                if(!unit?.movable) return error('INVALID_PAGE_TARGET');
+                const members=blocks.filter(b=>unit.blockIds.includes(b.id));
+                if(members.some(b=>b.kind==='flow')) return error('FLOW_PAGE_DELETION_UNSUPPORTED');
+                if(members.some(b=>b.kind!=='page')) return error('INVALID_PAGE_TARGET');
+                const remaining=blocks.filter(b=>!unit.blockIds.includes(b.id));
+                if(!remaining.some(b=>['page','flow'].includes(b.kind))) return error('LAST_PAGE_DELETION');
+                const nearest=remaining.slice(Math.min(unit.index,remaining.length-1)).find(b=>['page','flow'].includes(b.kind))
+                    || [...remaining].reverse().find(b=>['page','flow'].includes(b.kind));
+                plan={blocks:remaining,activeBlockIndex:remaining.indexOf(nearest),changed:true};
+                summary={operation:'delete',unitId:unit.unitId,blockIds:unit.blockIds,scope:'all-languages',
+                    removesOverlays:true,preservesAssets:true,undoAvailable:true,
+                    warning:'Deletes these fixed pages and their overlays in ALL languages. Cover roles and pagination may change. Review the exact IDs before applying. Flow manuscripts cannot be deleted with this tool.'};
             } else if(name==='dsf_prepare_image_replacement') {
                 if(!id(args.blockId)||!id(args.assetId)) return error('INVALID_ARGUMENTS');
                 const index=blocks.findIndex(b=>b.id===args.blockId),block=blocks[index];
@@ -117,7 +132,8 @@ export function createEditorPageTools({readState,readonly,readComposition=()=>nu
         {name:'dsf_select_page',description:'Select and reveal an existing fixed page or a generated Flow page in the current language. Use blockId from page units/composition and optional zero-based flowPageIndex (default 0). Changes selection only, not content; does not create an Undo entry or change language. Requires editing access. Wait for layout first.',inputSchema:schema({workToken:token,blockId:token,flowPageIndex:{type:'integer',minimum:0}},['workToken','blockId']),annotations:{readOnlyHint:false}},
         {name:'dsf_prepare_page_move',description:'Prepare moving an EXISTING unit without deleting/duplicating content. unitId and targetUnitId come from dsf_list_page_units. start/end refer to the whole work in reading order regardless of RTL; before/after require targetUnitId. Flow and spreads move whole in all languages; generated Flow pages cannot move individually. Structure boundaries cannot be crossed. Review returned neighbors, then dsf_apply_page_change. Preparation does not mutate.',inputSchema:schema({workToken:token,unitId:token,position:{type:'string',enum:['start','end','before','after']},targetUnitId:token},['workToken','unitId','position']),annotations:{readOnlyHint:true}},
         {name:'dsf_prepare_image_replacement',description:'Prepare replacing the background of an EXISTING single image page using a WebP assetId from dsf_list_image_assets. No new page/deletion. Preserves ID, order, overlays and other language backgrounds; resets current-language image positioning. Rejects Flow/text pages and spreads. Review and apply with dsf_apply_page_change. No bytes, network or image generation.',inputSchema:schema({workToken:token,blockId:token,assetId:token}),annotations:{readOnlyHint:true}},
-        {name:'dsf_apply_page_change',description:'Apply the latest prepared page move or image replacement using pageChangeToken. Rejects changed work, content, selection, language or assets. One Undo step and normal autosave. An identical retry is not applied twice. Does not delete pages or publish. Re-read units and book composition after layout completes.',inputSchema:schema({workToken:token,pageChangeToken:token}),annotations:{readOnlyHint:false,consequentialHint:true}}
+        {name:'dsf_prepare_page_deletion',description:'Prepare deletion of one fixed page or an entire image spread, identified by unitId from dsf_list_page_units. Includes all languages and overlays. Keeps reusable assets. Rejects Flow manuscripts/generated Flow pages, structural markers and the last content unit. Review returned IDs and scope, then use dsf_apply_page_change. No mutation during preparation.',inputSchema:schema({workToken:token,unitId:token}),annotations:{readOnlyHint:true}},
+        {name:'dsf_apply_page_change',description:'Apply the latest prepared page move, image replacement or fixed-page deletion using pageChangeToken. Rejects changed work, content, selection, language or assets. One Undo step and normal autosave. An identical retry is not applied twice. Deletion affects only the exact prepared fixed-page IDs in all languages. Does not publish. Re-read units and book composition after layout completes.',inputSchema:schema({workToken:token,pageChangeToken:token}),annotations:{readOnlyHint:false,consequentialHint:true}}
     ];
     return {execute,reset,getTools:(write=false)=>definitions.filter(t=>t.name==='dsf_list_page_units'||(write&&(t.name==='dsf_select_page'?typeof selectPage==='function':typeof applyPageChange==='function'))).map(t=>({...t,execute:(args,options)=>execute(t.name,args,options)}))};
 }

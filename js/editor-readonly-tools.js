@@ -1,3 +1,4 @@
+import { unknownSaveStatus } from './editor-save-status.js';
 import { getAIAuthoringGuide } from './authoring-guide.js';
 import { describeBookComposition } from './editor-book-composition.js';
 import { searchFlowText } from './flow-search.js';
@@ -81,7 +82,7 @@ function selectionFor(state, group) {
  * The host must disable on room exit, work switch and pagehide, including round trips
  * between calls. Per-call checks are a second guard, not a lifecycle event substitute.
  */
-export function createEditorReadonlyTools({ readState, readComposition = () => null, createToken = () => globalThis.crypto.randomUUID() }) {
+export function createEditorReadonlyTools({ readSaveStatus = unknownSaveStatus, readState, readComposition = () => null, createToken = () => globalThis.crypto.randomUUID() }) {
     let listing = null;
     let enabled = false, workIdentity = null, workToken = null, generation = 0;
     const disable = () => { generation++; listing = null; enabled = false; workIdentity = null; workToken = null; };
@@ -113,6 +114,7 @@ export function createEditorReadonlyTools({ readState, readComposition = () => n
         const group = state.blocks?.find(block => block.kind === 'flow' && block.id === state.activeGroupId);
         return {
             workToken,
+            persistence: readSaveStatus(),
             authoringGuide: getAIAuthoringGuide(),
             compositionTool: 'dsf_get_book_composition',
             pageUnitsTool: 'dsf_list_page_units',

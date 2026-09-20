@@ -1,3 +1,4 @@
+import { initHistoryPanel } from './studio-history-panel.js';
 import { appendPreparedProjectAsset } from './project-assets.js';
 import { createImagePagePlan } from './editor-image-page.js';
 import { createImagePageImporter, installImagePagePaste } from './editor-image-paste.js';
@@ -43,11 +44,11 @@ import '../css/flow-annotations.css';
 import { openAnnotationDialog } from './flow-annotation-ui.js';
 import { refreshFlowRichInput } from './flow-source-rich-input.js';
 import { state, dispatch, actionTypes } from './state.js';
-import { restorePreviousCloudAuthoring, getLoadedPrivateAuthoringHead, saveProject as persistProject, loadProject, uploadToStorage, prepareAuthoringImage, uploadCoverToStorage, uploadStructureToStorage, triggerAutoSave, flushSave, flushPendingSave, generateCroppedThumbnail, listLocalRecentProjects, loadLocalRecentProject, cacheLocalRecentProject, ensureUserBootstrap, storePublicationThumbnailFile, auth as firebaseAuth, authReady, db } from './firebase.js';
+import { getEditorSaveStatus, restorePreviousCloudAuthoring, getLoadedPrivateAuthoringHead, saveProject as persistProject, loadProject, uploadToStorage, prepareAuthoringImage, uploadCoverToStorage, uploadStructureToStorage, triggerAutoSave, flushSave, flushPendingSave, generateCroppedThumbnail, listLocalRecentProjects, loadLocalRecentProject, cacheLocalRecentProject, ensureUserBootstrap, storePublicationThumbnailFile, auth as firebaseAuth, authReady, db } from './firebase.js';
 import { initGIS, renderGISButton, signInWithGoogle, signOutUser, onAuthChanged, handleRedirectResult } from './gis-auth.js';
 import { handleCanvasClick, selectBubble, renderBubbleHTML, getBubbleText, setBubbleText, addBubbleAtCenter, startDrag, startTailDrag, startSpikeDrag } from './bubbles.js';
 import { addSection, addTextSection, changeSection, changeBlock, insertStructureBlock, renderThumbs, canDeleteActive, deleteActive, deleteSectionAt, insertSectionAt, insertSpreadImageAt, duplicateSectionAt, moveSection, moveSectionRange, insertPageNearBlock, duplicateBlockAt, moveBlockAt, getOptimizedImageUrl } from './sections.js';
-import { pushState, endHistoryGroup, undo, redo, getHistoryInfo, clearHistory } from './history.js';
+import { pushState, endHistoryGroup, undo, redo, getHistoryInfo, clearHistory, listHistoryEntries, readHistoryEntry, getHistoryGuard } from './history.js';
 import { openProjectModal, closeProjectModal, fetchCloudProjects, getCoverImage, getPageCount, deleteCloudProject } from './projects.js';
 import { openWorksRoom, closeWorksRoom, refreshWorksRoomLanguage } from './works.js';
 import { enterPressRoom, leavePressRoom, refreshFlowHorizonDryRunReadiness } from './press.js';
@@ -8012,8 +8013,10 @@ function performProjectUndo() {
     _flowTranslationJob = null;
     endHistoryGroup();
     const focusSnapshot = captureFlowEditorFocusSnapshot();
-    if (undo((restoredFocus) => refreshAfterHistoryRestore(restoredFocus === undefined ? focusSnapshot : restoredFocus),
-        { editorFocus: focusSnapshot })) triggerAutoSave();
+    const changed = undo((restoredFocus) => refreshAfterHistoryRestore(restoredFocus === undefined ? focusSnapshot : restoredFocus),
+        { editorFocus: focusSnapshot });
+    if (changed) triggerAutoSave();
+    return changed;
 }
 
 function performProjectRedo() {
@@ -8023,8 +8026,10 @@ function performProjectRedo() {
     _flowTranslationJob = null;
     endHistoryGroup();
     const focusSnapshot = captureFlowEditorFocusSnapshot();
-    if (redo((restoredFocus) => refreshAfterHistoryRestore(restoredFocus === undefined ? focusSnapshot : restoredFocus),
-        { editorFocus: focusSnapshot })) triggerAutoSave();
+    const changed = redo((restoredFocus) => refreshAfterHistoryRestore(restoredFocus === undefined ? focusSnapshot : restoredFocus),
+        { editorFocus: focusSnapshot });
+    if (changed) triggerAutoSave();
+    return changed;
 }
 
 // --- グローバル関数の登録 ---
@@ -9117,7 +9122,7 @@ function isPersistedFixedPageIndex(pageIndex) {
 function applyEditorSpineChange(result, options = {}) {
     const editorFocus = captureFlowEditorFocusSnapshot();
     endHistoryGroup();
-    pushState({ editorFocus });
+    pushState({ editorFocus, ...options.history });
     clearFlowDirectEditRuntime();
     if (result.projectAssets) { state.version = 6; state.projectAssets = result.projectAssets; }
     dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'blocks', value: result.blocks } });
@@ -11643,7 +11648,10 @@ window.deleteSelectedBubble = function (bubbleIndex) {
 };
 
 initStudioHelp();
-studioAI = initStudioWebMCP({ getUILang, subscribeProjectSession, readState: readStudioAIState,
+initHistoryPanel({ getUILang, undo: performProjectUndo, redo: performProjectRedo, canStep: () => getCurrentRoom() === 'editor' && !readStudioAIState().busy });
+studioAI = initStudioWebMCP({ readSaveStatus: getEditorSaveStatus, getUILang, subscribeProjectSession, readState: readStudioAIState,
+    history: { list: listHistoryEntries, read: readHistoryEntry, guard: getHistoryGuard,
+        step: direction => { if(readStudioAIState().busy) return false; return direction === 'undo' ? performProjectUndo() : performProjectRedo(); } },
     readComposition: languageKey => ({ direction: getEditorLangDirection(languageKey),
         projection: hasFlowGroups(state)
             ? getCachedFlowRuntimePageProjection(state, languageKey, state.sections || [], document, editorFlowScope())
@@ -11662,12 +11670,12 @@ studioAI = initStudioWebMCP({ getUILang, subscribeProjectSession, readState: rea
     },
     applyPageChange: result => {
         if (readStudioAIState().busy) throw Error('AI_EDIT_BUSY');
-        applyEditorSpineChange(result);
+        applyEditorSpineChange(result, { history: { actor: 'ai' } });
     },
     prepareImage: prepareAuthoringImage, discardImage: discardPreparedAuthoringImage,
     applyImagePage: result => {
         if (readStudioAIState().busy) throw Error('AI_EDIT_BUSY');
-        applyEditorSpineChange(result);
+        applyEditorSpineChange(result, { history: { actor: 'ai' } });
     },
     createProject: (draft, guard) => createProjectWithBackup(draft, guard, {
         readProject: () => state, flushPendingSave,
@@ -11678,7 +11686,7 @@ studioAI = initStudioWebMCP({ getUILang, subscribeProjectSession, readState: rea
         if (readStudioAIState().busy || _editorFlowProjectionController) throw new Error('AI_EDIT_BUSY');
         const active = state.blocks[state.activeBlockIdx];
         applyEditorSpineChange({ ...result, activeBlockIndex: state.activeBlockIdx }, {
-            flowPageIndex: getSelectedFlowRuntimePageIndex(active.id), preserveFlowSource: isFlowSourceSelected(active.id),
+            history: { actor: 'ai' }, flowPageIndex: getSelectedFlowRuntimePageIndex(active.id), preserveFlowSource: isFlowSourceSelected(active.id),
         });
     },
 });

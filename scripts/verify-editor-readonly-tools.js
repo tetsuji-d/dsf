@@ -60,7 +60,7 @@ assert.equal([...new Intl.Segmenter('ja', { granularity: 'grapheme' }).segment(l
 assert.equal(long.excerpt, blocks[0].flow.document.sections[0].blocks[1].texts.ja.slice(long.excerptStart, long.excerptEnd));
 for (const result of [initial, search(), { matches: [long] }]) {
     const json = JSON.stringify(result);
-    for (const secret of ['expectedText', 'signature', 'private-', 'annotations', 'history']) assert.ok(!json.includes(secret));
+    for (const secret of ['expectedText', 'signature', 'private-', 'annotations', '"history":']) assert.ok(!json.includes(secret));
 }
 for (const args of [null, [], 'x', { extra: true }]) code(context(args), 'INVALID_ARGUMENTS');
 for (const bad of [{ query: '' }, { query: 'a'.repeat(513) }, { query: 42 }, { scope: 'all' },

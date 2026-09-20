@@ -1,3 +1,5 @@
+import { unknownSaveStatus } from './editor-save-status.js';
+import { createEditorHistoryTools } from './editor-history-tools.js';
 import { createEditorPageTools } from './editor-page-tools.js';
 import { createStudioAIPreferences, AI_PREFERENCE_KEY } from './studio-ai-preferences.js';
 import { createEditorImageTools } from './editor-image-tools.js';
@@ -9,12 +11,13 @@ import '../css/studio-webmcp.css';
 import { initStudioGemini, geminiHandoffMarkup } from './studio-gemini.js';
 
 /** Register only our own tools; aborting one session never removes another owner's tools. */
-export function createStudioWebMCP({ readState, readComposition, getModelContext, selectPage, applyPageChange, applyEdit, createProject, applyImagePage, prepareImage, discardImage, onChange = () => {} }) {
-    const service = createEditorReadonlyTools({ readState, readComposition });
+export function createStudioWebMCP({ readSaveStatus = unknownSaveStatus, readState, readComposition, getModelContext, history, selectPage, applyPageChange, applyEdit, createProject, applyImagePage, prepareImage, discardImage, onChange = () => {} }) {
+    const service = createEditorReadonlyTools({ readState, readComposition, readSaveStatus });
     const writer = createEditorWriteTools({ readState, readonly: service, applyEdit });
     const authoring = createEditorAuthoringTools({ readState, readonly: service, applyEdit, createProject });
     const images = createEditorImageTools({ readState, readonly: service, applyImagePage, prepareImage, discardImage });
     const pages = createEditorPageTools({ readState, readonly: service, readComposition, selectPage, applyPageChange });
+    const histories = createEditorHistoryTools({ readState, readonly: service, history });
     let writable = false, activity = null, toolCount = 0;
     let controller = null, status = 'off';
     const supported = () => {
@@ -25,7 +28,7 @@ export function createStudioWebMCP({ readState, readComposition, getModelContext
     function disable(next = 'off') {
         const previous = controller;
         controller = null;
-        service.disable(); writer.reset(); authoring.reset(); images.reset(); pages.reset(); writable = false; activity = null; toolCount = 0;
+        service.disable(); writer.reset(); authoring.reset(); images.reset(); pages.reset(); histories.reset(); writable = false; activity = null; toolCount = 0;
         previous?.abort();
         status = next;
         notify();
@@ -40,13 +43,15 @@ export function createStudioWebMCP({ readState, readComposition, getModelContext
         status = 'registering'; notify();
         try {
             const api = getModelContext();
-            const tools = [...service.getTools(), ...images.getTools(writable), ...pages.getTools(writable), ...(writable ? [...writer.getTools(), ...authoring.getTools()] : [])];
+            const tools = [...service.getTools(), ...images.getTools(writable), ...pages.getTools(writable), ...histories.getTools(writable), ...(writable ? [...writer.getTools(), ...authoring.getTools()] : [])];
             for (const tool of tools) {
                 await api.registerTool({ ...tool, annotations: { ...tool.annotations, untrustedContentHint: true },
                     execute: async (args, options = {}) => {
                         if (active.signal.aborted || controller !== active || status !== 'on') throw Error('DSF_DISABLED');
                         if (options.signal?.aborted) throw Error('DSF_CANCELLED');
-                        const result = await tool.execute(args, options);
+                        let result = await tool.execute(args, options);
+                        if (result.changed === true || result.created === true) result = { ...result, persistence: readSaveStatus(),
+                            saveCheck: 'changed/created confirms the editor update only. Read dsf_get_editor_context.persistence after autosave. Report cloud saved only when cloudCurrent is true; localCurrent is a device backup, not cloud publication.' };
                         if (controller !== active || active.signal.aborted) return withEditorToolRecovery(result);
                         if (result.error && ['WORK_CHANGED', 'NOT_IN_EDITOR', 'UNAVAILABLE', 'DISABLED'].includes(result.error.code)) disable();
                         activity = { tool: tool.name, code: result.error?.code || null,
@@ -81,7 +86,7 @@ const labels = {
         unsupported: 'Unavailable in this browser', off: 'Off', on: 'Available', registering: 'Connecting…', error: 'Could not connect', room: 'Resumes automatically when you return to the editor', retry: 'Reconnect', details: 'Connection details' },
 };
 
-export function initStudioWebMCP({ readState, readComposition, getUILang, subscribeProjectSession, selectPage, applyPageChange, applyEdit, createProject, applyImagePage, prepareImage, discardImage, doc = document, win = window }) {
+export function initStudioWebMCP({ readSaveStatus, readState, readComposition, getUILang, subscribeProjectSession, history, selectPage, applyPageChange, applyEdit, createProject, applyImagePage, prepareImage, discardImage, doc = document, win = window }) {
     const gemini = initStudioGemini({ readState, getUILang, doc, win });
     const text = () => labels[getUILang() === 'en' ? 'en' : 'ja'];
     const getModelContext = () => win.top === win && win.isSecureContext ? doc.modelContext : null;
@@ -119,7 +124,7 @@ export function initStudioWebMCP({ readState, readComposition, getUILang, subscr
                         : (last.created ? 'Project created' : last.replayed ? 'Replayed without applying again' : last.changed ? 'Work updated' : 'Success (no change)'))}`;
         });
     }
-    const connection = createStudioWebMCP({ readState, readComposition, getModelContext, selectPage, applyPageChange, applyEdit, createProject, applyImagePage, prepareImage, discardImage, onChange: sync });
+    const connection = createStudioWebMCP({ readSaveStatus, readState, readComposition, getModelContext, history, selectPage, applyPageChange, applyEdit, createProject, applyImagePage, prepareImage, discardImage, onChange: sync });
     let storage; try { storage = win.localStorage; } catch { /* Session-only fallback. */ }
     access = createStudioAIPreferences({ connection, readState, storage, onChange: sync });
     doc.addEventListener('change', event => {

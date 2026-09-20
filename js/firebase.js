@@ -1,3 +1,4 @@
+import { createEditorSaveStatus } from './editor-save-status.js';
 import { preparePrivateProjectAction, runPrivateProjectAction } from './private-project-actions.js';
 import { getUILang } from './i18n-studio.js';
 import { ASSET_MAX_LONG_EDGE, ASSET_MAX_BYTES, mapProjectAssetUrls, appendPreparedProjectAsset } from './project-assets.js';
@@ -133,6 +134,8 @@ export async function uploadPressPage(blob, path) {
 
 // --- 自動保存 ---
 let autoSaveTimer = null;
+const editorSaveEvidence = createEditorSaveStatus(() => JSON.stringify([getProjectSessionEpoch(), state.projectId || '', state.uid || '']));
+export const getEditorSaveStatus = () => editorSaveEvidence.read();
 let saveStatus = 'idle'; // 'idle' | 'saving' | 'saved' | 'error'
 let isSaving = false;
 let saveRequested = false;
@@ -792,6 +795,7 @@ function updateSaveIndicator(status, message) {
  * 自動保存をトリガーする（2秒デバウンス）
  */
 export function triggerAutoSave() {
+    editorSaveEvidence.dirty();
     editorRevision += 1;
     if (autoSaveTimer) clearTimeout(autoSaveTimer);
 
@@ -1024,6 +1028,7 @@ function buildAuthoringProjectInput(overrides = {}) {
  * 実際の保存処理
  */
 async function performSaveOnce() {
+    const saveEvidence = editorSaveEvidence.begin(Boolean(state.projectId && state.uid));
     let privateSave = false;
     const startedEpoch = getProjectSessionEpoch(), startedProjectId = state.projectId;
     try {
@@ -1043,6 +1048,7 @@ async function performSaveOnce() {
         && state.projectId === saveIdentity.projectId && state.uid === saveIdentity.uid
         && auth.currentUser === saveIdentity.user;
     const cloudSaved = () => {
+        saveEvidence.cloudSaved();
         if (saveIsCurrent()) updateSaveIndicator(editorRevision === saveIdentity.editorRevision ? 'saved' : 'idle',
             editorRevision === saveIdentity.editorRevision ? '保存済み (Cloud)' : '変更あり・保存待ち');
     };
@@ -1084,8 +1090,10 @@ async function performSaveOnce() {
             imageMap: window.localImageMap
         });
         await cacheLocalRecentProject(localSnapshot, window.localImageMap);
+        saveEvidence.localSaved();
         if (saveIsCurrent()) updateSaveIndicator('saved', '保存済み (Local)');
     } catch (e) {
+        saveEvidence.failed('local', e);
         console.warn("[DSF] Local auto-save to IndexedDB failed:", e);
     }
 
@@ -1117,6 +1125,7 @@ async function performSaveOnce() {
                         user: saveIdentity.user, isCurrent: () => sequence === projectLoadSequence && saveIsCurrent() }) };
                 privateAuthoringSession = session;
             }
+            saveEvidence.backend(usesPrivateAuthoring(existingData) || newPrivate ? 'r2-private' : 'firestore');
             if (usesPrivateAuthoring(existingData) || newPrivate) {
                 privateSave = true;
                 if (existingSnap.exists()) assertPrivateAuthoringRoot(existingData, saveIdentity.uid, saveIdentity.projectId);
@@ -1274,6 +1283,7 @@ async function performSaveOnce() {
         }
     }
     } catch (error) {
+        saveEvidence.failed('cloud', error);
         console.error('[DSF] Project save failed before persistence:', error);
         if (!privateSave && startedEpoch === getProjectSessionEpoch() && startedProjectId === state.projectId) {
             updateSaveIndicator('error', '保存失敗');

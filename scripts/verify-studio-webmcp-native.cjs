@@ -1,7 +1,7 @@
 const {chromium}=require(process.env.DSF_PLAYWRIGHT_MODULE),assert=require('node:assert/strict');
 (async()=>{const browser=await chromium.launch({channel:'chrome',headless:true,args:['--enable-experimental-web-platform-features']});try{
  const p=await browser.newPage({viewport:{width:1400,height:960}}),errors=[];p.on('pageerror',e=>errors.push(e.message));
- await p.goto('http://127.0.0.1:5178/studio?room=editor');await p.waitForFunction(()=>document.querySelector('[data-ai-status]')?.textContent==='オフ');
+ await p.goto((process.env.DSF_TEST_ORIGIN || 'http://127.0.0.1:5178') + '/studio?room=editor');await p.waitForFunction(()=>document.querySelector('[data-ai-status]')?.textContent==='オフ');
  assert.equal(await p.evaluate(()=>typeof document.modelContext?.registerTool),'function');
  await p.evaluate(async()=>{
   const appSource=await(await fetch('/js/app.js')).text();const path=appSource.match(/from ["']([^"']*state\.js[^"']*)["']/)[1];
@@ -26,7 +26,7 @@ const {chromium}=require(process.env.DSF_PLAYWRIGHT_MODULE),assert=require('node
   const search=await callNative(mine.find(t=>t.name==='dsf_search_flow_text'),{workToken:context.workToken,query:'灯台',languageKey:'ja',scope:'work'});
   window.nativeOldTool=mine[0];return {names:mine.map(t=>t.name),context,search};
  });
- assert.equal(result.names.length,6);assert.equal(result.context.target.groupId,'native-test');assert.equal(result.search.matches.length,2);
+ assert.equal(result.names.length,8);assert.equal(result.context.target.groupId,'native-test');assert.equal(result.search.matches.length,2);
  const invalidIndex=await p.evaluate(async()=>{const previous=nativeState.state.activeBlockIdx;nativeState.state.activeBlockIdx=-1;try{const tool=(await document.modelContext.getTools()).find(t=>t.name==='dsf_get_editor_context');const value=await callNative(tool,{});return {target:value.target,index:nativeState.state.activeBlockIdx};}finally{nativeState.state.activeBlockIdx=previous;}});
  assert.deepEqual(invalidIndex,{target:null,index:-1});
  // The UI search selects actual text; context reports only verified source offsets.

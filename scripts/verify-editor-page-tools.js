@@ -14,7 +14,7 @@ const call=(name,args={})=>service.execute(name,{workToken:readonly.execute('dsf
 const code=(result,expected)=>assert.equal(result.error?.code,expected,JSON.stringify(result));
 const apply=p=>call('dsf_apply_page_change',{pageChangeToken:p.pageChangeToken});
 const reset=()=>{state=structuredClone(initial);history=[];changes=0;service.reset();readonly.enable();};
-assert.deepEqual(service.getTools(false).map(t=>t.name),['dsf_list_page_units']);assert.equal(service.getTools(true).length,5);
+assert.deepEqual(service.getTools(false).map(t=>t.name),['dsf_list_page_units']);assert.equal(service.getTools(true).length,6);
 const before=JSON.stringify(state);let listed=call('dsf_list_page_units');assert.equal(JSON.stringify(state),before);assert.equal(listed.total,4);assert.deepEqual(listed.units[0].pageNumbers,[1,2]);assert.deepEqual(listed.units[2].blockIds,['left','right']);assert.equal(JSON.stringify(listed).includes('blob:'),false);
 assert.equal(call('dsf_select_page',{blockId:'flow',flowPageIndex:1}).selected,true);assert.equal(selected.flowPageIndex,1);assert.equal(changes,0);
 code(call('dsf_select_page',{blockId:'flow',flowPageIndex:2}),'INVALID_PAGE_TARGET');code(call('dsf_select_page',{blockId:'cover',flowPageIndex:1}),'INVALID_PAGE_TARGET');
@@ -47,3 +47,16 @@ const failed=createEditorPageTools({readState:()=>state,readonly,readComposition
 code(failed.execute('dsf_select_page',{workToken,blockId:'flow',flowPageIndex:1}),'PAGE_SELECTION_FAILED');
 code(failed.execute('dsf_select_page',{workToken,blockId:'cover'}),'PAGE_SELECTION_FAILED');
 console.log('Page selection verifies the requested Flow page; stale within-Flow selection is rejected.');
+reset();
+const untouchedFlow=JSON.stringify(state.blocks[0]),retainedAssets=JSON.stringify(state.projectAssets);
+p=call('dsf_prepare_page_deletion',{unitId:'left'});
+assert.deepEqual(p.blockIds,['left','right']);assert.equal(p.scope,'all-languages');assert.equal(state.blocks.length,5);
+const deletionBefore=structuredClone(state);apply(p);assert.deepEqual(state.blocks.map(b=>b.id),['flow','cover','back']);
+assert.equal(JSON.stringify(state.blocks[0]),untouchedFlow);assert.equal(JSON.stringify(state.projectAssets),retainedAssets);
+assert.equal(changes,1);assert.equal(apply(p).replayed,true);assert.equal(changes,1);
+state=history.pop();assert.deepEqual(state,deletionBefore);
+code(call('dsf_prepare_page_deletion',{unitId:'flow'}),'FLOW_PAGE_DELETION_UNSUPPORTED');
+p=call('dsf_prepare_page_deletion',{unitId:'cover'});state.blocks[1].content.backgrounds['en-GB']='blob:manual';code(apply(p),'STALE_PAGE_CHANGE');
+reset();state.blocks=[page('only')];code(call('dsf_prepare_page_deletion',{unitId:'only'}),'LAST_PAGE_DELETION');
+state.blocks=[...structuredClone(spread)];code(call('dsf_prepare_page_deletion',{unitId:'left'}),'LAST_PAGE_DELETION');
+console.log('Deletion: exact all-language fixed-page/spread scope, retained assets/Flow, one-step restore, idempotency, concurrency and last-page guards passed.');
