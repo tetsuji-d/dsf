@@ -1,3 +1,5 @@
+import {createViewerCoverTurn} from './viewer-cover-turn.js';
+import {initializeViewerFullscreen} from './viewer-fullscreen.js';
 import {createViewerPageCurl} from './viewer-page-curl.js';
 import {initializeViewerReadingGuides} from './viewer-reading-guides.js';
 /**
@@ -64,6 +66,9 @@ let viewerLocalFixtureAssetUrls = new Map();
 let viewerLocalPortableSession = null;
 let viewerMinimap = null;
 let readingGuides = null;
+let coverTurn = null;
+let viewerAllowsLegacyCoverLoop = false;
+let viewerFullscreen = null;
 let viewerDocumentRevision = 0;
 let viewerResizeFrame = null;
 let viewerInfoPanelResizeObserver = null;
@@ -188,6 +193,13 @@ const VIEWER_UI = {
         close: '閉じる',
         horizonHome: 'Horizonへ戻る',
         openFile: 'ファイルを開く',
+        fullscreen: '全画面表示',
+        exitFullscreen: '全画面を終了',
+        fullscreenUnavailable: '全画面表示を開始できませんでした。',
+        coverPreparing: '表紙を準備中…',
+        coverTurning: '背表紙へ裏返しています',
+        coverSpine: '背表紙 · 同じ方向へもう一度送ると裏返ります',
+        coverUnavailable: '表紙を読み込めませんでした。もう一度お試しください。',
         prevPage: '前のページ',
         nextPage: '次のページ',
         toggleUi: 'メニュー表示/非表示',
@@ -275,6 +287,13 @@ const VIEWER_UI = {
         close: 'Close',
         horizonHome: 'Back to Horizon',
         openFile: 'Open file',
+        fullscreen: 'Fullscreen',
+        exitFullscreen: 'Exit fullscreen',
+        fullscreenUnavailable: 'Unable to enter fullscreen.',
+        coverPreparing: 'Preparing covers…',
+        coverTurning: 'Turning toward the spine',
+        coverSpine: 'Spine · Move in the same direction again to turn over',
+        coverUnavailable: 'Unable to load the covers. Please try again.',
         prevPage: 'Previous page',
         nextPage: 'Next page',
         toggleUi: 'Show/hide menu',
@@ -379,7 +398,24 @@ async function init() {
         layer.addEventListener('click', suppressClickAfterSwipe, true);
     });
     initializeViewerMinimap();
+    coverTurn = createViewerCoverTurn({
+        canvas: document.getElementById('viewer-canvas'), stage: document.getElementById('viewer-stage'),
+        width: CANONICAL_PAGE_WIDTH, height: CANONICAL_PAGE_HEIGHT,
+        getTurn: getViewerCoverTurn,
+        render: surface => renderSurfaceContentHTML(surface, state.activeLang) + renderSurfaceBubblesHTML(surface, state.activeLang),
+        getTitle: () => document.getElementById('ui-title')?.textContent || state.title || '',
+        text: key => vt({preparing:'coverPreparing',turning:'coverTurning',spine:'coverSpine',unavailable:'coverUnavailable'}[key]),
+        onGesture: () => {
+            pointerCache = []; activeGesturePointerId = null; curlGesture = null; resetSingleSpreadSwipe();
+            suppressZoneClickUntil = Date.now() + 900; clearViewerUiAutoHide();
+        },
+    });
+    viewerFullscreen = initializeViewerFullscreen({
+        button: document.getElementById('viewer-fullscreen-btn'), text: vt,
+        onChange: () => { coverTurn?.cancel(); scheduleViewerResize(); },
+    });
     readingGuides = initializeViewerReadingGuides({onLayoutChange: scheduleViewerResize, onAssistanceChange: active => {
+        if (active) coverTurn?.cancel();
         clearViewerUiAutoHide();
         if (!active) scheduleViewerUiAutoHide();
     }});
@@ -1038,8 +1074,10 @@ window.loadDsf = async (input) => {
 
 // ── Project Data ──────────────────────────────────────────────
 function loadProjectData(raw, options = {}) {
+    coverTurn?.cancel();
     const source = options.source || 'file';
     viewerDocumentRevision += 1;
+    viewerAllowsLegacyCoverLoop = (raw.book?.mode || raw.bookMode || '') !== 'none';
     replaceViewerLocalPortableSession(options.localPortableSession || null);
     viewerFixedTextContext = options.fixedTextContext || null;
     const deliveryAssetUrls = options.assetUrls instanceof Map
@@ -2626,6 +2664,7 @@ function findBookUnitIndexForPage(pageIndex) {
 
 // ── Language ──────────────────────────────────────────────────
 window.switchViewerLang = (code) => {
+    coverTurn?.cancel();
     if (!state.languages?.includes(code)) return;
     if (viewerLocalPortableSession?.contextsByLanguage?.has(code)) {
         const sourceLanguage = state.activeLang;
@@ -2943,6 +2982,7 @@ window.setViewerUiLang = (lang) => {
 };
 
 function applyViewerUiLanguage() {
+    viewerFullscreen?.refresh();
     document.documentElement.lang = viewerUiLang === 'en' ? 'en' : 'ja';
     readingGuides?.refreshLabels();
     document.querySelectorAll('.viewer-ui-lang-btn').forEach((btn) => {
@@ -3785,6 +3825,7 @@ function animatePageSlide(fromPage, toPage, lang, motionDir) {
 }
 
 function transitionToIndex(nextIndex, kind = 'jump') {
+    coverTurn?.cancel();
     const pages = getPages();
     const currentIndex = getIndex();
     if (nextIndex < 0 || nextIndex >= pages.length || nextIndex === currentIndex) return;
@@ -3832,10 +3873,10 @@ function transitionToIndex(nextIndex, kind = 'jump') {
 }
 
 function transitionToBookUnit(nextIndex) {
+    coverTurn?.cancel();
     const units = getBookUnits();
     if (!units.length) return;
-    if (nextIndex < 0) nextIndex = units.length - 1;
-    if (nextIndex >= units.length) nextIndex = 0;
+    if (nextIndex < 0 || nextIndex >= units.length) return;
     if (nextIndex === bookSpreadIndex) return;
     bookSpreadIndex = nextIndex;
     const pageIndex = getBookUnitPrimaryPageIndex(units[bookSpreadIndex]);
@@ -3847,6 +3888,40 @@ function transitionToBookUnit(nextIndex) {
     refresh();
     queueBookmarkSave();
     trackPageView('book_navigation');
+}
+
+// A spine is a transient viewing pose, never an extra page or saved bookmark.
+function getViewerCoverTurn(delta) {
+    if (viewScale > 1.05 || readingGuides?.isAssisting() || activePageCurl?.active) return null;
+    const before = getIndex(), lang = state.activeLang, revision = viewerDocumentRevision;
+    const model = viewerBookModel, wasSpread = spreadMode, unitBefore = bookSpreadIndex;
+    let from, to, after, nextUnit;
+    if (wasSpread && hasBookModel()) {
+        const units = getBookUnits();
+        const atFront = unitBefore === 0 && delta === -1;
+        const atBack = unitBefore === units.length - 1 && delta === 1;
+        if (units.length < 2 || (!atFront && !atBack)) return null;
+        nextUnit = atFront ? units.length - 1 : 0;
+        from = units[unitBefore]?.center; to = units[nextUnit]?.center;
+    } else {
+        let first = 0, last = getTotal() - 1;
+        if (hasBookModel()) {
+            first = model.covers.c1.sourcePageIndex; last = model.covers.c4.sourcePageIndex;
+            if (first < 0 || last < 0 || first === last) return null;
+        } else if (!viewerAllowsLegacyCoverLoop || getTotal() < 2 || getTotal() % 2 !== 0) return null;
+        // Legacy even-page DSFs use the first/last single surfaces as covers.
+        if (before === first && delta === -1) after = last;
+        else if (before === last && delta === 1) after = first;
+        else return null;
+        from = getViewerSurfaceForDisplayIndex(before); to = getViewerSurfaceForDisplayIndex(after);
+    }
+    if (!from || !to) return null;
+    return {from, to, fromFront: delta === -1, rtl: getPageDirection() === 'rtl', commit: () => {
+        if (viewerDocumentRevision !== revision || state.activeLang !== lang || viewerBookModel !== model || getIndex() !== before || spreadMode !== wasSpread) return;
+        committingPageCurl = true;
+        try { if (nextUnit !== undefined) transitionToBookUnit(nextUnit); else transitionToIndex(after); }
+        finally { committingPageCurl = false; }
+    }};
 }
 
 let activePageCurl=null, committingPageCurl=false;
@@ -3891,6 +3966,7 @@ function startPageCurl(delta,interactive=false){
 }
 
 function goNext() {
+    if (!committingPageCurl && coverTurn?.step(1)) return;
     if(startPageCurl(1))return;
     if (spreadMode && hasBookModel()) {
         transitionToBookUnit(bookSpreadIndex + 1);
@@ -3909,6 +3985,7 @@ function goNext() {
 }
 
 function goPrev() {
+    if (!committingPageCurl && coverTurn?.step(-1)) return;
     if(startPageCurl(-1))return;
     if (spreadMode && hasBookModel()) {
         transitionToBookUnit(bookSpreadIndex - 1);
@@ -3966,6 +4043,7 @@ window.jumpToPage = (val) => {
 
 // ── Render ────────────────────────────────────────────────────
 function refresh() {
+    coverTurn?.cancel();
     activePageCurl?.cancel();
     const pages = getPages();
     if (pages.length === 0) return;
@@ -4220,7 +4298,7 @@ function clearViewerUiAutoHide() {
 function scheduleViewerUiAutoHide() {
     if (!usesPointerHoverChrome()) return;
     clearViewerUiAutoHide();
-    if (readingGuides?.isAssisting()) return;
+    if (readingGuides?.isAssisting() || coverTurn?.active) return;
     viewerUiAutoHideTimer = setTimeout(() => {
         window.toggleUi(false);
     }, 5000);
@@ -5049,6 +5127,7 @@ function setViewScaleAtClientPoint(nextScale, clientX, clientY) {
 
 let curlGesture=null;
 document.addEventListener('pointerdown',e=>{
+    if (coverTurn?.pointerDown(e)) return;
     if(e.pointerType==='mouse'||!e.target.closest?.('#viewer-canvas')||viewScale>1.05||readingGuides?.isAssisting())return;
     if(curlGesture){activePageCurl?.cancel();curlGesture=null;return;}
     const r=document.getElementById('viewer-canvas').getBoundingClientRect();
@@ -5057,6 +5136,7 @@ document.addEventListener('pointerdown',e=>{
     curlGesture={id:e.pointerId,x:e.clientX,y:e.clientY,width:r.width,started:false};
 },true);
 document.addEventListener('pointermove',e=>{
+    if (coverTurn?.pointerMove(e)) return;
     if(curlGesture?.id!==e.pointerId)return;
     const dx=e.clientX-curlGesture.x,dy=e.clientY-curlGesture.y;
     if(!curlGesture.started){
@@ -5069,12 +5149,13 @@ document.addEventListener('pointermove',e=>{
     e.stopPropagation();e.preventDefault();activePageCurl.draw(dx*curlGesture.sign/(curlGesture.width*.8));
 }, {capture:true,passive:false});
 document.addEventListener('pointerup',e=>{
+    if (coverTurn?.pointerUp(e)) return;
     if(curlGesture?.id!==e.pointerId)return;
     const started=curlGesture.started;curlGesture=null;if(!started)return;
     e.stopPropagation();e.preventDefault();pointerCache=[];activeGesturePointerId=null;resetSingleSpreadSwipe();suppressZoneClickUntil=Date.now()+900;
     activePageCurl?.finish(activePageCurl.progress>.4);
 },true);
-document.addEventListener('pointercancel',()=>{if(curlGesture?.started)activePageCurl?.cancel();curlGesture=null;},true);
+document.addEventListener('pointercancel',e=>{if(coverTurn?.pointerCancel(e))return;if(curlGesture?.started)activePageCurl?.cancel();curlGesture=null;},true);
 
 function onPointerDown(e) {
     if (!pointerCache.some(p => p.pointerId === e.pointerId)) {
@@ -5252,6 +5333,7 @@ function onPointerCancel(e) {
 }
 
 function onWheel(e) {
+    if (coverTurn?.handleWheel(e)) return;
     e.preventDefault();
     if (e.ctrlKey) {
         const factor = Math.exp(-e.deltaY * 0.01);
@@ -5275,6 +5357,7 @@ function onWheel(e) {
 }
 
 function onKeydown(e) {
+    if (e.key === 'Escape' && coverTurn?.active) { coverTurn.cancel(); return; }
     if (readingGuides?.handleKey(e)) return;
     if (e.key === 'ArrowRight') window.viewerNavRight();
     else if (e.key === 'ArrowLeft') window.viewerNavLeft();

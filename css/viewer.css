@@ -3126,3 +3126,20 @@ body.viewer-ui-visible #viewer-mobile-page-count{bottom:auto}
 .vpc-back{transform:rotateY(180deg)}.vpc-face:after{content:'';position:absolute;inset:0;background:#18202b;opacity:var(--vpc-shade,0);pointer-events:none}
 body.viewer-curl-active #reader-assist-panel,body.viewer-curl-active #viewer-minimap{visibility:hidden}
 @media print{.viewer-page-curl{display:none!important}}
+
+/* Closed-book turn: full readable faces, a neutral title spine, and no page mutation at 90 degrees. */
+.viewer-cover-turn{position:fixed;z-index:940;perspective:1500px;pointer-events:none}
+.vct-scale{transform-origin:0 0;transform-style:preserve-3d}
+.vct-book{position:relative;transform-style:preserve-3d;will-change:transform}
+.vct-face{position:absolute;inset:0;overflow:hidden;background:var(--page-bg,#fff);backface-visibility:hidden;-webkit-backface-visibility:hidden;box-shadow:0 10px 28px #0006}
+.vct-front{transform:translateZ(calc(var(--vct-thickness)/2))}
+.vct-back{transform:rotateY(180deg) translateZ(calc(var(--vct-thickness)/2))}
+.vct-edge{position:absolute;top:0;height:100%;width:var(--vct-thickness);background:repeating-linear-gradient(90deg,#c2c1ad 0px,#e8e5d3 1px,#e8e5d3 2px);backface-visibility:hidden;-webkit-backface-visibility:hidden}
+.vct-spine{background:#173d42;display:flex;align-items:center;justify-content:center;color:#f4eddb;overflow:hidden}
+.vct-spine span{writing-mode:vertical-rl;text-orientation:mixed;letter-spacing:.18em;max-height:90%;overflow:hidden;font-family:serif}
+.viewer-cover-status{position:fixed;z-index:1050;left:50%;top:max(72px,calc(env(safe-area-inset-top) + 48px));transform:translateX(-50%);max-width:85vw;padding:8px 14px;border-radius:20px;background:#111d;color:#fff;font-size:13px;text-align:center;pointer-events:none}
+body.viewer-cover-turn-active #reader-assist-panel,body.viewer-cover-turn-active #viewer-minimap{visibility:hidden}
+.viewer-fullscreen-status{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%)}
+#viewer-fullscreen-btn[hidden],.viewer-cover-status[hidden]{display:none}
+@media (pointer:coarse) and (max-width:700px){#viewer-fullscreen-btn{display:none}}
+@media print{.viewer-cover-turn,.viewer-cover-status,#viewer-fullscreen-btn{display:none!important}}
