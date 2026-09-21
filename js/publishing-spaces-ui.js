@@ -1,3 +1,4 @@
+import { openPublishingSpaceCreation } from './publishing-space-create-dialog.js';
 import { prepareSpaceImage } from './publishing-space-image.js';
 const escape = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const copy = {
@@ -26,6 +27,7 @@ const copy = {
 };
 export function createPublishingSpaceUI({ root, request, getLocale, getUid, onChange, storage = globalThis.localStorage }) {
     let uid = '', data = null, selected = 'all', loading = false, failed = false, failureCode = '', busy = false, form = null, notice = '', generation = 0, pending = null, creation = null;
+    let opening = false;
     let imageCache = new Map(), imageLoading = new Set(), imageFailed = new Set(), converting = false;
     const tr = () => copy[getLocale() === 'en' ? 'en' : 'ja'];
 
@@ -184,7 +186,17 @@ export function createPublishingSpaceUI({ root, request, getLocale, getUid, onCh
         root.querySelector('[data-space-retry-images]')?.addEventListener('click', () => { imageFailed.clear(); notice = ''; render(); });
         loadImages(active());
         root.querySelector('[data-space-select]')?.addEventListener('change', e => { selected = e.target.value; form = null; notice = ''; remember(); render(); onChange?.(); });
-        root.querySelector('[data-space-create]')?.addEventListener('click', () => { form = {kind:'create',value:''}; render(); root.querySelector('input')?.focus(); });
+        root.querySelector('[data-space-create]')?.addEventListener('click', async () => {
+            if (opening || busy) return;
+            const owner = uid; opening = true;
+            try {
+                const result = await openPublishingSpaceCreation({request,getLocale,isCurrent:() => getUid() === owner});
+                sync(); if (!result || uid !== owner) return;
+                apply(result.catalogue); selected = result.spaceId; remember(); form = null;
+                notice = getLocale() === 'en' ? 'Your publishing space is ready. Set up its profile or add a manuscript.' : '出版スペースを開設しました。基本情報の設定や原稿の追加へ進めます。';
+                render(); onChange?.();
+            } finally { opening = false; root.querySelector('[data-space-create]')?.focus(); }
+        });
         root.querySelector('[data-space-cancel]')?.addEventListener('click', () => { form = null; render(); });
         root.querySelector('[data-space-retry]')?.addEventListener('click', async () => { imageFailed.clear(); await load(); onChange?.(); });
         root.querySelector('[data-space-form]')?.addEventListener('submit', e => {

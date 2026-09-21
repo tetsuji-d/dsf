@@ -6,6 +6,8 @@ const allowed=new Map([
  ['/', ['scripts/fixtures/publishing-spaces-ui.html','text/html']],
  ['/scripts/fixtures/publishing-spaces-ui.html',['scripts/fixtures/publishing-spaces-ui.html','text/html']],
  ['/scripts/fixtures/publishing-spaces-ui.js',['scripts/fixtures/publishing-spaces-ui.js','text/javascript']],
+ ['/js/publishing-space-create-dialog.js',['js/publishing-space-create-dialog.js','text/javascript']],
+ ['/css/publishing-space-create-dialog.css',['css/publishing-space-create-dialog.css','text/css']],
  ['/js/publishing-space-publish-dialog.js',['js/publishing-space-publish-dialog.js','text/javascript']],
  ['/css/publishing-space-publish-dialog.css',['css/publishing-space-publish-dialog.css','text/css']],
  ['/js/publishing-spaces-ui.js',['js/publishing-spaces-ui.js','text/javascript']],

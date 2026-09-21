@@ -1,3 +1,4 @@
+@import './publishing-space-create-dialog.css';
 /* Publishing-space membership is separate from the location of manuscript bytes. */
 .publishing-space-panel { padding:20px; margin-bottom:20px; border:1px solid var(--border-color,#c9d4e3); border-radius:14px; background:var(--panel-bg,#fff); color:var(--text-main,#26364d); }
 .publishing-space-panel h3 { margin:0 0 8px; font-size:20px; }

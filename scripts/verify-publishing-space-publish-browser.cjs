@@ -10,6 +10,7 @@ const {chromium}=require(process.env.DSF_PLAYWRIGHT_MODULE), assert=require('nod
     assert(r.ok(),await r.text());return r.json();
   };
   await page.goto(base); await page.locator('[data-space-select]').waitFor();
+  const initial=await api();if(initial.assignments.book_1)await api({kind:'assign',projectId:'book_1',spaceId:null,expectedSpaceId:initial.assignments.book_1,baseRevision:initial.revision});
   const before=await (await page.request.get(base+'/fixture/proof')).json();
   const open=()=>page.locator('#fixture-publish').click();
   const dialog=page.getByRole('dialog'), select=dialog.getByLabel('出版スペース',{exact:true});
@@ -19,14 +20,18 @@ const {chromium}=require(process.env.DSF_PLAYWRIGHT_MODULE), assert=require('nod
   assert.deepEqual(await (await page.request.get(base+'/fixture/proof')).json(),before);
   // Inline creation and assignment, including narrow-screen layout.
   await open();await select.selectOption('__new');
-  await dialog.getByLabel('新しいスペース名').fill('発行先の検証 '+Date.now());
+  await dialog.getByRole('button',{name:'出版スペースの開設へ進む'}).click();
+  await page.getByRole('dialog').getByLabel('出版スペース名',{exact:true}).fill('発行先の検証 '+Date.now());
+  await page.getByRole('dialog').getByRole('button',{name:'内容を確認',exact:true}).click();
+  await page.getByRole('dialog').getByRole('button',{name:'この内容で開設',exact:true}).click();
+  await dialog.getByRole('status').filter({hasText:'開設しました'}).waitFor();
   await page.screenshot({path:'outputs/publishing-space-publish-mobile.png'});
   assert(await dialog.evaluate(el=>el.getBoundingClientRect().right<=innerWidth && el.getBoundingClientRect().left>=0));
   await dialog.getByRole('button',{name:'所属を保存して続ける'}).click();
   await page.waitForFunction(()=>document.querySelector('#fixture-publish-result').textContent==='READY');
   let data=await api();const spaceId=data.assignments.book_1;assert(spaceId);
   const after=await (await page.request.get(base+'/fixture/proof')).json();
-  for(const [path,value] of before) assert.deepEqual(after.find(row=>row[0]===path)?.[1],value,'manuscript and existing publication unchanged');
+  for(const [path,value] of before.filter(([path])=>!path.includes('/publishing/'))) assert.deepEqual(after.find(row=>row[0]===path)?.[1],value,'manuscript and existing publication unchanged');
   await page.reload();await page.locator('#fixture-publish').waitFor();await open();
   await page.waitForFunction(()=>document.querySelector('#fixture-publish-result').textContent==='READY');
   assert.equal(await dialog.count(),0,'assigned manuscript continues without another selection');

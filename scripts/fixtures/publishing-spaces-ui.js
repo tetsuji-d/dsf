@@ -26,3 +26,5 @@ publishButton.onclick = async () => {
     publishResult.textContent = result ? 'READY' : 'CANCELLED'; await ui.load(); render();
 };
 await ui.load();render();
+
+if (new URLSearchParams(location.search).has('create')) document.querySelector('[data-space-create]')?.click();

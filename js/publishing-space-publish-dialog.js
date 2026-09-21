@@ -1,3 +1,4 @@
+import { openPublishingSpaceCreation } from './publishing-space-create-dialog.js';
 // Same dialog is exercised by the isolated fixture and the real Press/Works UI.
 export async function choosePublishingSpace({request, projectId, purpose, getLocale, isCurrent = () => true}) {
     const en = getLocale() === 'en';
@@ -24,21 +25,19 @@ export async function choosePublishingSpace({request, projectId, purpose, getLoc
     const form = document.createElement('form');
     const label = document.createElement('label'); label.textContent = copy.select;
     const select = document.createElement('select'); select.setAttribute('aria-label', copy.select); select.required = true; label.append(select);
-    const nameLabel = document.createElement('label'); nameLabel.textContent = copy.name;
-    const name = document.createElement('input'); name.maxLength = 80; nameLabel.append(name);
     const actions = document.createElement('div'); actions.className = 'publishing-space-publish-actions';
     const cancel = document.createElement('button'); cancel.type = 'button'; cancel.textContent = copy.cancel;
     const retry = document.createElement('button'); retry.type = 'button'; retry.textContent = copy.retry;
     const proceed = document.createElement('button'); proceed.type = 'submit'; proceed.textContent = copy.proceed;
-    actions.append(cancel, retry, proceed); form.append(label, nameLabel, actions); dialog.append(title, hint, message, form);
-    let data, busy = false, closed = false, creation = null, pendingAssignment = null;
+    actions.append(cancel, retry, proceed); form.append(label, actions); dialog.append(title, hint, message, form);
+    let data, busy = false, closed = false, pendingAssignment = null;
     return new Promise(resolve => {
         function finish(value) { if (closed) return; closed = true; dialog.close(); dialog.remove(); resolve(value); }
         function current() { if (closed || !isCurrent()) throw new Error('AUTH_CHANGED'); }
         function controls() {
-            label.hidden = !data; nameLabel.hidden = !data || select.value !== '__new';
-            name.required = !nameLabel.hidden;
-            for (const el of [select, name, proceed, retry]) el.disabled = busy;
+            label.hidden = !data;
+            proceed.textContent = select.value === '__new' ? (en ? 'Set up a new space' : '出版スペースの開設へ進む') : copy.proceed;
+            for (const el of [select, proceed, retry]) el.disabled = busy;
             proceed.hidden = !data; retry.hidden = !!data || busy;
             cancel.disabled = busy; // Do not abandon an in-flight membership write.
         }
@@ -69,10 +68,12 @@ export async function choosePublishingSpace({request, projectId, purpose, getLoc
             try {
                 current(); let spaceId = select.value;
                 if (spaceId === '__new') {
-                    const trimmed = name.value.trim(); if (!trimmed) throw new Error('INVALID_NAME');
-                    if (!creation || creation.name !== trimmed) creation = {kind:'create', spaceId:'space_' + crypto.randomUUID(), name:trimmed, baseRevision:data.revision};
-                    data = await request(creation); current(); spaceId = creation.spaceId;
-                    options(); select.value = spaceId; creation = null;
+                    dialog.close();
+                    const created = await openPublishingSpaceCreation({request,getLocale,isCurrent});
+                    dialog.showModal(); current();
+                    if (created) { data = created.catalogue; options(); select.value = created.spaceId; }
+                    message.textContent = created ? (en ? 'Space created. Save the selection to continue.' : '開設しました。所属を保存すると発行準備を続けます。') : '';
+                    return;
                 }
                 // Keep the original precondition on ambiguous network retries.
                 if (!pendingAssignment || pendingAssignment.spaceId !== spaceId) pendingAssignment = {kind:'assign', projectId, spaceId,
@@ -82,7 +83,7 @@ export async function choosePublishingSpace({request, projectId, purpose, getLoc
                 if (data.publication.required && !data.publication.spaceId) throw new Error('SPACE_CONFLICT');
                 finish(true);
             } catch (error) {
-                if (error.message === 'SPACE_CONFLICT') { creation = null; pendingAssignment = null; await load(false); }
+                if (error.message === 'SPACE_CONFLICT') { pendingAssignment = null; await load(false); }
                 message.textContent = errorText(error);
             } finally { busy = false; controls(); }
         };

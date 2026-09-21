@@ -4,13 +4,15 @@ const {chromium}=require(process.env.DSF_PLAYWRIGHT_MODULE), assert=require('nod
  try{
   const page=await browser.newPage({viewport:{width:1200,height:1000}});
   const errors=[];page.on('pageerror',e=>errors.push(e.message));
-  await page.goto('http://127.0.0.1:5192/');
+  const fixtureBase=process.env.DSF_SPACES_FIXTURE_URL || 'http://127.0.0.1:5192';
+  await page.goto(fixtureBase);
   const selector=page.locator('[data-space-select]');
   await selector.waitFor();
   const suffix=Date.now(), title='灯台出版 '+suffix;
   await page.getByRole('button',{name:'スペースを開設'}).click();
   await page.locator('input[name=name]').fill(title);
-  await page.locator('[data-space-form]').getByRole('button',{name:'開設',exact:true}).click();
+  await page.getByRole('dialog').getByRole('button',{name:'内容を確認',exact:true}).click();
+  await page.getByRole('dialog').getByRole('button',{name:'この内容で開設',exact:true}).click();
   await page.waitForFunction(title=>document.querySelector('[data-space-select]')?.selectedOptions[0]?.textContent===title,title);
   const spaceId=await selector.inputValue();
   assert.equal(await page.locator('[data-project-id]').count(),0,'empty new space must not implicitly migrate works');
@@ -45,12 +47,12 @@ const {chromium}=require(process.env.DSF_PLAYWRIGHT_MODULE), assert=require('nod
   await page.reload();await selector.waitFor();
   await page.waitForFunction(()=>[...document.querySelectorAll('[data-profile-image] img')].length===2 && [...document.querySelectorAll('[data-profile-image] img')].every(i=>i.complete && i.naturalWidth>0));
   assert.ok((await page.locator('.space-profile-description').textContent()).includes('短編小説'));
-  const profile = await (await page.request.get('http://127.0.0.1:5192/api/publishing-spaces',{headers:{Authorization:'Bearer fixture-owner'}})).json();
+  const profile = await (await page.request.get(fixtureBase+'/api/publishing-spaces',{headers:{Authorization:'Bearer fixture-owner'}})).json();
   const saved = profile.spaces.find(s=>s.id===spaceId);
   assert.match(saved.profile.icon,/^[a-f0-9]{64}$/);
   assert.match(saved.profile.banner,/^[a-f0-9]{64}$/);
   assert.equal(JSON.stringify(saved).includes('data:image'),false,'Firestore stores references only');
-  const forbidden = await page.request.post('http://127.0.0.1:5192/api/publishing-spaces',{headers:{Authorization:'Bearer fixture-other'},data:{kind:'readImage',spaceId,slot:'icon'}});
+  const forbidden = await page.request.post(fixtureBase+'/api/publishing-spaces',{headers:{Authorization:'Bearer fixture-other'},data:{kind:'readImage',spaceId,slot:'icon'}});
   assert.equal(forbidden.status(),403);
   // Cancel keeps the saved profile. Removing an image is explicit and persistent.
   await page.getByRole('button',{name:'基本情報を設定',exact:true}).click();
@@ -92,7 +94,7 @@ const {chromium}=require(process.env.DSF_PLAYWRIGHT_MODULE), assert=require('nod
   assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),'mobile settings fit');
   await page.getByRole('button',{name:'キャンセル',exact:true}).click();
   assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),'mobile fits');
-  const docs=await (await page.request.get('http://127.0.0.1:5192/fixture/proof')).json();
+  const docs=await (await page.request.get(fixtureBase+'/fixture/proof')).json();
   const book=docs.find(x=>x[0]==='users/owner_1/projects/book_1')[1];
   assert.deepEqual(book.blocks,[{text:'本文を変更しない'}]);
   assert.equal(docs.find(x=>x[0]==='public_projects/work_1')[1].releaseId,'release_1');
@@ -107,7 +109,7 @@ const {chromium}=require(process.env.DSF_PLAYWRIGHT_MODULE), assert=require('nod
   await page.getByRole('button',{name:'変更を保存',exact:true}).click();
   await page.getByText('保存できませんでした。接続を確認して再試行してください。',{exact:true}).waitFor();
   await page.unroute('**/api/publishing-spaces');
-  const readCatalogue=async()=> (await page.request.get('http://127.0.0.1:5192/api/publishing-spaces',{headers:{Authorization:'Bearer fixture-owner'}})).json();
+  const readCatalogue=async()=> (await page.request.get(fixtureBase+'/api/publishing-spaces',{headers:{Authorization:'Bearer fixture-owner'}})).json();
   const afterLost=await readCatalogue();
   await page.getByRole('button',{name:'変更を保存',exact:true}).click();
   await page.waitForFunction(()=>document.querySelector('.publishing-space-status')?.textContent==='保存しました。');
@@ -115,7 +117,7 @@ const {chromium}=require(process.env.DSF_PLAYWRIGHT_MODULE), assert=require('nod
   // Another editor updates after this form was opened: retain their latest change.
   await page.getByRole('button',{name:'基本情報を設定',exact:true}).click();
   await page.locator('textarea[name=description]').fill('古い画面からの内容');
-  await page.request.post('http://127.0.0.1:5192/api/publishing-spaces',{headers:{Authorization:'Bearer fixture-owner'},data:{
+  await page.request.post(fixtureBase+'/api/publishing-spaces',{headers:{Authorization:'Bearer fixture-owner'},data:{
     kind:'profile',spaceId,name:afterLost.spaces.find(s=>s.id===spaceId).name,baseRevision:afterLost.revision,
     profile:{description:'他の画面で更新した概要',website:''}}});
   await page.getByRole('button',{name:'変更を保存',exact:true}).click();
