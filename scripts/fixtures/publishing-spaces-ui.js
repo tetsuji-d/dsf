@@ -4,7 +4,7 @@ import { choosePublishingSpace } from '/js/publishing-space-publish-dialog.js';
 let uid='owner_1', locale='ja';
 const users=Object.fromEntries(['owner_1','owner_2'].map(uid=>[uid,{uid,getIdToken:async()=>uid==='owner_1'?'fixture-owner':'fixture-other'}]));
 const projects=[{id:'book_1',title:'潮騒の図書館'},{id:'book_2',title:'旅の写真集'}];
-const ui=createPublishingSpaceUI({root:document.getElementById('spaces'),getUid:()=>uid,getLocale:()=>locale,
+const ui=createPublishingSpaceUI({root:document.getElementById('spaces'),switcherRoots:new URLSearchParams(location.search).has('legacy')?[]:[document.getElementById('fixture-space-switcher')],getUid:()=>uid,getLocale:()=>locale,
     request:createPublishingSpacesClient({getUser:()=>users[uid]}),onChange:render});
 function render(){
     ui.render();

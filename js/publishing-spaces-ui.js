@@ -25,11 +25,14 @@ const copy = {
         count:'manuscripts', owner:'Owner', space:'Publishing space', destination:'Saved in: Cloud', noProjects:'No manuscripts in this view.',
     },
 };
-export function createPublishingSpaceUI({ root, request, getLocale, getUid, onChange, storage = globalThis.localStorage }) {
+export function createPublishingSpaceUI({ root, request, getLocale, getUid, onChange, switcherRoots = [], onSelect, storage = globalThis.localStorage }) {
     let uid = '', data = null, selected = 'all', loading = false, failed = false, failureCode = '', busy = false, form = null, notice = '', generation = 0, pending = null, creation = null;
     let opening = false;
     let imageCache = new Map(), imageLoading = new Set(), imageFailed = new Set(), converting = false;
     const tr = () => copy[getLocale() === 'en' ? 'en' : 'ja'];
+    const switchers = Array.from(switcherRoots).filter(Boolean);
+    const selectionLabel = () => !data || selected === 'all' ? tr().all : selected === 'unassigned' ? tr().unassigned : active()?.name || tr().all;
+
 
     function errorMessage(code, saving = false) {
         const en = getLocale() === 'en';
@@ -57,6 +60,73 @@ export function createPublishingSpaceUI({ root, request, getLocale, getUid, onCh
         if (data && value.revision < data.revision) return;
         data = value; failed = false; failureCode = '';
         if (!['all', 'unassigned'].includes(selected) && !active()) selected = 'all';
+    }
+    function selectSpace(value) {
+        sync();
+        if (!data || busy || converting || opening || !['all','unassigned',...data.spaces.map(s=>s.id)].includes(value)) return;
+        selected = value; form = null; notice = ''; remember();
+        render(); onChange?.(); onSelect?.();
+    }
+    function iconHtml(space, id) {
+        const source = space && imageCache.get(space.id + ':icon:' + space.profile?.icon);
+        return source ? '<img alt="" src="' + escape(source) + '">' : '<span aria-hidden="true">' + escape(space ? Array.from(space.name)[0] : id === 'unassigned' ? '—' : '▦') + '</span>';
+    }
+    function updateSwitcherIcons() {
+        for (const host of switchers) for (const icon of host.querySelectorAll('[data-space-avatar]')) {
+            const id = icon.dataset.spaceAvatar;
+            icon.innerHTML = iconHtml(data?.spaces.find(s=>s.id===id),id);
+        }
+    }
+    function renderSwitchers() {
+        const t = tr(), en = getLocale() === 'en';
+        for (const [index,host] of switchers.entries()) {
+            if (!host.querySelector('[data-space-trigger]')) {
+                host.classList.add('space-switcher');
+                host.innerHTML = '<button type="button" class="space-switcher-trigger" data-space-trigger><span class="space-switcher-avatar" data-space-avatar></span><span class="space-switcher-chevron" aria-hidden="true">⌄</span></button><div class="space-switcher-popup" popover="auto"></div>';
+                const trigger = host.querySelector('[data-space-trigger]'), popup = host.querySelector('[popover]');
+                popup.id = 'publishing-space-switcher-' + index;
+                window.addEventListener('resize',()=>{if(popup.matches(':popover-open'))popup.hidePopover();});
+                popup.setAttribute('role','dialog');trigger.setAttribute('popovertarget',popup.id);trigger.setAttribute('aria-haspopup','dialog');trigger.setAttribute('aria-controls',popup.id);
+                trigger.onclick = () => {
+                    const rect = trigger.getBoundingClientRect();
+                    popup.style.left = Math.max(8, Math.min(rect.left, innerWidth - Math.min(340, innerWidth - 16) - 8)) + 'px';
+                    popup.style.top = (rect.bottom + 8) + 'px';
+                };
+                popup.addEventListener('toggle', () => {
+                    const open = popup.matches(':popover-open'); trigger.setAttribute('aria-expanded',String(open));
+                    if (open) {
+                        (popup.querySelector('[aria-pressed="true"]') || popup.querySelector('button'))?.focus();
+                        for (const space of data?.spaces || []) loadImages(space,['icon']);
+                    }
+                });
+                popup.addEventListener('keydown',event=>{
+                    const buttons=[...popup.querySelectorAll('button:not(:disabled)')], i=buttons.indexOf(document.activeElement);
+                    if (['ArrowDown','ArrowUp','Home','End'].includes(event.key) && buttons.length) {
+                        event.preventDefault();buttons[event.key==='Home'?0:event.key==='End'?buttons.length-1:(i+(event.key==='ArrowDown'?1:-1)+buttons.length)%buttons.length].focus();
+                    }
+                });
+                popup.addEventListener('click', event => {
+                    const choice=event.target.closest('[data-space-choice]'), create=event.target.closest('[data-switcher-create]'), retry=event.target.closest('[data-switcher-retry]');
+                    if (!choice && !create && !retry) return;
+                    popup.hidePopover();trigger.focus();
+                    if (choice) selectSpace(choice.dataset.spaceChoice);
+                    else if (create) root.querySelector('[data-space-create]')?.click();
+                    else void load({notify:true});
+                });
+            }
+            const trigger=host.querySelector('[data-space-trigger]'), popup=host.querySelector('[popover]');
+            const focused=document.activeElement?.dataset?.spaceChoice;
+            trigger.title=t.select + ': ' + (uid ? selectionLabel() : t.title);
+            trigger.setAttribute('aria-label',trigger.title);trigger.setAttribute('aria-expanded',String(popup.matches(':popover-open')));
+            trigger.querySelector('[data-space-avatar]').dataset.spaceAvatar=active()?.id || selected;
+            popup.setAttribute('aria-label',t.select);
+            const locked=busy || converting || opening;
+            popup.innerHTML='<h3>'+t.title+'</h3>' + (!uid ? '<p>'+t.login+'</p>' : failed ? '<p>'+errorMessage(failureCode)+'</p><button type="button" data-switcher-retry>'+t.retry+'</button>' : !data ? '<p role="status">'+t.loading+'</p>' :
+                '<div class="space-switcher-list">'+[{id:'all',name:t.all},{id:'unassigned',name:t.unassigned},...data.spaces].map(space=>
+                    '<button type="button" class="space-switcher-choice" data-space-choice="'+escape(space.id)+'" aria-pressed="'+String(selected===space.id)+'" '+(locked?'disabled':'')+'><span class="space-switcher-avatar" data-space-avatar="'+escape(space.id)+'"></span><span class="space-switcher-name">'+escape(space.name)+'</span><span aria-hidden="true" class="space-switcher-check">'+(selected===space.id?'✓':'')+'</span></button>').join('')+'</div><button type="button" class="space-switcher-create" data-switcher-create '+(locked?'disabled':'')+'>＋ '+t.create+'</button><p class="space-switcher-note">'+(en?'Choose a space to view its dashboard.':'スペースを選ぶとダッシュボードを表示します。')+'</p>');
+            updateSwitcherIcons();
+            if (focused !== undefined) [...popup.querySelectorAll('[data-space-choice]')].find(b=>b.dataset.spaceChoice===focused)?.focus();
+        }
     }
     function options(value, includeAll = false) {
         const t = tr();
@@ -112,9 +182,9 @@ export function createPublishingSpaceUI({ root, request, getLocale, getUid, onCh
             + '</div><h4>' + escape(draft?.name ?? space.name) + '</h4><p class="space-profile-description">' + escape(profile.description || t.blankDescription)
             + '</p>' + (url ? '<a href="' + escape(url) + '" target="_blank" rel="noopener noreferrer">' + escape(profile.website) + '</a>' : '') + '</div></div>';
     }
-    function loadImages(space) {
+    function loadImages(space, slots = ['icon','banner']) {
         if (!space) return;
-        for (const slot of ['icon','banner']) {
+        for (const slot of slots) {
             const hash = space.profile?.[slot], key = space.id + ':' + slot + ':' + hash;
             if (!hash || imageCache.has(key) || imageLoading.has(key) || imageFailed.has(key)) continue;
             const epoch = generation;
@@ -123,6 +193,7 @@ export function createPublishingSpaceUI({ root, request, getLocale, getUid, onCh
                 sync();
                 if (epoch !== generation || value.uid !== uid) return;
                 imageCache.set(key, value.dataUrl);
+                updateSwitcherIcons();
                 if (active()?.id === space.id) updatePreview();
             }).catch(() => {
                 if (epoch === generation) { imageFailed.add(key); notice = tr().readImageError; const status = root.querySelector('[role=status]'); if (status) status.textContent = notice;
@@ -146,11 +217,12 @@ export function createPublishingSpaceUI({ root, request, getLocale, getUid, onCh
     }
     function render() {
         sync(); const t = tr();
+        renderSwitchers();
         if (!root) return;
         root.innerHTML = '<div class="publishing-space-heading"><div><h3>' + t.title + '</h3><p>' + t.hint + '</p></div></div>'
             + (!uid ? '<p>' + t.login + '</p>' : failed ? '<p role="status">' + errorMessage(failureCode) + '</p><button type="button" data-space-retry>' + t.retry + '</button>'
             : !data ? '<p role="status">' + t.loading + '</p>' :
-            '<div class="publishing-space-controls"><label>' + t.select + '<select data-space-select ' + (busy ? 'disabled' : '') + '>' + options(selected, true) + '</select></label>'
+            '<div class="publishing-space-controls">' + (switchers.length ? '' : '<label>' + t.select + '<select data-space-select ' + (busy ? 'disabled' : '') + '>' + options(selected, true) + '</select></label>')
             + '<button type="button" data-space-create ' + (busy ? 'disabled' : '') + '>' + t.create + '</button>'
             + (active() ? '<button type="button" data-space-settings ' + (busy ? 'disabled' : '') + '>' + t.settings + '</button>' : '') + '</div>'
             + (active() ? '<div data-space-preview>' + profileHtml(active(), form?.kind === 'profile' ? {...form.profile,name:form.value} : null) + '</div>' : '')
@@ -185,7 +257,7 @@ export function createPublishingSpaceUI({ root, request, getLocale, getUid, onCh
         if (converting) root.querySelectorAll('[data-space-image]').forEach(el => { el.disabled = true; });
         root.querySelector('[data-space-retry-images]')?.addEventListener('click', () => { imageFailed.clear(); notice = ''; render(); });
         loadImages(active());
-        root.querySelector('[data-space-select]')?.addEventListener('change', e => { selected = e.target.value; form = null; notice = ''; remember(); render(); onChange?.(); });
+        root.querySelector('[data-space-select]')?.addEventListener('change', e => selectSpace(e.target.value));
         root.querySelector('[data-space-create]')?.addEventListener('click', async () => {
             if (opening || busy) return;
             const owner = uid; opening = true;
@@ -194,8 +266,8 @@ export function createPublishingSpaceUI({ root, request, getLocale, getUid, onCh
                 sync(); if (!result || uid !== owner) return;
                 apply(result.catalogue); selected = result.spaceId; remember(); form = null;
                 notice = getLocale() === 'en' ? 'Your publishing space is ready. Set up its profile or add a manuscript.' : '出版スペースを開設しました。基本情報の設定や原稿の追加へ進めます。';
-                render(); onChange?.();
-            } finally { opening = false; root.querySelector('[data-space-create]')?.focus(); }
+                render(); onChange?.(); onSelect?.();
+            } finally { opening = false; renderSwitchers(); (switchers.find(h=>h.getBoundingClientRect().width)?.querySelector('[data-space-trigger]') || root.querySelector('[data-space-create]'))?.focus(); }
         });
         root.querySelector('[data-space-cancel]')?.addEventListener('click', () => { form = null; render(); });
         root.querySelector('[data-space-retry]')?.addEventListener('click', async () => { imageFailed.clear(); await load(); onChange?.(); });

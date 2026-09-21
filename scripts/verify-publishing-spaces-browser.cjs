@@ -5,7 +5,7 @@ const {chromium}=require(process.env.DSF_PLAYWRIGHT_MODULE), assert=require('nod
   const page=await browser.newPage({viewport:{width:1200,height:1000}});
   const errors=[];page.on('pageerror',e=>errors.push(e.message));
   const fixtureBase=process.env.DSF_SPACES_FIXTURE_URL || 'http://127.0.0.1:5192';
-  await page.goto(fixtureBase);
+  await page.goto(fixtureBase+'?legacy=1');
   const selector=page.locator('[data-space-select]');
   await selector.waitFor();
   const suffix=Date.now(), title='灯台出版 '+suffix;

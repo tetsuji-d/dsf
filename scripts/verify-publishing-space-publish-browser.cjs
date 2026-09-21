@@ -9,7 +9,7 @@ const {chromium}=require(process.env.DSF_PLAYWRIGHT_MODULE), assert=require('nod
     const r=await page.request.fetch(base+'/api/publishing-spaces',{method:command?'POST':'GET',headers:{Authorization:'Bearer fixture-owner','Content-Type':'application/json'},...(command?{data:command}:{})});
     assert(r.ok(),await r.text());return r.json();
   };
-  await page.goto(base); await page.locator('[data-space-select]').waitFor();
+  await page.goto(base); await page.locator('[data-space-create]').waitFor();
   const initial=await api();if(initial.assignments.book_1)await api({kind:'assign',projectId:'book_1',spaceId:null,expectedSpaceId:initial.assignments.book_1,baseRevision:initial.revision});
   const before=await (await page.request.get(base+'/fixture/proof')).json();
   const open=()=>page.locator('#fixture-publish').click();

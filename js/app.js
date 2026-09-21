@@ -4298,6 +4298,8 @@ let publishingSpaceUI;
 function getPublishingSpaceUI() {
     if (!publishingSpaceUI) publishingSpaceUI = createPublishingSpaceUI({
         root: document.getElementById('home-publishing-spaces'),
+        switcherRoots: [document.getElementById('studio-space-switcher'), document.getElementById('mobile-space-switcher')],
+        onSelect: () => { if (getCurrentRoom() !== 'home') window.switchRoom('home'); },
         request: requestPublishingSpaces, getUid: () => state.uid, getLocale: getUILang,
         onChange: () => { void renderHomeDashboard({ refreshSpaces: false }); },
     });
@@ -11095,6 +11097,7 @@ window.previewEditorInViewer = openEditorViewerPreview;
 window.setStudioUILang = (lang) => {
     setUILang(lang);
     const currentRoom = getCurrentRoom();
+    getPublishingSpaceUI().render();
     // 動的レンダリング済みコンポーネントを再描画
     renderLangTabs();
     updateAuthUI();
