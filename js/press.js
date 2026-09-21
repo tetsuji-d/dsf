@@ -1,3 +1,4 @@
+import { ensurePublishingSpace } from './publishing-space-publish.js';
 import { preparePrivateProjectAction, runPrivateProjectAction } from './private-project-actions.js';
 import { renderPressModuleLoadError } from './press-module-load-error.js';
 import {appendFlowGraphicPreview} from './graphic-object-renderer.js';
@@ -3338,6 +3339,9 @@ window.updatePressBookCover = (key, value) => {
 
 /** Press Room の「Horizonへ下書き保存」ボタンから呼ばれる */
 window.publishToCloud = async () => {
+    const spaceProjectId = state.projectId, spaceEpoch = getProjectSessionEpoch();
+    if (!await ensurePublishingSpace({projectId:spaceProjectId, purpose:'draft',
+        isCurrent:() => state.projectId === spaceProjectId && getProjectSessionEpoch() === spaceEpoch})) return;
     if (hasFlowGroups(state)) {
         if (!_isPressFlowHorizonHandoffReady()) {
             alert('Flow作品のHorizon配信準備が完了していません。発行言語、翻訳、フォント、クラウド保存状態を確認してください。');

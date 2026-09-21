@@ -1125,3 +1125,7 @@ revision・spaceIds・projectIdからspaceIdへの関連付けを保存する。
 招待・所有権移転・共有編集・課金・公開インデックスへの出版者情報追加は別単位。
 
 出版スペース画像は非公開R2の専用prefixに保存し、Firestoreには参照だけを記録する。詳細・上限は上記仕様を参照。
+
+新規Horizon発行はcatalogue内のprojectId→spaceIdとspaceIdsの整合した関連付けを必要とする。
+既存公開作品の閲覧・同じReleaseの公開状態維持には所属を要求しない。
+本文保存・DSP/DSF形式は変更しない。適用順はpublishing-spaces.mdの「制作とHorizon発行の境界」を参照。

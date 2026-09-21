@@ -1,3 +1,4 @@
+import { ensurePublishingSpace } from './publishing-space-publish.js';
 import { preparePrivateProjectAction, runPrivateProjectAction } from './private-project-actions.js';
 import { deleteCloudProject } from './projects.js';
 /**
@@ -1035,6 +1036,8 @@ async function _updateDsfStatus(pid, newStatus, proj, row, ownerUid = state.uid)
         let account = null;
         if (newStatus === 'public' || newStatus === 'unlisted') {
             account = await assertAccountCanPublish();
+            if (!['public', 'unlisted'].includes(proj?.dsfStatus)
+                && !await ensurePublishingSpace({projectId:pid, purpose:'publication', isCurrent:() => state.uid === ownerUid})) return null;
         } else {
             account = await assertAccountCanEdit();
         }

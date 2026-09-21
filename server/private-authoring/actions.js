@@ -1,3 +1,4 @@
+import { publicationNeedsSpace, assignedPublishingSpace } from '../../js/publishing-space-policy.js';
 import { check, segment } from './common.js';
 import { paths, readContext, usageValue, AUTHORING_LIMITS } from './service.js';
 import { createPrivateAuthoringSnapshot, assertPrivateAuthoringHead } from '../../js/private-authoring-storage.js';
@@ -17,8 +18,14 @@ function assertBase(context, command) {
     check(context.control.generationId === command.generationId && context.head?.revision === command.baseRevision
         && (context.control.mutationRevision || 0) === command.mutationRevision, 'AUTHORING_REVISION_CONFLICT', 409);
 }
-export function createProjectActions({ db, bucket, service, assertLiveIdentity, verifyRelease, publicBaseUrl, now = Date.now }) {
+export function createProjectActions({ db, bucket, service, assertLiveIdentity, verifyRelease, publicBaseUrl, requirePublishingSpace = false, now = Date.now }) {
     const origins = () => [new URL(publicBaseUrl).origin];
+    async function assertSpace(tx, uid, projectId, project, kind, status) {
+        if (!requirePublishingSpace || !(kind === 'draft' || (kind === 'publication' && ['public', 'unlisted'].includes(status)))
+            || !publicationNeedsSpace(project, kind)) return;
+        const [catalogue] = await tx.getMany([`users/${uid}/publishing/catalogue`]);
+        check(assignedPublishingSpace(catalogue, projectId), 'PUBLISHING_SPACE_REQUIRED', 409);
+    }
     async function gate(identity, projectId, command) {
         await assertLiveIdentity(identity);
         return db.transaction(async tx => {
@@ -88,6 +95,11 @@ export function createProjectActions({ db, bucket, service, assertLiveIdentity, 
                 return result;
             }
             assertBase(initial, command);
+            // Fail before loading the source or verifying/uploading release objects; check again at commit.
+            if (requirePublishingSpace && (command.kind === 'draft' || (command.kind === 'publication' && ['public','unlisted'].includes(payload.status)))
+                && publicationNeedsSpace(initial.root, command.kind)) {
+                await db.transaction(tx => assertSpace(tx, identity.uid, projectId, initial.root, command.kind, payload.status));
+            }
             let savedSource = null, draft = null;
             if (command.kind === 'draft') {
                 check(initial.account.status?.moderationHold !== true, 'ACCOUNT_CANNOT_PUBLISH', 403);
@@ -130,6 +142,7 @@ export function createProjectActions({ db, bucket, service, assertLiveIdentity, 
                 check(work?.ownerUid === identity.uid && work.projectId === projectId, 'WORK_ID_CONFLICT', 409);
                 const indexes = remaining.slice(0, indexPaths.length), release = releasePath ? remaining.at(-1) : null;
                 indexes.forEach(index => check(!index || index.authorUid === identity.uid, 'PUBLIC_INDEX_OWNER_CONFLICT', 409));
+                await assertSpace(tx, identity.uid, projectId, c.root, command.kind, payload.status);
                 const timestamp = new Date(now()); let result, patch = null;
                 const publicIndexes = Object.fromEntries(indexPaths.map((path, i) => [path.split('/').at(-1), indexes[i]]));
                 if (command.kind === 'delete') {

@@ -62,6 +62,14 @@ export function createPublishingSpacesClient({getUser, fetcher = globalThis.fetc
         const text = await boundedText(response,current); current();
         let data; try { data = JSON.parse(text); } catch { fail('SPACES_UNAVAILABLE'); }
         if (!response.ok) fail(typeof data?.error === 'string' ? data.error : 'SPACES_UNAVAILABLE');
-        return validate(data,user.uid,command?.kind === 'readImage');
+        const validated = validate(data,user.uid,command?.kind === 'readImage');
+        if (command?.kind === 'publicationContext') {
+            const p = validated.publication;
+            if (!record(p) || p.projectId !== command.projectId || p.purpose !== command.purpose
+                || typeof p.required !== 'boolean' || (p.spaceId !== null && (!id(p.spaceId)
+                || validated.assignments[command.projectId] !== p.spaceId
+                || !validated.spaces.some(space => space.id === p.spaceId)))) fail('SPACES_RESPONSE_INVALID');
+        }
+        return validated;
     };
 }

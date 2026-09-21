@@ -1,3 +1,4 @@
+import { publicationNeedsSpace, assignedPublishingSpace } from '../js/publishing-space-policy.js';
 import { check, segment, AuthoringApiError, parseJson, readBounded } from './private-authoring/common.js';
 import { createGoogleClient, createIdTokenVerifier } from './private-authoring/google-auth.js';
 import { inspectDsfWebPBytes, sha256DsfBytes } from '../js/dsf-release-byte-sealing.js';
@@ -25,7 +26,12 @@ export function createPublishingSpacesService({ db, assertLiveIdentity, now = Da
             return {schemaVersion:1, uid:identity.uid, dataUrl:'data:image/webp;base64,' + btoa(binary)};
         }
         let prepared = null;
-        if (command) {
+        const publicationCheck = command?.kind === 'publicationContext';
+        if (publicationCheck) {
+            segment(command.projectId);
+            check(['draft', 'publication'].includes(command.purpose), 'INVALID_COMMAND', 400);
+        }
+        if (command && !publicationCheck) {
             check(command && !Array.isArray(command) && ['create', 'rename', 'assign', 'profile'].includes(command.kind), 'INVALID_COMMAND', 400);
             check(Number.isSafeInteger(command.baseRevision) && command.baseRevision >= 0, 'INVALID_REVISION', 400);
             if (command.kind !== 'assign') {
@@ -46,7 +52,7 @@ export function createPublishingSpacesService({ db, assertLiveIdentity, now = Da
             const [account, stored] = await tx.getMany([accountPath, indexPath]);
             check(account?.uid === identity.uid && account.status?.disabled === false
                 && account.status?.moderationHold !== true, 'ACCOUNT_UNAVAILABLE', 403);
-            if (command) check(account.entitlements?.canCreateProject === true, 'EDIT_FORBIDDEN', 403);
+            if (command && !publicationCheck) check(account.entitlements?.canCreateProject === true, 'EDIT_FORBIDDEN', 403);
             const index = stored || { schemaVersion: 1, revision: 0, spaceIds: [], assignments: {} };
             check(index.schemaVersion === 1 && Array.isArray(index.spaceIds) && index.spaceIds.length <= 32
                 && index.spaceIds.every(id => /^space_[a-z0-9-]{16,64}$/.test(id))
@@ -64,6 +70,12 @@ export function createPublishingSpacesService({ db, assertLiveIdentity, now = Da
                 assignments: index.assignments,
             });
             if (!command) return result();
+            if (publicationCheck) {
+                const [project] = await tx.getMany([accountPath + '/projects/' + command.projectId]);
+                check(project && (!project.ownerUid || project.ownerUid === identity.uid), 'PROJECT_NOT_FOUND', 404);
+                return {...result(), publication: {projectId:command.projectId, purpose:command.purpose,
+                    required:publicationNeedsSpace(project, command.purpose), spaceId:assignedPublishingSpace(index, command.projectId)}};
+            }
             const space = command.spaceId ? spaces[ids.indexOf(command.spaceId)] : null;
             if (command.kind !== 'create' && command.spaceId) {
                 check(index.spaceIds.includes(command.spaceId) && space?.ownerUid === identity.uid, 'SPACE_FORBIDDEN', 403);

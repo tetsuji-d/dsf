@@ -83,6 +83,32 @@ try {
     await batch.commit(); checks++;
     await denied(() => getDoc(doc(other, `${legacy}/authoring/current`)));
     const deletion = writeBatch(owner); deletion.delete(doc(owner, legacy)); deletion.delete(doc(owner, `${legacy}/authoring/current`)); await deletion.commit(); checks++;
+    // New publication requires a server-owned assignment; editing remains available.
+    const draftPath='users/owner/projects/space_draft', legacyPublic='users/owner/projects/old_public';
+    await setDoc(doc(owner,draftPath),{version:5,projectId:'space_draft',title:'Draft',dsfStatus:'draft',releaseId:null}); checks++;
+    await setDoc(doc(owner,draftPath),{title:'Edited without a space'},{merge:true}); checks++;
+    await denied(()=>setDoc(doc(owner,draftPath),{dsfStatus:'public'},{merge:true}));
+    await denied(()=>setDoc(doc(owner,draftPath),{releaseId:'new'},{merge:true}));
+    await denied(()=>setDoc(doc(owner,'users/owner/publishing/catalogue'),{schemaVersion:1,spaceIds:['s'],assignments:{space_draft:'s'}}));
+    await admin.doc(legacyPublic).set({version:5,projectId:'old_public',dsfStatus:'public',releaseId:'old'});
+    await setDoc(doc(owner,legacyPublic),{dsfStatus:'unlisted',title:'Existing remains editable'},{merge:true}); checks++;
+    await denied(()=>setDoc(doc(owner,legacyPublic),{releaseId:'new'},{merge:true}));
+    await admin.doc('users/owner/publishing/catalogue').set({schemaVersion:1,spaceIds:['s'],assignments:{space_draft:'s'}});
+    await setDoc(doc(owner,draftPath),{releaseId:'new',dsfStatus:'draft'},{merge:true}); checks++;
+    await setDoc(doc(owner,draftPath),{dsfStatus:'public'},{merge:true}); checks++;
+    await admin.doc('users/owner/publishing/catalogue').delete();
+    await setDoc(doc(owner,draftPath),{dsfStatus:'private'},{merge:true}); checks++;
+    await denied(()=>setDoc(doc(owner,draftPath),{dsfStatus:'unlisted'},{merge:true}));
+    // A direct public index write cannot bypass the project gate.
+    const stamp=new Date(), publication={listedFrom:stamp,listedUntil:new Date(+stamp+86400000),publicFrom:stamp,
+      publicUntil:null,expiredAt:null,expireReason:null,planSnapshot:{tier:'free',status:'active',cancelAtPeriodEnd:false,evaluatedAt:stamp}};
+    await admin.doc('users/owner').set({billing:{tier:'free',status:'active'}},{merge:true});
+    const index={authorUid:'owner',projectId:'space_draft',workId:'space_work',dsfStatus:'public',publication};
+    await denied(()=>setDoc(doc(owner,'public_projects/space_work'),index));
+    await admin.doc('users/owner/publishing/catalogue').set({schemaVersion:1,spaceIds:['s'],assignments:{space_draft:'s'}});
+    await setDoc(doc(owner,'public_projects/space_work'),index); checks++;
+    await admin.doc('users/owner/publishing/catalogue').delete();
+    await setDoc(doc(owner,'public_projects/old_work'),{...index,projectId:'old_public',workId:'old_work'}); checks++;
     // Real emulator REST transactions exercise typed exports and atomic migration/rollback.
     const f = maintenanceFixture(), target = maintenanceScope, r = `users/${target.uid}/projects/${target.projectId}`;
     for (const [path, raw] of f.docs) await admin.doc(path).set(decodeFirestoreValue({ mapValue: { fields: raw.fields } }));

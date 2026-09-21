@@ -1,7 +1,7 @@
 import { prepareSpaceImage } from './publishing-space-image.js';
 const escape = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const copy = {
-    ja: { title:'出版スペース', hint:'作品を制作・管理・公開する場所です。スペースの切り替えでは、編集中の原稿の所属は変わりません。',
+    ja: { title:'出版スペース', hint:'作品を管理し、Horizonで発行する場所です。制作・保存・ファイル書き出しは所属未設定でもできます。表示の切り替えでは原稿の所属は変わりません。',
         settings:'基本情報を設定', description:'概要', website:'Webサイト', icon:'アイコン', banner:'背景画像', remove:'画像を削除', preview:'保存後の表示プレビュー', imageHint:'PNG・JPEG・WebP（20MBまで）。中央を切り抜き、アイコンは正方形、背景は3:1のWebPで保存します。', imageError:'画像を読み込めませんでした。別の画像を選択してください。', readImageError:'画像を取得できませんでした。再読み込みしてください。', blankDescription:'概要はまだありません。',
         all:'すべてのクラウド原稿', unassigned:'所属未設定', select:'表示する出版スペース', create:'スペースを開設', name:'スペース名',
         submit:'開設', cancel:'キャンセル', rename:'名前を変更', save:'変更を保存', login:'ログインすると出版スペースを開設・管理できます。',
@@ -12,7 +12,7 @@ const copy = {
         error:'保存できませんでした。接続を確認して再試行してください。', saved:'保存しました。', working:'保存中…',
         count:'原稿', owner:'所有者', space:'出版スペース', destination:'保存先：クラウド', noProjects:'この表示範囲に原稿はありません。',
     },
-    en: { title:'Publishing spaces', hint:'A place to create, manage and publish your works. Switching this view does not move the manuscript open in the editor.',
+    en: { title:'Publishing spaces', hint:'A place to manage and publish works on Horizon. Creating, saving and exporting files do not require a space. Switching this view does not change manuscript membership.',
         settings:'Edit space profile', description:'About', website:'Website', icon:'Icon', banner:'Background image', remove:'Remove image', preview:'Preview after saving', imageHint:'PNG, JPEG or WebP, up to 20 MB. Center-cropped to a square icon and a 3:1 background, then saved as WebP.', imageError:'Could not process this image. Choose another image.', readImageError:'Could not load the image. Please reload.', blankDescription:'No description yet.',
         all:'All cloud manuscripts', unassigned:'Not assigned', select:'Publishing space to display', create:'Create a space', name:'Space name',
         submit:'Create', cancel:'Cancel', rename:'Rename', save:'Save changes', login:'Sign in to create and manage publishing spaces.',

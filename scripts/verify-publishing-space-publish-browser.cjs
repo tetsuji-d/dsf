@@ -1,0 +1,65 @@
+const {chromium}=require(process.env.DSF_PLAYWRIGHT_MODULE), assert=require('node:assert/strict');
+(async()=>{
+ const browser=await chromium.launch({channel:'chrome',headless:true});
+ try {
+  const page=await browser.newPage({viewport:{width:430,height:932}}), errors=[];
+  page.on('pageerror',e=>errors.push(e.message));
+  const base=process.env.DSF_SPACES_FIXTURE_URL || 'http://127.0.0.1:5194';
+  const api=async command=>{
+    const r=await page.request.fetch(base+'/api/publishing-spaces',{method:command?'POST':'GET',headers:{Authorization:'Bearer fixture-owner','Content-Type':'application/json'},...(command?{data:command}:{})});
+    assert(r.ok(),await r.text());return r.json();
+  };
+  await page.goto(base); await page.locator('[data-space-select]').waitFor();
+  const before=await (await page.request.get(base+'/fixture/proof')).json();
+  const open=()=>page.locator('#fixture-publish').click();
+  const dialog=page.getByRole('dialog'), select=dialog.getByLabel('出版スペース',{exact:true});
+  await open();await dialog.getByRole('button',{name:'所属を保存して続ける'}).waitFor();
+  await dialog.getByRole('button',{name:'キャンセル',exact:true}).click();
+  assert.equal(await page.locator('#fixture-publish-result').textContent(),'CANCELLED');
+  assert.deepEqual(await (await page.request.get(base+'/fixture/proof')).json(),before);
+  // Inline creation and assignment, including narrow-screen layout.
+  await open();await select.selectOption('__new');
+  await dialog.getByLabel('新しいスペース名').fill('発行先の検証 '+Date.now());
+  await page.screenshot({path:'outputs/publishing-space-publish-mobile.png'});
+  assert(await dialog.evaluate(el=>el.getBoundingClientRect().right<=innerWidth && el.getBoundingClientRect().left>=0));
+  await dialog.getByRole('button',{name:'所属を保存して続ける'}).click();
+  await page.waitForFunction(()=>document.querySelector('#fixture-publish-result').textContent==='READY');
+  let data=await api();const spaceId=data.assignments.book_1;assert(spaceId);
+  const after=await (await page.request.get(base+'/fixture/proof')).json();
+  for(const [path,value] of before) assert.deepEqual(after.find(row=>row[0]===path)?.[1],value,'manuscript and existing publication unchanged');
+  await page.reload();await page.locator('#fixture-publish').waitFor();await open();
+  await page.waitForFunction(()=>document.querySelector('#fixture-publish-result').textContent==='READY');
+  assert.equal(await dialog.count(),0,'assigned manuscript continues without another selection');
+  const unassign=async()=>{const d=await api();return api({kind:'assign',projectId:'book_1',spaceId:null,expectedSpaceId:d.assignments.book_1,baseRevision:d.revision});};
+  await unassign();await page.reload();await page.locator('#fixture-publish').waitFor();
+  let lose=true;
+  await page.route('**/api/publishing-spaces',async route=>{
+    const cmd=route.request().postDataJSON();
+    if(lose && cmd?.kind==='assign'){lose=false;await route.fetch();await route.abort('failed');}else await route.continue();
+  });
+  await open();await select.selectOption(spaceId);await dialog.getByRole('button',{name:'所属を保存して続ける'}).click();
+  await dialog.getByRole('status').filter({hasText:'接続を確認'}).waitFor();
+  await dialog.getByRole('button',{name:'所属を保存して続ける'}).click();
+  await page.waitForFunction(()=>document.querySelector('#fixture-publish-result').textContent==='READY');
+  await page.unroute('**/api/publishing-spaces');
+  await unassign();await page.reload();await page.locator('#fixture-publish').waitFor();await open();await select.selectOption(spaceId);
+  data=await api();await api({kind:'rename',spaceId,name:'別の画面から変更',baseRevision:data.revision});
+  await dialog.getByRole('button',{name:'所属を保存して続ける'}).click();
+  await dialog.getByRole('status').filter({hasText:'別の画面'}).waitFor();
+  assert.equal((await api()).assignments.book_1,undefined,'stale membership never overwrites');
+  await select.selectOption(spaceId);await dialog.getByRole('button',{name:'所属を保存して続ける'}).click();
+  await page.waitForFunction(()=>document.querySelector('#fixture-publish-result').textContent==='READY');
+  await unassign();await page.reload();await page.locator('#fixture-publish').waitFor();
+  await page.locator('#language').click();await page.setViewportSize({width:1200,height:900});
+  await page.route('**/api/publishing-spaces',route=>route.abort('failed'));
+  await open();await dialog.getByRole('button',{name:'Retry',exact:true}).waitFor();
+  assert.equal(await dialog.getByRole('button',{name:'Save selection and continue'}).isVisible(),false);
+  await page.unroute('**/api/publishing-spaces');await dialog.getByRole('button',{name:'Retry',exact:true}).click();
+  await dialog.getByLabel('Publishing space',{exact:true}).selectOption(spaceId);
+  await page.screenshot({path:'outputs/publishing-space-publish-desktop-en.png'});
+  await dialog.getByRole('button',{name:'Cancel',exact:true}).click();
+  assert.equal((await api()).assignments.book_1,undefined);
+  assert.deepEqual(errors,[]);
+  console.log('Publish dialog: cancellation, inline creation, assignment, restore, lost response retry, stale conflict, offline retry, JA/EN and mobile passed.');
+ }finally{await browser.close();}
+})().catch(error=>{console.error(error);process.exitCode=1;});

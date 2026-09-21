@@ -1,5 +1,6 @@
 import { createPublishingSpaceUI } from '/js/publishing-spaces-ui.js';
 import { createPublishingSpacesClient } from '/js/publishing-spaces-transport.js';
+import { choosePublishingSpace } from '/js/publishing-space-publish-dialog.js';
 let uid='owner_1', locale='ja';
 const users=Object.fromEntries(['owner_1','owner_2'].map(uid=>[uid,{uid,getIdToken:async()=>uid==='owner_1'?'fixture-owner':'fixture-other'}]));
 const projects=[{id:'book_1',title:'潮騒の図書館'},{id:'book_2',title:'旅の写真集'}];
@@ -16,4 +17,12 @@ function render(){
 document.getElementById('language').onclick=()=>{locale=locale==='ja'?'en':'ja';render();};
 document.getElementById('account').onclick=async()=>{uid=uid==='owner_1'?'owner_2':'owner_1';render();await ui.load();render();};
 document.getElementById('open-file').onclick=()=>document.getElementById('file').click();
+const publishButton = document.createElement('button'); publishButton.id = 'fixture-publish'; publishButton.textContent = 'Horizonへ下書き保存';
+const publishResult = document.createElement('p'); publishResult.id = 'fixture-publish-result';
+document.body.append(publishButton, publishResult);
+publishButton.onclick = async () => {
+    const user = users[uid];
+    const result = await choosePublishingSpace({request:createPublishingSpacesClient({getUser:()=>users[uid]}), projectId:'book_1', purpose:'draft', getLocale:()=>locale, isCurrent:()=>user === users[uid]});
+    publishResult.textContent = result ? 'READY' : 'CANCELLED'; await ui.load(); render();
+};
 await ui.load();render();

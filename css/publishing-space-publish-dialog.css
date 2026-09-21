@@ -1,0 +1,9 @@
+.publishing-space-publish-dialog { width:min(480px,calc(100vw - 32px)); box-sizing:border-box; max-height:calc(100dvh - 40px); overflow:auto; padding:24px; border:1px solid #8c98ab; border-radius:16px; background:var(--bg-primary,#fff); color:var(--text-primary,#172033); box-shadow:0 12px 50px #0004; }
+.publishing-space-publish-dialog::backdrop { background:#11182780; }
+.publishing-space-publish-dialog h2 { font-size:1.2rem; margin:0 0 12px; }
+.publishing-space-publish-dialog p { line-height:1.6; }
+.publishing-space-publish-dialog label { display:block; margin:16px 0; }
+.publishing-space-publish-dialog select,.publishing-space-publish-dialog input { display:block; box-sizing:border-box; width:100%; margin-top:8px; padding:10px; font:inherit; }
+.publishing-space-publish-actions { display:flex; flex-wrap:wrap; gap:10px; justify-content:flex-end; }
+.publishing-space-publish-actions button { padding:10px 14px; min-height:44px; font:inherit; cursor:pointer; }
+.publishing-space-publish-dialog [hidden] { display:none !important; }

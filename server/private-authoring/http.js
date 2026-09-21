@@ -146,6 +146,7 @@ export async function handlePrivateAuthoring(context) {
             const db = createFirestoreStore(google), bucket = createAuthoringBucket(env.AUTHORING_BUCKET);
             const service = createAuthoringService({ db, bucket, assertLiveIdentity: google.assertLiveIdentity });
             const actions = createProjectActions({ db, bucket, service, assertLiveIdentity: google.assertLiveIdentity,
+                requirePublishingSpace: env.PUBLISHING_SPACES_ENABLED === 'true',
                 verifyRelease: createReleaseVerifier(env.R2_BUCKET, env.R2_PUBLIC_URL), publicBaseUrl: env.R2_PUBLIC_URL });
             handler = createAuthoringApi({ verifyToken: createIdTokenVerifier({ projectId: env.FIREBASE_PROJECT_ID }), service, actions, creation: createProjectCreation({ db, bucket, assertLiveIdentity: google.assertLiveIdentity }) });
             runtimes.set(env, handler);

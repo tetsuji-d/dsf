@@ -102,6 +102,39 @@ service cloud.firestore {
         || legacyProjectLink(uid, get(/databases/$(database)/documents/users/$(uid)/works/$(workId)).data);
     }
 
+    // Publishing spaces organize ownership separately from authoring source.
+    // Catalogue writes remain server-only. Deploy this gate only after enabling the spaces API.
+    function hasPublishingSpace(uid, pid) {
+      let path = /databases/$(database)/documents/users/$(uid)/publishing/catalogue;
+      return exists(path)
+        && get(path).data.get('schemaVersion', 0) == 1
+        && get(path).data.get('assignments', {}).get(pid, '') is string
+        && get(path).data.get('assignments', {}).get(pid, '') in get(path).data.get('spaceIds', []);
+    }
+
+    function existingVisibleProject(uid, pid) {
+      let path = /databases/$(database)/documents/users/$(uid)/projects/$(pid);
+      return exists(path) && get(path).data.get('dsfStatus', 'draft') in ['public', 'unlisted'];
+    }
+
+    function projectPublicationCreateAllowed(uid, pid) {
+      return (!(request.resource.data.get('dsfStatus', 'draft') in ['public', 'unlisted'])
+          && request.resource.data.get('releaseId', '') in ['', null]) || hasPublishingSpace(uid, pid);
+    }
+
+    function projectPublicationUpdateAllowed(uid, pid) {
+      return ((!(request.resource.data.get('dsfStatus', 'draft') in ['public', 'unlisted'])
+            || resource.data.get('dsfStatus', 'draft') in ['public', 'unlisted'])
+          && (request.resource.data.get('releaseId', '') in ['', null]
+            || request.resource.data.get('releaseId', '') == resource.data.get('releaseId', '')))
+        || hasPublishingSpace(uid, pid);
+    }
+
+    function publicIndexSpaceAllowed(uid, pid) {
+      let projectId = request.resource.data.get('projectId', pid);
+      return projectId is string && (hasPublishingSpace(uid, projectId) || existingVisibleProject(uid, projectId));
+    }
+
     function projectWriteHasSupportedVersion() {
       return !request.resource.data.keys().hasAny(['version'])
         || (request.resource.data.version is int
@@ -867,10 +900,12 @@ service cloud.firestore {
       match /projects/{pid} {
         allow read: if isOwner(uid);
         allow create: if accountCanEdit(uid)
+                      && projectPublicationCreateAllowed(uid, pid)
                       && legacyProjectWrite(uid, pid)
                       && projectWriteHasSupportedVersion()
                       && projectV6RootIsSafe(uid, pid);
         allow update: if accountCanEdit(uid)
+                      && projectPublicationUpdateAllowed(uid, pid)
                       && legacyProjectWrite(uid, pid)
                       && projectWriteHasSupportedVersion()
                       && projectVersionDoesNotRegress()
@@ -976,6 +1011,7 @@ service cloud.firestore {
                               && legacyWork(request.auth.uid, pid)
                               && (!exists(/databases/$(database)/documents/public_projects/$(pid))
                                 || legacyProjectLink(request.auth.uid, resource.data))
+                              && publicIndexSpaceAllowed(request.auth.uid, pid)
                               && publicProjectPublicationIsValid(request.auth.uid))
                             || staffPublicSnapshotWrite(pid);
       allow delete: if (isSignedIn()

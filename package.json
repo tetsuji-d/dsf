@@ -6,6 +6,7 @@
     "dev": "vite",
     "dev:local": "vite",
     "dev:publishing-spaces-fixture": "node scripts/serve-publishing-spaces-fixture.js",
+    "verify:publishing-space-publish-browser": "node scripts/verify-publishing-space-publish-browser.cjs",
     "verify:publishing-spaces-client": "node scripts/verify-publishing-spaces-client.js",
     "verify:publishing-spaces-local": "node scripts/verify-publishing-spaces-local.js",
     "verify:publishing-spaces": "node scripts/verify-publishing-spaces.js",

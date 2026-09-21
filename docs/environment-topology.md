@@ -172,3 +172,8 @@ APIを停止するだけでは移行済み作品を読めなくなるため、�
 previewのみtrue、productionはfalse。設定変更は次回配備時に反映される。
 公開R2_BUCKETへ画像保存を代替しない。既存原稿の保存先や公開Releaseには影響しない。
 実クラウド接続の確認状況は[publishing-spaces.md](publishing-spaces.md)を参照。
+
+新規Horizon発行の所属必須化: staging/developmentでVITE_PUBLISHING_SPACES_REQUIRED=true。
+private authoring APIはPUBLISHING_SPACES_ENABLED=trueに連動して確定時にも所属を検証する。
+旧Firestore経路には別途Rules配備が必要。API/UI/Rulesをstagingで揃えてから検証する。
+productionは未有効化。スペースAPI無効の環境へこのRules制約だけ先行配備しない。

@@ -139,3 +139,35 @@ await test('REST transaction supports public index deletion with exists precondi
     assert.deepEqual(calls.find(c => c.url.endsWith(':commit')).body.writes, [{ delete: 'projects/demo-test/databases/(default)/documents/public_projects/work_1', currentDocument: { exists: true } }]);
     await assert.rejects(store.transaction(tx => tx.getMany(['billing_events/private'])), e => e.code === 'INVALID_DOCUMENT_PATH');
 });
+
+await test('publishing-space gate protects drafts/publication, preserves saves and grandfathered public works', async () => {
+    const f = await setup({requirePublishingSpace:true});
+    const catalogue = 'users/owner_1/publishing/catalogue';
+    const space = 'space_aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa';
+    const assigned = {schemaVersion:1,spaceIds:[space],assignments:{project_1:space}};
+    const original = structuredClone(f.db.docs.get(root)), reads = f.r2.gets;
+    await denied(f, command(f,'draft',v1()), 'PUBLISHING_SPACE_REQUIRED');
+    assert.equal(f.r2.gets,reads,'gate before source I/O'); assert.deepEqual(f.db.docs.get(root),original);
+    assert.equal((await f.request('PUT',{id:'space_free_save',base:1,project:{...f.project,title:'still editable'}})).status,200);
+    f.db.docs.set(catalogue,assigned);
+    await ok(f, command(f,'draft',v1()));
+    f.db.docs.delete(catalogue);
+    for (const status of ['public','unlisted']) await denied(f,publish(f,status),'PUBLISHING_SPACE_REQUIRED');
+    assert.equal(f.db.docs.get(root).dsfStatus,'draft');
+    f.db.docs.set(catalogue,assigned); await ok(f,publish(f));
+    f.db.docs.delete(catalogue);
+    await ok(f,publish(f,'unlisted')); await ok(f,publish(f,'public'));
+    assert.equal(f.db.docs.get('public_projects/work_1').dsfStatus,'public');
+    await ok(f,publish(f,'private')); await denied(f,publish(f),'PUBLISHING_SPACE_REQUIRED');
+    f.db.docs.set(catalogue,{...assigned,spaceIds:[]}); await denied(f,publish(f),'PUBLISHING_SPACE_REQUIRED');
+});
+await test('removing assignment during release verification blocks the final commit', async () => {
+    let f; f=await setup({requirePublishingSpace:true,verifyRelease:async()=>{
+        f.db.docs.delete('users/owner_1/publishing/catalogue'); return 100;
+    }});
+    f.db.docs.set('users/owner_1/publishing/catalogue',{schemaVersion:1,spaceIds:['s'],assignments:{project_1:'s'}});
+    const original=structuredClone(f.db.docs.get(root));
+    await denied(f,command(f,'draft',v1()),'PUBLISHING_SPACE_REQUIRED');
+    assert.deepEqual(f.db.docs.get(root),original);
+    assert(!f.db.docs.has('users/owner_1/works/work_1/releases/release_new'));
+});

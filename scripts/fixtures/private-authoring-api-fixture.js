@@ -74,7 +74,7 @@ export function fixture(options = {}) {
     const assertLiveIdentity = async () => { if (revoked) throw new AuthoringApiError('AUTH_REVOKED', 401); };
     const bucket = createAuthoringBucket(r2);
     const service = createAuthoringService({ db, bucket, now: () => time, assertLiveIdentity });
-    const actions = createProjectActions({ db, bucket, service, now: () => time, assertLiveIdentity, publicBaseUrl: 'https://media.test',
+    const actions = createProjectActions({ requirePublishingSpace:options.requirePublishingSpace === true, db, bucket, service, now: () => time, assertLiveIdentity, publicBaseUrl: 'https://media.test',
         verifyRelease: options.verifyRelease || (async () => 100) });
     const handler = createAuthoringApi({ service, actions, verifyToken: async token => {
         if (token !== 'valid') throw new AuthoringApiError('AUTH_INVALID', 401);

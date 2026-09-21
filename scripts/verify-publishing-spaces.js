@@ -52,3 +52,18 @@ account.entitlements.canCreateProject=true;f.revoke();assert.equal((await f.requ
 const google={projectId:'fixture',post:async(url)=>url.endsWith(':beginTransaction')?{transaction:'t'}:{}};
 await assert.rejects(createFirestoreStore(google).transaction(tx=>tx.getMany(['publishing_spaces/'+a])),/INVALID_DOCUMENT_PATH/);
 console.log('Publishing spaces: create/retry/rename/assignment/concurrency, account isolation, auth/origin gates and original source/publication preservation passed.');
+
+// Read-only publication context must not alter manuscripts, assignments or releases.
+{
+ const q=publishingSpacesFixture(), before=structuredClone([...q.docs]);
+ let ctx=await (await q.request({kind:'publicationContext',projectId:'book_1',purpose:'draft'})).json();
+ assert.equal(ctx.publication.required,true); assert.equal(ctx.publication.spaceId,null);
+ assert.deepEqual([...q.docs],before);
+ q.docs.get('users/owner_1/projects/book_1').dsfStatus='public';
+ ctx=await (await q.request({kind:'publicationContext',projectId:'book_1',purpose:'publication'})).json();
+ assert.equal(ctx.publication.required,false,'already public work is grandfathered');
+ ctx=await (await q.request({kind:'publicationContext',projectId:'book_1',purpose:'draft'})).json();
+ assert.equal(ctx.publication.required,true,'new release needs a space');
+ assert.equal((await q.request({kind:'publicationContext',projectId:'book_1',purpose:'draft'},{token:'fixture-other'})).status,404);
+ assert.equal((await q.request({kind:'publicationContext',projectId:'../escape',purpose:'draft'})).status,400);
+}

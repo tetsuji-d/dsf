@@ -134,3 +134,38 @@ API障害からの再試行。実Studioの未ログイン表示も別途確認�
 配備前提: stagingのAUTHORING_GOOGLE_SERVICE_ACCOUNT、FIREBASE_PROJECT_ID、
 非公開AUTHORING_BUCKETは既存のauthoring API設定を使う。productionの機能は無効のまま。
 実Firebase/R2への永続化・ログイン済みStudioのクラウド統合確認は、staging配備後に検証専用アカウント／スペースで実施する。
+
+## 制作とHorizon発行の境界（2026-09-21）
+
+- 出版スペース未所属でも、新規原稿作成・編集・ローカル／クラウド保存・DSP／DSF書き出しは利用可能。
+- Pressの「Horizonへ下書き保存」は新しいReleaseを作るため、出版スペースへの所属を必須とする。
+- Worksの下書き／非公開から公開・限定公開への変更にも所属が必要。
+- 発行時に未所属なら選択ダイアログを表示。既存スペースを選ぶか、その場で名前を付けて開設する。
+  原稿の所属を保存してから発行処理へ進む。キャンセルでは発行しない。原稿は変更しない。
+- 既存の公開／限定公開作品は所属未設定でも閲覧を継続できる。
+  同じReleaseの公開／限定公開切り替えや期間調整、非公開化を妨げない。
+  新しいReleaseの作成や、非公開に戻した後の再公開には所属を求める。
+- 既存作品はダッシュボードから後で所属を指定できる。自動移動・自動公開停止は行わない。
+- 所属が設定済みなら選択操作を毎回求めない。発行時はサーバーの最新所属を確認する。
+- 所属更新は従来のrevision／expectedSpaceIdを使用し、競合時は再取得して選び直す。
+  応答消失後の再試行では同じ開設ID／更新条件を保持し、重複作成・勝手な上書きを防ぐ。
+
+APIのread-only操作publicationContext(projectId, purpose: draft|publication)は、現在の作品状態から
+所属が必要か、現在の所属先、自己カタログを返す。原稿・公開状態は変更しない。
+private authoring APIは新規発行の準備前と確定transaction内の両方で所属を確認する。
+旧Firestore保存経路にはRulesでProjectの新規Release／公開変更、public_projects書き込みの制約を追加。
+カタログへのクライアント書き込みを許可しない。公開Viewerの読み取りルールは変更しない。
+
+### 適用と検証
+
+VITE_PUBLISHING_SPACES_REQUIRED=true をstaging/developmentに設定。productionは未設定でUI制約を有効化しない。
+private authoring側は既存のPUBLISHING_SPACES_ENABLED=trueと連動。
+Rulesは別配備。**API/UI配備とstaging Rules配備を揃えて初めて、旧クライアントの直接書き込みまで制約が適用される。**
+productionのRulesには、出版スペースAPIを有効化しクライアントを配備する前にこの制約を先行配備しない。
+今回の作業はローカル実装・検証のみ。commit、staging、Rules、productionは配備していない。
+
+検証: verify:publishing-spaces、verify:publishing-spaces-client、verify:private-project-actions、
+verify:private-authoring-rules、verify:publishing-space-publish-browser。
+Chrome操作では新規開設・既存選択・キャンセル・復元・応答消失後の再試行・競合・通信失敗・JA/EN・スマホ幅を確認。
+ブラウザは分離したメモリAPI fixture（PORT=5194）を使用し、実アカウントの作品は変更しない。
+ログイン済み実Studioでのクラウド発行成功は、このローカル検証とは別に配備後に確認する。
