@@ -5,6 +5,12 @@
   "scripts": {
     "dev": "vite",
     "dev:local": "vite",
+    "dev:publishing-spaces-fixture": "node scripts/serve-publishing-spaces-fixture.js",
+    "verify:publishing-spaces-client": "node scripts/verify-publishing-spaces-client.js",
+    "verify:publishing-spaces-local": "node scripts/verify-publishing-spaces-local.js",
+    "verify:publishing-spaces": "node scripts/verify-publishing-spaces.js",
+    "verify:publishing-spaces-dashboard": "node scripts/verify-publishing-spaces-dashboard.js",
+    "verify:publishing-spaces-browser": "node scripts/verify-publishing-spaces-browser.cjs",
     "build": "vite build",
     "preview": "vite preview",
     "build:staging": "vite build --mode staging",

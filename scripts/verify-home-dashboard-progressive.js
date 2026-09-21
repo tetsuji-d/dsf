@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 
 const appSource = readFileSync(new URL('../js/app.js', import.meta.url), 'utf8');
-const dashboardStart = appSource.indexOf('async function renderHomeDashboard()');
+const dashboardStart = appSource.indexOf('async function renderHomeDashboard(');
 const dashboardEnd = appSource.indexOf('// ── Studio 認証 UI', dashboardStart);
 
 assert.notEqual(dashboardStart, -1, 'Home dashboard renderer must exist');
@@ -27,6 +27,7 @@ assert.ok(
     'Work cards must render before review summary requests finish'
 );
 assert.notEqual(localRender, -1, 'Dashboard must render local projects independently');
+assert.ok(!dashboardSource.includes('await spacesPromise'), 'Space availability must not block manuscripts');
 assert.notEqual(cloudWait, -1, 'Dashboard must wait for the already-started cloud request');
 assert.ok(
     localRender < cloudWait,

@@ -1113,3 +1113,15 @@ Flowを含む作品のDSF／Horizon発行はhybrid delivery v2の検証済みpro
 | 2026-05-05 | プラン別期限仕様を FREE/PLUS/PRO/BUSINESS に更新し、`planChangeRequests` とマイページ土台を追加 |
 | 2026-05-06 | 課金スキーマを正規化。`plan.effectiveTier`、`billing`、`entitlements.canUseUnlimitedListing` / `canSchedulePublicExpiry`、`billing_events` を追加 |
 | 2026-05-10 | 公開プロフィール `users/{uid}.publicProfile` と handle 予約 `handles/{handle}` を追加 |
+
+
+## 出版スペース管理（2026-09-21、第1段階）
+
+[publishing-spaces.md](publishing-spaces.md) の管理APIが所有者専用の出版スペースを提供する。
+`publishing_spaces/{spaceId}` に名前・所有者・時刻・任意のprofile（概要、Webサイト、アイコン／背景画像のhash）、`users/{uid}/publishing/catalogue` に
+revision・spaceIds・projectIdからspaceIdへの関連付けを保存する。
+既存のProject/Work/ReleaseとR2原稿パスは変更しない。所属はアクセス権付与ではない。
+クライアントの直接read/writeは許可せず、認証されたサーバーAPIのみで変更する。
+招待・所有権移転・共有編集・課金・公開インデックスへの出版者情報追加は別単位。
+
+出版スペース画像は非公開R2の専用prefixに保存し、Firestoreには参照だけを記録する。詳細・上限は上記仕様を参照。

@@ -1,0 +1,38 @@
+/* Publishing-space membership is separate from the location of manuscript bytes. */
+.publishing-space-panel { padding:20px; margin-bottom:20px; border:1px solid var(--border-color,#c9d4e3); border-radius:14px; background:var(--panel-bg,#fff); color:var(--text-main,#26364d); }
+.publishing-space-panel h3 { margin:0 0 8px; font-size:20px; }
+.publishing-space-panel p { margin:8px 0; font-size:13px; line-height:1.65; }
+.publishing-space-controls, .publishing-space-panel form { display:flex; align-items:end; flex-wrap:wrap; gap:12px; }
+.publishing-space-panel label { display:grid; gap:6px; font-size:13px; min-width:180px; }
+.publishing-space-panel select, .publishing-space-panel input, .publishing-space-panel button, .home-space-assignment select {
+    font:inherit; color:inherit; background:var(--bg-body,#fff); border:1px solid #aebed3; border-radius:8px; padding:9px 12px; min-height:40px; max-width:100%;
+}
+.publishing-space-panel button { cursor:pointer; }
+.publishing-space-panel button:disabled { opacity:.55; cursor:wait; }
+.publishing-space-panel form { margin-top:16px; padding-top:14px; border-top:1px solid #d8e0eb; }
+.publishing-space-status { min-height:1.65em; }
+.home-project-entry { min-width:0; display:flex; flex-direction:column; }
+.home-project-entry .home-project-card { width:100%; flex:1; }
+.home-space-assignment { display:grid; gap:5px; margin:8px 0 16px; font-size:12px; color:var(--text-main,#26364d); }
+.home-storage-note { font-size:13px; line-height:1.7; margin:0 0 18px; color:var(--text-secondary,#53627a); }
+.home-browser-copies { border:1px dashed #9aaac0; border-radius:12px; padding:18px; margin-top:24px; }
+.home-browser-copies summary { cursor:pointer; font-weight:600; margin-bottom:14px; }
+.home-save-scope { display:inline-block; padding:4px 9px; border-radius:6px; background:#e8f1ff; color:#164983; font-size:12px; margin-bottom:10px; }
+@media(max-width:640px) { .publishing-space-panel { padding:14px; } .publishing-space-controls label { flex:1 1 100%; } }
+
+.space-settings-button { margin-top:12px; }
+.space-profile { margin-top:16px; border:1px solid #cbd5e1; border-radius:12px; overflow:hidden; }
+.space-profile-banner { width:100%; aspect-ratio:3/1; max-height:240px; background:linear-gradient(120deg,#d8e8ed,#bfd0e7); overflow:hidden; }
+.space-profile-banner img { width:100%; height:100%; object-fit:cover; display:block; }
+.space-profile-body { padding:0 24px 24px; overflow-wrap:anywhere; }
+.space-profile-icon { width:88px; height:88px; margin-top:-32px; position:relative; border:4px solid var(--panel-bg,#fff); border-radius:50%; background:#e4ecf8; color:#26446e; display:grid; place-items:center; font-size:32px; overflow:hidden; }
+.space-profile-icon img { width:100%; height:100%; object-fit:cover; }
+.space-profile h4 { margin:12px 0 4px; font-size:24px; }
+.space-profile-description { white-space:pre-wrap; }
+.publishing-space-panel form:has(textarea) { align-items:start; }
+.publishing-space-panel textarea { width:100%; box-sizing:border-box; font:inherit; padding:10px; border:1px solid #aebed3; border-radius:8px; resize:vertical; }
+.space-profile-wide { flex:1 1 100%; min-width:0!important; }
+.space-image-field { flex:1 1 240px; min-width:0; }
+.space-image-field input { width:100%; box-sizing:border-box; }
+.space-image-field button { margin-top:8px; }
+@media(max-width:640px) { .space-profile-body { padding:0 16px 16px; } .space-profile-icon { width:64px; height:64px; margin-top:-24px; } }

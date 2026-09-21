@@ -34,12 +34,12 @@ export function decodeFirestoreValue(value) {
 }
 
 /** All reads are transactional; ambiguous commits are never blindly retried. */
-export function createFirestoreStore(google) {
+export function createFirestoreStore(google, { additionalRootCollections = [] } = {}) {
     const database = `projects/${google.projectId}/databases/(default)`;
     const prefix = `${database}/documents/`;
     const endpoint = `https://firestore.googleapis.com/v1/${database}/documents`;
     function name(path) {
-        check(typeof path === 'string' && ['users', 'public_projects'].includes(path.split('/')[0]) && path.split('/').every(isPrivateAuthoringId)
+        check(typeof path === 'string' && ['users', 'public_projects', ...additionalRootCollections].includes(path.split('/')[0]) && path.split('/').every(isPrivateAuthoringId)
             && (path.startsWith('users/') || path.split('/').length === 2)
             && path.split('/').length % 2 === 0, 'INVALID_DOCUMENT_PATH');
         return prefix + path;

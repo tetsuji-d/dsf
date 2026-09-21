@@ -1,3 +1,6 @@
+import '../css/publishing-spaces.css';
+import { createPublishingSpaceUI } from './publishing-spaces-ui.js';
+import { requestPublishingSpaces } from './publishing-spaces-client.js';
 import { initHistoryPanel } from './studio-history-panel.js';
 import { appendPreparedProjectAsset } from './project-assets.js';
 import { createImagePagePlan } from './editor-image-page.js';
@@ -4291,6 +4294,33 @@ function formatProjectBytes(bytes) {
 }
 
 // ── Home room — ダッシュボード（クラウド / ローカル一覧） ─────────────────
+let publishingSpaceUI;
+function getPublishingSpaceUI() {
+    if (!publishingSpaceUI) publishingSpaceUI = createPublishingSpaceUI({
+        root: document.getElementById('home-publishing-spaces'),
+        request: requestPublishingSpaces, getUid: () => state.uid, getLocale: getUILang,
+        onChange: () => { void renderHomeDashboard({ refreshSpaces: false }); },
+    });
+    return publishingSpaceUI;
+}
+window.newSpaceProject = async () => {
+    const ui = getPublishingSpaceUI(), selectedSpace = ui.selection(), uid = state.uid;
+    if (!await window.newProject()) return;
+    const createdWorkId = state.workId, user = firebaseAuth.currentUser;
+    window.switchRoom('editor');
+    if (uid && state.uid === uid && selectedSpace) {
+        try {
+            await persistProject();
+            if (state.uid !== uid || firebaseAuth.currentUser !== user || state.workId !== createdWorkId || !state.projectId) return;
+            if (!await ui.assign(state.projectId, selectedSpace)) throw new Error('SPACE_ASSIGNMENT_FAILED');
+        } catch {
+            alert(getUILang() === 'en'
+                ? 'Could not save to the selected space. Check save status; organize the manuscript from Not assigned after cloud saving succeeds.'
+                : '選択したスペースへの保存を完了できませんでした。保存状態を確認し、クラウド保存後に「所属未設定」から整理してください。');
+        }
+    }
+};
+
 
 function renderHomeCard(project, source) {
     const projectName = resolveProjectName(project);
@@ -4307,7 +4337,7 @@ function renderHomeCard(project, source) {
             : (project.thumbnail || '')
     );
     const pageCount = source === 'cloud'
-        ? getPageCount(project.pages, project.blocks, project.sections)
+        ? (Number(project.pageCount) || getPageCount(project.pages, project.blocks, project.sections))
         : Math.max(1, Number(project.pageCount || 0));
     const updatedAt = formatHomeDate(project.lastUpdated || project.updatedAt);
     const sourceLabel = source === 'cloud' ? t('home_source_cloud') : t('home_source_local');
@@ -4316,6 +4346,7 @@ function renderHomeCard(project, source) {
     const languageBadges = renderLanguageBadges(project.languages);
 
     return `
+        <div class="home-project-entry">
         <button class="home-project-card" data-home-source="${escapeStudioHtml(source)}" data-id="${escapeStudioHtml(project.id)}">
             ${source === 'cloud' ? `<span class="home-project-delete material-icons" data-delete-cloud="${escapeStudioHtml(project.id)}" title="${escapeStudioHtml(t('btn_delete'))}">delete</span>` : ''}
             <div class="home-project-thumb">
@@ -4333,6 +4364,8 @@ function renderHomeCard(project, source) {
                 </div>
             </div>
         </button>
+        ${source === 'cloud' ? getPublishingSpaceUI().card(project) : ''}
+        </div>
     `;
 }
 
@@ -4634,7 +4667,7 @@ function fetchHomeCloudProjects() {
     return requestWithCleanup;
 }
 
-async function renderHomeDashboard() {
+async function renderHomeDashboard({ refreshSpaces = true } = {}) {
     const renderRevision = ++homeDashboardRenderRevision;
     const cloudGrid = document.getElementById('home-cloud-grid');
     const localGrid = document.getElementById('home-local-grid');
@@ -4653,6 +4686,10 @@ async function renderHomeDashboard() {
     if (cloudCount) cloudCount.textContent = '...';
     if (localCount) localCount.textContent = '...';
 
+    const dashboardUid = state.uid;
+    const spaceUI = getPublishingSpaceUI();
+    if (refreshSpaces) void spaceUI.load({ notify: true });
+    else spaceUI.render();
     const cloudProjectsPromise = fetchHomeCloudProjects();
     const localProjects = await listLocalRecentProjects().catch((e) => {
         console.warn('[Home] Failed to load local recent projects:', e);
@@ -4661,8 +4698,11 @@ async function renderHomeDashboard() {
     if (renderRevision !== homeDashboardRenderRevision) return;
     renderHomeLocalProjects(localGrid, localCount, localProjects);
 
-    const cloudProjects = await cloudProjectsPromise;
-    if (renderRevision !== homeDashboardRenderRevision) return;
+    const allCloudProjects = await cloudProjectsPromise;
+    if (renderRevision !== homeDashboardRenderRevision || state.uid !== dashboardUid) return;
+    const cloudProjects = Array.isArray(allCloudProjects) ? spaceUI.filter(allCloudProjects) : allCloudProjects;
+    const scopeLabel = document.getElementById('home-cloud-scope');
+    if (scopeLabel) scopeLabel.textContent = spaceUI.destination() + ' / ' + spaceUI.label();
 
     const works = Array.isArray(cloudProjects)
         ? cloudProjects.filter(isPublishedHomeWork).sort((a, b) => {
@@ -4710,7 +4750,7 @@ async function renderHomeDashboard() {
         cloudGrid.innerHTML = `<div class="home-empty-state"><span class="material-icons">lock</span><p>${t('home_cloud_login')}</p></div>`;
         if (cloudCount) cloudCount.textContent = '0';
     } else if (cloudProjects.length === 0) {
-        cloudGrid.innerHTML = `<div class="home-empty-state"><span class="material-icons">cloud_done</span><p>${t('home_cloud_empty')}</p></div>`;
+        cloudGrid.innerHTML = `<div class="home-empty-state"><span class="material-icons">cloud_done</span><p>${spaceUI.selection() ? (getUILang() === 'en' ? 'No manuscripts in this publishing space yet.' : 'この出版スペースにはまだ原稿がありません。') : t('home_cloud_empty')}</p></div>`;
         if (cloudCount) cloudCount.textContent = '0';
     } else {
         cloudGrid.innerHTML = cloudProjects.map((project) => renderHomeCard(project, 'cloud')).join('');
@@ -4745,6 +4785,7 @@ async function renderHomeDashboard() {
         });
     });
 
+    spaceUI.bind(cloudGrid);
     bindHomeWorkActions(workGrid, cloudProjects);
     syncStudioShell();
 

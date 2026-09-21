@@ -78,12 +78,25 @@
                         <button class="home-action-btn primary" onclick="switchRoom('works')">
                             <span class="material-icons">library_books</span> <span data-i18n="nav_works">作品</span>
                         </button>
-                        <button class="home-action-btn" onclick="newProject().then(created => { if (created) switchRoom('editor'); })">
+                        <button class="home-action-btn" onclick="newSpaceProject()">
                             <span class="material-icons">add</span> <span data-i18n="btn_new_project">新規プロジェクト</span>
                         </button>
                     </div>
                 </section>
+                <section id="home-publishing-spaces" class="publishing-space-panel" aria-label="Publishing spaces"></section>
                 <section id="home-dashboard-stats" class="home-dashboard-stats" aria-live="polite"></section>
+
+                <section class="home-project-section">
+                    <div class="home-section-head">
+                        <div class="home-section-title-wrap">
+                            <h3 data-i18n="home_section_cloud">クラウドプロジェクト</h3>
+                            <span id="home-cloud-count" class="home-section-count">0</span>
+                        </div>
+                    </div>
+                    <p id="home-cloud-scope" class="home-save-scope"></p>
+                    <p class="home-storage-note" data-i18n="home_cloud_storage_note"></p>
+                    <div id="home-cloud-grid" class="home-project-grid"></div>
+                </section>
                 <section class="home-work-section">
                     <div class="home-section-head">
                         <div class="home-section-title-wrap">
@@ -98,29 +111,22 @@
                     </div>
                     <div id="home-work-grid" class="home-work-grid"></div>
                 </section>
-                <section class="home-project-section">
+                <details class="home-browser-copies">
+                    <summary data-i18n="home_section_local">このブラウザの作業コピー</summary>
+                    <p class="home-storage-note" data-i18n="home_local_storage_note"></p>
                     <div class="home-section-head">
                         <div class="home-section-title-wrap">
-                            <h3 data-i18n="home_section_cloud">クラウドプロジェクト</h3>
-                            <span id="home-cloud-count" class="home-section-count">0</span>
-                        </div>
-                    </div>
-                    <div id="home-cloud-grid" class="home-project-grid"></div>
-                </section>
-                <section class="home-project-section">
-                    <div class="home-section-head">
-                        <div class="home-section-title-wrap">
-                            <h3 data-i18n="home_section_local">ローカル</h3>
+                            <span class="material-icons" aria-hidden="true">devices</span>
                             <span id="home-local-count" class="home-section-count">0</span>
                         </div>
                         <div class="home-section-actions">
                             <button class="home-action-btn" onclick="document.getElementById('dsp-upload').click()">
-                                <span class="material-icons">folder_open</span> <span data-i18n="btn_open_local">ローカルから開く</span>
+                                <span class="material-icons">folder_open</span> <span data-i18n="home_open_file">ファイルから開く (.dsp)</span>
                             </button>
                         </div>
                     </div>
                     <div id="home-local-grid" class="home-project-grid"></div>
-                </section>
+                </details>
             </div>
         </div>
 

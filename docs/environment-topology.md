@@ -164,3 +164,11 @@ UIDリストとアカウントの作成権限で対象を制限する。既存�
 [既存2作品の移行・バックアップ・復旧手順](private-authoring-production-rollout.md)を参照。
 今後の配備でも原稿API／Rules／非公開bindingを保持する。
 APIを停止するだけでは移行済み作品を読めなくなるため、復旧方針を先に確認する。
+
+### 出版スペース（2026-09-21）
+
+出版スペースはFirestoreに基本情報・所属を、非公開AUTHORING_BUCKETにアイコン／背景画像を保存する。
+本体は認証付き/api/publishing-spacesを使う。wrangler.tomlのPUBLISHING_SPACES_ENABLEDは
+previewのみtrue、productionはfalse。設定変更は次回配備時に反映される。
+公開R2_BUCKETへ画像保存を代替しない。既存原稿の保存先や公開Releaseには影響しない。
+実クラウド接続の確認状況は[publishing-spaces.md](publishing-spaces.md)を参照。
