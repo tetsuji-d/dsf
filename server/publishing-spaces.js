@@ -88,6 +88,8 @@ export function createPublishingSpacesService({ db, assertLiveIdentity, now = Da
                 check(project && (!project.ownerUid || project.ownerUid === identity.uid), 'PROJECT_NOT_FOUND', 404);
                 const previous = Object.hasOwn(index.assignments, command.projectId) ? index.assignments[command.projectId] : null;
                 if (previous === command.spaceId) return result(); // Lost response: safe exact retry.
+                const sharedRecords=await tx.getMany([...(project.workId?['publishing_work_scopes/'+segment(project.workId)]:[]),accountPath+'/projects/'+command.projectId+'/authoringLocks/current']);
+                check(sharedRecords.every(record=>!record),'SHARED_WORK_MOVE_UNAVAILABLE',409);
                 check(previous === command.expectedSpaceId, 'SPACE_CONFLICT', 409);
             }
             if (command.kind === 'create' && space) {
@@ -210,7 +212,7 @@ export async function handlePublishingSpaces(context) {
             handler = createPublishingSpacesApi({
                 verifyToken: createIdTokenVerifier({ projectId: context.env.FIREBASE_PROJECT_ID }),
                 service: createPublishingSpacesService({
-                    db: createFirestoreStore(google, { additionalRootCollections: ['publishing_spaces'] }),
+                    db: createFirestoreStore(google, { additionalRootCollections: ['publishing_spaces', 'publishing_work_scopes'] }),
                     assertLiveIdentity: google.assertLiveIdentity,
                     bucket: context.env.AUTHORING_BUCKET && context.env.AUTHORING_BUCKET !== context.env.R2_BUCKET ? context.env.AUTHORING_BUCKET : null,
                 }),

@@ -9,6 +9,8 @@
     "dev:shared-studio": "node scripts/serve-shared-studio-fixture.js",
     "verify:shared-studio-browser": "node scripts/verify-shared-studio-browser.cjs",
     "verify:shared-owner-browser": "node scripts/verify-shared-owner-browser.cjs",
+    "verify:shared-runtime": "node scripts/verify-shared-runtime.js",
+    "verify:shared-registration-browser": "node scripts/verify-shared-registration-browser.cjs",
     "verify:shared-owner-boundary": "node scripts/verify-shared-owner-boundary.js",
     "verify:shared-edit-lock": "node scripts/verify-shared-edit-lock.js",
     "verify:shared-lock-browser": "node scripts/verify-shared-lock-browser.cjs",

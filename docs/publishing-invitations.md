@@ -6,7 +6,7 @@
 
 - `server/publishing-invitations.js` は永続ストアを注入するサーバー処理。既存の Firestore transaction adapter の getMany/set 契約を使用する。
 - 招待、受信通知、一覧インデックス、監査記録を同一トランザクションで保存する。失敗時に通知だけ／招待だけを残さない。
-- 本番・staging の Pages route、Firestore接続、Rules、Studio/Horizon本体のベルはまだ追加していない。既存の個人原稿APIは所有者専用のまま。
+- 招待のPages route、Rules、Studio/Horizon本体のベルはまだ追加していない。第7単位で共有原稿のPages routeとFirebase/Firestore接続コードを追加したが、既定無効・実環境未接続。個人原稿APIは所有者専用のまま。
 - `allowActivation` は既定 false。実サービスの共有認可が完成するまで承諾を拒否する。環境変数だけで実サービスの共有を開放する実装はない。
 - localhost:5200 の確認画面のみ、専用テストアカウントで参加・メンバー保存まで確認できる。保存は outputs/invitation-fixture-5200.json。再起動しても復元する。
 - このJSONはクラウド正本でも配信物でもない。検証アカウント切替、検証用ハンドル、Bearer fixture-* はローカル検証専用。実サービスへ転用しない。
@@ -219,3 +219,46 @@ R2保存中の交代拒否）、`verify:shared-lock-browser`（実Studioの別�
 検証: `verify:shared-owner-boundary`（途中の共有化、旧要求の再試行、対応表欠落、REST adapter）、
 `verify:shared-owner-browser`（実Studioの旧URL、所有者から参加者へ保存・交代、旧所有者タブの拒否）。
 ローカルfixtureの確認URL例: `/studio?room=editor&id=book_library&actor=owner`。
+
+## 第7単位: 限定共有APIと所有者による共有登録（2026-09-22）
+
+`functions/api/spaces/[[path]].js` から共有原稿の認証付きAPIへ接続する。
+`SHARED_AUTHORING_ENABLED=true` と `SHARED_AUTHORING_TEST_SCOPES` の両方を要求する。
+後者は最大20件の `{spaceId, workId, ownerUid, projectId, actorUids}` のJSON配列。
+各actorUidsは所有者を含む最大20UID、重複なし。ワイルドカード・空配列・曖昧な重複workIdは不可。
+これらは料金／所属ではなく段階提供の制限であり、別途canonicalな所属・閲覧編集権限を照合する。
+原稿・画像・編集権の各transactionで対応表の所有者／projectIdも指定値と照合し、URLだけで許可しない。
+
+- 既定無効時／設定不備時はAuth・Firestore・R2に接続せず503。既存のGoogle ID token署名検証と
+  live identity確認を使用し、検証用BearerはPages側に含めない。同一Origin、no-store、本文サイズ制限を維持。
+- `GET /api/spaces/{spaceId}/works/{workId}/sharing` は所有者専用の事前確認。
+  既存スペースへの割当て、Project/Workの対応、private R2 sourceのhashと原稿世代を確認する。
+  本文を返さず、作品名・制約・登録可否・confirmationTokenを返す。正本へ書き込まない。
+- `POST` は `{kind:"register", confirmationToken}` を受ける。tokenは確認したhead・原稿世代・
+  catalogue revision・mutation revision・許可scopeのdigestであり、認証や同意を代替する秘密鍵ではない。
+  検証後に同じ状態かtransactionで再確認し、`publishing_work_scopes` とスペースのworkIdsを原子的に登録する。
+  既存の対応表の変更／移動は許可しない。同一登録の再試行は重複せず、source・公開Release・個人catalogueは書き換えない。
+- 今回の新規共有登録は画像スロットが空の原稿に限定する。公開URL・blob・private参照を含む画像あり原稿は
+  `IMAGE_MIGRATION_REQUIRED` として登録を拒否する。画像変換や既存画像の非公開化を行ったとは扱わない。
+  共有登録後の画像追加は既存のprivate WebP経路を使用できる。
+- 登録は新しいメンバー権限を作らない。既存の所属に応じて対象作品へアクセスできるようになるため、
+  一般UIへの接続前にアクセス対象の確認表示を整備する。今回はローカル確認画面のみ。
+- 旧 `publishing-spaces` のassign操作は共有対応表／編集権記録がある作品の移動を拒否。
+  同一所属への再試行は許可する。正式な共有作品移動・レーベル管理は別単位。
+- 共有登録後は所有者も共有エディターを利用する。共有発行・復元・書き出しは未提供で、
+  確認画面でも明示する。一般提供用の登録解除／移行のUIはまだない。
+
+検証: `verify:shared-runtime`（9項目、Firestore REST adapterを含むローカル検証）、
+`verify:shared-registration-browser`（確認→登録→実Studioで編集・保存・再読込）、Pages Functionsビルド。
+Auth/Firestore/R2の実サービスを用いた複数実アカウントの結合検証とは区別する。
+今回の環境ではRulesエミュレーター追加検証はJavaが見つからず起動できなかった（spawn java ENOENT）。
+Rules自体は未変更。実アカウント有効化前にJava環境で再検証する。
+
+ローカル確認: `SHARED_REGISTRATION_FIXTURE=true` と `PORT=5221` を指定して
+`npm run dev:shared-studio` を起動し、`/scripts/fixtures/shared-registration-ui.html` を開く。
+fixtureはメモリー上の検証作品だけを使い、再起動で初期化する。
+実環境のフラグ・許可UID・Rules・データはこの単位では変更しない。フロント側の
+`VITE_SHARED_STUDIO_ENABLED` も既定無効を維持する。
+
+次: 画像あり原稿の移行手順、共有原稿の発行／書き出し、所属対象を示す確認UI、招待承諾の
+実接続を整備し、指定した実テスト作品・複数アカウントで結合検証してから段階的に有効化する。

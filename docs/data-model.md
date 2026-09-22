@@ -1158,3 +1158,15 @@ Firestore Rules、Pages route、実アカウントの共有は未接続。既存
 - private R2 key: `authoring-images/{ownerUid}/{projectId}/{generationId}/{sha256}.webp`。公開URL・署名URLは返さない。
 - 原稿内画像参照は共有経路限定 `assets/private/<sha256>.webp`。既存個人保存／公開配信／portable DSF形式は変更しない。
   実Studioの書き出し接続前に専用参照から実体への解決が必要。現段階はfixtureのみで使用する。
+
+
+### 共有作品の限定登録（2026-09-22、第7単位・既定無効）
+
+既存の `publishing_work_scopes/{workId}` と `publishing_space_catalogues/{spaceId}` を
+所有者用prepare/register APIで同一transactionに登録する。対応表の必須値は
+spaceId / workId / ownerUid / projectId / labelId（初期null）。作成時にcreatedByとcreatedAt（epoch ms）を記録する。
+スペース索引はschemaVersion:1と重複なしのworkIds（最大2000件）。既存索引のその他の値は維持する。
+個人catalogue、原稿head/source、公開Release、membershipは登録で変更しない。
+既存対応表の変更／移動は不可。旧所属変更APIも共有作品の移動を拒否する。
+初期の対象は画像なしprivate原稿。実環境の許可設定・Rules変更は未実施。
+詳細は `docs/publishing-invitations.md` 第7単位。

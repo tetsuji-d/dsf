@@ -1,3 +1,4 @@
+import {createSharedRuntime} from '../server/shared-authoring-runtime.js';
 import {createAuthoringService} from '../server/private-authoring/service.js';
 import {createAuthoringApi} from '../server/private-authoring/http.js';
 import {createProjectActions} from '../server/private-authoring/actions.js';
@@ -18,6 +19,15 @@ const source=JSON.parse(new TextDecoder().decode((await service.load(identity,'b
 source.blocks=[createFlowGroupBlock({id:'flow_shared',sourceLanguage:'ja',document:{schemaVersion:2,id:'document_shared',sections:[{id:'chapter_shared',blocks:[{id:'paragraph_shared',type:'paragraph',texts:{ja:'港の図書館に、灯台から一通の手紙が届いた。司書は封を開き、静かに読み始めた。'}}]}]}})];delete source.sections;delete source.pages;
 const head=f.docs.get('users/owner_1/projects/book_library/authoringHeads/current');
 await service.save(identity,'book_library',{snapshot:await createPrivateAuthoringSnapshot(source),generationId:head.generationId,baseRevision:head.revision,requestId:'studio_flow_seed'});
+const registrationMode=process.env.SHARED_REGISTRATION_FIXTURE==='true';
+const sharedEnv={SHARED_AUTHORING_ENABLED:'true',SHARED_AUTHORING_TEST_SCOPES:JSON.stringify([{spaceId:'space_demo',workId:'work_library',ownerUid:'owner_1',projectId:'book_library',actorUids:['owner_1','reader_1','reader_2','admin_1']}])};
+if(registrationMode){
+ f.docs.delete('publishing_work_scopes/work_library');
+ const index=f.docs.get('publishing_space_catalogues/space_demo');index.workIds=index.workIds.filter(id=>id!=='work_library');
+ const catalogue=f.docs.get('users/owner_1/publishing/catalogue');catalogue.schemaVersion=1;catalogue.revision=1;
+ shared.handler=createSharedRuntime({db:f.db,privateBucket:shared.r2,assertLiveIdentity:f.assertLiveIdentity,now:()=>Date.now()+clockOffset,
+  verifyToken:async token=>/^fixture-(owner_1|reader_1|reader_2|admin_1)$/.test(token)?{uid:token.slice(8)}:null});
+}
 let publicWrites=0,personalWrites=0;
 const ownerService=createAuthoringService({db:f.db,bucket:createAuthoringBucket(shared.r2),assertLiveIdentity:f.assertLiveIdentity});
 const ownerActions=createProjectActions({db:f.db,bucket:createAuthoringBucket(shared.r2),service:ownerService,assertLiveIdentity:f.assertLiveIdentity,publicBaseUrl:'https://media.example.invalid',verifyRelease:async()=>{throw Error('Fixture must not publish');}});
@@ -52,7 +62,7 @@ configureServer(server){server.middlewares.use(async(req,res,next)=>{try{
  if(url.pathname==='/upload'){publicWrites++;res.statusCode=403;return res.end('{}');}
  const ownerRoute=/^\/api\/projects\/(book_library)\/(authoring|actions)$/.exec(url.pathname);
  if(ownerRoute){const response=await ownerHandler({env:{AUTHORING_API_ENABLED:'true',AUTHORING_TEST_PROJECTS:'["owner_1/book_library"]'},params:{projectId:ownerRoute[1],actionRoute:ownerRoute[2]==='actions'},request:new Request(url,{method:req.method,headers:req.headers,...(['PUT','POST'].includes(req.method)?{body:bytes}:{})})});res.writeHead(response.status,Object.fromEntries(response.headers));return res.end(Buffer.from(await response.arrayBuffer()));}
- if(url.pathname.startsWith('/api/spaces/')){const response=await shared.handler({env:{SHARED_AUTHORING_ENABLED:'true'},request:new Request(url,{method:req.method,headers:req.headers,...(['PUT','POST'].includes(req.method)?{body:bytes}:{})})});res.writeHead(response.status,Object.fromEntries(response.headers));return res.end(Buffer.from(await response.arrayBuffer()));}
+ if(url.pathname.startsWith('/api/spaces/')){const response=await shared.handler({env:sharedEnv,request:new Request(url,{method:req.method,headers:req.headers,...(['PUT','POST'].includes(req.method)?{body:bytes}:{})})});res.writeHead(response.status,Object.fromEntries(response.headers));return res.end(Buffer.from(await response.arrayBuffer()));}
  res.statusCode=404;res.end('{}');
  }catch(error){console.error(error);res.statusCode=500;res.end('{}');}});}
 }]});

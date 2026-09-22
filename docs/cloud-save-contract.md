@@ -299,3 +299,15 @@ A leftover lock without a valid binding fails closed with `SHARED_SCOPE_UNAVAILA
 The owner API's REST adapter explicitly permits reads of the canonical work/space/label roots.
 This does not activate shared routes, migrate assets, or change deployed Rules. Shared publication
 and restore remain unavailable. See [unit 6](publishing-invitations.md) for scope and verification.
+
+### Allowlisted shared runtime and registration (unit 7, disabled by default)
+
+The Pages `/api/spaces/*` entry point uses real Firebase token verification, live-account checks,
+the transactional Firestore adapter, and the distinct private authoring bucket. Both
+`SHARED_AUTHORING_ENABLED=true` and an exact work/storage/actor allowlist are required.
+Every shared transaction pins the canonical binding to the configured owner/project.
+Owner-only prepare/register calls atomically establish the previously documented work binding
+and index, after source verification and a final revision check. Initial registration accepts
+only image-free private manuscripts; it does not migrate source, images, publication, or membership.
+Legacy assignment refuses moves for shared works. Current environment flags and Rules are unchanged.
+Details and remaining rollout prerequisites: [unit 7](publishing-invitations.md).
