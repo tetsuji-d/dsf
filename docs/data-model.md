@@ -1129,3 +1129,32 @@ revision・spaceIds・projectIdからspaceIdへの関連付けを保存する。
 新規Horizon発行はcatalogue内のprojectId→spaceIdとspaceIdsの整合した関連付けを必要とする。
 既存公開作品の閲覧・同じReleaseの公開状態維持には所属を要求しない。
 本文保存・DSP/DSF形式は変更しない。適用順はpublishing-spaces.mdの「制作とHorizon発行の境界」を参照。
+
+
+## 出版スペースの範囲付き権限（2026-09-22、段階実装）
+
+[役割と対象範囲](publishing-space-permissions.md) を権限モデルの正本とする。
+現段階は共通判定とメモリ内の設定試作のみで、永続化スキーマ／Rulesの追加はない。
+既存のowner indexを共同所有カタログとして扱わない。DSP/DSFや原稿のlabelNameに権限を埋め込まない。
+
+
+## 出版スペース招待・個人通知の基盤（2026-09-22）
+
+[招待とアプリ内お知らせ](publishing-invitations.md)に新規パスと状態遷移を定義する。
+サーバーのtransaction処理とローカル永続fixtureまで実装済み。クラウド正本への書込み、
+Firestore Rules、Pages route、実アカウントの共有は未接続。既存のusers/原稿/公開作品は変更しない。
+通知と招待の正本は分離し、既読は参加承諾と独立する。参加の有効化は共有作品の全取得・保存経路の認可完成後。
+
+共有認可の第2単位では `publishing_work_scopes/{workId}`、`publishing_labels/{labelId}`、
+`publishing_space_catalogues/{spaceId}` のサーバー内部対応表を定義し、既存のProject/Workと
+所有者のスペース割当を照合する。既存の `handles/{handle}` は変更せず招待先の完全一致照合に利用する。
+共有原稿の保存要求にのみactorUidを追加。実クラウドへの対応表作成・共有route・Rules変更は未実施。
+
+
+共有非公開画像の第3単位（未公開HTTP基盤）:
+- `users/{ownerUid}/projects/{projectId}/privateImageGenerations/{generationId}/images/{sha256}`:
+  schemaVersion、ownerUid、projectId、generationId、sha256、byteLength、width/height、pending/ready、createdBy/createdAt、verifiedAt。
+- `users/{ownerUid}/privateImageUsage/current`: 分単位のrequests/writes、日uploadedBytes、reservedBytes/imageCount。
+- private R2 key: `authoring-images/{ownerUid}/{projectId}/{generationId}/{sha256}.webp`。公開URL・署名URLは返さない。
+- 原稿内画像参照は共有経路限定 `assets/private/<sha256>.webp`。既存個人保存／公開配信／portable DSF形式は変更しない。
+  実Studioの書き出し接続前に専用参照から実体への解決が必要。現段階はfixtureのみで使用する。

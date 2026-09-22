@@ -1,3 +1,4 @@
+import { canAccessPublishingSpace } from '../js/publishing-space-access.js';
 import { publicationNeedsSpace, assignedPublishingSpace } from '../js/publishing-space-policy.js';
 import { check, segment, AuthoringApiError, parseJson, readBounded } from './private-authoring/common.js';
 import { createGoogleClient, createIdTokenVerifier } from './private-authoring/google-auth.js';
@@ -78,7 +79,9 @@ export function createPublishingSpacesService({ db, assertLiveIdentity, now = Da
             }
             const space = command.spaceId ? spaces[ids.indexOf(command.spaceId)] : null;
             if (command.kind !== 'create' && command.spaceId) {
-                check(index.spaceIds.includes(command.spaceId) && space?.ownerUid === identity.uid, 'SPACE_FORBIDDEN', 403);
+                // Membership is not enabled on legacy personal-authoring routes. No caller-supplied role is trusted.
+                check(index.spaceIds.includes(command.spaceId) && canAccessPublishingSpace({actorUid:identity.uid,
+                    space:space && {id:command.spaceId,ownerUid:space.ownerUid}}, 'manageSpace'), 'SPACE_FORBIDDEN', 403);
             }
             if (command.kind === 'assign') {
                 const [project] = await tx.getMany([accountPath + '/projects/' + command.projectId]);

@@ -53,12 +53,15 @@ function parse(bytes) {
 
 /** One open editor session. No token, revision or pending body is placed in project state. */
 export function createPrivateAuthoringClient({ uid, projectId, user, isCurrent,
-    fetcher = globalThis.fetch, newRequestId = () => crypto.randomUUID(), timeoutMs = 30_000 }) {
+    storageUid = uid, sharedScope = null, fetcher = globalThis.fetch, newRequestId = () => crypto.randomUUID(), timeoutMs = 30_000 }) {
     check(isPrivateAuthoringId(uid) && isPrivateAuthoringId(projectId), 'AUTHORING_SCOPE_INVALID');
-    const path = `/api/projects/${encodeURIComponent(projectId)}/authoring`;
+    check(isPrivateAuthoringId(storageUid), 'AUTHORING_SCOPE_INVALID');
+    check(sharedScope ? isPrivateAuthoringId(sharedScope.spaceId) && isPrivateAuthoringId(sharedScope.workId) : storageUid === uid, 'AUTHORING_SCOPE_INVALID');
+    const path = sharedScope ? `/api/spaces/${encodeURIComponent(sharedScope.spaceId)}/works/${encodeURIComponent(sharedScope.workId)}/authoring`
+        : `/api/projects/${encodeURIComponent(projectId)}/authoring`;
     let head = null, pending = null, creating = null, blocked = null, busy = false;
     const current = () => check(isCurrent() && user?.uid === uid, 'AUTHORING_SESSION_CHANGED');
-    const scope = value => ({ uid, projectId, generationId: value.generationId });
+    const scope = value => ({ uid: storageUid, projectId, generationId: value.generationId });
     const validateHead = value => {
         check(value && typeof value === 'object', 'AUTHORING_RECEIPT_INVALID');
         assertPrivateAuthoringHead(value, scope(head || value)); return value;
@@ -122,6 +125,7 @@ export function createPrivateAuthoringClient({ uid, projectId, user, isCurrent,
             } finally { busy = false; }
         },
         async create(project) {
+            check(!sharedScope, 'AUTHORING_CREATE_NOT_ALLOWED');
             current(); check(!busy && !head, 'AUTHORING_RELOAD_REQUIRED');
             if (blocked) throw blocked;
             busy = true;

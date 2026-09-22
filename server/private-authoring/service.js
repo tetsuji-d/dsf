@@ -109,13 +109,25 @@ function rejectOperation(tx, context, errorCode, time) {
 }
 
 /** No API here creates/migrates/deletes projects. Those are separate rollout units. */
-export function createAuthoringService({ db, bucket, assertLiveIdentity, now = Date.now }) {
+export function createAuthoringService({ db, bucket, assertLiveIdentity, now = Date.now, resolveAccess = null, validateSnapshot = null }) {
+    // Optional trusted server resolver. Existing owner-only callers never supply it.
+    async function contextFor(tx, identity, projectId, requestId, generationId, write = false) {
+        const access = resolveAccess ? await resolveAccess(tx, identity, projectId, write ? 'editWork' : 'readWork') : null;
+        if (resolveAccess) check(access && typeof access.ownerUid === 'string', 'WORK_FORBIDDEN', 403);
+        const ownerUid = access?.ownerUid || identity.uid;
+        const context = await readContext(tx, { uid: ownerUid }, projectId, requestId, generationId);
+        if (access) {
+            check(context.root.workId === access.workId, 'WORK_FORBIDDEN', 403);
+            if (context.operation) check((context.operation.actorUid || ownerUid) === identity.uid, 'OPERATION_FORBIDDEN', 403);
+        }
+        return context;
+    }
     return {
         // Called before reading a PUT body, so authenticated request/CPU load is bounded.
         async access(identity, projectId, { write = false, requestId, generationId } = {}) {
             await assertLiveIdentity(identity);
             return db.transaction(async tx => {
-                const context = await readContext(tx, identity, projectId, requestId, generationId);
+                const context = await contextFor(tx, identity, projectId, requestId, generationId, write);
                 const usage = usageValue(context.usage, now());
                 check(usage.requestCount < AUTHORING_LIMITS.requestsPerMinute, 'RATE_LIMITED', 429);
                 usage.requestCount += 1;
@@ -130,10 +142,15 @@ export function createAuthoringService({ db, bucket, assertLiveIdentity, now = D
         async save(identity, projectId, { snapshot, requestId, generationId, baseRevision }) {
             segment(requestId); segment(generationId);
             check(Number.isSafeInteger(baseRevision) && baseRevision >= 0, 'INVALID_BASE_REVISION', 400);
-            const scope = { uid: identity.uid, projectId, generationId };
-            const descriptor = createPrivateAuthoringDescriptor(snapshot, scope, requestId);
+            await assertLiveIdentity(identity);
+            let scope, descriptor;
             const reservation = await db.transaction(async tx => {
-                const context = await readContext(tx, identity, projectId, requestId, generationId);
+                const context = await contextFor(tx, identity, projectId, requestId, generationId, true);
+                scope = context.scope;
+                if (validateSnapshot) await validateSnapshot(tx, identity, snapshot.project, true);
+                if (resolveAccess) check(snapshot.project.projectId === projectId
+                    && (!snapshot.project.ownerUid || snapshot.project.ownerUid === scope.uid), 'AUTHORING_SCOPE_INVALID', 422);
+                descriptor = createPrivateAuthoringDescriptor(snapshot, scope, requestId);
                 const time = now(), operation = context.operation;
                 checkRequest(operation, descriptor, baseRevision);
                 metadataPatch(snapshot.project, context.root, time);
@@ -153,6 +170,7 @@ export function createAuthoringService({ db, bucket, assertLiveIdentity, now = D
                     usage.operationCount += 1;
                 }
                 const pending = operation || { storageVersion: 1, generationId, baseRevision, descriptor,
+                    ...(resolveAccess ? {actorUid:identity.uid} : {}),
                     state: 'pending', createdAtMs: time, leaseExpiresAtMs: time + AUTHORING_LEASE_MS };
                 if (decision.action === 'unchanged') {
                     const committed = { ...pending, state: 'committed', result: 'unchanged', committedHead: context.head, completedAtMs: time };
@@ -176,7 +194,8 @@ export function createAuthoringService({ db, bucket, assertLiveIdentity, now = D
             // Revocation and disabled Auth users are checked again after potentially slow R2 I/O.
             await assertLiveIdentity(identity);
             const result = await db.transaction(async tx => {
-                const context = await readContext(tx, identity, projectId, requestId, generationId);
+                const context = await contextFor(tx, identity, projectId, requestId, generationId, true);
+                if (validateSnapshot) await validateSnapshot(tx, identity, snapshot.project, true);
                 const time = now(), operation = context.operation;
                 check(operation, 'OPERATION_LEDGER_MISSING');
                 checkRequest(operation, descriptor, baseRevision);
@@ -188,11 +207,11 @@ export function createAuthoringService({ db, bucket, assertLiveIdentity, now = D
                 catch (error) { return rejectOperation(tx, context, error.code || 'AUTHORING_CONFLICT', time); }
                 check(decision.action === 'commit', 'INVALID_COMMIT_STATE');
                 const patch = metadataPatch(snapshot.project, context.root, time);
-                const workPath = context.root.workId ? `users/${identity.uid}/works/${segment(context.root.workId)}` : null;
+                const workPath = context.root.workId ? `users/${context.scope.uid}/works/${segment(context.root.workId)}` : null;
                 const related = [context.p.summary];
                 if (workPath) related.push(workPath);
                 const [, work] = await tx.getMany(related);
-                if (workPath) check(work?.ownerUid === identity.uid && work.projectId === projectId, 'WORK_ID_CONFLICT', 409);
+                if (workPath) check(work?.ownerUid === context.scope.uid && work.projectId === projectId, 'WORK_ID_CONFLICT', 409);
                 const summary = createProjectSummaryForPatch(context.root, patch, { projectId });
                 const committed = { ...operation, state: 'committed', result: 'commit', committedHead: decision.head, completedAtMs: time };
                 tx.set(context.p.head, decision.head);
@@ -212,11 +231,19 @@ export function createAuthoringService({ db, bucket, assertLiveIdentity, now = D
             return result;
         },
         async load(identity, projectId, context) {
+            if (resolveAccess) {
+                await assertLiveIdentity(identity);
+                const previous = context;
+                context = await db.transaction(tx => contextFor(tx, identity, projectId, undefined, previous.scope.generationId));
+                check(context.head?.sha256 === previous.head?.sha256 && context.head?.revision === previous.head?.revision,
+                    'AUTHORING_REVISION_CONFLICT', 409);
+            }
             check(context.head, 'AUTHORING_NOT_SAVED', 404);
             const result = await bucket.read(descriptorOf(context.head), context.scope);
             await assertLiveIdentity(identity);
             await db.transaction(async tx => {
-                const latest = await readContext(tx, identity, projectId, undefined, context.scope.generationId);
+                const latest = await contextFor(tx, identity, projectId, undefined, context.scope.generationId);
+                if (validateSnapshot) await validateSnapshot(tx, identity, result.project, false);
                 check(latest.head?.revision === context.head.revision && latest.head.sha256 === context.head.sha256,
                     'AUTHORING_REVISION_CONFLICT', 409);
             });

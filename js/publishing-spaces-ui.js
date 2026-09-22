@@ -25,7 +25,7 @@ const copy = {
         count:'manuscripts', owner:'Owner', space:'Publishing space', destination:'Saved in: Cloud', noProjects:'No manuscripts in this view.',
     },
 };
-export function createPublishingSpaceUI({ root, request, getLocale, getUid, onChange, switcherRoots = [], onSelect, storage = globalThis.localStorage }) {
+export function createPublishingSpaceUI({ root, request, getLocale, getUid, onChange, switcherRoots = [], identityRoots = [], onSelect, storage = globalThis.localStorage }) {
     let uid = '', data = null, selected = 'all', loading = false, failed = false, failureCode = '', busy = false, form = null, notice = '', generation = 0, pending = null, creation = null;
     let opening = false;
     let imageCache = new Map(), imageLoading = new Set(), imageFailed = new Set(), converting = false;
@@ -72,12 +72,15 @@ export function createPublishingSpaceUI({ root, request, getLocale, getUid, onCh
         return source ? '<img alt="" src="' + escape(source) + '">' : '<span aria-hidden="true">' + escape(space ? Array.from(space.name)[0] : id === 'unassigned' ? '—' : '▦') + '</span>';
     }
     function updateSwitcherIcons() {
-        for (const host of switchers) for (const icon of host.querySelectorAll('[data-space-avatar]')) {
+        for (const host of [...switchers,...identityRoots.filter(Boolean)]) for (const icon of host.querySelectorAll('[data-space-avatar]')) {
             const id = icon.dataset.spaceAvatar;
             icon.innerHTML = iconHtml(data?.spaces.find(s=>s.id===id),id);
         }
     }
     function renderSwitchers() {
+        for (const host of identityRoots.filter(Boolean)) {
+            host.innerHTML='<span class="space-switcher-avatar" data-space-avatar="'+escape(active()?.id || selected)+'"></span><div><small>'+tr().title+'</small><strong>'+escape(uid ? selectionLabel() : (getLocale()==='en'?'Personal workspace':'個人の作業スペース'))+'</strong></div>';
+        }
         const t = tr(), en = getLocale() === 'en';
         for (const [index,host] of switchers.entries()) {
             if (!host.querySelector('[data-space-trigger]')) {

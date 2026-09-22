@@ -1,3 +1,5 @@
+import '../css/home-workspace.css';
+import { createHomeWorkspace } from './home-workspace.js';
 import '../css/publishing-spaces.css';
 import { createPublishingSpaceUI } from './publishing-spaces-ui.js';
 import { requestPublishingSpaces } from './publishing-spaces-client.js';
@@ -4294,12 +4296,17 @@ function formatProjectBytes(bytes) {
 }
 
 // ── Home room — ダッシュボード（クラウド / ローカル一覧） ─────────────────
-let publishingSpaceUI;
+let publishingSpaceUI, homeWorkspace;
+function getHomeWorkspace() {
+    if (!homeWorkspace) homeWorkspace = createHomeWorkspace({root:document.getElementById('home-room'),getLocale:getUILang});
+    return homeWorkspace;
+}
 function getPublishingSpaceUI() {
     if (!publishingSpaceUI) publishingSpaceUI = createPublishingSpaceUI({
         root: document.getElementById('home-publishing-spaces'),
         switcherRoots: [document.getElementById('studio-space-switcher'), document.getElementById('mobile-space-switcher')],
-        onSelect: () => { if (getCurrentRoom() !== 'home') window.switchRoom('home'); },
+        identityRoots: [document.getElementById('home-space-identity')],
+        onSelect: () => { getHomeWorkspace().select('overview'); if (getCurrentRoom() !== 'home') window.switchRoom('home'); },
         request: requestPublishingSpaces, getUid: () => state.uid, getLocale: getUILang,
         onChange: () => { void renderHomeDashboard({ refreshSpaces: false }); },
     });
@@ -4358,6 +4365,7 @@ function renderHomeCard(project, source) {
             </div>
             <div class="home-project-info">
                 <div class="home-project-title">${escapeStudioHtml(displayName)}</div>
+                <span class="home-project-resume">${getUILang() === 'en' ? 'Continue editing' : '続きから編集'}</span>
                 ${workTitleMeta ? `<div class="home-project-meta home-project-work-title">${escapeStudioHtml(workTitleMeta)}</div>` : ''}
                 <div class="home-project-meta">${escapeStudioHtml(t('home_pages_count', { count: pageCount }))} · ${escapeStudioHtml(sourceLabel)}${updatedAt ? ` · ${escapeStudioHtml(updatedAt)}` : ''}</div>
                 <div class="home-project-meta home-project-meta-secondary">
@@ -4670,6 +4678,7 @@ function fetchHomeCloudProjects() {
 }
 
 async function renderHomeDashboard({ refreshSpaces = true } = {}) {
+    getHomeWorkspace().render();
     const renderRevision = ++homeDashboardRenderRevision;
     const cloudGrid = document.getElementById('home-cloud-grid');
     const localGrid = document.getElementById('home-local-grid');
@@ -4702,7 +4711,11 @@ async function renderHomeDashboard({ refreshSpaces = true } = {}) {
 
     const allCloudProjects = await cloudProjectsPromise;
     if (renderRevision !== homeDashboardRenderRevision || state.uid !== dashboardUid) return;
-    const cloudProjects = Array.isArray(allCloudProjects) ? spaceUI.filter(allCloudProjects) : allCloudProjects;
+    const modifiedTime = project => {
+        const value = project.lastUpdated || project.updatedAt;
+        return Number(value?.toMillis?.() || (value?.seconds ? value.seconds * 1000 : 0) || (typeof value === 'number' ? value : Date.parse(value)) || 0);
+    };
+    const cloudProjects = Array.isArray(allCloudProjects) ? [...spaceUI.filter(allCloudProjects)].sort((a,b)=>modifiedTime(b)-modifiedTime(a)) : allCloudProjects;
     const scopeLabel = document.getElementById('home-cloud-scope');
     if (scopeLabel) scopeLabel.textContent = spaceUI.destination() + ' / ' + spaceUI.label();
 
@@ -4738,7 +4751,7 @@ async function renderHomeDashboard({ refreshSpaces = true } = {}) {
                 <div class="home-empty-state">
                     <span class="material-icons">rocket_launch</span>
                     <p>${t('home_works_empty')}</p>
-                    <button class="home-action-btn" onclick="switchRoom('press')"><span class="material-icons">publish</span>${t('btn_press_room')}</button>
+                    <button class="home-action-btn" data-home-nav="projects"><span class="material-icons">library_books</span>${getUILang() === 'en' ? 'Choose a work' : '作品を選ぶ'}</button>
                 </div>`;
         } else {
             workGrid.innerHTML = works.slice(0, 6).map((work) => renderHomeWorkCard(work, pendingReviewSummaries.get(work.workId || work.id))).join('');
@@ -4752,7 +4765,7 @@ async function renderHomeDashboard({ refreshSpaces = true } = {}) {
         cloudGrid.innerHTML = `<div class="home-empty-state"><span class="material-icons">lock</span><p>${t('home_cloud_login')}</p></div>`;
         if (cloudCount) cloudCount.textContent = '0';
     } else if (cloudProjects.length === 0) {
-        cloudGrid.innerHTML = `<div class="home-empty-state"><span class="material-icons">cloud_done</span><p>${spaceUI.selection() ? (getUILang() === 'en' ? 'No manuscripts in this publishing space yet.' : 'この出版スペースにはまだ原稿がありません。') : t('home_cloud_empty')}</p></div>`;
+        cloudGrid.innerHTML = `<div class="home-empty-state"><span class="material-icons">cloud_done</span><p>${spaceUI.selection() ? (getUILang() === 'en' ? 'No manuscripts in this publishing space yet.' : 'この出版スペースにはまだ原稿がありません。') : t('home_cloud_empty')}</p><button class="home-action-btn primary" onclick="newSpaceProject()">${getUILang() === 'en' ? 'Create your first work' : '最初の作品を作成'}</button></div>`;
         if (cloudCount) cloudCount.textContent = '0';
     } else {
         cloudGrid.innerHTML = cloudProjects.map((project) => renderHomeCard(project, 'cloud')).join('');

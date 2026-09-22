@@ -238,3 +238,30 @@ Public delivery contains fixedText and sealed background WebP assets, not the au
 `anchoredObjects[].graphic.caption`に配置方向・言語別文字列・文字サイズ・間隔・色・揃えを保存する。
 同一段落の複数配置を許可する。公開配信ではキャプションを画像背景へ合成し、本文はfixedTextを維持する。
 Project/Firestore Rules変更はない。詳細は[画像キャプション仕様](flow-image-captions.md)。
+
+
+### Shared authoring foundation (2026-09-22, not routed)
+
+The authoring service accepts an optional server-only access resolver. Existing
+owner-only HTTP routes do not pass it and retain their current behavior.
+`server/shared-authoring.js` binds a space/work to the canonical owner/project,
+reconciles the existing assignment and checks the caller's current membership.
+Authentication always verifies the actual caller; immutable objects and metadata
+remain under the storage owner's paths. Shared operations record actorUid.
+Permission is checked before reads and after R2 I/O, and on both save reservation
+and final commit. A revocation prevents response/commit; no automatic fallback or
+copy into the participant's personal project is allowed.
+This has been tested with the real storage service and fixture R2, not deployed.
+Shared images, client sessions and server-owned binding management remain required
+before enabling cross-account authoring. See [invitation foundation](publishing-invitations.md).
+
+
+### 共有セッションと非公開画像の接続基盤（2026-09-22、未一般提供）
+
+共有専用client sessionは実操作UIDでtokenを取得し、server contextで確定した保存所有者UIDでheadを検証する。
+既存owner-only APIへ参加者UIDを偽装して送ることはない。共有clientは新規project作成を提供しない。
+共有HTTPの原稿GET/PUTには非公開画像参照の検査が入り、未移行の公開画像URLを許可しない。
+画像upload/readは非公開bucketだけを使い、I/O前後の権限・世代照合を必須にする。
+非公開image objectを検証してからready記録を確定し、readyでない参照は原稿保存できない。
+原稿更新と画像の追加は別段階。画像だけのアップロードは原稿headを変更しない。
+詳細・残作業は [招待と共有基盤](publishing-invitations.md) 第3単位を参照。

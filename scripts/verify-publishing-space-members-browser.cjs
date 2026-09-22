@@ -1,0 +1,26 @@
+const {chromium}=require(process.env.DSF_PLAYWRIGHT_MODULE),assert=require('node:assert/strict');
+(async()=>{const browser=await chromium.launch({channel:'chrome',headless:true});try{
+ const page=await browser.newPage({viewport:{width:1360,height:920}}),errors=[];page.on('pageerror',e=>errors.push(e.message));
+ const base=process.env.DSF_SPACES_FIXTURE_URL||'http://127.0.0.1:5198';
+ const before=await (await page.request.get(base+'/fixture/proof')).json();
+ await page.goto(base+'/members');await page.locator('[data-edit-member]').first().waitFor();
+ const visible=()=>page.locator('[data-visible-work]').count();
+ assert.equal(await visible(),3);
+ await page.locator('#preview-member').selectOption('reviewer');assert.equal(await visible(),1);
+ const edit=()=>page.locator('[data-edit-member="reviewer"]').click();
+ await edit();await page.locator('[data-grant-role]').selectOption('editor');await page.locator('[data-grant-scope]').selectOption('label');await page.locator('[data-grant-target]').selectOption('label_sea');await page.locator('#review-access').click();
+ assert.match(await page.locator('.changes').innerText(),/潮騒の図書館: 閲覧のみ → 編集可/);assert.match(await page.locator('.changes').innerText(),/灯台の手紙: アクセス不可 → 編集可/);
+ await page.locator('dialog [data-cancel]').click();assert.equal(await visible(),1);assert(await page.locator('[data-edit-member="reviewer"]').evaluate(e=>e===document.activeElement));
+ await edit();await page.locator('[data-grant-role]').selectOption('editor');await page.locator('[data-grant-scope]').selectOption('label');await page.locator('[data-grant-target]').selectOption('label_sea');await page.locator('#review-access').click();await page.locator('#apply-access').click();assert.equal(await visible(),2);
+ await edit();await page.locator('#add-grant').click();await page.locator('#review-access').click();assert(await page.locator('dialog .error').innerText());
+ await page.locator('[data-grant-target]').nth(1).selectOption('work_trip');await page.locator('#review-access').click();await page.locator('#back-access').click();assert.equal(await page.locator('[data-grant]').count(),2);await page.locator('#review-access').click();await page.locator('#apply-access').click();assert.equal(await visible(),3);
+ await page.locator('#actor').selectOption('manager');assert.equal(await page.locator('[data-edit-member="manager"]').count(),0);await edit();assert.equal(await page.locator('#membership-role option[value="admin"]').count(),0);await page.keyboard.press('Escape');assert.equal(await page.locator('dialog').count(),0);
+ await page.locator('#actor').selectOption('reviewer');assert.equal(await page.locator('[data-edit-member]').count(),0);assert.equal(await visible(),3);assert.equal(await page.locator('#members-root').getByText('夜明けのノート',{exact:true}).count(),0);assert.equal(await page.locator('#preview-member option').count(),1);
+ await page.locator('#actor').selectOption('owner');await page.locator('#language').click();assert.equal(await page.locator('h1').innerText(),'Members & permissions');await edit();assert.equal(await page.locator('#membership-role option[value="admin"]').count(),1);await page.keyboard.press('Escape');await page.locator('#language').click();
+ await page.screenshot({path:'outputs/space-members-desktop.png',fullPage:true});
+ await page.setViewportSize({width:390,height:844});await edit();await page.locator('#review-access').click();
+ assert(await page.locator('dialog').evaluate(e=>{const r=e.getBoundingClientRect();return r.left>=0&&r.right<=innerWidth&&e.scrollWidth<=e.clientWidth;}));await page.screenshot({path:'outputs/space-members-mobile.png'});
+ await page.keyboard.press('Escape');await page.setViewportSize({width:320,height:740});assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));
+ assert.deepEqual(await (await page.request.get(base+'/fixture/proof')).json(),before,'preview must not write even fixture cloud records');assert.deepEqual(errors,[]);
+ console.log('Members preview: scoped visibility, overlapping roles, review/cancel/apply, blank-target rejection, admin limits, keyboard, JA/EN and mobile passed; no cloud records modified.');
+}finally{await browser.close();}})().catch(e=>{console.error(e);process.exit(1)});

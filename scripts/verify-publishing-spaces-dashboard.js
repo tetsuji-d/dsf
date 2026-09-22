@@ -34,9 +34,10 @@ const element=id=>{if(!elements.has(id))elements.set(id,{innerHTML:'',textConten
 let resolveSpaces,spaceLoads=0;
 const pendingSpaces=new Promise(resolve=>{resolveSpaces=resolve;});
 const dashboard={
+ getHomeWorkspace:()=>({render:()=>{}}),
  homeDashboardRenderRevision:0,state:{uid:'owner'},document:{getElementById:element},
  getPublishingSpaceUI:()=>({load:()=>{spaceLoads++;return pendingSpaces;},render:()=>{},filter:rows=>rows,label:()=> 'all',destination:()=> 'Cloud',bind:()=>{},selection:()=>null}),
- fetchHomeCloudProjects:async()=>[{id:'cloud_book'}],listLocalRecentProjects:async()=>[{id:'local_copy'}],
+ fetchHomeCloudProjects:async()=>[{id:'cloud_book',lastUpdated:{seconds:1}},{id:'recent_book',lastUpdated:{toMillis:()=>2000}}],listLocalRecentProjects:async()=>[{id:'local_copy'}],
  renderHomeLocalProjects:el=>{el.innerHTML='local visible';},t:key=>key,getUILang:()=> 'en',
  isPublishedHomeWork:()=>false,renderHomeStatCard:()=>'',renderHomeDashboardStats:()=>'',renderHomeCard:p=>'cloud visible '+p.id,
  bindHomeWorkActions:()=>{},syncStudioShell:()=>{},console
@@ -45,6 +46,7 @@ vm.createContext(dashboard);vm.runInContext(source.slice(rendererStart,rendererE
 await Promise.race([dashboard.renderHomeDashboard(),new Promise((_,reject)=>{const timer=setTimeout(()=>reject(Error('Space loading blocked cloud manuscripts')),1000);timer.unref();})]);
 assert.match(element('home-cloud-grid').innerHTML,/cloud visible cloud_book/);
 assert.equal(element('home-local-grid').innerHTML,'local visible');
+assert.ok(element('home-cloud-grid').innerHTML.indexOf('recent_book') < element('home-cloud-grid').innerHTML.indexOf('cloud_book'),'recently saved works appear first');
 await dashboard.renderHomeDashboard({refreshSpaces:false});assert.equal(spaceLoads,1,'space completion/selection must not reload the API recursively');
 resolveSpaces();
 console.log('Actual dashboard renderer: cloud and local manuscripts remain available while space loading is pending; no recursive refetch.');

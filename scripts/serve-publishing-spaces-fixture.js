@@ -3,6 +3,17 @@ import { readFile } from 'node:fs/promises';
 import { publishingSpacesFixture } from './fixtures/publishing-spaces-fixture.js';
 const f=publishingSpacesFixture(), port=Number(process.env.PORT || 5192);
 const allowed=new Map([
+ ['/members',['scripts/fixtures/publishing-space-members-ui.html','text/html']],
+ ['/scripts/fixtures/publishing-space-members-ui.js',['scripts/fixtures/publishing-space-members-ui.js','text/javascript']],
+ ['/js/publishing-space-members-ui.js',['js/publishing-space-members-ui.js','text/javascript']],
+ ['/js/publishing-space-access.js',['js/publishing-space-access.js','text/javascript']],
+ ['/css/publishing-space-members.css',['css/publishing-space-members.css','text/css']],
+ ['/scripts/fixtures/home-workspace-ui.js',['scripts/fixtures/home-workspace-ui.js','text/javascript']],
+ ['/js/home-workspace.js',['js/home-workspace.js','text/javascript']],
+ ['/js/i18n-studio.js',['js/i18n-studio.js','text/javascript']],
+ ['/css/home-workspace.css',['css/home-workspace.css','text/css']],
+ ['/css/studio.css',['css/studio.css','text/css']],
+ ['/css/variables.css',['css/variables.css','text/css']],
  ['/', ['scripts/fixtures/publishing-spaces-ui.html','text/html']],
  ['/scripts/fixtures/publishing-spaces-ui.html',['scripts/fixtures/publishing-spaces-ui.html','text/html']],
  ['/scripts/fixtures/publishing-spaces-ui.js',['scripts/fixtures/publishing-spaces-ui.js','text/javascript']],
@@ -18,6 +29,13 @@ const allowed=new Map([
 createServer(async(req,res)=>{
     try{
         const url=new URL(req.url,'http://127.0.0.1:'+port);
+        if(url.pathname==='/workspace'){
+            const html=(await readFile(new URL('../studio.html',import.meta.url),'utf8'))
+                .replace('data-booting="true"','')
+                .replace('<script type="module" src="js/app.js"></script>','<script type="module" src="/scripts/fixtures/home-workspace-ui.js"></script>')
+                .replace('</head>','<link rel="stylesheet" href="/css/publishing-spaces.css"><link rel="stylesheet" href="/css/home-workspace.css"></head>');
+            res.setHeader('Content-Type','text/html; charset=utf-8');res.setHeader('Cache-Control','no-store');res.end(html);return;
+        }
         if(url.pathname==='/api/publishing-spaces'){
             const parts=[];let size=0;for await(const part of req){size+=part.length;if(size>460800){res.writeHead(413);res.end();return;}parts.push(part);}
             const response=await f.handler({env:f.env,request:new Request(url,{method:req.method,headers:req.headers,...(req.method==='POST'?{body:Buffer.concat(parts)}:{})})});

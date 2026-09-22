@@ -1,0 +1,14 @@
+import assert from 'node:assert/strict';
+import {withTargetPermission} from '../js/publishing-space-members-ui.js';
+const original={spaceId:'s1',uid:'member1',status:'active',role:'member',grants:[{role:'editor',scope:'label',targetId:'l1'},{role:'viewer',scope:'work',targetId:'w2'},{role:'viewer',scope:'work',targetId:'w1'},{role:'editor',scope:'work',targetId:'w1'}]};
+const before=structuredClone(original),target={scope:'work',targetId:'w1'};
+const result=withTargetPermission(original,target,'viewer');
+assert.deepEqual(original,before,'input remains unchanged');
+assert.deepEqual(result.grants,[...before.grants.slice(0,2),{role:'viewer',scope:'work',targetId:'w1'}]);
+assert.equal(result.role,'member');assert.equal(result.uid,original.uid);assert.equal(result.spaceId,original.spaceId);
+const added=withTargetPermission(original,{scope:'label',targetId:'l2'},'editor');assert.deepEqual(added.grants.slice(0,-1),before.grants);assert.deepEqual(added.grants.at(-1),{role:'editor',scope:'label',targetId:'l2'});
+assert.equal(withTargetPermission(original,{scope:'space'},'editor'),null);
+assert.equal(withTargetPermission(original,target,'admin'),null);
+assert.equal(withTargetPermission({...original,role:'admin',grants:[]},target,'editor'),null);
+assert.equal(withTargetPermission(original,{scope:'work',targetId:''},'viewer'),null);
+console.log('Target-scoped drafts preserve all unrelated grants, membership metadata and inputs; reject scope/role escalation.');

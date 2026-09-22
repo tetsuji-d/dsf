@@ -64,41 +64,43 @@
         <div class="room-container">
 
         <!-- Home Room -->
-        <div id="home-room" class="room">
+        <div id="home-room" class="room" data-home-view="overview">
+            <aside class="home-management-sidebar">
+                <div id="home-space-identity" class="home-space-identity"></div>
+                <nav data-home-navigation>
+                    <button type="button" data-home-nav="overview"><span class="material-icons" aria-hidden="true">dashboard</span><span data-home-label="overview">ダッシュボード</span></button>
+                    <button type="button" data-home-nav="projects"><span class="material-icons" aria-hidden="true">library_books</span><span data-home-label="projects">作品</span></button>
+                    <button type="button" data-home-nav="activity"><span class="material-icons" aria-hidden="true">insights</span><span data-home-label="activity">公開状況・反応</span></button>
+                    <button type="button" data-home-nav="settings"><span class="material-icons" aria-hidden="true">tune</span><span data-home-label="settings">スペースの設定</span></button>
+                    <button type="button" data-home-nav="local" class="home-local-nav"><span class="material-icons" aria-hidden="true">devices</span><span data-home-label="local">このブラウザの作業コピー</span></button>
+                </nav>
+            </aside>
+            <div class="home-workspace-main">
             <div class="home-room-header">
-                <h2 data-i18n="home_title">Dashboard</h2>
+                <h2 data-home-title tabindex="-1">ダッシュボード</h2>
+                <div class="home-room-actions">
+                    <button class="home-action-btn" onclick="document.getElementById('dsp-upload').click()"><span class="material-icons" aria-hidden="true">file_upload</span><span data-home-label="import">DSPを取り込む</span></button>
+                    <button class="home-action-btn primary" onclick="newSpaceProject()"><span class="material-icons" aria-hidden="true">add</span><span data-home-label="create">作品を作成</span></button>
+                </div>
             </div>
             <div class="home-room-body">
-                <section class="home-dashboard-hero">
-                    <div class="home-dashboard-copy">
-                        <span class="home-dashboard-kicker" data-i18n="home_dashboard_kicker">作品運用</span>
-                        <h3 data-i18n="home_dashboard_title">作品の状態を確認する</h3>
-                        <p data-i18n="home_dashboard_subtitle">公開状態、レビュー、読者反応を確認し、必要な作品やプロジェクトへ移動します。</p>
-                    </div>
-                    <div class="home-dashboard-actions">
-                        <button class="home-action-btn primary" onclick="switchRoom('works')">
-                            <span class="material-icons">library_books</span> <span data-i18n="nav_works">作品</span>
-                        </button>
-                        <button class="home-action-btn" onclick="newSpaceProject()">
-                            <span class="material-icons">add</span> <span data-i18n="btn_new_project">新規プロジェクト</span>
-                        </button>
-                    </div>
-                </section>
-                <section id="home-publishing-spaces" class="publishing-space-panel" aria-label="Publishing spaces"></section>
-                <section id="home-dashboard-stats" class="home-dashboard-stats" aria-live="polite"></section>
+                <p class="home-overview-hint" data-home-views="overview" data-home-label="hint">作品を選んで、続きから編集できます。</p>
+                <section id="home-publishing-spaces" data-home-views="settings" class="publishing-space-panel" aria-label="Publishing spaces"></section>
+                <section id="home-dashboard-stats" data-home-views="overview activity" class="home-dashboard-stats" aria-live="polite"></section>
 
-                <section class="home-project-section">
+                <section class="home-project-section" data-home-views="overview projects">
                     <div class="home-section-head">
                         <div class="home-section-title-wrap">
-                            <h3 data-i18n="home_section_cloud">クラウドプロジェクト</h3>
+                            <h3 data-home-cloud-heading>最近の作品</h3>
                             <span id="home-cloud-count" class="home-section-count">0</span>
                         </div>
+                        <button type="button" class="home-action-btn" data-home-nav="projects" data-home-views="overview" data-home-label="all">作品をすべて見る</button>
                     </div>
                     <p id="home-cloud-scope" class="home-save-scope"></p>
-                    <p class="home-storage-note" data-i18n="home_cloud_storage_note"></p>
+                    <p class="home-storage-note" data-home-views="projects" data-i18n="home_cloud_storage_note"></p>
                     <div id="home-cloud-grid" class="home-project-grid"></div>
                 </section>
-                <section class="home-work-section">
+                <section class="home-work-section" data-home-views="activity">
                     <div class="home-section-head">
                         <div class="home-section-title-wrap">
                             <h3 data-i18n="home_section_works">作品アナリティクス</h3>
@@ -106,13 +108,13 @@
                         </div>
                         <div class="home-section-actions">
                             <button class="home-action-btn" onclick="switchRoom('works')">
-                                <span class="material-icons">open_in_new</span> <span data-i18n="home_open_works">Works Room</span>
+                                <span class="material-icons">open_in_new</span> <span data-home-label="publication">公開設定を管理</span>
                             </button>
                         </div>
                     </div>
                     <div id="home-work-grid" class="home-work-grid"></div>
                 </section>
-                <details class="home-browser-copies">
+                <details class="home-browser-copies" data-home-views="overview local">
                     <summary data-i18n="home_section_local">このブラウザの作業コピー</summary>
                     <p class="home-storage-note" data-i18n="home_local_storage_note"></p>
                     <div class="home-section-head">
@@ -129,6 +131,7 @@
                     <div id="home-local-grid" class="home-project-grid"></div>
                 </details>
             </div>
+        </div>
         </div>
 
         <!-- Editor Room -->
