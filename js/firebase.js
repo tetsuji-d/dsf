@@ -1,3 +1,6 @@
+import { openSharedAuthoringSession } from './shared-authoring-session.js';
+import { readSharedStudioAccess, setSharedStudioAccess, subscribeSharedStudioAccess, canEditSharedStudio, assertSharedStudioEdit, assertPersonalStudioOperation } from './shared-studio-access.js';
+import { subscribeProjectSession } from './state.js';
 import { createEditorSaveStatus } from './editor-save-status.js';
 import { preparePrivateProjectAction, runPrivateProjectAction } from './private-project-actions.js';
 import { getUILang } from './i18n-studio.js';
@@ -67,6 +70,96 @@ export const PUBLICATION_THUMBNAIL_MAX_SOURCE_PIXELS = 80_000_000;
 const PUBLICATION_THUMBNAIL_WEBP_QUALITY = 0.86;
 const userBootstrapPromiseCache = new Map();
 let privateAuthoringSession = null;
+let sharedStudioSession = null;
+const sharedStudioClientId = crypto.randomUUID();
+let sharedAccessTimer = null;
+function cancelSharedSave() { clearTimeout(autoSaveTimer); autoSaveTimer = null; saveRequested = false; }
+function disposeSharedStudio() {
+    clearInterval(sharedAccessTimer); sharedAccessTimer = null;
+    sharedStudioSession?.session.dispose(); sharedStudioSession = null;
+}
+subscribeProjectSession(() => {
+    if (!readSharedStudioAccess()) return;
+    cancelSharedSave(); disposeSharedStudio(); setSharedStudioAccess({...readSharedStudioAccess(),status:'unavailable',canEdit:false});
+});
+subscribeSharedStudioAccess(access => {
+    if (access && !access.canEdit) cancelSharedSave();
+    if (access?.status === 'unavailable') {
+        disposeSharedStudio();
+        // Do not leave another account's manuscript in the editor or AI context.
+        Object.assign(state,{projectId:null,workId:null,title:'',projectName:'',meta:{},blocks:[],sections:[],pages:[],projectAssets:[],dsfPages:[],publicationThumbnailUrl:''});
+        window.dispatchEvent(new Event('shared-studio-unavailable'));
+    }
+});
+window.addEventListener('pagehide', () => {
+    if (readSharedStudioAccess()) setSharedStudioAccess({...readSharedStudioAccess(),status:'unavailable',canEdit:false});
+});
+export async function checkSharedStudioAccess() {
+    const active = sharedStudioSession;
+    if (!active) return;
+    try {
+        const context = await active.session.checkAccess();
+        if (sharedStudioSession !== active) return;
+        const needsReload=context.canEdit && context.lock?.fence!==active.fence;
+        setSharedStudioAccess({...context,status:'ready',needsReload,canEdit:context.canEdit&&!needsReload});
+        return context;
+    } catch (error) {
+        if (sharedStudioSession === active) setSharedStudioAccess({...readSharedStudioAccess(),status:[401,403].includes(error.status)?'unavailable':'disconnected',canEdit:false});
+        throw error;
+    }
+}
+export async function sharedStudioLockAction(action,refresh) {
+    const active=sharedStudioSession,access=readSharedStudioAccess();
+    if(!active||!access)throw new AuthoringClientError('AUTHORING_SESSION_CHANGED');
+    if(['grant','release'].includes(action)) {
+        await flushSave();
+        if(active!==sharedStudioSession||active.dirty)throw new AuthoringClientError('AUTHORING_SESSION_CHANGED');
+        setSharedStudioAccess({...access,canEdit:false});
+    }
+    if(action==='acquire'&&active.dirty) {
+        const message=getUILang()==='en'?'Reopen the latest manuscript? Unsaved changes in this tab will be discarded.':'最新の原稿を開き直します。このタブの未保存の変更は破棄されます。続けますか？';
+        if(!window.confirm(message))return;
+    }
+    try {
+        const context=await active.session.lockAction(action,access.lock?.requestId);
+        if(active!==sharedStudioSession)throw new AuthoringClientError('AUTHORING_SESSION_CHANGED');
+        if(action==='acquire') {
+            // A previously read snapshot is never granted write access. Reload the head first.
+            cancelSharedSave();
+            await loadSharedProject({spaceId:context.spaceId,workId:context.workId},refresh);
+        } else {const needsReload=context.canEdit&&context.lock?.fence!==active.fence;setSharedStudioAccess({...context,status:'ready',needsReload,canEdit:context.canEdit&&!needsReload});}
+    } catch(error) {await checkSharedStudioAccess().catch(()=>{});throw error;}
+}
+export async function loadSharedProject({spaceId,workId}, refresh) {
+    if (import.meta.env.VITE_SHARED_STUDIO_ENABLED !== 'true') throw new AuthoringClientError('SHARED_AUTHORING_DISABLED');
+    const user = auth.currentUser, uid = state.uid;
+    if (!user || user.uid !== uid) throw new AuthoringClientError('AUTH_REQUIRED');
+    await flushPendingSave();
+    const sequence = ++projectLoadSequence;
+    let epoch = getProjectSessionEpoch();
+    const isCurrent = () => sequence === projectLoadSequence && epoch === getProjectSessionEpoch() && state.uid === uid && auth.currentUser === user;
+    disposeSharedStudio();
+    setSharedStudioAccess({spaceId,workId,status:'loading',canEdit:false});
+    let session;
+    try {
+        session = await openSharedAuthoringSession({spaceId,workId,user,isCurrent,sessionId:sharedStudioClientId,onInvalidated:()=>{
+            if (sharedStudioSession?.session === session) setSharedStudioAccess({...readSharedStudioAccess(),status:'unavailable',canEdit:false});
+        }});
+        if (!isCurrent()) throw new AuthoringClientError('AUTHORING_SESSION_CHANGED');
+        const data = hydrateProjectFromPersistence(session.project);
+        dispatch({type:actionTypes.LOAD_PROJECT,payload:{...data,projectId:session.context.projectId,workId,
+            releaseId:null,dsfPages:[],dsfStatus:null,publication:null,visibility:'private',
+            activeLang:data.defaultLang || data.languages?.[0] || 'ja',activeIdx:0,activePageIdx:0,activeBlockIdx:0,activeBubbleIdx:null}});
+        epoch = getProjectSessionEpoch(); privateAuthoringSession = null;
+        sharedStudioSession = {session,epoch,projectId:session.context.projectId,user,dirty:false,fence:session.context.lock?.fence};
+        window.localImageMap = {};
+        setSharedStudioAccess({...session.context,status:'ready'});
+        sharedAccessTimer = setInterval(()=>{if(document.visibilityState==='visible')void checkSharedStudioAccess().catch(()=>{});},10000);
+        refresh();
+        return session.context;
+    } catch(error) { session?.dispose(); if(sequence===projectLoadSequence)setSharedStudioAccess({spaceId,workId,status:'unavailable',canEdit:false});throw error; }
+}
+
 let projectLoadSequence = 0;
 let editorRevision = 0;
 export function getLoadedPrivateAuthoringHead(projectId = state.projectId) {
@@ -74,6 +167,7 @@ export function getLoadedPrivateAuthoringHead(projectId = state.projectId) {
     return privateAuthoringSession.client.getHead();
 }
 export async function restorePreviousCloudAuthoring(refresh) {
+    assertPersonalStudioOperation();
     const pid = state.projectId, epoch = getProjectSessionEpoch();
     await flushSave();
     if (epoch !== getProjectSessionEpoch() || state.projectId !== pid) throw new AuthoringClientError('AUTHORING_SESSION_CHANGED');
@@ -117,6 +211,12 @@ async function _uploadToR2(blob, path) {
  * Use this instead of calling uploadBytes/getDownloadURL directly.
  */
 async function _storeFile(blob, path) {
+    assertSharedStudioEdit();
+    if (readSharedStudioAccess()) {
+        const active = sharedStudioSession;
+        if (!active || active.epoch !== getProjectSessionEpoch()) throw new AuthoringClientError('AUTHORING_SESSION_CHANGED');
+        return (await active.session.addImage(blob)).url;
+    }
     if (String(path || '').toLowerCase().endsWith('.webp') && !(await isWebPBlob(blob))) {
         throw new Error('WebP ではない画像を .webp として保存しようとしました。');
     }
@@ -128,6 +228,7 @@ async function _storeFile(blob, path) {
 
 /** Press Room レンダリング結果のアップロード（press.js から使用） */
 export async function uploadPressPage(blob, path) {
+    assertPersonalStudioOperation();
     return _storeFile(blob, path);
 }
 // ─────────────────────────────────────────────────────────────────────────────
@@ -795,6 +896,8 @@ function updateSaveIndicator(status, message) {
  * 自動保存をトリガーする（2秒デバウンス）
  */
 export function triggerAutoSave() {
+    if (!canEditSharedStudio()) return;
+    if(sharedStudioSession){sharedStudioSession.dirty=true;sharedStudioSession.session.noteEdit();}
     editorSaveEvidence.dirty();
     editorRevision += 1;
     if (autoSaveTimer) clearTimeout(autoSaveTimer);
@@ -1028,6 +1131,7 @@ function buildAuthoringProjectInput(overrides = {}) {
  * 実際の保存処理
  */
 async function performSaveOnce() {
+    assertSharedStudioEdit();
     const saveEvidence = editorSaveEvidence.begin(Boolean(state.projectId && state.uid));
     let privateSave = false;
     const startedEpoch = getProjectSessionEpoch(), startedProjectId = state.projectId;
@@ -1073,6 +1177,22 @@ async function performSaveOnce() {
 
     updateSaveIndicator('saving', '保存中...');
 
+    // Shared sources stay in their owner's private storage. Never fall through to
+    // personal Firestore, public assets, or the participant's local recent list.
+    if (readSharedStudioAccess()) {
+        const active = sharedStudioSession;
+        if (!active || active.epoch !== saveIdentity.epoch || active.projectId !== saveIdentity.projectId || active.user !== saveIdentity.user) throw new AuthoringClientError('AUTHORING_SESSION_CHANGED');
+        saveEvidence.backend('r2-private');
+        try {
+            await checkSharedStudioAccess(); assertSharedStudioEdit();
+            if (!saveIsCurrent() || sharedStudioSession !== active) throw new AuthoringClientError('AUTHORING_SESSION_CHANGED');
+            await active.session.save({...authoringProject,ownerUid:active.session.context.ownerUid});
+            if (!saveIsCurrent() || sharedStudioSession !== active) throw new AuthoringClientError('AUTHORING_SESSION_CHANGED');
+            if(editorRevision===saveIdentity.editorRevision)active.dirty=false;
+            cloudSaved();
+        } catch(error) { if(saveIsCurrent()){updateSaveIndicator('error',authoringSaveMessage(error));if(error.code==='EDIT_LOCK_LOST')await checkSharedStudioAccess().catch(()=>{});}throw error; }
+        return;
+    }
     // 1. ローカルバックアップ (常に実行)
     try {
         const localSnapshot = JSON.parse(JSON.stringify({
@@ -1315,6 +1435,7 @@ async function performSave() {
  * 手動保存（プロジェクトIDを新規設定して保存）
  */
 export async function saveAsProject() {
+    assertPersonalStudioOperation();
     requireUid();
     ensureProjectIdentity();
     dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'projectId', value: state.projectId } });
@@ -1326,6 +1447,8 @@ export async function saveAsProject() {
  * @param {string=} pid - 任意のプロジェクトID
  */
 export async function saveProject(pid) {
+    assertSharedStudioEdit();
+    if (readSharedStudioAccess() && pid && pid !== state.projectId) throw new AuthoringClientError("AUTHORING_SESSION_CHANGED");
     requireUid();
     if (pid) dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'projectId', value: pid } });
     ensureProjectIdentity();
@@ -1504,6 +1627,8 @@ export async function discardPreparedAuthoringImage(image) {
 
 /** Prepare the existing authoring image assets without mutating the project. */
 export async function prepareAuthoringImage(file, { uid = state.uid, maxLongEdge = AUTHORING_IMAGE_MAX_LONG_EDGE } = {}) {
+    assertSharedStudioEdit();
+    const imageEpoch = getProjectSessionEpoch();
     const [mainBlob, thumbBlob] = await Promise.all([
         compressImage(file, maxLongEdge, AUTHORING_IMAGE_WEBP_QUALITY),
         compressImage(file, THUMBNAIL_IMAGE_MAX_LONG_EDGE, THUMBNAIL_IMAGE_WEBP_QUALITY),
@@ -1511,7 +1636,19 @@ export async function prepareAuthoringImage(file, { uid = state.uid, maxLongEdge
     if (maxLongEdge === ASSET_MAX_LONG_EDGE && mainBlob.size > ASSET_MAX_BYTES) throw new Error('Asset too large');
     const dimensions = await decodeDspPublicationThumbnailImage(mainBlob);
     const metadata = { width: dimensions.width, height: dimensions.height, byteLength: mainBlob.size };
+    if (imageEpoch !== getProjectSessionEpoch()) throw new AuthoringClientError('AUTHORING_SESSION_CHANGED');
+    assertSharedStudioEdit();
     const timestamp = createId('img');
+    // Paste/WebMCP intentionally pass uid:null for personal drafts. A shared
+    // session still owns the image route and must never use participant IDB.
+    if (readSharedStudioAccess()) {
+        const active = sharedStudioSession;
+        if (!active || active.epoch !== imageEpoch) throw new AuthoringClientError('AUTHORING_SESSION_CHANGED');
+        const main = await active.session.addImage(mainBlob);
+        const thumb = await active.session.addImage(thumbBlob);
+        if (sharedStudioSession !== active || imageEpoch !== getProjectSessionEpoch()) throw new AuthoringClientError('AUTHORING_SESSION_CHANGED');
+        return {mainUrl:main.url,thumbUrl:thumb.url,...metadata};
+    }
     if (!uid) {
         const mainKey = `local_img_main_${timestamp}`;
         const thumbKey = `local_img_thumb_${timestamp}`;

@@ -22,7 +22,7 @@ const {chromium}=require(process.env.DSF_PLAYWRIGHT_MODULE),assert=require('node
   browser=await chromium.launch({channel:'chrome',headless:true});const errors=[];
   async function open(uid){const page=await browser.newPage({viewport:{width:1100,height:900}});page.on('pageerror',e=>errors.push(e.message));await page.goto(base);await page.locator('#fixture-account').selectOption(uid);
    await page.locator('[aria-busy="true"]').waitFor({state:'detached'});await page.locator('.notification-bell').click();await page.locator('.notification-row').click();await page.getByRole('button',{name:'スペースを開く',exact:true}).click();await page.getByRole('button',{name:'原稿を開く',exact:true}).click();await page.locator('#shared-text').waitFor();return page;}
-  const editor=await open('reader_1');assert.equal(await editor.locator('#shared-text').inputValue(),'港の図書館に、灯台から一通の手紙が届いた。\n司書は封を開き、静かに読み始めた。');
+  const editor=await open('reader_1');await editor.locator('#shared-start').click();await editor.waitForFunction(()=>document.querySelector('#shared-text')?.readOnly===false);assert.equal(await editor.locator('#shared-text').inputValue(),'港の図書館に、灯台から一通の手紙が届いた。\n司書は封を開き、静かに読み始めた。');
   await editor.locator('#shared-text').fill('検証用の共有編集です。\n灯台の明かりが見えます。');
   const png=await editor.evaluate(()=>{const c=document.createElement('canvas');c.width=360;c.height=640;const x=c.getContext('2d');x.fillStyle='#193854';x.fillRect(0,0,360,640);x.fillStyle='#ffd587';x.fillRect(165,100,30,340);return c.toDataURL('image/png').split(',')[1];});
   await editor.locator('#shared-image-file').setInputFiles({name:'fixture.png',mimeType:'image/png',buffer:Buffer.from(png,'base64')});

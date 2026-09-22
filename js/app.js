@@ -49,6 +49,9 @@ import '../css/flow-annotations.css';
 import { openAnnotationDialog } from './flow-annotation-ui.js';
 import { refreshFlowRichInput } from './flow-source-rich-input.js';
 import { state, dispatch, actionTypes } from './state.js';
+import { installSharedStudioUI } from './shared-studio-ui.js';
+import { readSharedStudioAccess, canEditSharedStudio, canReadSharedStudio, assertSharedStudioEdit, assertPersonalStudioOperation } from './shared-studio-access.js';
+import { loadSharedProject, checkSharedStudioAccess, sharedStudioLockAction } from './firebase.js';
 import { getEditorSaveStatus, restorePreviousCloudAuthoring, getLoadedPrivateAuthoringHead, saveProject as persistProject, loadProject, uploadToStorage, prepareAuthoringImage, uploadCoverToStorage, uploadStructureToStorage, triggerAutoSave, flushSave, flushPendingSave, generateCroppedThumbnail, listLocalRecentProjects, loadLocalRecentProject, cacheLocalRecentProject, ensureUserBootstrap, storePublicationThumbnailFile, auth as firebaseAuth, authReady, db } from './firebase.js';
 import { initGIS, renderGISButton, signInWithGoogle, signOutUser, onAuthChanged, handleRedirectResult } from './gis-auth.js';
 import { handleCanvasClick, selectBubble, renderBubbleHTML, getBubbleText, setBubbleText, addBubbleAtCenter, startDrag, startTailDrag, startSpikeDrag } from './bubbles.js';
@@ -168,7 +171,7 @@ import { collection, getDocs, query, where, limit } from "https://www.gstatic.co
 
 const flowObjectToolbar=createFlowObjectToolbarAdapter({
     state,
-    canEdit:()=>!_flowAuthoringComposing && _flowTranslationJob?.state!=='running',
+    canEdit:()=>canEditSharedStudio() && !_flowAuthoringComposing && _flowTranslationJob?.state!=='running',
     stopEditing:()=>{
         clearFlowDirectEditRuntime();
         const group=getActiveBlock();
@@ -524,8 +527,8 @@ const _flowTranslationRuntime = {
 let _flowTranslationJob = null;
 let _flowTranslationJobSequence = 0;
 
-function resetFlowRuntimeForProjectChange() {
-    resetProjectSession();
+function resetFlowRuntimeForProjectChange({keepSession = false} = {}) {
+    if (!keepSession) resetProjectSession();
     if (_flowAuthoringReflowTimer) clearTimeout(_flowAuthoringReflowTimer);
     _flowAuthoringReflowTimer = null;
     _flowAuthoringSourceRevision = 0;
@@ -4186,6 +4189,7 @@ function getActiveBlock() {
 }
 
 function getEditableActiveFixedSection(expectedType = null) {
+    if (!canEditSharedStudio()) return null;
     const activeBlock = getActiveBlock();
     if (activeBlock?.kind !== 'page') return null;
     const pageIndex = getPageIndexFromBlockIndex(state.blocks || [], state.activeBlockIdx);
@@ -4216,6 +4220,7 @@ function getFlowPreviewTargetBlock(activeBlock = getActiveBlock()) {
 
 
 function syncBlocksFromState() {
+    if (!canEditSharedStudio()) return;
     dispatch({ type: actionTypes.SET_STATE_FIELD, payload: {
         key: 'blocks',
         value: syncBlocksWithSections(state.blocks, state.sections, state.languages, { strictSpine: state.version === 6 }),
@@ -9176,6 +9181,7 @@ function isPersistedFixedPageIndex(pageIndex) {
 }
 
 function applyEditorSpineChange(result, options = {}) {
+    assertSharedStudioEdit();
     const editorFocus = captureFlowEditorFocusSnapshot();
     endHistoryGroup();
     pushState({ editorFocus, ...options.history });
@@ -9280,7 +9286,7 @@ function createEditorImageFlowDrop(page, point, context, rect, orientation, labe
 bindEditorThumbnailDrag({
     root: document.getElementById('editor-room'),
     begin: thumb => {
-        if (editorDragBlocked()) return null;
+        if (!canEditSharedStudio() || editorDragBlocked()) return null;
         hideContextMenu();
         const block = state.blocks.find(block => block.id === thumb.dataset.editorUnitId);
         if (!block || !['flow', 'page'].includes(block.kind)) return null;
@@ -9723,12 +9729,14 @@ window.restoreCloudManuscript = async () => {
 };
 
 window.saveProject = async () => {
+    assertSharedStudioEdit();
     ensureProjectIdentity();
     await persistProject();
     refresh();
 };
 
 window.importDSP = async (event) => {
+    assertPersonalStudioOperation();
     const file = event.target.files[0];
     if (!file) return;
 
@@ -9770,6 +9778,7 @@ window.importDSP = async (event) => {
 };
 
 window.exportDSP = async () => {
+    assertPersonalStudioOperation();
     const btnDataList = document.querySelectorAll('button[onclick="exportDSP()"]');
     btnDataList.forEach(btn => btn.textContent = '⏳ ZIP生成中...');
     try {
@@ -9785,6 +9794,7 @@ window.exportDSP = async () => {
 let _dsfExportInProgress = false;
 
 window.exportDSF = async () => {
+    assertPersonalStudioOperation();
     if (_dsfExportInProgress) return;
     _dsfExportInProgress = true;
     const btnDataList = document.querySelectorAll('button[onclick="exportDSF()"]');
@@ -9823,6 +9833,7 @@ window.exportDSF = async () => {
 };
 
 window.shareProject = async () => {
+    assertPersonalStudioOperation();
     if (!state.projectId) {
         alert("プロジェクトが保存されていません。");
         return;
@@ -10009,6 +10020,7 @@ window.loadAndRepress = async (pid) => {
 
 // 新規プロジェクト
 window.newProject = async () => {
+    assertPersonalStudioOperation();
     if (state.projectId && !confirm('現在のプロジェクトを閉じて新しいプロジェクトを作成しますか？')) return false;
     const choice=await chooseSourceLanguage({initial:state.defaultLang,configs:state.languageConfigs,project:true});
     if(!choice)return false;
@@ -10017,6 +10029,7 @@ window.newProject = async () => {
 };
 
 function initializeNewProject(choice, draft = null) {
+    assertPersonalStudioOperation();
     resetFlowRuntimeForProjectChange();
     state.projectAssets = [];
     state.localProjectId = null;
@@ -10608,6 +10621,7 @@ function _assertProjectSettingsPersistenceCompleted() {
 }
 
 window.saveProjectSettings = async () => {
+    assertSharedStudioEdit();
     if (_psPublicationThumbnailSaving) return;
     const draft = _capturePsInputsToDraft();
     const nextLanguages = draft.languages && draft.languages.length ? [...draft.languages] : ['ja'];
@@ -10713,6 +10727,7 @@ window.saveProjectSettings = async () => {
 // ===== Room Navigation（body.dataset.room の単一入口。各 room の「中身」は下記のみ委譲） =====
 window.switchRoom = (room) => {
     const targetRoom = getValidStudioRoom(room);
+    if (targetRoom === 'press' && readSharedStudioAccess()) return;
     const previousRoom = getCurrentRoom();
     if (targetRoom !== 'editor') studioAI?.disable();
     if (previousRoom === 'press' && targetRoom !== 'press') {
@@ -11099,7 +11114,7 @@ onAuthChanged((user) => {
     if (user) {
         void hydrateStudioAccount(user);
         const pid = new URLSearchParams(window.location.search).get('id');
-        if (pid) void onLoadProject(pid);
+        if (pid && !new URLSearchParams(location.search).has('sharedWork')) void onLoadProject(pid);
     } else {
         studioAccount = null;
     }
@@ -11165,7 +11180,8 @@ async function bootstrapApp() {
     await authReady;
 
     // Prevent local restore if we are explicitly loading a cloud project via URL
-    const hasCloudId = urlParams.has('id');
+    const sharedTarget = urlParams.has('sharedWork') ? {spaceId:urlParams.get('sharedSpace'),workId:urlParams.get('sharedWork')} : null;
+    const hasCloudId = urlParams.has('id') || !!sharedTarget;
 
     const redirectOutcome = await handleRedirectResult(firebaseAuth);
     if (redirectOutcome?.error) {
@@ -11215,6 +11231,17 @@ async function bootstrapApp() {
         }
     }
 
+    if (sharedTarget) {
+        try {
+            resetFlowRuntimeForProjectChange();
+            await loadSharedProject(sharedTarget,()=>{clearHistory();ensureUiPrefs();applyThumbColumnsFromPrefs();});
+            window.switchRoom('editor');
+        } catch(error) {
+            console.warn('[Shared Studio] Open failed:',error.code || 'UNAVAILABLE');
+            alert(getUILang()==='en'?'Could not open the shared manuscript. Check your account and invitation.':'共有原稿を開けません。ログイン中のアカウントと招待の承諾状態を確認してください。');
+            window.switchRoom('home');
+        }
+    }
     if (import.meta.env.DEV && urlParams.get('flowTranslationVerification') === '1') {
         installFlowTranslationVerificationProvider({
             delayMs: Number(urlParams.get('flowTranslationDelayMs')) || 25,
@@ -11750,6 +11777,7 @@ studioAI = initStudioWebMCP({ readSaveStatus: getEditorSaveStatus, getUILang, su
 
 // Snapshot existing semantic selection only; never focus, commit, reflow or navigate.
 function readStudioAIState() {
+    if (!canReadSharedStudio()) return {room:'unavailable',workIdentity:null,blocks:[],projectAssets:[],busy:true};
     // getActiveBlock() repairs invalid indices by dispatching; tools must not do so.
     const group = Number.isInteger(state.activeBlockIdx) ? state.blocks?.[state.activeBlockIdx] : null;
     const languageKey = state.activeLang || state.defaultLang;
@@ -11796,5 +11824,9 @@ function showImagePasteStatus(code) {
 }
 const imagePageImporter = createImagePageImporter({ readState: readStudioAIState, prepareImage: prepareAuthoringImage,
     discardImage: discardPreparedAuthoringImage, applyImagePage: result => applyEditorSpineChange(result), onStatus: showImagePasteStatus });
+installSharedStudioUI({getUILang,checkAccess:checkSharedStudioAccess,lockAction:action=>sharedStudioLockAction(action,()=>{clearHistory();refresh();})});
+window.addEventListener('shared-studio-unavailable',()=>{
+    clearHistory();resetFlowRuntimeForProjectChange({keepSession:true});queueMicrotask(()=>refresh());
+});
 window.pasteImagePage = installImagePagePaste({ importer: imagePageImporter,
-    inEditor: () => getCurrentRoom() === 'editor', onStatus: showImagePasteStatus });
+    inEditor: () => getCurrentRoom() === 'editor' && canEditSharedStudio(), onStatus: showImagePasteStatus });

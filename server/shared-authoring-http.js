@@ -1,3 +1,4 @@
+import {createSharedEditLock} from './shared-edit-lock.js';
 import {check,segment,readBounded,parseJson,AuthoringApiError} from './private-authoring/common.js';
 import {createPrivateAuthoringSnapshot,PRIVATE_AUTHORING_MAX_BYTES,PrivateAuthoringError} from '../js/private-authoring-storage.js';
 import {createSharedAssets,SHARED_IMAGE_MAX_BYTES} from './shared-assets.js';
@@ -13,14 +14,24 @@ export function createSharedAuthoringApi({db,privateBucket,publicBucket,verifyTo
     return async ({request,env={}})=>{
         try {
             check(env.SHARED_AUTHORING_ENABLED==='true','SHARING_NOT_READY',503);
-            const url=new URL(request.url),route=/^\/api\/spaces\/([^/]+)\/works\/([^/]+)\/(context|authoring|assets)(?:\/(operations\/[^/]+|[a-f0-9]{64}))?$/.exec(url.pathname);
+            const url=new URL(request.url),route=/^\/api\/spaces\/([^/]+)\/works\/([^/]+)\/(context|authoring|assets|lock)(?:\/(operations\/[^/]+|[a-f0-9]{64}))?$/.exec(url.pathname);
             check(route,'ROUTE_NOT_FOUND',404);
             const spaceId=routeId(route[1]),workId=routeId(route[2]),kind=route[3],suffix=route[4];
             check(!request.headers.get('Origin')||request.headers.get('Origin')===url.origin,'ORIGIN_FORBIDDEN',403);
             check(request.headers.get('Sec-Fetch-Site')!=='cross-site','ORIGIN_FORBIDDEN',403);
             const token=/^Bearer ([^\s]+)$/.exec(request.headers.get('Authorization')||'');check(token,'AUTH_REQUIRED',401);
             const identity=await verifyToken(token[1]);check(identity?.uid,'AUTH_INVALID',401);
-            const assets=createSharedAssets({db,bucket:privateBucket,assertLiveIdentity,spaceId,workId,now});
+            const sessionId=request.headers.get('X-Shared-Session'),fence=request.headers.get('X-Shared-Lock');
+            const locks=createSharedEditLock({db,assertLiveIdentity,spaceId,workId,now});
+            const assertEditLock=(tx,actor)=>locks.assertWrite(tx,actor,sessionId,fence);
+            if(kind==='lock') {
+                check(!suffix&&request.method==='POST','METHOD_NOT_ALLOWED',405);
+                check(/^application\/json(?:;.*)?$/i.test(request.headers.get('Content-Type')||''),'CONTENT_TYPE_INVALID',415);
+                const body=parseJson(await readBounded(request.body,2048));
+                check(body&&typeof body==='object'&&!Array.isArray(body),'INVALID_LOCK_ACTION',400);
+                return json(await locks.execute(identity,{sessionId,action:body.action,requestId:body.requestId,fence}));
+            }
+            const assets=createSharedAssets({db,bucket:privateBucket,assertLiveIdentity,spaceId,workId,now,assertEditLock});
             if(kind==='assets'){
                 check(suffix?!suffix.startsWith('operations/')&&request.method==='GET':request.method==='POST','METHOD_NOT_ALLOWED',405);
                 if(suffix)return new Response(await assets.get(identity,suffix),{headers:{...headers,'Content-Type':'image/webp'}});
@@ -32,9 +43,9 @@ export function createSharedAuthoringApi({db,privateBucket,publicBucket,verifyTo
             const access=await assets.access(identity);
             if(kind==='context'){
                 check(!suffix&&request.method==='GET','METHOD_NOT_ALLOWED',405);
-                return json({spaceId,workId,projectId:access.projectId,ownerUid:access.ownerUid,canEdit:access.canEdit});
+                return json({spaceId,workId,projectId:access.projectId,ownerUid:access.ownerUid,...await locks.status(identity,sessionId)});
             }
-            const service=createSharedAuthoringService({db,bucket:createAuthoringBucket(privateBucket),assertLiveIdentity,spaceId,workId,now,assets});
+            const service=createSharedAuthoringService({db,bucket:createAuthoringBucket(privateBucket),assertLiveIdentity,spaceId,workId,now,assets,assertEditLock});
             if(suffix){
                 check(suffix.startsWith('operations/')&&request.method==='GET','METHOD_NOT_ALLOWED',405);
                 const context=await service.access(identity,access.projectId,{requestId:segment(suffix.slice(11)),generationId:segment(request.headers.get('X-Authoring-Generation'))});

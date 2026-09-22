@@ -1,3 +1,4 @@
+import { canReadSharedStudio, canEditSharedStudio, readSharedStudioAccess, subscribeSharedStudioAccess } from './shared-studio-access.js';
 import { unknownSaveStatus } from './editor-save-status.js';
 import { createEditorHistoryTools } from './editor-history-tools.js';
 import { createEditorPageTools } from './editor-page-tools.js';
@@ -35,20 +36,23 @@ export function createStudioWebMCP({ readSaveStatus = unknownSaveStatus, readSta
     }
     async function enable(write = false) {
         disable();
-        if (!supported()) return;
+        if (!supported() || !canReadSharedStudio()) return;
         if (service.enable().error) { disable('error'); return; }
-        writable = write === true && typeof applyEdit === 'function';
+        writable = write === true && canEditSharedStudio() && typeof applyEdit === 'function';
         const active = new AbortController();
         controller = active;
         status = 'registering'; notify();
         try {
             const api = getModelContext();
             const tools = [...service.getTools(), ...images.getTools(writable), ...pages.getTools(writable), ...histories.getTools(writable), ...(writable ? [...writer.getTools(), ...authoring.getTools()] : [])];
-            for (const tool of tools) {
+            const readNames = new Set([...service.getTools(), ...images.getTools(false), ...pages.getTools(false), ...histories.getTools(false)].map(t=>t.name));
+            const registeredTools = tools.filter(t=>!readSharedStudioAccess() || t.name !== 'dsf_create_flow_project');
+            for (const tool of registeredTools) {
                 await api.registerTool({ ...tool, annotations: { ...tool.annotations, untrustedContentHint: true },
                     execute: async (args, options = {}) => {
                         if (active.signal.aborted || controller !== active || status !== 'on') throw Error('DSF_DISABLED');
                         if (options.signal?.aborted) throw Error('DSF_CANCELLED');
+                        if (!canReadSharedStudio() || (!canEditSharedStudio() && !readNames.has(tool.name))) return {error:{code:'EDIT_FORBIDDEN',message:'Shared manuscript access changed. Reopen the work.'}};
                         let result = await tool.execute(args, options);
                         if (result.changed === true || result.created === true) result = { ...result, persistence: readSaveStatus(),
                             saveCheck: 'changed/created confirms the editor update only. Read dsf_get_editor_context.persistence after autosave. Report cloud saved only when cloudCurrent is true; localCurrent is a device backup, not cloud publication.' };
@@ -63,7 +67,7 @@ export function createStudioWebMCP({ readSaveStatus = unknownSaveStatus, readSta
                 }, { signal: active.signal });
                 if (active.signal.aborted || controller !== active) return;
             }
-            toolCount = tools.length; status = 'on'; notify();
+            toolCount = registeredTools.length; status = 'on'; notify();
         } catch {
             if (controller === active) disable('error');
         }
@@ -101,13 +105,14 @@ export function initStudioWebMCP({ readSaveStatus, readState, readComposition, g
             input.disabled = status === 'unsupported' && !preference.enabled;
             const mode = root.querySelector('[data-ai-access]');
             mode.value = preference.access;
-            mode.disabled = !preference.enabled || typeof applyEdit !== 'function';
+            mode.disabled = !preference.enabled || !canEditSharedStudio() || typeof applyEdit !== 'function';
+            if (!canEditSharedStudio()) mode.value = 'read';
             mode.querySelector('[value="read"]').textContent = copy.read;
             mode.querySelector('[value="edit"]').textContent = copy.edit;
             mode.setAttribute('aria-label', copy.access);
             root.querySelector('[data-ai-access-title]').textContent = copy.access;
             root.querySelector('[data-ai-title]').textContent = copy.title;
-            root.querySelector('[data-ai-notice]').textContent = preference.access === 'edit' ? copy.editNotice : copy.notice;
+            root.querySelector('[data-ai-notice]').textContent = preference.access === 'edit' && canEditSharedStudio() ? copy.editNotice : copy.notice;
             root.querySelector('[data-ai-persistence]').textContent = preference.stored ? copy.remembered : copy.temporary;
             root.querySelector('[data-ai-status]').textContent = status === 'unsupported' ? copy.unsupported
                 : !preference.enabled ? copy.off : !inEditor ? copy.room : copy[status];
@@ -132,6 +137,7 @@ export function initStudioWebMCP({ readSaveStatus, readState, readComposition, g
         if (event.target.matches('[data-studio-ai] [data-ai-access]')) void access.set({ ...access.get(), access: event.target.value });
     });
     doc.addEventListener('click', event => { if (event.target.closest('[data-ai-retry]')) void access.retry(); });
+    subscribeSharedStudioAccess(()=>{access.pause();void access.refresh();});
     doc.addEventListener('studio-ui-language-change', sync);
     win.addEventListener('storage', event => { if (event.key === AI_PREFERENCE_KEY || event.key === null) void access.reload(); });
     win.addEventListener('pagehide', () => access.suspend());

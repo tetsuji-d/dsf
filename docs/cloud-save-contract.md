@@ -265,3 +265,26 @@ before enabling cross-account authoring. See [invitation foundation](publishing-
 非公開image objectを検証してからready記録を確定し、readyでない参照は原稿保存できない。
 原稿更新と画像の追加は別段階。画像だけのアップロードは原稿headを変更しない。
 詳細・残作業は [招待と共有基盤](publishing-invitations.md) 第3単位を参照。
+
+
+## Shared Studio exception (local rollout)
+
+The shared editor session uses the participant's Firebase identity and the server-resolved
+owner/project scope. It saves only through `/api/spaces/{spaceId}/works/{workId}/authoring`.
+Unlike personal authoring, it does not write `dsf_autosave` or local recent-project snapshots,
+and never falls back to the participant's personal Firestore or public asset uploads.
+Private image references are hydrated to session object URLs and resolved back before saving.
+See [publishing invitations, unit 4](publishing-invitations.md) for the feature gate and limits.
+
+
+### Shared editing lease (local unit 5)
+
+The shared HTTP entry point requires a per-tab editing lease for source and image writes.
+Its fencing token is checked at reservation and commit, in addition to source revision CAS.
+A handover flushes pending saves; the recipient reloads the latest source before editing.
+Connection failures retain the unsaved in-memory draft as read-only; reacquisition does not
+silently discard it. Read-access revocation still clears the shared manuscript and object URLs.
+The lease expires after 90 seconds without renewal; 30 minutes without editing also permits takeover.
+Existing personal owner-only routes are unchanged. Integrating that owner's alternative save/restore
+routes with the same lease is required before enabling this feature for real shared works.
+Protocol and fixture-only metadata are documented in [unit 5](publishing-invitations.md).

@@ -3,6 +3,7 @@
  * `blocks` が authoring canonical。
  * `sections` と `pages` は互換レンダリング/出力のための派生面として保持する。
  */
+import { assertSharedStudioEdit, readSharedStudioAccess, setSharedStudioAccess } from './shared-studio-access.js';
 export const state = {
     // Project authoring envelope. Existing Fixed projects remain v5 until they
     // intentionally adopt a Project v6 Flow spine.
@@ -125,6 +126,8 @@ export const getProjectSessionEpoch = () => projectSessionEpoch;
 export function dispatch(action) {
     const { type, payload } = action;
 
+    const uiActions = ['LOAD_PROJECT','SET_AUTH_STATE','SET_ACTIVE_LANG','SET_ACTIVE_LANGUAGE','SET_ACTIVE_INDEX','SET_ACTIVE_BLOCK_INDEX','SET_ACTIVE_BUBBLE_INDEX','SET_THUMB_COLUMNS'];
+    if (!uiActions.includes(type) && !(type === 'SET_STATE_FIELD' && ['activeIdx','activePageIdx','activeBlockIdx','activeBubbleIdx','uiPrefs'].includes(payload?.key))) assertSharedStudioEdit();
     switch (type) {
         case actionTypes.LOAD_PROJECT: {
             resetProjectSession();
@@ -145,11 +148,16 @@ export function dispatch(action) {
             delete projectPayload.uid;
             delete projectPayload.user;
             Object.assign(state, projectPayload);
+            setSharedStudioAccess(null);
             break;
         }
 
         case actionTypes.SET_AUTH_STATE:
-            if (state.uid !== payload.uid || state.user !== payload.user) projectSessionEpoch += 1;
+            if (state.uid !== payload.uid || state.user !== payload.user) {
+                projectSessionEpoch += 1;
+                const shared = readSharedStudioAccess();
+                if (shared) setSharedStudioAccess({...shared, status:'unavailable', canEdit:false});
+            }
             state.user = payload.user;
             state.uid = payload.uid;
             break;

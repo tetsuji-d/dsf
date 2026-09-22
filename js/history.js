@@ -2,6 +2,7 @@
  * history.js — Undo/Redo 履歴管理
  * sections/blocks の deep copy スナップショットをスタックで管理する
  */
+import { canEditSharedStudio, assertSharedStudioEdit } from './shared-studio-access.js';
 import { state, subscribeProjectSession } from './state.js';
 import { describeHistoryChange } from './history-details.js';
 
@@ -57,6 +58,7 @@ function restoreHistorySnapshot(snapshot) {
  * 現在の状態をundoスタックに保存する（変更前に呼ぶ）
  */
 export function pushState(options = {}) {
+    assertSharedStudioEdit();
     const groupKey = typeof options.groupKey === 'string' && options.groupKey
         ? options.groupKey
         : '';
@@ -100,6 +102,7 @@ export function endHistoryGroup(groupKey = '') {
  * @returns {boolean} undoが実行されたか
  */
 export function undo(refresh, options = {}) {
+    if (!canEditSharedStudio()) return false;
     if (undoStack.length === 0) return false;
     activeHistoryGroup = null;
 
@@ -122,6 +125,7 @@ export function undo(refresh, options = {}) {
  * @returns {boolean} redoが実行されたか
  */
 export function redo(refresh, options = {}) {
+    if (!canEditSharedStudio()) return false;
     if (redoStack.length === 0) return false;
     activeHistoryGroup = null;
 
@@ -142,8 +146,8 @@ export function redo(refresh, options = {}) {
  */
 export function getHistoryInfo() {
     return {
-        canUndo: undoStack.length > 0,
-        canRedo: redoStack.length > 0,
+        canUndo: canEditSharedStudio() && undoStack.length > 0,
+        canRedo: canEditSharedStudio() && redoStack.length > 0,
         undoCount: undoStack.length,
         redoCount: redoStack.length
     };

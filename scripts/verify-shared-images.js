@@ -9,9 +9,11 @@ const base='/api/spaces/space_demo/works/work_library';
 async function setup(){
  const f=invitationsFixture(),shared=await attachSharedEditorFixture(f);
  for(const [uid,role]of [['reader_1','editor'],['reader_2','viewer']])f.docs.set(`users/${uid}/spaceMemberships/space_demo`,{uid,spaceId:'space_demo',status:'active',role:'member',grants:[{role,scope:'work',targetId:'work_library'}]});
- const request=(uid,path,options={},env={SHARED_AUTHORING_ENABLED:'true'})=>shared.handler({env,request:new Request('https://studio.test'+path,{...options,headers:{...options.headers,...(uid?{Authorization:'Bearer fixture-'+uid}:{})}})});
- const session=uid=>openSharedAuthoringSession({spaceId:'space_demo',workId:'work_library',user:{uid,getIdToken:async()=>'fixture-'+uid},isCurrent:()=>true,
+ const fences=new Map();
+ const request=(uid,path,options={},env={SHARED_AUTHORING_ENABLED:'true'})=>shared.handler({env,request:new Request('https://studio.test'+path,{...options,headers:{'X-Shared-Session':'image_test_'+uid,...(fences.has(uid)?{'X-Shared-Lock':fences.get(uid)}:{}),...options.headers,...(uid?{Authorization:'Bearer fixture-'+uid}:{})}})});
+ const session=async uid=>{const s=await openSharedAuthoringSession({sessionId:'image_test_'+uid,spaceId:'space_demo',workId:'work_library',user:{uid,getIdToken:async()=>'fixture-'+uid},isCurrent:()=>true,
   fetcher:(url,options)=>shared.handler({env:{SHARED_AUTHORING_ENABLED:'true'},request:new Request('https://studio.test'+url,options)})});
+  if(uid==='reader_1'){const c=await s.lockAction('acquire');fences.set(uid,c.lock.fence);}return s;};
  return {...f,...shared,request,session};
 }
 const fail=code=>error=>error.code===code;

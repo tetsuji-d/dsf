@@ -3,7 +3,7 @@ import {createAuthoringService} from '../../server/private-authoring/service.js'
 import {createAuthoringBucket} from '../../server/private-authoring/r2.js';
 import {createPrivateAuthoringSnapshot} from '../../js/private-authoring-storage.js';
 import {createSharedAuthoringApi} from '../../server/shared-authoring-http.js';
-export async function attachSharedEditorFixture(f,{initialObjects=[],persistObjects=async()=>{}}={}){
+export async function attachSharedEditorFixture(f,{initialObjects=[],persistObjects=async()=>{},now=Date.now}={}){
     const r2=new MemoryR2();for(const [key,obj]of initialObjects)r2.objects.set(key,{...obj,bytes:Uint8Array.from(obj.bytes)});
     let persistQueue=Promise.resolve();
     const originalPut=r2.put.bind(r2);r2.put=async(...args)=>{const result=await originalPut(...args);const snapshot=[...r2.objects].map(([key,obj])=>[key,{...obj,bytes:[...obj.bytes]}]);persistQueue=persistQueue.catch(()=>{}).then(()=>persistObjects(snapshot));await persistQueue;return result;};
@@ -19,7 +19,7 @@ export async function attachSharedEditorFixture(f,{initialObjects=[],persistObje
             await service.save({uid:'owner_1'},pid,{snapshot,requestId:'fixture_seed',generationId:'fixture_generation',baseRevision:0});
         }
     }
-    const handler=createSharedAuthoringApi({db:f.db,privateBucket:r2,assertLiveIdentity:f.assertLiveIdentity,
+    const handler=createSharedAuthoringApi({now,db:f.db,privateBucket:r2,assertLiveIdentity:f.assertLiveIdentity,
         verifyToken:async token=>/^fixture-(owner_1|reader_1|reader_2|admin_1)$/.test(token)?{uid:token.slice(8)}:null});
     return {r2,handler};
 }
