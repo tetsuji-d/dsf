@@ -8,6 +8,8 @@
     "dev:publishing-spaces-fixture": "node scripts/serve-publishing-spaces-fixture.js",
     "dev:shared-studio": "node scripts/serve-shared-studio-fixture.js",
     "verify:shared-studio-browser": "node scripts/verify-shared-studio-browser.cjs",
+    "verify:shared-owner-browser": "node scripts/verify-shared-owner-browser.cjs",
+    "verify:shared-owner-boundary": "node scripts/verify-shared-owner-boundary.js",
     "verify:shared-edit-lock": "node scripts/verify-shared-edit-lock.js",
     "verify:shared-lock-browser": "node scripts/verify-shared-lock-browser.cjs",
     "verify:shared-images": "node scripts/verify-shared-images.js",

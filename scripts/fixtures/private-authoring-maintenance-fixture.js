@@ -1,5 +1,6 @@
+import {createOwnerAuthoringStore} from '../../server/private-authoring/shared-boundary.js';
 import assert from 'node:assert/strict';
-import { createFirestoreStore, encodeFirestoreValue, decodeFirestoreValue } from '../../server/private-authoring/firestore.js';
+import { encodeFirestoreValue, decodeFirestoreValue } from '../../server/private-authoring/firestore.js';
 import { createAuthoringMaintenance } from '../../server/private-authoring/maintenance.js';
 import { createMaintenanceBackupStore } from '../../server/private-authoring/maintenance-common.js';
 import { createAuthoringBucket } from '../../server/private-authoring/r2.js';
@@ -30,7 +31,7 @@ export function maintenanceFixture() {
     set('users/owner_1/works/work_1/releases/release_1', { releaseId: 'release_1', title: 'Published' });
     set('public_projects/work_1', { authorUid: scope.uid, projectId: scope.projectId, releaseId: 'release_1' });
     const faults = { loseReply: false };
-    const db = createFirestoreStore({ projectId: 'demo-maintenance', post: async (url, body) => {
+    const db = createOwnerAuthoringStore({ projectId: 'demo-maintenance', post: async (url, body) => {
         if (url.endsWith(':beginTransaction')) { const id = `tx_${++txSerial}`; transactions.set(id, { snapshot: clone(docs), reads: new Set() }); return { transaction: id }; }
         const t = transactions.get(body.transaction); assert(t);
         if (url.endsWith(':batchGet')) return body.documents.map(name => {

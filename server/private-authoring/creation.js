@@ -1,3 +1,4 @@
+import {assertPersonalMutation} from './shared-boundary.js';
 import { check, segment } from './common.js';
 import { paths, usageValue, AUTHORING_LIMITS, AUTHORING_LEASE_MS, metadataPatch } from './service.js';
 import { createPrivateAuthoringDescriptor } from '../../js/private-authoring-storage.js';
@@ -16,6 +17,7 @@ export function createProjectCreation({ db, bucket, assertLiveIdentity, now = Da
         const rows = await tx.getMany([p.account, p.root, p.control, p.head, p.usage, p.operation, p.summary, work, legacy]);
         const [account, root, control, head, usage, operation, summary, existingWork, oldSource] = rows;
         accountOK(account, identity);
+        await assertPersonalMutation(tx,identity.uid,projectId,root||{workId});
         return { p, work, account, root, control, head, usage, operation, summary, existingWork, oldSource };
     }
     function replay(c, descriptor, workId) {

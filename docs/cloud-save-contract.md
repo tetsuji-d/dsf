@@ -285,6 +285,17 @@ A handover flushes pending saves; the recipient reloads the latest source before
 Connection failures retain the unsaved in-memory draft as read-only; reacquisition does not
 silently discard it. Read-access revocation still clears the shared manuscript and object URLs.
 The lease expires after 90 seconds without renewal; 30 minutes without editing also permits takeover.
-Existing personal owner-only routes are unchanged. Integrating that owner's alternative save/restore
-routes with the same lease is required before enabling this feature for real shared works.
+Unit 6 closes alternative owner-only source and mutation routes for canonically shared works.
+Owners enter the same shared editor and must explicitly acquire its lease. Personal catalogue
+assignments without a canonical shared binding retain their previous behavior.
 Protocol and fixture-only metadata are documented in [unit 5](publishing-invitations.md).
+
+### Owner boundary for shared works (local unit 6)
+
+Owner API source loads return `SHARED_AUTHORING_REQUIRED` with a validated shared scope;
+Studio follows it only when shared Studio is enabled. Owner mutations reject canonical shared
+bindings both before I/O and at commit. A released or expired lease does not reopen owner writes.
+A leftover lock without a valid binding fails closed with `SHARED_SCOPE_UNAVAILABLE`.
+The owner API's REST adapter explicitly permits reads of the canonical work/space/label roots.
+This does not activate shared routes, migrate assets, or change deployed Rules. Shared publication
+and restore remain unavailable. See [unit 6](publishing-invitations.md) for scope and verification.

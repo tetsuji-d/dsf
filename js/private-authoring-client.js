@@ -23,6 +23,8 @@ export function assertPrivateAuthoringRoot(root, uid, projectId) {
         && !['blocks', 'pages', 'sections'].some(key => Object.hasOwn(root, key)), 'AUTHORING_ROOT_INVALID');
 }
 export function authoringSaveMessage(error) {
+    if(error?.code==='SHARED_AUTHORING_REQUIRED')return '共有原稿に切り替わりました。未保存の内容を退避してから出版スペースで開き直してください';
+    if(error?.code==='SHARED_SCOPE_UNAVAILABLE')return '共有原稿の所属を確認できません。出版スペースの管理者に確認してください';
     if (/CONFLICT|REUSED/.test(error?.code || '')) return '別の更新があります。ローカル原稿を退避し、クラウド版を開き直してください';
     if (/SESSION|RELOAD|LEASE|EXPIRED|REJECTED/.test(error?.code || '')) return 'クラウド未保存。ローカル原稿を退避し、クラウド版を開き直してください';
     if (/TOO_LARGE|INVALID|SIZE|COMPLEXITY/.test(error?.code || '')) return '原稿の容量・形式を確認してください。クラウド未保存です';
@@ -79,8 +81,13 @@ export function createPrivateAuthoringClient({ uid, projectId, user, isCurrent,
             const bytes = await bytesLimited(response, response.ok ? limit : 32 * 1024);
             current();
             if (!response.ok) {
-                const code = parse(bytes)?.error;
-                throw new AuthoringClientError(typeof code === 'string' && /^[A-Z0-9_]{1,80}$/.test(code) ? code : 'AUTHORING_UNAVAILABLE', response.status);
+                const data=parse(bytes),code=data?.error;
+                const error=new AuthoringClientError(typeof code === 'string' && /^[A-Z0-9_]{1,80}$/.test(code) ? code : 'AUTHORING_UNAVAILABLE', response.status);
+                const scope=data?.sharedScope;
+                if(!sharedScope&&code==='SHARED_AUTHORING_REQUIRED'&&response.status===409
+                    &&scope?.projectId===projectId&&isPrivateAuthoringId(scope.spaceId)&&isPrivateAuthoringId(scope.workId))
+                    error.sharedScope={spaceId:scope.spaceId,workId:scope.workId,projectId};
+                throw error;
             }
             return { bytes, response };
         } finally { clearTimeout(timer); }

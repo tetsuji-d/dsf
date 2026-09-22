@@ -1751,7 +1751,14 @@ export async function loadProject(pid, refresh) {
         if (usesPrivateAuthoring(rootData)) {
             assertPrivateAuthoringRoot(rootData, uid, pid);
             privateClient = createPrivateAuthoringClient({ uid, projectId: pid, user, isCurrent });
-            persistedData = await privateClient.load();
+            try { persistedData = await privateClient.load(); }
+            catch(error) {
+                if(!isCurrent())throw new AuthoringClientError('AUTHORING_SESSION_CHANGED');
+                if(error.code==='SHARED_AUTHORING_REQUIRED'&&error.sharedScope&&import.meta.env.VITE_SHARED_STUDIO_ENABLED==='true') {
+                    await loadSharedProject(error.sharedScope,refresh);return;
+                }
+                throw error;
+            }
         } else if (
             rootData.version === 6
             || rootData.authoringRef === 'authoring/current'

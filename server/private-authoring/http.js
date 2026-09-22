@@ -4,7 +4,7 @@ import { createReleaseVerifier } from './release-verifier.js';
 import { createPrivateAuthoringSnapshot, PRIVATE_AUTHORING_MAX_BYTES, PrivateAuthoringError } from '../../js/private-authoring-storage.js';
 import { AuthoringApiError, check, parseJson, readBounded, segment } from './common.js';
 import { createGoogleClient, createIdTokenVerifier } from './google-auth.js';
-import { createFirestoreStore } from './firestore.js';
+import { createOwnerAuthoringStore } from './shared-boundary.js';
 import { createAuthoringBucket } from './r2.js';
 import { createProjectCreation } from './creation.js';
 import { createAuthoringService } from './service.js';
@@ -119,7 +119,8 @@ export function createAuthoringApi({ verifyToken, service, actions, creation }) 
             const receipt = await service.save(identity, projectId, { snapshot, requestId: id, generationId, baseRevision: Number(base) });
             return json(receipt);
         } catch (error) {
-            if (error instanceof AuthoringApiError) return json({ error: error.code }, error.status);
+            if (error instanceof AuthoringApiError) return json({ error: error.code,
+                ...(error.code==='SHARED_AUTHORING_REQUIRED'&&error.sharedScope?{sharedScope:error.sharedScope}:{}) }, error.status);
             if (error instanceof PrivateAuthoringError) {
                 const status = /CONFLICT|REQUEST_REUSED|NOT_ACTIVE/.test(error.code) ? 409 : /TOO_LARGE|COMPLEXITY_LIMIT/.test(error.code) ? 413 : 422;
                 return json({ error: error.code }, status);
@@ -143,7 +144,7 @@ export async function handlePrivateAuthoring(context) {
             // A deliberately separate binding prevents accidental use of R2_BUCKET.
             check(env.AUTHORING_BUCKET && env.AUTHORING_BUCKET !== env.R2_BUCKET, 'CONFIG_AUTHORING_BUCKET');
             const google = createGoogleClient({ projectId: env.FIREBASE_PROJECT_ID, serviceAccountJson: env.AUTHORING_GOOGLE_SERVICE_ACCOUNT });
-            const db = createFirestoreStore(google), bucket = createAuthoringBucket(env.AUTHORING_BUCKET);
+            const db = createOwnerAuthoringStore(google), bucket = createAuthoringBucket(env.AUTHORING_BUCKET);
             const service = createAuthoringService({ db, bucket, assertLiveIdentity: google.assertLiveIdentity });
             const actions = createProjectActions({ db, bucket, service, assertLiveIdentity: google.assertLiveIdentity,
                 requirePublishingSpace: env.PUBLISHING_SPACES_ENABLED === 'true',

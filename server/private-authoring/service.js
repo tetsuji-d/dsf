@@ -1,3 +1,4 @@
+import {readOwnerSharedScope,requirePersonalScope} from './shared-boundary.js';
 import {
     assertPrivateAuthoringHead, assertPrivateAuthoringDescriptor,
     createPrivateAuthoringDescriptor, planPrivateAuthoringCommit,
@@ -120,6 +121,10 @@ export function createAuthoringService({ db, bucket, assertLiveIdentity, now = D
             check(context.root.workId === access.workId, 'WORK_FORBIDDEN', 403);
             if (context.operation) check((context.operation.actorUid || ownerUid) === identity.uid, 'OPERATION_FORBIDDEN', 403);
         }
+        if(!resolveAccess){
+            context.sharedScope=await readOwnerSharedScope(tx,identity.uid,projectId,context.root);
+            if(write)requirePersonalScope(context.sharedScope);
+        }
         return context;
     }
     return {
@@ -238,11 +243,16 @@ export function createAuthoringService({ db, bucket, assertLiveIdentity, now = D
                 check(context.head?.sha256 === previous.head?.sha256 && context.head?.revision === previous.head?.revision,
                     'AUTHORING_REVISION_CONFLICT', 409);
             }
+            if(!resolveAccess) {
+                const latest=await db.transaction(tx=>contextFor(tx,identity,projectId,undefined,context.scope.generationId));
+                requirePersonalScope(latest.sharedScope);
+            }
             check(context.head, 'AUTHORING_NOT_SAVED', 404);
             const result = await bucket.read(descriptorOf(context.head), context.scope);
             await assertLiveIdentity(identity);
             await db.transaction(async tx => {
                 const latest = await contextFor(tx, identity, projectId, undefined, context.scope.generationId);
+                if(!resolveAccess)requirePersonalScope(latest.sharedScope);
                 if (validateSnapshot) await validateSnapshot(tx, identity, result.project, false);
                 check(latest.head?.revision === context.head.revision && latest.head.sha256 === context.head.sha256,
                     'AUTHORING_REVISION_CONFLICT', 409);
