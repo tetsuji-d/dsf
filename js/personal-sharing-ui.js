@@ -16,6 +16,8 @@ const message=(error,en)=>({PERSONAL_SHARING_DISABLED:en?'Personal sharing is be
     LOOKUP_LIMIT:en?'Too many account searches. Try again in a minute.':'検索が続いています。少し待ってから再度お試しください。',
     PERSONAL_WORK_REQUIRED:en?'Select a project in My space.':'マイスペースのプロジェクトを選択してください。',
     ALREADY_SHARED:en?'This person is already invited or has access.':'この相手には招待済み、または共有中です。',
+    UPSTREAM_UNAVAILABLE:en?'Could not contact cloud storage while preparing sharing. Please try again shortly.':'共有の準備中にクラウド保存先との通信に失敗しました。少し待ってから再試行してください。',
+    SHARING_TIMEOUT:en?'Sharing preparation took too long. Reopen sharing to check its current state.':'共有の準備が時間内に完了しませんでした。共有画面を開き直して状態を確認してください。',
     IMAGE_PREPARATION_BLOCKED:en?'Some images could not be verified. Reimport missing or unsupported images.':'検証できない画像があります。元の画像を取り込み直してください。',
     MAINTENANCE_SOURCE_CHANGED:en?'The manuscript changed. Reopen sharing preparation.':'原稿が更新されました。共有画面を開き直してください。',
     SOURCE_CHANGED:en?'The manuscript changed. Close and reopen sharing.':'原稿が更新されました。共有画面を開き直してください。',

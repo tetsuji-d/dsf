@@ -21,7 +21,6 @@ export function createPersonalSharingPreparation({db,privateBucket,publicBucket,
     }
     return async(actor,cmd)=>{
         const projectId=segment(cmd.projectId);await assertLiveIdentity(actor);
-        const root=await db.transaction(tx=>guard(tx,actor,projectId));
         if(['prepare-source','migrate-source'].includes(cmd.kind)) {
             check(typeof cmd.generationId==='string'&&/^personal_[a-f0-9-]{36}$/.test(cmd.generationId),'INVALID_GENERATION',400);
             const scope={uid:actor.uid,projectId,generationId:cmd.generationId};
@@ -38,7 +37,7 @@ export function createPersonalSharingPreparation({db,privateBucket,publicBucket,
         }
         check(['prepare-images','migrate-images'].includes(cmd.kind),'INVALID_COMMAND',400);
         const inspect=async tx=>{await guard(tx,actor,projectId);return readContext(tx,actor,projectId);};
-        const first=await db.transaction(inspect),scope={ownerUid:actor.uid,projectId,workId:segment(root.workId),spaceId:'personal'};
+        const first=await db.transaction(inspect),scope={ownerUid:actor.uid,projectId,workId:segment(first.root.workId),spaceId:'personal'};
         const stamp=c=>digestValue({scope,head:c.head,control:c.control});
         const confirmationToken=await stamp(first);
         const inspectCurrent=async tx=>{const c=await inspect(tx);check(await stamp(c)===confirmationToken,'SOURCE_CHANGED',409);return c;};
@@ -46,14 +45,16 @@ export function createPersonalSharingPreparation({db,privateBucket,publicBucket,
         const {revision,...descriptor}=first.head;
         const {project}=await createAuthoringBucket(privateBucket).read(descriptor,first.scope);
         const assets=createOwnerAssets({db,bucket:privateBucket,assertLiveIdentity,projectId,now});
-        await db.transaction(async tx=>{await inspectCurrent(tx);await assets.validateReferences(tx,actor,project);});
+        const inspectValidated=async tx=>{const c=await inspectCurrent(tx);await assets.validateReferences(tx,actor,project);return c;};
         const publicOnly=await mapSharedImageSlots(project,ref=>privateImageHash(ref)?'':ref);
-        const images=await inspectSharedImages({project:publicOnly,ownerUid:actor.uid,publicBaseUrl,publicBucket,assertCurrent});
-        await assertCurrent();
+        // Image bytes are checked independently; revalidate access and the head at transaction boundaries.
+        // Per-image Firestore transactions exhaust the edge request budget on ordinary multi-image books.
+        const images=await inspectSharedImages({project:publicOnly,ownerUid:actor.uid,publicBaseUrl,publicBucket});
+        if(cmd.kind==='prepare-images'||!images.uniqueImages){await assertLiveIdentity(actor);await db.transaction(inspectValidated);}
         if(!images.uniqueImages)return {ready:true,changed:false,images};
         if(cmd.kind==='prepare-images')return {ready:images.copyable,confirmationToken,imagePlanHash:images.imagePlanHash,images};
         check(cmd.confirm===true&&cmd.confirmationToken===confirmationToken,'SOURCE_CHANGED',409);
         return migrateSharedImages({db,privateBucket,publicBucket,publicBaseUrl,identity:actor,scope,project,images,
-            command:{...cmd,copyImages:true},inspectCurrent,assertCurrent,assertLiveIdentity,writeBinding:()=>{},now,preservePrivate:true});
+            command:{...cmd,copyImages:true},inspectCurrent:inspectValidated,assertCurrent,assertLiveIdentity,writeBinding:()=>{},now,preservePrivate:true,checkpointEachImage:false});
     };
 }

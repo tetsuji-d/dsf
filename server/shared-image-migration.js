@@ -9,7 +9,7 @@ import {isPrivateAuthoringId} from '../js/private-authoring-ids.js';
 
 // Copy immutable objects first; the source head and sharing boundary change in one transaction.
 export async function migrateSharedImages({db,privateBucket,publicBucket,publicBaseUrl,identity,scope,
-    project,images,command,inspectCurrent,assertCurrent,assertLiveIdentity,writeBinding,now=Date.now,preservePrivate=false}) {
+    project,images,command,inspectCurrent,assertCurrent,assertLiveIdentity,writeBinding,now=Date.now,preservePrivate=false,checkpointEachImage=true}) {
     check(command.copyImages===true&&images.copyable,'IMAGE_MIGRATION_REQUIRED',409);
     check(command.imagePlanHash===images.imagePlanHash,'IMAGE_PLAN_CHANGED',409);
     check(isPrivateAuthoringId(command.requestId),'INVALID_REQUEST_ID',400);
@@ -62,7 +62,7 @@ export async function migrateSharedImages({db,privateBucket,publicBucket,publicB
     const copied=new Set();
     for(const [ref,e]of refs){
         if(copied.has(e.sha256))continue;
-        await assertCurrent();
+        if(checkpointEachImage)await assertCurrent();
         const key=managedImageKey(ref,identity.uid,publicBaseUrl);
         check(key,'UNSUPPORTED_IMAGE_REFERENCE',409);
         const source=await publicBucket.get(key);let bytes;
@@ -71,7 +71,7 @@ export async function migrateSharedImages({db,privateBucket,publicBucket,publicB
             bytes=await readBounded(source.body,e.byteLength);
             check(bytes.length===e.byteLength&&await sha256DsfBytes(bytes)===e.sha256,'IMAGE_PLAN_CHANGED',409);
         }finally{await source?.body?.cancel().catch(()=>{});}
-        await assertCurrent();
+        if(checkpointEachImage)await assertCurrent();
         const target=`authoring-images/${identity.uid}/${scope.projectId}/${c.scope.generationId}/${e.sha256}.webp`;
         await privateBucket.put(target,bytes,{onlyIf:new Headers({'If-None-Match':'*'}),sha256:e.sha256,
             httpMetadata:{contentType:'image/webp',cacheControl:'private, no-store'},customMetadata:{sha256:e.sha256}});

@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import {sha256DsfBytes} from '../js/dsf-release-byte-sealing.js';
 import {maintenanceFixture,scope,root,child,head} from './fixtures/private-authoring-maintenance-fixture.js';
 import {createPersonalSharingPreparation} from '../server/personal-sharing-preparation.js';
 import {MemoryR2} from './fixtures/private-authoring-api-fixture.js';
@@ -46,3 +47,24 @@ for(const fault of ['source','assignment','backup']){
  await assert.rejects(call({kind:'migrate-images',...imagePlan,requestId:'failed_copy',confirm:true}));assert.deepEqual(f.get(head),before);
 }
 console.log('Personal preparation passed: verified legacy backup, replay, public/private image migration, exact manuscript/release preservation, owner isolation and source/assignment/copy failure protection.');
+
+// Ordinary six-image manuscripts must fit one edge request without per-image Google transactions.
+for(const count of [6,32]) {
+ let calls=0,limit=Infinity;
+ const f=maintenanceFixture({onRequest:()=>{if(++calls>limit)throw new Error('UPSTREAM_BUDGET_EXHAUSTED');}}),pub=new MemoryR2();
+ const images=[];
+ for(let i=0;i<count;i++){
+  const key='users/owner_1/dsf/image_'+i+'.webp';
+  const distinct=Buffer.concat([Buffer.from(bytes.slice(0,12)),Buffer.from('VP8X'),Buffer.from([10,0,0,0,8,0,0,0,0,0,0,0,0,0]),Buffer.from(bytes.slice(12)),Buffer.from('EXIF'),Buffer.from([2,0,0,0,i,0])]);distinct.writeUInt32LE(distinct.length-8,4);
+  await pub.put(key,distinct,{sha256:await sha256DsfBytes(distinct),onlyIf:new Headers({'If-None-Match':'*'}),httpMetadata:{contentType:'image/webp'}});
+  images.push({id:'image_'+i,kind:'page',content:{pageKind:'image',background:'https://media.test/'+key}});
+ }
+ f.set(child,{...f.get(child),blocks:[...f.source.blocks,...images]});
+ const execute=createPersonalSharingPreparation({db:f.db,privateBucket:f.rawBucket,publicBucket:pub,publicBaseUrl:'https://media.test',assertLiveIdentity:async()=>{if(++calls>limit)throw new Error('UPSTREAM_BUDGET_EXHAUSTED');},now:f.time});
+ const call=cmd=>execute(actor,{projectId:scope.projectId,...cmd});
+ const sourcePlan=await call({kind:'prepare-source',generationId});await call({kind:'migrate-source',...sourcePlan,confirm:true});
+ limit=45;calls=0;const imagePlan=await call({kind:'prepare-images'});assert(imagePlan.ready);const prepareCalls=calls;
+ calls=0;await call({kind:'migrate-images',...imagePlan,requestId:'budget_test',confirm:true});const migrateCalls=calls;
+ assert.equal(f.rawBucket.puts>=count,true);
+ console.log(`${count} image URLs: preparation ${prepareCalls}, migration ${migrateCalls} upstream calls (45-call test budget).`);
+}

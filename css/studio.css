@@ -1943,6 +1943,11 @@ body[data-room="works"] #works-room {
 }
 
 .studio-auth-dropdown.auth-panel {
+    box-sizing: border-box;
+    max-height: calc(100vh - 80px);
+    max-height: calc(100dvh - 80px);
+    overflow-y: auto;
+    overscroll-behavior: contain;
     min-width: 280px;
     padding: 10px;
     border-radius: 18px;

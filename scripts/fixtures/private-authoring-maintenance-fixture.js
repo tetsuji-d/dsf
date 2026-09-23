@@ -12,7 +12,7 @@ import { MemoryR2 } from './private-authoring-api-fixture.js';
 export const scope = { uid: 'owner_1', projectId: 'project_1', generationId: 'generation_1' };
 export const root = 'users/owner_1/projects/project_1', child = `${root}/authoring/current`, control = `${root}/authoringControl/current`, head = `${root}/authoringHeads/current`;
 const clone = structuredClone;
-export function maintenanceFixture() {
+export function maintenanceFixture({onRequest=()=>{}}={}) {
     let clock = 1_800_000_000_000, serial = 0, txSerial = 0, revoked = false, committedWrites = 0;
     const docs = new Map(), transactions = new Map();
     const typed = value => encodeFirestoreValue(value).mapValue.fields;
@@ -32,6 +32,7 @@ export function maintenanceFixture() {
     set('public_projects/work_1', { authorUid: scope.uid, projectId: scope.projectId, releaseId: 'release_1' });
     const faults = { loseReply: false };
     const db = createOwnerAuthoringStore({ projectId: 'demo-maintenance', post: async (url, body) => {
+        onRequest(url);
         if (url.endsWith(':beginTransaction')) { const id = `tx_${++txSerial}`; transactions.set(id, { snapshot: clone(docs), reads: new Set() }); return { transaction: id }; }
         const t = transactions.get(body.transaction); assert(t);
         if (url.endsWith(':batchGet')) return body.documents.map(name => {
