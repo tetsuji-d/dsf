@@ -1,3 +1,4 @@
+import { withHomeDeadline, homeLoadingMarkup } from './home-load.js';
 import '../css/home-workspace.css';
 import { createHomeWorkspace } from './home-workspace.js';
 import '../css/publishing-spaces.css';
@@ -4463,7 +4464,7 @@ async function loadHomeReviewSummary(workId) {
     const inFlight = homeReviewSummaryRequests.get(workId);
     if (inFlight) return inFlight;
 
-    const request = fetchHomeReviewSummary(workId).then((summary) => {
+    const request = withHomeDeadline(fetchHomeReviewSummary(workId)).catch(() => ({ reviewCount: 0, goodCount: 0, badCount: 0, unavailable: true })).then((summary) => {
         if (!summary.unavailable) {
             homeReviewSummaryCache.set(workId, {
                 summary,
@@ -4658,16 +4659,21 @@ let homeDashboardRenderRevision = 0;
 let homeCloudProjectsRequest = null;
 let homeCloudProjectsRequestUid = '';
 let homeCloudProjectsRequestToken = 0;
+let homeCloudProjectsCache = null;
 
 function fetchHomeCloudProjects() {
     const requestUid = state.uid || '';
-    if (!requestUid) return Promise.resolve([]);
+    if (!requestUid) { homeCloudProjectsCache = null; return Promise.resolve([]); }
+    if (homeCloudProjectsCache?.uid === requestUid && Date.now() - homeCloudProjectsCache.time < 30000) return Promise.resolve(homeCloudProjectsCache.projects);
     if (homeCloudProjectsRequest && homeCloudProjectsRequestUid === requestUid) {
         return homeCloudProjectsRequest;
     }
 
     homeCloudProjectsRequestUid = requestUid;
-    const request = fetchCloudProjects().catch((e) => {
+    const request = withHomeDeadline(fetchCloudProjects()).then(projects => {
+        if (state.uid === requestUid && homeCloudProjectsRequestToken === requestToken) homeCloudProjectsCache = { uid: requestUid, time: Date.now(), projects };
+        return projects;
+    }).catch((e) => {
         console.warn('[Home] Failed to load cloud projects:', e);
         return null;
     });
@@ -4682,7 +4688,9 @@ function fetchHomeCloudProjects() {
     return requestWithCleanup;
 }
 
-async function renderHomeDashboard({ refreshSpaces = true } = {}) {
+async function renderHomeDashboard({ refreshSpaces = true, forceRefresh = false } = {}) {
+    if (refreshSpaces) homeCloudProjectsCache = null;
+    if (forceRefresh) { homeCloudProjectsCache = null; homeCloudProjectsRequest = null; ++homeCloudProjectsRequestToken; }
     getHomeWorkspace().render();
     const renderRevision = ++homeDashboardRenderRevision;
     const cloudGrid = document.getElementById('home-cloud-grid');
@@ -4695,10 +4703,10 @@ async function renderHomeDashboard({ refreshSpaces = true } = {}) {
     if (!cloudGrid || !localGrid) return;
 
     if (statsEl) statsEl.innerHTML = renderHomeStatCard('sync', t('home_loading'), '...', '');
-    if (workGrid) workGrid.innerHTML = `<div class="home-empty-state"><span class="material-icons">analytics</span><p>${t('home_loading')}</p></div>`;
+    if (workGrid) workGrid.innerHTML = homeLoadingMarkup(t('home_loading'));
     if (workCount) workCount.textContent = '...';
-    cloudGrid.innerHTML = `<div class="home-empty-state"><span class="material-icons">cloud_sync</span><p>${t('home_loading')}</p></div>`;
-    localGrid.innerHTML = `<div class="home-empty-state"><span class="material-icons">history</span><p>${t('home_loading')}</p></div>`;
+    cloudGrid.innerHTML = homeLoadingMarkup(t('home_loading'));
+    localGrid.innerHTML = homeLoadingMarkup(t('home_loading'));
     if (cloudCount) cloudCount.textContent = '...';
     if (localCount) localCount.textContent = '...';
 
@@ -4707,12 +4715,19 @@ async function renderHomeDashboard({ refreshSpaces = true } = {}) {
     if (refreshSpaces) void spaceUI.load({ notify: true });
     else spaceUI.render();
     const cloudProjectsPromise = fetchHomeCloudProjects();
-    const localProjects = await listLocalRecentProjects().catch((e) => {
+    let localProjects = [], statsInput = null;
+    void withHomeDeadline(listLocalRecentProjects(), 5000).then(projects => {
+        if (renderRevision !== homeDashboardRenderRevision || state.uid !== dashboardUid) return;
+        localProjects = projects;
+        renderHomeLocalProjects(localGrid, localCount, localProjects);
+        if (statsEl && statsInput) statsEl.innerHTML = renderHomeDashboardStats(statsInput = { ...statsInput, localProjects });
+    }).catch(e => {
+        if (renderRevision !== homeDashboardRenderRevision || state.uid !== dashboardUid) return;
         console.warn('[Home] Failed to load local recent projects:', e);
-        return [];
+        localGrid.innerHTML = `<div class="home-empty-state"><p>${getUILang() === 'en' ? 'Browser working copies could not be loaded.' : 'このブラウザの作業コピーを読み込めませんでした。'}</p><button class="home-action-btn" data-home-retry>${getUILang() === 'en' ? 'Retry' : '再試行'}</button></div>`;
+        if (localCount) localCount.textContent = '!';
+        localGrid.querySelector('[data-home-retry]')?.addEventListener('click', () => void renderHomeDashboard({ refreshSpaces: false }));
     });
-    if (renderRevision !== homeDashboardRenderRevision) return;
-    renderHomeLocalProjects(localGrid, localCount, localProjects);
 
     const allCloudProjects = await cloudProjectsPromise;
     if (renderRevision !== homeDashboardRenderRevision || state.uid !== dashboardUid) return;
@@ -4737,7 +4752,7 @@ async function renderHomeDashboard({ refreshSpaces = true } = {}) {
     const emptyReviewTotals = { reviewCount: 0, goodCount: 0, badCount: 0 };
 
     if (statsEl) {
-        statsEl.innerHTML = renderHomeDashboardStats({
+        statsEl.innerHTML = renderHomeDashboardStats(statsInput = {
             cloudProjects: Array.isArray(cloudProjects) ? cloudProjects : [],
             localProjects,
             works,
@@ -4777,6 +4792,14 @@ async function renderHomeDashboard({ refreshSpaces = true } = {}) {
         if (cloudCount) cloudCount.textContent = String(cloudProjects.length);
     }
 
+    if (cloudProjects === null) for (const grid of [cloudGrid, workGrid]) {
+        const retry = document.createElement('button');
+        retry.className = 'home-action-btn'; retry.textContent = getUILang() === 'en' ? 'Retry' : '再試行';
+        retry.dataset.homeRetry = '';
+        retry.addEventListener('click', () => void renderHomeDashboard({ refreshSpaces: false, forceRefresh: true }));
+        grid?.querySelector('.home-empty-state')?.append(retry);
+    }
+
     cloudGrid.querySelectorAll('.home-project-card').forEach((card) => {
         card.addEventListener('click', async () => {
             const pid = card.dataset.id;
@@ -4797,7 +4820,7 @@ async function renderHomeDashboard({ refreshSpaces = true } = {}) {
             if (!confirm(t('home_delete_confirm', { name: displayName }))) return;
             try {
                 await deleteCloudProject(pid);
-                await renderHomeDashboard();
+                await renderHomeDashboard({ forceRefresh: true });
             } catch (err) {
                 console.error('[Home] Cloud delete failed:', err);
                 alert(t('home_delete_error', { message: err.message }));
@@ -4823,7 +4846,7 @@ async function renderHomeDashboard({ refreshSpaces = true } = {}) {
     }, { reviewCount: 0, goodCount: 0, badCount: 0 });
 
     if (statsEl) {
-        statsEl.innerHTML = renderHomeDashboardStats({
+        statsEl.innerHTML = renderHomeDashboardStats(statsInput = {
             cloudProjects: Array.isArray(cloudProjects) ? cloudProjects : [],
             localProjects,
             works,

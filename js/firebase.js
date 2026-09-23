@@ -839,7 +839,8 @@ export async function cacheLocalRecentProject(snapshotState, imageMap = window.l
 }
 
 export async function listLocalRecentProjects() {
-    const index = Array.isArray(await idbGet(LOCAL_RECENT_INDEX_KEY)) ? await idbGet(LOCAL_RECENT_INDEX_KEY) : [];
+    const storedIndex = await idbGet(LOCAL_RECENT_INDEX_KEY);
+    const index = Array.isArray(storedIndex) ? storedIndex : [];
     return index
         .filter((item) => item && item.id)
         .sort((a, b) => Number(b.updatedAt || 0) - Number(a.updatedAt || 0));
