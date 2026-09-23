@@ -1,3 +1,4 @@
+import {readInvitationRollout,createInvitationRolloutGuard} from './publishing-invitations-rollout.js';
 import {createPublishingInvitationsApi,createPublishingInvitationsService,INVITATION_ROOTS} from './publishing-invitations.js';
 import {createSpaceDirectoryService,validateSpaceInvitationTargets,SPACE_DIRECTORY_ROOTS} from './publishing-space-directory.js';
 import {createFirestoreStore} from './private-authoring/firestore.js';
@@ -23,11 +24,13 @@ export async function handlePublishingInvitations(context){
     const disabled=()=>Response.json({error:'INVITATIONS_DISABLED'},{status:503,headers:{'Cache-Control':'private, no-store'}});
     if(context.env.PUBLISHING_INVITATIONS_ENABLED!=='true')return disabled();
     try{
+        const scope=readInvitationRollout(context.env);
         let handler=runtimes.get(context.env);
         if(!handler){
             const google=createGoogleClient({projectId:context.env.FIREBASE_PROJECT_ID,serviceAccountJson:context.env.AUTHORING_GOOGLE_SERVICE_ACCOUNT});
             const db=createInvitationStore(google),assertLiveIdentity=google.assertLiveIdentity;
             handler=createPublishingInvitationsApi({verifyToken:createIdTokenVerifier({projectId:context.env.FIREBASE_PROJECT_ID}),
+                authorizeCommand:createInvitationRolloutGuard({db,scope}),
                 directory:createSpaceDirectoryService({db,assertLiveIdentity}),
                 service:createPublishingInvitationsService({db,assertLiveIdentity,validateScopeTargets:validateSpaceInvitationTargets,
                     allowActivation:context.env.PUBLISHING_INVITATIONS_ACTIVATION==='true'&&context.env.SHARED_AUTHORING_ENABLED==='true'})});

@@ -46,6 +46,9 @@ binding     = "AUTHORING_BUCKET"
 bucket_name = "dsf-authoring-staging"
 
 [env.preview.vars]
+PUBLISHING_INVITATIONS_ENABLED = "true"
+PUBLISHING_INVITATIONS_ACTIVATION = "false"
+PUBLISHING_INVITATIONS_TEST_SCOPE = '{"spaceId":"space_cb939cf7-7b18-4b65-bd77-4bbfbb629d07","ownerUid":"oweMVboBCNcr8FKMo6N7vAaGTvh2","recipientUid":"aaGu1M3E5lQ5OD0Mwi7RLL7976i2","recipientHandle":"tetsujiro"}'
 # Owner-only publishing spaces; enabled on the next staging deployment.
 PUBLISHING_SPACES_ENABLED = "true"
 AUTHORING_CREATOR_UIDS = '["authoring_unit_f_20260920","oweMVboBCNcr8FKMo6N7vAaGTvh2","aaGu1M3E5lQ5OD0Mwi7RLL7976i2"]'

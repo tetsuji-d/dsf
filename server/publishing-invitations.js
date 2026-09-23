@@ -137,7 +137,7 @@ export function createPublishingInvitationsService({db,assertLiveIdentity,valida
     }
     return {execute};
 }
-export function createPublishingInvitationsApi({service,verifyToken,directory=null}) {
+export function createPublishingInvitationsApi({service,verifyToken,directory=null,authorizeCommand=null}) {
     return async ({request,env})=>{
         const response=(data,status=200)=>Response.json(data,{status,headers:{'Cache-Control':'private, no-store','CDN-Cache-Control':'no-store','X-Content-Type-Options':'nosniff',Vary:'Authorization, Origin'}});
         try {
@@ -151,6 +151,7 @@ export function createPublishingInvitationsApi({service,verifyToken,directory=nu
             check(token,'AUTH_REQUIRED',401);
             const identity=await verifyToken(token[1]);check(identity?.uid,'AUTH_INVALID',401);
             const command=parseJson(await readBounded(request.body,16384));
+            if(authorizeCommand)await authorizeCommand(identity,command);
             if(directory&&command?.kind==='listMembers')return response(await directory.listMembers(identity,command));
             if(directory&&command?.kind==='resolveRecipient')return response(await directory.resolveRecipient(identity,command));
             if(directory&&command?.kind==='listSpaceWorks')return response(await directory.listWorks(identity,command));

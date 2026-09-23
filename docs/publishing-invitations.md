@@ -337,3 +337,6 @@ POSTには既存confirmationTokenに加え、copyImages:true、imagePlanHash、r
 
 次はステージングの対象作品／送受信アカウントを固定し、共有原稿の有効化範囲とindexを確認して
 実アカウント試験を行う。参加者用スペース切替、既存メンバーの権限変更・解除、全画面共通ベルは後続。
+
+## ステージング限定試験（2026-09-23）
+山口出版の @tetsuji → @tetsujiro の招待だけをAPIで許可する。PUBLISHING_INVITATIONS_TEST_SCOPE がない環境や本番では拒否。対象外のアカウント・スペース・受信者・既存招待IDへの操作を拒否し、既存の権限確認も維持する。承諾は対象作品の共有登録と共有API有効化を確認するまで無効。メンバー検索のcollection group indexは既存3種類を保持してステージングに追加済み。
