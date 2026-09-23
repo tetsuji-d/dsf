@@ -1,5 +1,5 @@
 import {check,segment} from './private-authoring/common.js';
-import {canAccessPublishingSpace,validSpaceMember} from '../js/publishing-space-access.js';
+import {canAccessPublishingSpace,validSpaceMember,canManageSpaceMember} from '../js/publishing-space-access.js';
 export const SPACE_DIRECTORY_ROOTS=['handles','publishing_spaces','publishing_labels','publishing_work_scopes','publishing_space_catalogues'];
 const live=(a,uid)=>a?.uid===uid&&a.status?.disabled===false&&a.status?.moderationHold!==true;
 export async function readSpacePrincipal(tx,actorUid,spaceId){
@@ -53,8 +53,43 @@ export async function validateSpaceInvitationTargets(tx,space,grants){
     }
     return labels;
 }
+async function memberToken(member){
+    const value=[member.uid,member.spaceId,member.role,member.status,member.grants.map(g=>[g.role,g.scope,g.targetId??null]),member.joinedAt??null,member.invitationId??null];
+    const bytes=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(JSON.stringify(value)));
+    return Array.from(new Uint8Array(bytes),b=>b.toString(16).padStart(2,'0')).join('');
+}
 export function createSpaceDirectoryService({db,assertLiveIdentity,now=Date.now}){
     return {
+        async memberAccess(identity,command){
+            const {spaceId,memberUid,kind}=command;segment(spaceId);segment(memberUid);
+            await assertLiveIdentity(identity);
+            return db.transaction(async tx=>{
+                const context=await readSpacePrincipal(tx,identity.uid,spaceId);
+                const path=`users/${memberUid}/spaceMemberships/${spaceId}`;
+                const [current,person]=await tx.getMany([path,'users/'+memberUid]);
+                check(current&&canManageSpaceMember(context,current,current),'MEMBER_FORBIDDEN',403);
+                check(current.role==='member','MEMBER_SCOPE_MANAGED',409);
+                const token=await memberToken(current);
+                const result=member=>({member:{uid:memberUid,displayName:person?.publicProfile?.displayName||person?.displayName||memberUid,role:member.role,grants:member.grants},memberToken:token});
+                if(kind==='getMemberAccess')return result(current);
+                check(kind==='setMemberAccess','INVALID_COMMAND',400);
+                check(context.actor.entitlements?.canCreateProject===true,'EDIT_FORBIDDEN',403);
+                check(typeof command.expectedToken==='string'&&/^[a-f0-9]{64}$/.test(command.expectedToken),'INVALID_TOKEN',400);
+                check(typeof command.requestId==='string'&&/^[a-z0-9-]{16,64}$/.test(command.requestId),'INVALID_ID',400);
+                check(Array.isArray(command.grants),'INVALID_GRANTS',400);
+                const grants=command.grants.map(g=>({role:g?.role,scope:g?.scope,...(g?.scope==='space'?{}:{targetId:g?.targetId})}));
+                const next={...current,grants};check(validSpaceMember(next,spaceId)&&canManageSpaceMember(context,current,next),'GRANT_FORBIDDEN',403);
+                const auditPath=`users/${context.space.ownerUid}/memberAccessChanges/${command.requestId}`;
+                const [audit]=await tx.getMany([auditPath]);
+                const signature=JSON.stringify([identity.uid,spaceId,memberUid,command.expectedToken,grants]);
+                if(audit){check(audit.signature===signature&&audit.afterToken===token,'MEMBER_CONFLICT',409);return result(current);}
+                check(token===command.expectedToken,'MEMBER_CONFLICT',409);
+                await validateSpaceInvitationTargets(tx,context.space,grants);
+                const afterToken=await memberToken(next);
+                tx.set(path,next);tx.set(auditPath,{actorUid:identity.uid,memberUid,spaceId,at:now(),before:current.grants,after:grants,afterToken,signature});
+                return {...result(next),memberToken:afterToken};
+            });
+        },
         async listMembers(identity,{spaceId,afterUid=null}) {
             segment(spaceId);if(afterUid!==null)segment(afterUid);
             const authorize=async tx=>{const c=await readSpacePrincipal(tx,identity.uid,spaceId);
@@ -72,7 +107,7 @@ export function createSpaceDirectoryService({db,assertLiveIdentity,now=Date.now}
                 records.forEach((m,i)=>{const uid=selected[i],a=users[i];if(uid===c.space.ownerUid||!m||m.status!=='active')return;
                     check(m.uid===uid&&validSpaceMember(m,spaceId),'MEMBERS_UNAVAILABLE',503);
                     items.push({uid,displayName:a?.publicProfile?.displayName||a?.displayName||uid,role:m.role,grants:m.grants,
-                        available:live(a,uid),joinedAt:m.joinedAt??null});});
+                        available:live(a,uid),canChangeScope:m.role==='member'&&canManageSpaceMember(c,m,m),joinedAt:m.joinedAt??null});});
                 return {space:{id:spaceId,name:c.space.name},owner:{uid:c.space.ownerUid,displayName:c.owner.publicProfile?.displayName||c.owner.displayName||c.space.ownerUid,role:'owner',grants:[]},
                     items,nextCursor:ids.length>20?selected.at(-1):null};
             });
@@ -103,7 +138,10 @@ export function createSpaceDirectoryService({db,assertLiveIdentity,now=Date.now}
             await assertLiveIdentity(identity);
             return db.transaction(async tx=>{
                 const context=await readSpacePrincipal(tx,identity.uid,spaceId);
-                const [stored]=await tx.getMany(['publishing_space_catalogues/'+spaceId]);
+                const [catalogue]=await tx.getMany(['publishing_space_catalogues/'+spaceId]);
+                // No shared registration yet is an empty directory, not an invitation failure.
+                // A malformed existing catalogue must still fail closed.
+                const stored=catalogue??{schemaVersion:1,workIds:[]};
                 check(stored?.schemaVersion===1&&Array.isArray(stored.workIds)&&stored.workIds.length<=2000
                     &&new Set(stored.workIds).size===stored.workIds.length,'SPACE_CATALOGUE_UNAVAILABLE',503);
                 const allowed=[];

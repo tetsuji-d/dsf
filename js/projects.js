@@ -1,8 +1,10 @@
+import {readProjectList} from './project-list-reader.js';
+import {auth,firebaseConfig} from './firebase-core.js';
 import { preparePrivateProjectAction, runPrivateProjectAction } from './private-project-actions.js';
 /**
  * projects.js — プロジェクト一覧モーダル管理
  */
-import { collection, getDocs, deleteDoc, doc, getDoc, writeBatch } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
+import { deleteDoc, doc, getDoc, writeBatch } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
 import { state } from './state.js';
 import { db } from './firebase.js';
 import { stageProjectSummaryDelete } from './project-summary-firestore.js';
@@ -14,13 +16,12 @@ import { stageProjectSummaryDelete } from './project-summary-firestore.js';
 export async function fetchCloudProjects() {
     if (!state.uid) return [];
 
-    const snapshot = await getDocs(collection(db, "users", state.uid, "projects"));
+    const snapshot = await readProjectList({projectId:firebaseConfig.projectId,uid:state.uid,getUser:()=>auth.currentUser});
     const projects = [];
-    snapshot.forEach(docSnap => {
-        const raw = docSnap.data() || {};
-        const lastUpdated = raw.lastUpdated?.toDate?.() ?? new Date(0);
+    snapshot.forEach(raw => {
+        const lastUpdated = raw.lastUpdated instanceof Date ? raw.lastUpdated : new Date(0);
         projects.push({
-            id: docSnap.id,
+            id: raw.id,
             workId: typeof raw.workId === 'string' ? raw.workId : '',
             projectName: typeof raw.projectName === 'string' ? raw.projectName : '',
             title: typeof raw.title === 'string' ? raw.title : '',

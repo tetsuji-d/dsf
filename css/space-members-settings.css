@@ -4,3 +4,5 @@
 .space-shared-work{display:block;padding:12px 0;overflow-wrap:anywhere}
 
 @media(max-width:600px){.space-members-settings{padding:16px}.space-members-settings .invitation-toolbar h2{flex-basis:100%;margin-bottom:0}.space-members-settings .invitation-dialog{padding:16px}.space-members-settings .sent-invitation strong{min-width:0;overflow-wrap:anywhere}}
+
+.space-member-row>button{margin-left:auto}.member-grant-row{display:flex;align-items:end;gap:12px;margin-block:16px}.member-grant-row label{display:grid;gap:6px;flex:1;min-width:0}.member-access-dialog p{overflow-wrap:anywhere}@media(max-width:600px){.member-grant-row{flex-wrap:wrap}.member-grant-row label{flex-basis:100%}}

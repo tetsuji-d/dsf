@@ -311,3 +311,16 @@ and index, after source verification and a final revision check. Initial registr
 only image-free private manuscripts; it does not migrate source, images, publication, or membership.
 Legacy assignment refuses moves for shared works. Current environment flags and Rules are unchanged.
 Details and remaining rollout prerequisites: [unit 7](publishing-invitations.md).
+
+
+### Dashboard read path
+
+Dashboard project lists use a Firestore REST structured query with a field projection and
+Firebase ID token. The owner-only Firestore Rules still authorize every request; no server
+credential is sent to the client and no Rules changes are required. Legacy v5 manuscript
+blocks/pages/sections are excluded before transfer, not merely discarded after downloading.
+The query retains listing metadata and published page references for legacy thumbnail fallbacks.
+Each attempt has an actual abort deadline, with one retry for transient failures; permission
+failures are not retried. Account changes discard responses. The existing 30-second in-memory
+cache survives view/filter changes, while explicit refresh invalidates it. A failed load can
+be retried from navigation or when connectivity returns without reloading the browser.

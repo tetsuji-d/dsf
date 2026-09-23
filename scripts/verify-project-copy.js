@@ -35,3 +35,21 @@ await assert.rejects(assignmentJob.run('copy','space_a'),/COPY_DESTINATION_FAILE
 const assigned=await assignmentJob.run('changed','space_b');assert.equal(creationCount,1);assert.equal(assigned.spaceId,'space_a');assert.deepEqual(destinations,['space_a','space_a']);
 let read=false;const invalidJob=createProjectCopyJob({readSource:async()=>{read=true;},isCurrent:()=>true,validateDestination:async()=>{throw Error('SPACE_FORBIDDEN');}});await assert.rejects(invalidJob.run('copy','other'),/SPACE_FORBIDDEN/);assert.equal(read,false);
 console.log('Destination passed: prevalidation and frozen assignment retry without a second creation.');
+
+let listingCalls=0,listingCreates=0;const listingSources=[];
+const listingJob=createProjectCopyJob({readSource:async()=>({...source,listThumbnail:'https://media.example/cover.webp',pageCount:7}),newId:p=>p+'_listing',isCurrent:()=>true,
+createClient:()=>({create:async()=>{listingCreates++;},getHead:()=>({revision:1})}),
+updateListing:async(pid,snapshot,head)=>{assert.equal(head.revision,1);listingSources.push(snapshot);if(++listingCalls===1)throw Error('offline');}});
+await assert.rejects(listingJob.run('copy'),/COPY_LISTING_FAILED/);
+await listingJob.run('retry');assert.equal(listingCreates,1);assert.equal(listingCalls,2);
+assert.equal(listingSources[1].listThumbnail,'https://media.example/cover.webp');assert.equal(listingSources[1].pageCount,7);
+console.log('Listing retry passed: preserves source preview metadata and never creates a second project.');
+
+// Listing metadata is stored while the copied source and publication remain unchanged.
+const copyContext=await f.actions.context(f.identity,'copied_project');
+const copyHead=structuredClone(copyContext.head),objectsBefore=f.r2.objects.size;
+await f.actions.execute(f.identity,'copied_project',{kind:'listing',requestId:'listing_copy_1',generationId:copyHead.generationId,baseRevision:copyHead.revision,mutationRevision:copyContext.mutationRevision,payload:{pageCount:7,listThumbnail:'https://media.test/users/owner_1/dsf/cover.webp',projectBytes:copyHead.byteLength+100}});
+const listedRoot=f.db.docs.get('users/owner_1/projects/copied_project');assert.equal(listedRoot.pageCount,7);assert.equal(listedRoot.listThumbnail,'https://media.test/users/owner_1/dsf/cover.webp');assert.equal(listedRoot.visibility,'private');assert.equal(listedRoot.releaseId,null);
+assert.deepEqual((await f.actions.context(f.identity,'copied_project')).head,copyHead);assert.equal(f.r2.objects.size,objectsBefore);
+assert.deepEqual(f.db.docs.get('users/owner_1/projects/project_1'),originalRoot);
+console.log('Listing integration passed: thumbnail and count updated without publication or source writes.');

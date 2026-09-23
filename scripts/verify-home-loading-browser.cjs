@@ -29,7 +29,7 @@ const helper=fs.readFileSync('js/home-load.js','utf8').replaceAll('export ','').
  assert.equal(await page.evaluate(()=>count()),2);
  await page.evaluate(()=>{resolveOld();});
  assert.equal(await page.locator('#home-cloud-grid .home-project-card').innerText(),'recovered');
- await page.evaluate(()=>run({refreshSpaces:false}));assert.equal(await page.evaluate(()=>count()),2);
+ await page.evaluate(()=>run());assert.equal(await page.evaluate(()=>count()),2);
  await page.evaluate(()=>{setMode('fresh');void run({forceRefresh:true});});
  await page.getByText('fresh',{exact:true}).waitFor();
  assert.equal(await page.evaluate(()=>count()),3);

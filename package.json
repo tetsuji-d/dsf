@@ -141,6 +141,8 @@
     "verify:dsf-fixed-text-thumbnail": "node scripts/verify-dsf-fixed-text-thumbnail-renderer.js",
     "verify:project-title-surfaces": "node scripts/verify-project-title-surfaces.js",
     "verify:publication-window": "node scripts/verify-publication-window.js",
+    "verify:member-access": "node scripts/verify-member-access.js",
+    "verify:project-list-reader": "node scripts/verify-project-list-reader.js",
     "verify:space-members": "node scripts/verify-space-members.js",
     "verify:space-members-browser": "node scripts/verify-space-members-browser.cjs",
     "verify:home-loading-browser": "node scripts/verify-home-loading-browser.cjs",

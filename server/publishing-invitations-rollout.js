@@ -13,10 +13,11 @@ export function createInvitationRolloutGuard({db,scope:s}){
         check(uid===s.ownerUid||uid===s.recipientUid,'INVITATION_TEST_ONLY',403);
         check(c&&typeof c==='object','INVALID_COMMAND',400);
         if(c.kind==='inbox')return;
-        const manager=['invite','outbox','listMembers','resolveRecipient'];
+        const manager=['invite','outbox','listMembers','resolveRecipient','getMemberAccess','setMemberAccess'];
         if(manager.includes(c.kind))check(uid===s.ownerUid,'INVITATION_TEST_ONLY',403);
         if([...manager,'listSpaceWorks'].includes(c.kind)){
             check(c.spaceId===s.spaceId,'INVITATION_TEST_ONLY',403);
+            if(['getMemberAccess','setMemberAccess'].includes(c.kind))check(c.memberUid===s.recipientUid,'INVITATION_TEST_ONLY',403);
             if(c.kind==='invite')check(c.recipientUid===s.recipientUid,'INVITATION_TEST_ONLY',403);
             if(c.kind==='resolveRecipient')check(typeof c.handle==='string'&&c.handle.replace(/^@/,'')===s.recipientHandle.replace(/^@/,''),'INVITATION_TEST_ONLY',403);
             await db.transaction(async tx=>{const [space]=await tx.getMany(['publishing_spaces/'+s.spaceId]);check(space?.ownerUid===s.ownerUid&&space.status!=='deleted','INVITATION_TEST_ONLY',403);});

@@ -10,6 +10,7 @@ const fixture=invitationsFixture({initialDocs,persist:async docs=>{if(ephemeral)
 const imageData=new URL('../outputs/invitation-private-objects-'+port+'.json',import.meta.url);
 let initialObjects=[];if(!ephemeral)try{initialObjects=JSON.parse(await readFile(imageData,'utf8'));}catch(e){if(e.code!=='ENOENT')throw e;}
 const shared=await attachSharedEditorFixture(fixture,{initialObjects,persistObjects:async objects=>{if(ephemeral)return;const temp=new URL(imageData.href+'.tmp');await writeFile(temp,JSON.stringify(objects));await rename(temp,imageData);}});
+if(process.env.INVITATION_FIXTURE_EMPTY_SPACE==='true')fixture.docs.delete('publishing_space_catalogues/space_demo');
 const files=new Map([['/copy','scripts/fixtures/project-copy-ui.html'],['/css/studio.css','css/studio.css'],['/settings','scripts/fixtures/space-members-settings.html'],['/css/space-members-settings.css','css/space-members-settings.css'],['/','scripts/fixtures/publishing-invitations-ui.html'],['/scripts/fixtures/shared-editor-ui.js','scripts/fixtures/shared-editor-ui.js'],['/js/publishing-invitations-ui.js','js/publishing-invitations-ui.js'],['/css/publishing-invitations.css','css/publishing-invitations.css'],['/scripts/fixtures/publishing-invitations-ui.js','scripts/fixtures/publishing-invitations-ui.js']]);
 createServer(async(req,res)=>{try{
     const origin='http://127.0.0.1:'+port,url=new URL(req.url,origin);

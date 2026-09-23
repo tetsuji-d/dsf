@@ -19,3 +19,7 @@ await guard({uid:'reader'},{kind:'accept',id:'inv_1234567890123456'});
 invite={...invite,spaceId:'other'};
 await assert.rejects(guard({uid:'reader'},{kind:'accept',id:'inv_1234567890123456'}));
 console.log('Invitation rollout scope: passed');
+
+await guard({uid:'owner'},{kind:'getMemberAccess',spaceId:scope.spaceId,memberUid:'reader'});
+await assert.rejects(guard({uid:'owner'},{kind:'setMemberAccess',spaceId:scope.spaceId,memberUid:'other'}));
+await assert.rejects(guard({uid:'reader'},{kind:'setMemberAccess',spaceId:scope.spaceId,memberUid:'reader'}));

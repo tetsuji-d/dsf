@@ -24,3 +24,16 @@ const clientRequest=createInvitationsClient({getUser:()=>user,fetchImpl:()=>new 
 const pending=clientRequest({kind:'inbox'});await new Promise(r=>setTimeout(r,0));
 user={uid:'two',getIdToken:async()=> 'other'};finish(Response.json({items:[]}));await assert.rejects(pending,/AUTH_CHANGED/);
 console.log('Invitation client rejects a late response after account switching.');
+
+// A newly opened space supports membership invitations before any manuscript is shared.
+const empty=invitationsFixture();empty.docs.delete('publishing_space_catalogues/space_demo');
+const untouched=JSON.stringify([...empty.docs].filter(([p])=>p.includes('/projects/')||p.startsWith('publishing_work_scopes/')));
+assert.deepEqual((await empty.directory.listWorks(owner,{spaceId:'space_demo',forInvitation:true})).targets,[{scope:'space',name:'灯台出版'}]);
+const emptyInvite='inv_'+crypto.randomUUID();await empty.call('owner_1',{kind:'invite',id:emptyInvite,spaceId:'space_demo',recipientUid:'reader_1',role:'member',grants:[{scope:'space',role:'viewer'}],expiryDays:3});
+await empty.call('reader_1',{kind:'accept',id:emptyInvite});
+assert.equal((await empty.directory.listWorks({uid:'reader_1'},{spaceId:'space_demo'})).items.length,0);
+assert.equal(JSON.stringify([...empty.docs].filter(([p])=>p.includes('/projects/')||p.startsWith('publishing_work_scopes/'))),untouched);
+assert(!empty.docs.has('publishing_space_catalogues/space_demo'));
+empty.docs.set('publishing_space_catalogues/space_demo',{schemaVersion:999,workIds:[]});
+await assert.rejects(empty.directory.listWorks(owner,{spaceId:'space_demo',forInvitation:true}),e=>e.code==='SPACE_CATALOGUE_UNAVAILABLE');
+console.log('Empty space invitation passed: join before sharing, no manuscript or binding changes, malformed catalogue still rejected.');

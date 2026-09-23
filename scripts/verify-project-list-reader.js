@@ -1,0 +1,11 @@
+import assert from 'node:assert/strict';
+import {readProjectList,PROJECT_LIST_FIELDS} from '../js/project-list-reader.js';
+let user={uid:'owner',getIdToken:async()=> 'test'},calls=0;
+const rows=[{document:{name:'projects/test/databases/(default)/documents/users/owner/projects/book',fields:{title:{stringValue:'原稿'},lastUpdated:{timestampValue:'2026-09-23T00:00:00Z'},blocks:{stringValue:'must not expose'}}}}];
+const options={projectId:'test',uid:'owner',getUser:()=>user,timeoutMs:15};
+const result=await readProjectList({...options,fetchImpl:async(url,request)=>{calls++;const body=JSON.parse(request.body);assert.deepEqual(body.structuredQuery.select.fields.map(x=>x.fieldPath),PROJECT_LIST_FIELDS);assert(!PROJECT_LIST_FIELDS.includes('blocks'));if(calls===1)return new Promise((_,reject)=>request.signal.addEventListener('abort',()=>reject(Error('aborted'))));return Response.json(rows);}});
+assert.equal(calls,2);assert.equal(result[0].title,'原稿');assert(!('blocks' in result[0]));assert(result[0].lastUpdated instanceof Date);
+calls=0;await assert.rejects(readProjectList({...options,fetchImpl:async()=>{calls++;return new Response('',{status:403});}}));assert.equal(calls,1);
+await assert.rejects(readProjectList({...options,fetchImpl:async()=>{user={uid:'other'};return Response.json(rows);}}),/AUTH_CHANGED/);
+user={uid:'owner',getIdToken:async()=> 'test'};await assert.rejects(readProjectList({...options,fetchImpl:async()=>Response.json([{document:{...rows[0].document,name:rows[0].document.name.replace('/owner/','/other/')}}])}),/PROJECT_LIST_SCOPE_INVALID/);
+console.log('Project list reader passed: projected fields, aborted stalled request, automatic fresh retry, no permission retry, dates and account isolation.');

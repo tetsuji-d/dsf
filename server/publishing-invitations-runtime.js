@@ -33,7 +33,7 @@ export async function handlePublishingInvitations(context){
                 authorizeCommand:createInvitationRolloutGuard({db,scope}),
                 directory:createSpaceDirectoryService({db,assertLiveIdentity}),
                 service:createPublishingInvitationsService({db,assertLiveIdentity,validateScopeTargets:validateSpaceInvitationTargets,
-                    allowActivation:context.env.PUBLISHING_INVITATIONS_ACTIVATION==='true'&&context.env.SHARED_AUTHORING_ENABLED==='true'})});
+                    allowActivation:context.env.PUBLISHING_INVITATIONS_ACTIVATION==='true'})});
             runtimes.set(context.env,handler);
         }
         return handler(context);

@@ -1,6 +1,6 @@
 import {projectActionsMarkup,bindProjectActions,openProjectSpaceDialog} from './project-actions-ui.js';
 import {openProjectCopyDialog} from './project-copy-ui.js';
-import {newCloudProjectCopyJob} from './firebase.js';
+import {newCloudProjectCopyJob,refreshCloudProjectListing} from './firebase.js';
 import '../css/space-members-settings.css';
 import { createSpaceMembersSettings } from './space-members-settings.js';
 import { createInvitationsClient } from './publishing-invitations-transport.js';
@@ -4318,7 +4318,9 @@ function syncSpaceMembersSettings() {
 }
 
 function getHomeWorkspace() {
-    if (!homeWorkspace) homeWorkspace = createHomeWorkspace({root:document.getElementById('home-room'),getLocale:getUILang});
+    if (!homeWorkspace) homeWorkspace = createHomeWorkspace({root:document.getElementById('home-room'),getLocale:getUILang,onSelect:view=>{
+        if(['overview','projects','activity'].includes(view)&&state.uid&&!homeCloudProjectsRequest&&(!homeCloudProjectsCache||Date.now()-homeCloudProjectsCache.time>=30000))void renderHomeDashboard({refreshSpaces:false,forceRefresh:true});
+    }});
     return homeWorkspace;
 }
 function getPublishingSpaceUI() {
@@ -4702,7 +4704,7 @@ function fetchHomeCloudProjects() {
 }
 
 async function renderHomeDashboard({ refreshSpaces = true, forceRefresh = false } = {}) {
-    if (refreshSpaces) homeCloudProjectsCache = null;
+    // Space navigation only changes the filter; keep the short-lived account cache.
     if (forceRefresh) { homeCloudProjectsCache = null; homeCloudProjectsRequest = null; ++homeCloudProjectsRequestToken; }
     getHomeWorkspace().render();
     const renderRevision = ++homeDashboardRenderRevision;
@@ -4828,6 +4830,10 @@ async function renderHomeDashboard({ refreshSpaces = true, forceRefresh = false 
         const project=(cloudProjects||[]).find(p=>p.id===pid);if(!project)return;
         const displayName=project.projectName||project.title||pid,en=getUILang()==='en';
         if(action==='edit'){if(await onLoadProject(pid))window.switchRoom('editor');return;}
+        if(action==='preview'){
+            try{await refreshCloudProjectListing(pid);await renderHomeDashboard({forceRefresh:true});}
+            catch(e){alert(e.message==='PREVIEW_OPEN_AND_SAVE'?(en?'Open this project and save it to refresh its thumbnail.':'このプロジェクトは編集画面で開いて保存すると一覧画像が更新されます。'):(en?'Could not update the thumbnail. Please retry.':'一覧画像を更新できませんでした。再試行してください。'));}return;
+        }
         if(action==='delete'){
             if(!confirm(t('home_delete_confirm',{name:displayName})))return;
             try{await deleteCloudProject(pid);await renderHomeDashboard({forceRefresh:true});}
@@ -11071,6 +11077,7 @@ function initUIChrome() {
             renderHomeDashboard().catch((e) => console.warn('[Home] render failed after auth event:', e));
         }
     });
+    window.addEventListener('online',()=>{if(state.uid&&getCurrentRoom()==='home')void renderHomeDashboard({forceRefresh:true});});
     window.addEventListener('dsf-auth-error', (event) => {
         const error = event.detail?.error;
         console.error('[Auth] Google credential sign-in error:', error);

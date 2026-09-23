@@ -1,0 +1,17 @@
+import assert from 'node:assert/strict';
+import {invitationsFixture} from './fixtures/publishing-invitations-fixture.js';
+const f=invitationsFixture(),owner={uid:'owner_1'},spaceId='space_demo',memberUid='reader_1';
+const invite='inv_'+crypto.randomUUID();await f.call('owner_1',{kind:'invite',id:invite,spaceId,recipientUid:memberUid,role:'member',grants:[{scope:'space',role:'viewer'}],expiryDays:3});await f.call(memberUid,{kind:'accept',id:invite});
+const read=()=>f.directory.memberAccess(owner,{kind:'getMemberAccess',spaceId,memberUid});
+const before=await read(),untouched=JSON.stringify(f.docs.get('users/admin_1/spaceMemberships/space_demo'));
+assert((await f.directory.listMembers(owner,{spaceId})).items.find(m=>m.uid===memberUid).canChangeScope);
+const command={kind:'setMemberAccess',spaceId,memberUid,expectedToken:before.memberToken,requestId:crypto.randomUUID(),grants:[{role:'editor',scope:'work',targetId:'work_library'}]};
+await f.directory.memberAccess(owner,command);await f.directory.memberAccess(owner,command);
+assert.deepEqual((await read()).member.grants,command.grants);assert.equal(JSON.stringify(f.docs.get('users/admin_1/spaceMemberships/space_demo')),untouched);
+assert.equal([...f.docs.keys()].filter(p=>p.includes('/memberAccessChanges/')).length,1);
+await assert.rejects(f.directory.memberAccess(owner,{...command,requestId:crypto.randomUUID(),grants:[{role:'viewer',scope:'space'}]}),e=>e.code==='MEMBER_CONFLICT');
+const latest=await read();await assert.rejects(f.directory.memberAccess(owner,{...command,requestId:crypto.randomUUID(),expectedToken:latest.memberToken,grants:[{role:'editor',scope:'work',targetId:'work_other'}]}),e=>e.code==='WORK_FORBIDDEN');
+await assert.rejects(f.directory.memberAccess({uid:'reader_1'},{kind:'getMemberAccess',spaceId,memberUid}),e=>e.code==='MEMBER_FORBIDDEN');
+await assert.rejects(f.directory.memberAccess(owner,{kind:'getMemberAccess',spaceId,memberUid:'owner_1'}),e=>e.code==='MEMBER_FORBIDDEN');
+f.docs.get('users/owner_1').status.disabled=true;await assert.rejects(read,e=>e.code==='ACCOUNT_UNAVAILABLE');
+console.log('Member access passed: manager boundary, target-only change, scope validation, stale edits, replay, audit and revocation.');

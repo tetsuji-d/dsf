@@ -1446,6 +1446,7 @@ export function newCloudProjectCopyJob(projectId) {
             if(data.assignments[projectId]===spaceId)return;
             if(data.assignments[projectId])throw new Error('SPACE_CONFLICT');
             await spaces({kind:'assign',projectId,spaceId,expectedSpaceId:null,baseRevision:data.revision});},
+        updateListing:(pid,source,head)=>updatePrivateProjectListing(pid,source,head,isCurrent),
         createClient:pid=>createPrivateAuthoringClient({uid,projectId:pid,user,isCurrent}),
         readSource:async()=>{
             await assertAccountCanEdit(user);
@@ -1455,14 +1456,40 @@ export function newCloudProjectCopyJob(projectId) {
             if(!snap.exists())throw new Error('PROJECT_NOT_FOUND');
             const root=snap.data();
             if(root.ownerUid&&root.ownerUid!==uid)throw new Error('OWNER_REQUIRED');
-            if(usesPrivateAuthoring(root))return createPrivateAuthoringClient({uid,projectId,user,isCurrent}).load();
+            if(usesPrivateAuthoring(root)){const source=await createPrivateAuthoringClient({uid,projectId,user,isCurrent}).load();return {...source,listThumbnail:root.listThumbnail||'',pageCount:root.pageCount||0};}
             if(root.version===6||root.authoringRef==='authoring/current'||root.authoringSchemaVersion===6){
                 const source=await getDoc(projectAuthoringDocRef(projectId,uid));
                 if(!source.exists())throw new Error('AUTHORING_NOT_FOUND');
-                return {...source.data(),projectId,workId:root.workId||projectId};
+                return {...source.data(),projectId,workId:root.workId||projectId,listThumbnail:root.listThumbnail||'',pageCount:root.pageCount||0};
             }
             return {...root,projectId,workId:root.workId||projectId};
         }});
+}
+
+async function updatePrivateProjectListing(projectId,source,head,isCurrent){
+    if(!isCurrent())throw new AuthoringClientError('AUTH_CHANGED');
+    const context=await preparePrivateProjectAction(projectId,head?{expectedHead:head}:{});
+    if(!context)throw new Error('AUTHORING_ROOT_INVALID');
+    const preview=getProjectPreviewSource(source);
+    const candidates=[source.listThumbnail,preview.thumbnail,preview.background].filter(value=>typeof value==='string');
+    const listThumbnail=candidates.find(value=>value.startsWith(`${import.meta.env.VITE_R2_PUBLIC_URL}/users/${context.uid}/`))||'';
+    const sizes=await Promise.all(collectProjectAssetUrls(source).map(getAssetByteSize));
+    if(!isCurrent())throw new AuthoringClientError('AUTH_CHANGED');
+    const pageCount=Number.isSafeInteger(source.pageCount)&&source.pageCount>0?source.pageCount:getProjectPageCount(source);
+    await runPrivateProjectAction(context,'listing',{listThumbnail,pageCount,projectBytes:context.head.byteLength+sizes.reduce((sum,size)=>sum+size,0)});
+}
+/** Repair a private draft's dashboard preview without opening or editing its manuscript. */
+export async function refreshCloudProjectListing(projectId){
+    assertPersonalStudioOperation();const uid=requireUid(),user=auth.currentUser;
+    const isCurrent=()=>auth.currentUser===user&&state.uid===uid;
+    await assertAccountCanEdit(user);
+    const snap=await getDoc(projectDocRef(projectId,uid));
+    if(!isCurrent())throw new AuthoringClientError('AUTH_CHANGED');
+    if(!snap.exists())throw new Error('PROJECT_NOT_FOUND');
+    const root=snap.data();
+    if(!usesPrivateAuthoring(root))throw new Error('PREVIEW_OPEN_AND_SAVE');
+    const client=createPrivateAuthoringClient({uid,projectId,user,isCurrent}),source=await client.load();
+    await updatePrivateProjectListing(projectId,{...source,listThumbnail:root.listThumbnail||'',pageCount:root.pageCount||0},client.getHead(),isCurrent);
 }
 
 /** Save the current project using its existing identity. */
