@@ -12,11 +12,13 @@ export function createPublishingInvitationsUI({root,execute,spaceId,recipients=[
     bell.innerHTML='<svg aria-hidden="true" viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9M10 21h4"/></svg>';
     const badge=node('span','0','notification-badge');badge.hidden=true;bell.append(badge);toolbar.append(title,bell);
     const message=node('p','', 'invitation-message');message.setAttribute('role','status');
-    const content=node('section');root.append(toolbar,message,content);
+    const retry=button(t('再読み込み','Retry'),()=>refresh());retry.hidden=true;
+    const content=node('section');root.append(toolbar,message,retry,content);
     function close(){if(modal){modal.close();modal.remove();modal=null;lastFocus?.isConnected&&lastFocus.focus();}}
     function dialog(heading){if(stopped)return node('div');const prior=modal?lastFocus:document.activeElement;close();lastFocus=prior;modal=node('dialog',undefined,'invitation-dialog');const top=node('div',undefined,'invitation-dialog-heading');const h=node('h2',heading);h.id='invitation-dialog-title';modal.setAttribute('aria-labelledby',h.id);top.append(h,button(t('閉じる','Close'),close));modal.append(top);root.append(modal);modal.addEventListener('cancel',e=>{e.preventDefault();close();});modal.showModal();return modal;}
     async function run(fn){if(busy||stopped)return;busy=true;root.setAttribute('aria-busy','true');const controls=[...root.querySelectorAll('button')];controls.forEach(b=>b.disabled=true);
-        try{return await fn();}catch(error){const pair=errors[error.message];const text=pair?t(...pair):t('処理できませんでした。更新して再度お試しください。','Could not complete the action. Refresh and try again.');message.textContent=text;
+        message.textContent='';retry.hidden=true;
+        try{return await fn();}catch(error){retry.hidden=false;const pair=errors[error.message];const text=pair?t(...pair):t('処理できませんでした。更新して再度お試しください。','Could not complete the action. Refresh and try again.');message.textContent=text;
             if(modal){let alert=modal.querySelector('[role="alert"]');if(!alert){alert=node('p');alert.setAttribute('role','alert');modal.append(alert);}alert.textContent=text;}
         }finally{busy=false;if(!stopped)root.removeAttribute('aria-busy');controls.forEach(b=>b.disabled=false);}}
     async function refreshBadge(){const data=await execute({kind:'inbox'});if(stopped)return;badge.textContent=data.unreadCount>99?'99+':String(data.unreadCount);badge.hidden=data.unreadCount===0;bell.setAttribute('aria-label',t('お知らせ','Notifications')+(data.unreadCount?' · '+data.unreadCount:''));return data;}

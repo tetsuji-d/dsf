@@ -4319,6 +4319,7 @@ function syncSpaceMembersSettings() {
 
 function getHomeWorkspace() {
     if (!homeWorkspace) homeWorkspace = createHomeWorkspace({root:document.getElementById('home-room'),getLocale:getUILang,onSelect:view=>{
+        if(['overview','projects','activity','settings'].includes(view))void getPublishingSpaceUI().retryIfFailed();
         if(['overview','projects','activity'].includes(view)&&state.uid&&!homeCloudProjectsRequest&&(!homeCloudProjectsCache||Date.now()-homeCloudProjectsCache.time>=30000))void renderHomeDashboard({refreshSpaces:false,forceRefresh:true});
     }});
     return homeWorkspace;

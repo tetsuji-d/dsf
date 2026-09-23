@@ -98,6 +98,7 @@ export function createPublishingSpaceUI({ root, request, getLocale, getUid, onCh
                 popup.addEventListener('toggle', () => {
                     const open = popup.matches(':popover-open'); trigger.setAttribute('aria-expanded',String(open));
                     if (open) {
+                        if(failed&&!loading)void load({notify:true});
                         (popup.querySelector('[aria-pressed="true"]') || popup.querySelector('button'))?.focus();
                         for (const space of data?.spaces || []) loadImages(space,['icon']);
                     }
@@ -304,6 +305,7 @@ export function createPublishingSpaceUI({ root, request, getLocale, getUid, onCh
         }));
     }
     return { load, render, filter, card, bind, select:selectSpace,
+        retryIfFailed:()=>{sync();if(failed&&!pending)return load({notify:true});},
         destinations: () => { sync(); if(!data||failed||busy)return null;return {uid,spaces:data.spaces.map(s=>({id:s.id,name:s.name})),assignments:{...data.assignments}}; },
         selection: () => { sync(); return active()?.id || null; },
         assign: (projectId, spaceId, expectedSpaceId=data?.assignments[projectId] || null) => mutate({kind:'assign',projectId,spaceId,expectedSpaceId}),
