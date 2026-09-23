@@ -1,0 +1,23 @@
+import assert from 'node:assert/strict';
+import {invitationsFixture} from './fixtures/publishing-invitations-fixture.js';
+import {createSpaceDirectoryService} from '../server/publishing-space-directory.js';
+import {createInvitationStore} from '../server/publishing-invitations-runtime.js';
+const f=invitationsFixture(),identity={uid:'reader_1'};
+assert.equal((await f.directory.listJoinedSpaces(identity)).items.length,0);
+const id='inv_'+crypto.randomUUID();await f.call('owner_1',{kind:'invite',id,spaceId:'space_demo',recipientUid:'reader_1',role:'member',grants:[{scope:'work',targetId:'work_library',role:'viewer'}],expiryDays:7});
+assert.equal((await f.directory.listJoinedSpaces(identity)).items.length,0,'pending invitations are not membership');
+await f.call('reader_1',{kind:'accept',id});
+let result=await f.directory.listJoinedSpaces(identity);assert.equal(result.items[0].name,'灯台出版');assert.equal(result.items[0].canManageMembers,false);
+assert.deepEqual((await f.directory.listWorks(identity,{spaceId:'space_demo'})).items.map(x=>x.workId),['work_library']);
+assert(!JSON.stringify(result).includes('email'));assert(!JSON.stringify(result).includes('grants'));
+assert.equal((await f.directory.listJoinedSpaces({uid:'reader_2'})).items.length,0);
+const member=f.docs.get('users/reader_1/spaceMemberships/space_demo');member.status='removed';assert.equal((await f.directory.listJoinedSpaces(identity)).items.length,0);member.status='active';
+f.docs.get('users/owner_1').status.disabled=true;assert.equal((await f.directory.listJoinedSpaces(identity)).items.length,0);f.docs.get('users/owner_1').status.disabled=false;
+for(let i=0;i<23;i++){const spaceId='space_'+String(i).padStart(3,'0');f.docs.set('publishing_spaces/'+spaceId,{ownerUid:'owner_1',name:spaceId});f.docs.set('users/reader_1/spaceMemberships/'+spaceId,{...member,spaceId});}
+const first=await f.directory.listJoinedSpaces(identity),second=await f.directory.listJoinedSpaces(identity,{afterSpaceId:first.nextCursor});assert.equal(new Set([...first.items,...second.items].map(s=>s.id)).size,24);
+const limited=createSpaceDirectoryService({db:f.db,assertLiveIdentity:f.assertLiveIdentity,allowedSpaceId:'space_demo',sharedEditingEnabled:false});assert.equal((await limited.listJoinedSpaces(identity)).items.length,0);assert.deepEqual((await limited.listJoinedSpaces(identity,{afterSpaceId:first.nextCursor})).items.map(s=>s.id),['space_demo']);assert.equal((await limited.listWorks(identity,{spaceId:'space_demo'})).canOpen,false);
+const query=f.db.listMembershipPaths;f.db.listMembershipPaths=async(...args)=>{const paths=await query(...args);f.docs.get('users/reader_1').status.disabled=true;return paths;};await assert.rejects(f.directory.listJoinedSpaces(identity),e=>e.code==='ACCOUNT_UNAVAILABLE');f.docs.get('users/reader_1').status.disabled=false;
+f.db.listMembershipPaths=async()=>['users/reader_2/spaceMemberships/space_demo'];await assert.rejects(f.directory.listJoinedSpaces(identity),e=>e.code==='SPACES_UNAVAILABLE');
+let sent;const store=createInvitationStore({projectId:'test',post:async(url,body)=>{sent={url,body};return [{document:{name:'projects/test/databases/(default)/documents/users/reader_1/spaceMemberships/space_demo'}}];}});
+assert.deepEqual(await store.listMembershipPaths('reader_1',null),['users/reader_1/spaceMemberships/space_demo']);assert(sent.url.endsWith('/documents/users/reader_1:runQuery'));assert.equal(sent.body.structuredQuery.from[0].allDescendants,undefined);assert.deepEqual(sent.body.structuredQuery.select.fields,[{fieldPath:'__name__'}]);
+console.log('Joined spaces passed: accepted membership only, scoped works, pagination, disabled/revoked principals, account isolation, rollout and REST parent.');

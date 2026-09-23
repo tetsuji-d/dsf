@@ -1,0 +1,21 @@
+const {chromium}=require(process.env.DSF_PLAYWRIGHT_MODULE||'playwright'),assert=require('node:assert/strict');
+(async()=>{const base=process.env.JOINED_FIXTURE_URL||'http://127.0.0.1:5240';
+const call=async(uid,body)=>{const r=await fetch(base+'/api/invitations',{method:'POST',headers:{Authorization:'Bearer fixture-'+uid,'Content-Type':'application/json'},body:JSON.stringify(body)});const data=await r.json();assert(r.ok,JSON.stringify(data));return data;};
+if(!(await call('reader_1',{kind:'listJoinedSpaces'})).items.length){const id='inv_'+crypto.randomUUID();await call('owner_1',{kind:'invite',id,spaceId:'space_demo',recipientUid:'reader_1',role:'member',grants:[{scope:'work',targetId:'work_library',role:'viewer'}],expiryDays:7});await call('reader_1',{kind:'accept',id});}
+const b=await chromium.launch({channel:'chrome',headless:true});try{const p=await b.newPage({viewport:{width:1280,height:900}}),errors=[];p.on('pageerror',e=>errors.push(e.message));
+await p.goto(base+'/joined');await p.locator('#home-cloud-grid').getByText('自分だけの原稿（検証用）',{exact:true}).waitFor();
+const openSwitcher=()=>p.locator('[data-space-trigger]:visible').click();await openSwitcher();await p.locator('[data-space-choice="joined:space_demo"]:visible').click();
+await p.locator('.joined-space-work-card').getByText('潮騒の図書館',{exact:true}).waitFor();assert.equal(await p.locator('.joined-space-work-card').count(),1);assert.equal(await p.locator('#home-cloud-grid').getByText('自分だけの原稿（検証用）',{exact:true}).count(),0);assert.equal(await p.getByText('夜明けのノート',{exact:true}).count(),0);
+assert.equal(await p.locator('.home-room-actions').isVisible(),false);assert.equal(await p.locator('.joined-space-work-card a').getAttribute('href'),'/studio?room=editor&sharedSpace=space_demo&sharedWork=work_library');
+await p.reload();await p.locator('.joined-space-work-card').waitFor();
+assert.equal(await p.getByRole('button',{name:'さらに表示',exact:true}).isVisible(),false);
+await p.getByRole('button',{name:'スペースの設定',exact:true}).click();await p.getByText('参加中の出版スペースです。メンバー・共有範囲の管理は所有者または管理者が行います。',{exact:true}).waitFor();assert.equal(await p.getByRole('button',{name:'共有範囲を設定',exact:true}).count(),0);
+await p.getByRole('button',{name:'基本情報',exact:true}).click();assert.equal(await p.locator('#home-publishing-spaces [data-space-settings]').count(),0);
+await p.getByRole('button',{name:'作品',exact:true}).click();await p.screenshot({path:'outputs/joined-spaces-desktop.png'});
+await p.setViewportSize({width:390,height:844});await p.screenshot({path:'outputs/joined-spaces-mobile.png'});assert(await p.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));
+await openSwitcher();await p.locator('[data-space-choice="all"]:visible').click();await p.locator('#home-cloud-grid').getByText('自分だけの原稿（検証用）',{exact:true}).waitFor();
+await openSwitcher();await p.locator('[data-space-choice="joined:space_demo"]:visible').click();await p.locator('.joined-space-work-card').waitFor();
+await p.locator('#fixture-actor').selectOption('reader_2');await p.locator('#home-cloud-grid').getByText('別アカウントの原稿（検証用）',{exact:true}).waitFor();await openSwitcher();await p.getByText('参加しているスペースはまだありません。',{exact:true}).filter({visible:true}).waitFor();assert.equal(await p.locator('[data-space-choice="joined:space_demo"]').count(),0);
+await p.locator('#fixture-language').click();assert.equal(await p.getByText('Joined spaces',{exact:true}).count()>0,true);assert.deepEqual(errors,[]);
+console.log('Joined spaces browser passed: acceptance, switcher, work-only access, restoration, read-only settings, personal return, mobile and account isolation.');
+}finally{await b.close();}})().catch(e=>{console.error(e);process.exitCode=1});

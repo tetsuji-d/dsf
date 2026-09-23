@@ -1,3 +1,4 @@
+import {renderJoinedSpaceWorks} from './joined-space-works.js';
 import {projectActionsMarkup,bindProjectActions,openProjectSpaceDialog} from './project-actions-ui.js';
 import {openProjectCopyDialog} from './project-copy-ui.js';
 import {newCloudProjectCopyJob,refreshCloudProjectListing} from './firebase.js';
@@ -4314,7 +4315,8 @@ function syncSpaceMembersSettings() {
     if (!root) return;
     if (!spaceMembersSettings) spaceMembersSettings = createSpaceMembersSettings({ root, getLocale:getUILang,
         execute:createInvitationsClient({getUser:()=>firebaseAuth.currentUser}) });
-    spaceMembersSettings.update({uid:state.uid,spaceId:getPublishingSpaceUI().selection()});
+    const selected=getPublishingSpaceUI().joinedSelection();
+    spaceMembersSettings.update({uid:state.uid,spaceId:getPublishingSpaceUI().selection(),manageMembers:!selected||selected.canManageMembers===true});
 }
 
 function getHomeWorkspace() {
@@ -4330,15 +4332,19 @@ function getPublishingSpaceUI() {
         switcherRoots: [document.getElementById('studio-space-switcher'), document.getElementById('mobile-space-switcher')],
         identityRoots: [document.getElementById('home-space-identity')],
         onSelect: () => { getHomeWorkspace().select('overview'); if (getCurrentRoom() !== 'home') window.switchRoom('home'); },
+        requestJoined:createInvitationsClient({getUser:()=>firebaseAuth.currentUser}),
         request: requestPublishingSpaces, getUid: () => state.uid, getLocale: getUILang,
         onChange: () => { void renderHomeDashboard({ refreshSpaces: false }); },
     });
     return publishingSpaceUI;
 }
 window.newSpaceProject = async () => {
-    const ui = getPublishingSpaceUI(), selectedSpace = ui.selection(), uid = state.uid;
+    const ui = getPublishingSpaceUI();
+    if (ui.joinedSelection()) return;
+    const selectedSpace = ui.selection(), uid = state.uid;
     if (!await window.newProject()) return;
     const createdWorkId = state.workId, user = firebaseAuth.currentUser;
+    if (!selectedSpace) ui.select('unassigned');
     window.switchRoom('editor');
     if (uid && state.uid === uid && selectedSpace) {
         try {
@@ -4347,8 +4353,8 @@ window.newSpaceProject = async () => {
             if (!await ui.assign(state.projectId, selectedSpace)) throw new Error('SPACE_ASSIGNMENT_FAILED');
         } catch {
             alert(getUILang() === 'en'
-                ? 'Could not save to the selected space. Check save status; organize the manuscript from Not assigned after cloud saving succeeds.'
-                : '選択したスペースへの保存を完了できませんでした。保存状態を確認し、クラウド保存後に「所属未設定」から整理してください。');
+                ? 'Could not save to the selected space. Check save status; organize the manuscript from My space after cloud saving succeeds.'
+                : '選択したスペースへの保存を完了できませんでした。保存状態を確認し、クラウド保存後に「マイスペース」から整理してください。');
         }
     }
 };
@@ -4707,7 +4713,6 @@ function fetchHomeCloudProjects() {
 async function renderHomeDashboard({ refreshSpaces = true, forceRefresh = false } = {}) {
     // Space navigation only changes the filter; keep the short-lived account cache.
     if (forceRefresh) { homeCloudProjectsCache = null; homeCloudProjectsRequest = null; ++homeCloudProjectsRequestToken; }
-    getHomeWorkspace().render();
     const renderRevision = ++homeDashboardRenderRevision;
     const cloudGrid = document.getElementById('home-cloud-grid');
     const localGrid = document.getElementById('home-local-grid');
@@ -4730,8 +4735,11 @@ async function renderHomeDashboard({ refreshSpaces = true, forceRefresh = false 
     const spaceUI = getPublishingSpaceUI();
     if (refreshSpaces) void spaceUI.load({ notify: true });
     else spaceUI.render();
+    getHomeWorkspace().render({spaceKind:spaceUI.viewKind?.()||'all'});
     syncSpaceMembersSettings();
-    const cloudProjectsPromise = fetchHomeCloudProjects();
+    const joined=spaceUI.joinedSelection?.();
+    document.getElementById('home-room')?.classList.toggle('home-joined-space',!!joined);
+    const cloudProjectsPromise = joined?null:fetchHomeCloudProjects();
     let localProjects = [], statsInput = null;
     void withHomeDeadline(listLocalRecentProjects(), 5000).then(projects => {
         if (renderRevision !== homeDashboardRenderRevision || state.uid !== dashboardUid) return;
@@ -4746,13 +4754,26 @@ async function renderHomeDashboard({ refreshSpaces = true, forceRefresh = false 
         localGrid.querySelector('[data-home-retry]')?.addEventListener('click', () => void renderHomeDashboard({ refreshSpaces: false }));
     });
 
+    if(joined){
+        const en=getUILang()==='en';
+        const scope=document.getElementById('home-cloud-scope');if(scope)scope.textContent=(en?'Shared works / ':'共有作品 / ')+spaceUI.label();
+        const heading=document.querySelector('[data-home-cloud-heading]');if(heading)heading.textContent=en?'Shared works':'共有作品';
+        const hint=document.querySelector('.home-overview-hint');if(hint)hint.textContent=en?'Only works you have access to are shown.':'あなたに共有されている作品だけを表示します。';
+        if(statsEl)statsEl.replaceChildren();if(workCount)workCount.textContent='—';
+        if(workGrid)workGrid.textContent=en?'Publication management is handled by the owner.':'公開状況の管理は所有者が行います。';
+        await renderJoinedSpaceWorks({root:cloudGrid,count:cloudCount,spaceId:joined.id,
+            execute:createInvitationsClient({getUser:()=>firebaseAuth.currentUser}),getLocale:getUILang,
+            isCurrent:()=>renderRevision===homeDashboardRenderRevision&&state.uid===dashboardUid&&spaceUI.joinedSelection?.()?.id===joined.id});
+        return;
+    }
     const allCloudProjects = await cloudProjectsPromise;
     if (renderRevision !== homeDashboardRenderRevision || state.uid !== dashboardUid) return;
     const modifiedTime = project => {
         const value = project.lastUpdated || project.updatedAt;
         return Number(value?.toMillis?.() || (value?.seconds ? value.seconds * 1000 : 0) || (typeof value === 'number' ? value : Date.parse(value)) || 0);
     };
-    const cloudProjects = Array.isArray(allCloudProjects) ? [...spaceUI.filter(allCloudProjects)].sort((a,b)=>modifiedTime(b)-modifiedTime(a)) : allCloudProjects;
+    const spaceUnavailable=Array.isArray(allCloudProjects)&&spaceUI.viewKind?.()!=='all'&&spaceUI.catalogueReady?.()===false;
+    const cloudProjects = spaceUnavailable?null:Array.isArray(allCloudProjects) ? [...spaceUI.filter(allCloudProjects)].sort((a,b)=>modifiedTime(b)-modifiedTime(a)) : allCloudProjects;
     const scopeLabel = document.getElementById('home-cloud-scope');
     if (scopeLabel) scopeLabel.textContent = spaceUI.destination() + ' / ' + spaceUI.label();
 
@@ -4809,11 +4830,14 @@ async function renderHomeDashboard({ refreshSpaces = true, forceRefresh = false 
         if (cloudCount) cloudCount.textContent = String(cloudProjects.length);
     }
 
+    if(spaceUnavailable){
+        cloudGrid.innerHTML='<div class="home-empty-state"><p>'+(getUILang()==='en'?'Your save locations could not be confirmed yet. Retry to load this space.':'保存先をまだ確認できていません。再試行して、このスペースの作品を読み込んでください。')+'</p></div>';
+    }
     if (cloudProjects === null) for (const grid of [cloudGrid, workGrid]) {
         const retry = document.createElement('button');
         retry.className = 'home-action-btn'; retry.textContent = getUILang() === 'en' ? 'Retry' : '再試行';
         retry.dataset.homeRetry = '';
-        retry.addEventListener('click', () => void renderHomeDashboard({ refreshSpaces: false, forceRefresh: true }));
+        retry.addEventListener('click', () => void renderHomeDashboard({ refreshSpaces: spaceUnavailable, forceRefresh: true }));
         grid?.querySelector('.home-empty-state')?.append(retry);
     }
 

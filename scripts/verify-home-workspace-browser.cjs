@@ -6,7 +6,7 @@ const {chromium}=require(process.env.DSF_PLAYWRIGHT_MODULE),assert=require('node
   const base=process.env.DSF_SPACES_FIXTURE_URL||'http://127.0.0.1:5198';
   const proof=async()=> (await page.request.get(base+'/fixture/proof')).json();
   const before=await proof();
-  await page.goto(base+'/workspace');await page.locator('[data-fixture-work]').first().waitFor();
+  await page.goto(base+'/workspace');await page.locator('[data-space-trigger]:visible').click();await page.locator('[data-space-choice="all"]:visible').click();await page.locator('[data-fixture-work]').first().waitFor();
   const nav=view=>page.locator('.home-management-sidebar [data-home-nav="'+view+'"]');
   const choose=async view=>{await nav(view).click();assert.equal(await page.locator('#home-room').getAttribute('data-home-view'),view);assert(await page.locator('[data-home-title]').evaluate(e=>e===document.activeElement),await page.evaluate(()=>document.activeElement.outerHTML));};
   assert.equal(await page.locator('#home-cloud-grid .home-project-entry:visible').count(),3);
@@ -15,7 +15,7 @@ const {chromium}=require(process.env.DSF_PLAYWRIGHT_MODULE),assert=require('node
   await page.locator('.home-room-actions [data-home-label="create"]').click();assert.match(await page.locator('#fixture-workspace-action').innerText(),/作品の作成/);
   const chooser=page.waitForEvent('filechooser');await page.locator('.home-room-actions [data-home-label="import"]').click();await chooser;
   await page.locator('[data-home-label="all"]').click();assert.equal(await page.locator('#home-cloud-grid .home-project-entry:visible').count(),4);
-  await choose('settings');assert(await page.locator('#home-publishing-spaces').isVisible());assert.equal(await page.locator('#home-cloud-grid').isVisible(),false);
+  await choose('settings');await page.locator('[data-space-settings="profile"]').click();assert(await page.locator('#home-publishing-spaces').isVisible());assert.equal(await page.locator('#home-cloud-grid').isVisible(),false);
   await choose('activity');assert(await page.locator('#home-work-grid').isVisible());await page.locator('#home-work-grid [data-home-nav="projects"]').click();
   await choose('local');assert(await page.locator('.home-browser-copies').evaluate(e=>e.open));assert.equal(await page.locator('#home-cloud-grid').isVisible(),false);
   await choose('overview');await page.locator('#fixture-language').click();assert.equal(await page.locator('[data-home-title]').innerText(),'Dashboard');assert.equal(await nav('settings').locator('[data-home-label]').innerText(),'Space settings');
@@ -42,7 +42,7 @@ const {chromium}=require(process.env.DSF_PLAYWRIGHT_MODULE),assert=require('node
   }
   const assigned=await proof();await page.reload();await page.locator('[data-space-trigger]:visible').click();await page.locator('[data-space-choice="'+spaceId+'"]:visible').click();
   assert.match(await page.locator('#home-space-identity').innerText(),/灯台出版/);assert.equal(await page.locator('#home-cloud-grid .home-project-entry:visible').count(),2);
-  await choose('settings');assert(await page.getByRole('button',{name:'基本情報を設定',exact:true}).isVisible());
+  await choose('settings');await page.locator('[data-space-settings="profile"]').click();assert(await page.getByRole('button',{name:'基本情報を設定',exact:true}).isVisible());
   await page.getByRole('button',{name:'基本情報を設定',exact:true}).click();await page.locator('textarea[name="description"]').waitFor();await page.getByRole('button',{name:'キャンセル',exact:true}).click();
   await choose('overview');assert.equal(await page.locator('[data-space-preview]').isVisible(),false);
   await page.setViewportSize({width:1440,height:900});await page.screenshot({path:'outputs/home-workspace-space-desktop.png'});

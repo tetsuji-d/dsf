@@ -17,7 +17,7 @@ const logout=document.createElement('button');logout.id='fixture-account';logout
 for(const b of [language,empty,logout]){b.type='button';notice.append(' ',b);}
 const permissions=document.createElement('a');permissions.href='/members';permissions.textContent='メンバーと権限の試作';permissions.style.marginLeft='12px';notice.append(permissions);
 function render(){
- shell.render();spaces.render();const en=getUILang()==='en';
+ spaces.render();shell.render({spaceKind:spaces.viewKind()});const en=getUILang()==='en';
  const rows=uid&&!isEmpty?spaces.filter(samples.map(([id,title,color])=>({id,title,color}))):[];
  document.getElementById('home-cloud-grid').innerHTML=rows.length?rows.map(p=>'<div class="home-project-entry"><button class="home-project-card" data-fixture-work="'+p.id+'"><div class="home-project-thumb" style="display:grid;place-items:center;background:'+p.color+';color:white;font-family:serif;padding:8px">'+p.title+'</div><div class="home-project-info"><div class="home-project-title">'+p.title+'</div><span class="home-project-resume">'+(en?'Continue editing':'続きから編集')+'</span><div class="home-project-meta">'+(en?'Saved in cloud · 12 pages':'クラウド保存済み · 12ページ')+'</div></div></button>'+spaces.card(p)+'</div>').join(''):'<div class="home-empty-state"><p>'+(en?'No works in this view.':'この表示範囲に作品はありません。')+'</p><button class="home-action-btn primary" onclick="newSpaceProject()">'+(en?'Create your first work':'最初の作品を作成')+'</button></div>';
  document.querySelectorAll('[data-fixture-work]').forEach(b=>b.onclick=()=>{notice.firstChild.textContent='検証：'+b.dataset.fixtureWork+'の編集へ ';});spaces.bind(document.getElementById('home-cloud-grid'));

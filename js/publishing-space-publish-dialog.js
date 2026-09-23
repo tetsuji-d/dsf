@@ -3,14 +3,14 @@ import { openPublishingSpaceCreation } from './publishing-space-create-dialog.js
 export async function choosePublishingSpace({request, projectId, purpose, getLocale, isCurrent = () => true}) {
     const en = getLocale() === 'en';
     const copy = en ? {
-        title:'Choose a publishing space', hint:'Choose where to publish this work on Horizon. You can create, save and export DSP/DSF files without a space.',
+        title:'Choose a publishing space', hint:'Choose where to publish this work on Horizon. You can create, save and export DSP/DSF files in My space.',
         select:'Publishing space', placeholder:'Select a space', create:'Create a new space', name:'New space name',
         proceed:'Save selection and continue', cancel:'Cancel', loading:'Checking publishing space…',
         failed:'Could not confirm the publishing space. Check your connection and retry.', retry:'Retry',
         conflict:'The selection changed in another window. Review it and try again.', expired:'The account or manuscript changed. Close this dialog and try again.',
         disabled:'Publishing spaces are not enabled in this environment yet.', missing:'Save this manuscript to the cloud first.',
     } : {
-        title:'発行する出版スペースを選択', hint:'Horizonで発行する作品の所属先を選びます。制作・保存・DSP／DSF書き出しは、所属未設定でも利用できます。',
+        title:'発行する出版スペースを選択', hint:'Horizonで発行する作品の所属先を選びます。マイスペースでも制作・保存・DSP／DSF書き出しを利用できます。',
         select:'出版スペース', placeholder:'選択してください', create:'新しいスペースを開設', name:'新しいスペース名',
         proceed:'所属を保存して続ける', cancel:'キャンセル', loading:'出版スペースを確認中…',
         failed:'出版スペースを確認できませんでした。接続を確認して再試行してください。', retry:'再試行',

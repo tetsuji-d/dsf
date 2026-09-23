@@ -5,16 +5,16 @@ const source=readFileSync(new URL('../js/app.js',import.meta.url),'utf8');
 const start=source.indexOf('window.newSpaceProject = async () => {');
 const end=source.indexOf('\n};',start)+4;
 assert.ok(start>0 && end>start);
-async function scenario(effect){
+async function scenario(effect,spaceId='space_1',joined=false){
  const state={uid:'owner',workId:'old',projectId:'old'};
- const assigned=[],alerts=[];const user={uid:'owner'};
+ const assigned=[],alerts=[],selected=[];let creates=0;const user={uid:'owner'};
  const context={state,firebaseAuth:{currentUser:user},getUILang:()=> 'en',alert:message=>alerts.push(message),
-  getPublishingSpaceUI:()=>({selection:()=> 'space_1',assign:async(...args)=>{assigned.push(args);return true;}}),
+  getPublishingSpaceUI:()=>({selection:()=>spaceId,joinedSelection:()=>joined?{id:'space_joined'}:null,select:id=>selected.push(id),assign:async(...args)=>{assigned.push(args);return true;}}),
   persistProject:async()=>{state.projectId='new_project';await effect?.(context);},
-  window:{newProject:async()=>{state.workId='new_work';state.projectId=null;return true;},switchRoom:()=>{}}
+  window:{newProject:async()=>{creates++;state.workId='new_work';state.projectId=null;return true;},switchRoom:()=>{}}
  };
  vm.runInNewContext(source.slice(start,end),context);
- await context.window.newSpaceProject();return {assigned,alerts};
+ await context.window.newSpaceProject();return {assigned,alerts,selected,creates};
 }
 assert.deepEqual((await scenario()).assigned,[['new_project','space_1']]);
 assert.deepEqual((await scenario(ctx=>{ctx.state.uid='someone_else';})).assigned,[]);
@@ -22,6 +22,8 @@ assert.deepEqual((await scenario(ctx=>{ctx.state.workId='opened_other_work';})).
 assert.deepEqual((await scenario(ctx=>{ctx.firebaseAuth.currentUser={uid:'owner'};})).assigned,[]);
 const failure=await scenario(()=>{throw new Error('SAVE_FAILED');});
 assert.equal(failure.assigned.length,0);assert.equal(failure.alerts.length,1);
+const personal=await scenario(null,null);assert.equal(personal.creates,1);assert.deepEqual(personal.assigned,[]);assert.deepEqual(personal.selected,['unassigned']);
+const participant=await scenario(null,'space_joined',true);assert.equal(participant.creates,0);assert.deepEqual(participant.assigned,[]);
 console.log('Dashboard new manuscript: assign only after successful saving; reject stale account, session and project callbacks.');
 
 // Run the actual dashboard renderer with unresolved space loading.
@@ -30,10 +32,11 @@ const rendererStart=source.indexOf('async function renderHomeDashboard(');
 const rendererEnd=source.indexOf('// ── Studio 認証 UI',rendererStart);
 assert.ok(rendererStart>0 && rendererEnd>rendererStart);
 const elements=new Map();
-const element=id=>{if(!elements.has(id))elements.set(id,{innerHTML:'',textContent:'',querySelectorAll:()=>[]});return elements.get(id);};
+const element=id=>{if(!elements.has(id))elements.set(id,{innerHTML:'',textContent:'',querySelectorAll:()=>[],classList:{toggle(){}}});return elements.get(id);};
 let resolveSpaces,spaceLoads=0;
 const pendingSpaces=new Promise(resolve=>{resolveSpaces=resolve;});
 const dashboard={
+ homeLoadingMarkup:()=>'',withHomeDeadline:p=>p,syncSpaceMembersSettings:()=>{},bindProjectActions:()=>{},
  getHomeWorkspace:()=>({render:()=>{}}),
  homeDashboardRenderRevision:0,state:{uid:'owner'},document:{getElementById:element},
  getPublishingSpaceUI:()=>({load:()=>{spaceLoads++;return pendingSpaces;},render:()=>{},filter:rows=>rows,label:()=> 'all',destination:()=> 'Cloud',bind:()=>{},selection:()=>null}),

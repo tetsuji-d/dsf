@@ -1,10 +1,10 @@
 export function openProjectCopyDialog({name,createJob,onCreated,spaces=[],defaultSpaceId=null,getLocale=()=> 'ja'}){
     const en=getLocale()==='en',d=document.createElement('dialog');d.className='project-copy-dialog';
     const node=(tag,text)=>{const n=document.createElement(tag);if(text)n.textContent=text;return n;};
-    const title=node('h2',en?'Copy project':'プロジェクトをコピー');title.id='project-copy-title';d.setAttribute('aria-labelledby',title.id);const description=node('p',en?'Copy the last cloud-saved manuscript and images into a new private draft. Publication and invitations are not copied. Choose a publishing space for the copy.':'クラウドに保存済みの本文と画像を、別の未公開作品としてコピーします。公開状態・招待権限は引き継ぎません。保存先の出版スペースを選んでください。');
+    const title=node('h2',en?'Copy project':'プロジェクトをコピー');title.id='project-copy-title';d.setAttribute('aria-labelledby',title.id);const description=node('p',en?'Copy the last cloud-saved manuscript and images into a new private draft. Publication and invitations are not copied. Choose My space or a publishing space for the copy.':'クラウドに保存済みの本文と画像を、別の未公開作品としてコピーします。公開状態・招待権限は引き継ぎません。マイスペースまたは出版スペースを保存先に選んでください。');
     const label=node('label',en?'Copy name':'コピーの名前'),input=node('input');input.value=name+(en?' (copy)':'（コピー）');input.maxLength=200;label.append(input);
     const destinationLabel=node('label',en?'Save to':'保存先'),destination=node('select');destinationLabel.append(destination);destination.setAttribute('aria-label',en?'Save to':'保存先');
-    const unassigned=node('option',en?'Not assigned':'所属未設定');unassigned.value='';destination.append(unassigned);
+    const unassigned=node('option',en?'My space':'マイスペース');unassigned.value='';destination.append(unassigned);
     for(const space of spaces){const option=node('option',space.name);option.value=space.id;destination.append(option);}destination.value=spaces.some(s=>s.id===defaultSpaceId)?defaultSpaceId:'';
     const status=node('p');status.setAttribute('role','status');const actions=node('div'),cancel=node('button',en?'Cancel':'キャンセル'),submit=node('button',en?'Create copy':'コピーを作成');submit.className='home-action-btn primary';
     cancel.type=submit.type='button';actions.append(cancel,submit);d.append(title,description,label,destinationLabel,status,actions);document.body.append(d);d.showModal();input.focus();input.select();

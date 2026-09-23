@@ -4,8 +4,8 @@ export function createSpaceMembersSettings({root,execute,getLocale=()=> 'ja'}){
     let key='',epoch=0,ui=null;
     const text=(ja,en)=>getLocale()==='en'?en:ja;
     const el=(tag,value)=>{const node=document.createElement(tag);if(value!==undefined)node.textContent=value;return node;};
-    function update({uid,spaceId,force=false}){
-        const next=JSON.stringify([uid,spaceId,getLocale()]);if(next===key&&!force)return;
+    function update({uid,spaceId,force=false,manageMembers=true}){
+        const next=JSON.stringify([uid,spaceId,getLocale(),manageMembers]);if(next===key&&!force)return;
         key=next;const revision=++epoch;ui?.destroy();ui=null;root.replaceChildren();
         const title=el('h2',text('メンバーと招待','Members & invitations'));root.append(title);
         const openSpace=async invitation=>{
@@ -19,9 +19,10 @@ export function createSpaceMembersSettings({root,execute,getLocale=()=> 'ja'}){
         const personalInbox=()=>{const host=el('section');root.append(host);ui=createPublishingInvitationsUI({root:host,execute,getLocale,onOpenSpace:openSpace});};
         if(!uid){root.append(el('p',text('ログインしてください。','Sign in to continue.')));return;}
         if(!spaceId){root.append(el('p',text('届いた招待は下のベルから確認できます。管理する出版スペースは左上で選択してください。','Check received invitations using the bell below. Select a space to manage using the top-left switcher.')));personalInbox();return;}
+        if(!manageMembers){root.append(el('p',text('参加中の出版スペースです。メンバー・共有範囲の管理は所有者または管理者が行います。','You have joined this space. Its owner or administrators manage membership and access.')));personalInbox();return;}
         const status=el('p',text('メンバーを読み込み中…','Loading members…'));status.setAttribute('role','status');root.append(status);
         const button=(label,action)=>{const b=el('button',label);b.type='button';b.onclick=action;return b;};
-        const reload=()=>update({uid,spaceId,force:true});
+        const reload=()=>update({uid,spaceId,force:true,manageMembers});
         void (async()=>{
             try{
                 const data=await execute({kind:'listMembers',spaceId});if(revision!==epoch)return;

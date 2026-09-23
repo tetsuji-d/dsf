@@ -3,6 +3,9 @@
   "version": "1.0.0",
   "type": "module",
   "scripts": {
+    "verify:my-space-browser": "node scripts/verify-my-space-browser.cjs",
+    "verify:joined-spaces": "node scripts/verify-joined-spaces.js",
+    "verify:joined-spaces-browser": "node scripts/verify-joined-spaces-browser.cjs",
     "verify:project-copy": "node scripts/verify-project-copy.js",
     "verify:project-copy-browser": "node scripts/verify-project-copy-browser.cjs",
     "dev": "vite",

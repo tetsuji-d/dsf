@@ -8,6 +8,8 @@ let reads=0;let invite={spaceId:scope.spaceId,inviterUid:'owner',recipientUid:'r
 const db={transaction:fn=>fn({getMany:async paths=>{reads++;return paths.map(p=>p.startsWith('publishing_spaces/')?{ownerUid:'owner'}:invite);}})};
 const guard=createInvitationRolloutGuard({db,scope});
 await assert.rejects(guard({uid:'stranger'},{kind:'inbox'}));
+await assert.rejects(guard({uid:'stranger'},{kind:'listJoinedSpaces'}));
+await guard({uid:'reader'},{kind:'listJoinedSpaces'});
 await assert.rejects(guard({uid:'reader'},{kind:'invite',spaceId:scope.spaceId,recipientUid:'reader'}));
 await assert.rejects(guard({uid:'owner'},{kind:'invite',spaceId:'other',recipientUid:'reader'}));
 await assert.rejects(guard({uid:'owner'},{kind:'invite',spaceId:scope.spaceId,recipientUid:'other'}));

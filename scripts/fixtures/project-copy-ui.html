@@ -8,9 +8,9 @@ document.querySelector('article').insertAdjacentHTML('beforeend',projectActionsM
 bindProjectActions(document.querySelector('#projects'),action=>{
 const result=document.querySelector('#result');
 if(action==='edit'){result.textContent='編集を開きました';return;}if(action==='delete'){result.textContent='削除の確認（検証のみ）';return;}
-if(action==='move'){openProjectSpaceDialog({name:source.projectName,spaces,currentSpaceId:spaceId,onSave:async id=>{spaceId=id;document.querySelector('#space').textContent=spaces.find(s=>s.id===id)?.name||'所属未設定';}});return;}
+if(action==='move'){openProjectSpaceDialog({name:source.projectName,spaces,currentSpaceId:spaceId,onSave:async id=>{spaceId=id;document.querySelector('#space').textContent=spaces.find(s=>s.id===id)?.name||'マイスペース';}});return;}
 openProjectCopyDialog({name:source.projectName,spaces,defaultSpaceId:spaceId,createJob:()=>createProjectCopyJob({readSource:async()=>source,newId:p=>p+'_'+crypto.randomUUID(),isCurrent:()=>true,
 validateDestination:async id=>{if(id&&!spaces.some(s=>s.id===id))throw Error('SPACE_FORBIDDEN');},assignDestination:async()=>{if(++assigns===1)throw Error('simulated assignment failure');},
-createClient:()=>{let snapshot;return {create:async p=>{snapshot??=JSON.stringify(p);if(snapshot!==JSON.stringify(p))throw Error('retry changed');if(++count===1)throw Error('simulated lost response');}};}}),onCreated:copy=>{result.textContent='保存済み：'+copy.projectName+' / '+(spaces.find(s=>s.id===copy.spaceId)?.name||'所属未設定');result.dataset.projectId=copy.projectId;result.dataset.creates=count;}});
+createClient:()=>{let snapshot;return {create:async p=>{snapshot??=JSON.stringify(p);if(snapshot!==JSON.stringify(p))throw Error('retry changed');if(++count===1)throw Error('simulated lost response');}};}}),onCreated:copy=>{result.textContent='保存済み：'+copy.projectName+' / '+(spaces.find(s=>s.id===copy.spaceId)?.name||'マイスペース');result.dataset.projectId=copy.projectId;result.dataset.creates=count;}});
 });
 </script></html>

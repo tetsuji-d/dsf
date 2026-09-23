@@ -55,3 +55,12 @@ body[data-room="home"] .room-nav-tabs .room-tab:not([data-room="home"]) { displa
  #home-room[data-home-view="overview"] #home-cloud-grid { grid-template-columns:minmax(0,1fr); }
  #home-room .home-section-head { flex-wrap:wrap; gap:10px; }
 }
+
+/* Shared directories do not expose personal-project mutations or publication totals. */
+.home-joined-space .home-room-actions { display:none; }
+.joined-space-work-list { display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:16px;grid-column:1 / -1;width:100%; }
+.joined-space-work-card { padding:20px;border:1px solid var(--border-color,#d7dfed);border-radius:14px;overflow-wrap:anywhere; }
+.joined-space-work-card h3 { margin:0 0 12px; }
+
+.home-joined-space #home-cloud-grid > [hidden],
+.home-joined-space #home-cloud-grid > [role="status"]:empty { display:none !important; }

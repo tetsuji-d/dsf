@@ -7,7 +7,7 @@ await menu().click();await p.getByRole('button',{name:'プロジェクトをコ�
 await p.getByRole('button',{name:'コピーを作成',exact:true}).click();await p.getByRole('button',{name:'再試行',exact:true}).waitFor();assert.equal(await p.getByLabel('保存先',{exact:true}).isEnabled(),false);
 await p.getByRole('button',{name:'再試行',exact:true}).click();await p.getByText(/コピーは保存済みですが/).waitFor();assert(await p.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));await p.screenshot({path:'outputs/project-copy-destination.png'});
 await p.getByRole('button',{name:'再試行',exact:true}).click();await p.getByText('保存済み：潮騒の図書館（共有テスト） / テスト出版',{exact:true}).waitFor();assert.equal(await p.locator('#result').getAttribute('data-creates'),'2');
-await menu().click();await p.getByRole('button',{name:'所属する出版スペースを変更',exact:true}).click();await p.getByLabel('出版スペース',{exact:true}).selectOption('');await p.getByRole('button',{name:'変更を保存',exact:true}).click();assert.equal(await p.locator('#space').innerText(),'所属未設定');
+await menu().click();await p.getByRole('button',{name:'保存先のスペースを変更',exact:true}).click();await p.getByLabel('保存先',{exact:true}).selectOption('');await p.getByRole('button',{name:'変更を保存',exact:true}).click();assert.equal(await p.locator('#space').innerText(),'マイスペース');
 await menu().click();await menu().press('Escape');assert.equal(await p.locator('details[open]').count(),0);
 await menu().click();await p.getByRole('heading',{name:'プロジェクト',exact:true}).click();assert.equal(await p.locator('details[open]').count(),0);
 await p.setViewportSize({width:1280,height:900});await menu().click();await p.locator('.project-actions-list:popover-open').waitFor();

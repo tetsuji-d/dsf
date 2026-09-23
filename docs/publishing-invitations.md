@@ -411,3 +411,14 @@ POSTには既存confirmationTokenに加え、copyImages:true、imagePlanHash、r
   ステージングrolloutでは変更対象も指定招待先だけに限定する。
 - verify-member-access.jsで権限境界・対象外作品拒否・競合・再試行・監査・失効を確認。
   verify-space-members-browser.cjsで一覧→範囲選択→確認→保存→再表示を確認。
+
+
+### 参加スペースの切り替えと共有作品一覧（2026-09-23）
+
+- 左上に「参加しているスペース」を追加。自分の所有スペースと分け、参加先の選択をアカウントごとに復元する。
+- listJoinedSpaces は本人の users/{uid}/spaceMemberships だけを名前順に取得し、現在の所属・スペース・所有者の状態を再確認して返す。collection group index や新しい保存形式は不要。削除・失効した所属は表示しない。
+- 参加先では listSpaceWorks が許可した共有作品だけを表示し、個人原稿の一覧取得・コピー・移動・作成操作と混在させない。作品単位／レーベル単位の権限をサーバーで確認する。
+- 一般メンバーには所有者の基本情報編集やメンバー管理操作を表示しない。管理者は既存の管理権限確認を使う。
+- SHARED_AUTHORING_ENABLED が無効の場合は作品一覧だけを表示し、共有原稿を開くリンクを出さない。今回、環境フラグ・ルール・実ユーザーの所属や作品は変更していない。
+- ローカル /joined で招待承諾後の選択、作品限定表示、再読み込み、アカウント切り替え、英語表示、スマホ幅を確認。実ダッシュボードの描画処理でも個人原稿を取得せず共有一覧へ切り替わることを確認する。
+- 検証: verify:joined-spaces、verify:joined-spaces-browser、verify-home-loading-browser.cjs、既存のメンバー／rollout 検証。実環境への配信と共有原稿の有効化は別単位。

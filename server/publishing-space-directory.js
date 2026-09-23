@@ -58,8 +58,33 @@ async function memberToken(member){
     const bytes=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(JSON.stringify(value)));
     return Array.from(new Uint8Array(bytes),b=>b.toString(16).padStart(2,'0')).join('');
 }
-export function createSpaceDirectoryService({db,assertLiveIdentity,now=Date.now}){
+export function createSpaceDirectoryService({db,assertLiveIdentity,now=Date.now,allowedSpaceId=null,sharedEditingEnabled=true}){
     return {
+        async listJoinedSpaces(identity,{afterSpaceId=null}={}){
+            segment(identity.uid);if(afterSpaceId!==null)segment(afterSpaceId);
+            await assertLiveIdentity(identity);
+            const authorize=async tx=>{const [actor]=await tx.getMany(['users/'+identity.uid]);check(live(actor,identity.uid),'ACCOUNT_UNAVAILABLE',403);};
+            await db.transaction(authorize);
+            check(typeof db.listMembershipPaths==='function','SPACES_UNAVAILABLE',503);
+            const paths=await db.listMembershipPaths(identity.uid,afterSpaceId);
+            check(Array.isArray(paths)&&paths.length<=21&&new Set(paths).size===paths.length,'SPACES_UNAVAILABLE',503);
+            const prefix='users/'+identity.uid+'/spaceMemberships/';
+            const ids=paths.map(path=>{check(path.startsWith(prefix),'SPACES_UNAVAILABLE',503);const id=path.slice(prefix.length);segment(id);return id;});
+            check(ids.every((id,i)=>(i===0||id>ids[i-1])&&(!afterSpaceId||id>afterSpaceId)),'SPACES_UNAVAILABLE',503);
+            await assertLiveIdentity(identity);
+            return db.transaction(async tx=>{
+                await authorize(tx);const items=[];
+                for(const spaceId of ids.slice(0,20)){
+                    if(allowedSpaceId&&spaceId!==allowedSpaceId)continue;
+                    let c;try{c=await readSpacePrincipal(tx,identity.uid,spaceId);}catch(e){if(e.code==='SPACE_FORBIDDEN')continue;throw e;}
+                    if(c.space.ownerUid===identity.uid||!validSpaceMember(c.member,spaceId))continue;
+                    items.push({id:spaceId,name:c.space.name,role:c.member.role,
+                        canManageMembers:canAccessPublishingSpace(c,'manageMembers'),
+                        access:c.member.role==='admin'?'editor':c.member.grants.some(g=>g.role==='editor')?'editor':'viewer'});
+                }
+                return {uid:identity.uid,items,nextCursor:ids.length>20?ids[19]:null};
+            });
+        },
         async memberAccess(identity,command){
             const {spaceId,memberUid,kind}=command;segment(spaceId);segment(memberUid);
             await assertLiveIdentity(identity);
@@ -168,7 +193,7 @@ export function createSpaceDirectoryService({db,assertLiveIdentity,now=Date.now}
                 const offset=afterId===null?0:allowed.findIndex(w=>w.workId===afterId)+1;
                 check(afterId===null||offset>0,'CURSOR_INVALID',400);
                 const items=allowed.slice(offset,offset+20);
-                return {space:{id:spaceId,name:context.space.name},items,total:allowed.length,nextCursor:offset+20<allowed.length?items.at(-1).workId:null};
+                return {space:{id:spaceId,name:context.space.name},items,canOpen:sharedEditingEnabled,total:allowed.length,nextCursor:offset+20<allowed.length?items.at(-1).workId:null};
             });
         }
     };
