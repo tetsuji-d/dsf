@@ -3,6 +3,8 @@
   "version": "1.0.0",
   "type": "module",
   "scripts": {
+    "verify:project-copy": "node scripts/verify-project-copy.js",
+    "verify:project-copy-browser": "node scripts/verify-project-copy-browser.cjs",
     "dev": "vite",
     "dev:local": "vite",
     "dev:publishing-spaces-fixture": "node scripts/serve-publishing-spaces-fixture.js",

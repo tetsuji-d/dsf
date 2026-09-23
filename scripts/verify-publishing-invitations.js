@@ -114,3 +114,9 @@ for(const invalidation of ['suspended','role','target','membership']){
  await restored.call('reader_1',{kind:'accept',id:x.id});
 }
 console.log('Invitation service passed: atomic persistence, restore, private inbox, unread state, scoped grants, expiry, revocation, races, retries, rate limits, pagination and disabled activation.');
+
+const readiness=invitationsFixture({allowActivation:false}),readyCommand=command();
+await readiness.call('owner_1',readyCommand);
+assert.equal((await readiness.call('reader_1',{kind:'read',id:readyCommand.id})).canAccept,false);
+assert.equal(readiness.docs.has('users/reader_1/spaceMemberships/space_demo'),false);
+console.log('Invitation readiness is explicit and does not grant membership.');

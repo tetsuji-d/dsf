@@ -303,9 +303,10 @@ export function createPublishingSpaceUI({ root, request, getLocale, getUid, onCh
             await mutate({kind:'assign', projectId, spaceId, expectedSpaceId});
         }));
     }
-    return { load, render, filter, card, bind,
+    return { load, render, filter, card, bind, select:selectSpace,
+        destinations: () => { sync(); if(!data||failed||busy)return null;return {uid,spaces:data.spaces.map(s=>({id:s.id,name:s.name})),assignments:{...data.assignments}}; },
         selection: () => { sync(); return active()?.id || null; },
-        assign: (projectId, spaceId) => mutate({kind:'assign',projectId,spaceId,expectedSpaceId:data?.assignments[projectId] || null}),
+        assign: (projectId, spaceId, expectedSpaceId=data?.assignments[projectId] || null) => mutate({kind:'assign',projectId,spaceId,expectedSpaceId}),
         label: () => { sync(); return !data || selected === 'all' ? tr().all : selected === 'unassigned' ? tr().unassigned : active()?.name || tr().all; },
         destination: () => tr().destination,
     };

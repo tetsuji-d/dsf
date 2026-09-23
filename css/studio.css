@@ -10441,3 +10441,11 @@ body.strip-collapsed #page-strip:has(.flow-thumb-group) { height: 42px; }
 .home-folder-loading i:nth-child(2){animation-delay:.25s}.home-folder-loading i:nth-child(3){animation-delay:.5s}
 @keyframes home-folder-paper{0%,100%{transform:translateY(0) rotate(0)}45%{transform:translateY(-14px) rotate(-7deg)}}
 @media(prefers-reduced-motion:reduce){.home-folder-loading i{animation:none}}
+
+.project-copy-dialog{width:min(480px,calc(100vw - 32px));box-sizing:border-box;border:1px solid #bbc9dd;border-radius:18px;padding:24px;color:var(--text-color,#152945);background:var(--bg-color,#fff)}
+.project-copy-dialog::backdrop{background:#101a305c}
+.project-copy-dialog label{display:grid;gap:8px}.project-copy-dialog input{box-sizing:border-box;width:100%;padding:12px;border:1px solid #aabbcf;border-radius:8px}.project-copy-dialog>div{display:flex;gap:12px;justify-content:flex-end}.project-copy-dialog button{padding:10px 16px;cursor:pointer}
+
+.project-copy-dialog .primary{background:#0866ef;color:#fff;border:1px solid #0866ef;border-radius:8px;display:inline-flex}.project-copy-dialog button:disabled{opacity:.55;cursor:wait}
+
+.home-project-entry{position:relative}.project-actions{position:absolute;top:8px;right:8px;z-index:3}.project-actions[open]{z-index:10}.project-actions summary{list-style:none;cursor:pointer;background:var(--bg-card,#fff);color:var(--text-primary,#172942);border:1px solid #bdc9dc;border-radius:8px;width:36px;height:36px;text-align:center;font-size:24px;line-height:32px}.project-actions summary::-webkit-details-marker{display:none}.project-actions-list{position:absolute;right:0;top:42px;width:min(260px,calc(100vw - 64px));padding:6px;background:var(--bg-card,#fff);border:1px solid #bdc9dc;border-radius:12px;box-shadow:0 8px 24px #182d4930}.project-actions-list button{display:block;width:100%;text-align:left;padding:12px;border:0;border-radius:6px;background:transparent;color:var(--text-primary,#172942);cursor:pointer}.project-actions-list button:hover,.project-actions-list button:focus-visible{background:#e8f0ff}.project-actions-list .danger{color:#b52a36}.project-copy-dialog select{width:100%;padding:12px;border:1px solid #aabbcf;border-radius:8px;background:var(--bg-card,#fff);color:inherit}.project-copy-dialog label{margin-block:16px}

@@ -1,3 +1,5 @@
+import {createPublishingSpacesClient} from './publishing-spaces-transport.js';
+import {createProjectCopyJob} from './project-copy.js';
 import { openSharedAuthoringSession } from './shared-authoring-session.js';
 import { readSharedStudioAccess, setSharedStudioAccess, subscribeSharedStudioAccess, canEditSharedStudio, assertSharedStudioEdit, assertPersonalStudioOperation } from './shared-studio-access.js';
 import { subscribeProjectSession } from './state.js';
@@ -1432,9 +1434,38 @@ async function performSave() {
 }
 
 
-/**
- * 手動保存（プロジェクトIDを新規設定して保存）
- */
+// Copy from cloud without loading or mutating the open editor.
+export function newCloudProjectCopyJob(projectId) {
+    assertPersonalStudioOperation();
+    const user=auth.currentUser,uid=requireUid();
+    const isCurrent=()=>auth.currentUser===user&&state.uid===uid;
+    const spaces=createPublishingSpacesClient({getUser:()=>isCurrent()?user:null});
+    return createProjectCopyJob({isCurrent,newId:prefix=>prefix+'_'+crypto.randomUUID(),
+        validateDestination:async spaceId=>{if(spaceId){const data=await spaces();if(!data.spaces.some(s=>s.id===spaceId&&s.ownerUid===uid))throw new Error('SPACE_FORBIDDEN');}},
+        assignDestination:async(projectId,spaceId)=>{const data=await spaces();
+            if(data.assignments[projectId]===spaceId)return;
+            if(data.assignments[projectId])throw new Error('SPACE_CONFLICT');
+            await spaces({kind:'assign',projectId,spaceId,expectedSpaceId:null,baseRevision:data.revision});},
+        createClient:pid=>createPrivateAuthoringClient({uid,projectId:pid,user,isCurrent}),
+        readSource:async()=>{
+            await assertAccountCanEdit(user);
+            if(!isCurrent())throw new AuthoringClientError('AUTH_CHANGED');
+            const snap=await getDoc(projectDocRef(projectId,uid));
+            if(!isCurrent())throw new AuthoringClientError('AUTH_CHANGED');
+            if(!snap.exists())throw new Error('PROJECT_NOT_FOUND');
+            const root=snap.data();
+            if(root.ownerUid&&root.ownerUid!==uid)throw new Error('OWNER_REQUIRED');
+            if(usesPrivateAuthoring(root))return createPrivateAuthoringClient({uid,projectId,user,isCurrent}).load();
+            if(root.version===6||root.authoringRef==='authoring/current'||root.authoringSchemaVersion===6){
+                const source=await getDoc(projectAuthoringDocRef(projectId,uid));
+                if(!source.exists())throw new Error('AUTHORING_NOT_FOUND');
+                return {...source.data(),projectId,workId:root.workId||projectId};
+            }
+            return {...root,projectId,workId:root.workId||projectId};
+        }});
+}
+
+/** Save the current project using its existing identity. */
 export async function saveAsProject() {
     assertPersonalStudioOperation();
     requireUid();

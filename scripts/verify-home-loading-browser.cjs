@@ -9,7 +9,7 @@ const helper=fs.readFileSync('js/home-load.js','utf8').replaceAll('export ','').
  await page.addStyleTag({content:fs.readFileSync('css/studio.css','utf8')});
  await page.addScriptTag({content:helper+`
  const state={uid:'owner'},getUILang=()=> 'ja',t=k=>({home_loading:'読み込み中…',home_cloud_error:'読み込めませんでした'}[k]||k);
- const syncSpaceMembersSettings=()=>{};
+ const syncSpaceMembersSettings=()=>{},bindProjectActions=()=>{};
  const getHomeWorkspace=()=>({render(){}}),space={load(){},render(){},filter:p=>p,destination:()=>'',label:()=>'',selection:()=>null,bind(){}},getPublishingSpaceUI=()=>space;
  let mode='pending',calls=0,resolveOld;
  const fetchCloudProjects=()=>{calls++;return mode==='pending'?new Promise(r=>resolveOld=r):Promise.resolve([{id:mode,title:mode}]);};

@@ -1,3 +1,6 @@
+import {projectActionsMarkup,bindProjectActions,openProjectSpaceDialog} from './project-actions-ui.js';
+import {openProjectCopyDialog} from './project-copy-ui.js';
+import {newCloudProjectCopyJob} from './firebase.js';
 import '../css/space-members-settings.css';
 import { createSpaceMembersSettings } from './space-members-settings.js';
 import { createInvitationsClient } from './publishing-invitations-transport.js';
@@ -4372,9 +4375,8 @@ function renderHomeCard(project, source) {
     const languageBadges = renderLanguageBadges(project.languages);
 
     return `
-        <div class="home-project-entry">
+        <div class="home-project-entry" data-project-entry="${escapeStudioHtml(project.id)}">
         <button class="home-project-card" data-home-source="${escapeStudioHtml(source)}" data-id="${escapeStudioHtml(project.id)}">
-            ${source === 'cloud' ? `<span class="home-project-delete material-icons" data-delete-cloud="${escapeStudioHtml(project.id)}" title="${escapeStudioHtml(t('btn_delete'))}">delete</span>` : ''}
             <div class="home-project-thumb">
                 ${thumb
                     ? `<img src="${escapeStudioHtml(thumb)}" alt="${escapeStudioHtml(displayName)}" loading="lazy" decoding="async">`
@@ -4391,7 +4393,7 @@ function renderHomeCard(project, source) {
                 </div>
             </div>
         </button>
-        ${source === 'cloud' ? getPublishingSpaceUI().card(project) : ''}
+        ${source === 'cloud' ? projectActionsMarkup(project,getUILang()==='en') : ''}
         </div>
     `;
 }
@@ -4822,24 +4824,24 @@ async function renderHomeDashboard({ refreshSpaces = true, forceRefresh = false 
         });
     });
 
-    cloudGrid.querySelectorAll('[data-delete-cloud]').forEach((btn) => {
-        btn.addEventListener('click', async (e) => {
-            e.preventDefault();
-            e.stopPropagation();
-            const pid = btn.dataset.deleteCloud;
-            const project = (cloudProjects || []).find((item) => item.id === pid);
-            const displayName = project?.projectName || project?.title || pid;
-            if (!confirm(t('home_delete_confirm', { name: displayName }))) return;
-            try {
-                await deleteCloudProject(pid);
-                await renderHomeDashboard({ forceRefresh: true });
-            } catch (err) {
-                console.error('[Home] Cloud delete failed:', err);
-                alert(t('home_delete_error', { message: err.message }));
-            }
-        });
+    bindProjectActions(cloudGrid,async(action,pid)=>{
+        const project=(cloudProjects||[]).find(p=>p.id===pid);if(!project)return;
+        const displayName=project.projectName||project.title||pid,en=getUILang()==='en';
+        if(action==='edit'){if(await onLoadProject(pid))window.switchRoom('editor');return;}
+        if(action==='delete'){
+            if(!confirm(t('home_delete_confirm',{name:displayName})))return;
+            try{await deleteCloudProject(pid);await renderHomeDashboard({forceRefresh:true});}
+            catch(err){alert(t('home_delete_error',{message:err.message}));}return;
+        }
+        const destinations=spaceUI.destinations();
+        if(!destinations){alert(en?'Publishing spaces could not be loaded. Refresh the list.':'出版スペースを取得できませんでした。一覧を更新してください。');return;}
+        const owner=state.uid;
+        if(action==='copy')openProjectCopyDialog({name:displayName,spaces:destinations.spaces,defaultSpaceId:destinations.assignments[pid]||null,getLocale:getUILang,
+            createJob:()=>{if(state.uid!==owner)throw new Error('AUTH_CHANGED');return newCloudProjectCopyJob(pid);},
+            onCreated:async result=>{if(state.uid!==owner)return;await renderHomeDashboard({forceRefresh:true});spaceUI.select(result.spaceId||'unassigned');}});
+        if(action==='move')openProjectSpaceDialog({name:displayName,spaces:destinations.spaces,currentSpaceId:destinations.assignments[pid],en,
+            onSave:async spaceId=>{if(state.uid!==owner||!await spaceUI.assign(pid,spaceId,destinations.assignments[pid]||null))throw new Error('SPACE_CONFLICT');}});
     });
-
     spaceUI.bind(cloudGrid);
     bindHomeWorkActions(workGrid, cloudProjects);
     syncStudioShell();

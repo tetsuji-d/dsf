@@ -108,7 +108,7 @@ export function createPublishingInvitationsService({db,assertLiveIdentity,valida
             check(notice?.recipientUid===recipient && notice.invitationId===id,'NOTICE_INVALID');
             const inbox=indexOf(storedInbox);
             const markRead=()=>{if(notice.readAt===null){check(inbox.unreadCount>0,'INDEX_INVALID');tx.set(noticePath(recipient,id),{...notice,readAt:time});tx.set(inboxPath(recipient),{...inbox,unreadCount:inbox.unreadCount-1});}};
-            if(kind==='read'){markRead();return {invitation:publicInvite(invitation,time)};}
+            if(kind==='read'){markRead();return {invitation:publicInvite(invitation,time),canAccept:allowActivation===true};}
             const [rawSpace,inviterAccount,inviterMember,actorMember,current]=await tx.getMany([
                 'publishing_spaces/'+spaceId,accountPath(invitation.inviterUid),memberPath(invitation.inviterUid,spaceId),memberPath(uid,spaceId),memberPath(recipient,spaceId)]);
             const space=rawSpace && {...rawSpace,id:spaceId}, actorContext={space,actorUid:uid,member:actorMember};

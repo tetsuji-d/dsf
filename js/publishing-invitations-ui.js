@@ -5,7 +5,7 @@ export function createPublishingInvitationsUI({root,execute,spaceId,recipients=[
     const node=(tag,text,className)=>{const el=document.createElement(tag);if(text!==undefined)el.textContent=text;if(className)el.className=className;return el;};
     const button=(text,action,className)=>{const b=node('button',text,className);b.type='button';b.onclick=action;return b;};
     const status=s=>({pending:t('参加待ち','Pending'),accepted:t('参加済み','Accepted'),declined:t('辞退済み','Declined'),cancelled:t('取り消し済み','Cancelled'),expired:t('期限切れ','Expired')})[s]||s;
-    const errors={INVALID_HANDLE:['Horizon IDを入力してください（@と4〜20文字の英小文字・数字・_）。','Enter a Horizon ID (4–20 lowercase letters, numbers or underscores).'],LOOKUP_RATE_LIMIT:['検索が続いています。少し待ってから再度お試しください。','Too many lookups. Please wait before trying again.'],INVITATION_PENDING:['この相手には参加待ちの招待があります。','This person already has a pending invitation.'],ALREADY_MEMBER:['すでに参加しています。','Already a member.'],INVITATION_CLOSED:['この招待は終了しています。最新の状態をご確認ください。','This invitation has closed. Refresh to see its current state.'],INVITER_UNAVAILABLE:['招待者の権限が変更されたため、参加できません。','The inviter can no longer grant this access.'],SHARING_NOT_READY:['作品共有の準備中です。まだ参加を確定できません。','Sharing is not ready. Joining is not available yet.'],INVITE_RATE_LIMIT:['本日の招待上限に達しました。','Daily invitation limit reached.']};
+    const errors={INVITATION_TEST_ONLY:['現在は指定された検証用スペース・アカウントでのみ利用できます。','Currently available only to the designated test space and accounts.'],INVALID_HANDLE:['Horizon IDを入力してください（@と4〜20文字の英小文字・数字・_）。','Enter a Horizon ID (4–20 lowercase letters, numbers or underscores).'],LOOKUP_RATE_LIMIT:['検索が続いています。少し待ってから再度お試しください。','Too many lookups. Please wait before trying again.'],INVITATION_PENDING:['この相手には参加待ちの招待があります。','This person already has a pending invitation.'],ALREADY_MEMBER:['すでに参加しています。','Already a member.'],INVITATION_CLOSED:['この招待は終了しています。最新の状態をご確認ください。','This invitation has closed. Refresh to see its current state.'],INVITER_UNAVAILABLE:['招待者の権限が変更されたため、参加できません。','The inviter can no longer grant this access.'],SHARING_NOT_READY:['作品共有の準備中です。まだ参加を確定できません。','Sharing is not ready. Joining is not available yet.'],INVITE_RATE_LIMIT:['本日の招待上限に達しました。','Daily invitation limit reached.']};
     root.replaceChildren();root.classList.add('invitations-ui');
     const toolbar=node('div',undefined,'invitation-toolbar'), title=node('h1',t('招待とお知らせ','Invitations & notifications'));
     const bell=button('',()=>openInbox(),'notification-bell');bell.setAttribute('aria-label',t('お知らせ','Notifications'));
@@ -28,7 +28,9 @@ export function createPublishingInvitationsUI({root,execute,spaceId,recipients=[
         if(i.status==='pending'){
             d.append(node('p',t('承諾すると、上記の権限で参加します。','Accept to join with the access shown above.')));
             const actions=node('div',undefined,'invitation-actions');
-            actions.append(button(t('辞退する','Decline'),()=>resolve(id,'decline')),button(t('承諾して開く','Accept and open'),()=>resolve(id,'accept'),'primary'));d.append(actions);
+            const accept=button(t('承諾して開く','Accept and open'),()=>resolve(id,'accept'),'primary');
+            if(result.canAccept===false){accept.disabled=true;d.append(node('p',t('共有の準備が終わると承諾できます。招待はこの画面から確認できます。','You can accept once sharing is ready. Your invitation remains available here.')));}
+            actions.append(button(t('辞退する','Decline'),()=>resolve(id,'decline')),accept);d.append(actions);
         }else if(i.status==='accepted')d.append(button(t('スペースを開く','Open space'),()=>run(async()=>{close();await onOpenSpace(i);}),'primary'));
     });}
     async function resolve(id,kind){await run(async()=>{const result=await execute({kind,id});if(stopped)return;await refreshBadge();close();message.textContent=kind==='accept'?t('招待を承諾しました。','Invitation accepted.'):t('招待を辞退しました。','Invitation declined.');if(kind==='accept')await onOpenSpace(result.invitation);});}
