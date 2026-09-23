@@ -4,7 +4,7 @@ const escape = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp
 const copy = {
     ja: { title:'スペース', hint:'マイスペースで個人の原稿を作成し、出版スペースで作品を管理・発行できます。表示を切り替えても作品の保存先は変わりません。',
         settings:'基本情報を設定', description:'概要', website:'Webサイト', icon:'アイコン', banner:'背景画像', remove:'画像を削除', preview:'保存後の表示プレビュー', imageHint:'PNG・JPEG・WebP（20MBまで）。中央を切り抜き、アイコンは正方形、背景は3:1のWebPで保存します。', imageError:'画像を読み込めませんでした。別の画像を選択してください。', readImageError:'画像を取得できませんでした。再読み込みしてください。', blankDescription:'概要はまだありません。',
-        all:'すべてのクラウド原稿', unassigned:'マイスペース', select:'表示するスペース', create:'スペースを開設', name:'スペース名',
+        all:'すべてのクラウド原稿', unassigned:'マイスペース', select:'表示するスペース', create:'出版スペースを開設', name:'スペース名',
         submit:'開設', cancel:'キャンセル', rename:'名前を変更', save:'変更を保存', login:'ログインすると出版スペースを開設・管理できます。',
         loading:'出版スペースを読み込み中…', unavailable:'保存先を確認できませんでした。再読み込みするか、「すべてのクラウド原稿」から開いてください。',
         retry:'再読み込み', empty:'出版スペースはまだありません。マイスペースで制作を始められます。',
@@ -15,7 +15,7 @@ const copy = {
     },
     en: { title:'Spaces', hint:'Create personal manuscripts in My space. Use publishing spaces to manage and publish works. Switching views does not move your works.',
         settings:'Edit space profile', description:'About', website:'Website', icon:'Icon', banner:'Background image', remove:'Remove image', preview:'Preview after saving', imageHint:'PNG, JPEG or WebP, up to 20 MB. Center-cropped to a square icon and a 3:1 background, then saved as WebP.', imageError:'Could not process this image. Choose another image.', readImageError:'Could not load the image. Please reload.', blankDescription:'No description yet.',
-        all:'All cloud manuscripts', unassigned:'My space', select:'Space to display', create:'Create a space', name:'Space name',
+        all:'All cloud manuscripts', unassigned:'My space', select:'Space to display', create:'Create a publishing space', name:'Space name',
         submit:'Create', cancel:'Cancel', rename:'Rename', save:'Save changes', login:'Sign in to create and manage publishing spaces.',
         loading:'Loading publishing spaces…', unavailable:'Could not confirm save locations. Retry, or open All cloud manuscripts.',
         retry:'Retry', empty:'No publishing spaces yet. You can start creating in My space.',
@@ -63,6 +63,8 @@ export function createPublishingSpaceUI({ root, request, getLocale, getUid, onCh
     }
     const key = () => 'dsf-publishing-space:' + uid;
     function active() { return visibleSpaces().find(s => spaceKey(s) === selected) || null; }
+    const personalSpace = () => ({id:'unassigned',name:tr().unassigned,role:'owner',profile:data?.mySpaceProfile || {}});
+    const profileTarget = () => selected==='unassigned' ? personalSpace() : active();
     function remember() { try { storage?.setItem(key(), selected); } catch {} }
     function sync() {
         const next = getUid() || '';
@@ -89,7 +91,7 @@ export function createPublishingSpaceUI({ root, request, getLocale, getUid, onCh
     function updateSwitcherIcons() {
         for (const host of [...switchers,...identityRoots.filter(Boolean)]) for (const icon of host.querySelectorAll('[data-space-avatar]')) {
             const id = icon.dataset.spaceAvatar;
-            icon.innerHTML = iconHtml(visibleSpaces().find(s=>s.id===id),id);
+            icon.innerHTML = iconHtml(id==='unassigned'?personalSpace():visibleSpaces().find(s=>s.id===id),id);
         }
     }
     function renderSwitchers() {
@@ -116,7 +118,7 @@ export function createPublishingSpaceUI({ root, request, getLocale, getUid, onCh
                         if(failed&&!loading)void load({notify:true});
                         if(requestJoined)void loadJoined();
                         (popup.querySelector('[aria-pressed="true"]') || popup.querySelector('button'))?.focus();
-                        for (const space of visibleSpaces()) loadImages(space,['icon']);
+                        for (const space of [personalSpace(),...visibleSpaces()]) loadImages(space,['icon']);
                     }
                 });
                 popup.addEventListener('keydown',event=>{
@@ -131,7 +133,7 @@ export function createPublishingSpaceUI({ root, request, getLocale, getUid, onCh
                     if (!choice && !create && !retry) return;
                     popup.hidePopover();trigger.focus();
                     if (choice) selectSpace(choice.dataset.spaceChoice);
-                    else if (create) root.querySelector('[data-space-create]')?.click();
+                    else if (create) void openCreation();
                     else void load({notify:true});
                 });
             }
@@ -214,12 +216,12 @@ export function createPublishingSpaceUI({ root, request, getLocale, getUid, onCh
             if (!hash || imageCache.has(key) || imageLoading.has(key) || imageFailed.has(key)) continue;
             const epoch = generation;
             imageLoading.add(key);
-            request({kind:'readImage',spaceId:space.id,slot}).then(value => {
+            request({kind:'readImage',spaceId:space.id==='unassigned'?null:space.id,slot}).then(value => {
                 sync();
                 if (epoch !== generation || value.uid !== uid) return;
                 imageCache.set(key, value.dataUrl);
                 updateSwitcherIcons();
-                if (active()?.id === space.id) updatePreview();
+                if (profileTarget()?.id === space.id) updatePreview();
             }).catch(() => {
                 if (epoch === generation) { imageFailed.add(key); notice = tr().readImageError; const status = root.querySelector('[role=status]'); if (status) status.textContent = notice;
                     if (!root.querySelector('[data-space-retry-images]')) {
@@ -231,14 +233,26 @@ export function createPublishingSpaceUI({ root, request, getLocale, getUid, onCh
     }
     function updatePreview() {
         const element = root.querySelector('[data-space-preview]');
-        if (element && active()) element.innerHTML = profileHtml(active(), form?.kind === 'profile' ? {...form.profile,name:form.value} : null);
+        if (element && profileTarget()) element.innerHTML = profileHtml(profileTarget(), form?.kind === 'profile' ? {...form.profile,name:form.value} : null);
     }
     function profileFields() {
         const t = tr(), draft = form.profile;
         return '<label class="space-profile-wide">' + t.description + '<textarea aria-label="' + t.description + '" name="description" maxlength="2000" rows="4">' + escape(draft.description) + '</textarea><small>0–2000</small></label>'
-            + '<label class="space-profile-wide">' + t.website + '<input name="website" type="url" maxlength="2048" placeholder="https://example.com" value="' + escape(draft.website) + '"></label>'
+            + (selected==='unassigned'?'':'<label class="space-profile-wide">' + t.website + '<input name="website" type="url" maxlength="2048" placeholder="https://example.com" value="' + escape(draft.website) + '"></label>')
             + ['icon','banner'].map(slot => '<div class="space-image-field"><label>' + t[slot] + '<input type="file" data-space-image="' + slot + '" accept="image/png,image/jpeg,image/webp"></label><button type="button" data-space-remove="' + slot + '">' + t.remove + '</button></div>').join('')
             + '<p class="space-profile-wide">' + t.imageHint + '</p>';
+    }
+    async function openCreation() {
+        sync(); if (!uid || !data || failed) return;
+            if (opening || busy) return;
+            const owner = uid; opening = true;
+            try {
+                const result = await openPublishingSpaceCreation({request,getLocale,isCurrent:() => getUid() === owner});
+                sync(); if (!result || uid !== owner) return;
+                apply(result.catalogue); selected = result.spaceId; remember(); form = null;
+                notice = getLocale() === 'en' ? 'Your publishing space is ready. Set up its profile or add a manuscript.' : '出版スペースを開設しました。基本情報の設定や原稿の追加へ進めます。';
+                render(); onChange?.(); onSelect?.();
+            } finally { opening = false; renderSwitchers(); (switchers.find(h=>h.getBoundingClientRect().width)?.querySelector('[data-space-trigger]') || root.querySelector('[data-space-create]'))?.focus(); }
     }
     function render() {
         sync(); const t = tr();
@@ -251,19 +265,19 @@ export function createPublishingSpaceUI({ root, request, getLocale, getUid, onCh
             + (!uid ? '<p>' + t.login + '</p>' : failed ? '<p role="status">' + errorMessage(failureCode) + '</p><button type="button" data-space-retry>' + t.retry + '</button>'
             : !data ? '<p role="status">' + t.loading + '</p>' :
             '<div class="publishing-space-controls">' + (switchers.length ? '' : '<label>' + t.select + '<select data-space-select ' + (busy ? 'disabled' : '') + '>' + options(selected, true) + '</select></label>')
-            + '<button type="button" data-space-create ' + (busy ? 'disabled' : '') + '>' + t.create + '</button>'
-            + (active() ? '<button type="button" data-space-settings ' + (busy ? 'disabled' : '') + '>' + t.settings + '</button>' : '') + '</div>'
-            + (active() ? '<div data-space-preview>' + profileHtml(active(), form?.kind === 'profile' ? {...form.profile,name:form.value} : null) + '</div>' : '')
-            + (!data.spaces.length ? '<p>' + t.empty + '</p>' : '')
-            + (form ? '<form data-space-form><label>' + t.name + '<input name="name" required maxlength="80" autocomplete="off" value="' + escape(form.value) + '" ' + (busy ? 'disabled' : '') + '></label>'
+            + (selected==='unassigned'?'':'<button type="button" data-space-create ' + (busy ? 'disabled' : '') + '>' + t.create + '</button>')
+            + (profileTarget() ? '<button type="button" data-space-settings ' + (busy ? 'disabled' : '') + '>' + t.settings + '</button>' : '') + '</div>'
+            + (profileTarget() ? '<div data-space-preview>' + profileHtml(profileTarget(), form?.kind === 'profile' ? {...form.profile,name:form.value} : null) + '</div>' : '')
+            + (selected!=='unassigned'&&!data.spaces.length ? '<p>' + t.empty + '</p>' : '')
+            + (form ? '<form data-space-form>' + (selected==='unassigned'?'':'<label>' + t.name + '<input name="name" required maxlength="80" autocomplete="off" value="' + escape(form.value) + '" ' + (busy ? 'disabled' : '') + '></label>')
                 + (form.kind === 'profile' ? profileFields() : '')
                 + '<button data-space-submit ' + (busy || converting ? 'disabled' : '') + '>' + (busy ? t.working : form.kind !== 'create' ? t.save : t.submit) + '</button>'
                 + '<button type="button" data-space-cancel ' + (busy ? 'disabled' : '') + '>' + t.cancel + '</button></form>' : '')
             + '<p class="publishing-space-status" role="status">' + escape(notice || (loading ? t.loading : '')) + '</p>'
             + (imageFailed.size ? '<button type="button" data-space-retry-images>' + t.retry + '</button>' : ''));
         root.querySelector('[data-space-settings]')?.addEventListener('click', () => {
-            form = {kind:'profile',revision:data.revision,value:active().name,profile:{description:active().profile?.description || '',website:active().profile?.website || ''}};
-            render(); root.querySelector('input[name=name]')?.focus();
+            form = {kind:'profile',revision:data.revision,value:profileTarget().name,profile:{description:profileTarget().profile?.description || '',website:profileTarget().profile?.website || ''}};
+            render(); root.querySelector('input[name=name], textarea[name=description]')?.focus();
         });
         root.querySelectorAll('[data-space-form] input:not([type=file]), [data-space-form] textarea').forEach(input => input.addEventListener('input', () => {
             if (input.name === 'name') form.value = input.value;
@@ -284,26 +298,17 @@ export function createPublishingSpaceUI({ root, request, getLocale, getUid, onCh
         if (busy) root.querySelectorAll('[data-space-form] input, [data-space-form] textarea, [data-space-form] button').forEach(el => { el.disabled = true; });
         if (converting) root.querySelectorAll('[data-space-image]').forEach(el => { el.disabled = true; });
         root.querySelector('[data-space-retry-images]')?.addEventListener('click', () => { imageFailed.clear(); notice = ''; render(); });
-        loadImages(active());
+        loadImages(profileTarget());
+        loadImages(personalSpace(),['icon']);
         root.querySelector('[data-space-select]')?.addEventListener('change', e => selectSpace(e.target.value));
-        root.querySelector('[data-space-create]')?.addEventListener('click', async () => {
-            if (opening || busy) return;
-            const owner = uid; opening = true;
-            try {
-                const result = await openPublishingSpaceCreation({request,getLocale,isCurrent:() => getUid() === owner});
-                sync(); if (!result || uid !== owner) return;
-                apply(result.catalogue); selected = result.spaceId; remember(); form = null;
-                notice = getLocale() === 'en' ? 'Your publishing space is ready. Set up its profile or add a manuscript.' : '出版スペースを開設しました。基本情報の設定や原稿の追加へ進めます。';
-                render(); onChange?.(); onSelect?.();
-            } finally { opening = false; renderSwitchers(); (switchers.find(h=>h.getBoundingClientRect().width)?.querySelector('[data-space-trigger]') || root.querySelector('[data-space-create]'))?.focus(); }
-        });
+        root.querySelector('[data-space-create]')?.addEventListener('click', openCreation);
         root.querySelector('[data-space-cancel]')?.addEventListener('click', () => { form = null; render(); });
         root.querySelector('[data-space-retry]')?.addEventListener('click', async () => { imageFailed.clear(); await load(); onChange?.(); });
         root.querySelector('[data-space-form]')?.addEventListener('submit', e => {
-            e.preventDefault(); if (busy || converting) return; const name = new FormData(e.target).get('name').trim(); if (!name) return;
+            e.preventDefault(); if (busy || converting) return; const name = selected==='unassigned'?tr().unassigned:new FormData(e.target).get('name').trim(); if (!name) return;
             const kind = form.kind; form.value = name;
             if (kind === 'create' && creation?.name !== name) creation = { name, id:'space_' + crypto.randomUUID() };
-            void mutate({kind, name, spaceId:kind === 'create' ? creation.id : selected, ...(kind === 'profile' ? {profile:form.profile,baseRevision:form.revision} : {})});
+            void mutate({kind:selected==='unassigned'?'myProfile':kind, name, spaceId:selected==='unassigned'?null:kind === 'create' ? creation.id : selected, ...(kind === 'profile' ? {profile:form.profile,baseRevision:form.revision} : {})});
         });
     }
     function filter(projects) {

@@ -23,6 +23,12 @@ function validate(data, uid, image) {
                 || ['icon','banner'].some(slot => p[slot] != null && !/^[a-f0-9]{64}$/.test(p[slot]))) fail('SPACES_RESPONSE_INVALID');
         }
     }
+    if (data.mySpaceProfile !== undefined) {
+        const p = data.mySpaceProfile;
+        if (!record(p) || typeof p.description !== 'string' || p.description.length > 2000
+            || typeof p.website !== 'string' || p.website.length > 2048
+            || ['icon','banner'].some(slot => p[slot] != null && !/^[a-f0-9]{64}$/.test(p[slot]))) fail('SPACES_RESPONSE_INVALID');
+    }
     if (Object.values(data.assignments).some(value => !ids.has(value))) fail('SPACES_RESPONSE_INVALID');
     return data;
 }

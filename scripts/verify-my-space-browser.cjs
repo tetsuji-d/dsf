@@ -12,7 +12,7 @@ const {chromium}=require(process.env.DSF_PLAYWRIGHT_MODULE||'playwright'),assert
  await p.getByRole('button',{name:'マイスペースに作成',exact:true}).waitFor();
  const choose=async value=>{await p.locator('[data-space-trigger]:visible').click();await p.locator('[data-space-choice="'+value+'"]:visible').click();};
  await p.locator('[data-space-trigger]:visible').click();assert.equal(await p.locator('.space-switcher-list button:visible').first().getAttribute('data-space-choice'),'unassigned');await p.keyboard.press('Escape');
- await p.getByRole('button',{name:'設定・招待',exact:true}).click();await p.getByRole('button',{name:'マイスペースについて',exact:true}).click();
+ await p.getByRole('button',{name:'設定・招待',exact:true}).click();await p.getByRole('button',{name:'マイスペースの設定',exact:true}).click();
  await p.getByText('試作、ノート、写真集を作る個人の制作場所です。新しい原稿が自動で公開されることはありません。',{exact:true}).waitFor();assert.equal(await p.locator('[data-space-settings-panel="profile"] input').count(),0);
  await choose(id);assert.equal(await p.locator('[data-fixture-work="book_1"]').count(),1);assert.equal(await p.locator('[data-fixture-work="book_2"]').count(),0);await p.getByRole('button',{name:'このスペースに作成',exact:true}).waitFor();
  await choose('all');assert.equal(await p.locator('[data-fixture-work]').count(),4);await choose('unassigned');await p.reload();await p.locator('[data-fixture-work="book_2"]').waitFor();assert.equal(await p.locator('#home-space-identity strong').innerText(),'マイスペース');

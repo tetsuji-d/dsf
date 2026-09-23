@@ -1,0 +1,18 @@
+import assert from 'node:assert/strict';
+import {publishingSpacesFixture} from './fixtures/publishing-spaces-fixture.js';
+const f=publishingSpacesFixture(),before=structuredClone([...f.docs]);
+const c={kind:'myProfile',spaceId:null,baseRevision:0,profile:{description:'個人用ノート',website:''}};
+let r=await f.request(c);assert.equal(r.status,200);let data=await r.json();
+assert.equal(data.mySpaceProfile.description,c.profile.description);assert.equal(data.revision,1);assert.deepEqual(data.spaces,[]);assert.deepEqual(data.assignments,{});
+assert.equal((await f.request(c)).status,200,'lost response retry is idempotent');
+assert.equal((await f.request({...c,profile:{description:'古い更新',website:''}})).status,409);
+assert.equal((await f.request({...c,spaceId:'space_aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'})).status,400);
+assert.equal((await f.request({...c,profile:{description:'',website:'javascript:alert(1)'}})).status,400);
+assert.equal((await f.request({...c,profile:{description:'',website:'',icon:'data:image/webp;base64,YmFk'}})).status,400);
+assert.equal(f.media.size,0);
+data=await (await f.request(null,{token:'fixture-other'})).json();assert.equal(data.mySpaceProfile.description,'');
+assert.equal((await f.request({kind:'readImage',spaceId:null,slot:'icon'},{token:'fixture-other'})).status,404);
+for(const [path,value] of before)assert.deepEqual(f.docs.get(path),value,'source, publication and other accounts unchanged');
+f.docs.get('users/owner_1').entitlements.canCreateProject=false;assert.equal((await f.request({...c,baseRevision:1})).status,403);
+f.docs.get('users/owner_1').status.disabled=true;assert.equal((await f.request()).status,403);
+console.log('My space profile: persistence, no publishing space creation, idempotency, stale conflict, input and account isolation passed.');

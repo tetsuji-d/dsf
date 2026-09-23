@@ -14,7 +14,7 @@ export function createPublishingSpacesService({ db, assertLiveIdentity, now = Da
         if (command?.kind === 'readImage') {
             check(['icon', 'banner'].includes(command.slot), 'INVALID_IMAGE', 400);
             const catalogue = await run(identity);
-            const space = catalogue.spaces.find(s => s.id === command.spaceId);
+            const space = command.spaceId === null ? {id:'my-space',profile:catalogue.mySpaceProfile} : catalogue.spaces.find(s => s.id === command.spaceId);
             check(space, 'SPACE_FORBIDDEN', 403);
             const hash = space.profile?.[command.slot];
             check(hash && /^[a-f0-9]{64}$/.test(hash), 'IMAGE_NOT_FOUND', 404);
@@ -28,20 +28,22 @@ export function createPublishingSpacesService({ db, assertLiveIdentity, now = Da
         }
         let prepared = null;
         const publicationCheck = command?.kind === 'publicationContext';
+        const personalProfile = command?.kind === 'myProfile';
         if (publicationCheck) {
             segment(command.projectId);
             check(['draft', 'publication'].includes(command.purpose), 'INVALID_COMMAND', 400);
         }
         if (command && !publicationCheck) {
-            check(command && !Array.isArray(command) && ['create', 'rename', 'assign', 'profile'].includes(command.kind), 'INVALID_COMMAND', 400);
+            check(command && !Array.isArray(command) && ['create', 'rename', 'assign', 'profile', 'myProfile'].includes(command.kind), 'INVALID_COMMAND', 400);
             check(Number.isSafeInteger(command.baseRevision) && command.baseRevision >= 0, 'INVALID_REVISION', 400);
-            if (command.kind !== 'assign') {
+            if (command.kind !== 'assign' && !personalProfile) {
                 check(typeof command.name === 'string' && command.name.trim().length > 0 && command.name.trim().length <= 80
                     && !/[\u0000-\u001f\u007f]/u.test(command.name), 'INVALID_NAME', 400);
             }
-            if (command.kind === 'profile') prepared = await prepareProfile(command.profile);
+            if (command.kind === 'profile' || personalProfile) prepared = await prepareProfile(command.profile);
+            if (personalProfile) check(command.spaceId === null, 'INVALID_ID', 400);
             if (command.spaceId !== null) segment(command.spaceId);
-            if (command.kind !== 'assign') check(/^space_[a-z0-9-]{16,64}$/.test(command.spaceId), 'INVALID_ID', 400);
+            if (command.kind !== 'assign' && !personalProfile) check(/^space_[a-z0-9-]{16,64}$/.test(command.spaceId), 'INVALID_ID', 400);
             if (command.kind === 'assign') {
                 segment(command.projectId);
                 check(command.expectedSpaceId === null || typeof command.expectedSpaceId === 'string', 'INVALID_COMMAND', 400);
@@ -69,6 +71,7 @@ export function createPublishingSpacesService({ db, assertLiveIdentity, now = Da
                     return { id, name: s.name, ownerUid: s.ownerUid, role: 'owner', profile: s.profile || {description:'', website:'', icon:null, banner:null} };
                 }),
                 assignments: index.assignments,
+                mySpaceProfile: index.mySpaceProfile || {description:'', website:'', icon:null, banner:null},
             });
             if (!command) return result();
             if (publicationCheck) {
@@ -77,7 +80,7 @@ export function createPublishingSpacesService({ db, assertLiveIdentity, now = Da
                 return {...result(), publication: {projectId:command.projectId, purpose:command.purpose,
                     required:publicationNeedsSpace(project, command.purpose), spaceId:assignedPublishingSpace(index, command.projectId)}};
             }
-            const space = command.spaceId ? spaces[ids.indexOf(command.spaceId)] : null;
+            const space = personalProfile ? {profile:index.mySpaceProfile} : command.spaceId ? spaces[ids.indexOf(command.spaceId)] : null;
             if (command.kind !== 'create' && command.spaceId) {
                 // Membership is not enabled on legacy personal-authoring routes. No caller-supplied role is trusted.
                 check(index.spaceIds.includes(command.spaceId) && canAccessPublishingSpace({actorUid:identity.uid,
@@ -97,7 +100,7 @@ export function createPublishingSpacesService({ db, assertLiveIdentity, now = Da
                     && space.name === command.name.trim(), 'SPACE_CONFLICT', 409);
                 return result();
             }
-            if (command.kind === 'profile' && space.name === command.name.trim()
+            if ((command.kind === 'profile' || personalProfile) && (personalProfile || space.name === command.name.trim())
                 && (space.profile?.description || '') === prepared.description
                 && (space.profile?.website || '') === prepared.website
                 && ['icon','banner'].every(slot => prepared[slot] === undefined
@@ -111,22 +114,25 @@ export function createPublishingSpacesService({ db, assertLiveIdentity, now = Da
                 tx.set('publishing_spaces/' + command.spaceId, value);
                 spaces[ids.indexOf(command.spaceId)] = value;
                 index.spaceIds.push(command.spaceId);
-            } else if (command.kind === 'profile') {
+            } else if (command.kind === 'profile' || personalProfile) {
                 const profile = { ...(space.profile || {}), description:prepared.description, website:prepared.website };
                 for (const slot of ['icon', 'banner']) {
                     const image = prepared[slot];
                     if (image === undefined) continue;
                     if (image === null) { profile[slot] = null; continue; }
                     check(bucket, 'SPACE_MEDIA_UNAVAILABLE');
-                    const key = mediaKey(identity.uid, command.spaceId, image.hash);
+                    const key = mediaKey(identity.uid, personalProfile ? 'my-space' : command.spaceId, image.hash);
                     await bucket.put(key, image.bytes, {httpMetadata:{contentType:'image/webp'}});
                     const stored = await bucket.get(key);
                     check(stored && await sha256DsfBytes(new Uint8Array(await stored.arrayBuffer())) === image.hash, 'SPACE_MEDIA_UNAVAILABLE');
                     profile[slot] = image.hash;
                 }
-                const value = {...space, name:command.name.trim(), profile, updatedAt:new Date(now())};
-                tx.set('publishing_spaces/' + command.spaceId, value);
-                spaces[ids.indexOf(command.spaceId)] = value;
+                if (personalProfile) index.mySpaceProfile = profile;
+                else {
+                    const value = {...space, name:command.name.trim(), profile, updatedAt:new Date(now())};
+                    tx.set('publishing_spaces/' + command.spaceId, value);
+                    spaces[ids.indexOf(command.spaceId)] = value;
+                }
             } else if (command.kind === 'rename') {
                 const value = { ...space, name: command.name.trim(), updatedAt: new Date(now()) };
                 tx.set('publishing_spaces/' + command.spaceId, value);

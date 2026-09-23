@@ -1178,3 +1178,15 @@ spaceId / workId / ownerUid / projectId / labelId（初期null）。作成時に
 previousHead・操作完了・共有対応表・索引は同一transactionで確定する。
 個人catalogueと公開メタデータ、公開Release、公開元画像は変更しない。
 詳細は `docs/publishing-invitations.md` 第9単位。
+
+
+### マイスペースの個人設定（2026-09-23）
+
+`users/{uid}/publishing/catalogue.mySpaceProfile` は任意の個人設定として
+`{description, website, icon, banner}` を持つ。既存カタログでは省略でき、空の設定として扱う。
+`myProfile` 操作は認証済み本人のカタログだけを更新し、既存の revision で競合を検出する。
+表示名は「マイスペース」で固定。現在のUIでは概要・アイコン・背景を編集する。
+画像はクライアントでWebP化し、サーバーで寸法とサイズを検証してprivate R2の
+`publishing-spaces/{uid}/my-space/{sha256}.webp` に保存する。カタログにはhashのみを記録する。
+取得は認証付き `readImage`（`spaceId:null`）から本人だけに返す。公開URLを発行しない。
+出版スペースの新設、所属・共有権限変更、作品の公開操作は行わない。既存のカタログのサーバー専用書込経路を使用し、Rules変更は不要。

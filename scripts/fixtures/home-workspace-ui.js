@@ -29,3 +29,7 @@ function render(){
 }
 const device=()=>{document.body.dataset.device=innerWidth<1024?'mobile':'desktop';};device();window.addEventListener('resize',device);
 setUILang('ja');await spaces.load();render();
+
+if(new URLSearchParams(location.search).get('profile')==='1'){
+ spaces.select('unassigned');shell.select('settings');document.querySelector('[data-space-settings="profile"]').click();
+}

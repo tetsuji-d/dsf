@@ -9,7 +9,7 @@ const {chromium}=require(process.env.DSF_PLAYWRIGHT_MODULE), assert=require('nod
   const selector=page.locator('[data-space-select]');
   await selector.waitFor();
   const suffix=Date.now(), title='灯台出版 '+suffix;
-  await page.getByRole('button',{name:'スペースを開設'}).click();
+  await selector.selectOption('all');await page.getByRole('button',{name:'出版スペースを開設',exact:true}).click();
   await page.locator('input[name=name]').fill(title);
   await page.getByRole('dialog').getByRole('button',{name:'内容を確認',exact:true}).click();
   await page.getByRole('dialog').getByRole('button',{name:'この内容で開設',exact:true}).click();
@@ -79,7 +79,7 @@ const {chromium}=require(process.env.DSF_PLAYWRIGHT_MODULE), assert=require('nod
   await page.locator('#account').click();
   await page.waitForFunction(id=>document.querySelector('[data-space-select]')?.value===id,spaceId);
   await page.locator('#language').click();
-  await page.getByRole('button',{name:'Create a space',exact:true}).waitFor();
+  await page.getByRole('button',{name:'Create a publishing space',exact:true}).waitFor();
   assert.equal(await page.locator('[data-project-id="book_1"]').count(),1);
   await page.getByRole('button',{name:'Edit space profile',exact:true}).click();
   await page.getByLabel('About',{exact:true}).waitFor();
@@ -130,10 +130,10 @@ const {chromium}=require(process.env.DSF_PLAYWRIGHT_MODULE), assert=require('nod
   await page.locator('[data-space-retry-images]').click();
   await page.waitForFunction(()=>document.querySelector('[data-profile-image="banner"] img')?.naturalWidth>0);
 
-  // Backend outage retains access to cloud list and provides an explicit retry.
+  // A failed catalogue must not mix other spaces into the selected view.
   await page.route('**/api/publishing-spaces',route=>route.fulfill({status:503,contentType:'application/json',body:'{"error":"SPACES_UNAVAILABLE"}'}));
   await page.reload();await page.getByRole('button',{name:'再読み込み',exact:true}).waitFor();
-  assert.equal(await page.locator('[data-project-id]').count(),2);
+  assert.equal(await page.locator('[data-project-id]').count(),0);
   await page.unroute('**/api/publishing-spaces');await page.getByRole('button',{name:'再読み込み',exact:true}).click();await selector.waitFor();
   assert.deepEqual(errors,[]);
   console.log('Chrome: create, switch, assign, rename, reload, account isolation, English, local copies, mobile, profile editing, image conversion/persistence/removal, cancellation, private image access and outage/retry passed.');

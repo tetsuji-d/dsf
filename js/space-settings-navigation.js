@@ -10,7 +10,7 @@ export function createSpaceSettingsNavigation({root,getLocale=()=> 'ja'}){
     function render(enabled){
         visible=enabled;const en=getLocale()==='en',personal=root.dataset.spaceKind==='personal';nav.hidden=!enabled;
         nav.setAttribute('aria-label',en?'Space settings sections':'スペース設定の項目');
-        for(const button of buttons){const key=button.dataset.spaceSettings;button.textContent=key==='profile'?(personal?(en?'About My space':'マイスペースについて'):(en?'Basic information':'基本情報')):(personal?(en?'Invitations & notifications':'招待とお知らせ'):(en?'Members & invitations':'メンバー・招待')); button.setAttribute('aria-pressed',String(selected===key));}
+        for(const button of buttons){const key=button.dataset.spaceSettings;button.textContent=key==='profile'?(personal?(en?'My space settings':'マイスペースの設定'):(en?'Basic information':'基本情報')):(personal?(en?'Invitations & notifications':'招待とお知らせ'):(en?'Members & invitations':'メンバー・招待')); button.setAttribute('aria-pressed',String(selected===key));}
         profile.hidden=!enabled||selected!=='profile';members.hidden=!enabled||selected!=='members';
     }
     return {render};
