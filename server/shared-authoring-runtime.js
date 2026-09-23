@@ -22,9 +22,9 @@ export function readSharedRollout(env) {
     return list;
 }
 // Dependencies may be injected for tests; Pages always uses real Firebase verification below.
-export function createSharedRuntime({db,privateBucket,publicBucket,verifyToken,assertLiveIdentity,now=Date.now}) {
+export function createSharedRuntime({db,privateBucket,publicBucket,publicBaseUrl,verifyToken,assertLiveIdentity,now=Date.now}) {
     check(privateBucket&&privateBucket!==publicBucket,'CONFIG_AUTHORING_BUCKET');
-    const registration=createSharedWorkRegistration({db,privateBucket,assertLiveIdentity,now});
+    const registration=createSharedWorkRegistration({db,privateBucket,publicBucket,publicBaseUrl,assertLiveIdentity,now});
     return async context=>{
         try{
             const {request,env}=context,rollout=readSharedRollout(env),url=new URL(request.url);
@@ -69,7 +69,7 @@ export async function handleSharedAuthoring(context){
         if(!handler){
             const google=createGoogleClient({projectId:context.env.FIREBASE_PROJECT_ID,serviceAccountJson:context.env.AUTHORING_GOOGLE_SERVICE_ACCOUNT});
             handler=createSharedRuntime({db:createSharedRuntimeStore(google),
-                privateBucket:context.env.AUTHORING_BUCKET,publicBucket:context.env.R2_BUCKET,
+                privateBucket:context.env.AUTHORING_BUCKET,publicBucket:context.env.R2_BUCKET,publicBaseUrl:context.env.R2_PUBLIC_URL,
                 verifyToken:createIdTokenVerifier({projectId:context.env.FIREBASE_PROJECT_ID}),assertLiveIdentity:google.assertLiveIdentity});
             runtimes.set(context.env,handler);
         }

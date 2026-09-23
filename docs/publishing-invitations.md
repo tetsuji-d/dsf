@@ -262,3 +262,53 @@ fixtureはメモリー上の検証作品だけを使い、再起動で初期化�
 
 次: 画像あり原稿の移行手順、共有原稿の発行／書き出し、所属対象を示す確認UI、招待承諾の
 実接続を整備し、指定した実テスト作品・複数アカウントで結合検証してから段階的に有効化する。
+
+## 第8単位: 画像移行前の読み取り専用確認（2026-09-22）
+
+共有登録のGET事前確認に画像一覧を追加。既存sourceをそのまま読み、既知の画像スロットを
+URLで重複排除して点数・検証済み容量・問題を返す。本文のURL文字列は画像扱いしない。
+`references` / occurrencesは保存データ中の参照数（派生pages/sectionsを含む）であり、画面上の使用箇所数ではない。
+UIには重複除去後の画像点数だけを表示する。
+
+- `R2_PUBLIC_URL`と同一Origin、ログイン所有者の `users/{uid}/dsf/` または `dsp/` 配下の
+  WebPだけをpublic bucket bindingから直接読む。任意URLへのfetch・redirect追跡はしない。
+  別所有者、外部、query/hash、認証情報、パーセント表記、blob/data URLは管理対象外として表示。
+- 実WebP・寸法・長さ・SHA-256を検査。欠落、形式／容量不適合、読み取り失敗、設定不足、
+  確認上限を区別する。既存private参照も別途ready確認が必要と表示し、この段階で自動承認しない。
+- 最大1000 URLを列挙し、実体確認は最大32件／累積64MiB、1画像25MiB・長辺7680px。
+  未確認の画像をコピー可能としない。検証済み容量は全画像の推計容量ではない。
+- 各画像I/Oの前後に所有者・原稿head・所属・権限を再確認する。失効や変更は単なる画像警告にせず、確認全体を失敗させる。
+- source/head、画像、所属対応表、公開Releaseへ書き込まない。公開画像も削除しない。
+  将来非公開コピーを作っても元の公開URLは残ることをUIで明示する。
+- `copyable` は実体の確認結果のみ。共有登録許可ではなく、画像あり原稿のregisterは引き続き拒否する。
+  `imagePlanHash` は確認結果のdigestであり、将来の移行書込みを認可するtokenではない。
+
+ローカル確認: `SHARED_REGISTRATION_FIXTURE=true`、`SHARED_IMAGE_PREFLIGHT_FIXTURE=true`、
+`PORT=5222`で `npm run dev:shared-studio`。確認済み／欠落／外部の3点を使う検証専用原稿。
+`verify:shared-image-preflight`、`verify:shared-runtime`、`verify:shared-image-preflight-browser`で
+読み取り制限・原稿不変・I/O中の変更拒否・PC/390px表示を検証。フロント／Pages Functionsビルド成功。
+未コミット時の検証は実Firebase/R2アカウントの結合試験を代替しない。
+次の単位で、検証済み画像の非公開コピーと、画像記録・source head・共有登録を矛盾なく確定する処理を実装する。
+
+
+## 第9単位: 画像コピーと共有登録の同時確定（2026-09-23、既定無効）
+
+第8単位の確認が全画像で成功した作品に限り、所有者の明示操作で移行できる。
+POSTには既存confirmationTokenに加え、copyImages:true、imagePlanHash、requestIdを送る。
+サーバーが実体を再検証し、確認後の画像変更・原稿更新・所属変更・権限失効を拒否する。
+
+- 公開bucket bindingからWebPを読み、同一バイトを非公開R2へimmutable copyする。
+  再圧縮せず、長さ・SHA-256・保存メタデータを再読込で確認する。
+- 既知の画像スロットのみをprivate参照へ変換し、本文等を維持する。
+- I/O前に既存の画像／source容量台帳を予約。失敗時も予約済み容量を消さず、孤立コピーは非公開のまま保つ。
+  自動削除や公開元画像の削除は行わない。source操作のleaseは120秒。
+- 画像ready記録、source head、previousHead、操作完了記録、共有対応表と索引を一つのtransactionで確定する。
+  コピー失敗・最終transaction失敗では旧headと公開メタデータを保持し、共有対応表は作らない。
+- 同一requestIdでlease内の再試行が可能。確定済み作品への再試行は新たなコピーを作らない。
+  lease期限切れは原稿を再確認し、新しいrequestIdでやり直す。
+- 外部画像・欠落画像・確認上限超過・既存private参照を含む作品は引き続き登録不可。
+  実環境の有効化、実アカウント検証、共有原稿の発行・書き出しは別単位。
+
+ローカル検証は第8単位の環境変数にSHARED_IMAGE_MIGRATION_FIXTURE=trueを追加する。
+共有登録ブラウザ検証はSHARED_VERIFY_IMAGES=trueで、登録→所有者の編集権取得→保存→再読込と
+非公開画像APIの成功・表示用blob参照を検証する。実Firebase/R2の結合検証を代替しない。

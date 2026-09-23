@@ -17,6 +17,14 @@ const service=createSharedAuthoringService({db:f.db,bucket:createAuthoringBucket
 const identity={uid:'owner_1'},context=await service.access(identity,'book_library');
 const source=JSON.parse(new TextDecoder().decode((await service.load(identity,'book_library',context)).bytes));
 source.blocks=[createFlowGroupBlock({id:'flow_shared',sourceLanguage:'ja',document:{schemaVersion:2,id:'document_shared',sections:[{id:'chapter_shared',blocks:[{id:'paragraph_shared',type:'paragraph',texts:{ja:'港の図書館に、灯台から一通の手紙が届いた。司書は封を開き、静かに読み始めた。'}}]}]}})];delete source.sections;delete source.pages;
+const imagePreflightFixture=process.env.SHARED_IMAGE_PREFLIGHT_FIXTURE==='true';
+const preflightBytes=Uint8Array.from(Buffer.from('UklGRiIAAABXRUJQVlA4IBYAAAAwAQCdASoBAAEADsD+JaQAA3AAAAAA','base64'));
+const preflightPublicBucket={async get(key){return key==='users/owner_1/dsf/cover.webp'?{size:preflightBytes.length,httpMetadata:{contentType:'image/webp'},body:new Response(preflightBytes).body}:null;}};
+if(imagePreflightFixture)source.blocks.push(
+ {id:'cover',kind:'page',content:{pageKind:'image',background:'https://media.example.invalid/users/owner_1/dsf/cover.webp',thumbnail:'https://media.example.invalid/users/owner_1/dsf/cover.webp'}},
+ {id:'missing',kind:'page',content:{pageKind:'image',background:'https://media.example.invalid/users/owner_1/dsf/missing.webp'}},
+ {id:'external',kind:'page',content:{pageKind:'image',background:'https://external.example.invalid/photo.webp'}});
+if(process.env.SHARED_IMAGE_MIGRATION_FIXTURE==='true')source.blocks=source.blocks.filter(b=>!['missing','external'].includes(b.id));
 const head=f.docs.get('users/owner_1/projects/book_library/authoringHeads/current');
 await service.save(identity,'book_library',{snapshot:await createPrivateAuthoringSnapshot(source),generationId:head.generationId,baseRevision:head.revision,requestId:'studio_flow_seed'});
 const registrationMode=process.env.SHARED_REGISTRATION_FIXTURE==='true';
@@ -25,7 +33,7 @@ if(registrationMode){
  f.docs.delete('publishing_work_scopes/work_library');
  const index=f.docs.get('publishing_space_catalogues/space_demo');index.workIds=index.workIds.filter(id=>id!=='work_library');
  const catalogue=f.docs.get('users/owner_1/publishing/catalogue');catalogue.schemaVersion=1;catalogue.revision=1;
- shared.handler=createSharedRuntime({db:f.db,privateBucket:shared.r2,assertLiveIdentity:f.assertLiveIdentity,now:()=>Date.now()+clockOffset,
+ shared.handler=createSharedRuntime({db:f.db,privateBucket:shared.r2,publicBucket:preflightPublicBucket,publicBaseUrl:'https://media.example.invalid',assertLiveIdentity:f.assertLiveIdentity,now:()=>Date.now()+clockOffset,
   verifyToken:async token=>/^fixture-(owner_1|reader_1|reader_2|admin_1)$/.test(token)?{uid:token.slice(8)}:null});
 }
 let publicWrites=0,personalWrites=0;

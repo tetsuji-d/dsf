@@ -1170,3 +1170,11 @@ spaceId / workId / ownerUid / projectId / labelId（初期null）。作成時に
 既存対応表の変更／移動は不可。旧所属変更APIも共有作品の移動を拒否する。
 初期の対象は画像なしprivate原稿。実環境の許可設定・Rules変更は未実施。
 詳細は `docs/publishing-invitations.md` 第7単位。
+
+
+第9単位（2026-09-23、既定無効）は検証済みの公開画像付き原稿にも共有登録を拡張する。
+既存authoringRevisions操作台帳にsharedRegistration（spaceId/workId/confirmationToken/imagePlanHash）を
+保存し、requestIdの用途混同を防ぐ。画像pending記録と容量予約を先行し、ready記録・source head・
+previousHead・操作完了・共有対応表・索引は同一transactionで確定する。
+個人catalogueと公開メタデータ、公開Release、公開元画像は変更しない。
+詳細は `docs/publishing-invitations.md` 第9単位。

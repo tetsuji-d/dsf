@@ -1,3 +1,5 @@
+import {mapSharedImageSlots,privateImageRef} from '../js/shared-authoring-assets.js';
+import {createPrivateAuthoringSnapshot} from '../js/private-authoring-storage.js';
 import {encodeFirestoreValue,decodeFirestoreValue} from '../server/private-authoring/firestore.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -8,7 +10,7 @@ import {AuthoringApiError} from '../server/private-authoring/common.js';
 const spaceId='space_aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',root='users/owner_1/projects/project_1';
 const scope={spaceId,workId:'work_1',ownerUid:'owner_1',projectId:'project_1',actorUids:['owner_1','editor_1','viewer_1','outsider_1']};
 const env={SHARED_AUTHORING_ENABLED:'true',SHARED_AUTHORING_TEST_SCOPES:JSON.stringify([scope])};
-async function setup(project){
+async function setup(project,extra={}){
  const f=fixture();await f.request('PUT',{project:project||f.project});
  Object.assign(f.db.docs.get('users/owner_1'),{status:{disabled:false,moderationHold:false},entitlements:{canCreateProject:true}});
  f.db.docs.set('publishing_spaces/'+spaceId,{schemaVersion:1,ownerUid:'owner_1',name:'図書館出版'});
@@ -18,7 +20,7 @@ async function setup(project){
   if(role)f.db.docs.set('users/'+uid+'/spaceMemberships/'+spaceId,{uid,spaceId,status:'active',role:'member',grants:[{role,scope:'work',targetId:'work_1'}]});
  }
  let authCalls=0,revoked=false;
- const handler=createSharedRuntime({db:f.db,privateBucket:f.r2,verifyToken:async token=>{authCalls++;if(!token.startsWith('valid-'))throw new AuthoringApiError('AUTH_INVALID',401);return {uid:token.slice(6)};},assertLiveIdentity:async()=>{if(revoked)throw new AuthoringApiError('AUTH_REVOKED',401);}});
+ const handler=createSharedRuntime({db:f.db,privateBucket:f.r2,publicBucket:extra.publicBucket,publicBaseUrl:'https://media.test',verifyToken:async token=>{authCalls++;if(!token.startsWith('valid-'))throw new AuthoringApiError('AUTH_INVALID',401);return {uid:token.slice(6)};},assertLiveIdentity:async()=>{if(revoked)throw new AuthoringApiError('AUTH_REVOKED',401);}});
  const call=(path='sharing',options={})=>handler({env:options.env||env,request:new Request('https://studio.test/api/spaces/'+(options.spaceId||spaceId)+'/works/'+(options.workId||'work_1')+'/'+path,{method:options.method||'GET',headers:{Authorization:'Bearer valid-'+(options.uid||'owner_1'),'Content-Type':'application/json',...options.headers},...(options.body?{body:JSON.stringify(options.body)}:{})})});
  const prepare=async()=>{const r=await call();assert.equal(r.status,200);return r.json();};
  const register=async(prepared)=>call('sharing',{method:'POST',body:{kind:'register',confirmationToken:prepared.confirmationToken}});
@@ -113,4 +115,71 @@ await test('registration rejects malformed bodies and non-owner calls without mo
  await code(await f.call('sharing',{method:'POST',body:{padding:'x'.repeat(2100)}}),413,'BODY_TOO_LARGE');
  await code(await f.call('sharing',{uid:'viewer_1'}),403,'OWNER_REQUIRED');
  assert.deepEqual([...f.db.docs],before);
+});
+
+await test('managed image inspection preserves source and rechecks assignment after public bucket I/O',async()=>{
+ const bytes=Uint8Array.from(Buffer.from('UklGRiIAAABXRUJQVlA4IBYAAAAwAQCdASoBAAEADsD+JaQAA3AAAAAA','base64'));
+ for(const change of [false,true]){
+  let f;const publicBucket={get:async()=>{if(change)f.db.docs.get('users/owner_1/publishing/catalogue').revision++;return {size:bytes.length,httpMetadata:{contentType:'image/webp'},body:new Response(bytes).body};}};
+  f=await setup({...fixture().project,blocks:[{id:'image_1',kind:'page',content:{background:'https://media.test/users/owner_1/dsf/cover.webp'}}]},{publicBucket});
+  const head=structuredClone(f.db.docs.get(root+'/authoringHeads/current')),puts=f.r2.puts;
+  const r=await f.call();
+  if(change)await code(r,409,'SHARED_PREPARATION_CHANGED');
+  else {assert.equal(r.status,200);const p=await r.json();assert.equal(p.ready,true);assert.equal(p.images.copyable,true);assert.equal(p.images.verifiedBytes,bytes.length);}
+  assert.deepEqual(f.db.docs.get(root+'/authoringHeads/current'),head);assert.equal(f.r2.puts,puts);assert(!f.db.docs.has('publishing_work_scopes/work_1'));
+ }
+});
+
+const migrationBytes=Uint8Array.from(Buffer.from('UklGRiIAAABXRUJQVlA4IBYAAAAwAQCdASoBAAEADsD+JaQAA3AAAAAA','base64'));
+async function migrationFixture(){
+ const project={...fixture().project,notes:'本文中のURL https://media.test/users/owner_1/dsf/cover.webp は変更しない',blocks:[{id:'img',kind:'page',content:{pageKind:'image',background:'https://media.test/users/owner_1/dsf/cover.webp'}}]};
+ const publicBucket={get:async()=>({size:migrationBytes.length,httpMetadata:{contentType:'image/webp'},body:new Response(migrationBytes).body})};
+ const f=await setup(project,{publicBucket});
+ const p=await f.prepare();
+ const command={kind:'register',confirmationToken:p.confirmationToken,copyImages:true,imagePlanHash:p.images.imagePlanHash,requestId:'migration_1'};
+ return {...f,project,publicBucket,p,command,migrate:()=>f.call('sharing',{method:'POST',body:command})};
+}
+await test('image migration verifies private copies and atomically commits source, records and binding; retry is harmless',async()=>{
+ const f=await migrationFixture(),oldRoot=structuredClone(f.db.docs.get(root)),oldHead=structuredClone(f.db.docs.get(root+'/authoringHeads/current'));
+ const r=await f.migrate();assert.equal(r.status,200,await r.clone().text());
+ assert.equal((await r.json()).imagesCopied,1);
+ assert.deepEqual(f.db.docs.get(root),oldRoot);
+ assert.equal(f.db.docs.get(root+'/authoringHeads/current').revision,2);
+ assert.deepEqual(f.db.docs.get(root+'/authoringControl/current').previousHead,oldHead);
+ const source=await (await f.call('authoring')).json();
+ assert(JSON.stringify(source).includes('assets/private/'));const expected=await createPrivateAuthoringSnapshot(await mapSharedImageSlots(f.project,()=>privateImageRef(f.p.images.entries[0].sha256)));assert.deepEqual(source,expected.project);
+ const ready=[...f.db.docs].filter(([p])=>p.includes('/privateImageGenerations/'));assert.equal(ready.length,1);assert.equal(ready[0][1].status,'ready');
+ const puts=f.r2.puts;assert.equal((await f.migrate()).status,200);assert.equal(f.r2.puts,puts);
+});
+await test('migration requires exact image plan and explicit consent before storage writes',async()=>{
+ for(const change of [{copyImages:false},{imagePlanHash:'0'.repeat(64)},{requestId:'../bad'}]){
+  const f=await migrationFixture(),before=structuredClone([...f.db.docs]),puts=f.r2.puts;
+  Object.assign(f.command,change);assert.equal((await f.migrate()).status,change.requestId?400:409);
+  assert.deepEqual([...f.db.docs],before);assert.equal(f.r2.puts,puts);
+ }
+});
+await test('copy and finalization failures retain original source and leave no sharing boundary',async()=>{
+ for(const mode of ['put','final','changed','revoke','corrupt']){
+  const f=await migrationFixture(),head=structuredClone(f.db.docs.get(root+'/authoringHeads/current'));
+  if(mode==='put')f.r2.failPut=true;
+  if(mode==='final')f.db.failFinal=true;
+  if(mode==='changed'||mode==='revoke')f.r2.afterPut=()=>{if(mode==='changed')f.db.docs.get('users/owner_1/publishing/catalogue').revision++;else f.revokeRuntime();};
+  if(mode==='corrupt'){const get=f.r2.get.bind(f.r2);f.r2.get=async key=>{const o=await get(key);if(key.startsWith('authoring-images/'))o.customMetadata.sha256='0'.repeat(64);return o;};}
+  const r=await f.migrate();assert(r.status>=400,mode);assert.deepEqual(f.db.docs.get(root+'/authoringHeads/current'),head,mode);
+  assert(!f.db.docs.has('publishing_work_scopes/work_1'),mode);
+  assert(![...f.db.docs].some(([p,v])=>p.includes('/privateImageGenerations/')&&v.status==='ready'),mode);
+ }
+});
+await test('lost final response can be retried without duplicating migration',async()=>{
+ const f=await migrationFixture();f.db.loseFinalReply=true;
+ assert.equal((await f.migrate()).status,503);
+ assert(f.db.docs.has('publishing_work_scopes/work_1'));
+ assert.equal((await f.migrate()).status,200);assert.equal(f.db.docs.get(root+'/authoringHeads/current').revision,2);
+});
+
+await test('failed final transaction can be retried with the same request and no double storage reservation',async()=>{
+ const f=await migrationFixture();f.db.failFinal=true;assert.equal((await f.migrate()).status,503);
+ const reserved=f.db.docs.get('users/owner_1/privateImageUsage/current').reservedBytes;
+ f.db.failFinal=false;assert.equal((await f.migrate()).status,200);
+ assert.equal(f.db.docs.get('users/owner_1/privateImageUsage/current').reservedBytes,reserved);
 });
