@@ -93,6 +93,11 @@ export function createPublishingSpacesService({ db, assertLiveIdentity, now = Da
                 if (previous === command.spaceId) return result(); // Lost response: safe exact retry.
                 const sharedRecords=await tx.getMany([...(project.workId?['publishing_work_scopes/'+segment(project.workId)]:[]),accountPath+'/projects/'+command.projectId+'/authoringLocks/current']);
                 check(sharedRecords.every(record=>!record),'SHARED_WORK_MOVE_UNAVAILABLE',409);
+                if(project.workId){
+                    const [personal]=await tx.getMany(['personal_work_shares/'+segment(project.workId)]);
+                    if(personal){const invites=await tx.getMany(personal.invitationIds.map(id=>'personal_work_invitations/'+segment(id)));
+                        check(!invites.some(i=>i?.status==='accepted'||(i?.status==='pending'&&(i.expiresAt===null||i.expiresAt>Date.now()))),'PERSONAL_SHARING_ACTIVE',409);}
+                }
                 check(previous === command.expectedSpaceId, 'SPACE_CONFLICT', 409);
             }
             if (command.kind === 'create' && space) {
@@ -218,7 +223,7 @@ export async function handlePublishingSpaces(context) {
             handler = createPublishingSpacesApi({
                 verifyToken: createIdTokenVerifier({ projectId: context.env.FIREBASE_PROJECT_ID }),
                 service: createPublishingSpacesService({
-                    db: createFirestoreStore(google, { additionalRootCollections: ['publishing_spaces', 'publishing_work_scopes'] }),
+                    db: createFirestoreStore(google, { additionalRootCollections: ['publishing_spaces', 'publishing_work_scopes', 'personal_work_shares', 'personal_work_invitations'] }),
                     assertLiveIdentity: google.assertLiveIdentity,
                     bucket: context.env.AUTHORING_BUCKET && context.env.AUTHORING_BUCKET !== context.env.R2_BUCKET ? context.env.AUTHORING_BUCKET : null,
                 }),

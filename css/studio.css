@@ -10457,3 +10457,10 @@ body.strip-collapsed #page-strip:has(.flow-thumb-group) { height: 42px; }
 .home-settings-nav button[aria-pressed="true"]{color:#1354b9;background:#e8f0ff;border-color:#82aaff}
 
 .home-settings-nav[hidden]{display:none}
+
+/* My space: invitations share only the selected saved project. */
+.personal-sharing-inbox { margin-block: 20px; padding: 20px; border: 1px solid var(--border-color, #d8dfec); border-radius: 12px; }
+.personal-sharing-inbox article { padding: 16px 0; border-bottom: 1px solid var(--border-color, #d8dfec); }
+.personal-sharing-inbox article:last-child { border-bottom: 0; }
+.personal-sharing-inbox button { margin-inline-end: 8px; margin-block: 6px; }
+.personal-sharing-inbox p { overflow-wrap: anywhere; }

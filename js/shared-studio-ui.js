@@ -18,7 +18,7 @@ export function installSharedStudioUI({getUILang,checkAccess,lockAction,doc=docu
         if(syncing)return;syncing=true;
         try{
             const access=readSharedStudioAccess(),readonly=!!access&&!canEditSharedStudio(),en=getUILang()==='en';
-            const text=!access?'':access.status==='loading'?(en?'Opening shared manuscript…':'共有原稿を開いています…'):access.status==='disconnected'?(en?'Connection unavailable. Unsaved changes remain in this tab.':'接続を確認できません。未保存の変更はこのタブで保持しています。'):access.status!=='ready'?(en?'Access unavailable. Reopen the work from your space.':'閲覧権限を確認できません。出版スペースから開き直してください。'):
+            const text=!access?'':access.status==='loading'?(en?'Opening shared manuscript…':'共有原稿を開いています…'):access.status==='disconnected'?(en?'Connection unavailable. Unsaved changes remain in this tab.':'接続を確認できません。未保存の変更はこのタブで保持しています。'):access.status!=='ready'?(access.spaceId==='personal'?(en?'Access unavailable. Reopen from shared projects.':'閲覧権限を確認できません。共有された作品の一覧から開き直してください。'):(en?'Access unavailable. Reopen the work from your space.':'閲覧権限を確認できません。出版スペースから開き直してください。')):
                 access.canEdit?(en?'Shared manuscript · Editing · Saved to its publishing space':'共有原稿・編集可 ／ 出版スペースの原稿へ保存'):(access.lock?.holderName?(en?'Editing: '+access.lock.holderName+' · Read only':access.lock.holderName+' さんが編集中 ／ 閲覧のみ'):(en?'Shared manuscript · Read only':'共有原稿・閲覧のみ'));
             note.style.display=access?'flex':'none';if(message.textContent!==text)message.textContent=text;
             const buttons=[];

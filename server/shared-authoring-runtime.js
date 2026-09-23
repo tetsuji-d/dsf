@@ -1,3 +1,4 @@
+import {handlePersonalSharing} from './personal-sharing-runtime.js';
 import {check,segment,parseJson,readBounded,AuthoringApiError} from './private-authoring/common.js';
 import {createGoogleClient,createIdTokenVerifier} from './private-authoring/google-auth.js';
 import {createFirestoreStore} from './private-authoring/firestore.js';
@@ -62,6 +63,7 @@ export function createSharedRuntime({db,privateBucket,publicBucket,publicBaseUrl
 export const createSharedRuntimeStore=google=>createFirestoreStore(google,{additionalRootCollections:['publishing_spaces','publishing_labels','publishing_work_scopes','publishing_space_catalogues']});
 const runtimes=new WeakMap();
 export async function handleSharedAuthoring(context){
+    if(new URL(context.request.url).pathname.startsWith('/api/spaces/personal/works/'))return handlePersonalSharing(context);
     try{
         readSharedRollout(context.env); // Disabled or malformed configuration performs no Auth/Firestore/R2 I/O.
         check(context.env.AUTHORING_BUCKET&&context.env.AUTHORING_BUCKET!==context.env.R2_BUCKET,'CONFIG_AUTHORING_BUCKET');

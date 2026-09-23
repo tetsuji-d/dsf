@@ -1190,3 +1190,22 @@ previousHead・操作完了・共有対応表・索引は同一transactionで確
 `publishing-spaces/{uid}/my-space/{sha256}.webp` に保存する。カタログにはhashのみを記録する。
 取得は認証付き `readImage`（`spaceId:null`）から本人だけに返す。公開URLを発行しない。
 出版スペースの新設、所属・共有権限変更、作品の公開操作は行わない。既存のカタログのサーバー専用書込経路を使用し、Rules変更は不要。
+
+
+### My space: per-project read-only invitations (2026-09-23)
+
+A personal share is **not** a publishing space or space membership. Its saved source remains owned by the original account. This additive model does not change DSP/DSF files or public releases.
+
+- `personal_work_shares/{workId}`: immutable owner/project/generation binding, bounded invitation ID index (100 per work).
+- `personal_work_invitations/{id}`: server-only owner, recipient, work, generation, display labels, created/updated times, acceptance deadline, and pending/accepted/declined/revoked state.
+- `users/{uid}/personalSharing/inbox`: server-only recipient invitation index (200 entries); `lookup` and `usage` hold lookup/invitation rate limits.
+- These paths have no client Firestore grant. Access uses verified Firebase identity through the server. No new broad Firestore rule is required.
+- `POST /api/personal-sharing`: prepare, outbox, lookup by Horizon ID, invite, inbox, accept, decline, revoke. The owner outbox and revocation remain usable even when source readiness fails. Invite pins the prepared generation and saved revision. Exact invitation IDs make an uncertain send retry idempotent. Limit: 30 invitations/day/account, 20 lookups/minute/account. No email addresses returned.
+- Deadlines: 1/3/7/14/30 days or none. They limit **acceptance**; accepted access lasts until revoked. A recipient cannot accept someone else's invitation. Revocation is final for that invitation; re-inviting creates a new ID.
+- `GET /api/spaces/personal/works/{workId}/context|authoring|assets/{hash}` uses a reserved routing scope, not a membership. All writes/lock operations are denied. Every read validates the binding, active owner/recipient, current personal assignment, and generation; source and asset reads recheck access after storage I/O.
+- Latest saved source is loaded when opening; this is not live coediting. Already delivered content cannot be recalled by revocation. The open Studio checks access periodically and on visibility changes, and remains read-only.
+- First unit requires private R2 authoring and private image references. Preparation reads and validates the actual saved source; legacy source or public/external image references produce a readiness error. It neither publishes nor automatically migrates data.
+- Moving a work with pending (not expired) or accepted personal invitations is rejected until sharing is revoked. Restored/recreated source generations cannot inherit old grants.
+- Rollout defaults off: `PERSONAL_SHARING_ENABLED=true` and a JSON `PERSONAL_SHARING_ACTOR_UIDS` list (1–20 UIDs) are both required. The current Studio reader also requires `VITE_SHARED_STUDIO_ENABLED=true`. No staging/production variables are changed by this implementation.
+- UI: My space cloud project menu → Share; My space Settings/Invitations → Shared with me and invitation bell. View-only first; friend lists, edit grants, general rollout and index retention/archival are later units.
+- Isolated verification: `PERSONAL_SHARING_FIXTURE=true PORT=5246 node scripts/serve-shared-studio-fixture.js`; `/scripts/fixtures/personal-sharing-ui.html?actor=owner` and `?actor=reader`. Real Studio rendering uses fixture identities and storage, with no public cloud writes.

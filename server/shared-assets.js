@@ -5,10 +5,10 @@ import {inspectDsfWebPBytes,sha256DsfBytes} from '../js/dsf-release-byte-sealing
 import {privateImageRef,privateImageHash,mapSharedImageSlots} from '../js/shared-authoring-assets.js';
 export const SHARED_IMAGE_MAX_BYTES=25*1024*1024;
 // Only a dedicated private bucket is accepted by the runtime. No public URL is produced.
-export function createSharedAssets({db,bucket,assertLiveIdentity,spaceId,workId,now=Date.now,assertEditLock=null}) {
+export function createSharedAssets({db,bucket,assertLiveIdentity,spaceId,workId,now=Date.now,assertEditLock=null,resolveAccess=null}) {
     segment(spaceId);segment(workId);
     async function context(tx,identity,write=false) {
-        const access=await resolveSpaceWorkAccess(tx,{actorUid:identity.uid,spaceId,workId,action:write?'editWork':'readWork'});
+        const access=resolveAccess ? await resolveAccess(tx,identity,write?'editWork':'readWork') : await resolveSpaceWorkAccess(tx,{actorUid:identity.uid,spaceId,workId,action:write?'editWork':'readWork'});
         if(write&&assertEditLock)await assertEditLock(tx,identity);
         const source=await readContext(tx,{uid:access.ownerUid},access.projectId);
         return {...access,generationId:source.scope.generationId,prefix:source.p.root};

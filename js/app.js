@@ -1,3 +1,4 @@
+import {createPersonalSharingClient,openPersonalSharingDialog} from './personal-sharing-ui.js';
 import {renderJoinedSpaceWorks} from './joined-space-works.js';
 import {projectActionsMarkup,bindProjectActions,openProjectSpaceDialog} from './project-actions-ui.js';
 import {openProjectCopyDialog} from './project-copy-ui.js';
@@ -4314,7 +4315,7 @@ function syncSpaceMembersSettings() {
     const root = document.getElementById('home-space-members');
     if (!root) return;
     if (!spaceMembersSettings) spaceMembersSettings = createSpaceMembersSettings({ root, getLocale:getUILang,
-        execute:createInvitationsClient({getUser:()=>firebaseAuth.currentUser}) });
+        execute:createInvitationsClient({getUser:()=>firebaseAuth.currentUser}),personalExecute:createPersonalSharingClient({getUser:()=>firebaseAuth.currentUser}) });
     const selected=getPublishingSpaceUI().joinedSelection();
     spaceMembersSettings.update({uid:state.uid,spaceId:getPublishingSpaceUI().selection(),manageMembers:!selected||selected.canManageMembers===true});
 }
@@ -4402,7 +4403,7 @@ function renderHomeCard(project, source) {
                 </div>
             </div>
         </button>
-        ${source === 'cloud' ? projectActionsMarkup(project,getUILang()==='en') : ''}
+        ${source === 'cloud' ? projectActionsMarkup(project,getUILang()==='en',!!getPublishingSpaceUI().destinations()&&!getPublishingSpaceUI().destinations().assignments[project.id]) : ''}
         </div>
     `;
 }
@@ -4867,6 +4868,7 @@ async function renderHomeDashboard({ refreshSpaces = true, forceRefresh = false 
         const destinations=spaceUI.destinations();
         if(!destinations){alert(en?'Publishing spaces could not be loaded. Refresh the list.':'出版スペースを取得できませんでした。一覧を更新してください。');return;}
         const owner=state.uid;
+        if(action==='share'){if(destinations.assignments[pid])return;openPersonalSharingDialog({projectId:pid,name:displayName,getLocale:getUILang,isCurrent:()=>state.uid===owner,execute:createPersonalSharingClient({getUser:()=>firebaseAuth.currentUser})});return;}
         if(action==='copy')openProjectCopyDialog({name:displayName,spaces:destinations.spaces,defaultSpaceId:destinations.assignments[pid]||null,getLocale:getUILang,
             createJob:()=>{if(state.uid!==owner)throw new Error('AUTH_CHANGED');return newCloudProjectCopyJob(pid);},
             onCreated:async result=>{if(state.uid!==owner)return;await renderHomeDashboard({forceRefresh:true});spaceUI.select(result.spaceId||'unassigned');}});

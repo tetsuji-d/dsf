@@ -1,3 +1,4 @@
+import {createPersonalSharingRuntime} from '../server/personal-sharing-runtime.js';
 import {createSharedRuntime} from '../server/shared-authoring-runtime.js';
 import {createAuthoringService} from '../server/private-authoring/service.js';
 import {createAuthoringApi} from '../server/private-authoring/http.js';
@@ -27,6 +28,14 @@ if(imagePreflightFixture)source.blocks.push(
 if(process.env.SHARED_IMAGE_MIGRATION_FIXTURE==='true')source.blocks=source.blocks.filter(b=>!['missing','external'].includes(b.id));
 const head=f.docs.get('users/owner_1/projects/book_library/authoringHeads/current');
 await service.save(identity,'book_library',{snapshot:await createPrivateAuthoringSnapshot(source),generationId:head.generationId,baseRevision:head.revision,requestId:'studio_flow_seed'});
+const personalMode=process.env.PERSONAL_SHARING_FIXTURE==='true';
+const personalEnv={PERSONAL_SHARING_ENABLED:'true',PERSONAL_SHARING_ACTOR_UIDS:JSON.stringify(['owner_1','reader_1','reader_2'])};
+let personalHandler;
+if(personalMode){
+ f.docs.delete('publishing_work_scopes/work_library');delete f.docs.get('users/owner_1/publishing/catalogue').assignments.book_library;
+ personalHandler=createPersonalSharingRuntime({db:f.db,privateBucket:shared.r2,assertLiveIdentity:f.assertLiveIdentity,
+  verifyToken:async t=>/^fixture-(owner_1|reader_1|reader_2)$/.test(t)?{uid:t.slice(8)}:null});
+}
 const registrationMode=process.env.SHARED_REGISTRATION_FIXTURE==='true';
 const sharedEnv={SHARED_AUTHORING_ENABLED:'true',SHARED_AUTHORING_TEST_SCOPES:JSON.stringify([{spaceId:'space_demo',workId:'work_library',ownerUid:'owner_1',projectId:'book_library',actorUids:['owner_1','reader_1','reader_2','admin_1']}])};
 if(registrationMode){
@@ -68,6 +77,7 @@ configureServer(server){server.middlewares.use(async(req,res,next)=>{try{
  if(url.pathname==='/fixture/status')return res.end(JSON.stringify({head:f.docs.get('users/owner_1/projects/book_library/authoringHeads/current'),publicWrites,personalWrites,participantProject:f.docs.has('users/reader_1/projects/book_library')}));
  if(url.pathname==='/fixture/role'&&req.method==='POST'){const {role}=JSON.parse(bytes),m=f.docs.get('users/reader_1/spaceMemberships/space_demo');if(role==='revoked')m.status='revoked';else {m.status='active';m.grants[0].role=role;}return res.end('{}');}
  if(url.pathname==='/upload'){publicWrites++;res.statusCode=403;return res.end('{}');}
+ if(personalMode&&(url.pathname==='/api/personal-sharing'||url.pathname.startsWith('/api/spaces/personal/'))){const response=await personalHandler({env:personalEnv,request:new Request(url,{method:req.method,headers:req.headers,...(['PUT','POST'].includes(req.method)?{body:bytes}:{})})});res.writeHead(response.status,Object.fromEntries(response.headers));return res.end(Buffer.from(await response.arrayBuffer()));}
  const ownerRoute=/^\/api\/projects\/(book_library)\/(authoring|actions)$/.exec(url.pathname);
  if(ownerRoute){const response=await ownerHandler({env:{AUTHORING_API_ENABLED:'true',AUTHORING_TEST_PROJECTS:'["owner_1/book_library"]'},params:{projectId:ownerRoute[1],actionRoute:ownerRoute[2]==='actions'},request:new Request(url,{method:req.method,headers:req.headers,...(['PUT','POST'].includes(req.method)?{body:bytes}:{})})});res.writeHead(response.status,Object.fromEntries(response.headers));return res.end(Buffer.from(await response.arrayBuffer()));}
  if(url.pathname.startsWith('/api/spaces/')){const response=await shared.handler({env:sharedEnv,request:new Request(url,{method:req.method,headers:req.headers,...(['PUT','POST'].includes(req.method)?{body:bytes}:{})})});res.writeHead(response.status,Object.fromEntries(response.headers));return res.end(Buffer.from(await response.arrayBuffer()));}

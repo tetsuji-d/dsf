@@ -1,0 +1,8 @@
+<!doctype html><html lang="ja"><meta charset="utf-8"><title>マイスペースの作品共有</title><link rel="stylesheet" href="/css/studio.css"><style>body{background:#f5f7fb;padding:40px;font-family:system-ui}main{max-width:840px;margin:auto;background:white;padding:32px;border-radius:18px}button,input,select{padding:10px;margin:8px;border:1px solid #ccd7e6;border-radius:8px;background:white}article{padding:20px;border-bottom:1px solid #ccd7e6}dialog{max-width:600px}label{display:block}</style><main><h1>マイスペース · 作品の閲覧共有</h1><p>検証専用：実際のアカウントや原稿には接続しません。</p><nav><a href="?actor=owner">招待する側</a> / <a href="?actor=reader">招待される側</a></nav><section id="content"></section></main><script type="module">
+import {createPersonalSharingClient,openPersonalSharingDialog,mountPersonalSharingInbox} from '/js/personal-sharing-ui.js';
+const owner=new URLSearchParams(location.search).get('actor')==='owner',uid=owner?'owner_1':'reader_1';
+const user={uid,getIdToken:async()=> 'fixture-'+uid};const execute=createPersonalSharingClient({getUser:()=>user});
+const root=document.getElementById('content');
+if(owner){root.innerHTML='<h2>潮騒の図書館</h2><button id="share">共有</button>';document.getElementById('share').onclick=()=>openPersonalSharingDialog({projectId:'book_library',name:'潮騒の図書館',execute});}
+else mountPersonalSharingInbox({root,execute,onOpen:i=>location.href='/studio?room=editor&sharedSpace=personal&sharedWork='+i.workId});
+</script></html>
