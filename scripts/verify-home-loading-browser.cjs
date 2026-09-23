@@ -1,4 +1,4 @@
-const {chromium}=require(process.env.DSF_PLAYWRIGHT_MODULE||'playwright');
+﻿const {chromium}=require(process.env.DSF_PLAYWRIGHT_MODULE||'playwright');
 const fs=require('node:fs'),assert=require('node:assert/strict');
 const app=fs.readFileSync('js/app.js','utf8');
 const renderer=app.slice(app.indexOf('let homeDashboardRenderRevision = 0;'),app.indexOf('// ── Studio 認証 UI',app.indexOf('let homeDashboardRenderRevision = 0;')));
@@ -9,6 +9,7 @@ const helper=fs.readFileSync('js/home-load.js','utf8').replaceAll('export ','').
  await page.addStyleTag({content:fs.readFileSync('css/studio.css','utf8')});
  await page.addScriptTag({content:helper+`
  const state={uid:'owner'},getUILang=()=> 'ja',t=k=>({home_loading:'読み込み中…',home_cloud_error:'読み込めませんでした'}[k]||k);
+ const syncSpaceMembersSettings=()=>{};
  const getHomeWorkspace=()=>({render(){}}),space={load(){},render(){},filter:p=>p,destination:()=>'',label:()=>'',selection:()=>null,bind(){}},getPublishingSpaceUI=()=>space;
  let mode='pending',calls=0,resolveOld;
  const fetchCloudProjects=()=>{calls++;return mode==='pending'?new Promise(r=>resolveOld=r):Promise.resolve([{id:mode,title:mode}]);};
@@ -36,4 +37,3 @@ const helper=fs.readFileSync('js/home-load.js','utf8').replaceAll('export ','').
  await page.screenshot({path:'outputs/home-loading-recovery.png'});
  console.log('Dashboard browser passed: animated pending state, bounded error, click retry, local stall isolation, late response rejection, reuse and forced refresh.');
 }finally{await browser.close()}})().catch(e=>{console.error(e);process.exitCode=1});
-

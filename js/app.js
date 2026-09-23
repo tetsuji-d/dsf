@@ -1,3 +1,6 @@
+import '../css/space-members-settings.css';
+import { createSpaceMembersSettings } from './space-members-settings.js';
+import { createInvitationsClient } from './publishing-invitations-transport.js';
 import { withHomeDeadline, homeLoadingMarkup } from './home-load.js';
 import '../css/home-workspace.css';
 import { createHomeWorkspace } from './home-workspace.js';
@@ -4302,7 +4305,15 @@ function formatProjectBytes(bytes) {
 }
 
 // ── Home room — ダッシュボード（クラウド / ローカル一覧） ─────────────────
-let publishingSpaceUI, homeWorkspace;
+let publishingSpaceUI, homeWorkspace, spaceMembersSettings;
+function syncSpaceMembersSettings() {
+    const root = document.getElementById('home-space-members');
+    if (!root) return;
+    if (!spaceMembersSettings) spaceMembersSettings = createSpaceMembersSettings({ root, getLocale:getUILang,
+        execute:createInvitationsClient({getUser:()=>firebaseAuth.currentUser}) });
+    spaceMembersSettings.update({uid:state.uid,spaceId:getPublishingSpaceUI().selection()});
+}
+
 function getHomeWorkspace() {
     if (!homeWorkspace) homeWorkspace = createHomeWorkspace({root:document.getElementById('home-room'),getLocale:getUILang});
     return homeWorkspace;
@@ -4714,6 +4725,7 @@ async function renderHomeDashboard({ refreshSpaces = true, forceRefresh = false 
     const spaceUI = getPublishingSpaceUI();
     if (refreshSpaces) void spaceUI.load({ notify: true });
     else spaceUI.render();
+    syncSpaceMembersSettings();
     const cloudProjectsPromise = fetchHomeCloudProjects();
     let localProjects = [], statsInput = null;
     void withHomeDeadline(listLocalRecentProjects(), 5000).then(projects => {

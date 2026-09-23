@@ -1,0 +1,9 @@
+<!doctype html><html lang="ja"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>スペース設定の確認</title><link rel="stylesheet" href="/css/space-members-settings.css"><style>body{font:16px system-ui;background:#f5f7fb;color:#20304c;margin:24px}main{max-width:960px;margin:auto}header{display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-bottom:20px}</style><main><header><strong>ローカル検証用・スペースの設定</strong><select id="actor"><option value="owner_1">所有者</option><option value="reader_1">招待先</option><option value="admin_1">管理者</option></select><button id="language">English / 日本語</button></header><section id="members" class="space-members-settings"></section></main><script type="module">
+import {createSpaceMembersSettings} from '/js/space-members-settings.js';
+import {createInvitationsClient} from '/js/publishing-invitations-transport.js';
+let lang='ja';let user;const actor=document.querySelector('#actor');
+const setUser=()=>{const uid=actor.value;user={uid,getIdToken:async()=> 'fixture-'+uid};};setUser();
+const ui=createSpaceMembersSettings({root:document.querySelector('#members'),execute:createInvitationsClient({getUser:()=>user}),getLocale:()=>lang});
+const render=()=>ui.update({uid:user.uid,spaceId:user.uid==='reader_1'?null:'space_demo'});
+actor.onchange=()=>{setUser();render();};document.querySelector('#language').onclick=()=>{lang=lang==='ja'?'en':'ja';render();};render();
+</script></html>

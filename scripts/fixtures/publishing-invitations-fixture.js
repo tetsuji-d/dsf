@@ -41,6 +41,7 @@ export function invitationsFixture({initialDocs=null,persist=async()=>{},allowAc
     for(const [p,v]of Object.entries(seeds))if(!docs.has(p))docs.set(p,v);
     const binding=docs.get('publishing_work_scopes/work_library');if(binding&&!binding.ownerUid)Object.assign(binding,{ownerUid:'owner_1',projectId:'book_library',workId:'work_library'});
     const assertLiveIdentity=async()=>check(!revoked,'AUTH_REVOKED',401);
+    db.listMemberPaths=async(spaceId,afterUid)=>[...docs.keys()].filter(p=>{const v=p.split('/');return v.length===4&&v[0]==='users'&&v[2]==='spaceMemberships'&&v[3]===spaceId&&(!afterUid||v[1]>afterUid);}).sort().slice(0,21);
     const directory=createSpaceDirectoryService({db,assertLiveIdentity,now:()=>clock});
     const service=createPublishingInvitationsService({db,now:()=>clock,allowActivation,validateScopeTargets:validateSpaceInvitationTargets,
         assertLiveIdentity});

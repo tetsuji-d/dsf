@@ -1,0 +1,23 @@
+const {chromium}=require(process.env.DSF_PLAYWRIGHT_MODULE||'playwright'),assert=require('node:assert/strict');
+(async()=>{const b=await chromium.launch({channel:'chrome',headless:true});try{
+ const p=await b.newPage({viewport:{width:1280,height:900}}),errors=[];p.on('pageerror',e=>errors.push(e.message));
+ await p.goto((process.env.DSF_INVITATIONS_FIXTURE_URL||'http://127.0.0.1:5227')+'/settings');
+ await p.getByRole('button',{name:'メンバーを招待',exact:true}).waitFor();
+ assert(await p.locator('.space-member-list').getByText('田中（管理者）',{exact:true}).isVisible());
+ await p.getByRole('button',{name:'メンバーを招待',exact:true}).click();
+ await p.locator('#invitation-handle').fill('@sato');await p.getByRole('button',{name:'相手を確認',exact:true}).click();
+ await p.locator('.invitation-recipient-preview').getByText(/sato/).waitFor();
+ await p.locator('#invitation-target').selectOption({label:'潮騒の図書館'});await p.locator('#invitation-expiry').selectOption('3');
+ await p.getByRole('button',{name:'招待内容を確認',exact:true}).click();
+ await p.getByRole('button',{name:'招待する',exact:true}).click();await p.getByText('参加待ち',{exact:true}).waitFor();
+ await p.locator('#actor').selectOption('reader_1');await p.locator('.notification-badge').getByText('1',{exact:true}).waitFor();
+ await p.locator('.notification-bell').click();await p.locator('.notification-row').click();
+ await p.getByRole('button',{name:'承諾して開く',exact:true}).click();await p.locator('.space-shared-work').getByText('潮騒の図書館',{exact:true}).waitFor();
+ await p.locator('#actor').selectOption('owner_1');await p.locator('.space-member-list').getByText('佐藤（招待先）',{exact:true}).waitFor();
+ await p.getByText('参加済み',{exact:true}).waitFor();
+ await p.screenshot({path:'outputs/space-members-settings-desktop.png'});
+ await p.setViewportSize({width:390,height:844});assert(await p.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));
+ await p.screenshot({path:'outputs/space-members-settings-mobile.png'});
+ await p.locator('#language').click();await p.getByRole('button',{name:'Invite member',exact:true}).waitFor();
+ assert.deepEqual(errors,[]);console.log('Space settings browser passed: member list, scoped invitation, expiry, recipient acceptance, shared work link, joined member, mobile width and English.');
+}finally{await b.close()}})().catch(e=>{console.error(e);process.exitCode=1});

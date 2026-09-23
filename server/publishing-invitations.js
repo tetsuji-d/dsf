@@ -1,7 +1,7 @@
 import { check, segment, AuthoringApiError, parseJson, readBounded } from './private-authoring/common.js';
 import { canManageSpaceMember, canAccessPublishingSpace, validSpaceMember } from '../js/publishing-space-access.js';
 
-// Service-only foundation. There is intentionally no deployed Pages route yet.
+// Shared by the gated Pages endpoint and local fixtures.
 // The transaction adapter is shared with private authoring; every write follows a read.
 export const INVITATION_ROOTS = ['publishing_spaces', 'publishing_invitations', 'publishing_invitation_indexes', 'publishing_invitation_audit'];
 const accountPath = uid => 'users/' + segment(uid);
@@ -24,7 +24,7 @@ function pageIds(index, cursor) {
     return index.ids.slice(index.ids.indexOf(cursor)+1,index.ids.indexOf(cursor)+21);
 }
 const publicInvite = (i, time) => ({id:i.id,spaceId:i.spaceId,spaceName:i.spaceName,inviterUid:i.inviterUid,
-    inviterName:i.inviterName,recipientUid:i.recipientUid,role:i.role,grants:i.grants,scopeLabels:i.scopeLabels,
+    inviterName:i.inviterName,recipientUid:i.recipientUid,recipientName:i.recipientName||i.recipientUid,role:i.role,grants:i.grants,scopeLabels:i.scopeLabels,
     createdAt:i.createdAt,expiresAt:i.expiresAt,status:effective(i,time)});
 export function createPublishingInvitationsService({db,assertLiveIdentity,validateScopeTargets,now=Date.now,allowActivation=false}) {
     async function execute(identity, command) {
@@ -53,7 +53,8 @@ export function createPublishingInvitationsService({db,assertLiveIdentity,valida
                 if (kind === 'outbox') {
                     const ids=pageIds(out,command.cursor), items=await tx.getMany(ids.map(invitePath));
                     check(items.every(i=>i?.spaceId===spaceId),'INDEX_INVALID');
-                    return {items:items.map(i=>publicInvite(i,time)),nextCursor:ids.length && out.ids.indexOf(ids.at(-1))<out.ids.length-1 ? ids.at(-1):null};
+                    const people=await tx.getMany(items.map(i=>accountPath(i.recipientUid)));
+                    return {items:items.map((i,j)=>publicInvite({...i,recipientName:people[j]?.publicProfile?.displayName||people[j]?.displayName||i.recipientUid},time)),nextCursor:ids.length && out.ids.indexOf(ids.at(-1))<out.ids.length-1 ? ids.at(-1):null};
                 }
                 check(account.entitlements?.canCreateProject===true,'EDIT_FORBIDDEN',403);
                 const recipientUid=segment(command.recipientUid), id=command.id;
@@ -141,6 +142,7 @@ export function createPublishingInvitationsApi({service,verifyToken,directory=nu
         const response=(data,status=200)=>Response.json(data,{status,headers:{'Cache-Control':'private, no-store','CDN-Cache-Control':'no-store','X-Content-Type-Options':'nosniff',Vary:'Authorization, Origin'}});
         try {
             check(env.PUBLISHING_INVITATIONS_ENABLED==='true','INVITATIONS_DISABLED',503);
+            check(request.headers.get('Sec-Fetch-Site')!=='cross-site','ORIGIN_FORBIDDEN',403);
             check(request.method==='POST','METHOD_NOT_ALLOWED',405);
             check(!request.headers.get('Origin')||request.headers.get('Origin')===new URL(request.url).origin,'ORIGIN_FORBIDDEN',403);
             check(/^application\/json(?:\s*;\s*charset=utf-8)?$/i.test(request.headers.get('Content-Type')||''),'CONTENT_TYPE_INVALID',415);
@@ -149,6 +151,7 @@ export function createPublishingInvitationsApi({service,verifyToken,directory=nu
             check(token,'AUTH_REQUIRED',401);
             const identity=await verifyToken(token[1]);check(identity?.uid,'AUTH_INVALID',401);
             const command=parseJson(await readBounded(request.body,16384));
+            if(directory&&command?.kind==='listMembers')return response(await directory.listMembers(identity,command));
             if(directory&&command?.kind==='resolveRecipient')return response(await directory.resolveRecipient(identity,command));
             if(directory&&command?.kind==='listSpaceWorks')return response(await directory.listWorks(identity,command));
             return response(await service.execute(identity,command));

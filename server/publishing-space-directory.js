@@ -55,6 +55,28 @@ export async function validateSpaceInvitationTargets(tx,space,grants){
 }
 export function createSpaceDirectoryService({db,assertLiveIdentity,now=Date.now}){
     return {
+        async listMembers(identity,{spaceId,afterUid=null}) {
+            segment(spaceId);if(afterUid!==null)segment(afterUid);
+            const authorize=async tx=>{const c=await readSpacePrincipal(tx,identity.uid,spaceId);
+                check(canAccessPublishingSpace(c,'manageMembers'),'SPACE_FORBIDDEN',403);return c;};
+            await assertLiveIdentity(identity);await db.transaction(authorize);
+            check(typeof db.listMemberPaths==='function','MEMBERS_UNAVAILABLE',503);
+            const paths=await db.listMemberPaths(spaceId,afterUid);
+            check(Array.isArray(paths)&&paths.length<=21&&new Set(paths).size===paths.length,'MEMBERS_UNAVAILABLE',503);
+            const ids=paths.map(path=>{const parts=path.split('/');check(parts.length===4&&parts[0]==='users'&&parts[2]==='spaceMemberships'&&parts[3]===spaceId,'MEMBERS_UNAVAILABLE',503);segment(parts[1]);return parts[1];});
+            await assertLiveIdentity(identity);
+            return db.transaction(async tx=>{
+                const c=await authorize(tx),selected=ids.slice(0,20),records=await tx.getMany(paths.slice(0,20));
+                const users=await tx.getMany(selected.map(uid=>'users/'+uid));
+                const items=[];
+                records.forEach((m,i)=>{const uid=selected[i],a=users[i];if(uid===c.space.ownerUid||!m||m.status!=='active')return;
+                    check(m.uid===uid&&validSpaceMember(m,spaceId),'MEMBERS_UNAVAILABLE',503);
+                    items.push({uid,displayName:a?.publicProfile?.displayName||a?.displayName||uid,role:m.role,grants:m.grants,
+                        available:live(a,uid),joinedAt:m.joinedAt??null});});
+                return {space:{id:spaceId,name:c.space.name},owner:{uid:c.space.ownerUid,displayName:c.owner.publicProfile?.displayName||c.owner.displayName||c.space.ownerUid,role:'owner',grants:[]},
+                    items,nextCursor:ids.length>20?selected.at(-1):null};
+            });
+        },
         async resolveRecipient(identity,{spaceId,handle}){
             await assertLiveIdentity(identity);
             check(typeof handle==='string'&&/^@?[a-z0-9_]{4,20}$/.test(handle),'INVALID_HANDLE',400);
@@ -77,7 +99,7 @@ export function createSpaceDirectoryService({db,assertLiveIdentity,now=Date.now}
                 tx.set(usagePath,{minute,count:count+1});return {recipient:result};
             });
         },
-        async listWorks(identity,{spaceId,afterId=null}){
+        async listWorks(identity,{spaceId,afterId=null,forInvitation=false}){
             await assertLiveIdentity(identity);
             return db.transaction(async tx=>{
                 const context=await readSpacePrincipal(tx,identity.uid,spaceId);
@@ -96,6 +118,14 @@ export function createSpaceDirectoryService({db,assertLiveIdentity,now=Date.now}
                     allowed.push({workId:id,projectId:item.binding.projectId,title:item.root.title||item.root.projectName||id,
                         labelId:item.binding.labelId,canEdit:canAccessPublishingSpace(context,'editWork',resource)
                             &&context.actor.entitlements?.canCreateProject===true&&context.owner.entitlements?.canCreateProject===true});
+                }
+                if(forInvitation){
+                    check(canAccessPublishingSpace(context,'manageMembers'),'SPACE_FORBIDDEN',403);
+                    const labelIds=[...new Set(allowed.map(w=>w.labelId).filter(Boolean))];
+                    const labels=await tx.getMany(labelIds.map(id=>'publishing_labels/'+id));
+                    return {targets:[{scope:'space',name:context.space.name},
+                        ...labels.flatMap((label,i)=>label?.spaceId===spaceId&&label.status!=='deleted'?[{scope:'label',targetId:labelIds[i],name:label.name}]:[]),
+                        ...allowed.map(w=>({scope:'work',targetId:w.workId,name:w.title}))]};
                 }
                 const offset=afterId===null?0:allowed.findIndex(w=>w.workId===afterId)+1;
                 check(afterId===null||offset>0,'CURSOR_INVALID',400);

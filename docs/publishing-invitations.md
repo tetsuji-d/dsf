@@ -6,7 +6,7 @@
 
 - `server/publishing-invitations.js` は永続ストアを注入するサーバー処理。既存の Firestore transaction adapter の getMany/set 契約を使用する。
 - 招待、受信通知、一覧インデックス、監査記録を同一トランザクションで保存する。失敗時に通知だけ／招待だけを残さない。
-- 招待のPages route、Rules、Studio/Horizon本体のベルはまだ追加していない。第7単位で共有原稿のPages routeとFirebase/Firestore接続コードを追加したが、既定無効・実環境未接続。個人原稿APIは所有者専用のまま。
+- 第10単位で招待のPages routeとStudio設定内のベルを追加（既定無効）。Rulesと全画面共通ベルは未変更。第7単位で共有原稿のPages routeとFirebase/Firestore接続コードを追加したが、既定無効・実環境未接続。個人原稿APIは所有者専用のまま。
 - `allowActivation` は既定 false。実サービスの共有認可が完成するまで承諾を拒否する。環境変数だけで実サービスの共有を開放する実装はない。
 - localhost:5200 の確認画面のみ、専用テストアカウントで参加・メンバー保存まで確認できる。保存は outputs/invitation-fixture-5200.json。再起動しても復元する。
 - このJSONはクラウド正本でも配信物でもない。検証アカウント切替、検証用ハンドル、Bearer fixture-* はローカル検証専用。実サービスへ転用しない。
@@ -312,3 +312,28 @@ POSTには既存confirmationTokenに加え、copyImages:true、imagePlanHash、r
 ローカル検証は第8単位の環境変数にSHARED_IMAGE_MIGRATION_FIXTURE=trueを追加する。
 共有登録ブラウザ検証はSHARED_VERIFY_IMAGES=trueで、登録→所有者の編集権取得→保存→再読込と
 非公開画像APIの成功・表示用blob参照を検証する。実Firebase/R2の結合検証を代替しない。
+
+
+## 第10単位: スペース設定への招待・メンバー一覧の接続（2026-09-23）
+
+- Studioのスペース設定へ参加メンバー、役割／範囲、送信した招待と取り消しを接続。
+  Horizon IDを確認してから、対象スペース／共有作品／そのレーベルと期限を選び、確認画面で送信する。
+  招待対象取得に失敗した場合は、範囲をスペース全体へ広げて続行せず送信を止める。
+- スペース未選択のユーザーも設定内のベルから受信できる。承諾後は権限内の共有作品リンクを表示。
+  既存の所有者用スペース切替器や個人保存先は変更しない。参加スペースを切替器に統合するのは後続単位。
+- `POST /api/invitations` を実Firebase AuthとFirestore adapterへ接続。既定無効。
+  `PUBLISHING_INVITATIONS_ENABLED=true` でAPI、`PUBLISHING_INVITATIONS_ACTIVATION=true` と
+  `SHARED_AUTHORING_ENABLED=true` の両方で承諾を有効化する。今回これらの実環境設定は変更していない。
+- `listMembers` は所有者／管理者だけ。spaceMemberships collection groupのspaceId一致を21件取得し、
+  結果のパスを検証、最新membershipとアカウントをtransactionで再読込して20件ずつ返す。
+  権限はクエリー前後で確認。メールアドレス、Googleプロフィール全体、原稿本文は返さない。
+- メンバー一覧には `spaceMemberships.spaceId` のCOLLECTION_GROUP ASCENDING indexが必要。
+  `firestore.indexes.json` はその設定案。firebase.jsonには接続しておらず、Rules/indexの配信は未実施。
+  実環境の既存indexを確認して追加すること。既存index一式をこのファイルで置き換えない。
+- ログイン／スペース／表示言語の変更で旧UIを破棄し、遅い応答を無視する。通信は15秒で打ち切る。
+- `verify:space-members` と `verify:space-members-browser` で管理者境界、参加後一覧、ページ送り、失効、
+  実UIでの作品限定招待→受信→承諾→共有作品リンク、390px表示と英語を検証。
+  localhost:5227/settingsは検証用アカウントを使う。実アカウント間の通知・承諾試験は未実施。
+
+次はステージングの対象作品／送受信アカウントを固定し、共有原稿の有効化範囲とindexを確認して
+実アカウント試験を行う。参加者用スペース切替、既存メンバーの権限変更・解除、全画面共通ベルは後続。
