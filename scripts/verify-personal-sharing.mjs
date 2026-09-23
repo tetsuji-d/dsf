@@ -8,7 +8,7 @@ import {createAuthoringBucket} from '../server/private-authoring/r2.js';
 import {createPrivateAuthoringSnapshot} from '../js/private-authoring-storage.js';
 const f=invitationsFixture(),shared=await attachSharedEditorFixture(f);let time=Date.now();
 f.docs.delete('publishing_work_scopes/work_library');delete f.docs.get('users/owner_1/publishing/catalogue').assignments.book_library;
-const handler=createPersonalSharingRuntime({db:f.db,privateBucket:shared.r2,assertLiveIdentity:f.assertLiveIdentity,verifyToken:async t=>t.startsWith('fixture-')?{uid:t.slice(8)}:null,now:()=>time});
+const handler=createPersonalSharingRuntime({db:f.db,privateBucket:shared.r2,publicBaseUrl:'https://media.example.invalid',assertLiveIdentity:f.assertLiveIdentity,verifyToken:async t=>t.startsWith('fixture-')?{uid:t.slice(8)}:null,now:()=>time});
 const env={PERSONAL_SHARING_ENABLED:'true',PERSONAL_SHARING_ACTOR_UIDS:JSON.stringify(['owner_1','reader_1','reader_2'])};
 const call=async(uid,cmd)=>{const r=await handler({env,request:new Request('https://fixture.test/api/personal-sharing',{method:'POST',headers:{Authorization:'Bearer fixture-'+uid,'Content-Type':'application/json'},body:JSON.stringify(cmd)})});return {status:r.status,...await r.json()};};
 const get=async(uid,kind='authoring',method='GET')=>handler({env,request:new Request('https://fixture.test/api/spaces/personal/works/work_library/'+kind,{method,headers:{Authorization:'Bearer fixture-'+uid}})});
@@ -52,5 +52,37 @@ const p2=await call('owner_1',{kind:'prepare',projectId:'book_library'});
 const exp={...cmd,id:'personal_22345678-1234-1234-1234-123456789012',revision:p2.revision};assert.equal((await call('owner_1',exp)).status,200);
 time+=2*86400000;assert.equal((await call('reader_1',{kind:'accept',id:exp.id})).status,409);
 assert.equal((await call('reader_1',{kind:'inbox'})).pendingCount,0);
+// Preparation diagnoses both current and legacy source without writing either.
+const beforeDocs=JSON.stringify([...f.docs]);
+let diagnosis=await call('owner_1',{kind:'readiness',projectId:'book_library'});
+assert.equal(diagnosis.canAttemptSharing,true);assert.equal(diagnosis.images.private,1);
+assert.equal(JSON.stringify([...f.docs]),beforeDocs);
+assert.equal((await call('reader_1',{kind:'readiness',projectId:'book_library'})).status,403);
+const rp='users/owner_1/projects/book_library',privateRoot=structuredClone(f.docs.get(rp));
+f.docs.set(rp,{ownerUid:'owner_1',projectId:'book_library',workId:'work_library',version:6,authoringRef:'authoring/current',authoringSchemaVersion:6});
+const legacy=structuredClone(source);legacy.blocks.at(-1).content.background='https://media.example.invalid/users/owner_1/dsf/image.webp';delete legacy.sections;delete legacy.pages;
+f.docs.set(rp+'/authoring/current',legacy);
+const legacyBefore=JSON.stringify([...f.docs]);diagnosis=await call('owner_1',{kind:'readiness',projectId:'book_library'});
+assert.equal(diagnosis.storage,'legacy');assert.equal(diagnosis.images.managed,1);assert(diagnosis.blockers.includes('SOURCE_MIGRATION_REQUIRED'));assert.equal(JSON.stringify([...f.docs]),legacyBefore);
+f.docs.set(rp,privateRoot);f.docs.delete(rp+'/authoring/current');
+// Terminal invitations can leave the visible indexes; canonical audit records remain.
+assert.equal((await call('reader_2',{kind:'archive',projectId:'book_library'})).status,403);
+assert.equal((await call('reader_1',{kind:'archive'})).archived,2);
+assert.equal((await call('reader_1',{kind:'inbox'})).items.length,0);
+assert.equal(f.docs.get('personal_work_invitations/'+cmd.id).status,'revoked');
+assert.equal((await call('owner_1',{kind:'archive',projectId:'book_library'})).archived,2);
+const p3=await call('owner_1',{kind:'prepare',projectId:'book_library'}),pending={...cmd,id:'personal_32345678-1234-1234-1234-123456789012',revision:p3.revision};
+assert.equal((await call('owner_1',pending)).status,200);
+assert.equal((await call('owner_1',{kind:'archive',projectId:'book_library'})).archived,0);
+assert.equal((await call('reader_1',{kind:'archive'})).archived,0);
+assert.equal((await call('reader_1',{kind:'accept',id:pending.id})).status,200);
+assert.equal((await call('owner_1',{kind:'archive',projectId:'book_library'})).archived,0);
+assert.equal((await get('reader_1')).status,200);
+// Recipient history capacity automatically frees terminal slots, never accepted grants.
+const deadIds=[];for(let n=0;n<199;n++){const id='personal_history_'+String(n).padStart(16,'0');deadIds.push(id);f.docs.set('personal_work_invitations/'+id,{...f.docs.get('personal_work_invitations/'+cmd.id),id});}
+f.docs.set('users/reader_1/personalSharing/inbox',{ids:[pending.id,...deadIds]});
+await call('owner_1',{kind:'revoke',id:pending.id});
+assert.equal((await call('owner_1',{...pending,id:'personal_42345678-1234-1234-1234-123456789012'})).status,200);
+assert.equal(f.docs.get('users/reader_1/personalSharing/inbox').ids.length,200);
 const disabled=await handler({env:{},request:new Request('https://fixture.test/api/personal-sharing')});assert.equal(disabled.status,503);
 console.log('PASS personal sharing: isolated invitations, idempotency, latest read, read-only, revocation, expiry, scope and default-off');

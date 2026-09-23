@@ -2,20 +2,20 @@ import {check,readBounded} from './private-authoring/common.js';
 import {readContext,usageValue,AUTHORING_LIMITS,AUTHORING_LEASE_MS} from './private-authoring/service.js';
 import {createAuthoringBucket} from './private-authoring/r2.js';
 import {createPrivateAuthoringSnapshot,createPrivateAuthoringDescriptor,planPrivateAuthoringCommit} from '../js/private-authoring-storage.js';
-import {mapSharedImageSlots,privateImageRef} from '../js/shared-authoring-assets.js';
+import {mapSharedImageSlots,privateImageRef,privateImageHash} from '../js/shared-authoring-assets.js';
 import {sha256DsfBytes} from '../js/dsf-release-byte-sealing.js';
 import {managedImageKey} from './shared-image-preflight.js';
 import {isPrivateAuthoringId} from '../js/private-authoring-ids.js';
 
 // Copy immutable objects first; the source head and sharing boundary change in one transaction.
 export async function migrateSharedImages({db,privateBucket,publicBucket,publicBaseUrl,identity,scope,
-    project,images,command,inspectCurrent,assertCurrent,assertLiveIdentity,writeBinding,now=Date.now}) {
+    project,images,command,inspectCurrent,assertCurrent,assertLiveIdentity,writeBinding,now=Date.now,preservePrivate=false}) {
     check(command.copyImages===true&&images.copyable,'IMAGE_MIGRATION_REQUIRED',409);
     check(command.imagePlanHash===images.imagePlanHash,'IMAGE_PLAN_CHANGED',409);
     check(isPrivateAuthoringId(command.requestId),'INVALID_REQUEST_ID',400);
     const refs=new Map();
-    await mapSharedImageSlots(project,value=>{if(!refs.has(value))refs.set(value,images.entries[refs.size]);return value;});
-    const migrated=await mapSharedImageSlots(project,value=>privateImageRef(refs.get(value).sha256));
+    await mapSharedImageSlots(project,value=>{if(!(preservePrivate&&privateImageHash(value))&&!refs.has(value))refs.set(value,images.entries[refs.size]);return value;});
+    const migrated=await mapSharedImageSlots(project,value=>preservePrivate&&privateImageHash(value)?value:privateImageRef(refs.get(value).sha256));
     const snapshot=await createPrivateAuthoringSnapshot(migrated),unique=[...new Map(images.entries.map(e=>[e.sha256,e])).values()];
     const reservation=await db.transaction(async tx=>{
         await inspectCurrent(tx);

@@ -1,3 +1,4 @@
+import {createOwnerImageSession} from './owner-authoring-assets.js';
 import {createPublishingSpacesClient} from './publishing-spaces-transport.js';
 import {createProjectCopyJob} from './project-copy.js';
 import { openSharedAuthoringSession } from './shared-authoring-session.js';
@@ -81,6 +82,8 @@ function disposeSharedStudio() {
     sharedStudioSession?.session.dispose(); sharedStudioSession = null;
 }
 subscribeProjectSession(() => {
+    privateAuthoringSession?.images?.dispose();
+    privateAuthoringSession = null;
     if (!readSharedStudioAccess()) return;
     cancelSharedSave(); disposeSharedStudio(); setSharedStudioAccess({...readSharedStudioAccess(),status:'unavailable',canEdit:false});
 });
@@ -212,12 +215,16 @@ async function _uploadToR2(blob, path) {
  * Upload a Blob to the configured storage backend and return the public URL.
  * Use this instead of calling uploadBytes/getDownloadURL directly.
  */
-async function _storeFile(blob, path) {
+async function _storeFile(blob, path, {publication = false} = {}) {
     assertSharedStudioEdit();
     if (readSharedStudioAccess()) {
         const active = sharedStudioSession;
         if (!active || active.epoch !== getProjectSessionEpoch()) throw new AuthoringClientError('AUTHORING_SESSION_CHANGED');
         return (await active.session.addImage(blob)).url;
+    }
+    const ownerSession = privateAuthoringSession;
+    if (!publication && ownerSession?.epoch === getProjectSessionEpoch() && ownerSession.images?.privateWrites) {
+        return (await ownerSession.images.addImage(blob)).url;
     }
     if (String(path || '').toLowerCase().endsWith('.webp') && !(await isWebPBlob(blob))) {
         throw new Error('WebP ではない画像を .webp として保存しようとしました。');
@@ -231,7 +238,7 @@ async function _storeFile(blob, path) {
 /** Press Room レンダリング結果のアップロード（press.js から使用） */
 export async function uploadPressPage(blob, path) {
     assertPersonalStudioOperation();
-    return _storeFile(blob, path);
+    return _storeFile(blob, path, {publication:true});
 }
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -333,7 +340,7 @@ async function _storePublicationThumbnailBlob(blob) {
         return localUrl;
     }
     const uid = requireUid();
-    return _storeFile(blob, `users/${uid}/dsf/publication-thumbnails/${digest}.webp`);
+    return _storeFile(blob, `users/${uid}/dsf/publication-thumbnails/${digest}.webp`, {publication:true});
 }
 
 /** Store an already-rendered 720x1280 WebP thumbnail by its content hash. */
@@ -1267,8 +1274,9 @@ async function performSaveOnce() {
                     if (!saveIsCurrent()) throw new AuthoringClientError('AUTHORING_SESSION_CHANGED');
                     // Keep the local mapping and original editor snapshot for recovery.
                     const url = await _storeFile(blob, `users/${saveIdentity.uid}/dsf/recovered/${crypto.randomUUID()}.webp`);
-                    session.assets.set(blobUrl, url);
-                    return url;
+                    const stored = session.images?.refs.get(url) || url;
+                    session.assets.set(blobUrl, stored);
+                    return stored;
                 });
                 if (!saveIsCurrent()) throw new AuthoringClientError('AUTHORING_SESSION_CHANGED');
                 if (session.creating) {
@@ -1280,7 +1288,7 @@ async function performSaveOnce() {
                 const preview = getProjectPreviewSource(cleanProject);
                 const candidate = preview.thumbnail || preview.background || '';
                 const listThumbnail = candidate.startsWith(`${import.meta.env.VITE_R2_PUBLIC_URL}/users/${saveIdentity.uid}/`) ? candidate : '';
-                const assetBytes = await Promise.all(collectProjectAssetUrls(cleanProject).map(getAssetByteSize));
+                const assetBytes = await Promise.all(collectProjectAssetUrls(cleanProject).map(url=>session.images?.sizes.get(url) ?? getAssetByteSize(url)));
                 const projectBytes = head.byteLength + assetBytes.reduce((sum, size) => sum + size, 0);
                 if (!saveIsCurrent()) throw new AuthoringClientError('AUTHORING_SESSION_CHANGED');
                 const pageCount = getProjectPageCount(cleanProject);
@@ -1798,6 +1806,7 @@ export async function loadProject(pid, refresh) {
     const uid = state.uid, user = auth.currentUser;
     let epoch = getProjectSessionEpoch();
     const sequence = ++projectLoadSequence;
+    privateAuthoringSession?.images?.dispose();
     privateAuthoringSession = null;
     const isCurrent = () => sequence === projectLoadSequence && epoch === getProjectSessionEpoch()
         && state.uid === uid && auth.currentUser === user;
@@ -1837,7 +1846,13 @@ export async function loadProject(pid, refresh) {
         // fields, then validated again so Flow text such as "blob: ..." survives.
         if (!isCurrent()) throw new AuthoringClientError('AUTHORING_SESSION_CHANGED');
         const normalized = hydrateProjectFromPersistence(privateClient ? persistedData : prepareFirestoreProjectIngress(persistedData));
-        const data = privateClient ? normalized : hydrateProjectFromPersistence(stripBlobAssetUrls(normalized));
+        const images = privateClient ? createOwnerImageSession({projectId:pid,user,isCurrent,
+            onBlob:async(url,blob)=>{const id='private_image_'+crypto.randomUUID();await idbSet(id,blob);if(isCurrent())window.localImageMap[url]=id;}
+        }) : null;
+        let data;
+        try {data = images ? await images.hydrate(normalized) : hydrateProjectFromPersistence(stripBlobAssetUrls(normalized));}
+        catch(error){images?.dispose();throw error;}
+        if (!isCurrent()) {images?.dispose();throw new AuthoringClientError('AUTHORING_SESSION_CHANGED');}
         const languages = data.languages && data.languages.length > 0 ? data.languages : ['ja'];
         const defaultLang = data.defaultLang || languages[0] || 'ja';
         dispatch({
@@ -1876,7 +1891,7 @@ export async function loadProject(pid, refresh) {
             },
         });
         epoch = getProjectSessionEpoch();
-        privateAuthoringSession = privateClient ? { client: privateClient, projectId: pid, epoch, assets: new Map() } : null;
+        privateAuthoringSession = privateClient ? { client: privateClient, projectId: pid, epoch, images, assets: images.refs } : null;
         dispatch({ type: actionTypes.SET_ACTIVE_LANGUAGE, payload: defaultLang });
         dispatch({ type: actionTypes.SET_ACTIVE_INDEX, payload: 0 });
         dispatch({ type: actionTypes.SET_ACTIVE_BLOCK_INDEX, payload: Math.max(0, getBlockIndexFromPageIndex(data.blocks || [], 0)) });

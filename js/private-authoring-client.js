@@ -1,3 +1,4 @@
+import {privateImageHash} from './shared-authoring-assets.js';
 import { isPrivateAuthoringId } from './private-authoring-ids.js';
 import {
     assertPrivateAuthoringHead, createPrivateAuthoringSnapshot,
@@ -186,7 +187,7 @@ export async function resolvePrivateAuthoringAssets(project, upload) {
         if (typeof value !== 'string' || !/^blob:/i.test(value)) return;
         if (!uploaded.has(value)) uploaded.set(value, await upload(value));
         const url = uploaded.get(value);
-        check(typeof url === 'string' && /^https?:\/\//.test(url), 'AUTHORING_ASSET_UNRESOLVED');
+        check(typeof url === 'string' && (/^https?:\/\//.test(url) || privateImageHash(url)), 'AUTHORING_ASSET_UNRESOLVED');
         owner[key] = url;
     }
     async function owner(value) {

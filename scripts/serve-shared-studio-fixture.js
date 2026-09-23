@@ -1,3 +1,4 @@
+import {createOwnerAssets} from '../server/private-authoring/owner-assets.js';
 import {createPersonalSharingRuntime} from '../server/personal-sharing-runtime.js';
 import {createSharedRuntime} from '../server/shared-authoring-runtime.js';
 import {createAuthoringService} from '../server/private-authoring/service.js';
@@ -33,7 +34,7 @@ const personalEnv={PERSONAL_SHARING_ENABLED:'true',PERSONAL_SHARING_ACTOR_UIDS:J
 let personalHandler;
 if(personalMode){
  f.docs.delete('publishing_work_scopes/work_library');delete f.docs.get('users/owner_1/publishing/catalogue').assignments.book_library;
- personalHandler=createPersonalSharingRuntime({db:f.db,privateBucket:shared.r2,assertLiveIdentity:f.assertLiveIdentity,
+ personalHandler=createPersonalSharingRuntime({db:f.db,privateBucket:shared.r2,publicBucket:preflightPublicBucket,publicBaseUrl:'https://media.example.invalid',assertLiveIdentity:f.assertLiveIdentity,
   verifyToken:async t=>/^fixture-(owner_1|reader_1|reader_2)$/.test(t)?{uid:t.slice(8)}:null});
 }
 const registrationMode=process.env.SHARED_REGISTRATION_FIXTURE==='true';
@@ -46,9 +47,17 @@ if(registrationMode){
   verifyToken:async token=>/^fixture-(owner_1|reader_1|reader_2|admin_1)$/.test(token)?{uid:token.slice(8)}:null});
 }
 let publicWrites=0,personalWrites=0;
-const ownerService=createAuthoringService({db:f.db,bucket:createAuthoringBucket(shared.r2),assertLiveIdentity:f.assertLiveIdentity});
+const ownerAssets=projectId=>createOwnerAssets({db:f.db,bucket:shared.r2,assertLiveIdentity:f.assertLiveIdentity,projectId});
+const ownerService=createAuthoringService({db:f.db,bucket:createAuthoringBucket(shared.r2),assertLiveIdentity:f.assertLiveIdentity,validateSnapshot:(tx,actor,project,write)=>ownerAssets(project.projectId).validateReferences(tx,actor,project,write)});
+if(process.env.OWNER_PRIVATE_IMAGE_FIXTURE==='true') {
+ const images=createOwnerAssets({db:f.db,bucket:shared.r2,assertLiveIdentity:f.assertLiveIdentity,projectId:'book_library'});
+ const asset=await images.put(identity,preflightBytes);
+ source.blocks.push({id:'private_cover',kind:'page',content:{pageKind:'image',background:asset.ref,thumbnail:asset.ref}});
+ const h=f.docs.get('users/owner_1/projects/book_library/authoringHeads/current');
+ await ownerService.save(identity,'book_library',{snapshot:await createPrivateAuthoringSnapshot(source),generationId:h.generationId,baseRevision:h.revision,requestId:'owner_image_seed'});
+}
 const ownerActions=createProjectActions({db:f.db,bucket:createAuthoringBucket(shared.r2),service:ownerService,assertLiveIdentity:f.assertLiveIdentity,publicBaseUrl:'https://media.example.invalid',verifyRelease:async()=>{throw Error('Fixture must not publish');}});
-const ownerHandler=createAuthoringApi({service:ownerService,actions:ownerActions,verifyToken:async token=>token==='fixture-owner_1'?{uid:'owner_1'}:null});
+const ownerHandler=createAuthoringApi({assets:projectId=>createOwnerAssets({db:f.db,bucket:shared.r2,assertLiveIdentity:f.assertLiveIdentity,projectId}),service:ownerService,actions:ownerActions,verifyToken:async token=>token==='fixture-owner_1'?{uid:'owner_1'}:null});
 const stubs={
 core:`const uid=new URLSearchParams(location.search).get('actor')==='viewer'?'reader_2':new URLSearchParams(location.search).get('actor')==='second'?'admin_1':new URLSearchParams(location.search).get('actor')==='owner'?'owner_1':'reader_1';export const db={},storage={},firebaseConfig={};export const auth={currentUser:{uid,email:uid+'@example.invalid',displayName:uid,getIdToken:async()=>'fixture-'+uid}};export const authReady=Promise.resolve();`,
 gis:`import {auth} from '/js/firebase-core.js'; export const initGIS=async()=>{};export const renderGISButton=()=>{};export const signInWithGoogle=async()=>({user:auth.currentUser});export const signOutUser=async()=>{auth.currentUser=null;};export const onAuthChanged=cb=>{setTimeout(()=>cb(auth.currentUser),0);return()=>{}};export const handleRedirectResult=async()=>null;`,
@@ -78,8 +87,8 @@ configureServer(server){server.middlewares.use(async(req,res,next)=>{try{
  if(url.pathname==='/fixture/role'&&req.method==='POST'){const {role}=JSON.parse(bytes),m=f.docs.get('users/reader_1/spaceMemberships/space_demo');if(role==='revoked')m.status='revoked';else {m.status='active';m.grants[0].role=role;}return res.end('{}');}
  if(url.pathname==='/upload'){publicWrites++;res.statusCode=403;return res.end('{}');}
  if(personalMode&&(url.pathname==='/api/personal-sharing'||url.pathname.startsWith('/api/spaces/personal/'))){const response=await personalHandler({env:personalEnv,request:new Request(url,{method:req.method,headers:req.headers,...(['PUT','POST'].includes(req.method)?{body:bytes}:{})})});res.writeHead(response.status,Object.fromEntries(response.headers));return res.end(Buffer.from(await response.arrayBuffer()));}
- const ownerRoute=/^\/api\/projects\/(book_library)\/(authoring|actions)$/.exec(url.pathname);
- if(ownerRoute){const response=await ownerHandler({env:{AUTHORING_API_ENABLED:'true',AUTHORING_TEST_PROJECTS:'["owner_1/book_library"]'},params:{projectId:ownerRoute[1],actionRoute:ownerRoute[2]==='actions'},request:new Request(url,{method:req.method,headers:req.headers,...(['PUT','POST'].includes(req.method)?{body:bytes}:{})})});res.writeHead(response.status,Object.fromEntries(response.headers));return res.end(Buffer.from(await response.arrayBuffer()));}
+ const ownerRoute=/^\/api\/projects\/(book_library)\/(authoring|actions|assets)(?:\/([a-f0-9]{64}))?$/.exec(url.pathname);
+ if(ownerRoute){const response=await ownerHandler({env:{AUTHORING_API_ENABLED:'true',AUTHORING_TEST_PROJECTS:'["owner_1/book_library"]'},params:{projectId:ownerRoute[1],actionRoute:ownerRoute[2]==='actions',assetRoute:ownerRoute[2]==='assets',hash:ownerRoute[3]},request:new Request(url,{method:req.method,headers:req.headers,...(['PUT','POST'].includes(req.method)?{body:bytes}:{})})});res.writeHead(response.status,Object.fromEntries(response.headers));return res.end(Buffer.from(await response.arrayBuffer()));}
  if(url.pathname.startsWith('/api/spaces/')){const response=await shared.handler({env:sharedEnv,request:new Request(url,{method:req.method,headers:req.headers,...(['PUT','POST'].includes(req.method)?{body:bytes}:{})})});res.writeHead(response.status,Object.fromEntries(response.headers));return res.end(Buffer.from(await response.arrayBuffer()));}
  res.statusCode=404;res.end('{}');
  }catch(error){console.error(error);res.statusCode=500;res.end('{}');}});}

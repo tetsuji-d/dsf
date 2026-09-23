@@ -10464,3 +10464,9 @@ body.strip-collapsed #page-strip:has(.flow-thumb-group) { height: 42px; }
 .personal-sharing-inbox article:last-child { border-bottom: 0; }
 .personal-sharing-inbox button { margin-inline-end: 8px; margin-block: 6px; }
 .personal-sharing-inbox p { overflow-wrap: anywhere; }
+
+/* Sharing content is prose/forms; the copy-dialog div rule is for button rows. */
+dialog.personal-sharing-dialog div { display: block; }
+dialog.personal-sharing-dialog { max-height: 85vh; overflow-y: auto; }
+dialog.personal-sharing-dialog p { overflow-wrap: anywhere; }
+dialog.personal-sharing-dialog details { margin-block: 16px; }

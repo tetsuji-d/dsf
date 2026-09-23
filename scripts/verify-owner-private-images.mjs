@@ -1,0 +1,34 @@
+import assert from 'node:assert/strict';
+import {invitationsFixture} from './fixtures/publishing-invitations-fixture.js';
+import {attachSharedEditorFixture} from './fixtures/shared-editor-fixture.js';
+import {createOwnerAssets} from '../server/private-authoring/owner-assets.js';
+import {createAuthoringApi} from '../server/private-authoring/http.js';
+const f=invitationsFixture(),s=await attachSharedEditorFixture(f);
+const binding=f.docs.get('publishing_work_scopes/work_library');f.docs.delete('publishing_work_scopes/work_library');
+const factory=projectId=>createOwnerAssets({db:f.db,bucket:s.r2,assertLiveIdentity:f.assertLiveIdentity,projectId});
+const handler=createAuthoringApi({assets:factory,verifyToken:async uid=>({uid})});
+const env={AUTHORING_API_ENABLED:'true',AUTHORING_TEST_PROJECTS:'["owner_1/book_library","reader_1/book_library"]',PERSONAL_SHARING_ENABLED:'false'};
+const bytes=Uint8Array.from(Buffer.from('UklGRiIAAABXRUJQVlA4IBYAAAAwAQCdASoBAAEADsD+JaQAA3AAAAAA','base64'));
+const call=(uid,hash,body,headers={})=>handler({env,params:{projectId:'book_library',assetRoute:true,hash},request:new Request('https://fixture.test/api/projects/book_library/assets'+(hash?'/'+hash:''),{method:hash?'GET':'POST',headers:{Authorization:'Bearer '+uid,'Content-Type':'image/webp',...headers},...(body?{body}:{})})});
+let r=await call('owner_1',null,bytes);assert.equal(r.status,200);const asset=await r.json();
+r=await call('owner_1',asset.sha256);assert.equal(r.status,200);assert.match(r.headers.get('Cache-Control'),/no-store/);assert.deepEqual(new Uint8Array(await r.arrayBuffer()),bytes);
+assert.notEqual((await call('reader_1',asset.sha256)).status,200);
+assert.equal((await call('owner_1',null,bytes,{Origin:'https://other.test'})).status,403);
+assert.equal((await call('owner_1',null,bytes,{'Sec-Fetch-Site':'cross-site'})).status,403);
+assert.equal((await call('owner_1',null,new Uint8Array([1,2]))).status,422);
+await f.db.transaction(tx=>factory('book_library').validateReferences(tx,{uid:'owner_1'},{blocks:[{content:{background:asset.ref}}]},true));
+await assert.rejects(f.db.transaction(tx=>factory('book_library').validateReferences(tx,{uid:'owner_1'},{blocks:[{content:{background:'assets/private/'+ 'a'.repeat(64)+'.webp'}}]},true)),e=>e.code==='PRIVATE_IMAGE_NOT_READY');
+f.docs.set('publishing_work_scopes/work_library',binding);
+r=await call('owner_1',null,bytes);assert.equal(r.status,409);assert.equal((await r.json()).error,'SHARED_AUTHORING_REQUIRED');
+f.docs.delete('publishing_work_scopes/work_library');f.docs.get('users/owner_1').status.disabled=true;
+assert.equal((await call('owner_1',asset.sha256)).status,403);
+console.log('Owner private images: upload/read with sharing disabled, identity isolation, cross-origin denial, WebP validation, shared-lock boundary and disabled-account denial passed.');
+
+// Client: a navigation during authentication must not leak a request; corrupt bytes must not enter the editor.
+const {createOwnerImageSession}=await import('../js/owner-authoring-assets.js');
+let current=true,calls=0;
+const stale=createOwnerImageSession({projectId:'book_library',user:{getIdToken:async()=>{current=false;return 'token';}},isCurrent:()=>current,fetcher:async()=>{calls++;throw Error('unexpected');}});
+await assert.rejects(stale.hydrate({blocks:[{content:{background:asset.ref}}]}),e=>e.code==='AUTHORING_SESSION_CHANGED');assert.equal(calls,0);stale.dispose();
+const corrupt=createOwnerImageSession({projectId:'book_library',user:{getIdToken:async()=>'token'},isCurrent:()=>true,fetcher:async()=>new Response(new Uint8Array([1]),{headers:{'Content-Type':'image/webp'}})});
+await assert.rejects(corrupt.hydrate({blocks:[{content:{background:asset.ref}}]}),e=>e.code==='PRIVATE_IMAGE_CORRUPT');corrupt.dispose();
+console.log('Owner image session: stale authentication and corrupt image rejection passed.');

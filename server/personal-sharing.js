@@ -30,7 +30,7 @@ export async function resolvePersonalWorkAccess(tx,{actorUid,workId,action,now=D
 export function createPersonalSharingService({db,assertLiveIdentity,validateSource,now=Date.now}){
     async function execute(identity,cmd){
         const uid=segment(identity?.uid),kind=cmd?.kind,t=now();
-        check(['prepare','outbox','lookup','invite','inbox','accept','decline','revoke'].includes(kind),'INVALID_COMMAND',400);
+        check(['prepare','outbox','lookup','invite','inbox','accept','decline','revoke','archive'].includes(kind),'INVALID_COMMAND',400);
         await assertLiveIdentity(identity);
         // Validate actual saved content before offering an invitation, without changing it.
         let prepared=null;
@@ -45,6 +45,24 @@ export function createPersonalSharingService({db,assertLiveIdentity,validateSour
         }
         return db.transaction(async tx=>{
             const [a]=await tx.getMany(['users/'+uid]);check(live(a,uid),'ACCOUNT_UNAVAILABLE',403);
+            if(kind==='archive'){
+                const personal=cmd.projectId!==undefined;
+                let path,current;
+                if(personal){
+                    const [root]=await tx.getMany(['users/'+uid+'/projects/'+segment(cmd.projectId)]);
+                    check(root?.ownerUid===uid,'WORK_FORBIDDEN',403);
+                    if(!root.workId)return {archived:0};
+                    path=sharePath(root.workId);[current]=await tx.getMany([path]);
+                    check(!current||(current.ownerUid===uid&&current.projectId===cmd.projectId),'WORK_FORBIDDEN',403);
+                }else{path=indexPath(uid);[current]=await tx.getMany([path]);}
+                const ids=(personal?current?.invitationIds:current?.ids)||[];
+                check(ids.length<=(personal?100:200),'INDEX_INVALID');
+                const items=await tx.getMany(ids.map(invitePath));
+                check(items.every(i=>i&&(personal?i.ownerUid===uid&&i.projectId===cmd.projectId:i.recipientUid===uid)),'INDEX_INVALID');
+                const retained=items.filter(i=>['pending','accepted'].includes(status(i,t))).map(i=>i.id);
+                if(ids.length!==retained.length)tx.set(path,{...current,[personal?'invitationIds':'ids']:retained});
+                return {archived:ids.length-retained.length};
+            }
             if(kind==='inbox'){
                 const [index]=await tx.getMany([indexPath(uid)]),ids=index?.ids||[];check(ids.length<=200,'INDEX_INVALID');
                 const items=await tx.getMany(ids.map(invitePath));
@@ -83,15 +101,23 @@ export function createPersonalSharingService({db,assertLiveIdentity,validateSour
                 const [existing,recipient,index,usage]=await tx.getMany([ip,'users/'+recipientUid,indexPath(recipientUid),up]);
                 check(live(recipient,recipientUid),'RECIPIENT_UNAVAILABLE',403);
                 if(existing){check(existing.ownerUid===uid&&existing.workId===prepared.workId&&existing.recipientUid===recipientUid&&existing.expiresInDays===days&&existing.generationId===prepared.generationId,'INVITATION_CONFLICT',409);return {invitation:expose(existing,t)};}
-                check(ids.length<100&&(index?.ids||[]).length<200,'INVITATION_LIMIT',409);
+                const inboxIds=index?.ids||[];check(inboxIds.length<=200,'INDEX_INVALID');
+                const inboxItems=await tx.getMany(inboxIds.map(invitePath));
+                check(inboxItems.every(i=>i?.recipientUid===recipientUid),'INDEX_INVALID');
+                const active=i=>['pending','accepted'].includes(status(i,t));
+                const liveWork=invitations.filter(active),liveInbox=inboxItems.filter(active);
+                check(liveWork.length<100,'WORK_SHARING_LIMIT',409);
+                check(liveInbox.length<200,'RECIPIENT_SHARING_LIMIT',409);
+                const retain=(all,live,limit)=>[...live,...all.filter(i=>!active(i)).slice(0,Math.max(0,limit-1-live.length))].map(i=>i.id);
+                const retainedWork=retain(invitations,liveWork,100),retainedInbox=retain(inboxItems,liveInbox,200);
                 check(!invitations.some(i=>i.recipientUid===recipientUid&&['pending','accepted'].includes(status(i,t))),'ALREADY_SHARED',409);
-                const day=Math.floor(t/86400000),count=usage?.day===day?usage.count:0;check(count<30,'INVITATION_LIMIT',429);
+                const day=Math.floor(t/86400000),count=usage?.day===day?usage.count:0;check(count<30,'DAILY_INVITATION_LIMIT',429);
                 const invitation={id,ownerUid:uid,inviterName:a.publicProfile?.displayName||a.displayName||uid,recipientUid,
                     recipientName:recipient.publicProfile?.displayName||recipient.displayName||recipientUid,
                     projectId:prepared.projectId,workId:prepared.workId,generationId:prepared.generationId,title:c.root.projectName||c.root.title||'名称未設定',
                     status:'pending',createdAt:t,expiresInDays:days,expiresAt:days===null?null:t+days*86400000};
-                tx.set(path,{ownerUid:uid,projectId:prepared.projectId,workId:prepared.workId,generationId:prepared.generationId,invitationIds:[id,...ids]});
-                tx.set(ip,invitation);tx.set(indexPath(recipientUid),{ids:[id,...(index?.ids||[])]});tx.set(up,{day,count:count+1});
+                tx.set(path,{ownerUid:uid,projectId:prepared.projectId,workId:prepared.workId,generationId:prepared.generationId,invitationIds:[id,...retainedWork]});
+                tx.set(ip,invitation);tx.set(indexPath(recipientUid),{ids:[id,...retainedInbox]});tx.set(up,{day,count:count+1});
                 return {invitation};
             }
             const ip=invitePath(segment(cmd.id)),[i]=await tx.getMany([ip]);check(i,'INVITATION_NOT_FOUND',404);

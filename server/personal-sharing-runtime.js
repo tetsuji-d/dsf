@@ -1,3 +1,5 @@
+import {createPersonalSharingPreparation} from './personal-sharing-preparation.js';
+import {createPersonalSharingReadiness} from './personal-sharing-readiness.js';
 import {check,segment,parseJson,readBounded,AuthoringApiError} from './private-authoring/common.js';
 import {createGoogleClient,createIdTokenVerifier} from './private-authoring/google-auth.js';
 import {createFirestoreStore} from './private-authoring/firestore.js';
@@ -7,8 +9,10 @@ import {createSharedAssets} from './shared-assets.js';
 import {createPersonalSharingService,resolvePersonalWorkAccess,PERSONAL_SHARING_ROOTS} from './personal-sharing.js';
 const headers={'Cache-Control':'private, no-store','CDN-Cache-Control':'no-store','Cloudflare-CDN-Cache-Control':'no-store','X-Content-Type-Options':'nosniff',Vary:'Authorization, Origin'};
 const reply=(data,status=200)=>Response.json(data,{status,headers});
-export function createPersonalSharingRuntime({db,privateBucket,publicBucket,verifyToken,assertLiveIdentity,now=Date.now}){
+export function createPersonalSharingRuntime({db,privateBucket,publicBucket,publicBaseUrl,verifyToken,assertLiveIdentity,now=Date.now}){
     check(privateBucket&&privateBucket!==publicBucket,'CONFIG_AUTHORING_BUCKET');
+    const preparation=createPersonalSharingPreparation({db,privateBucket,publicBucket,publicBaseUrl,assertLiveIdentity,now});
+    const readiness=createPersonalSharingReadiness({db,privateBucket,publicBaseUrl,assertLiveIdentity});
     function reader(workId,resolver){
         const resolve=resolver||((tx,actor,action)=>resolvePersonalWorkAccess(tx,{actorUid:actor.uid,workId,action,now:now()}));
         const assets=createSharedAssets({db,bucket:privateBucket,assertLiveIdentity,spaceId:'personal',workId,now,resolveAccess:resolve});
@@ -44,6 +48,8 @@ export function createPersonalSharingRuntime({db,privateBucket,publicBucket,veri
                 check(/^application\/json(?:;.*)?$/i.test(request.headers.get('Content-Type')||''),'CONTENT_TYPE_INVALID',415);
                 check(!request.headers.has('Content-Encoding')||request.headers.get('Content-Encoding')==='identity','CONTENT_ENCODING_INVALID',415);
                 const cmd=parseJson(await readBounded(request.body,8192));
+                if(['prepare-source','migrate-source','prepare-images','migrate-images'].includes(cmd?.kind))return reply(await preparation(actor,cmd));
+                if(cmd?.kind==='readiness')return reply(await readiness(actor,cmd.projectId));
                 if(cmd?.kind==='invite')check(actors.includes(cmd.recipientUid),'PERSONAL_SHARING_NOT_ENABLED',403);
                 return reply(await personal.execute(actor,cmd));
             }
@@ -67,7 +73,7 @@ export async function handlePersonalSharing(context){
         let handler=runtimes.get(context.env);
         if(!handler){const google=createGoogleClient({projectId:context.env.FIREBASE_PROJECT_ID,serviceAccountJson:context.env.AUTHORING_GOOGLE_SERVICE_ACCOUNT});
             handler=createPersonalSharingRuntime({db:createFirestoreStore(google,{additionalRootCollections:PERSONAL_SHARING_ROOTS}),
-                privateBucket:context.env.AUTHORING_BUCKET,publicBucket:context.env.R2_BUCKET,
+                privateBucket:context.env.AUTHORING_BUCKET,publicBucket:context.env.R2_BUCKET,publicBaseUrl:context.env.R2_PUBLIC_URL,
                 verifyToken:createIdTokenVerifier({projectId:context.env.FIREBASE_PROJECT_ID}),assertLiveIdentity:google.assertLiveIdentity});runtimes.set(context.env,handler);}
         return await handler(context);
     }catch{return reply({error:'PERSONAL_SHARING_UNAVAILABLE'},503);}

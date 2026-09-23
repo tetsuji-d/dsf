@@ -1,4 +1,4 @@
-/** Operator-only maintenance. Deliberately not imported by any HTTP/Pages route. */
+/** Maintenance engine. Operator tools use the full API; the personal-sharing adapter exposes only guarded owner migration. */
 import { check, segment } from './common.js';
 import { paths, usageValue, AUTHORING_LIMITS, AUTHORING_LEASE_MS } from './service.js';
 import { createPrivateAuthoringSnapshot, createPrivateAuthoringDescriptor, assertPrivateAuthoringHead } from '../../js/private-authoring-storage.js';

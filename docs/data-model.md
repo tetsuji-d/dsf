@@ -1209,3 +1209,22 @@ A personal share is **not** a publishing space or space membership. Its saved so
 - Rollout defaults off: `PERSONAL_SHARING_ENABLED=true` and a JSON `PERSONAL_SHARING_ACTOR_UIDS` list (1–20 UIDs) are both required. The current Studio reader also requires `VITE_SHARED_STUDIO_ENABLED=true`. No staging/production variables are changed by this implementation.
 - UI: My space cloud project menu → Share; My space Settings/Invitations → Shared with me and invitation bell. View-only first; friend lists, edit grants, general rollout and index retention/archival are later units.
 - Isolated verification: `PERSONAL_SHARING_FIXTURE=true PORT=5246 node scripts/serve-shared-studio-fixture.js`; `/scripts/fixtures/personal-sharing-ui.html?actor=owner` and `?actor=reader`. Real Studio rendering uses fixture identities and storage, with no public cloud writes.
+
+
+個別共有の公開準備: [personal-sharing-release-plan.md](personal-sharing-release-plan.md)。
+`readiness` は所有者専用の読み取り専用診断。`archive` は終了した招待だけを所有者または受信者自身の表示インデックスから外し、元の招待記録と有効な共有を保持する。
+新規招待時は表示インデックスの古い終了履歴を整理し、有効な共有100件/作品・200件/受信者の上限を維持する。日次送信上限30件は別途適用する。
+
+### 所有者の非公開画像アクセス
+
+通常のprivate R2原稿は `/api/projects/{projectId}/assets` (POST) と `/assets/{sha256}` (GET) を利用できる。
+既存privateImageGenerationsの画像記録を再利用し、新しいコレクションは増やさない。
+Firebase本人確認、所有者、authoring許可対象、アカウント停止、保存世代、画像ハッシュを検査する。
+出版スペースの共同編集へ登録済みの作品はこの所有者経路から編集できず、従来の共有編集ロック経路へ誘導する。
+個別共有の有効化フラグには依存しない。通常保存の非公開参照は同じ作品・保存世代のready画像に限る。
+
+### 個別共有の準備
+
+所有者が共有画面から明示実行した場合のみ、旧原稿は既存authoringMigrationsのバックアップ検証付き移行、画像は既存privateImageGenerationsのコピー検証付き移行を行う。
+保存済み原稿を確認トークンで固定し、コピー中に原稿や所属が変われば確定しない。原稿移行と画像移行は別工程で、完了前には招待を作成しない。
+元の公開画像、発行済みRelease、公開インデックスは変更しない。ステージングは指定2アカウントに限定する。
