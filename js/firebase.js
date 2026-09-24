@@ -99,7 +99,11 @@ subscribeSharedStudioAccess(access => {
 window.addEventListener('pagehide', () => {
     if (readSharedStudioAccess()) setSharedStudioAccess({...readSharedStudioAccess(),status:'unavailable',canEdit:false});
 });
-export async function checkSharedStudioAccess() {
+let checkingSharedAccess = null;
+export function checkSharedStudioAccess() {
+    return checkingSharedAccess ||= checkSharedStudioAccessOnce().finally(()=>{checkingSharedAccess=null;});
+}
+async function checkSharedStudioAccessOnce() {
     const active = sharedStudioSession;
     if (!active) return;
     try {
@@ -107,6 +111,24 @@ export async function checkSharedStudioAccess() {
         if (sharedStudioSession !== active) return;
         const needsReload=context.canEdit && context.lock?.fence!==active.fence;
         setSharedStudioAccess({...context,status:'ready',needsReload,canEdit:context.canEdit&&!needsReload});
+        if (!context.canEdit && !active.dirty && !document.querySelector('.editor-preview-progress')) {
+            const latest = await active.session.refreshReadOnly();
+            if (sharedStudioSession !== active) return context;
+            if(latest)active.pendingReadOnlyProject=latest;
+            const project=active.pendingReadOnlyProject;
+            // A preview may start while the network read is in flight. Defer applying
+            // that snapshot until capture completes, without losing its new head.
+            if (project && !active.dirty && !document.querySelector('.editor-preview-progress')) {
+                active.pendingReadOnlyProject=null;
+                const data = hydrateProjectFromPersistence(project);
+                delete data.uid; delete data.user;
+                const view = {activeLang:state.activeLang,activeIdx:state.activeIdx,activePageIdx:state.activePageIdx,activeBlockIdx:state.activeBlockIdx,activeBubbleIdx:null};
+                Object.assign(state,data,view,{projectId:active.projectId,workId:context.workId,dsfPages:[],releaseId:null,publication:null,visibility:'private'});
+                if(!data.languages?.includes(state.activeLang))state.activeLang=data.defaultLang||data.languages?.[0]||'ja';
+                state.activeBlockIdx=Math.max(0,Math.min(state.activeBlockIdx,(data.blocks?.length||1)-1));
+                active.refresh?.();
+            }
+        }
         return context;
     } catch (error) {
         if (sharedStudioSession === active) setSharedStudioAccess({...readSharedStudioAccess(),status:[401,403].includes(error.status)?'unavailable':'disconnected',canEdit:false});
@@ -156,7 +178,7 @@ export async function loadSharedProject({spaceId,workId}, refresh) {
             releaseId:null,dsfPages:[],dsfStatus:null,publication:null,visibility:'private',
             activeLang:data.defaultLang || data.languages?.[0] || 'ja',activeIdx:0,activePageIdx:0,activeBlockIdx:0,activeBubbleIdx:null}});
         epoch = getProjectSessionEpoch(); privateAuthoringSession = null;
-        sharedStudioSession = {session,epoch,projectId:session.context.projectId,user,dirty:false,fence:session.context.lock?.fence};
+        sharedStudioSession = {session,epoch,projectId:session.context.projectId,user,dirty:false,refresh,fence:session.context.lock?.fence};
         window.localImageMap = {};
         setSharedStudioAccess({...session.context,status:'ready'});
         sharedAccessTimer = setInterval(()=>{if(document.visibilityState==='visible')void checkSharedStudioAccess().catch(()=>{});},10000);
@@ -1249,10 +1271,9 @@ async function performSaveOnce() {
                 || session?.creating === true;
             if (newPrivate && !session) {
                 if (!saveIsCurrent()) throw new AuthoringClientError('AUTHORING_SESSION_CHANGED');
-                const sequence = projectLoadSequence;
                 session = { projectId: saveIdentity.projectId, epoch: saveIdentity.epoch, assets: new Map(), creating: true,
                     client: createPrivateAuthoringClient({ uid: saveIdentity.uid, projectId: saveIdentity.projectId,
-                        user: saveIdentity.user, isCurrent: () => sequence === projectLoadSequence && saveIsCurrent() }) };
+                        user: saveIdentity.user, isCurrent: () => privateAuthoringSession === session && saveIsCurrent() }) };
                 privateAuthoringSession = session;
             }
             saveEvidence.backend(usesPrivateAuthoring(existingData) || newPrivate ? 'r2-private' : 'firestore');
@@ -1806,16 +1827,16 @@ export async function loadProject(pid, refresh) {
     const uid = state.uid, user = auth.currentUser;
     let epoch = getProjectSessionEpoch();
     const sequence = ++projectLoadSequence;
-    privateAuthoringSession?.images?.dispose();
-    privateAuthoringSession = null;
-    const isCurrent = () => sequence === projectLoadSequence && epoch === getProjectSessionEpoch()
+    let committed = false, privateClient = null;
+    const isCurrent = () => epoch === getProjectSessionEpoch()
+        && (committed ? privateAuthoringSession?.client === privateClient : sequence === projectLoadSequence)
         && state.uid === uid && auth.currentUser === user;
     const snap = await getDoc(projectDocRef(pid, uid));
     if (!isCurrent()) throw new AuthoringClientError('AUTHORING_SESSION_CHANGED');
+    if (!snap.exists()) throw new AuthoringClientError('PROJECT_NOT_FOUND',404);
     if (snap.exists()) {
         const rootData = snap.data() || {};
         let persistedData = rootData;
-        let privateClient = null;
         if (usesPrivateAuthoring(rootData)) {
             assertPrivateAuthoringRoot(rootData, uid, pid);
             privateClient = createPrivateAuthoringClient({ uid, projectId: pid, user, isCurrent });
@@ -1892,6 +1913,7 @@ export async function loadProject(pid, refresh) {
         });
         epoch = getProjectSessionEpoch();
         privateAuthoringSession = privateClient ? { client: privateClient, projectId: pid, epoch, images, assets: images.refs } : null;
+        committed = true;
         dispatch({ type: actionTypes.SET_ACTIVE_LANGUAGE, payload: defaultLang });
         dispatch({ type: actionTypes.SET_ACTIVE_INDEX, payload: 0 });
         dispatch({ type: actionTypes.SET_ACTIVE_BLOCK_INDEX, payload: Math.max(0, getBlockIndexFromPageIndex(data.blocks || [], 0)) });

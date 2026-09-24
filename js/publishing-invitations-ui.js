@@ -1,5 +1,5 @@
 // Shared UI consumes an authenticated transport. Fixture identity selection lives outside this module.
-export function createPublishingInvitationsUI({root,execute,spaceId,recipients=[],targets=[],canInvite=false,resolveRecipient=null,getLocale=()=> 'ja',onOpenSpace=()=>{}}) {
+export function createPublishingInvitationsUI({root,execute,spaceId,recipients=[],targets=[],canInvite=false,resolveRecipient=null,getLocale=()=> 'ja',onOpenSpace=()=>{},inlineInbox=false}) {
     const en=()=>getLocale()==='en', t=(ja,english)=>en()?english:ja;
     let stopped=false,busy=false,modal=null,lastFocus=null,inboxItems=[],cursor=null;
     const node=(tag,text,className)=>{const el=document.createElement(tag);if(text!==undefined)el.textContent=text;if(className)el.className=className;return el;};
@@ -10,7 +10,7 @@ export function createPublishingInvitationsUI({root,execute,spaceId,recipients=[
     const toolbar=node('div',undefined,'invitation-toolbar'), title=node('h1',t('招待とお知らせ','Invitations & notifications'));
     const bell=button('',()=>openInbox(),'notification-bell');bell.setAttribute('aria-label',t('お知らせ','Notifications'));
     bell.innerHTML='<svg aria-hidden="true" viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9M10 21h4"/></svg>';
-    const badge=node('span','0','notification-badge');badge.hidden=true;bell.append(badge);toolbar.append(title,bell);
+    const badge=node('span','0','notification-badge');badge.hidden=true;bell.append(badge);toolbar.append(title,bell);if(inlineInbox){title.textContent=t('出版スペースへの招待','Publishing space invitations');bell.textContent=t('更新','Refresh');bell.onclick=()=>refresh();}
     const message=node('p','', 'invitation-message');message.setAttribute('role','status');
     const retry=button(t('再読み込み','Retry'),()=>refresh());retry.hidden=true;
     const content=node('section');root.append(toolbar,message,retry,content);
@@ -76,7 +76,7 @@ export function createPublishingInvitationsUI({root,execute,spaceId,recipients=[
             reviewDialog.append(button(t('招待する','Send invitation'),()=>run(async()=>{await execute(c);close();message.textContent=t('相手のお知らせに招待を届けました。','Invitation added to the recipient’s notifications.');await refreshOutbox();}),'primary'));
         },'primary');who.onchange=()=>who.setCustomValidity('');form.onsubmit=e=>e.preventDefault();form.append(review);
     }
-    async function refresh(){await run(async()=>{await refreshBadge();if(canInvite)await refreshOutbox();else if(!content.childNodes.length)content.append(node('p',t('ベルマークから招待のお知らせを確認できます。','Open the bell to view invitations.')));});}
+    async function refresh(){await run(async()=>{const data=await refreshBadge();if(inlineInbox&&data){inboxItems=data.items;cursor=data.nextCursor;renderInbox(content);}else if(canInvite)await refreshOutbox();else if(!content.childNodes.length)content.append(node('p',t('ベルマークから招待のお知らせを確認できます。','Open the bell to view invitations.')));});}
     const focus=()=>{if(!busy&&!modal&&!document.hidden)refresh();};window.addEventListener('focus',focus);
     const timer=setInterval(()=>{if(!document.hidden&&!modal&&!busy)refresh();},30000);
     refresh();return {refresh,destroy(){stopped=true;clearInterval(timer);window.removeEventListener('focus',focus);close();root.replaceChildren();}};

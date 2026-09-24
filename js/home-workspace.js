@@ -1,8 +1,8 @@
 import {createSpaceSettingsNavigation} from './space-settings-navigation.js';
 // View-only navigation over the existing dashboard surfaces.
 const labels = {
- ja:{overview:'ダッシュボード',projects:'作品',activity:'公開状況・反応',settings:'スペースの設定',local:'このブラウザの作業コピー',recent:'最近の作品',create:'作品を作成',import:'DSPを取り込む',all:'作品をすべて見る',nav:'出版スペースの管理',hint:'作品を選んで、続きから編集できます。',publication:'公開設定を管理',localHint:'この端末に残っている復元用コピーです。出版スペースの一覧とは別に表示します。'},
- en:{overview:'Dashboard',projects:'Works',activity:'Publication & feedback',settings:'Space settings',local:'Browser working copies',recent:'Recent works',create:'Create a work',import:'Import DSP',all:'View all works',nav:'Manage publishing space',hint:'Choose a work to continue editing.',publication:'Manage publication',localHint:'Recovery copies on this device, separate from your publishing space.'}
+ ja:{shared:'共有された作品',notifications:'お知らせ',overview:'ダッシュボード',projects:'作品',activity:'公開状況・反応',settings:'スペースの設定',local:'このブラウザの作業コピー',recent:'最近の作品',create:'作品を作成',import:'DSPを取り込む',all:'作品をすべて見る',nav:'出版スペースの管理',hint:'作品を選んで、続きから編集できます。',publication:'公開設定を管理',localHint:'この端末に残っている復元用コピーです。出版スペースの一覧とは別に表示します。'},
+ en:{shared:'Shared with me',notifications:'Notifications',overview:'Dashboard',projects:'Works',activity:'Publication & feedback',settings:'Space settings',local:'Browser working copies',recent:'Recent works',create:'Create a work',import:'Import DSP',all:'View all works',nav:'Manage publishing space',hint:'Choose a work to continue editing.',publication:'Manage publication',localHint:'Recovery copies on this device, separate from your publishing space.'}
 };
 export function createHomeWorkspace({root,getLocale,onSelect}) {
  let view='overview',spaceKind='all';
@@ -26,7 +26,7 @@ export function createHomeWorkspace({root,getLocale,onSelect}) {
   const local=root.querySelector('.home-browser-copies');if(view==='local')local.open=true;
  }
  function select(next){
-  if(!Object.hasOwn(labels.ja,next)||!['overview','projects','activity','settings','local'].includes(next))return;
+  if(!Object.hasOwn(labels.ja,next)||!['overview','projects','activity','settings','local','shared','notifications'].includes(next))return;
   view=next;render();onSelect?.(view);root.querySelector('.home-room-body')?.scrollTo?.(0,0);
   root.querySelector('[data-home-title]')?.focus({preventScroll:true});
  }

@@ -10475,3 +10475,12 @@ dialog.personal-sharing-dialog div { display: block; }
 dialog.personal-sharing-dialog { max-height: 85vh; overflow-y: auto; }
 dialog.personal-sharing-dialog p { overflow-wrap: anywhere; }
 dialog.personal-sharing-dialog details { margin-block: 16px; }
+
+.studio-notifications{position:relative;display:inline-flex;align-items:center;justify-content:center;flex-shrink:0;width:36px;height:36px;border:1px solid #64748b;border-radius:50%;background:#263548;color:#fff;cursor:pointer}
+.studio-notifications [data-notification-count]:not([hidden]){position:absolute;top:-4px;right:-5px;min-width:16px;padding:2px;border-radius:12px;background:#e33c57;color:white;font:11px sans-serif}
+#home-shared-inbox article{padding:18px;margin-block:14px;border:1px solid var(--studio-border);border-radius:14px;background:var(--studio-surface)}
+#home-shared-inbox button,#home-notifications button{min-height:40px;padding:8px 14px}
+
+.studio-notifications[hidden]{display:none}
+#home-notifications .invitation-toolbar h1{font-size:18px;line-height:1.5}
+#home-notifications .invitation-toolbar button{flex-shrink:0;white-space:nowrap}

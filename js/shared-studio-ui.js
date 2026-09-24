@@ -12,14 +12,14 @@ export function installSharedStudioUI({getUILang,checkAccess,lockAction,doc=docu
         finally{pendingAction=false;sync();}}
     doc.querySelector('#editor-room')?.prepend(note);
     const blocked='#flow-authoring-surface,#content-render,#bubble-layer,#canvas-page-heading-props,#image-zoom-controls-floating,#panel-right,#asset-grid,#project-settings-modal .ps-dialog';
-    const safe='#canvas-zoom-select,#lang-tabs-top *,[onclick*="setCanvasZoom"],[onclick*="fitCanvas"],#btn-page-prev,#btn-page-next,#page-nav-slider';
+    const safe='#btn-editor-preview,#canvas-zoom-select,#lang-tabs-top *,[onclick*="setCanvasZoom"],[onclick*="fitCanvas"],#btn-page-prev,#btn-page-next,#page-nav-slider';
     let syncing=false;
     function sync(){
         if(syncing)return;syncing=true;
         try{
             const access=readSharedStudioAccess(),readonly=!!access&&!canEditSharedStudio(),en=getUILang()==='en';
             const text=!access?'':access.status==='loading'?(en?'Opening shared manuscript…':'共有原稿を開いています…'):access.status==='disconnected'?(en?'Connection unavailable. Unsaved changes remain in this tab.':'接続を確認できません。未保存の変更はこのタブで保持しています。'):access.status!=='ready'?(access.spaceId==='personal'?(en?'Access unavailable. Reopen from shared projects.':'閲覧権限を確認できません。共有された作品の一覧から開き直してください。'):(en?'Access unavailable. Reopen the work from your space.':'閲覧権限を確認できません。出版スペースから開き直してください。')):
-                access.canEdit?(en?'Shared manuscript · Editing · Saved to its publishing space':'共有原稿・編集可 ／ 出版スペースの原稿へ保存'):(access.lock?.holderName?(en?'Editing: '+access.lock.holderName+' · Read only':access.lock.holderName+' さんが編集中 ／ 閲覧のみ'):(en?'Shared manuscript · Read only':'共有原稿・閲覧のみ'));
+                access.canEdit?(en?'Shared manuscript · Editing · Saved to its publishing space':'共有原稿・編集可 ／ 出版スペースの原稿へ保存'):(access.lock?.holderName?(en?'Editing: '+access.lock.holderName+' · Read only':access.lock.holderName+' さんが編集中 ／ 閲覧のみ'):(en?'Shared manuscript · Read only · Latest saved changes refresh automatically':'共有原稿・閲覧のみ ／ 最新の保存内容を自動反映'));
             note.style.display=access?'flex':'none';if(message.textContent!==text)message.textContent=text;
             const buttons=[];
             if(access?.status==='disconnected')buttons.push(['refresh',en?'Reconnect':'接続を再確認']);
@@ -50,6 +50,7 @@ export function installSharedStudioUI({getUILang,checkAccess,lockAction,doc=docu
         if(e.target instanceof Element && e.target.closest('[data-shared-disabled]')){e.preventDefault();e.stopImmediatePropagation();return;}
         if(canEditSharedStudio())return;
         const el=e.target instanceof Element?e.target:null;
+        if(e.type==='keydown'&&['Enter',' '].includes(e.key)&&el?.closest(safe))return;
         const mutation=['beforeinput','paste','cut','drop','dragstart'].includes(e.type);
         const key=e.type==='keydown'&& !(['Tab','Escape','ArrowLeft','ArrowRight','ArrowUp','ArrowDown','PageUp','PageDown','Home','End'].includes(e.key)||(e.ctrlKey||e.metaKey)&&['c','a','+','-','0'].includes(e.key.toLowerCase()));
         const control=el?.closest('[data-shared-disabled],#canvas-view,#asset-grid,#panel-right,#project-settings-modal input,#project-settings-modal select,#project-settings-modal textarea');

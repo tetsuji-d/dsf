@@ -19,7 +19,7 @@ export function createSpaceMembersSettings({root,execute,personalExecute=null,ge
         };
         const personalInbox=()=>{const host=el('section');root.append(host);ui=createPublishingInvitationsUI({root:host,execute,getLocale,onOpenSpace:openSpace});};
         if(!uid){root.append(el('p',text('ログインしてください。','Sign in to continue.')));return;}
-        if(!spaceId){if(personalExecute)personalUI=mountPersonalSharingInbox({root,execute:personalExecute,getLocale,isCurrent:()=>revision===epoch});root.append(el('p',text('届いた招待は下のベルから確認できます。管理する出版スペースは左上で選択してください。','Check received invitations using the bell below. Select a space to manage using the top-left switcher.')));personalInbox();return;}
+        if(!spaceId){title.textContent=text('招待と共有','Invitations & sharing');root.append(el('p',text('招待はヘッダーのお知らせベル、承諾済みの作品は左の「共有された作品」から開けます。','Open invitations from the header bell, and accepted works from Shared with me.')));return;}
         if(!manageMembers){root.append(el('p',text('参加中の出版スペースです。メンバー・共有範囲の管理は所有者または管理者が行います。','You have joined this space. Its owner or administrators manage membership and access.')));personalInbox();return;}
         const status=el('p',text('メンバーを読み込み中…','Loading members…'));status.setAttribute('role','status');root.append(status);
         const button=(label,action)=>{const b=el('button',label);b.type='button';b.onclick=action;return b;};

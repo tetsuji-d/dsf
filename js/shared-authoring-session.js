@@ -37,10 +37,18 @@ export async function openSharedAuthoringSession({spaceId,workId,user,isCurrent,
     }
     try {
         await getContext();
-        const client=createPrivateAuthoringClient({uid:user.uid,storageUid:context.ownerUid,projectId:context.projectId,user,isCurrent:current,fetcher:scopedFetch,sharedScope:{spaceId,workId}});
+        const makeClient=()=>createPrivateAuthoringClient({uid:user.uid,storageUid:context.ownerUid,projectId:context.projectId,user,isCurrent:current,fetcher:scopedFetch,sharedScope:{spaceId,workId}});
+        let client=makeClient();
         const loaded=await client.load(),project=await mapSharedImageSlots(loaded,image);
         return Object.freeze({project,context:{...context},dispose,getHead:()=>client.getHead(),
             noteEdit(){edited=true;},
+            async refreshReadOnly(){try{
+                check(!context.canEdit,'EDIT_FORBIDDEN');
+                const next=makeClient(),loaded=await next.load();
+                if(JSON.stringify(next.getHead())===JSON.stringify(client.getHead()))return null;
+                const updated=await mapSharedImageSlots(loaded,image);check(current(),'AUTHORING_SESSION_CHANGED');
+                client=next;return updated;
+            }catch(error){return failed(error);}},
             async lockAction(action,requestId){
                 try {await request('/lock',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action,requestId})});return await getContext();}
                 catch(error){return failed(error);}

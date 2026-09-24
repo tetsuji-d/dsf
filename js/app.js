@@ -1,3 +1,4 @@
+import {createStudioInbox} from './studio-inbox.js';
 import {createPersonalSharingClient,openPersonalSharingDialog} from './personal-sharing-ui.js';
 import {renderJoinedSpaceWorks} from './joined-space-works.js';
 import {projectActionsMarkup,bindProjectActions,openProjectSpaceDialog} from './project-actions-ui.js';
@@ -4310,7 +4311,15 @@ function formatProjectBytes(bytes) {
 }
 
 // ── Home room — ダッシュボード（クラウド / ローカル一覧） ─────────────────
-let publishingSpaceUI, homeWorkspace, spaceMembersSettings;
+let publishingSpaceUI, homeWorkspace, spaceMembersSettings, studioInbox;
+function syncStudioInbox() {
+    if(!studioInbox)studioInbox=createStudioInbox({getUser:()=>firebaseAuth.currentUser,getLocale:getUILang,
+        onNavigate:view=>{window.switchRoom('home');getHomeWorkspace().select(view);},
+        onOpenSpace:async invitation=>{const uid=state.uid;await getPublishingSpaceUI().openJoined(invitation.spaceId);if(uid===state.uid)getHomeWorkspace().select('projects');}
+    });
+    studioInbox.update();
+    return studioInbox;
+}
 function syncSpaceMembersSettings() {
     const root = document.getElementById('home-space-members');
     if (!root) return;
@@ -4322,6 +4331,7 @@ function syncSpaceMembersSettings() {
 
 function getHomeWorkspace() {
     if (!homeWorkspace) homeWorkspace = createHomeWorkspace({root:document.getElementById('home-room'),getLocale:getUILang,onSelect:view=>{
+        if(['shared','notifications'].includes(view))syncStudioInbox().show(view);
         if(['overview','projects','activity','settings'].includes(view))void getPublishingSpaceUI().retryIfFailed();
         if(['overview','projects','activity'].includes(view)&&state.uid&&!homeCloudProjectsRequest&&(!homeCloudProjectsCache||Date.now()-homeCloudProjectsCache.time>=30000))void renderHomeDashboard({refreshSpaces:false,forceRefresh:true});
     }});
@@ -4738,6 +4748,7 @@ async function renderHomeDashboard({ refreshSpaces = true, forceRefresh = false 
     else spaceUI.render();
     getHomeWorkspace().render({spaceKind:spaceUI.viewKind?.()||'all'});
     syncSpaceMembersSettings();
+    syncStudioInbox();
     const joined=spaceUI.joinedSelection?.();
     document.getElementById('home-room')?.classList.toggle('home-joined-space',!!joined);
     const cloudProjectsPromise = joined?null:fetchHomeCloudProjects();
@@ -4989,6 +5000,7 @@ function updateAuthUI() {
 function applyStudioAuthUser(user) {
     state.user = user || null;
     state.uid = user?.uid || null;
+    syncStudioInbox();
     updateAuthUI();
     if (document.body?.dataset?.room === 'press' && hasFlowGroups(state)) {
         void refreshFlowHorizonDryRunReadiness();
@@ -8095,11 +8107,17 @@ function syncLangPanel() {
 }
 
 
-async function onLoadProject(pid) {
+let openingProject = null;
+function onLoadProject(pid) {
+    if(openingProject)return openingProject.pid===pid?openingProject.promise:Promise.resolve(false);
+    const promise=performLoadProject(pid).finally(()=>{openingProject=null;});
+    openingProject={pid,promise};return promise;
+}
+async function performLoadProject(pid) {
     try {
         await flushPendingSave();
-        resetFlowRuntimeForProjectChange();
         await loadProject(pid, () => {
+            resetFlowRuntimeForProjectChange({keepSession:true});
             clearHistory();
             ensureUiPrefs();
             applyThumbColumnsFromPrefs();
@@ -9792,7 +9810,7 @@ window.restoreCloudManuscript = async () => {
     if (!confirm(t('authoring_restore_confirm'))) return;
     try {
         await restorePreviousCloudAuthoring(() => {
-            resetFlowRuntimeForProjectChange(); clearHistory(); refresh(); renderLangSettings();
+            resetFlowRuntimeForProjectChange({keepSession:true}); clearHistory(); refresh(); renderLangSettings();
         });
         alert(t('authoring_restore_done'));
     } catch (error) { alert(`${t('authoring_restore_failed')}\n${error?.code || error?.message}`); }
@@ -11233,6 +11251,7 @@ window.setStudioUILang = (lang) => {
 
 // --- 初回描画: UI 骨組み → リダイレクト認証結果 → GIS 初期化 → ローカル復元 → ?room= ---
 async function bootstrapApp() {
+    const initialSession = getProjectSessionIdentity();
     initUIChrome();
     normalizeStudioRouteUrl();
     const urlParams = new URLSearchParams(window.location.search);
@@ -11270,7 +11289,7 @@ async function bootstrapApp() {
     if (!hasCloudId) {
         try {
             const backup = await idbGet('dsf_autosave');
-            if (backup && backup.state) {
+            if (backup && backup.state && initialSession === getProjectSessionIdentity() && !openingProject) {
                 console.log("[DSF] Found local auto-save backup. Restoring...");
 
                 // Restore object URLs for unsaved guest images
@@ -11288,6 +11307,7 @@ async function bootstrapApp() {
                     }
                 }
 
+                if(initialSession === getProjectSessionIdentity() && !openingProject) {
                 window.localImageMap = restoredMap;
                 const restoredState = hydrateProjectFromPersistence(JSON.parse(stateStr));
 
@@ -11296,6 +11316,7 @@ async function bootstrapApp() {
                 clearHistory();
                 dispatch({ type: actionTypes.LOAD_PROJECT, payload: restoredState });
                 console.log("[DSF] Auto-save restored successfully.");
+                } else { Object.keys(restoredMap).forEach(url=>URL.revokeObjectURL(url)); }
             }
         } catch (err) {
             console.warn("[DSF] Error restoring local auto-save:", err);
@@ -11305,7 +11326,7 @@ async function bootstrapApp() {
     if (sharedTarget) {
         try {
             resetFlowRuntimeForProjectChange();
-            await loadSharedProject(sharedTarget,()=>{clearHistory();ensureUiPrefs();applyThumbColumnsFromPrefs();});
+            await loadSharedProject(sharedTarget,()=>{resetFlowRuntimeForProjectChange({keepSession:true});clearHistory();ensureUiPrefs();applyThumbColumnsFromPrefs();refresh();renderLangSettings();});
             window.switchRoom('editor');
         } catch(error) {
             console.warn('[Shared Studio] Open failed:',error.code || 'UNAVAILABLE');
@@ -11895,7 +11916,7 @@ function showImagePasteStatus(code) {
 }
 const imagePageImporter = createImagePageImporter({ readState: readStudioAIState, prepareImage: prepareAuthoringImage,
     discardImage: discardPreparedAuthoringImage, applyImagePage: result => applyEditorSpineChange(result), onStatus: showImagePasteStatus });
-installSharedStudioUI({getUILang,checkAccess:checkSharedStudioAccess,lockAction:action=>sharedStudioLockAction(action,()=>{clearHistory();refresh();})});
+installSharedStudioUI({getUILang,checkAccess:checkSharedStudioAccess,lockAction:action=>sharedStudioLockAction(action,()=>{resetFlowRuntimeForProjectChange({keepSession:true});clearHistory();refresh();})});
 window.addEventListener('shared-studio-unavailable',()=>{
     clearHistory();resetFlowRuntimeForProjectChange({keepSession:true});queueMicrotask(()=>refresh());
 });

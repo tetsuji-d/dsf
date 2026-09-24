@@ -31,6 +31,8 @@ const fail=code=>error=>error.code===code;
  project.blocks[0].content.text='共有編集後の本文';project.blocks[0].content.texts.ja='共有編集後の本文';
  project.blocks.push({id:'private_image',kind:'page',content:{pageKind:'image',background:asset.url,layers:[]}});
  await editor.save(project);
+ const updated=await viewer.refreshReadOnly();assert.equal(updated.blocks[0].content.text,'共有編集後の本文');assert(updated.blocks[1].content.background.startsWith('blob:'));assert.equal(await viewer.refreshReadOnly(),null);
+ await assert.rejects(editor.refreshReadOnly(),fail('EDIT_FORBIDDEN'));
  const reopened=await f.session('reader_2');assert.equal(reopened.project.blocks[0].content.text,'共有編集後の本文');assert(reopened.project.blocks[1].content.background.startsWith('blob:'));
  assert.equal(f.docs.has('users/reader_1/projects/book_library'),false);
  const raw=await f.request('reader_2',base+'/authoring'),text=await raw.text();assert(text.includes(asset.ref));assert(!text.includes('blob:'));assert(!text.includes('https://'));
@@ -50,6 +52,7 @@ const fail=code=>error=>error.code===code;
  const unsafe=structuredClone(project);unsafe.blocks[1].content.background='https://public.example/private.webp';await assert.rejects(editor.save(unsafe),fail('PRIVATE_IMAGES_REQUIRED'));
  const malformed=await f.request('reader_1',base+'/assets',{method:'POST',headers:{'Content-Type':'image/webp'},body:new Uint8Array([1,2,3])});assert.equal(malformed.status,422);
  const before=f.r2.gets;f.docs.get('users/reader_2/spaceMemberships/space_demo').status='revoked';assert.equal((await f.request('reader_2',base+'/assets/'+asset.sha256)).status,403);assert.equal(f.r2.gets,before);
+ await assert.rejects(viewer.refreshReadOnly(),fail('SPACE_FORBIDDEN'));
  await assert.rejects(reopened.checkAccess(),fail('SPACE_FORBIDDEN'));await assert.rejects(fetch(reopened.project.blocks[1].content.background));
  for(const s of [viewer,editor,reopened,another])s.dispose();
 }

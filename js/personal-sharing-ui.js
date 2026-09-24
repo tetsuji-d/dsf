@@ -16,7 +16,7 @@ const message=(error,en)=>({PERSONAL_SHARING_DISABLED:en?'Personal sharing is be
     LOOKUP_LIMIT:en?'Too many account searches. Try again in a minute.':'検索が続いています。少し待ってから再度お試しください。',
     PERSONAL_WORK_REQUIRED:en?'Select a project in My space.':'マイスペースのプロジェクトを選択してください。',
     ALREADY_SHARED:en?'This person is already invited or has access.':'この相手には招待済み、または共有中です。',
-    UPSTREAM_UNAVAILABLE:en?'Could not contact cloud storage while preparing sharing. Please try again shortly.':'共有の準備中にクラウド保存先との通信に失敗しました。少し待ってから再試行してください。',
+    UPSTREAM_UNAVAILABLE:en?'Could not contact cloud storage. Please try again shortly.':'クラウドとの通信に失敗しました。少し待ってから再試行してください。',
     SHARING_TIMEOUT:en?'Sharing preparation took too long. Reopen sharing to check its current state.':'共有の準備が時間内に完了しませんでした。共有画面を開き直して状態を確認してください。',
     IMAGE_PREPARATION_BLOCKED:en?'Some images could not be verified. Reimport missing or unsupported images.':'検証できない画像があります。元の画像を取り込み直してください。',
     MAINTENANCE_SOURCE_CHANGED:en?'The manuscript changed. Reopen sharing preparation.':'原稿が更新されました。共有画面を開き直してください。',
@@ -98,25 +98,26 @@ export function openPersonalSharingDialog({projectId,name,execute,getLocale=()=>
     }
     document.body.append(d);d.showModal();void run(load);return d;
 }
-export function mountPersonalSharingInbox({root,execute,getLocale=()=> 'ja',isCurrent=()=>true,onOpen=null}){
+export function mountPersonalSharingInbox({root,execute,getLocale=()=> 'ja',isCurrent=()=>true,onOpen=null,mode='all',onChange=()=>{}}){
     const en=getLocale()==='en',section=node('section');section.className='personal-sharing-inbox';root.append(section);
     const title=node('h3',en?'Shared with me':'共有された作品'),status=node('p'),list=node('div');status.setAttribute('role','status');
     let alive=true,revision=0;
     const open=i=>{if(onOpen)return onOpen(i);location.href='/studio?room=editor&sharedSpace=personal&sharedWork='+encodeURIComponent(i.workId);};
-    const refresh=button(en?'Notifications / refresh':'🔔 招待を確認・更新',load);section.append(title,refresh,status,list);
+    const refresh=button(en?'Notifications / refresh':'🔔 招待を確認・更新',load);if(mode==='notifications')title.textContent=en?'Project invitations':'作品への招待';section.append(title,refresh,status,list);
     async function load(){const version=++revision;refresh.disabled=true;status.textContent=en?'Loading…':'読み込み中…';
         try{const result=await execute({kind:'inbox'});if(!alive||!isCurrent()||version!==revision)return;
-            refresh.textContent=(en?'Notifications':'🔔 招待')+' ('+result.pendingCount+')';status.textContent='';list.replaceChildren();
-            const items=result.items.filter(i=>['pending','accepted'].includes(i.status));
-            if(!items.length)list.append(node('p',en?'No shared projects or pending invitations.':'共有された作品や承諾待ちの招待はありません。'));
+            refresh.textContent=en?'Refresh':'更新';status.textContent='';list.replaceChildren();
+            onChange(result);
+            const items=result.items.filter(i=>mode==='works'?i.status==='accepted':mode==='notifications'?i.status==='pending':['pending','accepted'].includes(i.status));
+            if(!items.length)list.append(node('p',mode==='works'?(en?'No shared works yet. Accept invitations from the header bell.':'共有された作品はまだありません。ヘッダーのベルから招待を承諾できます。'):(en?'No pending invitations.':'承諾待ちの招待はありません。')));
             for(const i of items){const row=node('article');row.append(node('strong',i.title),node('p',i.inviterName+' · '+(en?'View only':'閲覧のみ')));
                 if(i.status==='accepted')row.append(button(en?'Open':'開く',()=>open(i)));
                 else {row.append(node('p',en?'Only this project is shared. You will not join a publishing space.':'この作品だけを閲覧します。出版スペースには所属しません。'));
                     for(const [kind,label]of [['accept',en?'Accept invitation':'招待を承諾'],['decline',en?'Decline':'辞退']])row.append(button(label,async()=>{
                         row.querySelectorAll('button').forEach(b=>b.disabled=true);try{if(!isCurrent())return;await execute({kind,id:i.id});await load();}catch(e){if(alive)status.textContent=message(e,en);row.querySelectorAll('button').forEach(b=>b.disabled=false);}
                     }));}list.append(row);}
-            const history=historySection(result.items,en,async()=>{if(!alive||!isCurrent())return;refresh.disabled=true;try{await execute({kind:'archive'});await load();}catch(e){if(alive)status.textContent=message(e,en);}finally{if(alive)refresh.disabled=false;}});if(history)list.append(history);
+            const history=historySection(result.items,en,async()=>{if(!alive||!isCurrent())return;refresh.disabled=true;try{await execute({kind:'archive'});await load();}catch(e){if(alive)status.textContent=message(e,en);}finally{if(alive)refresh.disabled=false;}});if(history&&mode!=='works')list.append(history);
         }catch(e){if(alive&&version===revision)status.textContent=message(e,en);}finally{if(alive&&version===revision)refresh.disabled=false;}}
     const focus=()=>{if(alive&&isCurrent())void load();};window.addEventListener('focus',focus);void load();
-    return {destroy(){alive=false;revision++;window.removeEventListener('focus',focus);section.remove();}};
+    return {refresh:load,destroy(){alive=false;revision++;window.removeEventListener('focus',focus);section.remove();}};
 }
