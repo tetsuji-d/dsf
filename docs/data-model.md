@@ -1200,7 +1200,7 @@ A personal share is **not** a publishing space or space membership. Its saved so
 - `personal_work_invitations/{id}`: server-only owner, recipient, work, generation, display labels, created/updated times, acceptance deadline, and pending/accepted/declined/revoked state.
 - `users/{uid}/personalSharing/inbox`: server-only recipient invitation index (200 entries); `lookup` and `usage` hold lookup/invitation rate limits.
 - These paths have no client Firestore grant. Access uses verified Firebase identity through the server. No new broad Firestore rule is required.
-- `POST /api/personal-sharing`: prepare, outbox, lookup by Horizon ID, invite, inbox, accept, decline, revoke. The owner outbox and revocation remain usable even when source readiness fails. Invite pins the prepared generation and saved revision. Exact invitation IDs make an uncertain send retry idempotent. Limit: 30 invitations/day/account, 20 lookups/minute/account. No email addresses returned.
+- `POST /api/personal-sharing`: prepare, outbox, lookup by Horizon ID, invite, inbox, read (recipient only), accept, decline, revoke. The owner outbox and revocation remain usable even when source readiness fails. Invite pins the prepared generation and saved revision. Exact invitation IDs make an uncertain send retry idempotent. Limit: 30 invitations/day/account, 20 lookups/minute/account. No email addresses returned.
 - Deadlines: 1/3/7/14/30 days or none. They limit **acceptance**; accepted access lasts until revoked. A recipient cannot accept someone else's invitation. Revocation is final for that invitation; re-inviting creates a new ID.
 - `GET /api/spaces/personal/works/{workId}/context|authoring|assets/{hash}` uses a reserved routing scope, not a membership. All writes/lock operations are denied. Every read validates the binding, active owner/recipient, current personal assignment, and generation; source and asset reads recheck access after storage I/O.
 - Latest saved source is loaded when opening; this is not live coediting. Already delivered content cannot be recalled by revocation. The open Studio checks access periodically and on visibility changes, and remains read-only.
@@ -1228,3 +1228,7 @@ Firebase本人確認、所有者、authoring許可対象、アカウント停止
 所有者が共有画面から明示実行した場合のみ、旧原稿は既存authoringMigrationsのバックアップ検証付き移行、画像は既存privateImageGenerationsのコピー検証付き移行を行う。
 保存済み原稿を確認トークンで固定し、コピー中に原稿や所属が変われば確定しない。原稿移行と画像移行は別工程で、完了前には招待を作成しない。
 元の公開画像、発行済みRelease、公開インデックスは変更しない。ステージングは指定2アカウントに限定する。
+
+### 個別共有通知の既読状態（2026-09-24）
+
+`personal_work_invitations/{id}.readAt` は受信者が通知詳細を開いた時刻（ミリ秒）または `null`。`read` コマンドは受信者本人だけが実行でき、承諾・閲覧権限とは独立する。`inbox.unreadCount` は既読時刻のない通知数で、`pendingCount`（承諾待ち）とは異なる。既存データでフィールドがない場合は pending を未読、その他を既読として扱う。承諾・辞退時も既読にする。Firestore Rules、原稿形式、共有アクセス権の変更はない。

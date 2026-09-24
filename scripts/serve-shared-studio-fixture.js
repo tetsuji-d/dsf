@@ -46,6 +46,10 @@ if(registrationMode){
  shared.handler=createSharedRuntime({db:f.db,privateBucket:shared.r2,publicBucket:preflightPublicBucket,publicBaseUrl:'https://media.example.invalid',assertLiveIdentity:f.assertLiveIdentity,now:()=>Date.now()+clockOffset,
   verifyToken:async token=>/^fixture-(owner_1|reader_1|reader_2|admin_1)$/.test(token)?{uid:token.slice(8)}:null});
 }
+if(process.env.NOTIFICATIONS_FIXTURE==='true'){
+ f.docs.delete('users/reader_1/spaceMemberships/space_demo');
+ await f.call('owner_1',{kind:'invite',id:'inv_00000000-0000-4000-8000-000000000001',spaceId:'space_demo',recipientUid:'reader_1',role:'member',grants:[{role:'viewer',scope:'work',targetId:'work_notes'}],expiryDays:7});
+}
 let publicWrites=0,personalWrites=0;
 const ownerAssets=projectId=>createOwnerAssets({db:f.db,bucket:shared.r2,assertLiveIdentity:f.assertLiveIdentity,projectId});
 const ownerService=createAuthoringService({db:f.db,bucket:createAuthoringBucket(shared.r2),assertLiveIdentity:f.assertLiveIdentity,validateSnapshot:(tx,actor,project,write)=>ownerAssets(project.projectId).validateReferences(tx,actor,project,write)});
@@ -60,8 +64,8 @@ const ownerActions=createProjectActions({db:f.db,bucket:createAuthoringBucket(sh
 const ownerHandler=createAuthoringApi({assets:projectId=>createOwnerAssets({db:f.db,bucket:shared.r2,assertLiveIdentity:f.assertLiveIdentity,projectId}),service:ownerService,actions:ownerActions,verifyToken:async token=>token==='fixture-owner_1'?{uid:'owner_1'}:null});
 const stubs={
 core:`const uid=new URLSearchParams(location.search).get('actor')==='viewer'?'reader_2':new URLSearchParams(location.search).get('actor')==='second'?'admin_1':new URLSearchParams(location.search).get('actor')==='owner'?'owner_1':'reader_1';export const db={},storage={},firebaseConfig={};export const auth={currentUser:{uid,email:uid+'@example.invalid',displayName:uid,getIdToken:async()=>'fixture-'+uid}};export const authReady=Promise.resolve();`,
-gis:`import {auth} from '/js/firebase-core.js'; const listeners=new Set(); export const initGIS=async()=>{};export const renderGISButton=()=>{};export const signInWithGoogle=async()=>({user:auth.currentUser});export const signOutUser=async()=>{auth.currentUser=null;for(const cb of listeners)cb(null);};export const onAuthChanged=cb=>{listeners.add(cb);setTimeout(()=>cb(auth.currentUser),0);return()=>listeners.delete(cb)};export const handleRedirectResult=async()=>null;`,
-auth:`export const onAuthStateChanged=()=>()=>{};export const getIdToken=u=>u.getIdToken();`,
+gis:`import {auth} from '/js/firebase-core.js'; const listeners=new Set(); export const initGIS=async()=>{};export const renderGISButton=()=>{};export const signInWithGoogle=async()=>({user:auth.currentUser});export const signOutUser=async()=>{auth.currentUser=null;for(const cb of listeners)cb(null);window.dispatchEvent(new Event('fixture-auth-change'));};export const onAuthChanged=cb=>{listeners.add(cb);setTimeout(()=>cb(auth.currentUser),0);return()=>listeners.delete(cb)};export const handleRedirectResult=async()=>null;`,
+auth:`export const onAuthStateChanged=(auth,cb)=>{const notify=()=>cb(auth.currentUser);setTimeout(notify,0);window.addEventListener('fixture-auth-change',notify);return()=>window.removeEventListener('fixture-auth-change',notify)};export const getIdToken=u=>u.getIdToken();`,
 firestore:`export const doc=(db,...p)=>p.join('/'),collection=doc,serverTimestamp=()=>new Date(),query=(...p)=>p,where=(...p)=>p,limit=x=>x,orderBy=x=>x,documentId=()=>'',startAfter=x=>x;
 export async function getDoc(path){const r=await fetch('/fixture/doc?path='+encodeURIComponent(path));const data=await r.json();return {exists:()=>data!==null,data:()=>data};}
 export const getDocFromServer=getDoc;export const getDocs=async()=>({docs:[],empty:true,size:0,forEach(){}}),getDocsFromServer=getDocs;

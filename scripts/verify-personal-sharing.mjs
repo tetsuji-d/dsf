@@ -20,6 +20,14 @@ assert.equal((await call('owner_1',{kind:'lookup',handle:'@sato'})).recipient.ui
 const cmd={kind:'invite',id:'personal_12345678-1234-1234-1234-123456789012',projectId:'book_library',recipientUid:'reader_1',revision:p.revision,generationId:p.generationId,expiresInDays:1};
 assert.equal((await call('owner_1',cmd)).status,200);assert.equal((await call('owner_1',cmd)).status,200);
 assert.equal((await call('reader_1',{kind:'inbox'})).pendingCount,1);
+assert.equal((await call('reader_1',{kind:'inbox'})).unreadCount,1);
+assert.equal((await call('reader_2',{kind:'read',id:cmd.id})).status,403);
+assert.equal((await call('owner_1',{kind:'read',id:cmd.id})).status,403);
+const notice=await call('reader_1',{kind:'read',id:cmd.id});assert.equal(notice.invitation.status,'pending');assert.equal(typeof notice.invitation.readAt,'number');
+assert.equal((await call('reader_1',{kind:'inbox'})).unreadCount,0);
+assert.equal((await call('reader_1',{kind:'inbox'})).pendingCount,1);
+assert.equal((await call('reader_1',{kind:'read',id:cmd.id})).invitation.readAt,notice.invitation.readAt);
+
 assert.equal((await get('reader_1')).status,403);
 assert.equal((await call('reader_2',{kind:'accept',id:cmd.id})).status,403);
 assert.equal((await call('reader_1',{kind:'accept',id:cmd.id})).status,200);

@@ -5,7 +5,7 @@ const sharePath=id=>'personal_work_shares/'+segment(id);
 const invitePath=id=>'personal_work_invitations/'+segment(id);
 const indexPath=uid=>'users/'+segment(uid)+'/personalSharing/inbox';
 const status=(i,t)=>i.status==='pending'&&i.expiresAt!==null&&i.expiresAt<=t?'expired':i.status;
-const expose=(i,t)=>({...i,status:status(i,t)});
+const expose=(i,t)=>({...i,status:status(i,t),readAt:Object.hasOwn(i,'readAt')?i.readAt:(i.status==='pending'?null:i.updatedAt||i.createdAt)});
 export const PERSONAL_SHARING_ROOTS=['personal_work_shares','personal_work_invitations','handles','publishing_work_scopes'];
 async function personalSource(tx,ownerUid,projectId,workId){
     const [owner,catalogue,binding]=await tx.getMany(['users/'+ownerUid,'users/'+ownerUid+'/publishing/catalogue','publishing_work_scopes/'+workId]);
@@ -30,7 +30,7 @@ export async function resolvePersonalWorkAccess(tx,{actorUid,workId,action,now=D
 export function createPersonalSharingService({db,assertLiveIdentity,validateSource,now=Date.now}){
     async function execute(identity,cmd){
         const uid=segment(identity?.uid),kind=cmd?.kind,t=now();
-        check(['prepare','outbox','lookup','invite','inbox','accept','decline','revoke','archive'].includes(kind),'INVALID_COMMAND',400);
+        check(['prepare','outbox','lookup','invite','inbox','read','accept','decline','revoke','archive'].includes(kind),'INVALID_COMMAND',400);
         await assertLiveIdentity(identity);
         // Validate actual saved content before offering an invitation, without changing it.
         let prepared=null;
@@ -67,7 +67,8 @@ export function createPersonalSharingService({db,assertLiveIdentity,validateSour
                 const [index]=await tx.getMany([indexPath(uid)]),ids=index?.ids||[];check(ids.length<=200,'INDEX_INVALID');
                 const items=await tx.getMany(ids.map(invitePath));
                 check(items.every(i=>i?.recipientUid===uid),'INDEX_INVALID');
-                return {items:items.map(i=>expose(i,t)),pendingCount:items.filter(i=>status(i,t)==='pending').length};
+                const exposed=items.map(i=>expose(i,t));
+                return {items:exposed,pendingCount:items.filter(i=>status(i,t)==='pending').length,unreadCount:exposed.filter(i=>i.readAt===null).length};
             }
             if(kind==='outbox'){
                 const projectId=segment(cmd.projectId),[root]=await tx.getMany(['users/'+uid+'/projects/'+projectId]);
@@ -115,13 +116,14 @@ export function createPersonalSharingService({db,assertLiveIdentity,validateSour
                 const invitation={id,ownerUid:uid,inviterName:a.publicProfile?.displayName||a.displayName||uid,recipientUid,
                     recipientName:recipient.publicProfile?.displayName||recipient.displayName||recipientUid,
                     projectId:prepared.projectId,workId:prepared.workId,generationId:prepared.generationId,title:c.root.projectName||c.root.title||'名称未設定',
-                    status:'pending',createdAt:t,expiresInDays:days,expiresAt:days===null?null:t+days*86400000};
+                    status:'pending',createdAt:t,readAt:null,expiresInDays:days,expiresAt:days===null?null:t+days*86400000};
                 tx.set(path,{ownerUid:uid,projectId:prepared.projectId,workId:prepared.workId,generationId:prepared.generationId,invitationIds:[id,...retainedWork]});
                 tx.set(ip,invitation);tx.set(indexPath(recipientUid),{ids:[id,...retainedInbox]});tx.set(up,{day,count:count+1});
                 return {invitation};
             }
             const ip=invitePath(segment(cmd.id)),[i]=await tx.getMany([ip]);check(i,'INVITATION_NOT_FOUND',404);
             const owner=kind==='revoke';check(owner?i.ownerUid===uid:i.recipientUid===uid,'INVITATION_FORBIDDEN',403);
+            if(kind==='read'){const read={...i,readAt:expose(i,t).readAt??t};if(i.readAt!==read.readAt)tx.set(ip,read);return {invitation:expose(read,t)};}
             const next=owner?'revoked':kind==='accept'?'accepted':'declined';
             if(i.status===next)return {invitation:expose(i,t)};
             check(owner?['pending','accepted'].includes(i.status):status(i,t)==='pending','INVITATION_CLOSED',409);
@@ -130,7 +132,7 @@ export function createPersonalSharingService({db,assertLiveIdentity,validateSour
                 check(s?.ownerUid===i.ownerUid&&s.projectId===i.projectId&&s.generationId===i.generationId&&s.invitationIds.includes(i.id),'SHARE_INVALID',409);
                 const c=await personalSource(tx,i.ownerUid,i.projectId,i.workId);check(c.scope.generationId===i.generationId,'SHARE_SOURCE_CHANGED',409);
             }
-            const updated={...i,status:next,updatedAt:t};tx.set(ip,updated);return {invitation:expose(updated,t)};
+            const updated={...i,status:next,updatedAt:t,...(!owner?{readAt:i.readAt??t}:{})};tx.set(ip,updated);return {invitation:expose(updated,t)};
         });
     }
     return {execute};

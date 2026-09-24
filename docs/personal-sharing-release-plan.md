@@ -84,3 +84,11 @@
 - 所有者のロード失敗で前の保存セッションを破棄しない。同じ作品の二重ロードをまとめ、初回のローカル復元が明示的に開いたクラウド原稿を上書きしないようにする。
 - 新たな原稿形式、アクセス権、公開先、許可アカウントは変更しない。
 - 回帰試験: `PERSONAL_SHARING_FIXTURE=true OWNER_PRIVATE_IMAGE_FIXTURE=true PORT=5256 node scripts/serve-shared-studio-fixture.js`、`PERSONAL_SHARING_URL=http://127.0.0.1:5256 node scripts/verify-personal-sharing-live-browser.cjs`。試験ごとにfixtureを再起動する。
+
+## 全ページ共通の通知モーダル（2026-09-24、未配信）
+
+- Horizon、Studio、Viewer、マイページのヘッダーベルで、同じアカウントの個別共有・出版スペース招待を一覧表示。画面を移動せず詳細を読み、承諾・辞退できる。運営画面の認証ヘッダーにも接続。
+- ベル横の数字は未読件数。未読0も表示。詳細を開いて既読にするだけでは参加・閲覧権限を付与しない。通信失敗時は `!` と再試行案内を表示する。
+- 共有作品へのリンクは別タブで開くため、編集中の原稿を維持する。招待送信機能や共有権限は変更しない。
+- 個別共有の `readAt` をサーバーに保存し、ページ移動・再ログイン後も既読を保持。承諾待ちと未読は別状態。
+- 検証: `PERSONAL_SHARING_FIXTURE=true OWNER_PRIVATE_IMAGE_FIXTURE=true NOTIFICATIONS_FIXTURE=true PORT=5259 node scripts/serve-shared-studio-fixture.js` → `node scripts/verify-account-notifications-browser.cjs`。別の初期化済みfixtureで従来の共有・保存ブラウザ試験も行う。

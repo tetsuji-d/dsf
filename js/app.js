@@ -4313,10 +4313,7 @@ function formatProjectBytes(bytes) {
 // ── Home room — ダッシュボード（クラウド / ローカル一覧） ─────────────────
 let publishingSpaceUI, homeWorkspace, spaceMembersSettings, studioInbox;
 function syncStudioInbox() {
-    if(!studioInbox)studioInbox=createStudioInbox({getUser:()=>firebaseAuth.currentUser,getLocale:getUILang,
-        onNavigate:view=>{window.switchRoom('home');getHomeWorkspace().select(view);},
-        onOpenSpace:async invitation=>{const uid=state.uid;await getPublishingSpaceUI().openJoined(invitation.spaceId);if(uid===state.uid)getHomeWorkspace().select('projects');}
-    });
+    if(!studioInbox)studioInbox=createStudioInbox({getUser:()=>firebaseAuth.currentUser,getLocale:getUILang});
     studioInbox.update();
     return studioInbox;
 }

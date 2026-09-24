@@ -1,7 +1,7 @@
 import {accountJsonRequest} from './account-json-request.js';
-export function createPersonalSharingClient({getUser,fetchImpl=fetch}){
+export function createPersonalSharingClient({getUser,fetchImpl=fetch,timeoutMs=120000}){
     return command=>accountJsonRequest({getUser,fetcher:fetchImpl,url:'/api/personal-sharing',command,
-        readOnly:['prepare','inbox','outbox','readiness','prepare-source','prepare-images'].includes(command.kind),limit:500000,timeoutMs:120000,
+        readOnly:['prepare','inbox','outbox','readiness','prepare-source','prepare-images'].includes(command.kind),limit:500000,timeoutMs,
         errors:{auth:'AUTH_REQUIRED',timeout:'SHARING_TIMEOUT',offline:'SHARING_OFFLINE',invalid:'SHARING_INVALID',unavailable:'SHARING_UNAVAILABLE'}});
 }
 const node=(tag,text)=>{const n=document.createElement(tag);if(text!==undefined)n.textContent=text;return n;};
