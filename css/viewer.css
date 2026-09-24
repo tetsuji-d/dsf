@@ -3143,3 +3143,10 @@ body.viewer-cover-turn-active #reader-assist-panel,body.viewer-cover-turn-active
 #viewer-fullscreen-btn[hidden],.viewer-cover-status[hidden]{display:none}
 @media (pointer:coarse) and (max-width:700px){#viewer-fullscreen-btn{display:none}}
 @media print{.viewer-cover-turn,.viewer-cover-status,#viewer-fullscreen-btn{display:none!important}}
+
+/* Physical spine settings share their proportions with the editor preview. */
+.vct-spine { flex-direction: column; gap: 24px; padding: 32px 0; box-sizing: border-box; }
+.vct-spine span { flex: 0 1 auto; min-height: 0; line-height: 1.2; max-height: 76%; overflow: hidden; }
+.vct-spine .book-spine-author { max-height: 20%; }
+#viewer-spread-btn { width: auto; padding-inline: 8px; gap: 3px; }
+.viewer-spread-label { font-size: 10px; white-space: nowrap; }

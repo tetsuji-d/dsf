@@ -203,6 +203,7 @@ const inventory = await createDsfReleaseFileInventory({
         workId: 'work_local_viewer',
         releaseId: 'release_local_viewer_1',
         title: 'ローカルViewer確認',
+        spineDesign: { title: '背表紙の題名', author: '著者', backgroundColor: '#224466', textColor: '#fffefe', fontSize: 18 },
         author: 'DSF Author',
         localizedMeta: { ja: { title: 'ローカルViewer確認', author: '著作者' } },
         created: '2026-08-25T00:00:00.000Z',
@@ -241,6 +242,7 @@ assert.equal(session.archive.byteLength, zipPackage.blob.size);
 assert.equal(session.archive.sha256, zipPackage.sha256);
 assert.equal(session.archive.entryCount, inventory.files.length);
 assert.equal(session.project.title, 'ローカルViewer確認');
+assert.deepEqual(session.project.book.spineDesign, { title: '背表紙の題名', author: '著者', backgroundColor: '#224466', textColor: '#fffefe', fontSize: 18 });
 assert.equal(session.project.defaultLang, 'ja');
 assert.equal(session.project.dsfTotalBytes, zipPackage.blob.size);
 assert.deepEqual(session.project.pages.map((page) => page.deliveryV2.renderKind), ['fixedText', 'image']);

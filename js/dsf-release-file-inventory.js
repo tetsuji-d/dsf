@@ -1,3 +1,4 @@
+import { normalizeBookSpineDesign } from './book-spine-design.js';
 /**
  * Complete local file inventory for an uncompressed DSF delivery v2 release.
  *
@@ -47,6 +48,7 @@ const META_INPUT_KEYS = new Set([
     'modified',
     'generator',
     'spread',
+    'spineDesign',
 ]);
 const LOCALIZED_META_KEYS = new Set(['title', 'author', 'description', 'linerNotes', 'copyright']);
 const SEALED_ASSET_KEYS = new Set(['language', 'blockId', 'pageIndex', 'sealed']);
@@ -485,6 +487,7 @@ function buildMeta(metadata, assembly) {
         generator: metadata.generator || 'DSF Studio v1.2',
         presentation: {
             orientation: 'portrait',
+            ...(metadata.spineDesign ? { spineDesign: normalizeBookSpineDesign(metadata.spineDesign) } : {}),
             aspectRatio: META_PRESENTATION_ASPECT_RATIO,
             spread: metadata.spread || 'auto',
             canonicalLogicalWidth: CANONICAL_PAGE_WIDTH,

@@ -1,3 +1,4 @@
+import { normalizeBookSpineDesign } from './book-spine-design.js';
 import { mapProjectAssetUrls, validateProjectAssets } from './project-assets.js';
 import JSZip from 'jszip';
 import { saveAs } from 'file-saver';
@@ -90,6 +91,7 @@ function buildMetadata(formatStr, options = {}) {
         generator: generator,
         presentation: {
             orientation: "portrait",
+            ...(state.book?.spineDesign ? { spineDesign: normalizeBookSpineDesign(state.book.spineDesign) } : {}),
             aspectRatio: META_PRESENTATION_ASPECT_RATIO,
             spread: "auto",
             canonicalLogicalWidth: CANONICAL_PAGE_WIDTH,
@@ -512,7 +514,7 @@ export async function parseAndLoadDSP(file) {
 }
 
 function buildFixedBookConfig(mode, pageCount) {
-    return normalizeBookSettings({ mode }, mode, pageCount);
+    return normalizeBookSettings({ ...state.book, mode }, mode, pageCount);
 }
 
 // --- Parse .dsf (Content/Publish Import) ---

@@ -192,9 +192,10 @@ const publicMetadata = {
     releaseId,
     projectId: 'project_public_v2',
     title: '公開DSF v2',
+    book: {mode:'simple',spineDesign:{title:'背表紙',author:'著者',backgroundColor:'#224466',textColor:'#fffefe',fontSize:18}},
     dsfStatus: 'public',
 };
-const releaseMetadata = { ...locator, authorUid: uid, workId, releaseId };
+const releaseMetadata = { ...locator, authorUid: uid, workId, releaseId, book: {mode:'simple',spineDesign:{title:'背表紙',author:'著者',backgroundColor:'#224466',textColor:'#fffefe',fontSize:18}} };
 const multilingualReleaseId = 'release_public_v2_multilingual_1';
 const multilingualReleaseRoot = `${origin}/users/${uid}/dsf/${workId}/${multilingualReleaseId}/`;
 const multilingualContentUrl = `${multilingualReleaseRoot}content.json`;
@@ -285,6 +286,7 @@ assert.equal(session.sessionKind, DSF_HORIZON_VIEWER_SESSION_KIND);
 assert.equal(remote.calls[0].url, contentUrl,
     'Anonymous public loading must start from the public index locator without reading the owner-only Release document.');
 assert.equal(session.project.title, '公開DSF v2');
+assert.deepEqual(session.project.book.spineDesign, releaseMetadata.book.spineDesign);
 assert.equal(session.project.dsfSchemaVersion, 2);
 assert.deepEqual(session.project.languages, ['ja']);
 assert.equal(session.pagesByLanguage.get('ja').length, 3);

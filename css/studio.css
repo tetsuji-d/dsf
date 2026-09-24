@@ -10484,3 +10484,18 @@ dialog.personal-sharing-dialog details { margin-block: 16px; }
 .studio-notifications[hidden]{display:none}
 #home-notifications .invitation-toolbar h1{font-size:18px;line-height:1.5}
 #home-notifications .invitation-toolbar button{flex-shrink:0;white-space:nowrap}
+
+.ps-spine-editor { border-top: 1px solid var(--border-color, #ccd5e2); margin-top: 16px; padding-top: 8px; }
+.ps-spine-layout { display: flex; align-items: center; gap: 36px; }
+.ps-spine-fields { flex: 1; min-width: 0; display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.ps-spine-fields label { display: flex; flex-direction: column; gap: 5px; }
+.ps-spine-fields input { width: 100%; box-sizing: border-box; }
+.ps-spine-fields input[type=color] { height: 36px; padding: 3px; }
+.ps-spine-fields .ps-hint { grid-column: 1 / -1; margin: 0; }
+.ps-spine-preview { flex: 0 0 32px; height: 640px; zoom: .55; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 24px; padding: 32px 0; box-sizing: border-box; overflow: hidden; }
+.ps-spine-preview span { writing-mode: vertical-rl; text-orientation: mixed; font-family: serif; letter-spacing: .18em; line-height: 1.2; flex: 0 1 auto; min-height: 0; max-height: 76%; overflow: hidden; }
+.ps-spine-preview .book-spine-author { max-height: 20%; }
+@media(max-width: 560px) { .ps-spine-layout { gap: 18px; } .ps-spine-fields { grid-template-columns: 1fr; } }
+
+.ps-spine-fields .ps-spine-source { grid-column: 1 / -1; flex-direction: row; align-items: center; }
+.ps-spine-source input[type=checkbox] { width: auto; }

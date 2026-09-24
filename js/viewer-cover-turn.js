@@ -1,5 +1,7 @@
+import { getBookSpinePresentation, renderBookSpine } from './book-spine-design.js';
+
 /** A temporary closed-book surface. Only a completed flip changes reading position. */
-export function createViewerCoverTurn({canvas, stage, width, height, getTurn, render, getTitle, text, onGesture}) {
+export function createViewerCoverTurn({canvas, stage, width, height, getTurn, render, getTitle, getSpineDesign, getAuthor, getPublisher, text, onGesture}) {
     let turn = null, pointer = null, wheel = null, wheelTimer = 0, animation = null;
     const status = document.createElement('div');
     status.className = 'viewer-cover-status';
@@ -49,7 +51,8 @@ export function createViewerCoverTurn({canvas, stage, width, height, getTurn, re
             face.innerHTML = render(surface);
             book.append(face);
         }
-        const thickness = width / 30, spineRight = spec.fromFront === spec.rtl;
+        const design = getBookSpinePresentation(getSpineDesign?.(), { title: getTitle(), author: getAuthor?.() || '', publisherName: getPublisher?.() || '', width });
+        const thickness = design.thickness, spineRight = spec.fromFront === spec.rtl;
         book.style.setProperty('--vct-thickness', `${thickness}px`);
         for (const right of [false, true]) {
             const edge = document.createElement('div');
@@ -58,8 +61,7 @@ export function createViewerCoverTurn({canvas, stage, width, height, getTurn, re
             edge.style.left = `${(right ? width : 0) - thickness / 2}px`;
             edge.style.transform = `rotateY(${right ? 90 : -90}deg)`;
             if (spine) {
-                const title = document.createElement('span'); title.textContent = getTitle();
-                title.style.fontSize = `${width / 40}px`; edge.append(title);
+                renderBookSpine(edge, design);
             }
             book.append(edge);
         }
@@ -69,7 +71,7 @@ export function createViewerCoverTurn({canvas, stage, width, height, getTurn, re
         document.body.classList.add('viewer-cover-turn-active');
         message('preparing'); draw(0);
         // Load both covers before hiding the real surface, including uncached local images.
-        const images = [...layer.querySelectorAll('img')];
+        const images = [...layer.querySelectorAll('.vct-face img')];
         let timer;
         current.loaded = Promise.race([
             Promise.all(images.map(img => img.complete && img.naturalWidth ? Promise.resolve() : img.decode())),
@@ -77,7 +79,8 @@ export function createViewerCoverTurn({canvas, stage, width, height, getTurn, re
         ]).then(() => {
             if (turn !== current) return false;
             current.ready = true; layer.style.visibility = ''; stage.style.opacity = '0';
-            message(current.p === .5 ? 'spine' : 'turning');
+            if (current.p === .5) status.hidden = true;
+            else message('turning');
             return true;
         }).catch(() => {
             if (turn === current) { clearTurn(); message('unavailable'); }
@@ -99,7 +102,7 @@ export function createViewerCoverTurn({canvas, stage, width, height, getTurn, re
         if (turn !== current) return;
         draw(to); animation = null; running.cancel(); current.settling = false;
         if (to === 0 || to === 1) clearTurn(to === 1);
-        else message('spine');
+        else status.hidden = true;
     }
     function step(delta) {
         if (pointer?.started || wheel) return true;
@@ -111,7 +114,7 @@ export function createViewerCoverTurn({canvas, stage, width, height, getTurn, re
         if (!turn || gesture.latched) return;
         const p = gesture.p + dx * turn.sign / Math.max(180, canvas.clientWidth * .8);
         if ((gesture.p < .5 && p >= .5) || (gesture.p > .5 && p <= .5)) {
-            draw(.5); gesture.latched = true; message('spine');
+            draw(.5); gesture.latched = true; status.hidden = true;
         } else draw(p);
     }
     function release(gesture) {

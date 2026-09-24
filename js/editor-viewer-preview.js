@@ -12,7 +12,7 @@ export async function openEditorViewerPreview() {
     alert(en ? "Allow pop-ups to open the preview." : "プレビューを開くためポップアップを許可してください。");
     return;
   }
-  const fields = () => ({ version: state.version, blocks: state.blocks, sections: state.sections, projectAssets: state.projectAssets, languages: state.languages, defaultLang: state.defaultLang, languageConfigs: state.languageConfigs, book: { mode: state.book?.mode || state.bookMode || "simple" }, bookMode: state.bookMode, title: state.title, meta: state.meta, projectId: state.projectId, localProjectId: state.localProjectId });
+  const fields = () => ({ version: state.version, blocks: state.blocks, sections: state.sections, projectAssets: state.projectAssets, languages: state.languages, defaultLang: state.defaultLang, languageConfigs: state.languageConfigs, book: state.book, bookMode: state.bookMode, title: state.title, meta: state.meta, projectId: state.projectId, localProjectId: state.localProjectId });
   const initial = JSON.stringify(fields()), languages = selectEditorPreviewLanguages(state);
   const check = () => {
     if (controller.signal.aborted || JSON.stringify(fields()) !== initial) throw new Error(controller.signal.aborted ? "PREVIEW_CANCELLED" : "PREVIEW_CHANGED");

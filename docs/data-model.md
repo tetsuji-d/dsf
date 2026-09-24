@@ -1232,3 +1232,8 @@ Firebase本人確認、所有者、authoring許可対象、アカウント停止
 ### 個別共有通知の既読状態（2026-09-24）
 
 `personal_work_invitations/{id}.readAt` は受信者が通知詳細を開いた時刻（ミリ秒）または `null`。`read` コマンドは受信者本人だけが実行でき、承諾・閲覧権限とは独立する。`inbox.unreadCount` は既読時刻のない通知数で、`pendingCount`（承諾待ち）とは異なる。既存データでフィールドがない場合は pending を未読、その他を既読として扱う。承諾・辞退時も既読にする。Firestore Rules、原稿形式、共有アクセス権の変更はない。
+
+
+## Optional physical spine design
+
+See [Physical spine design](book-spine-design.md) for `book.spineDesign` and portable DSF presentation metadata.

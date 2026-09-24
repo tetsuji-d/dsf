@@ -1329,6 +1329,7 @@ function _createPressFlowLocalReleaseMetadata(languages) {
         modified: now,
         generator: 'DSF Studio local package verification',
         spread: state.bookMode === 'none' || state.book?.mode === 'none' ? 'none' : 'auto',
+        ...(state.book?.spineDesign ? { spineDesign: state.book.spineDesign } : {}),
     };
 }
 
@@ -3288,7 +3289,7 @@ window.switchPressThumbLang = (code) => {
 
 window.updatePressBookMode = (mode) => {
     const nextMode = mode === 'none' ? 'none' : 'cover';
-    _writeBookSettings({ mode: nextMode });
+    _writeBookSettings({ ...state.book, mode: nextMode });
     _renderBookSettings();
     _renderPageThumbs();
     _handlePressLocalReleaseSettingChange();
@@ -4012,7 +4013,8 @@ export function getPressBookConfigForExport(pageCount = _getRenderablePages().le
         bookMode: book.mode,
         book: {
             mode: book.mode,
-            covers: book.covers
+            covers: book.covers,
+            ...(book.spineDesign ? { spineDesign: book.spineDesign } : {})
         }
     };
 }

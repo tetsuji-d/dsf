@@ -66,7 +66,7 @@ function animateFlip(to){
   const finish=()=>{
    cancelFlip=null;lock(false);
    if(to===0||to===1)endFlip(to===1);
-   else {$('role').textContent='背表紙';$('hint').textContent='背表紙で停止 · 同じ方向へもう一度';}
+   else {$('role').textContent='背表紙';$('hint').textContent='';}
    resolve();
   };
   cancelFlip=()=>{cancelAnimationFrame(frame);cancelFlip=null;resolve();};
@@ -85,7 +85,7 @@ function moveFlip(gesture,dx){
  // A single gesture cannot pass the spine, including its remaining wheel momentum.
  if((gesture.p<.5&&p>=.5)||(gesture.p>.5&&p<=.5)){
   drawFlip(.5);gesture.latched=true;
-  $('role').textContent='背表紙';$('hint').textContent='背表紙で停止 · 同じ方向へもう一度';
+  $('role').textContent='背表紙';$('hint').textContent='';
  }else drawFlip(p);
 }
 function settleFlip(gesture){

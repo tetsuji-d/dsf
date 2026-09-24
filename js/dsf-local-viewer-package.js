@@ -1,3 +1,4 @@
+import { normalizeBookSpineDesign } from './book-spine-design.js';
 /**
  * Fail-closed local loader for portable DSF delivery v2 ZIP files.
  *
@@ -530,6 +531,7 @@ function createProject(meta, index, pages, archiveByteLength) {
         dsfResolution: `${index.canonicalPage.width}x${index.canonicalPage.height}`,
         dsfTotalBytes: archiveByteLength,
         bookMode: meta.presentation?.spread === 'none' ? 'none' : 'simple',
+        ...(meta.presentation?.spineDesign ? { book: { mode: meta.presentation.spread === 'none' ? 'none' : 'simple', spineDesign: normalizeBookSpineDesign(meta.presentation.spineDesign) } } : {}),
     };
 }
 

@@ -1,3 +1,4 @@
+import { normalizeBookSettings } from './page-labels.js';
 import {createViewerCoverTurn} from './viewer-cover-turn.js';
 import {initializeViewerFullscreen} from './viewer-fullscreen.js';
 import {createViewerPageCurl} from './viewer-page-curl.js';
@@ -93,7 +94,7 @@ let spreadMode = false;
 let requestedBookMode = '';
 let viewerBookModel = null;
 let bookSpreadIndex = 0;
-let viewerSpreadManualOverride = false;
+let viewerSpreadPreference = 'auto';
 
 // ── Zoom / Pan State ──────────────────────────────────────────
 let viewScale = 1;
@@ -142,7 +143,7 @@ const VIEWER_INFO_SWIPE_ZONE = 120;
 const VIEWER_INFO_HANDLE_SENSITIVITY = 1.18;
 const VIEWER_DRAWER_WIDTH = 630;
 const VIEWER_DRAWER_GAP = 0;
-const VIEWER_AUTO_SPREAD_MIN_WIDTH = 860;
+const VIEWER_AUTO_SPREAD_MIN_WIDTH = 600;
 /** インク判定（輝度しきい値・低いほど「濃い部分だけがインク」）。高すぎるとアンチエイリアスまで膨張して潰れる。 */
 const VIEWER_DEV_MORPH_LUM_THRESHOLD = 168;
 const METRIC_EVENT_SCHEMA_VERSION = 1;
@@ -198,7 +199,6 @@ const VIEWER_UI = {
         fullscreenUnavailable: '全画面表示を開始できませんでした。',
         coverPreparing: '表紙を準備中…',
         coverTurning: '背表紙へ裏返しています',
-        coverSpine: '背表紙 · 同じ方向へもう一度送ると裏返ります',
         coverUnavailable: '表紙を読み込めませんでした。もう一度お試しください。',
         prevPage: '前のページ',
         nextPage: '次のページ',
@@ -292,7 +292,6 @@ const VIEWER_UI = {
         fullscreenUnavailable: 'Unable to enter fullscreen.',
         coverPreparing: 'Preparing covers…',
         coverTurning: 'Turning toward the spine',
-        coverSpine: 'Spine · Move in the same direction again to turn over',
         coverUnavailable: 'Unable to load the covers. Please try again.',
         prevPage: 'Previous page',
         nextPage: 'Next page',
@@ -404,7 +403,10 @@ async function init() {
         getTurn: getViewerCoverTurn,
         render: surface => renderSurfaceContentHTML(surface, state.activeLang) + renderSurfaceBubblesHTML(surface, state.activeLang),
         getTitle: () => document.getElementById('ui-title')?.textContent || state.title || '',
-        text: key => vt({preparing:'coverPreparing',turning:'coverTurning',spine:'coverSpine',unavailable:'coverUnavailable'}[key]),
+        getSpineDesign: () => state.book?.spineDesign,
+        getAuthor: () => getViewerLocalizedMeta()?.author || '',
+        getPublisher: () => viewerProjectMeta.labelName || '',
+        text: key => vt({preparing:'coverPreparing',turning:'coverTurning',unavailable:'coverUnavailable'}[key]),
         onGesture: () => {
             pointerCache = []; activeGesturePointerId = null; curlGesture = null; resetSingleSpreadSwipe();
             suppressZoneClickUntil = Date.now() + 900; clearViewerUiAutoHide();
@@ -1112,6 +1114,7 @@ function loadProjectData(raw, options = {}) {
     dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'workId', value: raw.workId || raw.projectId || '' } });
     dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'releaseId', value: raw.releaseId || '' } });
     dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'title', value: raw.title || '' } });
+    dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'book', value: raw.book || {} } });
     dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'pages', value: pages } });
     dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'languages', value: languages } });
     dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'defaultLang', value: defaultLang } });
@@ -2566,7 +2569,8 @@ function normalizeSpreadUnitForLang(unit, lang) {
 }
 
 function buildViewerBookModel(raw, pages) {
-    const coversRaw = raw.book?.covers || raw.covers || {};
+    const declaredMode = raw.book?.mode || raw.bookMode || '';
+    const coversRaw = raw.book?.covers || raw.covers || (declaredMode && declaredMode !== 'none' ? normalizeBookSettings(raw.book || {}, declaredMode, pages.length).covers : {});
     const explicitMode = raw.book?.mode || raw.bookMode || coversRaw.mode || '';
     const forceBook = isBookModeRequested();
     const hasExplicitCovers = !!(coversRaw && Object.keys(coversRaw).length);
@@ -2982,6 +2986,7 @@ window.setViewerUiLang = (lang) => {
 };
 
 function applyViewerUiLanguage() {
+    updateViewerSpreadButton();
     viewerFullscreen?.refresh();
     document.documentElement.lang = viewerUiLang === 'en' ? 'en' : 'ja';
     readingGuides?.refreshLabels();
@@ -4543,22 +4548,26 @@ document.addEventListener('click', (e) => {
 // ── Canvas Resize ─────────────────────────────────────────────
 function canUseViewerAutoSpread() {
     const viewport = getViewerViewportMetrics();
-    return hasBookModel()
-        && viewport.width >= VIEWER_AUTO_SPREAD_MIN_WIDTH
-        && viewport.width > viewport.height;
+    const drawer = viewerInfoLayoutMode === 'drawer' && viewerInfoPanelState !== 'closed' ? VIEWER_DRAWER_WIDTH + VIEWER_DRAWER_GAP : 0;
+    const width = viewport.width - Number(document.body.dataset.readingAssistDock || 0) - drawer - viewport.safeLeft - viewport.safeRight;
+    const height = viewport.height - Number(document.body.dataset.readingAssistBottom || 0) - viewport.safeTop - viewport.safeBottom;
+    return width >= VIEWER_AUTO_SPREAD_MIN_WIDTH && width / Math.max(1, height) >= CANONICAL_PAGE_ASPECT * 2;
 }
 
 function syncViewerAutoSpreadMode() {
-    if (viewerSpreadManualOverride || !hasBookModel()) return false;
-    const shouldSpread = canUseViewerAutoSpread();
+    const shouldSpread = viewerSpreadPreference === 'auto' ? canUseViewerAutoSpread() : viewerSpreadPreference === 'spread';
+    updateViewerSpreadButton();
     if (spreadMode === shouldSpread) return false;
     spreadMode = shouldSpread;
-    const btn = document.getElementById('viewer-spread-btn');
-    if (btn) btn.classList.toggle('active', spreadMode);
+    updateViewerSpreadButton();
+    if (!hasBookModel()) return true;
     if (spreadMode) {
         bookSpreadIndex = findBookUnitIndexForPage(getIndex());
     } else {
-        const pageIndex = getBookUnitPrimaryPageIndex(getCurrentBookUnit());
+        const unit = getCurrentBookUnit();
+        const currentIndex = getIndex();
+        const inUnit = [unit?.center, unit?.left, unit?.right].some(surface => surface?.sourcePageIndex === currentIndex);
+        const pageIndex = inUnit ? currentIndex : getBookUnitPrimaryPageIndex(unit);
         if (pageIndex >= 0) {
             dispatch({ type: actionTypes.SET_ACTIVE_INDEX, payload: pageIndex });
         }
@@ -4785,22 +4794,20 @@ function renderSpreadPage(displayIndex = getIndex(), lang = state.activeLang) {
     if (viewerDevMode) renderViewerDevMetrics();
 }
 
-window.toggleViewerSpread = () => {
-    viewerSpreadManualOverride = true;
-    spreadMode = !spreadMode;
+function updateViewerSpreadButton() {
     const btn = document.getElementById('viewer-spread-btn');
-    if (btn) btn.classList.toggle('active', spreadMode);
-    if (hasBookModel()) {
-        if (spreadMode) {
-            bookSpreadIndex = findBookUnitIndexForPage(getIndex());
-        } else {
-            const pageIndex = getBookUnitPrimaryPageIndex(getCurrentBookUnit());
-            if (pageIndex >= 0) {
-                dispatch({ type: actionTypes.SET_ACTIVE_INDEX, payload: pageIndex });
-            }
-        }
-    }
-    resizeCanvas();
+    if (!btn) return;
+    const en = viewerUiLang === 'en';
+    const label = viewerSpreadPreference === 'auto' ? (en ? 'Auto' : '自動') : viewerSpreadPreference === 'single' ? (en ? 'Single' : '単ページ') : (en ? 'Spread' : '見開き');
+    btn.dataset.mode = viewerSpreadPreference;
+    btn.classList.toggle('active', spreadMode);
+    btn.title = en ? `Page layout: ${label}. Switch Auto → Single → Spread` : `ページ表示：${label}（自動 → 単ページ → 見開き）`;
+    btn.setAttribute('aria-label', btn.title);
+    btn.querySelector('.viewer-spread-label').textContent = label;
+}
+window.toggleViewerSpread = () => {
+    viewerSpreadPreference = { auto: 'single', single: 'spread', spread: 'auto' }[viewerSpreadPreference];
+    syncViewerAutoSpreadMode();
     refresh();
 };
 

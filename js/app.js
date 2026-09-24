@@ -81,6 +81,8 @@ import { applyTheme, bindThemePreferenceListener, getThemeMode, setThemeMode } f
 import { get as idbGet } from 'idb-keyval';
 import { createId } from './utils.js';
 import { CANONICAL_PAGE_WIDTH, CANONICAL_PAGE_HEIGHT } from './page-geometry.js';
+import { loadBookSpinePublisher } from './book-spine-publisher.js';
+import { mountBookSpineEditor, bookSpineSettingsReady, releaseBookSpineEditor } from './book-spine-editor.js';
 import { canInsertSpreadImageAt, getBookCompositionIssues, getPageDisplayLabel, getReadablePageCount, normalizeBookSettings, getPageCoverKey } from './page-labels.js';
 import { composeText, paginateText, PAGE_BREAK_MARKER, getWritingModeFromConfigs, getFontPresetFromConfigs, getFontPresetOptions, parseRubyTokens, tokensToPlainText, alignRubyToLines } from './layout.js';
 import { formatPublicationDate, normalizePlanTier } from './publication.js';
@@ -10266,11 +10268,15 @@ let _psPublicationThumbnailFile = null;
 let _psPublicationThumbnailPreviewUrl = '';
 let _psPublicationThumbnailSaving = false;
 
+function _getProjectBookSettingsPageCount() {
+    return getEditorCanvasProjection()?.totalPageCount ?? (state.sections || []).length;
+}
+
 function _cloneProjectSettingsDraft() {
     const languages = [...(state.languages && state.languages.length ? state.languages : ['ja'])];
     const defaultLang = languages.includes(state.defaultLang) ? state.defaultLang : languages[0];
     const activeLang = languages.includes(state.activeLang) ? state.activeLang : defaultLang;
-    const pageCount = (state.sections || []).length;
+    const pageCount = _getProjectBookSettingsPageCount();
     const bookMode = state.bookMode || state.book?.mode || 'simple';
     const book = normalizeBookSettings(state.book || { mode: bookMode }, bookMode, pageCount);
     return {
@@ -10306,7 +10312,7 @@ function _getPsSettingsSource() {
         license: state.license || 'all-rights-reserved',
         textPaperPreset: _getProjectTextPaperPresetKey(state),
         bookMode: state.bookMode || state.book?.mode || 'simple',
-        book: normalizeBookSettings(state.book || {}, state.bookMode || state.book?.mode || 'simple', (state.sections || []).length),
+        book: normalizeBookSettings(state.book || {}, state.bookMode || state.book?.mode || 'simple', _getProjectBookSettingsPageCount()),
         languageConfigs: state.languageConfigs || {},
         meta: state.meta || {}
     };
@@ -10329,7 +10335,7 @@ function _capturePsInputsToDraft() {
     const bookModeEl = document.getElementById('ps-book-mode');
     if (bookModeEl) {
         const requestedMode = bookModeEl.value === 'none' ? 'none' : 'cover';
-        const normalizedBook = normalizeBookSettings({ mode: requestedMode }, requestedMode, (state.sections || []).length);
+        const normalizedBook = normalizeBookSettings({ ...draft.book, mode: requestedMode }, requestedMode, _getProjectBookSettingsPageCount());
         draft.bookMode = normalizedBook.mode;
         draft.book = normalizedBook;
     }
@@ -10507,7 +10513,8 @@ function renderProjectBookSettings() {
     const container = document.getElementById('ps-book-settings');
     if (!container) return;
     const draft = _getPsSettingsSource();
-    const pageCount = (state.sections || []).length;
+    releaseBookSpineEditor(draft, container);
+    const pageCount = _getProjectBookSettingsPageCount();
     if (!pageCount) {
         container.innerHTML = `<p class="press-book-empty">${escapeStudioHtml(t('press_book_no_pages'))}</p>`;
         return;
@@ -10540,6 +10547,17 @@ function renderProjectBookSettings() {
         </div>
     `;
 
+    if (settings.mode !== 'none') {
+        const projectId = state.projectId, uid = state.uid;
+        const isCurrent = () => _psDraft === draft && state.projectId === projectId && state.uid === uid;
+        mountBookSpineEditor(container, draft, getUILang() === 'en', {
+            isCurrent,
+            loadPublisher: () => readSharedStudioAccess()
+                ? Promise.resolve({name: draft.book?.spineDesign?.publisherName || '', icon: draft.book?.spineDesign?.publisherIcon || '', saved: true})
+                : loadBookSpinePublisher({projectId, uid, request: requestPublishingSpaces, isCurrent}),
+            readMeta: () => { _capturePsInputsToDraft(); return draft.meta?.[draft.activeLang] || draft.meta?.[draft.defaultLang] || {}; },
+        });
+    }
     const modeEl = container.querySelector('#ps-book-mode');
     if (modeEl) modeEl.addEventListener('change', () => window.updateProjectBookMode(modeEl.value));
 }
@@ -10548,7 +10566,7 @@ window.updateProjectBookMode = (mode) => {
     _capturePsInputsToDraft();
     const draft = _ensurePsDraft();
     const requestedMode = mode === 'none' ? 'none' : 'cover';
-    const normalizedBook = normalizeBookSettings({ mode: requestedMode }, requestedMode, (state.sections || []).length);
+    const normalizedBook = normalizeBookSettings({ ...draft.book, mode: requestedMode }, requestedMode, _getProjectBookSettingsPageCount());
     draft.bookMode = normalizedBook.mode;
     draft.book = normalizedBook;
     renderProjectBookSettings();
@@ -10707,6 +10725,7 @@ function _assertProjectSettingsPersistenceCompleted() {
 
 window.saveProjectSettings = async () => {
     assertSharedStudioEdit();
+    if (_psDraft?.book?.mode !== 'none' && !bookSpineSettingsReady(_psDraft)) return;
     if (_psPublicationThumbnailSaving) return;
     const draft = _capturePsInputsToDraft();
     const nextLanguages = draft.languages && draft.languages.length ? [...draft.languages] : ['ja'];
@@ -10720,9 +10739,9 @@ window.saveProjectSettings = async () => {
     }
     const nextDefaultLang = nextLanguages.includes(draft.defaultLang) ? draft.defaultLang : nextLanguages[0];
     const nextActiveLang = nextLanguages.includes(draft.activeLang) ? draft.activeLang : nextDefaultLang;
-    const nextBook = normalizeBookSettings(draft.book || {}, draft.bookMode || 'simple', (state.sections || []).length);
+    const nextBook = normalizeBookSettings(draft.book || {}, draft.bookMode || 'simple', _getProjectBookSettingsPageCount());
     const compositionIssues = getBookCompositionIssues({
-        pageCount: (state.sections || []).length,
+        pageCount: _getProjectBookSettingsPageCount(),
         book: nextBook,
         bookMode: nextBook.mode,
         sections: state.sections || []

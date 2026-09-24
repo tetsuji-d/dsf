@@ -1092,7 +1092,7 @@ function stripBlobAssetUrls(obj, parentKey = '') {
 }
 
 function buildFixedBookConfig(mode, pageCount) {
-    return normalizeBookSettings({ mode }, mode, pageCount);
+    return normalizeBookSettings({ ...state.book, mode }, mode, pageCount);
 }
 
 const AUTHORING_STATE_EXCLUDED_KEYS = new Set([

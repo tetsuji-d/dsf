@@ -1,3 +1,5 @@
+import { normalizeBookSpineDesign } from './book-spine-design.js';
+
 export function normalizeBookSettings(book = {}, bookMode = 'simple', pageCount = 0) {
     const count = Math.max(0, Number(pageCount) || 0);
     const sourceMode = book?.mode || bookMode || 'simple';
@@ -14,7 +16,8 @@ export function normalizeBookSettings(book = {}, bookMode = 'simple', pageCount 
         covers.c2 = { pageIndex: 1 };
         covers.c3 = { pageIndex: count - 2 };
     }
-    return { mode, covers };
+    const spineDesign = normalizeBookSpineDesign(book?.spineDesign);
+    return { mode, covers, ...(spineDesign ? { spineDesign } : {}) };
 }
 
 function getReadableOrdinalForSettings(pageIndex, settings, pageCount) {

@@ -516,3 +516,8 @@ DSF delivery v2では既存の固定行座標へ投影するため、配信ス�
 扉作成は既存共有titleRegionを使用し、対象段落の配置アンカーを除去する。
 実行時の `placementOffset` は保存不可。DSF配信は従来の確定座標へ投影し、配信スキーマは変更しない。
 詳細・入力検証・編集追随の規則は[行ガイドと配置契約](flow-guides-and-placement.md)を参照。
+
+
+## Optional physical spine design
+
+See [Physical spine design](book-spine-design.md) for `book.spineDesign` and portable DSF presentation metadata.
