@@ -1,5 +1,5 @@
-import {VIEWER_PEEK_OPEN_EXTENT, VIEWER_PEEK_PAGE_REACH} from './viewer-peek-layout.js';
-import {peekPaperPoint as paperPoint} from './viewer-peek-geometry.js';
+import {VIEWER_PEEK_OPEN_EXTENT} from './viewer-peek-layout.js';
+import {peekPaperPoint as paperPoint, peekViewportFrame, peekPaperProfile, peekPaperSample} from './viewer-peek-geometry.js';
 import {createViewerPeekCover} from './viewer-peek-cover.js';
 import {createViewerPeekCoverMotion} from './viewer-peek-cover-motion.js';
 /** A curved fan of neighbouring sheets sharing one binding. No reading state is
@@ -55,19 +55,22 @@ export function projectStrip(el, points, width) {
     const d=q.y-p.y+g*q.y, e=s.y-p.y+h*s.y;
     el.style.transform=`matrix3d(${a/w},${d/w},0,${g/w},${b/(640*raster)},${e/(640*raster)},0,${h/(640*raster)},0,0,1,0,${p.x},${p.y},0,1)`;
 }
+let peekCompact=0;
 function shapeSheet(sheet, spread, depth=0, lift=0) {
     sheet.dataset.side=spread<0?'left':'right';
     const side=spread<0?-1:1,extent=Math.abs(spread),stackDepth=Number(sheet.dataset.stackDepth||0);
     const cover=sheet.classList.contains('edge-fan-cover'),stack=sheet.classList.contains('edge-fan-stack');
     const layer=stack?(stackDepth?depth/stackDepth:1):1;
-    const geometry={hinge:Number(sheet.dataset.hinge||405),side,extent,stackDepth,cover,layer,lift,bias:Number(sheet.dataset.bias||0),bindingWidth:Number(sheet.dataset.bindingWidth||0)};
+    const geometry={compact:peekCompact,hinge:Number(sheet.dataset.hinge||405),side,extent,stackDepth,cover,layer,lift,bias:Number(sheet.dataset.bias||0),bindingWidth:Number(sheet.dataset.bindingWidth||0)};
     const point=(u,v)=>paperPoint(geometry,side<0?1-u:u,v);
     sheet.dataset.attachment=paperPoint(geometry,0,0).x;
-    const stripWidth=360/sheet.children.length;
+    const count=sheet.children.length;
+    const knee=peekPaperProfile(extent,0,lift,peekCompact).knee;
+    const sample=i=>side<0?1-peekPaperSample(count-i,count,knee):peekPaperSample(i,count,knee);
     [...sheet.children].forEach((strip,i)=>{
-        // Sample beyond both internal seams, including the matching image pixels.
-        // Symmetric overlap seals subpixel rasterization cracks on curved strips.
-        const start=Math.max(0,i*stripWidth-1),end=Math.min(360,(i+1)*stripWidth+1);
+        // Concentrate strips near the bend without adding mobile backing surfaces.
+        // One-pixel overlaps still sample their matching image pixels.
+        const start=Math.max(0,360*sample(i)-1),end=Math.min(360,360*sample(i+1)+1);
         const u=start/360,next=end/360,width=end-start;
         strip.style.width=width+'px';strip.dataset.sourceStart=start;
         strip.firstElementChild.style.left=-start+'px';
@@ -97,7 +100,7 @@ function makePaperEdges(side, depth, bindingWidth, hinge) {
         const svg=document.createElementNS(ns,'svg');svg.setAttribute('viewBox','0 0 800 760');svg.classList.add('edge-fan-'+name);
         svg.setAttribute('aria-hidden','true');svg.dataset.side=side<0?'left':'right';svg.dataset.thickness=depth;
         const points=layer=>Array.from({length:21},(_,i)=>{
-            const [t,v]=coordinates(i/20);const p=paperPoint({side,stackDepth:depth,bindingWidth,hinge,layer},t,v);return [p.x,p.y];
+            const [t,v]=coordinates(name==='top'?peekPaperSample(i,20,peekPaperProfile(1,0,0,peekCompact).knee):i/20);const p=paperPoint({side,stackDepth:depth,bindingWidth,hinge,layer,compact:peekCompact},t,v);return [p.x,p.y];
         });
         const path=(pts,fill,close=false)=>{const el=document.createElementNS(ns,'path');el.setAttribute('d','M'+pts.map(p=>p.join(',')).join(' L')+(close?' Z':''));el.setAttribute('fill',fill);el.setAttribute('stroke','#968e7c');el.setAttribute('stroke-width','.5');svg.append(el);};
         path([...points(0),...points(1).reverse()],name==='fore-edge'?'#ddd5c2':'#e6dfce',true);
@@ -159,9 +162,9 @@ export function createViewerEdgePeek({getItems, getLayout, renderSurface, format
         void renderSelection(index,rapid);
     }
     function settle(id){if(id!==ticket)return;rendering=false;const next=pendingIndex,rapid=pendingRapid;pendingIndex=null;pendingRapid=false;if(next!==null&&next!==selected)show(next,rapid);else continueRiffle();}
-    async function renderSelection(index,rapid=false) {
+    async function renderSelection(index,rapid=false,reshape=false) {
         index=Math.max(0,Math.min(items.length-1,Math.round(index)));
-        if(!items[index]||index===selected)return;
+        if(!items[index]||(index===selected&&!reshape))return;
         rendering=true;
         const previous=selected, previousLayout=previous>=0?getLayout(items[previous].index):null;
         const previousData={...root.dataset},gesture=drag;
@@ -408,16 +411,18 @@ export function createViewerEdgePeek({getItems, getLayout, renderSurface, format
         if(!items.length){clear();return;}
         // No space is reserved for controls: fit the complete book to the viewport.
         const viewport=window.visualViewport, width=viewport?.width||innerWidth,height=viewport?.height||innerHeight;
-        const fanWidth=2*(VIEWER_PEEK_PAGE_REACH+48);
-        const heightScale=height/720,scale=Math.min(width/fanWidth,heightScale),w=fanWidth*scale,h=height;
-        root.style.setProperty('--fan-offset-x',(fanWidth/2-405)+'px');
-        // One scale on both axes keeps every source page in proportion, including phones.
-        root.style.setProperty('--fan-offset-y',((height-720*scale)/2)+'px');
+        const fit=peekViewportFrame(width,height,data.thickness||8);
+        const reshape=Math.abs(peekCompact-fit.compact)>.00001;
+        peekCompact=fit.compact;
+        const scale=fit.scale,w=width,h=height;
+        root.style.setProperty('--fan-offset-x',fit.offsetX+'px');
+        root.style.setProperty('--fan-offset-y',fit.offsetY+'px');
         root.style.setProperty('--cover-scale',Math.min((width-12)/(360+Math.min(64,data.thickness||8)*.8),(height-12)/660));
         root.style.setProperty('--peek-width',w+'px');root.style.setProperty('--peek-height',h+'px');
         root.style.setProperty('--fan-scale',scale);
         Object.assign(root.style,{left:((viewport?.offsetLeft||0)+width/2)+'px',top:((viewport?.offsetTop||0)+(height-h)/2)+'px'});
         root.dataset.direction=data.rtl?'rtl':'ltr';
+        if(reshape&&selected>=0&&!rendering)void renderSelection(selected,false,true);
     },holdHover,stopRiffle,fling(side,count){return startRiffle((side==='right'?1:-1)*(snapshot?.rtl?-1:1),count);},endDrag(){stopRiffle();if(drag)drag.ended=false;drag=null;},get opened(){return !root.hidden&&selected>=0;},handleKey(e){
         if(root.hidden||selected<0||!['ArrowLeft','ArrowRight'].includes(e.key))return false;
         e.preventDefault();stepPage((e.key==='ArrowRight'?1:-1)*(snapshot.rtl?-1:1),!!e.repeat);return true;
