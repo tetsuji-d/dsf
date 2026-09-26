@@ -34,10 +34,9 @@ export function renderBookSpine(element, design) {
     Object.assign(element.style, { background: design.backgroundColor, color: design.textColor,
         display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'flex-start',
         gap: `${16 * scale}px`, padding: `${16 * scale}px 0`, boxSizing: 'border-box', overflow: 'hidden' });
-    // A thin booklet retains its colour; tiny lettering would be illegible.
-    if (design.thickness < 10 * scale) return;
+    // Thin books still carry their title; fit lettering to the actual spine width.
     const fittedFont = design.thickness >= 32 * scale ? design.fontSize
-        : Math.min(design.fontSize, (design.thickness - 4 * scale) / 1.2);
+        : Math.min(design.fontSize, (design.thickness - (design.thickness < 10 * scale ? 1 : 4) * scale) / 1.2);
     const text = (field, ratio, parent, maxHeight) => {
         if (!design[field]) return;
         const span = document.createElement('span');

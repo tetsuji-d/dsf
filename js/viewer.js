@@ -1,3 +1,4 @@
+import {createViewerBookWheel} from './viewer-book-wheel.js';
 import {createViewerFlick} from './viewer-flick.js';
 import {createViewerEdgePeek} from './viewer-edge-peek.js';
 import {getViewerPeekLayout} from './viewer-peek-layout.js';
@@ -77,6 +78,7 @@ let viewerMinimap = null;
 let readingGuides = null;
 let coverTurn = null;
 let readerChrome = null;
+let bookWheel = null;
 let bookSwipe = null, flick = null;
 let edgePeek = null, riffle = null;
 let viewerAllowsLegacyCoverLoop = false;
@@ -471,6 +473,19 @@ async function init() {
         onPose:mode=>mode==='open'?readerChrome.openReading():readerChrome.step(mode),
         canOpenEdge:()=>readerChrome.mode==='edge'&&!edgePeek?.opened,
         onBegin:action=>readerChrome.beginGesture(action),onProgress:p=>readerChrome.drawGesture(p),onFinish:accept=>readerChrome.finishGesture(accept),
+    });
+    if(readerChrome) bookWheel=createViewerBookWheel({
+        enabled:()=>getViewerBookThickness()!==undefined&&viewScale<=1.05&&!readingGuides?.isAssisting(),
+        busy:()=>readerChrome.transitioning||!!activePageCurl?.active||!!coverTurn?.active,
+        step:direction=>readerChrome.step(direction),
+        begin:direction=>readerChrome.beginGesture(direction),progress:p=>readerChrome.drawGesture(p),finish:accept=>readerChrome.finishGesture(accept),
+        horizontal:side=>{
+            if(readerChrome.transitioning)return;
+            if(edgePeek?.handleKey({key:side==='right'?'ArrowRight':'ArrowLeft',preventDefault(){}}))return;
+            if(readerChrome.mode==='edge'){readerChrome.openReading();return;}
+            if(readerChrome.active)return;
+            if(side==='right')window.viewerNavRight();else window.viewerNavLeft();
+        },
     });
     readingGuides = initializeViewerReadingGuides({onLayoutChange: scheduleViewerResize, onAssistanceChange: active => {
         if (active) coverTurn?.cancel();
@@ -4457,6 +4472,8 @@ function revealViewerUiForPointer() {
 function bindViewerHoverChrome() {
     document.addEventListener('pointermove', (event) => {
         if (!usesPointerHoverChrome()) return;
+        // Reading chrome is toggled by a click/tap, never by page hover.
+        if (readerChrome) {if(isUiVisible) scheduleViewerUiAutoHide();return;}
         const canvas = document.getElementById('viewer-canvas');
         const ui = document.getElementById('viewer-ui');
         const target = event.target;
@@ -5521,6 +5538,7 @@ function onPointerCancel(e) {
 
 function onWheel(e) {
     if (readerChrome && e.target.closest?.('#viewer-page-settings')) return;
+    if (bookWheel?.handle(e)) return;
     if (readerChrome?.active) {e.preventDefault(); return;}
     if (coverTurn?.handleWheel(e)) return;
     e.preventDefault();
@@ -5546,7 +5564,7 @@ function onWheel(e) {
 }
 
 function onKeydown(e) {
-    if(e.key==='Escape') riffle?.stop();
+    if(e.key==='Escape') {bookWheel?.cancel();riffle?.stop();}
     if (readerChrome?.active && e.key==='Escape') {readerChrome.cancelPose();return;}
     if (readerChrome && e.target.closest?.('input,select,textarea,summary,[contenteditable="true"],#viewer-page-settings')) return;
     if (e.key === 'Escape' && coverTurn?.active) { coverTurn.cancel(); return; }

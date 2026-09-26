@@ -3329,6 +3329,6 @@ body.viewer-fan-preparing #viewer-book-pose,body.viewer-fan-preparing #viewer-ed
 
 .pose-fan-ghost .edge-peek-leaf {pointer-events:none;}
 
-/* Cover backs belong to the same board, not the body-page fan. */
-.edge-cover-inside,.edge-cover-outside {backface-visibility:hidden;}
-.edge-cover-outside {transform:rotateY(180deg);}
+/* Bound each transformed strip's backing surface; avoid an offscreen fan filter on phones. */
+.edge-fan-strip {contain:paint;}
+@media (pointer:coarse) {.edge-fan-scene {filter:none;}}

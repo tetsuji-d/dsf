@@ -1,6 +1,6 @@
 /** A curved fan of neighbouring sheets sharing one binding. No reading state is
  * changed until confirmation; CSS strips also support fixed-text surfaces. */
-const STRIPS = 16, STRIP_WIDTH=360/STRIPS;
+const perspectiveX=t=>Math.expm1(.32*t)/Math.expm1(.32);
 export function projectStrip(el, points, width) {
     el.bookPoints=points;
     const [p,q,r,s] = points;
@@ -19,14 +19,14 @@ function paperPoint({side,extent=1,bias=0,bindingWidth=0,hinge=405,stackDepth=0,
     const outer=cover?341.5:340-layer*stackDepth*.55;
     const topInset=cover?-.6:1+layer*stackDepth*t;
     const bottomInset=cover?.6:-1;
-    const x=405+attachment*(1-t)+bias*(1-extent)*.8*t+side*extent*outer*t+side*bow*(22+lift*25);
+    const x=405+attachment*(1-t)+bias*(1-extent)*.8*t+side*extent*outer*perspectiveX(t);
     let y=30+v*510+t*(65+(1-extent)*100+v*50)+bow*(18+lift*45)+topInset*(1-v)+bottomInset*v;
     if(!cover && extent===1 && v===1){
         // From above, the rear cover ends higher than the paper toward us.
         // Keep this slope on the side face; do not draw an underside.
         const distance=side*(x-405),half=bindingWidth/2;
         let lo=0,hi=1;
-        for(let i=0;i<20;i++){const u=(lo+hi)/2;if(half*(1-u)+341.5*u+22*Math.sin(Math.PI*u)<distance)lo=u;else hi=u;}
+        for(let i=0;i<20;i++){const u=(lo+hi)/2;if(half*(1-u)+341.5*perspectiveX(u)<distance)lo=u;else hi=u;}
         const u=(lo+hi)/2;y=539+115*u+18*Math.sin(Math.PI*u)+layer*stackDepth*.75*t;
     }
     return {x,y};
@@ -39,10 +39,11 @@ function shapeSheet(sheet, spread, depth=0, lift=0) {
     const geometry={hinge:Number(sheet.dataset.hinge||405),side,extent,stackDepth,cover,layer,lift,bias:Number(sheet.dataset.bias||0),bindingWidth:Number(sheet.dataset.bindingWidth||0)};
     const point=(u,v)=>paperPoint(geometry,side<0?1-u:u,v);
     sheet.dataset.attachment=paperPoint(geometry,0,0).x;
+    const stripWidth=360/sheet.children.length;
     [...sheet.children].forEach((strip,i)=>{
         // Sample beyond both internal seams, including the matching image pixels.
         // Symmetric overlap seals subpixel rasterization cracks on curved strips.
-        const start=Math.max(0,i*STRIP_WIDTH-1),end=Math.min(360,(i+1)*STRIP_WIDTH+1);
+        const start=Math.max(0,i*stripWidth-1),end=Math.min(360,(i+1)*stripWidth+1);
         const u=start/360,next=end/360,width=end-start;
         strip.style.width=width+'px';strip.dataset.sourceStart=start;
         strip.firstElementChild.style.left=-start+'px';
@@ -53,10 +54,11 @@ function shapeSheet(sheet, spread, depth=0, lift=0) {
 }
 function makeSheet(html, spread, depth=0, className='',bias=0,bindingWidth=0,stackDepth=0,hinge=405) {
     const sheet=document.createElement('div');sheet.className='edge-fan-sheet '+className;sheet.dataset.hinge=hinge;sheet.dataset.bias=bias;sheet.dataset.bindingWidth=bindingWidth;sheet.dataset.stackDepth=stackDepth;
-    for(let i=0;i<STRIPS;i++){
+    const count=className==='edge-fan-stack'?4:(matchMedia('(pointer:coarse)').matches?8:16),stripWidth=360/count;
+    for(let i=0;i<count;i++){
         const strip=document.createElement('div');strip.className='edge-fan-strip';
         const content=document.createElement('div');content.className='edge-peek-content';
-        content.style.left=(-i*STRIP_WIDTH)+'px';content.innerHTML=html;strip.append(content);sheet.append(strip);
+        content.style.left=(-i*stripWidth)+'px';content.innerHTML=html;strip.append(content);sheet.append(strip);
     }
     shapeSheet(sheet,spread,depth);return sheet;
 }
@@ -140,12 +142,7 @@ export function createViewerEdgePeek({getItems, getLayout, renderSurface, format
             board.dataset.cover=role;board.dataset.insideCover=insideRole;
             if(Number.isInteger(outside?.sourcePageIndex))board.dataset.outsideSourceIndex=outside.sourcePageIndex;
             if(Number.isInteger(inside?.sourcePageIndex))board.dataset.insideSourceIndex=inside.sourcePageIndex;
-            const outsideHtml=renderSurface(outside);
-            for(const strip of board.children){
-                strip.firstElementChild.classList.add('edge-cover-inside');
-                const back=document.createElement('div');back.className='edge-peek-content edge-cover-outside';
-                back.style.left=strip.firstElementChild.style.left;back.innerHTML=outsideHtml;strip.append(back);
-            }
+            // Exterior identity stays on the board; its hidden image needs no painted copy.
             next.append(board);
             const remaining=side===(snapshot.rtl?-1:1)?1-ratio:ratio;
             const depth=volumeDepth*remaining;

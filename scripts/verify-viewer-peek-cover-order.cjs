@@ -23,7 +23,7 @@ const base=process.env.DSF_VIEWER_TEST_ORIGIN||'http://127.0.0.1:5275';
    const expected=pairs.get(String(i+1));assert.deepEqual(active.filter(Boolean),expected.filter(label=>label!=='BODY'),`${mode} ${lang} body ${i+1}`);
    const boards=await p.locator('.edge-fan-cover').evaluateAll(ns=>ns.map(n=>({side:n.dataset.side,role:n.dataset.cover,outside:+n.dataset.outsideSourceIndex,inside:n.dataset.insideCover,faces:n.querySelectorAll('.edge-cover-outside').length})));
    assert.deepEqual(boards.map(b=>b.role),['C1','C4']);assert.equal(boards[0].outside,raw.book.covers.c1.pageIndex);assert.equal(boards[1].outside,raw.book.covers.c4.pageIndex);
-   assert.equal(boards[0].side,lang==='ja'?'right':'left');assert.ok(boards.every(b=>b.faces===16));
+   assert.equal(boards[0].side,lang==='ja'?'right':'left');assert.ok(boards.every(b=>b.faces===0),'hidden exterior faces are not duplicated');
    const visible=await p.locator('.edge-fan-sheet[data-source-index]').evaluateAll(ns=>ns.map(n=>({source:+n.dataset.sourceIndex,side:n.dataset.side,label:n.dataset.pageLabel})));
    assert.equal(new Set(visible.map(n=>n.source)).size,visible.length,'no duplicate face in fan');assert.ok(!visible.some(n=>[raw.book.covers.c1.pageIndex,raw.book.covers.c4.pageIndex].includes(n.source)),'exterior covers never become body leaves');
    for(const face of visible){if(!/^\d+$/.test(face.label))continue;const pair=pairs.get(face.label);assert.equal(face.side,pair.indexOf(face.label)===0?'left':'right','neighbours retain physical side');}

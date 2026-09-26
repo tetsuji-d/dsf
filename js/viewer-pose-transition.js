@@ -1,8 +1,8 @@
 import {projectStrip} from './viewer-edge-peek.js';
 /** A scrub-able timeline of temporary book surfaces. Reading state stays outside it. */
 export function createViewerPoseTransition({render}) {
-    let root=null,animations=[],frame=0,revision=0,progress=0,duration=0,finishCallback=null,drawScene=()=>{};
-    function cancel(){revision++;cancelAnimationFrame(frame);for(const a of animations)a.cancel();animations=[];root?.remove();root=null;finishCallback=null;document.body.classList.remove('viewer-pose-transition-active');}
+    let root=null,animations=[],frame=0,revision=0,progress=0,duration=0,finishCallback=null,drawScene=()=>{},restoreFan=()=>{};
+    function cancel(){revision++;cancelAnimationFrame(frame);for(const a of animations)a.cancel();animations=[];restoreFan();restoreFan=()=>{};root?.remove();root=null;finishCallback=null;document.body.classList.remove('viewer-pose-transition-active');}
     function abort(){const done=finishCallback;cancel();done?.(false);}
     window.addEventListener('resize',abort);window.addEventListener('blur',abort);
     document.addEventListener('visibilitychange',()=>{if(document.hidden)abort();});
@@ -47,7 +47,7 @@ export function createViewerPoseTransition({render}) {
         duration=620;finishCallback=onFinish;
         root=document.createElement('div');root.className='viewer-pose-transition';root.dataset.from=from;root.dataset.to=to;root.dataset.manual=String(manual);
         root.setAttribute('aria-hidden','true');Object.assign(root.style,{left:'0px',top:'0px',width:'100%',height:'100%'});
-        const ghost=fan.cloneNode(true);ghost.removeAttribute('id');ghost.inert=true;ghost.classList.add('pose-fan-ghost');ghost.querySelector('.edge-peek-controls')?.remove();ghost.querySelector('.edge-fan-turn')?.remove();root.append(ghost);
+        const ghost=fan.cloneNode(false);ghost.removeAttribute('id');ghost.inert=true;ghost.classList.add('pose-fan-ghost');ghost.querySelector('.edge-peek-controls')?.remove();ghost.querySelector('.edge-fan-turn')?.remove();root.append(ghost);
         const fanRect=fan.querySelector('.edge-peek-leaf').getBoundingClientRect();ghost.style.height=fanRect.height+'px';
         const reading=from==='reading'||to==='reading',mesh=[];
         if(reading){
@@ -85,6 +85,7 @@ export function createViewerPoseTransition({render}) {
             Object.assign(edge.style,{left:data.rect.left+data.rect.width/2-thick/2+'px',top:data.rect.top+'px',width:thick+'px',height:data.rect.height+'px'});root.append(edge);
             const drawFan=drawScene;drawScene=p=>{drawFan(p);const q=p*p*(3-2*p),t=to==='peek'?q:1-q;edge.style.opacity=1-Math.min(1,t*8);};
         }
+        const leaf=fan.querySelector('.edge-peek-leaf');ghost.append(leaf);restoreFan=()=>fan.prepend(leaf);
         document.body.append(root);document.body.classList.add('viewer-pose-transition-active');draw(0);if(!manual)finish(true);return true;
     }
     return {play,playFan,cancel,draw,finish,get active(){return !!root;}};
