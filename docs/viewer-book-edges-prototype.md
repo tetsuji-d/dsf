@@ -1,6 +1,7 @@
 # Viewer 小口・可変背幅の試作（2026-09-24）
 
-`bookEdges=1` を付けたViewerだけで有効。通常URLは従来表示を維持する。
+ステージングでは通常の作品URLでも有効。`bookEdges=0` で従来表示と比較できる。
+ローカル開発・本番ビルドでは引き続き `bookEdges=1` による明示指定のみ有効。
 厚さの表現・既存ページめくりへの追従と、下記の表示設定／操作配置を試作。覗き見とキー／ボタン長押しの連続めくりにも対応。
 複数しおり・付箋・タブの入力／保存はまだ追加していない。
 
@@ -250,7 +251,8 @@
 
 ## ステージングで比較本を配信する
 
-- 通常Viewerは従来通り。試作はURLの `bookEdges=1` で有効にする。
+- ステージングの通常Viewerにも新操作を適用する。作品の再発行は不要。
+  `bookEdges=0` で一時的に従来操作へ戻せる。本番ビルドの既定値は変更しない。
 - `scripts/generate-viewer-edge-samples.py` はWindowsの游ゴシック・游明朝とPillowを使用し、
   `outputs/book-edges-{24,120,480}.json` を元ファイルなしで生成する。outputsはコミットしない。
 - PowerShellで `$env:DSF_VIEWER_SAMPLES='1'` を設定して `npm run deploy:staging` を実行する。

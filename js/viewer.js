@@ -105,8 +105,10 @@ let requestedBookMode = '';
 let viewerBookModel = null;
 let bookSpreadIndex = 0;
 let viewerSpreadPreference = 'auto';
-// Explicit local/preview opt-in while the physical book treatment is evaluated.
-const viewerBookEdgesRequested = new URLSearchParams(location.search).get('bookEdges') === '1';
+// Staging uses the book UI by default; keep an explicit comparison override.
+const viewerBookEdgesOverride = new URLSearchParams(location.search).get('bookEdges');
+const viewerBookEdgesRequested = viewerBookEdgesOverride === '1'
+    || (import.meta.env.MODE === 'staging' && viewerBookEdgesOverride !== '0');
 let viewerBookEdges = null;
 
 // ── Zoom / Pan State ──────────────────────────────────────────
