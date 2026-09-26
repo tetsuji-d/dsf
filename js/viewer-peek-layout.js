@@ -2,13 +2,16 @@
 export function getViewerPeekLayout({units, covers, sourceIndex, rtl, bodyPageCount}) {
     const spreads = units.filter(unit => unit.type === 'spread');
     const position = spreads.findIndex(unit => [unit.left, unit.right].some(surface => surface?.sourcePageIndex === sourceIndex));
-    if (position < 0) return null;
+
     const frontSide = rtl ? 1 : -1;
     const boundary = position === 0 ? 'start' : position === spreads.length - 1 ? 'end' : '';
     const boards = [
         {side:frontSide, outside:covers.c1, inside:covers.c2, role:'C1', insideRole:'C2'},
         {side:-frontSide, outside:covers.c4, inside:covers.c3, role:'C4', insideRole:'C3'},
     ];
+    const exterior=Number.isInteger(sourceIndex)&&boards.find(board=>board.outside?.sourcePageIndex===sourceIndex&&!board.outside?.virtualBlank);
+    if(exterior)return {exterior:true,role:exterior.role,surface:exterior.outside,position:exterior.role==='C1'?-1:spreads.length,ratio:exterior.role==='C1'?0:1,boards,layers:[],boundary:exterior.role};
+    if (position < 0) return null;
     const layers = [];
     // Back-to-front painter order, with every neighbour on its original physical side.
     for (let distance = boundary ? 0 : 2; distance >= 0; distance--) {
@@ -26,7 +29,7 @@ export function getViewerPeekLayout({units, covers, sourceIndex, rtl, bodyPageCo
     return {position, boundary, boards, layers, ratio:Math.min(1,before/Math.max(1,bodyPageCount))};
 }
 
-/** Every selectable reading face, including both inside covers. */
+/** Every selectable face, including rigid exterior covers at the two ends. */
 export function getViewerPeekItems({units, bodyPages}) {
     const body=bodyPages.filter(s=>!s.virtualBlank&&Number.isInteger(s.sourcePageIndex));
     const ends={};
@@ -34,5 +37,7 @@ export function getViewerPeekItems({units, bodyPages}) {
         const faces=[unit.left,unit.right];
         for(const s of faces)if(/^C[23]$/.test(s?.bookRole||s?.role||'')&&Number.isInteger(s.sourcePageIndex)&&!s.virtualBlank)ends[s.bookRole||s.role]=s;
     }
-    return [ends.C2,...body,ends.C3].filter(Boolean);
+    const exterior=units.filter(unit=>unit.type==='single').map(unit=>unit.center);
+    const cover=role=>exterior.find(s=>(s?.bookRole||s?.role)===role&&!s.virtualBlank&&Number.isInteger(s.sourcePageIndex));
+    return [cover('C1'),ends.C2,...body,ends.C3,cover('C4')].filter(Boolean);
 }

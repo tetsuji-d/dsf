@@ -447,7 +447,6 @@ async function init() {
         edgePeek=createViewerEdgePeek({
             getNumberSettings:()=>readerChrome.pageNumberSettings,
             onConfirm:()=>readerChrome.openReading(),
-            openCover:index=>readerChrome.openReading(false,index),
             navigationBusy:()=>!!bookWheel?.active||readerChrome.transitioning,
             onPhaseChange:phase=>{readerChrome.setEdgePhase(phase);syncViewerProgress();},
             onSelection:()=>syncViewerProgress(),
@@ -4113,7 +4112,8 @@ function startPageCurl(delta,interactive=false){
     }
     const edgeFrom = getViewerBookEdgeState(before);
     const edgeTo = getViewerBookEdgeState(after, spreadMode ? bookSpreadIndex + delta : findBookUnitIndexForPage(after));
-    activePageCurl=createViewerPageCurl({canvas:document.getElementById('viewer-canvas'),from,to,rtl:getPageDirection()==='rtl',forward:delta>0,spread:spreadMode,sameUnit,targetWidth,edgeFrom,edgeTo,turnDuration:riffle?.active?riffle.turnDuration:440,width:CANONICAL_PAGE_WIDTH,height:CANONICAL_PAGE_HEIGHT,
+    const turnDuration=riffle?.active?riffle.turnDuration:(!spreadMode&&matchMedia('(pointer:coarse)').matches?300:440);
+    activePageCurl=createViewerPageCurl({canvas:document.getElementById('viewer-canvas'),from,to,rtl:getPageDirection()==='rtl',forward:delta>0,spread:spreadMode,sameUnit,targetWidth,edgeFrom,edgeTo,turnDuration,width:CANONICAL_PAGE_WIDTH,height:CANONICAL_PAGE_HEIGHT,
         render:surface=>renderSurfaceContentHTML(surface,lang)+renderSurfaceBubblesHTML(surface,lang),
         commit:()=>{if(getIndex()!==before||state.activeLang!==lang)return;committingPageCurl=true;try{delta>0?goNext():goPrev();}finally{committingPageCurl=false;}}
     });

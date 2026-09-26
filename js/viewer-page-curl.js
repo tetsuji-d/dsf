@@ -17,10 +17,11 @@ export function createViewerPageCurl({canvas, from, to, rtl, forward, spread, sa
     function sides(unit,first){if(unit.type==='single')return rtl?(first?{left:unit.center}:{right:unit.center}):(first?{right:unit.center}:{left:unit.center});return unit;}
     const a=sides(source,true),b=sides(dest,false);
     const leafFront=rtl?a.left:a.right,leafBack=rtl?b.right:b.left;
-    function surface(value){const node=document.createElement('div');node.className='vpc-page';
-        if(value){const content=document.createElement('div');content.className='vpc-content';content.style.width=width+'px';content.style.height=height+'px';content.innerHTML=render(value);node.append(content);}else node.classList.add('vpc-blank');return node;}
+    const surfaceCache=new Map();
+    function surface(value){if(surfaceCache.has(value))return surfaceCache.get(value).cloneNode(true);const node=document.createElement('div');node.className='vpc-page';
+        if(value){const content=document.createElement('div');content.className='vpc-content';content.style.width=width+'px';content.style.height=height+'px';content.innerHTML=render(value);node.append(content);}else node.classList.add('vpc-blank');surfaceCache.set(value,node);return node;}
     const left=surface(sameUnit?from.left:(rtl?b.left:a.left)),right=surface(sameUnit?from.right:(rtl?a.right:b.right));world.append(left,right);
-    const strips=[],segments=32;
+    const strips=[],segments=matchMedia('(pointer:coarse)').matches?20:32;
     if(!sameUnit){for(let i=0;i<segments;i++){const strip=document.createElement('div');strip.className='vpc-strip';for(const back of [false,true]){const face=document.createElement('div');face.className='vpc-face'+(back?' vpc-back':'');const page=surface(back?leafFront:leafBack);face.append(page);strip.append(face);}world.append(strip);strips.push(strip);}}
     document.body.append(vp);
     let ready=false,loadFailed=false;

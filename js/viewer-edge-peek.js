@@ -1,3 +1,4 @@
+import {createViewerPeekCover} from './viewer-peek-cover.js';
 /** A curved fan of neighbouring sheets sharing one binding. No reading state is
  * changed until confirmation; CSS strips also support fixed-text surfaces. */
 const perspectiveX=t=>Math.expm1(.32*t)/Math.expm1(.32);
@@ -16,6 +17,14 @@ export function projectStrip(el, points, width) {
     const raster=Number(el.dataset.rasterScale)||1,w=width*raster,rasterHeight=640*raster;
     el.style.width=w+'px';el.style.height=rasterHeight+'px';el.firstElementChild.style.zoom=String(raster);
     const [p,q,r,s] = points;
+    // A rigid plane needs one affine surface, avoiding a diagonal triangle seam.
+    if(Math.abs(p.x-q.x+r.x-s.x)<1e-7&&Math.abs(p.y-q.y+r.y-s.y)<1e-7){
+        el.classList.remove('edge-fan-affine');
+        for(const tri of el.affineTriangles||[])tri.remove();
+        el.affineTriangles=null;el.affineHtml=null;
+        el.style.transform=`matrix(${(q.x-p.x)/w},${(q.y-p.y)/w},${(s.x-p.x)/rasterHeight},${(s.y-p.y)/rasterHeight},${p.x},${p.y})`;
+        return;
+    }
     // Some WebKit compositors flatten a projective matrix without its W division.
     // Two clipped affine triangles share the exact quad boundary on those engines.
     if(usesAffineTriangles()){
@@ -125,16 +134,16 @@ function makeBinding(width, color) {
     rim.setAttribute('fill','none');rim.setAttribute('stroke','#b4ad97');rim.setAttribute('stroke-width','1');svg.append(rim);
     return svg;
 }
-export function createViewerEdgePeek({getItems, getLayout, renderSurface, formatSurface, getNumberSettings=()=>({number:true,numberEdge:"top",numberAlign:"outer"}), onPhaseChange=()=>{}, onSelection=()=>{}, onConfirm, open, openCover, navigationBusy=()=>false}) {
+export function createViewerEdgePeek({getItems, getLayout, renderSurface, formatSurface, getNumberSettings=()=>({number:true,numberEdge:"top",numberAlign:"outer"}), onPhaseChange=()=>{}, onSelection=()=>{}, onConfirm, open, navigationBusy=()=>false}) {
     const root=document.createElement('aside');root.id='viewer-edge-peek';root.hidden=true;
     root.innerHTML='<div class="edge-peek-leaf" hidden><div class="edge-fan-scene"></div></div><output class="edge-peek-sr" aria-live="polite"></output>';
     document.body.append(root);
     const leaf=root.querySelector('.edge-peek-leaf'),content=root.querySelector('.edge-fan-scene'),status=root.querySelector('output');
     const pose=document.getElementById('viewer-book-pose');
-    let items=[],key='',selected=-1,ticket=0,ready=false,snapshot=null,lastTap=null,frame=0,tapTimer=0,suppressClickUntil=0,rendering=false,pendingIndex=null,pendingCover=null;
+    let items=[],key='',selected=-1,ticket=0,ready=false,snapshot=null,lastTap=null,frame=0,tapTimer=0,suppressClickUntil=0,rendering=false,pendingIndex=null;
     let hoverHeld=false,hoverAnchor=null,pendingRapid=false,lastStepAt=0,lastStepDelta=0;
     function holdHover(){hoverHeld=true;hoverAnchor=null;}
-    function clear(){pendingRapid=false;lastStepAt=0;lastStepDelta=0;drag=null;rendering=false;pendingIndex=null;pendingCover=null;root.dataset.ready='false';cancelAnimationFrame(frame);clearTimeout(tapTimer);root.dataset.opened='false';root.hidden=true;leaf.hidden=true;document.body.classList.remove('viewer-edge-fan-active');content.replaceChildren();items=[];key='';selected=-1;ready=false;ticket++;lastTap=null;onPhaseChange('edge');}
+    function clear(){pendingRapid=false;lastStepAt=0;lastStepDelta=0;drag=null;rendering=false;pendingIndex=null;root.dataset.ready='false';cancelAnimationFrame(frame);clearTimeout(tapTimer);root.dataset.opened='false';root.hidden=true;leaf.hidden=true;document.body.classList.remove('viewer-edge-fan-active');content.replaceChildren();items=[];key='';selected=-1;ready=false;ticket++;lastTap=null;onPhaseChange('edge');}
     function numberSheet(sheet,label){
         sheet.dataset.pageLabel=label;
         const prefs=getNumberSettings(),align=prefs.numberAlign==='center'?'center':(prefs.numberAlign==='inner'?(sheet.dataset.side==='left'?'right':'left'):sheet.dataset.side);
@@ -149,7 +158,7 @@ export function createViewerEdgePeek({getItems, getLayout, renderSurface, format
         if(rendering){pendingIndex=index;pendingRapid=rapid;return;}
         void renderSelection(index,rapid);
     }
-    function settle(id){if(id!==ticket)return;rendering=false;if(pendingCover!==null&&ready){const cover=pendingCover;pendingCover=null;pendingIndex=null;openCover?.(cover);return;}const next=pendingIndex,rapid=pendingRapid;pendingIndex=null;pendingRapid=false;if(next!==null&&next!==selected)show(next,rapid);}
+    function settle(id){if(id!==ticket)return;rendering=false;const next=pendingIndex,rapid=pendingRapid;pendingIndex=null;pendingRapid=false;if(next!==null&&next!==selected)show(next,rapid);}
     async function renderSelection(index,rapid=false) {
         index=Math.max(0,Math.min(items.length-1,Math.round(index)));
         if(!items[index]||index===selected)return;
@@ -171,32 +180,38 @@ export function createViewerEdgePeek({getItems, getLayout, renderSurface, format
         const id=++ticket;status.textContent=`${items[index].label} / ${snapshot.total??items.length} · 読み込み中`;
         // Build off screen and retain the previous fan until the selected image is decoded.
         const next=document.createElement('div');next.className='edge-fan-pages';
-        next.append(makeBinding(bindingWidth,snapshot.design?.backgroundColor||'#173d42'));
-        for(const {side,outside,inside,role,insideRole} of layout.boards) {
-            // A cover has two faces: C1/C4 outside, C2/C3 toward the paper block.
-            // Missing inside-cover content stays blank, never borrowing an exterior image.
-            const board=make(renderSurface(inside),side,0,'edge-fan-cover');
-            board.dataset.cover=role;board.dataset.insideCover=insideRole;
-            if(Number.isInteger(outside?.sourcePageIndex))board.dataset.outsideSourceIndex=outside.sourcePageIndex;
-            if(Number.isInteger(inside?.sourcePageIndex))board.dataset.insideSourceIndex=inside.sourcePageIndex;
-            // Exterior identity stays on the board; its hidden image needs no painted copy.
-            next.append(board);
-            const remaining=side===(snapshot.rtl?-1:1)?1-ratio:ratio;
-            const depth=volumeDepth*remaining;
-            root.dataset[side<0?'leftThickness':'rightThickness']=depth;
-            // Only the block boundaries need sheet meshes; SVG faces draw the interior paper layers.
-            for(const j of [0,10]){const stack=make('',side,j/10*depth,'edge-fan-stack');stack.dataset.side=side<0?'left':'right';next.append(stack);}
-        }
-        for(const side of [-1,1])next.append(...makePaperEdges(side,Number(root.dataset[side<0?'leftThickness':'rightThickness']),bindingWidth,hinge));
+        root.dataset.exterior=layout.exterior?layout.role:'';
         root.dataset.boundary=layout.boundary;root.dataset.spreadPosition=layout.position;onSelection();
-        for(const {surface,side,extent,selected:chosen,active} of layout.layers){
-            const isInside=/^C[23]$/.test(surface?.bookRole||surface?.role||'');
-            const sheet=make(renderSurface(surface),side*extent,0,isInside?'edge-fan-endpaper':'');
-            if(Number.isInteger(surface?.sourcePageIndex)&&!surface.virtualBlank)sheet.dataset.sourceIndex=surface.sourcePageIndex;
-            if(isInside)sheet.dataset.cover=surface.bookRole||surface.role;
-            sheet.dataset.selected=String(chosen);sheet.dataset.active=String(active);sheet.dataset.openExtent=extent;
-            sheet.dataset.virtualBlank=String(!!surface?.virtualBlank);
-            numberSheet(sheet,formatSurface(surface));next.append(sheet);
+        if(layout.exterior){
+            next.append(createViewerPeekCover({layout,snapshot,renderSurface,project:projectStrip}));
+            numberSheet(next.querySelector('.edge-fan-rigid'),formatSurface(layout.surface));
+        }else{
+            next.append(makeBinding(bindingWidth,snapshot.design?.backgroundColor||'#173d42'));
+            for(const {side,outside,inside,role,insideRole} of layout.boards) {
+                // A cover has two faces: C1/C4 outside, C2/C3 toward the paper block.
+                // Missing inside-cover content stays blank, never borrowing an exterior image.
+                const board=make(renderSurface(inside),side,0,'edge-fan-cover');
+                board.dataset.cover=role;board.dataset.insideCover=insideRole;
+                if(Number.isInteger(outside?.sourcePageIndex))board.dataset.outsideSourceIndex=outside.sourcePageIndex;
+                if(Number.isInteger(inside?.sourcePageIndex))board.dataset.insideSourceIndex=inside.sourcePageIndex;
+                // Exterior identity stays on the board; its hidden image needs no painted copy.
+                next.append(board);
+                const remaining=side===(snapshot.rtl?-1:1)?1-ratio:ratio;
+                const depth=volumeDepth*remaining;
+                root.dataset[side<0?'leftThickness':'rightThickness']=depth;
+                // Only the block boundaries need sheet meshes; SVG faces draw the interior paper layers.
+                for(const j of [0,10]){const stack=make('',side,j/10*depth,'edge-fan-stack');stack.dataset.side=side<0?'left':'right';next.append(stack);}
+            }
+            for(const side of [-1,1])next.append(...makePaperEdges(side,Number(root.dataset[side<0?'leftThickness':'rightThickness']),bindingWidth,hinge));
+            for(const {surface,side,extent,selected:chosen,active} of layout.layers){
+                const isInside=/^C[23]$/.test(surface?.bookRole||surface?.role||'');
+                const sheet=make(renderSurface(surface),side*extent,0,isInside?'edge-fan-endpaper':'');
+                if(Number.isInteger(surface?.sourcePageIndex)&&!surface.virtualBlank)sheet.dataset.sourceIndex=surface.sourcePageIndex;
+                if(isInside)sheet.dataset.cover=surface.bookRole||surface.role;
+                sheet.dataset.selected=String(chosen);sheet.dataset.active=String(active);sheet.dataset.openExtent=extent;
+                sheet.dataset.virtualBlank=String(!!surface?.virtualBlank);
+                numberSheet(sheet,formatSurface(surface));next.append(sheet);
+            }
         }
         let timer;
         try {
@@ -206,7 +221,7 @@ export function createViewerEdgePeek({getItems, getLayout, renderSurface, format
             cancelAnimationFrame(frame);ready=true;leaf.hidden=false;
             document.body.classList.add('viewer-edge-fan-active');root.dataset.ready='true';
             status.textContent=`${items[index].label} / ${snapshot.total??items.length}`;
-            if(previous>=0&&previousLayout?.position!==layout.position&&!matchMedia('(prefers-reduced-motion: reduce)').matches){
+            if(previous>=0&&!layout.exterior&&!previousLayout?.exterior&&previousLayout?.position!==layout.position&&!matchMedia('(prefers-reduced-motion: reduce)').matches){
                 const direction=(index>previous?1:-1)*(snapshot.rtl?1:-1);
                 const front=previousLayout.layers.find(layer=>layer.active&&layer.side===-direction);
                 const back=layout.layers.find(layer=>layer.active&&layer.side===direction);
@@ -266,7 +281,7 @@ export function createViewerEdgePeek({getItems, getLayout, renderSurface, format
                     settle(id);
                 }
                 frame=requestAnimationFrame(animate);
-            }else{content.replaceChildren(next);settle(id);}
+            }else{content.replaceChildren(next);if(previous>=0&&(layout.exterior||previousLayout?.exterior)&&!matchMedia('(prefers-reduced-motion:reduce)').matches)next.animate([{opacity:.4},{opacity:1}],{duration:180});settle(id);}
         } catch {if(id===ticket){status.textContent='このページを表示できません';settle(id);}}
         finally {clearTimeout(timer);}
     }
@@ -278,6 +293,7 @@ export function createViewerEdgePeek({getItems, getLayout, renderSurface, format
     }
     function scrub(e,element) {if(!root.hidden&&items.length)void show(positionAt(e,element));}
     function hover(e,element){
+        if(getLayout(items[selected]?.index)?.exterior)return;
         if(navigationBusy()){holdHover();return;}
         if(hoverHeld){
             if(!hoverAnchor){hoverAnchor={x:e.clientX,y:e.clientY};return;}
@@ -301,14 +317,11 @@ export function createViewerEdgePeek({getItems, getLayout, renderSurface, format
         holdHover();
         const at=pendingIndex??selected,next=adjacentIndex(at,delta);
         if(next!==null){
+            if(getLayout(items[next].index)?.exterior&&(repeat||rendering||!ready))return;
             const now=performance.now(),rapid=repeat||(delta===lastStepDelta&&now-lastStepAt<450);
             lastStepAt=now;lastStepDelta=delta;show(next,rapid);return;
         }
-        // Reaching C2/C3 consumes the current input. Only a fresh turn from the
-        // settled boundary can close onto the exterior; repeats cannot cross it.
-        if(repeat||rendering||!ready)return;
-        const index=delta<0?snapshot.covers?.front:snapshot.covers?.back;
-        if(Number.isInteger(index))openCover?.(index);
+        // The exterior cover is the end of the peek sequence; it never opens reading implicitly.
     }
     function activate(e,el){
         clearTimeout(tapTimer);suppressClickUntil=performance.now()+400;
@@ -340,12 +353,13 @@ export function createViewerEdgePeek({getItems, getLayout, renderSurface, format
             drag.sign=Math.sign(dx);drag.target=adjacentIndex(drag.index,drag.sign*(snapshot.rtl?1:-1));
         }
         drag.progress=Math.max(0,Math.min(1,dx*drag.sign/Math.max(80,Math.min(180,leaf.getBoundingClientRect().width*.35))));
-        if(drag.target!==null)show(drag.target);
+        if(drag.target!==null&&!getLayout(items[drag.target].index)?.exterior&&!getLayout(items[drag.index].index)?.exterior)show(drag.target);
     });
     function endPeekDrag(e,cancelled=false){
         const g=drag;drag=null;if(!g||g.id!==e.pointerId)return;
         const dx=e.clientX-g.x,dy=e.clientY-g.y;
         g.ended=!cancelled&&dx*g.sign>=24&&Math.abs(dx)>Math.abs(dy)*1.35;
+        if(g.ended&&g.target!==null&&(getLayout(items[g.target].index)?.exterior||getLayout(items[g.index].index)?.exterior))show(g.target);
         if(g.ended&&g.target===null)stepPage(g.sign*(snapshot.rtl?1:-1));
     }
     leaf.addEventListener('pointerup',e=>endPeekDrag(e));leaf.addEventListener('pointercancel',e=>endPeekDrag(e,true));
@@ -356,8 +370,7 @@ export function createViewerEdgePeek({getItems, getLayout, renderSurface, format
     });
     return {get element(){return root;},get ready(){return ready;},get sourceIndex(){return items[selected]?.index;},confirm,seek(index){
         holdHover();
-        if(index===snapshot?.covers?.front||index===snapshot?.covers?.back){pendingCover=index;if(!rendering)settle(ticket);return;}
-        pendingCover=null;
+
         const position=getLayout(index)?.position,exact=items.findIndex(item=>item.index===index);
         const at=exact>=0?exact:items.findIndex(item=>getLayout(item.index)?.position===position);
         if(at>=0)show(at);
@@ -373,6 +386,7 @@ export function createViewerEdgePeek({getItems, getLayout, renderSurface, format
         const viewport=window.visualViewport, width=viewport?.width||innerWidth,height=viewport?.height||innerHeight;
         const heightScale=height/720,scale=Math.min(width/730,heightScale),w=730*scale,h=height;
         root.style.setProperty('--fan-height-scale',heightScale);
+        root.style.setProperty('--cover-scale',Math.min((width-12)/(360+Math.min(64,data.thickness||8)*.8),(height-12)/660));
         root.style.setProperty('--peek-width',w+'px');root.style.setProperty('--peek-height',h+'px');
         root.style.setProperty('--fan-scale',scale);
         Object.assign(root.style,{left:((viewport?.offsetLeft||0)+width/2)+'px',top:((viewport?.offsetTop||0)+(height-h)/2)+'px'});

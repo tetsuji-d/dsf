@@ -3326,3 +3326,9 @@ body.viewer-fan-preparing #viewer-book-pose,body.viewer-fan-preparing #viewer-ed
 .edge-fan-strip.edge-fan-affine {overflow:visible;background:transparent;contain:none;}
 .edge-fan-affine::after,.edge-fan-affine>.edge-peek-content {display:none;}
 .edge-fan-triangle {contain:paint;}
+
+/* Rigid exterior covers stay inside peek, using uniform page proportions. */
+.edge-fan-scene:has(.edge-fan-closed) {left:50%;top:50%;transform:translate(-50%,-50%) scale(var(--cover-scale));transform-origin:50% 50%;}
+.edge-fan-closed,.edge-cover-head {position:absolute;inset:0;width:800px;height:720px;pointer-events:none;}
+.edge-fan-rigid .edge-peek-content::after {display:none;}
+.edge-fan-rigid .edge-fan-folio {color:#fff;text-shadow:0 1px 3px #000,0 0 2px #000;}
