@@ -117,13 +117,15 @@ function makeBinding(width, color) {
     rim.setAttribute('fill','none');rim.setAttribute('stroke','#b4ad97');rim.setAttribute('stroke-width','1');svg.append(rim);
     return svg;
 }
-export function createViewerEdgePeek({getItems, getLayout, renderSurface, formatSurface, getNumberSettings=()=>({number:true,numberEdge:"top",numberAlign:"outer"}), onPhaseChange=()=>{}, onConfirm, open}) {
+export function createViewerEdgePeek({getItems, getLayout, renderSurface, formatSurface, getNumberSettings=()=>({number:true,numberEdge:"top",numberAlign:"outer"}), onPhaseChange=()=>{}, onConfirm, open, openCover, navigationBusy=()=>false}) {
     const root=document.createElement('aside');root.id='viewer-edge-peek';root.hidden=true;
     root.innerHTML='<div class="edge-peek-leaf" hidden><div class="edge-fan-scene"></div></div><div class="edge-peek-controls"><label><span class="edge-peek-sr">覗き見るページ</span><input type="range" min="0" value="0" aria-label="覗き見るページ"></label><output></output><button type="button" aria-label="このページを開く" title="このページを開く" disabled><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6 18 18 6M6 6h12v12"/></svg></button></div>';
     document.body.append(root);
     const leaf=root.querySelector('.edge-peek-leaf'),content=root.querySelector('.edge-fan-scene'),slider=root.querySelector('input'),status=root.querySelector('output'),button=root.querySelector('button');
     const pose=document.getElementById('viewer-book-pose');
     let items=[],key='',selected=-1,ticket=0,ready=false,snapshot=null,lastTap=null,frame=0,tapTimer=0,suppressClickUntil=0,rendering=false,pendingIndex=null;
+    let hoverHeld=false,hoverAnchor=null;
+    function holdHover(){hoverHeld=true;hoverAnchor=null;}
     function clear(){drag=null;rendering=false;pendingIndex=null;cancelAnimationFrame(frame);clearTimeout(tapTimer);root.dataset.opened='false';root.hidden=true;leaf.hidden=true;document.body.classList.remove('viewer-edge-fan-active');content.replaceChildren();items=[];key='';selected=-1;ready=false;ticket++;lastTap=null;onPhaseChange('edge');}
     function numberSheet(sheet,label){
         sheet.dataset.pageLabel=label;
@@ -157,7 +159,7 @@ export function createViewerEdgePeek({getItems, getLayout, renderSurface, format
         const make=(html,spread,depth=0,cls='')=>makeSheet(html,spread,depth,cls,bias,bindingWidth,spread<0?leftDepth:rightDepth,hinge);
         root.dataset.bindingWidth=bindingWidth;
         root.dataset.openRatio=ratio;root.dataset.hinge=hinge;
-        const id=++ticket;status.textContent=`${items[index].label} / ${items.length} · 読み込み中`;
+        const id=++ticket;status.textContent=`${items[index].label} / ${snapshot.total??items.length} · 読み込み中`;
         // Build off screen and retain the previous fan until the selected image is decoded.
         const next=document.createElement('div');next.className='edge-fan-pages';
         next.append(makeBinding(bindingWidth,snapshot.design?.backgroundColor||'#173d42'));
@@ -193,7 +195,7 @@ export function createViewerEdgePeek({getItems, getLayout, renderSurface, format
             if(id!==ticket)return;
             cancelAnimationFrame(frame);content.replaceChildren(next);ready=true;leaf.hidden=false;
             document.body.classList.add('viewer-edge-fan-active');button.disabled=false;
-            status.textContent=`${items[index].label} / ${items.length}`;
+            status.textContent=`${items[index].label} / ${snapshot.total??items.length}`;
             if(previous>=0&&previousLayout?.position!==layout.position&&!matchMedia('(prefers-reduced-motion: reduce)').matches){
                 const direction=(index>previous?1:-1)*(snapshot.rtl?1:-1);
                 const front=previousLayout.layers.find(layer=>layer.active&&layer.side===-direction)?.surface;
@@ -225,20 +227,39 @@ export function createViewerEdgePeek({getItems, getLayout, renderSurface, format
         } catch {if(id===ticket){status.textContent='このページを表示できません';settle(id);}}
         finally {clearTimeout(timer);}
     }
-    function confirm(){if(!ready||!items[selected])return;const index=items[selected].index;clear();open(index);}
+    function confirm(index=items[selected]?.index){if(!ready||!Number.isInteger(index))return;clear();open(index);}
     function positionAt(e,element) {
         const r=element.getBoundingClientRect();
         let ratio=Math.max(0,Math.min(1,(e.clientX-r.left)/Math.max(1,r.width)));
         return (snapshot.rtl?1-ratio:ratio)*(items.length-1);
     }
     function scrub(e,element) {if(!root.hidden&&items.length)void show(positionAt(e,element));}
+    function hover(e,element){
+        if(navigationBusy()){holdHover();return;}
+        if(hoverHeld){
+            if(!hoverAnchor){hoverAnchor={x:e.clientX,y:e.clientY};return;}
+            if(Math.hypot(e.clientX-hoverAnchor.x,e.clientY-hoverAnchor.y)<18)return;
+            hoverHeld=false;hoverAnchor=null;
+        }
+        scrub(e,element);
+    }
+    function stepPage(delta,repeat=false){
+        holdHover();
+        const at=pendingIndex??selected,next=at+delta;
+        if(next>=0&&next<items.length){show(next);return;}
+        // Reaching C2/C3 consumes the current input. Only a fresh turn from the
+        // settled boundary can close onto the exterior; repeats cannot cross it.
+        if(repeat||rendering||!ready)return;
+        const index=next<0?snapshot.covers?.front:snapshot.covers?.back;
+        if(Number.isInteger(index))openCover?.(index);
+    }
     function activate(e,el){
         clearTimeout(tapTimer);suppressClickUntil=performance.now()+400;
         if(el===pose){scrub(e,pose);}else (onConfirm?onConfirm():confirm());
     }
     pose.addEventListener('keydown',e=>{if(!root.hidden&&['Enter',' '].includes(e.key)){e.preventDefault();void show(Math.max(0,items.findIndex(item=>item.index===snapshot.peekIndex)));}});
     slider.oninput=()=>void show(+slider.value);
-    slider.addEventListener('pointermove',e=>{if(e.pointerType==='mouse'&&!e.buttons)scrub(e,slider);});
+    slider.addEventListener('pointermove',e=>{if(e.pointerType==='mouse'&&!e.buttons)hover(e,slider);});
     for(const el of [pose,slider,leaf]) {
         el.addEventListener('dblclick',e=>{if(root.hidden)return;e.preventDefault();e.stopPropagation();activate(e,el);});
         let down=null;
@@ -254,12 +275,16 @@ export function createViewerEdgePeek({getItems, getLayout, renderSurface, format
     }
 
     let drag=null;
-    leaf.addEventListener('pointerdown',e=>{drag={id:e.pointerId,x:e.clientX,y:e.clientY,index:pendingIndex??selected,position:pendingIndex??selected};try{leaf.setPointerCapture(e.pointerId);}catch{}});
+    leaf.addEventListener('pointerdown',e=>{holdHover();drag={id:e.pointerId,x:e.clientX,y:e.clientY,index:pendingIndex??selected,position:pendingIndex??selected};try{leaf.setPointerCapture(e.pointerId);}catch{}});
     leaf.addEventListener('pointermove',e=>{
-        if(e.pointerType==='mouse'&&!e.buttons){scrub(e,leaf);return;}
+        if(e.pointerType==='mouse'&&!e.buttons){hover(e,leaf);return;}
         if(drag?.id===e.pointerId&&Math.abs(e.clientX-drag.x)>12&&Math.abs(e.clientX-drag.x)>Math.abs(e.clientY-drag.y)*1.35){drag.position=drag.index+(e.clientX-drag.x)/Math.max(1,leaf.getBoundingClientRect().width)*(items.length-1)*(snapshot.rtl?1:-1);show(drag.position>drag.index?Math.ceil(drag.position):Math.floor(drag.position));}
     });
-    leaf.addEventListener('pointerup',()=>{drag=null;});leaf.addEventListener('pointercancel',()=>{drag=null;});
+    leaf.addEventListener('pointerup',e=>{
+        const g=drag;drag=null;if(!g||g.id!==e.pointerId)return;
+        const dx=e.clientX-g.x,dy=e.clientY-g.y,delta=Math.sign(dx)*(snapshot.rtl?1:-1);
+        if(Math.abs(dx)>=56&&Math.abs(dx)>Math.abs(dy)*1.35&&((g.index===0&&delta<0)||(g.index===items.length-1&&delta>0)))stepPage(delta);
+    });leaf.addEventListener('pointercancel',()=>{drag=null;});
     for(const el of [pose,leaf])el.addEventListener('click',e=>{
         e.stopPropagation();if(root.hidden||performance.now()<suppressClickUntil)return;
         clearTimeout(tapTimer);if(e.detail>1)return;
@@ -268,7 +293,7 @@ export function createViewerEdgePeek({getItems, getLayout, renderSurface, format
     button.onclick=()=>onConfirm?onConfirm():confirm();
     slider.addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();if(onConfirm)onConfirm();else confirm();}});
     return {get element(){return root;},get ready(){return ready;},get sourceIndex(){return items[selected]?.index;},confirm,
-    async prepare(index){const found=items.findIndex(item=>item.index===index),chosen=found>=0?found:(index>(items.at(-1)?.index??Infinity)?items.length-1:0);if(selected===chosen&&ready)return true;await renderSelection(chosen);return ready;},
+    async prepare(index){const found=items.findIndex(item=>item.index===index),chosen=found>=0?found:(index===snapshot.covers?.back?items.length-1:0);if(selected===chosen&&ready)return true;await renderSelection(chosen);return ready;},
     update(mode,data) {
         if(mode!=='edge'||!data){clear();return;}
         snapshot=data;root.hidden=false;onPhaseChange(selected>=0?'peek':'edge');
@@ -283,8 +308,8 @@ export function createViewerEdgePeek({getItems, getLayout, renderSurface, format
         root.style.setProperty('--fan-scale',scale);
         Object.assign(root.style,{left:((viewport?.offsetLeft||0)+width/2)+'px',top:((viewport?.offsetTop||0)+(height-h)/2)+'px'});
         slider.style.direction=data.rtl?'rtl':'ltr';root.dataset.direction=data.rtl?'rtl':'ltr';
-    },endDrag(){drag=null;},get opened(){return !root.hidden&&selected>=0;},handleKey(e){
+    },holdHover,endDrag(){drag=null;},get opened(){return !root.hidden&&selected>=0;},handleKey(e){
         if(root.hidden||selected<0||!['ArrowLeft','ArrowRight'].includes(e.key))return false;
-        e.preventDefault();void show((pendingIndex??selected)+(e.key==='ArrowRight'?1:-1)*(snapshot.rtl?-1:1));return true;
+        e.preventDefault();stepPage((e.key==='ArrowRight'?1:-1)*(snapshot.rtl?-1:1),!!e.repeat);return true;
     },clear};
 }

@@ -1,7 +1,7 @@
 import {createViewerBookWheel} from './viewer-book-wheel.js';
 import {createViewerFlick} from './viewer-flick.js';
 import {createViewerEdgePeek} from './viewer-edge-peek.js';
-import {getViewerPeekLayout} from './viewer-peek-layout.js';
+import {getViewerPeekLayout,getViewerPeekItems} from './viewer-peek-layout.js';
 import {createViewerRiffle} from './viewer-riffle.js';
 import { normalizeBookSettings } from './page-labels.js';
 import { getBookThickness, getBookEdgeState, fitBookPageWidth, BOOK_EDGE_PROJECTION } from './book-volume.js';
@@ -447,11 +447,13 @@ async function init() {
         edgePeek=createViewerEdgePeek({
             getNumberSettings:()=>readerChrome.pageNumberSettings,
             onConfirm:()=>readerChrome.openReading(),
+            openCover:index=>readerChrome.openReading(false,index),
+            navigationBusy:()=>!!bookWheel?.active||readerChrome.transitioning,
             onPhaseChange:phase=>readerChrome.setEdgePhase(phase),
             getLayout:index=>getViewerPeekLayout({units:getBookUnits().map(unit=>normalizeSpreadUnitForLang(unit,state.activeLang)),covers:viewerBookModel.covers,sourceIndex:index,rtl:getPageDirection()==='rtl',bodyPageCount:viewerBookModel.bodyPages.length}),
             renderSurface:surface=>surface&&!surface.virtualBlank?renderSurfaceContentHTML(surface,state.activeLang)+renderSurfaceBubblesHTML(surface,state.activeLang):'',
             formatSurface:surface=>surface&&!surface.virtualBlank?formatViewerSurfaceSliderLabel(surface):'',
-            getItems:()=> (viewerBookModel?.bodyPages||[]).filter(s=>!s.virtualBlank&&Number.isInteger(s.sourcePageIndex)).map(s=>({index:s.sourcePageIndex,label:formatViewerSurfaceSliderLabel(s)})),
+            getItems:()=>getViewerPeekItems({units:getBookUnits(),bodyPages:viewerBookModel?.bodyPages||[]}).map(s=>({index:s.sourcePageIndex,label:formatViewerSurfaceSliderLabel(s)})),
             open:index=>{readerChrome.cancelPose();if(spreadMode&&hasBookModel())transitionToBookUnit(findBookUnitIndexForPage(index));else transitionToIndex(index,'jump');},
         });
         const delta=side=>(side==='left'?1:-1)*(getPageDirection()==='rtl'?1:-1);
@@ -477,6 +479,7 @@ async function init() {
     if(readerChrome) bookWheel=createViewerBookWheel({
         enabled:()=>getViewerBookThickness()!==undefined&&viewScale<=1.05&&!readingGuides?.isAssisting(),
         busy:()=>readerChrome.transitioning||!!activePageCurl?.active||!!coverTurn?.active,
+        onClaim:()=>edgePeek?.holdHover(),
         step:direction=>readerChrome.step(direction),
         begin:direction=>readerChrome.beginGesture(direction),progress:p=>readerChrome.drawGesture(p),finish:accept=>readerChrome.finishGesture(accept),
         horizontal:side=>{
@@ -484,7 +487,9 @@ async function init() {
             if(edgePeek?.handleKey({key:side==='right'?'ArrowRight':'ArrowLeft',preventDefault(){}}))return;
             if(readerChrome.mode==='edge'){readerChrome.openReading();return;}
             if(readerChrome.active)return;
-            if(side==='right')window.viewerNavRight();else window.viewerNavLeft();
+            // Wheel ownership is independent of the synthetic-click suppression window.
+            const forward=(side==='left')===(getPageDirection()==='rtl');
+            if(forward)goNext();else goPrev();
         },
     });
     readingGuides = initializeViewerReadingGuides({onLayoutChange: scheduleViewerResize, onAssistanceChange: active => {

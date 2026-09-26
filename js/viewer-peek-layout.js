@@ -25,3 +25,16 @@ export function getViewerPeekLayout({units, covers, sourceIndex, rtl, bodyPageCo
         + Number(isBody(rtl ? spreads[position].right : spreads[position].left));
     return {position, boundary, boards, layers, ratio:Math.min(1,before/Math.max(1,bodyPageCount))};
 }
+
+/** Keep body ordinals, but include an endpaper spread with no body (odd page count). */
+export function getViewerPeekItems({units, bodyPages}) {
+    const body=bodyPages.filter(s=>!s.virtualBlank&&Number.isInteger(s.sourcePageIndex));
+    const represented=new Set(body.map(s=>s.sourcePageIndex));
+    const ends={};
+    for(const unit of units.filter(u=>u.type==='spread')){
+        const faces=[unit.left,unit.right];
+        if(faces.some(s=>represented.has(s?.sourcePageIndex)))continue;
+        for(const s of faces)if(/^C[23]$/.test(s?.bookRole||s?.role||'')&&Number.isInteger(s.sourcePageIndex)&&!s.virtualBlank)ends[s.bookRole||s.role]=s;
+    }
+    return [ends.C2,...body,ends.C3].filter(Boolean);
+}

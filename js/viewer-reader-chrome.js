@@ -107,7 +107,7 @@ export function initializeViewerReaderChrome({getSnapshot, onLayoutChange, befor
         if(from!=='peek')getPeek()?.clear();
         update();syncControls();
     }
-    function changeTo(target,manual=false){
+    function changeTo(target,manual=false,readingIndex){
         const from=state(),data=getSnapshot();
         if(target===from||transition||!data?.thickness||data.busy)return false;
         beforePose();const id=++serial;
@@ -118,7 +118,7 @@ export function initializeViewerReaderChrome({getSnapshot, onLayoutChange, befor
             if(!accept){restore(from);return;}
             transition=null;document.body.classList.remove('viewer-fan-preparing');
             if(target==='reading'){
-                if(from==='peek')peek.confirm();else cancelPose();
+                if(from==='peek')peek.confirm(readingIndex);else cancelPose();
             }else if(target==='peek'){mode='edge';phase='peek';update();}
             else {if(from==='peek')remembered={key:data.peekKey,index:peek.sourceIndex};peek.clear();mode=target;phase='edge';update();}
             syncControls();
@@ -133,7 +133,7 @@ export function initializeViewerReaderChrome({getSnapshot, onLayoutChange, befor
             Promise.resolve(from==='peek'?peek.ready:peek.prepare(index)).then(ready=>{
                 if(id!==serial)return;
                 if(!ready){done(false);return;}
-                const readingData=from==='peek'&&target==='reading'?getSnapshot(peek.sourceIndex):data;
+                const readingData=from==='peek'&&target==='reading'?getSnapshot(readingIndex??peek.sourceIndex):data;
                 motion.playFan(from,target,readingData,peek.element,{manual,onFinish:done});
                 document.body.classList.remove('viewer-fan-preparing');
                 if(manual&&transition){motion.draw(transition.progress);if(transition.finish!==null)motion.finish(transition.finish);}
@@ -142,7 +142,7 @@ export function initializeViewerReaderChrome({getSnapshot, onLayoutChange, befor
         return true;
     }
     function step(direction,manual=false){const at=states.indexOf(state()),target=states[at+(direction==='up'?-1:1)];return target?changeTo(target,manual):false;}
-    function openReading(manual=false){return changeTo('reading',manual);}
+    function openReading(manual=false,readingIndex){return changeTo('reading',manual,readingIndex);}
     function beginGesture(action){
         if(matchMedia('(prefers-reduced-motion:reduce)').matches)return false;
         return action==='open'?openReading(true):step(action,true);
