@@ -21,8 +21,8 @@ for(const [count,lang] of [[6,'ja'],[5,'ja'],[6,'en'],[5,'en']]){
  for(const s of ['peek','edge','spine']){await wheel(0,-120);await wait(s);}
  for(const s of ['edge','peek']){await wheel(0,120);await wait(s);}
  await settled();await p.evaluate(()=>toggleUi(true));const slider=p.locator('#viewer-edge-peek input');
- await slider.fill('2');await settled();await p.mouse.move(p.viewportSize().width/2,440);await settled();const before=+await slider.inputValue();
- await wheel(lang==='ja'?-120:120,0,false);assert.equal(+await slider.inputValue(),before+1,'trackpad selection is retained');
+ await slider.fill('2');await settled();await p.mouse.move(p.viewportSize().width/2,440);await settled();const before=+await p.locator('#viewer-edge-peek').getAttribute('data-spread-position');
+ await wheel(lang==='ja'?-120:120,0,false);assert.equal(+await p.locator('#viewer-edge-peek').getAttribute('data-spread-position'),before+1,'trackpad advances one spread');
  await p.evaluate(()=>toggleUi(false));assert.equal(await p.locator('#viewer-reader-controls').isVisible(),false);await p.mouse.move(643,441);assert.equal(await p.locator('#viewer-reader-controls').isVisible(),false);
  const towardStart=lang==='ja'?'ArrowRight':'ArrowLeft',towardEnd=lang==='ja'?'ArrowLeft':'ArrowRight';
  const active=()=>p.locator('.edge-fan-sheet[data-active=true]').evaluateAll(ns=>ns.map(n=>n.dataset.pageLabel));

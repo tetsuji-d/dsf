@@ -2721,7 +2721,7 @@ function getViewerBookEdgeState(index = getIndex(), unitIndex) {
 function getViewerReaderSnapshot(requestedIndex) {
     const readingIndex=Number.isInteger(requestedIndex)?requestedIndex:getIndex();
     if (!getPages().length) return null;
-    const rect = document.getElementById('viewer-canvas').getBoundingClientRect();
+    let rect = document.getElementById('viewer-canvas').getBoundingClientRect();
     const unit = hasBookModel() ? normalizeSpreadUnitForLang(getBookUnits()[spreadMode && !Number.isInteger(requestedIndex) ? bookSpreadIndex : findBookUnitIndexForPage(readingIndex)], state.activeLang) : null;
     const surfaceAt = i => {const surface=getViewerSurfaceForDisplayIndex(i);return surface ? {...surface,sourcePageIndex:surface.sourcePageIndex ?? i} : null;};
     let pages;
@@ -2736,6 +2736,15 @@ function getViewerReaderSnapshot(requestedIndex) {
         const right = unit?.type === 'spread' ? unit.right?.sourcePageIndex === readingIndex
             : fallback.length===2 ? fallback[1]===readingIndex : (String(surface?.bookRole || surface?.role).toUpperCase()==='C4') !== (getPageDirection()==='ltr');
         pages = [{surface,side:right?'right':'left'}];
+    }
+    if(Number.isInteger(requestedIndex)){
+        // The destination can be a single cover while the current canvas is a
+        // spread. Size it with the same rules as resizeCanvas, before animating.
+        const space=getViewerCanvasSpace(),columns=pages.length,thickness=getViewerBookThickness();
+        const pageWidth=thickness!==undefined?Math.floor(fitBookPageWidth(space.W,space.H,columns,thickness)):Math.floor(Math.min(space.H*CANONICAL_PAGE_ASPECT,space.W/columns));
+        const width=pageWidth*columns,height=pageWidth/CANONICAL_PAGE_ASPECT;
+        const left=rect.left+(rect.width-width)/2,top=rect.top+(rect.height-height)/2;
+        rect={x:left,y:top,left,top,width,height,right:left+width,bottom:top+height};
     }
     const body=viewerBookModel?.bodyPages||[],bodyPosition=body.findIndex(s=>s.sourcePageIndex===readingIndex);
     return {rect,openRatio:bodyPosition>=0?bodyPosition/Math.max(1,body.length-1):(readingIndex>(body.at(-1)?.sourcePageIndex??Infinity)?1:0),peekIndex:readingIndex,rtl:getPageDirection()==='rtl',peekKey:`${viewerDocumentRevision}:${state.activeLang}`,covers:{front:viewerBookModel?.covers?.c1?.sourcePageIndex,back:viewerBookModel?.covers?.c4?.sourcePageIndex},pages:pages.map(p=>({index:p.surface?.sourcePageIndex,side:p.side,label:formatViewerSurfaceSliderLabel(p.surface),cover:/^C[14]$/.test(String(p.surface?.bookRole||p.surface?.role||''))})),

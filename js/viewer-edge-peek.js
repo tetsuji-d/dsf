@@ -147,6 +147,7 @@ export function createViewerEdgePeek({getItems, getLayout, renderSurface, format
         if(!items[index]||index===selected)return;
         rendering=true;
         const previous=selected, previousLayout=previous>=0?getLayout(items[previous].index):null;
+        const previousData={...root.dataset},gesture=drag;
         selected=index;slider.value=index;root.dataset.sourceIndex=items[index].index;ready=false;button.disabled=true;
         root.dataset.opened='true';onPhaseChange('peek');
         const layout=getLayout(items[index].index);
@@ -193,37 +194,70 @@ export function createViewerEdgePeek({getItems, getLayout, renderSurface, format
         try {
             await Promise.race([Promise.all([...next.querySelectorAll('[data-active=true] img,.edge-fan-cover img')].map(img=>img.complete&&img.naturalWidth?Promise.resolve():img.decode())),new Promise((_,reject)=>{timer=setTimeout(()=>reject(new Error('timeout')),4000);})]);
             if(id!==ticket)return;
-            cancelAnimationFrame(frame);content.replaceChildren(next);ready=true;leaf.hidden=false;
+            const previousPages=content.firstElementChild;
+            cancelAnimationFrame(frame);ready=true;leaf.hidden=false;
             document.body.classList.add('viewer-edge-fan-active');button.disabled=false;
             status.textContent=`${items[index].label} / ${snapshot.total??items.length}`;
             if(previous>=0&&previousLayout?.position!==layout.position&&!matchMedia('(prefers-reduced-motion: reduce)').matches){
                 const direction=(index>previous?1:-1)*(snapshot.rtl?1:-1);
-                const front=previousLayout.layers.find(layer=>layer.active&&layer.side===-direction)?.surface;
-                const back=layout.layers.find(layer=>layer.active&&layer.side===direction)?.surface;
-                const frontHtml=renderSurface(front),backHtml=renderSurface(back);
-                const turn=make(frontHtml,-.57*direction,0,'edge-fan-turn');numberSheet(turn,formatSurface(front));next.append(turn);
-                let backShown=false;
-                let start=performance.now(),held=0,from=0,wasDragging=false;
+                const front=previousLayout.layers.find(layer=>layer.active&&layer.side===-direction);
+                const back=layout.layers.find(layer=>layer.active&&layer.side===direction);
+                const turn=previousPages.querySelector(`[data-active=true][data-side=${direction>0?'left':'right'}]`);
+                const stationary=previousPages.querySelector(`[data-active=true][data-side=${direction>0?'right':'left'}]`);
+                const turnSlot=document.createComment('turn'),stationarySlot=document.createComment('stationary');
+                turn.replaceWith(turnSlot);stationary.replaceWith(stationarySlot);
+                turn.classList.add('edge-fan-turn');turn.dataset.active='false';stationary.dataset.active='false';
+                const hidden=[];
+                const occupied=new Set([front?.surface?.sourcePageIndex,back?.surface?.sourcePageIndex,Number(stationary.dataset.sourceIndex)]);
+                for(const sheet of next.querySelectorAll('.edge-fan-sheet[data-source-index],.edge-fan-sheet[data-active=true]')){
+                    if((sheet.dataset.active==='true'&&sheet.dataset.side===(direction<0?'left':'right'))||occupied.has(Number(sheet.dataset.sourceIndex))){sheet.style.visibility='hidden';hidden.push(sheet);}
+                }
+                // The old stationary face remains underneath the turning sheet.
+                // The incoming face becomes stationary only after the turn lands.
+                next.append(stationary,turn);content.replaceChildren(next);
+                const frontHtml=renderSurface(front?.surface),backHtml=renderSurface(back?.surface);
+                let backShown=false,start=performance.now(),held=0,from=0,releasing=!gesture;
+                const initialHinge=Number(turn.dataset.hinge),initialBias=Number(turn.dataset.bias);
                 function animate(now){
-                    if(id!==ticket){turn.remove();return;}
+                    if(id!==ticket)return;
+                    const heldGesture=gesture&&gesture.ended===null;
                     let t;
-                    if(drag&&Number.isFinite(drag.position)){t=Math.max(0,Math.min(1,Math.abs(drag.position-previous)/Math.max(1,Math.abs(index-previous))));wasDragging=true;}
-                    else{if(wasDragging){from=held;start=now;wasDragging=false;}t=from+(1-from)*Math.min(1,(now-start)/260);}
-                    if(t===held&&wasDragging){frame=requestAnimationFrame(animate);return;}
-                    held=t;const ease=t*t*(3-2*t),spread=-.57*direction*Math.cos(ease*Math.PI);
+                    if(heldGesture){t=gesture.progress;releasing=false;}
+                    else{
+                        if(!releasing){from=held;start=now;releasing=true;}
+                        const end=gesture?.ended===false?0:1;
+                        t=from+(end-from)*Math.min(1,(now-start)/280);
+                    }
+                    t=Math.max(0,Math.min(1,t));
+                    if(heldGesture&&t===held){frame=requestAnimationFrame(animate);return;}
+                    held=t;turn.dataset.progress=t;
+                    const ease=t*t*(3-2*t),extent=(front?.extent??.57)*(1-ease)+(back?.extent??.57)*ease;
+                    const spread=-extent*direction*Math.cos(ease*Math.PI);
                     if(backShown!==(ease>=.5)){
                         backShown=ease>=.5;
                         for(const strip of turn.children)strip.firstElementChild.innerHTML=backShown?backHtml:frontHtml;
                         turn.dataset.side=(backShown?direction:-direction)<0?'left':'right';
-                        numberSheet(turn,formatSurface(backShown?back:front));
+                        numberSheet(turn,formatSurface(backShown?back?.surface:front?.surface));
                     }
-                    // A thin, bowed edge at the midpoint, rather than a zero-area singularity.
+                    turn.dataset.hinge=initialHinge+(hinge-initialHinge)*ease;
+                    turn.dataset.bias=initialBias+(bias-initialBias)*ease;
                     turn.dataset.stackDepth=spread<0?leftDepth:rightDepth;
-                    shapeSheet(turn,Math.abs(spread)<.018?.018*direction:spread,0,Math.sin(t*Math.PI));
-                    if(t<1)frame=requestAnimationFrame(animate);else{turn.remove();settle(id);}
+                    shapeSheet(turn,Math.abs(spread)<.018?.018*(spread<0?-1:1):spread,0,Math.sin(t*Math.PI));
+                    if(heldGesture||now-start<280){frame=requestAnimationFrame(animate);return;}
+                    if(gesture?.ended===false){
+                        turnSlot.replaceWith(turn);stationarySlot.replaceWith(stationary);
+                        turn.classList.remove('edge-fan-turn');turn.dataset.active='true';stationary.dataset.active='true';
+                        for(const strip of turn.children)strip.firstElementChild.innerHTML=frontHtml;
+                        turn.dataset.hinge=initialHinge;turn.dataset.bias=initialBias;turn.dataset.stackDepth=previousData[direction>0?'leftThickness':'rightThickness'];
+                        shapeSheet(turn,-direction*(front?.extent??.57));numberSheet(turn,formatSurface(front?.surface));
+                        if(pendingIndex===index)pendingIndex=null;
+                        content.replaceChildren(previousPages);selected=previous;slider.value=previous;Object.assign(root.dataset,previousData);
+                        status.textContent=`${items[previous].label} / ${snapshot.total??items.length}`;
+                    }else{turn.remove();stationary.remove();for(const sheet of hidden)sheet.style.visibility='';}
+                    settle(id);
                 }
                 frame=requestAnimationFrame(animate);
-            }else settle(id);
+            }else{content.replaceChildren(next);settle(id);}
         } catch {if(id===ticket){status.textContent='このページを表示できません';settle(id);}}
         finally {clearTimeout(timer);}
     }
@@ -243,14 +277,25 @@ export function createViewerEdgePeek({getItems, getLayout, renderSurface, format
         }
         scrub(e,element);
     }
+    function adjacentIndex(at,delta){
+        const position=getLayout(items[at]?.index)?.position;
+        for(let i=at+delta;i>=0&&i<items.length;i+=delta){
+            const other=getLayout(items[i].index)?.position;
+            if(other!==undefined&&other!==position){
+                while(i>0&&getLayout(items[i-1].index)?.position===other)i--;
+                return i;
+            }
+        }
+        return null;
+    }
     function stepPage(delta,repeat=false){
         holdHover();
-        const at=pendingIndex??selected,next=at+delta;
-        if(next>=0&&next<items.length){show(next);return;}
+        const at=pendingIndex??selected,next=adjacentIndex(at,delta);
+        if(next!==null){show(next);return;}
         // Reaching C2/C3 consumes the current input. Only a fresh turn from the
         // settled boundary can close onto the exterior; repeats cannot cross it.
         if(repeat||rendering||!ready)return;
-        const index=next<0?snapshot.covers?.front:snapshot.covers?.back;
+        const index=delta<0?snapshot.covers?.front:snapshot.covers?.back;
         if(Number.isInteger(index))openCover?.(index);
     }
     function activate(e,el){
@@ -275,16 +320,25 @@ export function createViewerEdgePeek({getItems, getLayout, renderSurface, format
     }
 
     let drag=null;
-    leaf.addEventListener('pointerdown',e=>{holdHover();drag={id:e.pointerId,x:e.clientX,y:e.clientY,index:pendingIndex??selected,position:pendingIndex??selected};try{leaf.setPointerCapture(e.pointerId);}catch{}});
+    leaf.addEventListener('pointerdown',e=>{holdHover();drag={id:e.pointerId,x:e.clientX,y:e.clientY,index:pendingIndex??selected,progress:0,target:null,sign:0,ended:null};try{leaf.setPointerCapture(e.pointerId);}catch{}});
     leaf.addEventListener('pointermove',e=>{
         if(e.pointerType==='mouse'&&!e.buttons){hover(e,leaf);return;}
-        if(drag?.id===e.pointerId&&Math.abs(e.clientX-drag.x)>12&&Math.abs(e.clientX-drag.x)>Math.abs(e.clientY-drag.y)*1.35){drag.position=drag.index+(e.clientX-drag.x)/Math.max(1,leaf.getBoundingClientRect().width)*(items.length-1)*(snapshot.rtl?1:-1);show(drag.position>drag.index?Math.ceil(drag.position):Math.floor(drag.position));}
+        if(drag?.id!==e.pointerId)return;
+        const dx=e.clientX-drag.x,dy=e.clientY-drag.y;
+        if(!drag.sign){
+            if(Math.abs(dx)<24||Math.abs(dx)<Math.abs(dy)*1.35)return;
+            drag.sign=Math.sign(dx);drag.target=adjacentIndex(drag.index,drag.sign*(snapshot.rtl?1:-1));
+        }
+        drag.progress=Math.max(0,Math.min(1,dx*drag.sign/Math.max(80,Math.min(180,leaf.getBoundingClientRect().width*.35))));
+        if(drag.target!==null)show(drag.target);
     });
-    leaf.addEventListener('pointerup',e=>{
+    function endPeekDrag(e,cancelled=false){
         const g=drag;drag=null;if(!g||g.id!==e.pointerId)return;
-        const dx=e.clientX-g.x,dy=e.clientY-g.y,delta=Math.sign(dx)*(snapshot.rtl?1:-1);
-        if(Math.abs(dx)>=56&&Math.abs(dx)>Math.abs(dy)*1.35&&((g.index===0&&delta<0)||(g.index===items.length-1&&delta>0)))stepPage(delta);
-    });leaf.addEventListener('pointercancel',()=>{drag=null;});
+        const dx=e.clientX-g.x,dy=e.clientY-g.y;
+        g.ended=!cancelled&&dx*g.sign>=24&&Math.abs(dx)>Math.abs(dy)*1.35;
+        if(g.ended&&g.target===null)stepPage(g.sign*(snapshot.rtl?1:-1));
+    }
+    leaf.addEventListener('pointerup',e=>endPeekDrag(e));leaf.addEventListener('pointercancel',e=>endPeekDrag(e,true));
     for(const el of [pose,leaf])el.addEventListener('click',e=>{
         e.stopPropagation();if(root.hidden||performance.now()<suppressClickUntil)return;
         clearTimeout(tapTimer);if(e.detail>1)return;
@@ -308,7 +362,7 @@ export function createViewerEdgePeek({getItems, getLayout, renderSurface, format
         root.style.setProperty('--fan-scale',scale);
         Object.assign(root.style,{left:((viewport?.offsetLeft||0)+width/2)+'px',top:((viewport?.offsetTop||0)+(height-h)/2)+'px'});
         slider.style.direction=data.rtl?'rtl':'ltr';root.dataset.direction=data.rtl?'rtl':'ltr';
-    },holdHover,endDrag(){drag=null;},get opened(){return !root.hidden&&selected>=0;},handleKey(e){
+    },holdHover,endDrag(){if(drag)drag.ended=false;drag=null;},get opened(){return !root.hidden&&selected>=0;},handleKey(e){
         if(root.hidden||selected<0||!['ArrowLeft','ArrowRight'].includes(e.key))return false;
         e.preventDefault();stepPage((e.key==='ArrowRight'?1:-1)*(snapshot.rtl?-1:1),!!e.repeat);return true;
     },clear};
