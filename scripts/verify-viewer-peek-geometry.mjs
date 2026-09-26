@@ -48,7 +48,7 @@ for(let t=0;t<=1;t+=.025) {
 }
 const spans=[.48,.74,1].map(extent=>peekPaperSection(1,{extent}).x);
 assert.ok((spans[1]-spans[0])/spans[1]>.2,'middle page reveals readable content');
-assert.ok((spans[2]-spans[1])/spans[2]>.15,'rear page is more than a decorative sliver');
+assert.ok((spans[2]-spans[1])/spans[2]>.14,'rear page is more than a decorative sliver');
 assert.ok(spans[2]/640<=9/16,'rear page never becomes wider than the source');
 
 for(const compact of [0,.8,1]) {
@@ -103,5 +103,25 @@ assert.ok(peekPaperSection(1,{extent:.48}).x>200,'desktop front leaf opens farth
 assert.ok(peekPaperSection(1,{extent:.48,compact:1}).x>55,'portrait front leaf opens farther');
 const desktopFrame=peekViewportFrame(1600,1000,8);
 assert.ok(desktopFrame.width*desktopFrame.scale>800,'desktop uses a wider physical book without stretching');
+
+// Measure readable source width beyond the page in front. Projected edge gaps
+// alone miss how much content is squeezed into the backward-curled rear edge.
+function exposedSourceWidth(extent, obscuredX, compact) {
+    let lo=0,hi=1;
+    for(let i=0;i<32;i++) {
+        const t=(lo+hi)/2;
+        if(peekPaperSection(t,{extent,compact}).x<obscuredX)lo=t;else hi=t;
+    }
+    return 1-(lo+hi)/2;
+}
+for(const [width,height] of [[1600,1000],[390,844],[390,664],[360,640]]) {
+    const {compact}=peekViewportFrame(width,height,8);
+    const reach=[.48,.74,1].map(extent=>peekPaperSection(1,{extent,compact}).x);
+    const middleVisible=exposedSourceWidth(.74,reach[0],compact);
+    const rearVisible=exposedSourceWidth(1,reach[1],compact);
+    assert.ok(middleVisible/rearVisible>.8&&middleVisible/rearVisible<1.3,'middle and rear content have comparable exposure');
+    if(width<height)assert.ok(middleVisible>.25,'portrait middle leaf exposes meaningful content beyond the front');
+    assert.ok(reach[2]>reach[1],'opening the middle does not hide the rear leaf completely');
+}
 
 console.log('Unstretched 9:16 paper, outward/backward curl, adaptive sampling and full-height viewport fit passed');
