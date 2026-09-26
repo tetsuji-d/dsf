@@ -1,5 +1,7 @@
-// About 120 degrees between the curved page faces near the binding.
-export const VIEWER_PEEK_OPEN_EXTENT = .82;
+// Fan the neighbouring faces outward: expose about a third of the next
+// page and a quarter of the furthest page instead of narrow decorative slivers.
+export const VIEWER_PEEK_OPEN_EXTENT = .48;
+export const VIEWER_PEEK_PAGE_REACH = 480;
 
 /** Share the reading spread order; never infer physical sides from a body index. */
 export function getViewerPeekLayout({units, covers, sourceIndex, rtl, bodyPageCount}) {
@@ -22,7 +24,7 @@ export function getViewerPeekLayout({units, covers, sourceIndex, rtl, bodyPageCo
             const unit = spreads[position + distance * (side === frontSide ? -1 : 1)];
             if (!unit) continue;
             const surface = side < 0 ? unit.left : unit.right;
-            layers.push({surface, side, extent:boundary ? 1 : [VIEWER_PEEK_OPEN_EXTENT,.92,1][distance],
+            layers.push({surface, side, extent:boundary ? 1 : [VIEWER_PEEK_OPEN_EXTENT,.74,1][distance],
                 active:distance === 0, selected:distance === 0 && surface?.sourcePageIndex === sourceIndex});
         }
     }

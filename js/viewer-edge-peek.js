@@ -1,4 +1,4 @@
-import {VIEWER_PEEK_OPEN_EXTENT} from './viewer-peek-layout.js';
+import {VIEWER_PEEK_OPEN_EXTENT, VIEWER_PEEK_PAGE_REACH} from './viewer-peek-layout.js';
 import {createViewerPeekCover} from './viewer-peek-cover.js';
 import {createViewerPeekCoverMotion} from './viewer-peek-cover-motion.js';
 /** A curved fan of neighbouring sheets sharing one binding. No reading state is
@@ -57,7 +57,7 @@ export function projectStrip(el, points, width) {
 // while the backs of their paper blocks attach across the full spine width.
 function paperPoint({side,extent=1,bias=0,bindingWidth=0,hinge=405,stackDepth=0,layer=1,cover=false,lift=0},t,v) {
     const bow=Math.sin(Math.PI*t),attachment=cover?side*bindingWidth*.5:side*bindingWidth*.5*(1-layer)+(hinge-405)*layer;
-    const outer=cover?341.5:340-layer*stackDepth*.55;
+    const outer=cover?VIEWER_PEEK_PAGE_REACH+1.5:VIEWER_PEEK_PAGE_REACH-layer*stackDepth*.55;
     const topInset=cover?-.6:1+layer*stackDepth*t;
     const bottomInset=cover?.6:-1;
     const x=405+attachment*(1-t)+bias*(1-extent)*.8*t+side*extent*outer*perspectiveX(t);
@@ -67,7 +67,7 @@ function paperPoint({side,extent=1,bias=0,bindingWidth=0,hinge=405,stackDepth=0,
         // Keep this slope on the side face; do not draw an underside.
         const distance=side*(x-405),half=bindingWidth/2;
         let lo=0,hi=1;
-        for(let i=0;i<20;i++){const u=(lo+hi)/2;if(half*(1-u)+341.5*perspectiveX(u)<distance)lo=u;else hi=u;}
+        for(let i=0;i<20;i++){const u=(lo+hi)/2;if(half*(1-u)+(VIEWER_PEEK_PAGE_REACH+1.5)*perspectiveX(u)<distance)lo=u;else hi=u;}
         const u=(lo+hi)/2;y=539+115*u+18*Math.sin(Math.PI*u)+layer*stackDepth*.75*t;
     }
     return {x,y};
@@ -425,7 +425,9 @@ export function createViewerEdgePeek({getItems, getLayout, renderSurface, format
         if(!items.length){clear();return;}
         // No space is reserved for controls: fit the complete book to the viewport.
         const viewport=window.visualViewport, width=viewport?.width||innerWidth,height=viewport?.height||innerHeight;
-        const heightScale=height/720,scale=Math.min(width/730,heightScale),w=730*scale,h=height;
+        const fanWidth=2*(VIEWER_PEEK_PAGE_REACH+25);
+        const heightScale=height/720,scale=Math.min(width/fanWidth,heightScale),w=fanWidth*scale,h=height;
+        root.style.setProperty('--fan-offset-x',(fanWidth/2-405)+'px');
         root.style.setProperty('--fan-height-scale',heightScale);
         root.style.setProperty('--cover-scale',Math.min((width-12)/(360+Math.min(64,data.thickness||8)*.8),(height-12)/660));
         root.style.setProperty('--peek-width',w+'px');root.style.setProperty('--peek-height',h+'px');
