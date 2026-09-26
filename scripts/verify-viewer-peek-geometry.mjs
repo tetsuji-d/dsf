@@ -25,10 +25,18 @@ for(const hinge of [369,405,441]) {
     const right=peekPaperPoint({side:1,hinge,bindingWidth:80,stackDepth:4},0,0);
     assert.deepEqual(left,right,'unbalanced page blocks meet at the same gutter');
 }
-for(const tilt of [0,6,12]) {
-    const rearOpening=180-2*peekPaperProfile(1,tilt).hinge*180/Math.PI;
-    assert.ok(rearOpening>=170&&rearOpening<180,'rear sheets open almost flat at every book thickness');
+// The outward arch lies beyond the straight chord, and flattens toward the edge.
+// An inward roll has the opposite curvature and must fail this check.
+for(const extent of [.48,.74,1]) for(const tilt of [0,6,12]) {
+    const profile=peekPaperProfile(extent,tilt);
+    assert.ok(profile.bend<0,'tangent relaxes from gutter toward fore-edge');
+    const mid=peekPaperSection(.5,{extent,tilt}),end=peekPaperSection(1,{extent,tilt});
+    assert.ok(mid.z*end.x-mid.x*end.z>0,'paper arches outward from its chord');
+    const mirrored={x:end.x-mid.x,z:end.z-mid.z};
+    assert.ok(mid.x<mirrored.x,'outer half spreads out instead of rolling inward');
 }
+const rearProfile=peekPaperProfile(1);
+assert.ok(rearProfile.hinge*180/Math.PI<10,'rear sheet remains almost flat');
 const spans=[.48,.74,1].map(extent=>peekPaperSection(1,{extent}).x);
 assert.ok((spans[1]-spans[0])/spans[1]>.3,'middle page reveals readable content');
 assert.ok((spans[2]-spans[1])/spans[2]>.2,'rear page is more than a decorative sliver');
