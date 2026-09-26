@@ -11,6 +11,10 @@ function usesAffineTriangles() {
 }
 export function projectStrip(el, points, width) {
     el.bookPoints=points;
+    // Paint text/images at a higher local resolution before projecting them.
+    // Dividing the transform by the same factor preserves every page corner.
+    const raster=Number(el.dataset.rasterScale)||1,w=width*raster,rasterHeight=640*raster;
+    el.style.width=w+'px';el.style.height=rasterHeight+'px';el.firstElementChild.style.zoom=String(raster);
     const [p,q,r,s] = points;
     // Some WebKit compositors flatten a projective matrix without its W division.
     // Two clipped affine triangles share the exact quad boundary on those engines.
@@ -21,11 +25,11 @@ export function projectStrip(el, points, width) {
             el.affineTriangles=[0,1].map(i=>{const tri=document.createElement('div');tri.className='edge-fan-triangle';tri.style.clipPath=i?'polygon(calc(100% - 2px) 0,100% 0,100% 100%,0 100%,0 calc(100% - 2px))':'polygon(0 0,100% 0,100% 2px,2px 100%,0 100%)';const face=source.cloneNode(true);tri.append(face);el.append(tri);return tri;});
         }
         for(const tri of el.affineTriangles){
-            tri.style.width=width+'px';tri.firstElementChild.style.left=source.style.left;
+            tri.style.width=w+'px';tri.style.height=rasterHeight+'px';tri.firstElementChild.style.left=source.style.left;tri.firstElementChild.style.zoom=String(raster);
             if(el.affineHtml!==html)tri.firstElementChild.innerHTML=html;
         }
         el.affineHtml=html;
-        const matrix=(tri,origin,x,y)=>tri.style.transform=`matrix(${x.x/width},${x.y/width},${y.x/640},${y.y/640},${origin.x},${origin.y})`;
+        const matrix=(tri,origin,x,y)=>tri.style.transform=`matrix(${x.x/w},${x.y/w},${y.x/rasterHeight},${y.y/rasterHeight},${origin.x},${origin.y})`;
         matrix(el.affineTriangles[0],p,{x:q.x-p.x,y:q.y-p.y},{x:s.x-p.x,y:s.y-p.y});
         matrix(el.affineTriangles[1],{x:q.x+s.x-r.x,y:q.y+s.y-r.y},{x:r.x-s.x,y:r.y-s.y},{x:r.x-q.x,y:r.y-q.y});
         return;
@@ -36,7 +40,7 @@ export function projectStrip(el, points, width) {
     const g=det?(dx3*dy2-dx2*dy3)/det:0, h=det?(dx1*dy3-dx3*dy1)/det:0;
     const a=q.x-p.x+g*q.x, b=s.x-p.x+h*s.x;
     const d=q.y-p.y+g*q.y, e=s.y-p.y+h*s.y;
-    el.style.transform=`matrix3d(${a/width},${d/width},0,${g/width},${b/640},${e/640},0,${h/640},0,0,1,0,${p.x},${p.y},0,1)`;
+    el.style.transform=`matrix3d(${a/w},${d/w},0,${g/w},${b/(640*raster)},${e/(640*raster)},0,${h/(640*raster)},0,0,1,0,${p.x},${p.y},0,1)`;
 }
 // The exposed pages meet within the spine at the selected reading position,
 // while the backs of their paper blocks attach across the full spine width.
@@ -80,9 +84,13 @@ function shapeSheet(sheet, spread, depth=0, lift=0) {
 }
 function makeSheet(html, spread, depth=0, className='',bias=0,bindingWidth=0,stackDepth=0,hinge=405) {
     const sheet=document.createElement('div');sheet.className='edge-fan-sheet '+className;sheet.dataset.hinge=hinge;sheet.dataset.bias=bias;sheet.dataset.bindingWidth=bindingWidth;sheet.dataset.stackDepth=stackDepth;
-    const count=className==='edge-fan-stack'?4:(matchMedia('(pointer:coarse)').matches?8:16),stripWidth=360/count;
+    const coarse=matchMedia('(pointer:coarse)').matches;
+    const count=className==='edge-fan-stack'?4:(coarse?8:16),stripWidth=360/count;
+    // Bound phone backing surfaces to 3 device pixels per source CSS pixel.
+    // Dense screens already supply part of the extra sampling resolution.
+    const raster=className==='edge-fan-stack'?1:coarse?Math.max(1,Math.min(2,3/(devicePixelRatio||1))):2;
     for(let i=0;i<count;i++){
-        const strip=document.createElement('div');strip.className='edge-fan-strip';
+        const strip=document.createElement('div');strip.className='edge-fan-strip';strip.dataset.rasterScale=raster;
         const content=document.createElement('div');content.className='edge-peek-content';
         content.style.left=(-i*stripWidth)+'px';content.innerHTML=html;strip.append(content);sheet.append(strip);
     }

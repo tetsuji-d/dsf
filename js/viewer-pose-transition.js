@@ -60,7 +60,8 @@ export function createViewerPoseTransition({render}) {
                 const html=Number.isInteger(sheet.index)?render(sheet.index):'';
                 [...target.children].forEach(source=>{
                     if(!source.bookPoints)return;
-                    const start=+source.dataset.sourceStart,width=parseFloat(source.style.width),strip=document.createElement('div');strip.className='edge-fan-strip pose-morph-strip';
+                    const raster=Number(source.dataset.rasterScale)||1;
+                    const start=+source.dataset.sourceStart,width=parseFloat(source.style.width)/raster,strip=document.createElement('div');strip.className='edge-fan-strip pose-morph-strip';strip.dataset.rasterScale=raster;
                     const content=document.createElement('div');content.className='edge-peek-content';content.innerHTML=html;content.style.left=-start+'px';strip.append(content);root.append(strip);strip.style.width=width+'px';
                     const left=data.rect.left+i*w+start*w/360,right=left+width*w/360,top=data.rect.top,bottom=top+h;
                     const flat=[{x:left,y:top},{x:right,y:top},{x:right,y:bottom},{x:left,y:bottom}];
