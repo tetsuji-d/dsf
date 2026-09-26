@@ -1,9 +1,35 @@
 /** A curved fan of neighbouring sheets sharing one binding. No reading state is
  * changed until confirmation; CSS strips also support fixed-text surfaces. */
 const perspectiveX=t=>Math.expm1(.32*t)/Math.expm1(.32);
+let needsAffineTriangles;
+function usesAffineTriangles() {
+    if(needsAffineTriangles!==undefined)return needsAffineTriangles;
+    const probe=document.createElement('div');
+    probe.style.cssText='position:fixed;left:0;top:0;width:100px;height:10px;visibility:hidden;transform-origin:0 0;transform:matrix3d(1,0,0,.01,0,1,0,0,0,0,1,0,0,0,0,1)';
+    document.body.append(probe);needsAffineTriangles=probe.getBoundingClientRect().width>75;probe.remove();
+    return needsAffineTriangles;
+}
 export function projectStrip(el, points, width) {
     el.bookPoints=points;
     const [p,q,r,s] = points;
+    // Some WebKit compositors flatten a projective matrix without its W division.
+    // Two clipped affine triangles share the exact quad boundary on those engines.
+    if(usesAffineTriangles()){
+        el.classList.add('edge-fan-affine');el.style.transform='none';
+        const source=el.firstElementChild,html=source.innerHTML;
+        if(!el.affineTriangles){
+            el.affineTriangles=[0,1].map(i=>{const tri=document.createElement('div');tri.className='edge-fan-triangle';tri.style.clipPath=i?'polygon(calc(100% - 2px) 0,100% 0,100% 100%,0 100%,0 calc(100% - 2px))':'polygon(0 0,100% 0,100% 2px,2px 100%,0 100%)';const face=source.cloneNode(true);tri.append(face);el.append(tri);return tri;});
+        }
+        for(const tri of el.affineTriangles){
+            tri.style.width=width+'px';tri.firstElementChild.style.left=source.style.left;
+            if(el.affineHtml!==html)tri.firstElementChild.innerHTML=html;
+        }
+        el.affineHtml=html;
+        const matrix=(tri,origin,x,y)=>tri.style.transform=`matrix(${x.x/width},${x.y/width},${y.x/640},${y.y/640},${origin.x},${origin.y})`;
+        matrix(el.affineTriangles[0],p,{x:q.x-p.x,y:q.y-p.y},{x:s.x-p.x,y:s.y-p.y});
+        matrix(el.affineTriangles[1],{x:q.x+s.x-r.x,y:q.y+s.y-r.y},{x:r.x-s.x,y:r.y-s.y},{x:r.x-q.x,y:r.y-q.y});
+        return;
+    }
     const dx1=q.x-r.x, dx2=s.x-r.x, dx3=p.x-q.x+r.x-s.x;
     const dy1=q.y-r.y, dy2=s.y-r.y, dy3=p.y-q.y+r.y-s.y;
     const det=dx1*dy2-dx2*dy1;

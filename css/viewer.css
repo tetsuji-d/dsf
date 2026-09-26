@@ -3254,8 +3254,8 @@ body.viewer-edge-fan-active #viewer-book-pose[data-mode=edge] {visibility:hidden
 .edge-peek-leaf {position:relative;width:var(--peek-width);height:var(--peek-height);pointer-events:auto;touch-action:none;cursor:ew-resize;}
 .edge-fan-scene {position:absolute;width:800px;height:720px;transform:scale(var(--fan-scale),var(--fan-height-scale)) translate(-40px,-20px);transform-origin:0 0;filter:drop-shadow(0 14px 16px #0005);pointer-events:none;}
 .edge-fan-pages,.edge-fan-sheet {position:absolute;inset:0;pointer-events:none;}
-.edge-fan-strip {position:absolute;left:0;top:0;width:36px;height:640px;overflow:hidden;transform-origin:0 0;background:#f8f4e8;backface-visibility:hidden;}
-.edge-fan-strip::after {content:"";position:absolute;inset:0;background:linear-gradient(90deg,rgba(36,29,14,var(--shade-start,.1)),rgba(36,29,14,var(--shade-end,.1)));border-top:1px solid #fff8;border-bottom:1px solid #4b432933;pointer-events:none;}
+.edge-fan-strip,.edge-fan-triangle {position:absolute;left:0;top:0;width:36px;height:640px;overflow:hidden;transform-origin:0 0;background:#f8f4e8;backface-visibility:hidden;}
+.edge-fan-strip::after,.edge-fan-triangle::after {content:"";position:absolute;inset:0;background:linear-gradient(90deg,rgba(36,29,14,var(--shade-start,.1)),rgba(36,29,14,var(--shade-end,.1)));border-top:1px solid #fff8;border-bottom:1px solid #4b432933;pointer-events:none;}
 .edge-fan-stack .edge-fan-strip {background:#e4dfcc;}
 .edge-peek-content {position:absolute;top:0;width:360px;height:640px;pointer-events:none;}
 .edge-peek-controls {position:absolute;bottom:max(18px,env(safe-area-inset-bottom));left:50%;transform:translateX(-50%);width:min(360px,calc(100vw - 140px));display:flex;align-items:center;gap:8px;pointer-events:auto;color:#fff;font:12px system-ui;}
@@ -3332,3 +3332,7 @@ body.viewer-fan-preparing #viewer-book-pose,body.viewer-fan-preparing #viewer-ed
 /* Bound each transformed strip's backing surface; avoid an offscreen fan filter on phones. */
 .edge-fan-strip {contain:paint;}
 @media (pointer:coarse) {.edge-fan-scene {filter:none;}}
+
+.edge-fan-strip.edge-fan-affine {overflow:visible;background:transparent;contain:none;}
+.edge-fan-affine::after,.edge-fan-affine>.edge-peek-content {display:none;}
+.edge-fan-triangle {contain:paint;}

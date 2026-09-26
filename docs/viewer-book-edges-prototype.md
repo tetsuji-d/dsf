@@ -289,3 +289,7 @@
 - `verify-viewer-trackpad-and-peek.cjs` で二本指相当のwheel入力、遠近比、ホバー、薄い背題を検証。
   報告された2作品はWebKitの390×844・DPR3で各8回の覗き見／読書切り替えを確認。
   実iPhoneのメモリ制約下の再現性は別途実機確認が必要。
+
+- WebKitの一部環境ではprojective matrix3dのW除算が適用されず、分割面に段差が出る。
+  非表示の小さな要素で対応を実測し、該当環境だけ2つのクリップ済み2D三角形で同じ四隅へ投影する。
+  `verify-viewer-projected-strips.cjs` はChromium／WebKitの両方で四隅と内部接続点の一致を検査する。
