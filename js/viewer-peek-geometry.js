@@ -8,15 +8,19 @@ const mix = (a, b, t) => a + (b - a) * t;
 
 export function peekPaperProfile(extent=1, tilt=0, lift=0, compact=0) {
     const e=Math.max(0,Math.min(1,extent)), c=Math.max(0,Math.min(1,compact));
-    // Curvature is concentrated near the gutter, increasingly in the rear sheets.
-    // Their fore-edges can pass behind the spine instead of rolling inward.
-    const poses=[{e:0,h:90,f:90,k:1},{e:.48,h:88,f:mix(30,76,c),k:1},
-        {e:.74,h:80,f:mix(-55,-80,c),k:mix(.55,.06,c)},
-        {e:1,h:65,f:mix(-35,-76,c),k:mix(.22,.04,c)}];
+    // Use physical bend radii: the cover/rear leaf has R = page width / 3.
+    // The broad arc reaches the middle of the page instead of making a short
+    // hinge followed by a long, rigid panel. Portrait mode changes its pose,
+    // not its radius or the source paper dimensions.
+    const poses=[{e:0,h:90,f:90,r:Infinity},{e:.48,h:88,f:mix(30,76,c),r:Infinity},
+        {e:.74,h:88,f:mix(20,75,c),r:200},
+        {e:1,h:mix(65,10,c),f:mix(-35,-89,c),r:PEEK_PAGE_WIDTH/3}];
     const index=poses.findIndex(p=>p.e>=e),a=poses[Math.max(0,index-1)],b=poses[index];
-    const t=b.e===a.e?0:(e-a.e)/(b.e-a.e),raise=tilt+lift*5*e;
+    const t=b.e===a.e?0:(e-a.e)/(b.e-a.e),raise=tilt*(1-.85*c)+lift*5*e;
     const hinge=Math.min(89.5,mix(a.h,b.h,t)+raise),edge=Math.min(89.5,mix(a.f,b.f,t)+raise);
-    return {hinge:radians(hinge),bend:radians(edge-hinge),knee:mix(a.k,b.k,t)};
+    const bend=radians(edge-hinge);
+    const kneeFor=p=>Number.isFinite(p.r)?Math.min(1,Math.abs(radians(p.f-p.h))*p.r/PEEK_PAGE_WIDTH):1;
+    return {hinge:radians(hinge),bend,knee:mix(kneeFor(a),kneeFor(b),t)};
 }
 
 export function peekPaperSection(t, {extent=1, tilt=0, lift=0, compact=0, length=PEEK_PAGE_WIDTH}={}) {

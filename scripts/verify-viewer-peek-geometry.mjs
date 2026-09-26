@@ -70,4 +70,17 @@ for(const knee of [.04,.22,.55,1]) {
     assert.ok(samples.filter(x=>x<=knee).length>=8,'curved region retains smooth sampling on phones');
 }
 
+
+
+for(const compact of [0,.5,1]) {
+    const profile=peekPaperProfile(1,0,0,compact);
+    const radius=PEEK_PAGE_WIDTH*profile.knee/Math.abs(profile.bend);
+    assert.ok(Math.abs(radius-PEEK_PAGE_WIDTH/3)<1e-8,'cover radius stays one third of the paper width');
+    assert.ok(profile.knee>.5,'cover curvature extends through the page centre on every viewport');
+}
+for(const compact of [0,.5,1]) {
+    const mid=peekPaperSection(.5,{extent:1,compact}),a=peekPaperSection(.49,{extent:1,compact}),b=peekPaperSection(.51,{extent:1,compact});
+    assert.ok(Math.hypot(mid.x-(a.x+b.x)/2,mid.z-(a.z+b.z)/2)>.04,'cover centre is curved on both desktop and phones');
+}
+
 console.log('Unstretched 9:16 paper, outward/backward curl, adaptive sampling and full-height viewport fit passed');
