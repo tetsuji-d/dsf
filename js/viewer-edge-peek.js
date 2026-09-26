@@ -89,16 +89,14 @@ function makeBinding(width, color) {
     rim.setAttribute('fill','none');rim.setAttribute('stroke','#b4ad97');rim.setAttribute('stroke-width','1');svg.append(rim);
     return svg;
 }
-export function createViewerEdgePeek({getItems, getEndpapers=()=>({}), getNumberSettings=()=>({number:true,numberEdge:"top",numberAlign:"outer"}), onPhaseChange=()=>{}, onConfirm, render, open}) {
+export function createViewerEdgePeek({getItems, getLayout, renderSurface, formatSurface, getNumberSettings=()=>({number:true,numberEdge:"top",numberAlign:"outer"}), onPhaseChange=()=>{}, onConfirm, open}) {
     const root=document.createElement('aside');root.id='viewer-edge-peek';root.hidden=true;
     root.innerHTML='<div class="edge-peek-leaf" hidden><div class="edge-fan-scene"></div></div><div class="edge-peek-controls"><label><span class="edge-peek-sr">覗き見るページ</span><input type="range" min="0" value="0" aria-label="覗き見るページ"></label><output></output><button type="button" aria-label="このページを開く" title="このページを開く" disabled><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6 18 18 6M6 6h12v12"/></svg></button></div>';
     document.body.append(root);
     const leaf=root.querySelector('.edge-peek-leaf'),content=root.querySelector('.edge-fan-scene'),slider=root.querySelector('input'),status=root.querySelector('output'),button=root.querySelector('button');
     const pose=document.getElementById('viewer-book-pose');
     let items=[],key='',selected=-1,ticket=0,ready=false,snapshot=null,lastTap=null,frame=0,tapTimer=0,suppressClickUntil=0,rendering=false,pendingIndex=null;
-    const cache=new Map();
-    function markup(index){if(!cache.has(index)){if(cache.size>=16)cache.delete(cache.keys().next().value);cache.set(index,render(index));}return cache.get(index);}
-    function clear(){drag=null;rendering=false;pendingIndex=null;cancelAnimationFrame(frame);clearTimeout(tapTimer);root.dataset.opened='false';root.hidden=true;leaf.hidden=true;document.body.classList.remove('viewer-edge-fan-active');content.replaceChildren();cache.clear();items=[];key='';selected=-1;ready=false;ticket++;lastTap=null;onPhaseChange('edge');}
+    function clear(){drag=null;rendering=false;pendingIndex=null;cancelAnimationFrame(frame);clearTimeout(tapTimer);root.dataset.opened='false';root.hidden=true;leaf.hidden=true;document.body.classList.remove('viewer-edge-fan-active');content.replaceChildren();items=[];key='';selected=-1;ready=false;ticket++;lastTap=null;onPhaseChange('edge');}
     function numberSheet(sheet,label){
         sheet.dataset.pageLabel=label;
         const prefs=getNumberSettings(),align=prefs.numberAlign==='center'?'center':(prefs.numberAlign==='inner'?(sheet.dataset.side==='left'?'right':'left'):sheet.dataset.side);
@@ -118,10 +116,12 @@ export function createViewerEdgePeek({getItems, getEndpapers=()=>({}), getNumber
         index=Math.max(0,Math.min(items.length-1,Math.round(index)));
         if(!items[index]||index===selected)return;
         rendering=true;
-        const previous=selected;
+        const previous=selected, previousLayout=previous>=0?getLayout(items[previous].index):null;
         selected=index;slider.value=index;root.dataset.sourceIndex=items[index].index;ready=false;button.disabled=true;
         root.dataset.opened='true';onPhaseChange('peek');
-        const ratio=index/Math.max(1,items.length-1), bias=(ratio-.5)*320*(snapshot.rtl?-1:1);
+        const layout=getLayout(items[index].index);
+        if(!layout){rendering=false;return;}
+        const ratio=layout.ratio, bias=(ratio-.5)*320*(snapshot.rtl?-1:1);
         const bindingWidth=Math.max(2,Math.min(64,snapshot.thickness||8))*1.25;
         const volumeDepth=Math.max(0,Math.min(64,snapshot.thickness||8)*1.1);
         const leftDepth=volumeDepth*(snapshot.rtl?1-ratio:ratio),rightDepth=volumeDepth-leftDepth;
@@ -133,9 +133,20 @@ export function createViewerEdgePeek({getItems, getEndpapers=()=>({}), getNumber
         // Build off screen and retain the previous fan until the selected image is decoded.
         const next=document.createElement('div');next.className='edge-fan-pages';
         next.append(makeBinding(bindingWidth,snapshot.design?.backgroundColor||'#173d42'));
-        const cover='<div style="position:absolute;inset:0;background:#173d42;border:1px solid #bbbd9d"></div>';
-        for(const side of [-1,1]) {
-            const board=make(cover,side,0,'edge-fan-cover');board.dataset.side=side<0?'left':'right';next.append(board);
+        for(const {side,outside,inside,role,insideRole} of layout.boards) {
+            // A cover has two faces: C1/C4 outside, C2/C3 toward the paper block.
+            // Missing inside-cover content stays blank, never borrowing an exterior image.
+            const board=make(renderSurface(inside),side,0,'edge-fan-cover');
+            board.dataset.cover=role;board.dataset.insideCover=insideRole;
+            if(Number.isInteger(outside?.sourcePageIndex))board.dataset.outsideSourceIndex=outside.sourcePageIndex;
+            if(Number.isInteger(inside?.sourcePageIndex))board.dataset.insideSourceIndex=inside.sourcePageIndex;
+            const outsideHtml=renderSurface(outside);
+            for(const strip of board.children){
+                strip.firstElementChild.classList.add('edge-cover-inside');
+                const back=document.createElement('div');back.className='edge-peek-content edge-cover-outside';
+                back.style.left=strip.firstElementChild.style.left;back.innerHTML=outsideHtml;strip.append(back);
+            }
+            next.append(board);
             const remaining=side===(snapshot.rtl?-1:1)?1-ratio:ratio;
             const depth=volumeDepth*remaining;
             root.dataset[side<0?'leftThickness':'rightThickness']=depth;
@@ -143,38 +154,30 @@ export function createViewerEdgePeek({getItems, getEndpapers=()=>({}), getNumber
             for(const j of [0,10]){const stack=make('',side,j/10*depth,'edge-fan-stack');stack.dataset.side=side<0?'left':'right';next.append(stack);}
         }
         for(const side of [-1,1])next.append(...makePaperEdges(side,Number(root.dataset[side<0?'leftThickness':'rightThickness']),bindingWidth,hinge));
-        // Outermost sheets first, neighbouring leaves nearest the reader last.
-        const offsets=snapshot.rtl?[[-3,1], [2,-1],[-2,.82],[1,-.82],[-1,.57],[0,-.57]]:
-            [[-3,-1],[2,1],[-2,-.82],[1,.82],[-1,-.57],[0,.57]];
-        let selectedSheet;
-        const boundary=index===0?'start':index===items.length-1?'end':'';
-        root.dataset.boundary=boundary;
-        if(boundary){
-            // At either end, open the selected body page against the real inside cover.
-            const side=(snapshot.rtl?-1:1)*(index%2?-1:1), endpaper=getEndpapers()[boundary];
-            const inside=make(Number.isInteger(endpaper)?markup(endpaper):'',-side,0,'edge-fan-endpaper');
-            inside.dataset.cover=boundary==='start'?'C2':'C3';numberSheet(inside,inside.dataset.cover);next.append(inside);
-            selectedSheet=make(markup(items[index].index),side);
-            selectedSheet.dataset.sourceIndex=items[index].index;selectedSheet.dataset.selected='true';
-            selectedSheet.dataset.openExtent='1';numberSheet(selectedSheet,items[index].label);next.append(selectedSheet);
-        } else for(const [offset,spread] of offsets){
-            const item=items[index+offset];if(!item)continue;
-            const nearEnd=Math.max(0,1-Math.min(index,items.length-1-index)/3);
-            const extent=Math.abs(spread)+(1-Math.abs(spread))*nearEnd;
-            const sheet=make(markup(item.index),Math.sign(spread)*extent);
-            sheet.dataset.sourceIndex=item.index;sheet.dataset.selected=String(offset===0);sheet.dataset.openExtent=extent;
-            numberSheet(sheet,item.label);next.append(sheet);if(offset===0)selectedSheet=sheet;
+        root.dataset.boundary=layout.boundary;root.dataset.spreadPosition=layout.position;
+        for(const {surface,side,extent,selected:chosen,active} of layout.layers){
+            const isInside=/^C[23]$/.test(surface?.bookRole||surface?.role||'');
+            const sheet=make(renderSurface(surface),side*extent,0,isInside?'edge-fan-endpaper':'');
+            if(Number.isInteger(surface?.sourcePageIndex)&&!surface.virtualBlank)sheet.dataset.sourceIndex=surface.sourcePageIndex;
+            if(isInside)sheet.dataset.cover=surface.bookRole||surface.role;
+            sheet.dataset.selected=String(chosen);sheet.dataset.active=String(active);sheet.dataset.openExtent=extent;
+            sheet.dataset.virtualBlank=String(!!surface?.virtualBlank);
+            numberSheet(sheet,formatSurface(surface));next.append(sheet);
         }
         let timer;
         try {
-            await Promise.race([Promise.all([...next.querySelectorAll('[data-selected=true] img,.edge-fan-endpaper img')].map(img=>img.complete&&img.naturalWidth?Promise.resolve():img.decode())),new Promise((_,reject)=>{timer=setTimeout(()=>reject(new Error('timeout')),4000);})]);
+            await Promise.race([Promise.all([...next.querySelectorAll('[data-active=true] img,.edge-fan-cover img')].map(img=>img.complete&&img.naturalWidth?Promise.resolve():img.decode())),new Promise((_,reject)=>{timer=setTimeout(()=>reject(new Error('timeout')),4000);})]);
             if(id!==ticket)return;
             cancelAnimationFrame(frame);content.replaceChildren(next);ready=true;leaf.hidden=false;
             document.body.classList.add('viewer-edge-fan-active');button.disabled=false;
             status.textContent=`${items[index].label} / ${items.length}`;
-            if(previous>=0&&previous!==index&&!matchMedia('(prefers-reduced-motion: reduce)').matches){
+            if(previous>=0&&previousLayout?.position!==layout.position&&!matchMedia('(prefers-reduced-motion: reduce)').matches){
                 const direction=(index>previous?1:-1)*(snapshot.rtl?1:-1);
-                const turn=make(markup(items[previous].index),-.57*direction,0,'edge-fan-turn');next.append(turn);
+                const front=previousLayout.layers.find(layer=>layer.active&&layer.side===-direction)?.surface;
+                const back=layout.layers.find(layer=>layer.active&&layer.side===direction)?.surface;
+                const frontHtml=renderSurface(front),backHtml=renderSurface(back);
+                const turn=make(frontHtml,-.57*direction,0,'edge-fan-turn');numberSheet(turn,formatSurface(front));next.append(turn);
+                let backShown=false;
                 let start=performance.now(),held=0,from=0,wasDragging=false;
                 function animate(now){
                     if(id!==ticket){turn.remove();return;}
@@ -183,6 +186,12 @@ export function createViewerEdgePeek({getItems, getEndpapers=()=>({}), getNumber
                     else{if(wasDragging){from=held;start=now;wasDragging=false;}t=from+(1-from)*Math.min(1,(now-start)/260);}
                     if(t===held&&wasDragging){frame=requestAnimationFrame(animate);return;}
                     held=t;const ease=t*t*(3-2*t),spread=-.57*direction*Math.cos(ease*Math.PI);
+                    if(backShown!==(ease>=.5)){
+                        backShown=ease>=.5;
+                        for(const strip of turn.children)strip.firstElementChild.innerHTML=backShown?backHtml:frontHtml;
+                        turn.dataset.side=(backShown?direction:-direction)<0?'left':'right';
+                        numberSheet(turn,formatSurface(backShown?back:front));
+                    }
                     // A thin, bowed edge at the midpoint, rather than a zero-area singularity.
                     turn.dataset.stackDepth=spread<0?leftDepth:rightDepth;
                     shapeSheet(turn,Math.abs(spread)<.018?.018*direction:spread,0,Math.sin(t*Math.PI));
@@ -241,7 +250,7 @@ export function createViewerEdgePeek({getItems, getEndpapers=()=>({}), getNumber
         if(mode!=='edge'||!data){clear();return;}
         snapshot=data;root.hidden=false;onPhaseChange(selected>=0?'peek':'edge');
         for(const sheet of content.querySelectorAll('[data-page-label]'))numberSheet(sheet,sheet.dataset.pageLabel);
-        if(key!==data.peekKey){rendering=false;pendingIndex=null;cancelAnimationFrame(frame);root.dataset.opened='false';document.body.classList.remove('viewer-edge-fan-active');onPhaseChange('edge');cache.clear();items=getItems();key=data.peekKey;selected=-1;ticket++;leaf.hidden=true;content.replaceChildren();ready=false;button.disabled=true;slider.max=Math.max(0,items.length-1);slider.value='0';status.textContent='左右になぞると中身が見えます';}
+        if(key!==data.peekKey){rendering=false;pendingIndex=null;cancelAnimationFrame(frame);root.dataset.opened='false';document.body.classList.remove('viewer-edge-fan-active');onPhaseChange('edge');items=getItems();key=data.peekKey;selected=-1;ticket++;leaf.hidden=true;content.replaceChildren();ready=false;button.disabled=true;slider.max=Math.max(0,items.length-1);slider.value='0';status.textContent='左右になぞると中身が見えます';}
         if(!items.length){clear();return;}
         // No space is reserved for controls: fit the complete book to the viewport.
         const viewport=window.visualViewport, width=viewport?.width||innerWidth,height=viewport?.height||innerHeight;

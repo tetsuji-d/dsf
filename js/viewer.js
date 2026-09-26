@@ -1,5 +1,6 @@
 import {createViewerFlick} from './viewer-flick.js';
 import {createViewerEdgePeek} from './viewer-edge-peek.js';
+import {getViewerPeekLayout} from './viewer-peek-layout.js';
 import {createViewerRiffle} from './viewer-riffle.js';
 import { normalizeBookSettings } from './page-labels.js';
 import { getBookThickness, getBookEdgeState, fitBookPageWidth, BOOK_EDGE_PROJECTION } from './book-volume.js';
@@ -445,9 +446,10 @@ async function init() {
             getNumberSettings:()=>readerChrome.pageNumberSettings,
             onConfirm:()=>readerChrome.openReading(),
             onPhaseChange:phase=>readerChrome.setEdgePhase(phase),
-            getEndpapers:()=>({start:viewerBookModel?.covers?.c2?.sourcePageIndex,end:viewerBookModel?.covers?.c3?.sourcePageIndex}),
+            getLayout:index=>getViewerPeekLayout({units:getBookUnits().map(unit=>normalizeSpreadUnitForLang(unit,state.activeLang)),covers:viewerBookModel.covers,sourceIndex:index,rtl:getPageDirection()==='rtl',bodyPageCount:viewerBookModel.bodyPages.length}),
+            renderSurface:surface=>surface&&!surface.virtualBlank?renderSurfaceContentHTML(surface,state.activeLang)+renderSurfaceBubblesHTML(surface,state.activeLang):'',
+            formatSurface:surface=>surface&&!surface.virtualBlank?formatViewerSurfaceSliderLabel(surface):'',
             getItems:()=> (viewerBookModel?.bodyPages||[]).filter(s=>!s.virtualBlank&&Number.isInteger(s.sourcePageIndex)).map(s=>({index:s.sourcePageIndex,label:formatViewerSurfaceSliderLabel(s)})),
-            render:index=>{const surface=getViewerSurfaceForDisplayIndex(index);return renderSurfaceContentHTML(surface,state.activeLang)+renderSurfaceBubblesHTML(surface,state.activeLang);},
             open:index=>{readerChrome.cancelPose();if(spreadMode&&hasBookModel())transitionToBookUnit(findBookUnitIndexForPage(index));else transitionToIndex(index,'jump');},
         });
         const delta=side=>(side==='left'?1:-1)*(getPageDirection()==='rtl'?1:-1);

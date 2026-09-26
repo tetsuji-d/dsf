@@ -3328,3 +3328,7 @@ body.viewer-fan-preparing #viewer-stage {visibility:visible;}
 body.viewer-fan-preparing #viewer-book-pose,body.viewer-fan-preparing #viewer-edge-peek {visibility:hidden;}
 
 .pose-fan-ghost .edge-peek-leaf {pointer-events:none;}
+
+/* Cover backs belong to the same board, not the body-page fan. */
+.edge-cover-inside,.edge-cover-outside {backface-visibility:hidden;}
+.edge-cover-outside {transform:rotateY(180deg);}
