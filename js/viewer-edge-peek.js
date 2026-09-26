@@ -1,3 +1,4 @@
+import {VIEWER_PEEK_OPEN_EXTENT} from './viewer-peek-layout.js';
 import {createViewerPeekCover} from './viewer-peek-cover.js';
 import {createViewerPeekCoverMotion} from './viewer-peek-cover-motion.js';
 /** A curved fan of neighbouring sheets sharing one binding. No reading state is
@@ -272,7 +273,7 @@ export function createViewerEdgePeek({getItems, getLayout, renderSurface, format
                     t=Math.max(0,Math.min(1,t));
                     if(heldGesture&&t===held){frame=requestAnimationFrame(animate);return;}
                     held=t;turn.dataset.progress=t;
-                    const ease=t*t*(3-2*t),extent=(front?.extent??.57)*(1-ease)+(back?.extent??.57)*ease;
+                    const ease=t*t*(3-2*t),extent=(front?.extent??VIEWER_PEEK_OPEN_EXTENT)*(1-ease)+(back?.extent??VIEWER_PEEK_OPEN_EXTENT)*ease;
                     const spread=-extent*direction*Math.cos(ease*Math.PI);
                     if(backShown!==(ease>=.5)){
                         backShown=ease>=.5;
@@ -290,7 +291,7 @@ export function createViewerEdgePeek({getItems, getLayout, renderSurface, format
                         turn.classList.remove('edge-fan-turn');turn.dataset.active='true';stationary.dataset.active='true';
                         for(const strip of turn.children)strip.firstElementChild.innerHTML=frontHtml;
                         turn.dataset.hinge=initialHinge;turn.dataset.bias=initialBias;turn.dataset.stackDepth=previousData[direction>0?'leftThickness':'rightThickness'];
-                        shapeSheet(turn,-direction*(front?.extent??.57));numberSheet(turn,formatSurface(front?.surface));
+                        shapeSheet(turn,-direction*(front?.extent??VIEWER_PEEK_OPEN_EXTENT));numberSheet(turn,formatSurface(front?.surface));
                         if(pendingIndex===index)pendingIndex=null;
                         content.replaceChildren(previousPages);selected=previous;Object.assign(root.dataset,previousData);onSelection();
                         status.textContent=`${items[previous].label} / ${snapshot.total??items.length}`;
