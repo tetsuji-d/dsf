@@ -9,12 +9,12 @@ const mix = (a, b, t) => a + (b - a) * t;
 export function peekPaperProfile(extent = 1, tilt = 0, lift = 0) {
     const e = Math.max(0, Math.min(1, extent));
     // From the gutter the sheet bows outward, then relaxes toward the fore-edge.
-    // Reverse the tangent progression, retaining the same arc length and endpoints
-    // so the neighbouring pages stay exposed without stretching their content.
+    // Keep a visible arch through the rear sheets and soft cover as well.
+    // Arc-length integration preserves the paper dimensions at every depth.
     let foreEdge, bend;
     if (e <= .48) { const t=e/.48; foreEdge=mix(90,30,t); bend=58*t; }
-    else if (e <= .74) { const t=(e-.48)/.26; foreEdge=mix(30,10,t); bend=mix(58,55,t); }
-    else { const t=(e-.74)/.26; foreEdge=mix(10,3,t); bend=mix(55,5,t); }
+    else if (e <= .74) { const t=(e-.48)/.26; foreEdge=mix(30,10,t); bend=58; }
+    else { const t=(e-.74)/.26; foreEdge=mix(10,3,t); bend=mix(58,32,t); }
     foreEdge = Math.min(90, foreEdge + lift * 5 * e);
     bend = Math.max(0, Math.min(bend + tilt * 2, 89.5 - foreEdge));
     return {hinge: radians(foreEdge + bend), bend: -radians(bend)};
@@ -30,7 +30,7 @@ export function peekPaperSection(t, {extent=1, tilt=0, lift=0, length=PEEK_PAGE_
 export function peekPaperPoint({side,extent=1,bindingWidth=0,hinge=405,
     stackDepth=0,layer=1,cover=false,lift=0},t,v) {
     const attachment=cover?side*bindingWidth/2:side*bindingWidth/2*(1-layer)+(hinge-405)*layer;
-    // The paper block rises away from the rear board without stretching a sheet.
+    // The paper block rises away from the soft cover without stretching a sheet.
     const tilt=cover?0:Math.atan2(layer*stackDepth,PEEK_PAGE_WIDTH)*180/Math.PI;
     const section=peekPaperSection(t,{extent,tilt,lift,length:PEEK_PAGE_WIDTH+(cover?2:0)});
     const x=405+attachment+side*section.x;

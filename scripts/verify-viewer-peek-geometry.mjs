@@ -35,8 +35,18 @@ for(const extent of [.48,.74,1]) for(const tilt of [0,6,12]) {
     const mirrored={x:end.x-mid.x,z:end.z-mid.z};
     assert.ok(mid.x<mirrored.x,'outer half spreads out instead of rolling inward');
 }
-const rearProfile=peekPaperProfile(1);
-assert.ok(rearProfile.hinge*180/Math.PI<10,'rear sheet remains almost flat');
+// Even the rearmost leaf and its soft cover must visibly bow beyond their chord.
+for(const cover of [false,true]) for(const side of [-1,1]) {
+    const geometry={side,cover,extent:1,layer:0,bindingWidth:16};
+    const start=peekPaperPoint(geometry,0,0),mid=peekPaperPoint(geometry,.5,0),end=peekPaperPoint(geometry,1,0);
+    const fraction=(mid.x-start.x)/(end.x-start.x);
+    assert.ok(mid.y-(start.y+(end.y-start.y)*fraction)>3,'rear leaf and soft cover have a visible outward arch');
+}
+for(let t=0;t<=1;t+=.025) {
+    const geometry={side:1,extent:1,layer:0,bindingWidth:16};
+    const cover=peekPaperPoint({...geometry,cover:true},t,0),paper=peekPaperPoint(geometry,t,0);
+    assert.ok(Math.hypot(cover.x-paper.x,cover.y-paper.y)<3,'soft cover follows the adjacent paper block closely');
+}
 const spans=[.48,.74,1].map(extent=>peekPaperSection(1,{extent}).x);
 assert.ok((spans[1]-spans[0])/spans[1]>.3,'middle page reveals readable content');
 assert.ok((spans[2]-spans[1])/spans[2]>.2,'rear page is more than a decorative sliver');
