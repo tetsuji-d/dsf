@@ -3,6 +3,8 @@
  * widen the source image. The vertical generators stay exactly 640 units. */
 export const PEEK_PAGE_WIDTH = 360;
 export const PEEK_PAGE_HEIGHT = 640;
+// Show the depth of the bow instead of flattening it almost edge-on.
+export const PEEK_DEPTH_PROJECTION = .30;
 const radians = degrees => degrees * Math.PI / 180;
 const mix = (a, b, t) => a + (b - a) * t;
 
@@ -13,8 +15,8 @@ export function peekPaperProfile(extent=1, tilt=0, lift=0, compact=0) {
     // hinge followed by a long, rigid panel. Portrait mode changes its pose,
     // not its radius or the source paper dimensions.
     const poses=[{e:0,h:90,f:90,r:Infinity},{e:.48,h:88,f:mix(30,76,c),r:Infinity},
-        {e:.74,h:88,f:mix(20,75,c),r:200},
-        {e:1,h:mix(65,10,c),f:mix(-35,-89,c),r:PEEK_PAGE_WIDTH/3}];
+        {e:.74,h:88,f:mix(20,75,c),r:230},
+        {e:1,h:mix(75,10,c),f:mix(-45,-89,c),r:PEEK_PAGE_WIDTH/3}];
     const index=poses.findIndex(p=>p.e>=e),a=poses[Math.max(0,index-1)],b=poses[index];
     const t=b.e===a.e?0:(e-a.e)/(b.e-a.e),raise=tilt*(1-.85*c)+lift*5*e;
     const hinge=Math.min(89.5,mix(a.h,b.h,t)+raise),edge=Math.min(89.5,mix(a.f,b.f,t)+raise);
@@ -38,7 +40,7 @@ export function peekPaperPoint({side,extent=1,bindingWidth=0,hinge=405,
     const tilt=cover?0:Math.atan2(layer*stackDepth,PEEK_PAGE_WIDTH)*180/Math.PI;
     const section=peekPaperSection(t,{extent,tilt,lift,compact,length:PEEK_PAGE_WIDTH+(cover?2:0)});
     const x=405+attachment+side*section.x;
-    const y=20+(cover?-2:0)+v*(PEEK_PAGE_HEIGHT+(cover?4:0))+section.z*.14;
+    const y=20+(cover?-2:0)+v*(PEEK_PAGE_HEIGHT+(cover?4:0))+section.z*PEEK_DEPTH_PROJECTION;
     return {x,y};
 }
 

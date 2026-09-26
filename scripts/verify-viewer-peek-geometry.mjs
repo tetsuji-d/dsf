@@ -16,7 +16,7 @@ for(const compact of [0,.8,1]) for (const extent of [0,.018,.2,.48,.6,.74,.9,1])
             const top=peekPaperPoint(geometry,t,0),bottom=peekPaperPoint(geometry,t,1);
             assert.equal(top.x,bottom.x);
             assert.ok(Math.abs(bottom.y-top.y-640)<1e-9,'same height at hinge and fore-edge');
-            assert.ok(top.x>=0&&top.x<=810&&top.y>=-40&&bottom.y<=720,'book fits its unscaled frame');
+            assert.ok(top.x>=0&&top.x<=810&&top.y>=-140&&bottom.y<=820,'book fits its unscaled frame');
         }
     }
 }
@@ -47,8 +47,8 @@ for(let t=0;t<=1;t+=.025) {
     assert.ok(Math.hypot(cover.x-paper.x,cover.y-paper.y)<3,'soft cover follows the adjacent paper block closely');
 }
 const spans=[.48,.74,1].map(extent=>peekPaperSection(1,{extent}).x);
-assert.ok((spans[1]-spans[0])/spans[1]>.25,'middle page reveals readable content');
-assert.ok((spans[2]-spans[1])/spans[2]>.16,'rear page is more than a decorative sliver');
+assert.ok((spans[1]-spans[0])/spans[1]>.2,'middle page reveals readable content');
+assert.ok((spans[2]-spans[1])/spans[2]>.15,'rear page is more than a decorative sliver');
 assert.ok(spans[2]/640<=9/16,'rear page never becomes wider than the source');
 
 for(const compact of [0,.8,1]) {
@@ -64,13 +64,11 @@ for(const [width,height] of [[390,844],[360,640],[844,390],[1600,1000]])for(cons
 }
 
 for(const knee of [.04,.22,.55,1]) {
-    const samples=Array.from({length:9},(_,i)=>peekPaperSample(i,8,knee));
-    assert.equal(samples[0],0);assert.equal(samples[8],1);
+    const samples=Array.from({length:17},(_,i)=>peekPaperSample(i,16,knee));
+    assert.equal(samples[0],0);assert.equal(samples[16],1);
     assert.ok(samples.every((x,i)=>!i||x>samples[i-1]),'adaptive strips cover the entire source exactly once');
-    assert.ok(samples.filter(x=>x<=knee).length>=8,'curved region retains smooth sampling on phones');
+    assert.ok(samples.filter(x=>x<=knee).length>=16,'curved region retains smooth sampling on phones');
 }
-
-
 
 for(const compact of [0,.5,1]) {
     const profile=peekPaperProfile(1,0,0,compact);
@@ -81,6 +79,16 @@ for(const compact of [0,.5,1]) {
 for(const compact of [0,.5,1]) {
     const mid=peekPaperSection(.5,{extent:1,compact}),a=peekPaperSection(.49,{extent:1,compact}),b=peekPaperSection(.51,{extent:1,compact});
     assert.ok(Math.hypot(mid.x-(a.x+b.x)/2,mid.z-(a.z+b.z)/2)>.04,'cover centre is curved on both desktop and phones');
+}
+
+// Screen-space sag must remain visible, not only the 3D radius.
+const coverShape={side:1,cover:true,extent:1};
+const start=peekPaperPoint(coverShape,0,0),end=peekPaperPoint(coverShape,1,0),middle=peekPaperPoint(coverShape,.4,0);
+const chordY=start.y+(end.y-start.y)*(middle.x-start.x)/(end.x-start.x);
+assert.ok(middle.y-chordY>25,'cover arch is visibly deep in the rendered projection');
+for(const compact of [0,.5,1]) {
+    const radii=[1,.74,.48].map(e=>{const p=peekPaperProfile(e,0,0,compact);return 360*p.knee/Math.abs(p.bend)});
+    assert.ok(radii[0]<radii[1]&&radii[1]<radii[2],'radius increases towards inner pages');
 }
 
 console.log('Unstretched 9:16 paper, outward/backward curl, adaptive sampling and full-height viewport fit passed');

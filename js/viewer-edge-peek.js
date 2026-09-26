@@ -68,7 +68,7 @@ function shapeSheet(sheet, spread, depth=0, lift=0) {
     const knee=peekPaperProfile(extent,0,lift,peekCompact).knee;
     const sample=i=>side<0?1-peekPaperSample(count-i,count,knee):peekPaperSample(i,count,knee);
     [...sheet.children].forEach((strip,i)=>{
-        // Concentrate strips near the bend without adding mobile backing surfaces.
+        // Concentrate the bounded strip budget near the bend.
         // One-pixel overlaps still sample their matching image pixels.
         const start=Math.max(0,360*sample(i)-1),end=Math.min(360,360*sample(i+1)+1);
         const u=start/360,next=end/360,width=end-start;
@@ -82,7 +82,7 @@ function shapeSheet(sheet, spread, depth=0, lift=0) {
 function makeSheet(html, spread, depth=0, className='',bias=0,bindingWidth=0,stackDepth=0,hinge=405) {
     const sheet=document.createElement('div');sheet.className='edge-fan-sheet '+className;sheet.dataset.hinge=hinge;sheet.dataset.bias=bias;sheet.dataset.bindingWidth=bindingWidth;sheet.dataset.stackDepth=stackDepth;
     const coarse=matchMedia('(pointer:coarse)').matches;
-    const count=className==='edge-fan-stack'?4:(coarse?8:16),stripWidth=360/count;
+    const count=className==='edge-fan-stack'?12:(coarse?16:24),stripWidth=360/count;
     // Bound phone backing surfaces to 3 device pixels per source CSS pixel.
     // Dense screens already supply part of the extra sampling resolution.
     const raster=className==='edge-fan-stack'?1:coarse?Math.max(1,Math.min(2,3/(devicePixelRatio||1))):2;
@@ -99,8 +99,8 @@ function makePaperEdges(side, depth, bindingWidth, hinge) {
     return sections.map(([name,coordinates])=>{
         const svg=document.createElementNS(ns,'svg');svg.setAttribute('viewBox','0 0 800 760');svg.classList.add('edge-fan-'+name);
         svg.setAttribute('aria-hidden','true');svg.dataset.side=side<0?'left':'right';svg.dataset.thickness=depth;
-        const points=layer=>Array.from({length:21},(_,i)=>{
-            const [t,v]=coordinates(name==='top'?peekPaperSample(i,20,peekPaperProfile(1,0,0,peekCompact).knee):i/20);const p=paperPoint({side,stackDepth:depth,bindingWidth,hinge,layer,compact:peekCompact},t,v);return [p.x,p.y];
+        const points=layer=>Array.from({length:49},(_,i)=>{
+            const [t,v]=coordinates(name==='top'?peekPaperSample(i,48,peekPaperProfile(1,0,0,peekCompact).knee):i/48);const p=paperPoint({side,stackDepth:depth,bindingWidth,hinge,layer,compact:peekCompact},t,v);return [p.x,p.y];
         });
         const path=(pts,fill,close=false)=>{const el=document.createElementNS(ns,'path');el.setAttribute('d','M'+pts.map(p=>p.join(',')).join(' L')+(close?' Z':''));el.setAttribute('fill',fill);el.setAttribute('stroke','#968e7c');el.setAttribute('stroke-width','.5');svg.append(el);};
         path([...points(0),...points(1).reverse()],name==='fore-edge'?'#ddd5c2':'#e6dfce',true);
