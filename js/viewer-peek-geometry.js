@@ -27,15 +27,27 @@ export function peekPaperProfile(extent=1, tilt=0, lift=0, compact=0) {
     const hinge=Math.min(89.5,mix(a.h,b.h,t)+raise),edge=Math.min(89.5,mix(a.f,b.f,t)+raise);
     const bend=radians(edge-hinge);
     const kneeFor=p=>Number.isFinite(p.r)?Math.min(1,Math.abs(radians(p.f-p.h))*p.r/PEEK_PAGE_WIDTH):1;
-    return {hinge:radians(hinge),bend,knee:mix(kneeFor(a),kneeFor(b),t)};
+    // Narrow views expose the outer tail. Give it a gentle continuation of the
+    // same outward bend instead of a single straight panel. Keep the final
+    // tangent and main bend radius; desktop geometry remains unchanged.
+    const tailBend=-radians(12)*c*Math.max(0,(e-.74)/.26);
+    const mainBend=bend-tailBend;
+    const knee=mix(kneeFor(a),kneeFor(b),t)*(bend?mainBend/bend:1);
+    return {hinge:radians(hinge),bend:mainBend,knee,tailBend};
 }
 
 export function peekPaperSection(t, {extent=1, tilt=0, lift=0, compact=0, length=PEEK_PAGE_WIDTH}={}) {
-    const {hinge,bend,knee}=peekPaperProfile(extent,tilt,lift,compact);
+    const {hinge,bend,knee,tailBend}=peekPaperProfile(extent,tilt,lift,compact);
     if(Math.abs(bend)<1e-7)return {x:length*t*Math.cos(hinge),z:length*t*Math.sin(hinge)};
     const u=Math.min(t/knee,1),angle=hinge+bend*u,tail=Math.max(0,t-knee)*length;
-    return {x:length*knee*(Math.sin(angle)-Math.sin(hinge))/bend+tail*Math.cos(angle),
-        z:length*knee*(Math.cos(hinge)-Math.cos(angle))/bend+tail*Math.sin(angle)};
+    let x=length*knee*(Math.sin(angle)-Math.sin(hinge))/bend;
+    let z=length*knee*(Math.cos(hinge)-Math.cos(angle))/bend;
+    if(Math.abs(tailBend)>1e-7&&knee<1){
+        const radius=length*(1-knee)/tailBend,tailAngle=angle+tailBend*Math.max(0,t-knee)/(1-knee);
+        x+=radius*(Math.sin(tailAngle)-Math.sin(angle));
+        z+=radius*(Math.cos(angle)-Math.cos(tailAngle));
+    }else{x+=tail*Math.cos(angle);z+=tail*Math.sin(angle);}
+    return {x,z};
 }
 
 export function peekPaperPoint({side,extent=1,bindingWidth=0,hinge=405,
@@ -74,8 +86,12 @@ export function peekViewportFrame(width,height,thickness=8) {
     return lastFrame={...frame,compact,scale,offsetX:(width/scale-frame.width)/2-frame.minX,offsetY:(height-frame.height*scale)/2-frame.minY*scale};
 }
 
-// Allocate the existing strips to the curved part; the relaxed tail is planar.
-export function peekPaperSample(index,count,knee=1) {
+// Share the existing strip budget between the main bow and a curved outer tail.
+export function peekPaperSample(index,count,knee=1,tailBend=0) {
     if(knee>=.999||count<2)return index/count;
+    if(Math.abs(tailBend)>1e-7&&count>=4){
+        const tailCount=Math.max(3,Math.round(count*.25)),mainCount=count-tailCount;
+        return index<=mainCount?knee*index/mainCount:knee+(1-knee)*(index-mainCount)/tailCount;
+    }
     return index===count?1:knee*index/(count-1);
 }

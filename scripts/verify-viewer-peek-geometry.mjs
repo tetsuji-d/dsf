@@ -124,4 +124,24 @@ for(const [width,height] of [[1600,1000],[390,844],[390,664],[360,640]]) {
     assert.ok(reach[2]>reach[1],'opening the middle does not hide the rear leaf completely');
 }
 
+// The rear outer tail remains curved and sampled on phones; its join has no kink.
+for(const compact of [.65,.85,1]) {
+    const profile=peekPaperProfile(1,0,0,compact),geometry={side:1,extent:1,compact};
+    const samples=Array.from({length:17},(_,i)=>peekPaperSample(i,16,profile.knee,profile.tailBend));
+    assert.equal(samples[0],0);assert.equal(samples[16],1);
+    assert.ok(samples.every((t,i)=>!i||t>samples[i-1]),'curved tail keeps complete monotone source coverage');
+    assert.ok(samples.filter(t=>t>profile.knee).length>=4,'rear outer curve gets several strips');
+    const a=peekPaperPoint(geometry,profile.knee,0),b=peekPaperPoint(geometry,1,0),mid=peekPaperPoint(geometry,(1+profile.knee)/2,0);
+    const bow=Math.abs((mid.x-a.x)*(b.y-a.y)-(mid.y-a.y)*(b.x-a.x))/Math.hypot(b.x-a.x,b.y-a.y);
+    assert.ok(bow>1.5,'rear fore-edge is visibly curved, not a flat tail');
+    for(let i=0;i<16;i++){
+        const a=peekPaperPoint(geometry,samples[i],0),b=peekPaperPoint(geometry,samples[i+1],0),mid=peekPaperPoint(geometry,(samples[i]+samples[i+1])/2,0);
+        assert.ok(Math.hypot(mid.x-(a.x+b.x)/2,mid.y-(a.y+b.y)/2)<.4,'mobile curve subdivisions stay below visible faceting');
+    }
+    const eps=1e-5,l=peekPaperSection(profile.knee-eps,{compact}),j=peekPaperSection(profile.knee,{compact}),r=peekPaperSection(profile.knee+eps,{compact});
+    const before=Math.atan2(j.z-l.z,j.x-l.x),after=Math.atan2(r.z-j.z,r.x-j.x);
+    assert.ok(Math.abs(before-after)<.001,'main bow and outer curve meet tangentially');
+}
+for(const extent of [.48,.74,1])assert.equal(Math.abs(peekPaperProfile(extent,0,0,0).tailBend),0,'desktop retains its existing shape');
+
 console.log('Unstretched 9:16 paper, outward/backward curl, adaptive sampling and full-height viewport fit passed');
