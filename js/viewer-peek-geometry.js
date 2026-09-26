@@ -14,9 +14,12 @@ export function peekPaperProfile(extent=1, tilt=0, lift=0, compact=0) {
     // The broad arc reaches the middle of the page instead of making a short
     // hinge followed by a long, rigid panel. Portrait mode changes its pose,
     // not its radius or the source paper dimensions.
-    const poses=[{e:0,h:90,f:90,r:Infinity},{e:.48,h:88,f:mix(30,76,c),r:Infinity},
-        {e:.74,h:88,f:mix(20,75,c),r:230},
-        {e:1,h:mix(75,10,c),f:mix(-45,-89,c),r:PEEK_PAGE_WIDTH/3}];
+    // Inner leaves curve across their whole width, including on narrow screens.
+    // A short circular hinge followed by a long flat tail looks like a board.
+    const poses=[{e:0,h:90,f:90,r:Infinity},
+        {e:.48,h:mix(80,87,c),f:mix(28,74,c),r:Infinity},
+        {e:.74,h:mix(79,88,c),f:mix(0,62,c),r:Infinity},
+        {e:1,h:mix(70,10,c),f:mix(-30,-89,c),r:PEEK_PAGE_WIDTH/3}];
     const index=poses.findIndex(p=>p.e>=e),a=poses[Math.max(0,index-1)],b=poses[index];
     const t=b.e===a.e?0:(e-a.e)/(b.e-a.e),raise=tilt*(1-.85*c)+lift*5*e;
     const hinge=Math.min(89.5,mix(a.h,b.h,t)+raise),edge=Math.min(89.5,mix(a.f,b.f,t)+raise);

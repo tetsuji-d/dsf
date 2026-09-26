@@ -91,4 +91,17 @@ for(const compact of [0,.5,1]) {
     assert.ok(radii[0]<radii[1]&&radii[1]<radii[2],'radius increases towards inner pages');
 }
 
+// Inner sheets keep bending past the centre, rather than ending in a rigid tail.
+for(const compact of [0,.5,1]) {
+    assert.equal(peekPaperProfile(.74,0,0,compact).knee,1,'middle leaf bends all the way to its fore-edge');
+    const a=peekPaperSection(.84,{extent:.74,compact}),m=peekPaperSection(.85,{extent:.74,compact}),b=peekPaperSection(.86,{extent:.74,compact});
+    assert.ok(Math.hypot(m.x-(a.x+b.x)/2,m.z-(a.z+b.z)/2)>.007,'outer half of middle leaf is still curved');
+    const reach=[.48,.74,1].map(extent=>peekPaperSection(1,{extent,compact}).x);
+    assert.ok(reach[0]<reach[1]&&reach[1]<reach[2],'opening the front keeps both rear layers exposed');
+}
+assert.ok(peekPaperSection(1,{extent:.48}).x>200,'desktop front leaf opens farther');
+assert.ok(peekPaperSection(1,{extent:.48,compact:1}).x>55,'portrait front leaf opens farther');
+const desktopFrame=peekViewportFrame(1600,1000,8);
+assert.ok(desktopFrame.width*desktopFrame.scale>800,'desktop uses a wider physical book without stretching');
+
 console.log('Unstretched 9:16 paper, outward/backward curl, adaptive sampling and full-height viewport fit passed');
