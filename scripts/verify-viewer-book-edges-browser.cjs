@@ -26,7 +26,7 @@ const base=process.env.DSF_VIEWER_TEST_ORIGIN||'http://127.0.0.1:5275';
    return [24,120,480].map(make);
  });
  fs.mkdirSync('outputs',{recursive:true});
- for(const raw of books)fs.writeFileSync('outputs/book-edges-'+raw.pages.length+'.json',JSON.stringify(raw));
+ for(const raw of books)fs.writeFileSync('outputs/book-volume-test-'+raw.pages.length+'.json',JSON.stringify(raw));
  async function load(raw,{enabled=true,mobile=false}={}){
    await page.setViewportSize(mobile?{width:390,height:844}:{width:1440,height:950});
    await page.goto(base+'/viewer'+(enabled?'?bookEdges=1':''));
