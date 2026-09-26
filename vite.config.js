@@ -1,5 +1,6 @@
 import { defineConfig } from 'vite';
 import { resolve } from 'path';
+import {viewerBookSamplesPlugin} from './scripts/viewer-book-samples-plugin.js';
 
 export default defineConfig(({ mode }) => {
     const input = {
@@ -12,6 +13,7 @@ export default defineConfig(({ mode }) => {
     if (mode !== 'production') input.flowPreview = resolve(__dirname, 'flow-preview.html');
 
     return {
+        plugins: [viewerBookSamplesPlugin(mode)].filter(Boolean),
         build: {
             rollupOptions: { input },
         },

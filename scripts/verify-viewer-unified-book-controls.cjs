@@ -1,0 +1,42 @@
+const {chromium}=require(process.env.DSF_PLAYWRIGHT_MODULE),assert=require('node:assert/strict'),fs=require('node:fs');
+const base=process.env.DSF_VIEWER_TEST_ORIGIN||'http://127.0.0.1:5275';
+(async()=>{const b=await chromium.launch({channel:'chrome',headless:true});try{
+ for(const [width,height,lang] of [[1280,900,'ja'],[390,844,'ja'],[390,844,'en']]){
+  const p=await b.newPage({viewport:{width,height},isMobile:width<500,hasTouch:width<500}),errors=[];p.on('pageerror',e=>errors.push(e.message));
+  await p.addInitScript(()=>document.addEventListener('pointermove',e=>{window.lastBookMove={x:e.clientX,y:e.clientY};},true));
+  await p.goto(base+'/viewer?bookEdges=1');await p.waitForFunction(()=>typeof loadDsf==='function');const raw=JSON.parse(fs.readFileSync('outputs/book-edges-120.json','utf8'));raw.defaultLang=lang;await p.locator('#file-input').setInputFiles({name:'unified.json',mimeType:'application/json',buffer:Buffer.from(JSON.stringify(raw))});await p.waitForFunction(()=>+document.querySelector('#page-slider').max>1);await p.evaluate(()=>{jumpToPage(15);toggleUi(true)});await p.waitForTimeout(250);
+  const rail=p.locator('#viewer-reader-controls'),up=p.locator('[data-book-direction=up]'),down=p.locator('[data-book-direction=down]'),position=()=>p.locator('#page-slider').inputValue();
+  async function settled(state){await p.waitForFunction(state=>document.querySelector('#viewer-reader-controls')?.dataset.bookState===state&&!document.querySelector('.viewer-pose-transition')&&!document.querySelector('body.viewer-fan-preparing'),state);}
+  async function check(state){await settled(state);const expected={reading:['peek','open',false,true],peek:['edge','open',false,false],edge:['spine','peek',false,false],spine:['spine','edge',true,false]}[state];assert.equal(await up.getAttribute('data-reader-icon'),expected[0]);assert.equal(await down.getAttribute('data-reader-icon'),expected[1]);assert.equal(await up.isDisabled(),expected[2]);assert.equal(await down.isDisabled(),expected[3]);assert.equal(await rail.locator('.reader-direction-mark').count(),2);}
+  const initial=await position();await check('reading');assert.equal(await rail.locator('button').count(),5);
+  await p.keyboard.press('ArrowDown');await check('reading');
+  for(const state of ['peek','edge','spine']){await p.keyboard.press('ArrowUp');await check(state);assert.equal(await position(),initial);}
+  await p.keyboard.press('ArrowUp');await check('spine');
+  for(const state of ['edge','peek','reading']){await p.keyboard.press('ArrowDown');await check(state);assert.equal(await position(),initial);}
+  // Every button goes to the same adjacent state, including return from a selected preview.
+  for(const state of ['peek','edge','spine']){await p.evaluate(()=>toggleUi(true));await up.click();await check(state);}
+  await down.click();await check('edge');await p.keyboard.press('ArrowLeft');await check('reading');assert.equal(await position(),initial);
+  await up.click();await check('peek');const peekBefore=+(await p.locator('#viewer-edge-peek input').inputValue());await p.locator('#viewer-nav-left').click();await p.waitForFunction(n=>+document.querySelector('#viewer-edge-peek input').value!==n,peekBefore);await p.locator('.edge-fan-turn').waitFor({state:'detached'});assert.equal(await position(),initial);await p.locator('#viewer-edge-peek input').fill('40');await p.locator('.edge-fan-turn').waitFor({state:'detached'});const selected=+(await p.locator('#viewer-edge-peek').getAttribute('data-source-index')),selectedLabel=await p.locator('.edge-fan-sheet[data-selected=true]').getAttribute('data-page-label');
+  await up.click();await check('edge');await down.click();await check('peek');assert.equal(+(await p.locator('#viewer-edge-peek').getAttribute('data-source-index')),selected);
+  await down.click();await check('reading');assert.notEqual(await position(),initial);assert.ok((await p.locator('.reader-page-number').allTextContents()).includes(selectedLabel));
+  await p.evaluate(()=>toggleUi(true));await p.screenshot({path:`outputs/unified-controls-${width}-${lang}.png`});
+  if(width<500){
+   const cdp=await p.context().newCDPSession(p);let x,y;
+   async function start(){const r=await p.locator('#viewer-canvas').boundingBox();x=r.x+r.width*.5;y=r.y+r.height*.5;await cdp.send('Input.dispatchTouchEvent',{type:'touchStart',touchPoints:[{x,y,id:1}]});}
+   async function move(dy){await cdp.send('Input.dispatchTouchEvent',{type:'touchMove',touchPoints:[{x,y:y+dy,id:1}]});await p.waitForFunction(y=>Math.abs(window.lastBookMove?.y-y)<1,y+dy);}
+   async function end(cancel=false){await cdp.send('Input.dispatchTouchEvent',{type:cancel?'touchCancel':'touchEnd',touchPoints:[]});}
+   async function hold(){await p.locator('.viewer-pose-transition').waitFor();const value=await p.locator('.viewer-pose-transition').getAttribute('data-progress');await p.waitForTimeout(180);assert.equal(await p.locator('.viewer-pose-transition').getAttribute('data-progress'),value);assert.ok(+value>0&&+value<1);}
+   await p.evaluate(()=>toggleUi(false));
+   for(const [dy,state] of [[-115,'peek'],[-115,'edge'],[-115,'spine'],[115,'edge'],[115,'peek'],[115,'reading']]){await start();await move(dy);await hold();if(state==='peek')await p.screenshot({path:`outputs/unified-held-${dy>0?'opening':'closing'}-${lang}.png`});await move(dy*.6);await hold();await move(dy);await end();await check(state);}
+   await start();await move(-85);await hold();await end(true);await check('reading');
+   // Escape interrupts an in-flight gesture and cannot be undone by its release.
+   await start();await move(-95);await hold();await p.keyboard.press('Escape');await end();await check('reading');
+   await p.waitForTimeout(950);await p.evaluate(()=>toggleUi(true));const r=await p.locator('#viewer-canvas').boundingBox();await p.touchscreen.tap(r.x+r.width*.5,r.y+r.height*.4);await p.waitForTimeout(200);assert.equal(await rail.isVisible(),false);await p.waitForTimeout(450);await p.touchscreen.tap(r.x+r.width*.5,r.y+r.height*.4);await p.waitForTimeout(200);assert.equal(await rail.isVisible(),true);
+   await p.evaluate(()=>toggleUi(false));await start();await move(-75);await hold();await cdp.send('Input.dispatchTouchEvent',{type:'touchStart',touchPoints:[{x,y:y-75,id:1},{x:x+50,y:y-75,id:2}]});await end();await check('reading');
+   await cdp.send('Input.dispatchTouchEvent',{type:'touchStart',touchPoints:[{x:x-30,y,id:1},{x:x+30,y,id:2}]});await cdp.send('Input.dispatchTouchEvent',{type:'touchMove',touchPoints:[{x:x-65,y,id:1},{x:x+65,y,id:2}]});await end();await p.waitForFunction(()=>document.body.classList.contains('viewer-zoom-active'));await start();await move(-110);await end();assert.equal(await rail.getAttribute('data-book-state'),'reading');
+   for(const [w,h] of [[320,700],[844,390]]){await p.setViewportSize({width:w,height:h});await p.reload();await p.waitForFunction(()=>typeof loadDsf==='function');await p.locator('#file-input').setInputFiles({name:'unified.json',mimeType:'application/json',buffer:Buffer.from(JSON.stringify(raw))});await p.waitForFunction(()=>+document.querySelector('#page-slider').max>1);await p.evaluate(()=>{jumpToPage(15);toggleUi(true)});await p.waitForTimeout(250);for(const button of await rail.locator('button').all()){const rect=await button.boundingBox();assert.ok(rect.width>=44&&rect.height>=44);assert.ok(rect.x>=0&&rect.y>=0&&rect.x+rect.width<=w+1&&rect.y+rect.height<=h+1,JSON.stringify({rect,w,h,viewport:await p.evaluate(()=>({width:innerWidth,height:innerHeight,vw:visualViewport.width,vh:visualViewport.height,body:document.body.scrollWidth}))}));}await p.screenshot({path:`outputs/unified-controls-${w}-${lang}.png`});}
+  }
+  await p.emulateMedia({reducedMotion:'reduce'});for(const state of ['peek','edge','spine']){await p.keyboard.press('ArrowUp');await check(state);assert.equal(await p.locator('.viewer-pose-transition').count(),0);}for(const state of ['edge','peek','reading']){await p.keyboard.press('ArrowDown');await check(state);}
+  assert.deepEqual(errors,[]);await p.close();console.log(width,lang,'state chain, endpoints, icons, buttons, selection, gesture hold/reverse/cancel and reduced motion passed');
+ }
+}finally{await b.close()}})().catch(e=>{console.error(e);process.exit(1)});

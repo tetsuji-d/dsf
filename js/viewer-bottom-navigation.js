@@ -9,7 +9,8 @@ export function initializeViewerBottomNavigation({panel,onLayoutChange}) {
     const mobile=matchMedia('(max-width:650px), (pointer:coarse) and (max-height:650px)');
     const slider=document.querySelector('.slider-wrapper'),left=$('viewer-nav-left'),right=$('viewer-nav-right');
     const nav=panel.querySelector('.reader-assist-nav'),status=$('reader-assist-status');
-    const originals=[slider,left,right,nav,status].map(node=>({node,parent:node.parentNode,next:node.nextSibling}));
+    const railMode=document.body.classList.contains('viewer-reader-chrome');
+    const originals=[slider,...(railMode?[]:[left,right]),nav,status].map(node=>({node,parent:node.parentNode,next:node.nextSibling}));
     let attached=false, fadeTimer=null, countKey='';
     const syncCount=()=>{
         const open=document.body.classList.contains('viewer-ui-visible');
@@ -40,8 +41,8 @@ export function initializeViewerBottomNavigation({panel,onLayoutChange}) {
             if(use!==attached){
                 attached=use;root.hidden=!use;document.body.classList.toggle('viewer-bottom-navigation',use);
                 if(use){
-                    root.prepend(slider);root.querySelector('.reader-bottom-controls').prepend(left);
-                    root.querySelector('.reader-bottom-controls').append(right);
+                    root.prepend(slider);if(!railMode)root.querySelector('.reader-bottom-controls').prepend(left);
+                    if(!railMode)root.querySelector('.reader-bottom-controls').append(right);
                     root.querySelector('.reader-bottom-middle').append(nav);
                     root.querySelector('.reader-bottom-meta').append(status);
                 }else for(const {node,parent,next} of originals){parent.insertBefore(node,next?.parentNode===parent?next:null);}

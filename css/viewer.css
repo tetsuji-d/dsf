@@ -3150,3 +3150,181 @@ body.viewer-cover-turn-active #reader-assist-panel,body.viewer-cover-turn-active
 .vct-spine .book-spine-author { max-height: 20%; }
 #viewer-spread-btn { width: auto; padding-inline: 8px; gap: 3px; }
 .viewer-spread-label { font-size: 10px; white-space: nowrap; }
+
+/* Opt-in book edges: outside the fixed page, with no new pointer interception. */
+body.viewer-book-edges-enabled #viewer-canvas { overflow: visible; }
+body.viewer-book-edges-enabled #viewer-stage { z-index: 1; }
+.viewer-book-edges { position: absolute; inset: 0; pointer-events: none; }
+.viewer-book-edges[hidden], .book-page-edge[hidden] { display: none; }
+.book-page-edge { position: absolute; box-sizing: border-box;
+    background: linear-gradient(90deg,#4d4a3a30,transparent 45%,#302b2038),repeating-linear-gradient(90deg,#f0ecdf 0px,#f0ecdf 1px,#bcb6a5 1px,#ddd7c9 2px);
+    border-bottom: 1px solid #817c68; box-shadow: 0 3px 5px #0003;
+}
+.book-page-edge-left { clip-path: polygon(0 var(--edge-slope),100% 0,100% 100%,0 calc(100% - var(--edge-slope))); }
+.book-page-edge-right { clip-path: polygon(0 0,100% var(--edge-slope),100% calc(100% - var(--edge-slope)),0 100%); }
+body.viewer-zoom-active #viewer-canvas > .viewer-book-edges,
+body.viewer-curl-active #viewer-canvas > .viewer-book-edges,
+body.viewer-cover-turn-active #viewer-canvas > .viewer-book-edges { visibility: hidden; }
+@media print { .viewer-book-edges { display: none !important; } }
+
+/* Opt-in paper-book chrome: all labels sit outside the authored page. */
+body.viewer-reader-chrome #viewer-canvas {left:0;}
+body.viewer-reader-chrome #page-slider-label,body.viewer-reader-chrome #page-slider-total,
+body.viewer-reader-chrome #viewer-mobile-page-count,body.viewer-reader-chrome #reader-page-count,
+body.viewer-reader-chrome #ui-title {display:none!important;}
+#viewer-reader-controls {position:fixed;right:max(8px,env(safe-area-inset-right));bottom:max(12px,env(safe-area-inset-bottom));display:flex;flex-direction:column;gap:6px;z-index:980;}
+#viewer-reader-controls[hidden] {display:none;}
+#viewer-reader-controls button {position:static;transform:none;margin:0;padding:0;box-sizing:border-box;width:48px;height:48px;min-height:48px;display:grid;place-items:center;border:1px solid #ffffff1c;border-radius:50%;background:rgb(22 25 29 / 48%);color:#fff;box-shadow:0 2px 9px #0002,inset 0 1px 0 #ffffff10;backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);opacity:1;pointer-events:auto;touch-action:manipulation;cursor:pointer;transition:background .16s,transform .16s;}
+#viewer-reader-controls #viewer-nav-left {margin-top:8px;font-size:18px;}
+#viewer-reader-controls #viewer-nav-right {font-size:18px;}
+#viewer-reader-controls button[aria-pressed=true] {background:rgb(35 100 93 / 64%);box-shadow:inset 0 0 0 1.5px #bde4d9,0 2px 9px #0002;}
+#viewer-reader-controls button:disabled {opacity:.35;cursor:default;}
+#viewer-reader-controls button:focus-visible,#viewer-page-settings summary:focus-visible {outline:2px solid #bce5d3;}
+body.viewer-reader-chrome #viewer-bottom-navigation {pointer-events:none;box-sizing:border-box;}
+body.viewer-reader-chrome #viewer-bottom-navigation .reader-bottom-controls {display:flex;justify-content:center;}
+body.viewer-reader-chrome #viewer-bottom-navigation[data-lines=false] .reader-bottom-controls {display:none;}
+#viewer-page-furniture {position:fixed;inset:0;pointer-events:none;z-index:102;}
+.viewer-page-labels {position:absolute;font:11px/20px system-ui;color:var(--text-secondary,#aaa);font-variant-numeric:tabular-nums;}
+.reader-page-number,.reader-page-meta {position:absolute;height:20px;white-space:nowrap;}
+.viewer-page-labels [data-edge=top] {top:8px;}
+.viewer-page-labels [data-edge=bottom] {bottom:8px;}
+.reader-page-number[data-align=left] {left:12px;}
+.reader-page-number[data-align=right] {right:12px;}
+.reader-page-number[data-align=center] {left:50%;transform:translateX(-50%);}
+.reader-page-meta {left:42px;right:42px;display:flex;justify-content:center;align-items:center;gap:3px;}
+.reader-page-title {overflow:hidden;text-overflow:ellipsis;min-width:0;}
+.reader-page-total {flex-shrink:0;}
+.reader-page-number.is-inline {position:static;transform:none;margin-right:8px;flex-shrink:0;}
+#viewer-page-settings {font:13px system-ui;color:#f4f3ec;}
+#viewer-page-settings summary {list-style:none;cursor:pointer;padding:9px 8px;border:1px solid #ffffff38;border-radius:8px;background:#292e30;}
+#viewer-page-settings summary::-webkit-details-marker {display:none;}
+.viewer-page-settings-panel {position:fixed;right:12px;top:max(64px,env(safe-area-inset-top));width:min(300px,calc(100vw - 24px));max-height:calc(100dvh - 90px);overflow:auto;box-sizing:border-box;padding:18px;background:#242a2a;border:1px solid #ffffff35;border-radius:14px;box-shadow:0 12px 48px #0006;z-index:1200;}
+.viewer-page-settings-panel label {display:flex;align-items:center;gap:8px;min-height:38px;}
+.viewer-page-settings-panel select {margin-left:auto;background:#38413f;color:#fff;border:1px solid #76817b;border-radius:6px;padding:7px;}
+.viewer-page-settings-panel input {accent-color:#82b6a2;width:18px;height:18px;}
+.viewer-page-settings-panel p {color:#b5c0bb;font-size:11px;line-height:1.6;margin:8px 0;}
+.viewer-page-settings-panel button {padding:10px;margin:6px 6px 0 0;border:1px solid #76817b;background:transparent;color:inherit;border-radius:6px;cursor:pointer;}
+#viewer-book-pose {position:fixed;z-index:104;box-sizing:border-box;border-inline:2px solid #173d42;box-shadow:4px 8px 20px #0005;background:repeating-linear-gradient(90deg,#c2c1ad 0px,#e8e5d3 1px,#e8e5d3 2px);pointer-events:none;}
+#viewer-book-pose[hidden] {display:none!important;}
+body.viewer-book-pose-active #viewer-stage,body.viewer-book-pose-active #viewer-canvas>.viewer-book-edges,body.viewer-book-pose-active #viewer-page-furniture {visibility:hidden;}
+body.viewer-book-pose-active #click-layer {pointer-events:none;}
+body.viewer-curl-active #viewer-page-furniture,body.viewer-cover-turn-active #viewer-page-furniture,body.viewer-zoom-active #viewer-page-furniture {visibility:hidden;}
+
+body[data-theme="light"] .viewer-page-labels {color:#586762;}
+body[data-theme="dark"] .viewer-page-labels {color:#bac8c2;}
+
+#viewer-reader-controls svg {display:block;width:24px;height:24px;filter:drop-shadow(0 1px 1px #0003);pointer-events:none;}
+@media (hover:hover) {#viewer-reader-controls button:hover:not(:disabled) {background:rgb(22 25 29 / 68%);}}
+#viewer-reader-controls button:active:not(:disabled) {transform:scale(.94);}
+body.viewer-reader-chrome :is(#viewer-bottom-navigation,#viewer-footer) .slider-wrapper {height:44px;}
+body.viewer-reader-chrome :is(#viewer-bottom-navigation,#viewer-footer) .page-slider-rail {top:20.5px;height:3px;background:rgb(20 24 29 / 38%);box-shadow:0 0 0 1px #ffffff20;backdrop-filter:blur(4px);-webkit-backdrop-filter:blur(4px);}
+body.viewer-reader-chrome :is(#viewer-bottom-navigation,#viewer-footer) .page-slider-progress-track {background:#ff365c;}
+body.viewer-reader-chrome :is(#viewer-bottom-navigation,#viewer-footer) #page-slider {top:0;height:44px;touch-action:none;}
+body.viewer-reader-chrome :is(#viewer-bottom-navigation,#viewer-footer) #page-slider::-webkit-slider-thumb {width:9px;height:9px;margin-top:-3px;background:#ff365c;box-shadow:0 0 3px #0003;transition:transform .15s;}
+body.viewer-reader-chrome :is(#viewer-bottom-navigation,#viewer-footer) #page-slider::-moz-range-thumb {width:9px;height:9px;background:#ff365c;box-shadow:0 0 3px #0003;}
+body.viewer-reader-chrome :is(#viewer-bottom-navigation,#viewer-footer) #page-slider:hover::-webkit-slider-thumb,body.viewer-reader-chrome :is(#viewer-bottom-navigation,#viewer-footer) #page-slider:focus-visible::-webkit-slider-thumb {transform:scale(1.35);}
+body.viewer-reader-chrome #viewer-bottom-navigation .reader-bottom-controls {pointer-events:auto;}
+@media (max-width:650px), (pointer:coarse) and (max-height:650px) {
+    body.viewer-reader-chrome #viewer-canvas {left:0;}
+    #viewer-reader-controls {left:var(--reader-controls-left);top:var(--reader-controls-top);right:auto;bottom:auto;}
+    body.viewer-reader-chrome #viewer-bottom-navigation .slider-wrapper {position:fixed;left:var(--reader-progress-left);top:var(--reader-progress-top);bottom:auto;width:var(--reader-progress-width);height:44px;transform:none;pointer-events:auto;}
+}
+@media (prefers-reduced-motion:reduce) {#viewer-reader-controls button,body.viewer-reader-chrome #page-slider::-webkit-slider-thumb {transition:none;}}
+
+/* Header, page buttons and progress bar share the same visibility state. */
+#viewer-reader-controls {transition:opacity .18s ease;}
+body.viewer-reader-chrome:not(.viewer-ui-visible) #viewer-reader-controls,
+body.viewer-reader-chrome:not(.viewer-ui-visible) #viewer-bottom-navigation {visibility:hidden;opacity:0;pointer-events:none;}
+body.viewer-reader-chrome:not(.viewer-ui-visible) #viewer-reader-controls button,
+body.viewer-reader-chrome:not(.viewer-ui-visible) #viewer-bottom-navigation .slider-wrapper {pointer-events:none;}
+@media (prefers-reduced-motion:reduce) {#viewer-reader-controls {transition:none;}}
+
+/* The transparent desktop footer must not intercept the lower page-turn button. */
+body.viewer-reader-chrome #viewer-ui.visible #viewer-footer {pointer-events:none;}
+body.viewer-reader-chrome #viewer-footer .slider-wrapper {pointer-events:auto;}
+
+body.viewer-reader-chrome #viewer-canvas {touch-action:none;}
+
+.viewer-page-labels {color:#53615a!important;text-shadow:0 1px 2px #fff9;}
+#viewer-book-pose[data-mode=edge] {pointer-events:auto;touch-action:none;cursor:ew-resize;}
+#viewer-book-pose[data-mode=edge]::before {content:"";position:absolute;inset:0 -16px;}
+body.viewer-edge-fan-active #viewer-book-pose[data-mode=edge] {visibility:hidden;}
+#viewer-edge-peek {position:fixed;z-index:106;transform:translateX(-50%);width:var(--peek-width);pointer-events:none;}
+#viewer-edge-peek[hidden],.edge-peek-leaf[hidden] {display:none!important;}
+.edge-peek-leaf {position:relative;width:var(--peek-width);height:var(--peek-height);pointer-events:auto;touch-action:none;cursor:ew-resize;}
+.edge-fan-scene {position:absolute;width:800px;height:720px;transform:scale(var(--fan-scale),var(--fan-height-scale)) translate(-40px,-20px);transform-origin:0 0;filter:drop-shadow(0 14px 16px #0005);pointer-events:none;}
+.edge-fan-pages,.edge-fan-sheet {position:absolute;inset:0;pointer-events:none;}
+.edge-fan-strip {position:absolute;left:0;top:0;width:36px;height:640px;overflow:hidden;transform-origin:0 0;background:#f8f4e8;backface-visibility:hidden;}
+.edge-fan-strip::after {content:"";position:absolute;inset:0;background:linear-gradient(90deg,rgba(36,29,14,var(--shade-start,.1)),rgba(36,29,14,var(--shade-end,.1)));border-top:1px solid #fff8;border-bottom:1px solid #4b432933;pointer-events:none;}
+.edge-fan-stack .edge-fan-strip {background:#e4dfcc;}
+.edge-peek-content {position:absolute;top:0;width:360px;height:640px;pointer-events:none;}
+.edge-peek-controls {position:absolute;bottom:max(18px,env(safe-area-inset-bottom));left:50%;transform:translateX(-50%);width:min(360px,calc(100vw - 140px));display:flex;align-items:center;gap:8px;pointer-events:auto;color:#fff;font:12px system-ui;}
+.edge-peek-controls label {flex:1;min-width:30px;}
+.edge-peek-controls input {display:block;width:100%;height:44px;accent-color:#8ac9b4;touch-action:none;cursor:ew-resize;}
+.edge-peek-controls output {padding:8px;border-radius:16px;background:#202826b8;white-space:nowrap;backdrop-filter:blur(8px);}
+.edge-peek-controls button {width:44px;height:44px;flex-shrink:0;border-radius:50%;border:1px solid #fff5;color:#fff;background:#202826b8;backdrop-filter:blur(8px);font-size:24px;cursor:pointer;}
+.edge-peek-controls button:disabled {opacity:.4;cursor:default;}
+.edge-peek-sr {position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);}
+#viewer-edge-peek:not([data-opened=true]) .edge-peek-controls {display:none;}
+body.viewer-reader-chrome:not(.viewer-ui-visible) .edge-peek-controls {visibility:hidden;opacity:0;pointer-events:none;}
+body.viewer-book-pose-active .slider-wrapper {visibility:hidden;pointer-events:none!important;}
+body.viewer-reader-chrome #viewer-header :is(.header-btn,.viewer-auth-trigger,#lang-picker-button,[data-account-notifications],#viewer-page-settings>summary,.viewer-horizon-link) {
+    background:rgb(24 30 35 / 65%)!important;color:#fff!important;border:1px solid #ffffff38;box-shadow:0 2px 8px #0002;backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);border-radius:12px;
+}
+body.viewer-reader-chrome #viewer-header .header-btn {min-width:40px;min-height:40px;}
+
+.viewer-page-labels[data-cover=true] {color:#fff!important;text-shadow:0 1px 3px #000,0 0 2px #000;}
+
+body.viewer-reader-chrome #lang-picker-button :is(.viewer-lang-label,.viewer-lang-code) {color:#fff!important;}
+body.viewer-reader-chrome #lang-picker-button .viewer-lang-dir {color:#b9dcff!important;}
+
+.edge-fan-top,.edge-fan-fore-edge,.edge-fan-binding {position:absolute;left:0;top:0;width:800px;height:760px;overflow:visible;pointer-events:none;}
+
+body.viewer-reader-chrome #viewer-header {min-height:56px;}
+
+/* Peek-only furniture follows the same projected sheet as its content. */
+.edge-fan-folio {position:absolute;z-index:2;font:12px/18px system-ui;color:#43524b;text-shadow:0 1px 2px #fff9;font-variant-numeric:tabular-nums;}
+.edge-fan-folio[data-edge=top] {top:12px;}
+.edge-fan-folio[data-edge=bottom] {bottom:12px;}
+.edge-fan-folio[data-align=left] {left:14px;}
+.edge-fan-folio[data-align=right] {right:14px;}
+.edge-fan-folio[data-align=center] {left:50%;transform:translateX(-50%);}
+.edge-fan-sheet:is([data-source-index],.edge-fan-endpaper) .edge-peek-content::after {content:"";position:absolute;top:0;bottom:0;width:22px;pointer-events:none;}
+.edge-fan-sheet[data-side=left]:is([data-source-index],.edge-fan-endpaper) .edge-peek-content::after {right:0;background:linear-gradient(to left,#241d1424,transparent);}
+.edge-fan-sheet[data-side=right]:is([data-source-index],.edge-fan-endpaper) .edge-peek-content::after {left:0;background:linear-gradient(to right,#241d1424,transparent);}
+.edge-peek-controls button {padding:0;box-sizing:border-box;display:grid;place-items:center;}
+.edge-peek-controls button svg {display:block;width:24px;height:24px;pointer-events:none;}
+@media (max-width:768px) {
+    body.viewer-reader-chrome #viewer-header {height:auto;min-height:54px;align-items:flex-start;padding-top:8px;padding-bottom:8px;gap:6px;}
+    body.viewer-reader-chrome #viewer-header .ui-controls {flex:1 1 0;min-width:0;flex-wrap:wrap;justify-content:flex-end;gap:6px;}
+    body.viewer-reader-chrome #viewer-header .ui-controls>* {flex-shrink:0;}
+    body.viewer-reader-chrome #viewer-header :is(.header-btn,.viewer-auth-trigger,#viewer-page-settings>summary) {box-sizing:border-box;min-height:40px;display:flex;align-items:center;justify-content:center;}
+    body.viewer-reader-chrome .viewer-page-settings-panel {top:calc(var(--reader-header-bottom,108px) + 6px);max-height:calc(100dvh - var(--reader-header-bottom,108px) - 18px);}
+}
+
+/* Temporary pose changes share the book's viewport, without reserving UI space. */
+.viewer-pose-transition {position:fixed;z-index:108;perspective:1400px;pointer-events:none;}
+.viewer-pose-transition-active #viewer-book-pose {visibility:hidden;}
+.pose-motion-page,.pose-motion-book,.pose-motion-spine,.pose-motion-edge {position:absolute;top:0;transform-style:preserve-3d;}
+.pose-motion-page {overflow:hidden;background:#f6f1e5;backface-visibility:hidden;}
+.pose-motion-content {position:absolute;inset:0;width:360px;height:640px;transform-origin:0 0;}
+.pose-motion-book {transform-origin:50% 50%;}
+.pose-motion-spine,.pose-motion-edge {left:0;backface-visibility:hidden;overflow:hidden;}
+.pose-motion-edge {border-inline:2px solid #173d42;box-sizing:border-box;background:repeating-linear-gradient(90deg,#c2c1ad 0px,#e8e5d3 1px,#e8e5d3 2px);}
+.pose-motion-board {background:#173d42;}
+
+.pose-motion-group {position:absolute;inset:0;transform-style:preserve-3d;}
+.viewer-pose-transition-active :is(#viewer-stage,#viewer-page-furniture,#viewer-canvas>.viewer-book-edges) {visibility:hidden;}
+
+/* Unified book posture controls: fixed directions, destination-state pictograms. */
+#viewer-reader-controls button[data-book-direction] {position:relative;}
+#viewer-reader-controls .reader-direction-mark {position:absolute;right:2px;bottom:3px;width:13px;height:13px;border-radius:50%;background:#172021df;display:grid;place-items:center;}
+#viewer-reader-controls .reader-direction-mark svg {width:11px;height:11px;filter:none;}
+.pose-fan-ghost {position:fixed;z-index:0;transform:translateX(-50%);width:var(--peek-width);pointer-events:none;}
+.pose-morph-strip {z-index:1;}
+.pose-morph-strip::after {opacity:var(--pose-shade,0);}
+.viewer-pose-transition-active #viewer-edge-peek {visibility:hidden;}
+body.viewer-fan-preparing #viewer-stage {visibility:visible;}
+body.viewer-fan-preparing #viewer-book-pose,body.viewer-fan-preparing #viewer-edge-peek {visibility:hidden;}
+
+.pose-fan-ghost .edge-peek-leaf {pointer-events:none;}

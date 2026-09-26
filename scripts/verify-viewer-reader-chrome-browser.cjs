@@ -1,0 +1,98 @@
+const {chromium}=require(process.env.DSF_PLAYWRIGHT_MODULE);
+const assert=require('node:assert/strict');
+const base=process.env.DSF_VIEWER_TEST_ORIGIN||'http://127.0.0.1:5275';
+(async()=>{
+ const browser=await chromium.launch({channel:'chrome',headless:true});
+ try {
+ const page=await browser.newPage({viewport:{width:1280,height:900}}),errors=[];
+ page.on('pageerror',e=>errors.push(e.message));
+ const url=base+'/viewer?bookEdges=1&src=/outputs/book-edges-120.json';
+ await page.goto(url);await page.waitForFunction(()=>+document.querySelector('#page-slider').max>1);
+ await page.evaluate(()=>window.jumpToPage(15));await page.waitForTimeout(500);
+ assert.deepEqual(await page.locator('#viewer-reader-controls button').evaluateAll(ns=>ns.map(n=>n.dataset.readerIcon)),['info','peek','open','left','right']);
+ assert.equal(await page.locator('.reader-page-number').count(),2);
+ const pageRect=await page.locator('#viewer-canvas').boundingBox();assert.ok(pageRect.height>880,'desktop uses viewport height without a header reservation');
+ assert.deepEqual(await page.locator('.reader-page-number').evaluateAll(ns=>ns.map(n=>n.dataset.align)),['left','right']);
+ console.log('Spread labels',await page.locator('.reader-page-number').allTextContents());
+ await page.screenshot({path:'outputs/reader-chrome-desktop.png'});
+ const position=await page.locator('#page-slider').inputValue();
+ for(const state of ['peek','edge','spine']){await page.locator('[data-book-direction=up]').click();await page.waitForFunction(s=>document.querySelector('#viewer-reader-controls').dataset.bookState===s&&!document.querySelector('.viewer-pose-transition'),state);}
+ assert.equal(await page.locator('#page-slider').inputValue(),position);
+ for(const state of ['edge','peek','reading']){await page.locator('[data-book-direction=down]').click();await page.waitForFunction(s=>document.querySelector('#viewer-reader-controls').dataset.bookState===s&&!document.querySelector('.viewer-pose-transition'),state);}
+ await page.locator('#viewer-nav-left').click();await page.waitForTimeout(1500);assert.notEqual(await page.locator('#page-slider').inputValue(),position);
+ await page.locator('#viewer-nav-right').click();await page.waitForTimeout(1500);assert.equal(await page.locator('#page-slider').inputValue(),position,'right button reverses the left turn');
+ await page.evaluate(()=>window.toggleUi(true));await page.locator('#viewer-page-settings summary').click();
+ await page.waitForTimeout(5200);assert.ok(await page.locator('.viewer-page-settings-panel').isVisible(),'settings stay visible while reading');
+ await page.locator('[name=numberAlign]').selectOption('center');
+ assert.equal(await page.locator('.reader-page-number.is-inline').count(),2);
+ await page.locator('[name=metaEdge]').selectOption('bottom');assert.equal(await page.locator('.reader-page-number.is-inline').count(),0);
+ await page.locator('[name=number]').uncheck();assert.equal(await page.locator('.reader-page-number').count(),0);
+ await page.reload();await page.waitForFunction(()=>+document.querySelector('#page-slider').max>1);
+ assert.equal(await page.locator('.reader-page-number').count(),0);
+ await page.evaluate(()=>window.toggleUi(true));await page.locator('#viewer-page-settings summary').click();await page.getByRole('button',{name:'初期設定に戻す'}).click();
+ await page.getByRole('button',{name:'閉じる',exact:true}).click();
+ await page.setViewportSize({width:390,height:844});await page.waitForTimeout(400);await page.evaluate(()=>{window.jumpToPage(15);window.toggleUi(true);});await page.waitForTimeout(400);
+ assert.equal(await page.locator('.reader-page-number').count(),1);
+ assert.equal(await page.locator('#viewer-reader-controls #viewer-nav-left').count(),1);
+ const rect=await page.locator('#viewer-canvas').boundingBox(),rail=await page.locator('#viewer-reader-controls').boundingBox();
+ assert.ok(rect.width>370 && Math.abs(rect.x+rect.width/2-195)<1,'mobile page fills the available width and is centered');
+ assert.ok(rail.x>rect.x && rail.x+rail.width<rect.x+rect.width && rail.y>rect.y && rail.y+rail.height<rect.y+rect.height,'mobile buttons overlay the page');
+ await page.evaluate(()=>window.toggleUi(true));await page.waitForTimeout(250);
+ const menuRect=await page.locator('#viewer-canvas').boundingBox();assert.deepEqual(menuRect,rect,'menu does not shrink the page');
+ const folio=await page.locator('.reader-page-number').boundingBox();assert.ok(folio.y>=rect.y && folio.y+folio.height<rect.y+32,'labels inside page margin');
+ await page.screenshot({path:'outputs/reader-chrome-mobile.png'});
+ await page.locator('[data-book-direction=up]').click();await page.locator('.viewer-pose-transition').waitFor({state:'detached'});await page.locator('[data-book-direction=up]').click();await page.locator('.viewer-pose-transition').waitFor({state:'detached'});await page.screenshot({path:'outputs/reader-chrome-edge.png'});
+ await page.keyboard.press('Escape');assert.equal(await page.locator('#viewer-book-pose').isVisible(),false);
+ await page.evaluate(()=>document.activeElement.blur());for(let i=0;i<3;i++){await page.keyboard.press('ArrowUp');await page.locator('.viewer-pose-transition').waitFor({state:'detached'});}assert.equal(await page.locator('#viewer-book-pose').getAttribute('data-mode'),'spine');await page.keyboard.press('ArrowDown');await page.locator('.viewer-pose-transition').waitFor({state:'detached'});assert.equal(await page.locator('#viewer-book-pose').getAttribute('data-mode'),'edge');await page.keyboard.press('Escape');
+ await page.evaluate(()=>window.toggleUi(true));await page.locator('#viewer-page-settings summary').click();await page.waitForTimeout(250);await page.screenshot({path:'outputs/reader-chrome-settings.png'});
+ await page.getByRole('button',{name:'閉じる',exact:true}).click();
+ await page.goto(base+'/viewer?src=/outputs/book-edges-120.json');await page.waitForFunction(()=>+document.querySelector('#page-slider').max>1);
+ assert.equal(await page.locator('#viewer-page-furniture').count(),0);assert.equal(await page.locator('#viewer-bottom-navigation #viewer-nav-left').count(),1);
+ // Legacy/coverless files still show ordinals; unavailable book poses stay disabled.
+ const raw=JSON.parse(require('node:fs').readFileSync('outputs/book-edges-24.json','utf8'));
+ delete raw.book;raw.title='長いタイトル'.repeat(30);raw.defaultLang='en';
+ await page.goto(base+'/viewer?bookEdges=1');await page.waitForFunction(()=>typeof window.loadDsf==='function');
+ await page.locator('#file-input').setInputFiles({name:'fallback.json',mimeType:'application/json',buffer:Buffer.from(JSON.stringify(raw))});
+ await page.waitForFunction(()=>+document.querySelector('#page-slider').max>1);await page.evaluate(()=>{window.jumpToPage(3);window.toggleUi(true);});await page.waitForTimeout(300);
+ assert.equal(await page.locator('.reader-page-number').textContent(),'3');
+ assert.equal(await page.locator('[data-book-direction=up]').isDisabled(),true);
+ await page.evaluate(()=>window.toggleUi(true));await page.locator('#viewer-page-settings summary').click();
+ await page.locator('[name=numberAlign]').selectOption('inner');await page.locator('[name=numberEdge]').selectOption('bottom');
+ assert.equal(await page.locator('.reader-page-number').getAttribute('data-edge'),'bottom');
+ await page.locator('[name=title]').uncheck();await page.locator('[name=total]').uncheck();assert.equal(await page.locator('.reader-page-meta').count(),0);
+ await page.locator('[name=number]').uncheck();assert.equal(await page.locator('.reader-page-number').count(),0);
+ // Real touch input on the overlaid controls must not become a page swipe.
+ const touch=await browser.newPage({viewport:{width:390,height:844},isMobile:true,hasTouch:true});
+ touch.on('pageerror',e=>errors.push(e.message));
+ await touch.goto(url);await touch.waitForFunction(()=>+document.querySelector('#page-slider').max>1);
+ await touch.evaluate(()=>{window.jumpToPage(15);window.toggleUi(true);});await touch.waitForTimeout(300);
+ const prior=await touch.locator('#page-slider').inputValue();
+ const frame=await touch.locator('#viewer-canvas').boundingBox();
+ const centerTap=()=>touch.touchscreen.tap(frame.x+frame.width*.5,frame.y+frame.height*.45);
+ await centerTap();await touch.waitForTimeout(220);
+ for(const selector of ['#viewer-header','#viewer-reader-controls','#page-slider']) assert.equal(await touch.locator(selector).isVisible(),false,selector+' hides together');
+ assert.equal(await touch.locator('#page-slider').inputValue(),prior,'menu tap must not turn the page');
+ await centerTap();await touch.waitForTimeout(220);
+ for(const selector of ['#viewer-header','#viewer-reader-controls','#page-slider']) assert.equal(await touch.locator(selector).isVisible(),true,selector+' restores together');
+ assert.deepEqual(await touch.locator('#viewer-canvas').boundingBox(),frame,'toggling chrome preserves page size');
+ // Also hide from a page edge without accidentally navigating.
+ await touch.touchscreen.tap(frame.x+20,frame.y+frame.height*.45);assert.equal(await touch.locator('#page-slider').inputValue(),prior);
+ assert.equal(await touch.locator('#viewer-reader-controls').isVisible(),false);await centerTap();
+ await touch.locator('#viewer-nav-left').tap();
+ await touch.waitForTimeout(1200);assert.notEqual(await touch.locator('#page-slider').inputValue(),prior);
+ const turned=await touch.locator('#page-slider').inputValue();
+ for(let i=0;i<2;i++){await touch.locator('[data-book-direction=up]').tap();await touch.waitForFunction(()=>!document.querySelector('.viewer-pose-transition')&&!document.querySelector('[data-book-direction=up]').disabled);}await touch.locator('.viewer-pose-transition').waitFor({state:'detached'});assert.equal(await touch.locator('#viewer-book-pose').isVisible(),true);assert.equal(await touch.locator('.edge-peek-leaf').isVisible(),false);
+ await touch.locator('[data-book-direction=down]').tap();await touch.waitForFunction(()=>!document.querySelector('.viewer-pose-transition')&&!document.querySelector('[data-book-direction=down]').disabled);await touch.locator('.edge-peek-leaf').waitFor();
+ await touch.locator('[data-book-direction=down]').tap();await touch.waitForFunction(()=>!document.querySelector('.viewer-pose-transition')&&document.querySelector('#viewer-reader-controls').dataset.bookState==='reading');assert.equal(await touch.locator('#page-slider').inputValue(),turned);
+ const bar=await touch.locator('#page-slider').boundingBox();assert.ok(bar.height>=44,'progress touch target is at least 44px');
+ await touch.locator('#page-slider').tap({position:{x:bar.width*.35,y:22}});await touch.waitForTimeout(300);
+ assert.notEqual(await touch.locator('#page-slider').inputValue(),turned);
+ await touch.screenshot({path:'outputs/reader-overlay-touch.png'});
+ await touch.setViewportSize({width:844,height:390});await touch.waitForTimeout(400);
+ const landscape=await touch.locator('#viewer-canvas').boundingBox(),controls=await touch.locator('#viewer-reader-controls').boundingBox();
+ assert.ok(controls.x>=landscape.x && controls.x+controls.width<=landscape.x+landscape.width+1);
+ assert.ok(controls.y+controls.height<=landscape.y+landscape.height);
+ await touch.screenshot({path:'outputs/reader-overlay-landscape.png'});await touch.close();
+ assert.deepEqual(errors,[]);console.log('Reader chrome: positions, rail navigation, poses, preferences, reload, mobile and default-off passed.');
+ }finally{await browser.close();}
+})().catch(e=>{console.error(e);process.exit(1);});

@@ -1,7 +1,14 @@
+import {createViewerFlick} from './viewer-flick.js';
+import {createViewerEdgePeek} from './viewer-edge-peek.js';
+import {createViewerRiffle} from './viewer-riffle.js';
 import { normalizeBookSettings } from './page-labels.js';
+import { getBookThickness, getBookEdgeState, fitBookPageWidth, BOOK_EDGE_PROJECTION } from './book-volume.js';
+import { createBookEdges, paintBookEdges } from './viewer-book-edges.js';
+import {createViewerBookSwipe} from './viewer-book-swipe.js';
 import {createViewerCoverTurn} from './viewer-cover-turn.js';
 import {initializeViewerFullscreen} from './viewer-fullscreen.js';
 import {createViewerPageCurl} from './viewer-page-curl.js';
+import {initializeViewerReaderChrome, setViewerReaderIcon} from './viewer-reader-chrome.js';
 import {initializeViewerReadingGuides} from './viewer-reading-guides.js';
 /**
  * viewer.js — DSF Viewer (Gen 3)
@@ -68,6 +75,9 @@ let viewerLocalPortableSession = null;
 let viewerMinimap = null;
 let readingGuides = null;
 let coverTurn = null;
+let readerChrome = null;
+let bookSwipe = null, flick = null;
+let edgePeek = null, riffle = null;
 let viewerAllowsLegacyCoverLoop = false;
 let viewerFullscreen = null;
 let viewerDocumentRevision = 0;
@@ -95,6 +105,9 @@ let requestedBookMode = '';
 let viewerBookModel = null;
 let bookSpreadIndex = 0;
 let viewerSpreadPreference = 'auto';
+// Explicit local/preview opt-in while the physical book treatment is evaluated.
+const viewerBookEdgesRequested = new URLSearchParams(location.search).get('bookEdges') === '1';
+let viewerBookEdges = null;
 
 // ── Zoom / Pan State ──────────────────────────────────────────
 let viewScale = 1;
@@ -404,6 +417,7 @@ async function init() {
         render: surface => renderSurfaceContentHTML(surface, state.activeLang) + renderSurfaceBubblesHTML(surface, state.activeLang),
         getTitle: () => document.getElementById('ui-title')?.textContent || state.title || '',
         getSpineDesign: () => state.book?.spineDesign,
+        getThickness: () => getViewerBookThickness(),
         getAuthor: () => getViewerLocalizedMeta()?.author || '',
         getPublisher: () => viewerProjectMeta.labelName || '',
         text: key => vt({preparing:'coverPreparing',turning:'coverTurning',unavailable:'coverUnavailable'}[key]),
@@ -415,6 +429,44 @@ async function init() {
     viewerFullscreen = initializeViewerFullscreen({
         button: document.getElementById('viewer-fullscreen-btn'), text: vt,
         onChange: () => { coverTurn?.cancel(); scheduleViewerResize(); },
+    });
+    if (viewerBookEdgesRequested) readerChrome = initializeViewerReaderChrome({
+        getSnapshot: getViewerReaderSnapshot, onLayoutChange: scheduleViewerResize,
+        onSettingsChange: open => {clearViewerUiAutoHide(); if(!open) scheduleViewerUiAutoHide();},
+        onPoseChange: (mode,data) => edgePeek?.update(mode,data),
+        getPeek: () => edgePeek,
+        renderPosePage:index=>{const surface=getViewerSurfaceForDisplayIndex(index);return surface?renderSurfaceContentHTML(surface,state.activeLang)+renderSurfaceBubblesHTML(surface,state.activeLang):'';},
+        beforePose: () => {riffle?.stop();coverTurn?.cancel(); activePageCurl?.cancel(); clearViewerUiAutoHide();},
+    });
+    if(readerChrome) {
+        edgePeek=createViewerEdgePeek({
+            getNumberSettings:()=>readerChrome.pageNumberSettings,
+            onConfirm:()=>readerChrome.openReading(),
+            onPhaseChange:phase=>readerChrome.setEdgePhase(phase),
+            getEndpapers:()=>({start:viewerBookModel?.covers?.c2?.sourcePageIndex,end:viewerBookModel?.covers?.c3?.sourcePageIndex}),
+            getItems:()=> (viewerBookModel?.bodyPages||[]).filter(s=>!s.virtualBlank&&Number.isInteger(s.sourcePageIndex)).map(s=>({index:s.sourcePageIndex,label:formatViewerSurfaceSliderLabel(s)})),
+            render:index=>{const surface=getViewerSurfaceForDisplayIndex(index);return renderSurfaceContentHTML(surface,state.activeLang)+renderSurfaceBubblesHTML(surface,state.activeLang);},
+            open:index=>{readerChrome.cancelPose();if(spreadMode&&hasBookModel())transitionToBookUnit(findBookUnitIndexForPage(index));else transitionToIndex(index,'jump');},
+        });
+        const delta=side=>(side==='left'?1:-1)*(getPageDirection()==='rtl'?1:-1);
+        riffle=createViewerRiffle({
+            canRun:()=>!!getPages().length&&!readerChrome.active&&viewScale<=1.05&&!readingGuides?.isAssisting()&&!coverTurn?.active,
+            canStep:side=>{const n=spreadMode&&hasBookModel()?bookSpreadIndex:getIndex(),total=spreadMode&&hasBookModel()?getBookUnits().length:getTotal();return n+delta(side)>=0&&n+delta(side)<total;},
+            busy:()=>!!activePageCurl?.active,
+            step:side=>{delta(side)>0?goNext():goPrev();},cancelTurn:()=>activePageCurl?.cancel(),
+            epoch:()=>`${viewerDocumentRevision}:${state.activeLang}:${spreadMode}`,
+        });
+    }
+    if(readerChrome) flick=createViewerFlick({eligible:()=>!!riffle&&!readerChrome.active&&viewScale<=1.05&&!readingGuides?.isAssisting()&&!coverTurn?.active});
+    if(readerChrome) bookSwipe=createViewerBookSwipe({
+        canvas:document.getElementById('viewer-canvas'),
+        enabled:()=>getViewerBookThickness()!==undefined && viewScale<=1.05 && !readingGuides?.isAssisting() && !coverTurn?.active && !activePageCurl?.active,
+        contextKey:()=>`${viewerDocumentRevision}:${state.activeLang}:${getIndex()}:${bookSpreadIndex}`,
+        onClaim:()=>{edgePeek?.endDrag();coverTurn?.cancel();activePageCurl?.cancel();curlGesture=null;pointerCache=[];activeGesturePointerId=null;isPinching=false;isPanning=false;lastTapTime=0;resetSingleSpreadSwipe();},
+        onConsume:()=>{suppressZoneClickUntil=Date.now()+900;},
+        onPose:mode=>mode==='open'?readerChrome.openReading():readerChrome.step(mode),
+        canOpenEdge:()=>readerChrome.mode==='edge'&&!edgePeek?.opened,
+        onBegin:action=>readerChrome.beginGesture(action),onProgress:p=>readerChrome.drawGesture(p),onFinish:accept=>readerChrome.finishGesture(accept),
     });
     readingGuides = initializeViewerReadingGuides({onLayoutChange: scheduleViewerResize, onAssistanceChange: active => {
         if (active) coverTurn?.cancel();
@@ -1076,6 +1128,7 @@ window.loadDsf = async (input) => {
 
 // ── Project Data ──────────────────────────────────────────────
 function loadProjectData(raw, options = {}) {
+    riffle?.stop();readerChrome?.cancelPose();
     coverTurn?.cancel();
     const source = options.source || 'file';
     viewerDocumentRevision += 1;
@@ -2631,6 +2684,62 @@ function buildViewerBookModel(raw, pages) {
     };
 }
 
+function getViewerBookThickness() {
+    return viewerBookEdgesRequested && viewerAllowsLegacyCoverLoop && hasBookModel()
+        ? getBookThickness(viewerBookModel.bodyPages.length) : undefined;
+}
+function getViewerBookEdgeState(index = getIndex(), unitIndex) {
+    if (getViewerBookThickness() === undefined) return null;
+    return getBookEdgeState({units: getBookUnits(),
+        unitIndex: unitIndex ?? (spreadMode ? bookSpreadIndex : findBookUnitIndexForPage(index)),
+        bodyPageCount: viewerBookModel.bodyPages.length, rtl: getPageDirection() === 'rtl'});
+}
+function getViewerReaderSnapshot(requestedIndex) {
+    const readingIndex=Number.isInteger(requestedIndex)?requestedIndex:getIndex();
+    if (!getPages().length) return null;
+    const rect = document.getElementById('viewer-canvas').getBoundingClientRect();
+    const unit = hasBookModel() ? normalizeSpreadUnitForLang(getBookUnits()[spreadMode && !Number.isInteger(requestedIndex) ? bookSpreadIndex : findBookUnitIndexForPage(readingIndex)], state.activeLang) : null;
+    const surfaceAt = i => {const surface=getViewerSurfaceForDisplayIndex(i);return surface ? {...surface,sourcePageIndex:surface.sourcePageIndex ?? i} : null;};
+    let pages;
+    if (spreadMode && unit?.type === 'spread') {
+        pages = [{surface:unit.left,side:'left'},{surface:unit.right,side:'right'}];
+    } else if (spreadMode && !unit) {
+        pages = getViewerFallbackSpreadPageIndices({currentIndex:readingIndex,totalPages:getTotal(),pageDirection:getPageDirection()})
+            .filter(i => i >= 0).map((i,n) => ({surface:surfaceAt(i),side:n===0?'left':'right'}));
+    } else {
+        const surface = spreadMode ? unit?.center : surfaceAt(readingIndex);
+        const fallback = !unit ? getViewerFallbackSpreadPageIndices({currentIndex:readingIndex,totalPages:getTotal(),pageDirection:getPageDirection()}) : [];
+        const right = unit?.type === 'spread' ? unit.right?.sourcePageIndex === readingIndex
+            : fallback.length===2 ? fallback[1]===readingIndex : (String(surface?.bookRole || surface?.role).toUpperCase()==='C4') !== (getPageDirection()==='ltr');
+        pages = [{surface,side:right?'right':'left'}];
+    }
+    const body=viewerBookModel?.bodyPages||[],bodyPosition=body.findIndex(s=>s.sourcePageIndex===readingIndex);
+    return {rect,openRatio:bodyPosition>=0?bodyPosition/Math.max(1,body.length-1):(readingIndex>(body.at(-1)?.sourcePageIndex??Infinity)?1:0),peekIndex:readingIndex,rtl:getPageDirection()==='rtl',peekKey:`${viewerDocumentRevision}:${state.activeLang}`,covers:{front:viewerBookModel?.covers?.c1?.sourcePageIndex,back:viewerBookModel?.covers?.c4?.sourcePageIndex},pages:pages.map(p=>({index:p.surface?.sourcePageIndex,side:p.side,label:formatViewerSurfaceSliderLabel(p.surface),cover:/^C[14]$/.test(String(p.surface?.bookRole||p.surface?.role||''))})),
+        title:document.getElementById('ui-title')?.textContent || '',total:getViewerBodyPageTotal(hasBookModel()),
+        thickness:getViewerBookThickness(),design:state.book?.spineDesign,
+        author:getViewerLocalizedMeta()?.author||'',publisher:viewerProjectMeta.labelName||'',
+        busy:document.body.classList.contains('viewer-zoom-active') || !!readingGuides?.isAssisting()};
+}
+function syncViewerBookEdges() {
+    const canvas = document.getElementById('viewer-canvas');
+    if (!canvas) return;
+    const edge = getViewerBookEdgeState();
+    document.body.classList.toggle('viewer-book-edges-enabled', !!edge);
+    if (!edge) { if (viewerBookEdges) viewerBookEdges.hidden = true; return; }
+    viewerBookEdges ||= createBookEdges(canvas);
+    const units = getBookUnits();
+    const unit = normalizeSpreadUnitForLang(units[spreadMode ? bookSpreadIndex : findBookUnitIndexForPage(getIndex())], state.activeLang);
+    const columns = spreadMode && unit?.type === 'spread' ? 2 : 1;
+    const visible = {...edge};
+    if (!spreadMode && !edge.closed) {
+        // Single-page mode crops a real spread: only its outside edge is visible.
+        if (unit?.left?.sourcePageIndex === getIndex()) visible.right = 0;
+        else visible.left = 0;
+    }
+    paintBookEdges(viewerBookEdges, visible, {scale: canvas.clientWidth / (CANONICAL_PAGE_WIDTH * columns),
+        height: canvas.clientHeight, rightX: canvas.clientWidth});
+}
+
 function hasBookModel() {
     return !!viewerBookModel?.enabled;
 }
@@ -3961,8 +4070,16 @@ function startPageCurl(delta,interactive=false){
     clearTransitionLayers();
     const viewport=getViewerViewportMetrics(),safeY=Math.max(viewport.safeTop,viewport.safeBottom);
     const inset=usesMobileTapMenu()&&isUiVisible?Math.max(Number(document.body.dataset.viewerBottomHeight||0),document.getElementById('viewer-header')?.getBoundingClientRect().bottom-viewport.top||0,safeY):safeY;
-    const targetWidth=Math.min((viewport.height-inset*2)*CANONICAL_PAGE_ASPECT,(viewport.width-2*Math.max(viewport.safeLeft,viewport.safeRight))/(spreadMode&&to.type==='spread'?2:1));
-    activePageCurl=createViewerPageCurl({canvas:document.getElementById('viewer-canvas'),from,to,rtl:getPageDirection()==='rtl',forward:delta>0,spread:spreadMode,sameUnit,targetWidth,width:CANONICAL_PAGE_WIDTH,height:CANONICAL_PAGE_HEIGHT,
+    let targetWidth=Math.min((viewport.height-inset*2)*CANONICAL_PAGE_ASPECT,(viewport.width-2*Math.max(viewport.safeLeft,viewport.safeRight))/(spreadMode&&to.type==='spread'?2:1));
+    const thickness = getViewerBookThickness();
+    if (thickness !== undefined || readerChrome) {
+        const space = getViewerCanvasSpace(), columns = spreadMode && to.type === 'spread' ? 2 : 1;
+        targetWidth = thickness !== undefined ? Math.floor(fitBookPageWidth(space.W, space.H, columns, thickness))
+            : Math.min(space.H * CANONICAL_PAGE_ASPECT, space.W / columns);
+    }
+    const edgeFrom = getViewerBookEdgeState(before);
+    const edgeTo = getViewerBookEdgeState(after, spreadMode ? bookSpreadIndex + delta : findBookUnitIndexForPage(after));
+    activePageCurl=createViewerPageCurl({canvas:document.getElementById('viewer-canvas'),from,to,rtl:getPageDirection()==='rtl',forward:delta>0,spread:spreadMode,sameUnit,targetWidth,edgeFrom,edgeTo,turnDuration:riffle?.active?riffle.turnDuration:440,width:CANONICAL_PAGE_WIDTH,height:CANONICAL_PAGE_HEIGHT,
         render:surface=>renderSurfaceContentHTML(surface,lang)+renderSurfaceBubblesHTML(surface,lang),
         commit:()=>{if(getIndex()!==before||state.activeLang!==lang)return;committingPageCurl=true;try{delta>0?goNext():goPrev();}finally{committingPageCurl=false;}}
     });
@@ -3971,6 +4088,7 @@ function startPageCurl(delta,interactive=false){
 }
 
 function goNext() {
+    readerChrome?.cancelPose();
     if (!committingPageCurl && coverTurn?.step(1)) return;
     if(startPageCurl(1))return;
     if (spreadMode && hasBookModel()) {
@@ -3990,6 +4108,7 @@ function goNext() {
 }
 
 function goPrev() {
+    readerChrome?.cancelPose();
     if (!committingPageCurl && coverTurn?.step(-1)) return;
     if(startPageCurl(-1))return;
     if (spreadMode && hasBookModel()) {
@@ -4024,14 +4143,21 @@ function isZoneClickSuppressed() {
 // RTL（右→左）: 右タップ = 前ページ、左タップ = 次ページ
 window.viewerNavRight = () => {
     if (isZoneClickSuppressed()) return;
+    if(readerChrome?.transitioning)return;
+    if(edgePeek?.handleKey({key:'ArrowRight',preventDefault(){}}))return;
+    if(readerChrome?.mode==='edge'&&!edgePeek?.opened){readerChrome.openReading();return;}
     getPageDirection() === 'rtl' ? goPrev() : goNext();
 };
 window.viewerNavLeft  = () => {
     if (isZoneClickSuppressed()) return;
+    if(readerChrome?.transitioning)return;
+    if(edgePeek?.handleKey({key:'ArrowLeft',preventDefault(){}}))return;
+    if(readerChrome?.mode==='edge'&&!edgePeek?.opened){readerChrome.openReading();return;}
     getPageDirection() === 'rtl' ? goNext() : goPrev();
 };
 
 window.jumpToPage = (val) => {
+    riffle?.stop();readerChrome?.cancelPose();
     const page = parseInt(val, 10);
     if (spreadMode && hasBookModel()) {
         const units = getBookUnits();
@@ -4048,6 +4174,7 @@ window.jumpToPage = (val) => {
 
 // ── Render ────────────────────────────────────────────────────
 function refresh() {
+    readerChrome?.cancelPose();
     coverTurn?.cancel();
     activePageCurl?.cancel();
     const pages = getPages();
@@ -4225,6 +4352,8 @@ function getViewerBodyPageTotal(isBook) {
 }
 
 function refreshChrome() {
+    syncViewerBookEdges();
+    readerChrome?.update();
     const pages = getPages();
     if (pages.length === 0) return;
     const index = getIndex();
@@ -4254,12 +4383,12 @@ function refreshChrome() {
     const bodyTotal = getViewerBodyPageTotal(isBook);
     if (sliderTotal) sliderTotal.textContent = String(bodyTotal);
     if (leftBtn) {
-        leftBtn.textContent = '◀';
         leftBtn.title = dir === 'rtl' ? vt('nextPage') : vt('prevPage');
+        if(readerChrome) setViewerReaderIcon(leftBtn,'left',leftBtn.title); else leftBtn.textContent = '◀';
     }
     if (rightBtn) {
-        rightBtn.textContent = '▶';
         rightBtn.title = dir === 'rtl' ? vt('prevPage') : vt('nextPage');
+        if(readerChrome) setViewerReaderIcon(rightBtn,'right',rightBtn.title); else rightBtn.textContent = '▶';
     }
     if (footer) footer.classList.toggle('dir-rtl', dir === 'rtl');
     if (zonePrev) zonePrev.title = dir === 'rtl' ? vt('nextPage') : vt('prevPage');
@@ -4274,8 +4403,10 @@ function usesMobileTapMenu() { return matchMedia('(max-width:650px), (pointer:co
 let isUiVisible = !usesMobileTapMenu();
 
 window.toggleUi = (force) => {
+    clearViewerUiAutoHide();
     isUiVisible = typeof force === 'boolean' ? force : !isUiVisible;
     updateUiVisibility();
+    if(isUiVisible) scheduleViewerUiAutoHide();
 };
 
 function updateUiVisibility() {
@@ -4303,7 +4434,7 @@ function clearViewerUiAutoHide() {
 function scheduleViewerUiAutoHide() {
     if (!usesPointerHoverChrome()) return;
     clearViewerUiAutoHide();
-    if (readingGuides?.isAssisting() || coverTurn?.active) return;
+    if (readingGuides?.isAssisting() || coverTurn?.active || riffle?.active || readerChrome?.active || readerChrome?.settingsOpen) return;
     viewerUiAutoHideTimer = setTimeout(() => {
         window.toggleUi(false);
     }, 5000);
@@ -4325,11 +4456,11 @@ function bindViewerHoverChrome() {
         const canvas = document.getElementById('viewer-canvas');
         const ui = document.getElementById('viewer-ui');
         const target = event.target;
-        if (readingGuides?.isAssisting() && (canvas?.contains(target) || target.closest?.('#reader-assist-panel, #viewer-bottom-navigation'))) {
+        if (readingGuides?.isAssisting() && (canvas?.contains(target) || target.closest?.('#reader-assist-panel, #viewer-bottom-navigation, #viewer-reader-controls, #viewer-page-furniture, #viewer-edge-peek, #viewer-book-pose'))) {
             clearViewerUiAutoHide();
             return;
         }
-        const overViewer = !!(canvas?.contains(target) || ui?.contains(target) || target.closest?.('.viewer-side-nav'));
+        const overViewer = !!(canvas?.contains(target) || ui?.contains(target) || target.closest?.('.viewer-side-nav, #viewer-reader-controls'));
         if (overViewer) {
             revealViewerUiForPointer();
         } else if (isUiVisible) {
@@ -4504,8 +4635,22 @@ document.addEventListener('pointerup',e=>{
 },true);
 document.addEventListener('pointercancel',()=>mobileMarginStart=null,true);
 
-// Mobile page taps never reveal chrome; the margin and page count are its entry points.
+// The prototype shares one chrome state: page tap hides it, center tap restores it.
+// Legacy mobile viewers keep their margin/page-count entry points.
 document.addEventListener('click', e => {
+    if(readerChrome && !readingGuides?.isAssisting()) {
+        if(e.target.closest?.('#viewer-ui,#viewer-info-panel,#reader-assist-panel,#viewer-bottom-navigation,#viewer-reader-controls')) return;
+        if(!e.target.closest?.('#viewer-layout')) return;
+        if(Date.now()<=suppressZoneClickUntil) {e.stopPropagation(); return;}
+        const rect=document.getElementById('viewer-canvas')?.getBoundingClientRect();
+        const onPage=rect && e.clientX>=rect.left && e.clientX<=rect.right && e.clientY>=rect.top && e.clientY<=rect.bottom;
+        const center=onPage && e.clientX>=rect.left+rect.width*.3 && e.clientX<=rect.left+rect.width*.7;
+        if(onPage && (isUiVisible || center || readerChrome.active)) {
+            e.stopPropagation(); window.toggleUi(!isUiVisible); return;
+        }
+        if(usesMobileTapMenu()) {e.stopPropagation(); if(!onPage)window.toggleUi(true);}
+        return;
+    }
     if (!usesMobileTapMenu()) return;
     if (e.target.closest?.('#viewer-mobile-page-count')) { e.stopPropagation();window.toggleUi();return; }
     if (e.target.closest?.('#viewer-ui,#viewer-info-panel,#reader-assist-panel,#viewer-bottom-navigation')) return;
@@ -4521,7 +4666,7 @@ document.addEventListener('click', e => {
 
 document.addEventListener('click', (e) => {
     // Reading controls are not a request to toggle the surrounding chrome.
-    if (e.target.closest?.('#reader-assist-panel, #viewer-bottom-navigation')) return;
+    if (e.target.closest?.('#reader-assist-panel, #viewer-bottom-navigation, #viewer-reader-controls, #viewer-page-furniture, #viewer-edge-peek, #viewer-book-pose')) return;
     if (!isUiVisible) {
         if (Date.now() <= suppressZoneClickUntil) return;
         if (e.target.closest?.('#viewer-ui')) return;
@@ -4551,7 +4696,10 @@ function canUseViewerAutoSpread() {
     const drawer = viewerInfoLayoutMode === 'drawer' && viewerInfoPanelState !== 'closed' ? VIEWER_DRAWER_WIDTH + VIEWER_DRAWER_GAP : 0;
     const width = viewport.width - Number(document.body.dataset.readingAssistDock || 0) - drawer - viewport.safeLeft - viewport.safeRight;
     const height = viewport.height - Number(document.body.dataset.readingAssistBottom || 0) - viewport.safeTop - viewport.safeBottom;
-    return width >= VIEWER_AUTO_SPREAD_MIN_WIDTH && width / Math.max(1, height) >= CANONICAL_PAGE_ASPECT * 2;
+    const edge = (getViewerBookThickness() || 0) * BOOK_EDGE_PROJECTION;
+    const aspect = edge ? (CANONICAL_PAGE_WIDTH * 2 + edge * 2) / (CANONICAL_PAGE_HEIGHT + edge * .3) : CANONICAL_PAGE_ASPECT * 2;
+    if (readerChrome) {const {W,H}=getViewerCanvasSpace(viewport); return W>=VIEWER_AUTO_SPREAD_MIN_WIDTH && W/Math.max(1,H)>=aspect;}
+    return width >= VIEWER_AUTO_SPREAD_MIN_WIDTH && width / Math.max(1, height) >= aspect;
 }
 
 function syncViewerAutoSpreadMode() {
@@ -4628,21 +4776,29 @@ function handleViewerResize() {
  * 論理ページ（CANONICAL_PAGE_*）へ等倍スケールでセンタリングする。
  * visual viewport と safe-area を基準に、単ページ／見開きを物理画面の中央へ収める。
  */
-function resizeCanvas() {
-    const viewport = syncViewerViewportMetrics();
-    updateViewerInfoPanelLayout();
-    const canvas = document.getElementById('viewer-canvas');
-    if (!canvas) return;
+function getViewerCanvasSpace(viewport = getViewerViewportMetrics()) {
     const drawerOpen = viewerInfoLayoutMode === 'drawer' && viewerInfoPanelState !== 'closed';
     const safeX = Math.max(viewport.safeLeft, viewport.safeRight);
     const safeY = Math.max(viewport.safeTop, viewport.safeBottom);
     const readerDock = Number(document.body.dataset.readingAssistDock || 0);
     const W = Math.max(readerDock ? 120 : 280, viewport.width - readerDock - (drawerOpen ? VIEWER_DRAWER_WIDTH + VIEWER_DRAWER_GAP : 0) - (safeX * 2));
+    if(readerChrome) {
+        return {W, H:Math.max(80,viewport.height-Number(document.body.dataset.readingAssistBottom||0)-safeY*2)};
+    }
     const menuInset=usesMobileTapMenu()&&isUiVisible?Math.max(
         Number(document.body.dataset.viewerBottomHeight||0),
         document.getElementById('viewer-header')?.getBoundingClientRect().bottom-viewport.top||0,
         safeY):safeY;
     const H = Math.max(1, viewport.height - Number(document.body.dataset.readingAssistBottom || 0) - (menuInset * 2));
+    return {W,H};
+}
+
+function resizeCanvas() {
+    const viewport = syncViewerViewportMetrics();
+    updateViewerInfoPanelLayout();
+    const canvas = document.getElementById('viewer-canvas');
+    if (!canvas) return;
+    const {W, H} = getViewerCanvasSpace(viewport);
     const aspect = CANONICAL_PAGE_ASPECT;
     const bookSingle = spreadMode && hasBookModel() && getCurrentBookUnit()?.type === 'single';
     const fallbackSingle = spreadMode && !hasBookModel() && !_hasFallbackSpreadSecondPage();
@@ -4657,6 +4813,11 @@ function resizeCanvas() {
     } else {
         if (W / H < aspect) { w = W; h = Math.round(W / aspect); }
         else { h = H; w = Math.round(H * aspect); }
+    }
+    const thickness = getViewerBookThickness();
+    if (thickness !== undefined) {
+        const pageWidth = Math.floor(fitBookPageWidth(W, H, showSpread ? 2 : 1, thickness));
+        w = pageWidth * (showSpread ? 2 : 1); h = pageWidth / aspect;
     }
     canvas.style.width = w + 'px';
     canvas.style.height = h + 'px';
@@ -4698,6 +4859,8 @@ function resizeCanvas() {
         }
     }
 
+    syncViewerBookEdges();
+    readerChrome?.update();
     syncViewerCanvasChromePlacement(canvas, w);
     applyTransform();
 }
@@ -4924,7 +5087,9 @@ function clampViewPan() {
 
 function syncViewerZoomMode() {
     const active = viewScale > 1.05;
+    const changed = document.body.classList.contains('viewer-zoom-active') !== active;
     document.body.classList.toggle('viewer-zoom-active', active);
+    if(changed) readerChrome?.update();
     document.getElementById('viewer-zoom-layer')?.setAttribute('aria-hidden', String(!active));
 }
 
@@ -5134,15 +5299,19 @@ function setViewScaleAtClientPoint(nextScale, clientX, clientY) {
 
 let curlGesture=null;
 document.addEventListener('pointerdown',e=>{
+    flick?.down(e);
+    if (bookSwipe?.pointerDown(e)) return;
     if (coverTurn?.pointerDown(e)) return;
     if(e.pointerType==='mouse'||!e.target.closest?.('#viewer-canvas')||viewScale>1.05||readingGuides?.isAssisting())return;
     if(curlGesture){activePageCurl?.cancel();curlGesture=null;return;}
     const r=document.getElementById('viewer-canvas').getBoundingClientRect();
     if(e.clientX<r.left||e.clientX>r.right||e.clientY<r.top||e.clientY>r.bottom)return;
-    if(e.clientX-r.left>r.width*.25&&r.right-e.clientX>r.width*.25)return;
+    if(!readerChrome&&e.clientX-r.left>r.width*.25&&r.right-e.clientX>r.width*.25)return;
     curlGesture={id:e.pointerId,x:e.clientX,y:e.clientY,width:r.width,started:false};
 },true);
 document.addEventListener('pointermove',e=>{
+    flick?.move(e);
+    if (bookSwipe?.pointerMove(e)) return;
     if (coverTurn?.pointerMove(e)) return;
     if(curlGesture?.id!==e.pointerId)return;
     const dx=e.clientX-curlGesture.x,dy=e.clientY-curlGesture.y;
@@ -5156,15 +5325,22 @@ document.addEventListener('pointermove',e=>{
     e.stopPropagation();e.preventDefault();activePageCurl.draw(dx*curlGesture.sign/(curlGesture.width*.8));
 }, {capture:true,passive:false});
 document.addEventListener('pointerup',e=>{
+    const impulse=flick?.up(e);
+    if (bookSwipe?.pointerUp(e)) return;
     if (coverTurn?.pointerUp(e)) return;
-    if(curlGesture?.id!==e.pointerId)return;
-    const started=curlGesture.started;curlGesture=null;if(!started)return;
+    if(curlGesture?.id!==e.pointerId||!curlGesture.started){
+        if(impulse&&riffle?.fling(impulse.side,impulse.speed)){e.preventDefault();e.stopImmediatePropagation();pointerCache=[];activeGesturePointerId=null;curlGesture=null;resetSingleSpreadSwipe();suppressZoneClickUntil=Date.now()+900;}
+        return;
+    }
+    curlGesture=null;
     e.stopPropagation();e.preventDefault();pointerCache=[];activeGesturePointerId=null;resetSingleSpreadSwipe();suppressZoneClickUntil=Date.now()+900;
-    activePageCurl?.finish(activePageCurl.progress>.4);
+    activePageCurl?.finish(!!impulse||activePageCurl.progress>.4,impulse?160:undefined);
+    if(impulse)riffle?.fling(impulse.side,impulse.speed);
 },true);
-document.addEventListener('pointercancel',e=>{if(coverTurn?.pointerCancel(e))return;if(curlGesture?.started)activePageCurl?.cancel();curlGesture=null;},true);
+document.addEventListener('pointercancel',e=>{flick?.up(e,true);if(bookSwipe?.pointerCancel(e))return;if(coverTurn?.pointerCancel(e))return;if(curlGesture?.started)activePageCurl?.cancel();curlGesture=null;},true);
 
 function onPointerDown(e) {
+    if (readerChrome?.active) return;
     if (!pointerCache.some(p => p.pointerId === e.pointerId)) {
         pointerCache.push(e);
     }
@@ -5340,6 +5516,8 @@ function onPointerCancel(e) {
 }
 
 function onWheel(e) {
+    if (readerChrome && e.target.closest?.('#viewer-page-settings')) return;
+    if (readerChrome?.active) {e.preventDefault(); return;}
     if (coverTurn?.handleWheel(e)) return;
     e.preventDefault();
     if (e.ctrlKey) {
@@ -5364,8 +5542,16 @@ function onWheel(e) {
 }
 
 function onKeydown(e) {
+    if(e.key==='Escape') riffle?.stop();
+    if (readerChrome?.active && e.key==='Escape') {readerChrome.cancelPose();return;}
+    if (readerChrome && e.target.closest?.('input,select,textarea,summary,[contenteditable="true"],#viewer-page-settings')) return;
     if (e.key === 'Escape' && coverTurn?.active) { coverTurn.cancel(); return; }
     if (readingGuides?.handleKey(e)) return;
+    if (readerChrome && ['ArrowUp','ArrowDown'].includes(e.key)) {e.preventDefault(); if(!e.repeat)readerChrome.step(e.key==='ArrowUp'?'up':'down');return;}
+    if(readerChrome?.transitioning){if(['ArrowLeft','ArrowRight'].includes(e.key))e.preventDefault();return;}
+    if (edgePeek?.handleKey(e)) return;
+    if(['ArrowLeft','ArrowRight'].includes(e.key)&&readerChrome?.mode==='edge'&&!edgePeek?.opened){e.preventDefault();if(!e.repeat)readerChrome.openReading();return;}
+    if (riffle?.keyDown(e)) return;
     if (e.key === 'ArrowRight') window.viewerNavRight();
     else if (e.key === 'ArrowLeft') window.viewerNavLeft();
     else if (e.key === 'Escape') window.toggleUi(false);

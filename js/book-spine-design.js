@@ -14,7 +14,7 @@ export function normalizeBookSpineDesign(value) {
             && (value.publisherIcon === '' || /^data:image\/webp;base64,[A-Za-z0-9+/]+={0,2}$/.test(value.publisherIcon)) ? { publisherIcon: value.publisherIcon } : {}),
     };
 }
-export function getBookSpinePresentation(value, { title = '', author = '', publisherName = '', width = 360 } = {}) {
+export function getBookSpinePresentation(value, { title = '', author = '', publisherName = '', width = 360, thickness = 32 } = {}) {
     const design = normalizeBookSpineDesign(value);
     return {
         title: design?.title || title,
@@ -24,21 +24,26 @@ export function getBookSpinePresentation(value, { title = '', author = '', publi
         backgroundColor: design?.backgroundColor || '#173d42',
         textColor: design?.textColor || '#f4eddb',
         fontSize: (design?.fontSize || 18) * width / 360,
-        thickness: width * 32 / 360,
+        thickness: width * thickness / 360,
+        scale: width / 360,
     };
 }
 export function renderBookSpine(element, design) {
     element.replaceChildren();
-    const scale = design.thickness / 32;
+    const scale = design.scale ?? design.thickness / 32;
     Object.assign(element.style, { background: design.backgroundColor, color: design.textColor,
         display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'flex-start',
         gap: `${16 * scale}px`, padding: `${16 * scale}px 0`, boxSizing: 'border-box', overflow: 'hidden' });
+    // A thin booklet retains its colour; tiny lettering would be illegible.
+    if (design.thickness < 10 * scale) return;
+    const fittedFont = design.thickness >= 32 * scale ? design.fontSize
+        : Math.min(design.fontSize, (design.thickness - 4 * scale) / 1.2);
     const text = (field, ratio, parent, maxHeight) => {
         if (!design[field]) return;
         const span = document.createElement('span');
         span.className = `book-spine-${field}`;
         span.textContent = design[field];
-        Object.assign(span.style, {fontSize: `${design.fontSize * ratio}px`, writingMode: 'vertical-rl',
+        Object.assign(span.style, {fontSize: `${fittedFont * ratio}px`, writingMode: 'vertical-rl',
             textOrientation: 'mixed', lineHeight: '1.2', letterSpacing: '.12em',
             flex: '0 1 auto', minHeight: '0', maxHeight, maxWidth: '100%', overflow: 'hidden'});
         parent.append(span);
@@ -53,7 +58,7 @@ export function renderBookSpine(element, design) {
     if (design.publisherName || design.publisherIcon) {
         const badge = document.createElement('div');
         badge.className = 'book-spine-publisher-icon';
-        Object.assign(badge.style, {width: `${24 * scale}px`, height: `${24 * scale}px`, flex: '0 0 auto',
+        Object.assign(badge.style, {width: `${Math.min(24 * scale, design.thickness - 4 * scale)}px`, height: `${Math.min(24 * scale, design.thickness - 4 * scale)}px`, flex: '0 0 auto',
             display: 'grid', placeItems: 'center', overflow: 'hidden', borderRadius: `${3 * scale}px`,
             fontSize: `${design.fontSize * .7}px`, lineHeight: '1', background: '#ffffff22'});
         badge.textContent = Array.from(design.publisherName || '')[0] || '';

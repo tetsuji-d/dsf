@@ -1,7 +1,7 @@
 import { getBookSpinePresentation, renderBookSpine } from './book-spine-design.js';
 
 /** A temporary closed-book surface. Only a completed flip changes reading position. */
-export function createViewerCoverTurn({canvas, stage, width, height, getTurn, render, getTitle, getSpineDesign, getAuthor, getPublisher, text, onGesture}) {
+export function createViewerCoverTurn({canvas, stage, width, height, getTurn, render, getTitle, getSpineDesign, getAuthor, getPublisher, getThickness, text, onGesture}) {
     let turn = null, pointer = null, wheel = null, wheelTimer = 0, animation = null;
     const status = document.createElement('div');
     status.className = 'viewer-cover-status';
@@ -51,7 +51,7 @@ export function createViewerCoverTurn({canvas, stage, width, height, getTurn, re
             face.innerHTML = render(surface);
             book.append(face);
         }
-        const design = getBookSpinePresentation(getSpineDesign?.(), { title: getTitle(), author: getAuthor?.() || '', publisherName: getPublisher?.() || '', width });
+        const design = getBookSpinePresentation(getSpineDesign?.(), { title: getTitle(), author: getAuthor?.() || '', publisherName: getPublisher?.() || '', width, thickness: getThickness?.() ?? 32 });
         const thickness = design.thickness, spineRight = spec.fromFront === spec.rtl;
         book.style.setProperty('--vct-thickness', `${thickness}px`);
         for (const right of [false, true]) {

@@ -1,0 +1,8 @@
+<!doctype html>
+<html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>本の厚みと、読む場所。｜DSF Viewer 試作</title>
+<style>body{margin:0;background:#f4f3ee;color:#173d42;font:16px/1.8 system-ui}main{max-width:840px;margin:7vh auto;padding:24px}h1{font:500 38px/1.4 serif}nav{display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin:32px 0}a{display:block;padding:24px 16px;background:#173d42;color:#f4eddb;text-decoration:none;border-radius:12px}a:focus-visible{outline:3px solid #9b7136;outline-offset:4px}strong{display:block;font:36px serif}small{color:#536d62}.flow{padding:16px;background:#e3e9df;border-radius:12px}li{margin-bottom:8px}@media(max-width:540px){nav{grid-template-columns:1fr}h1{font-size:30px}a{padding:16px}}</style></head>
+<body><main><small>DSF VIEWER · ステージング試作</small><h1>本の厚みと、読む場所。</h1><p>架空の本「海辺の採集帖」で、ページ数によって変わる背幅と小口、ページを覗く動きを比較できます。</p>
+<nav aria-label="比較する本"><a href="/viewer?bookEdges=1&amp;src=/samples/viewer/book-edges-24.json"><strong>24</strong>ページ · 薄い冊子</a><a href="/viewer?bookEdges=1&amp;src=/samples/viewer/book-edges-120.json"><strong>120</strong>ページ · 中くらいの本</a><a href="/viewer?bookEdges=1&amp;src=/samples/viewer/book-edges-480.json"><strong>480</strong>ページ · 厚い本</a></nav>
+<p class="flow">背表紙 ⇄ 小口 ⇄ 覗き見 ⇄ 読書<br>↑ 上で一段階閉じる ／ ↓ 下で一段階開く</p>
+<ul><li>スマホでは一本指の上下スワイプ、PCでは上下キー。右下の上下ボタンでも同じ操作ができます。</li><li>右下は情報・上・下・左・右。上下ボタンの本のアイコンは、押した後の状態を表します。</li><li>読書中の左右操作はページ送り、覗き見中は見るページの移動。小口で左右を操作すると元のページを直接開きます。</li><li>スワイプ中に指を止めると、動きも途中で止まります。強くはじくと慣性で数ページ進みます。</li><li>ページの単タップでメニュー・ボタン・バーをまとめて表示／非表示。上部の「表示」からページ番号などの位置を変更できます。</li></ul>
+<small>総ページ数は表紙4面を含みます。Viewer上の本文総数はこれらを除きます。480ページ版は通信量が多いため、最初は24ページ版で確認してください。</small></main></body></html>
