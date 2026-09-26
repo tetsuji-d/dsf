@@ -132,9 +132,9 @@ export function createViewerEdgePeek({getItems, getLayout, renderSurface, format
     const leaf=root.querySelector('.edge-peek-leaf'),content=root.querySelector('.edge-fan-scene'),status=root.querySelector('output');
     const pose=document.getElementById('viewer-book-pose');
     let items=[],key='',selected=-1,ticket=0,ready=false,snapshot=null,lastTap=null,frame=0,tapTimer=0,suppressClickUntil=0,rendering=false,pendingIndex=null,pendingCover=null;
-    let hoverHeld=false,hoverAnchor=null;
+    let hoverHeld=false,hoverAnchor=null,pendingRapid=false,lastStepAt=0,lastStepDelta=0;
     function holdHover(){hoverHeld=true;hoverAnchor=null;}
-    function clear(){drag=null;rendering=false;pendingIndex=null;pendingCover=null;root.dataset.ready='false';cancelAnimationFrame(frame);clearTimeout(tapTimer);root.dataset.opened='false';root.hidden=true;leaf.hidden=true;document.body.classList.remove('viewer-edge-fan-active');content.replaceChildren();items=[];key='';selected=-1;ready=false;ticket++;lastTap=null;onPhaseChange('edge');}
+    function clear(){pendingRapid=false;lastStepAt=0;lastStepDelta=0;drag=null;rendering=false;pendingIndex=null;pendingCover=null;root.dataset.ready='false';cancelAnimationFrame(frame);clearTimeout(tapTimer);root.dataset.opened='false';root.hidden=true;leaf.hidden=true;document.body.classList.remove('viewer-edge-fan-active');content.replaceChildren();items=[];key='';selected=-1;ready=false;ticket++;lastTap=null;onPhaseChange('edge');}
     function numberSheet(sheet,label){
         sheet.dataset.pageLabel=label;
         const prefs=getNumberSettings(),align=prefs.numberAlign==='center'?'center':(prefs.numberAlign==='inner'?(sheet.dataset.side==='left'?'right':'left'):sheet.dataset.side);
@@ -144,13 +144,13 @@ export function createViewerEdgePeek({getItems, getLayout, renderSurface, format
             const number=document.createElement('span');number.className='edge-fan-folio';number.textContent=label;number.setAttribute('aria-hidden','true');number.dataset.edge=prefs.numberEdge;number.dataset.align=align;page.append(number);
         }
     }
-    function show(index){
+    function show(index,rapid=false){
         index=Math.max(0,Math.min(items.length-1,Math.round(index)));
-        if(rendering){pendingIndex=index;return;}
-        void renderSelection(index);
+        if(rendering){pendingIndex=index;pendingRapid=rapid;return;}
+        void renderSelection(index,rapid);
     }
-    function settle(id){if(id!==ticket)return;rendering=false;if(pendingCover!==null&&ready){const cover=pendingCover;pendingCover=null;pendingIndex=null;openCover?.(cover);return;}const next=pendingIndex;pendingIndex=null;if(next!==null&&next!==selected)show(next);}
-    async function renderSelection(index) {
+    function settle(id){if(id!==ticket)return;rendering=false;if(pendingCover!==null&&ready){const cover=pendingCover;pendingCover=null;pendingIndex=null;openCover?.(cover);return;}const next=pendingIndex,rapid=pendingRapid;pendingIndex=null;pendingRapid=false;if(next!==null&&next!==selected)show(next,rapid);}
+    async function renderSelection(index,rapid=false) {
         index=Math.max(0,Math.min(items.length-1,Math.round(index)));
         if(!items[index]||index===selected)return;
         rendering=true;
@@ -224,6 +224,7 @@ export function createViewerEdgePeek({getItems, getLayout, renderSurface, format
                 // The incoming face becomes stationary only after the turn lands.
                 next.append(stationary,turn);content.replaceChildren(next);
                 const frontHtml=renderSurface(front?.surface),backHtml=renderSurface(back?.surface);
+                const turnTime=rapid&&!gesture?160:280;
                 let backShown=false,start=performance.now(),held=0,from=0,releasing=!gesture;
                 const initialHinge=Number(turn.dataset.hinge),initialBias=Number(turn.dataset.bias);
                 function animate(now){
@@ -234,7 +235,7 @@ export function createViewerEdgePeek({getItems, getLayout, renderSurface, format
                     else{
                         if(!releasing){from=held;start=now;releasing=true;}
                         const end=gesture?.ended===false?0:1;
-                        t=from+(end-from)*Math.min(1,(now-start)/280);
+                        t=from+(end-from)*Math.min(1,(now-start)/turnTime);
                     }
                     t=Math.max(0,Math.min(1,t));
                     if(heldGesture&&t===held){frame=requestAnimationFrame(animate);return;}
@@ -251,7 +252,7 @@ export function createViewerEdgePeek({getItems, getLayout, renderSurface, format
                     turn.dataset.bias=initialBias+(bias-initialBias)*ease;
                     turn.dataset.stackDepth=spread<0?leftDepth:rightDepth;
                     shapeSheet(turn,Math.abs(spread)<.018?.018*(spread<0?-1:1):spread,0,Math.sin(t*Math.PI));
-                    if(heldGesture||now-start<280){frame=requestAnimationFrame(animate);return;}
+                    if(heldGesture||now-start<turnTime){frame=requestAnimationFrame(animate);return;}
                     if(gesture?.ended===false){
                         turnSlot.replaceWith(turn);stationarySlot.replaceWith(stationary);
                         turn.classList.remove('edge-fan-turn');turn.dataset.active='true';stationary.dataset.active='true';
@@ -299,7 +300,10 @@ export function createViewerEdgePeek({getItems, getLayout, renderSurface, format
     function stepPage(delta,repeat=false){
         holdHover();
         const at=pendingIndex??selected,next=adjacentIndex(at,delta);
-        if(next!==null){show(next);return;}
+        if(next!==null){
+            const now=performance.now(),rapid=repeat||(delta===lastStepDelta&&now-lastStepAt<450);
+            lastStepAt=now;lastStepDelta=delta;show(next,rapid);return;
+        }
         // Reaching C2/C3 consumes the current input. Only a fresh turn from the
         // settled boundary can close onto the exterior; repeats cannot cross it.
         if(repeat||rendering||!ready)return;

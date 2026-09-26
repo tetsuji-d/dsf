@@ -1,17 +1,17 @@
 /** One animation at a time; releasing a hold cancels any unfinished repeat. */
 export function createViewerRiffle({canRun,canStep,busy,step,cancelTurn,epoch}) {
-    let hold=null,timer=0,loop=0,rapid=false,suppressClickUntil=0,lastStep=0,turnDuration=180;
+    let hold=null,timer=0,loop=0,rapid=false,suppressClickUntil=0,lastStep=0,turnDuration=120;
     function stop(){clearTimeout(timer);clearInterval(loop);const wasRapid=rapid;hold=null;rapid=false;if(wasRapid)cancelTurn();}
     function tick(){
         if(!hold||!canRun()||hold.epoch!==epoch()){stop();return;}
-        if(busy()||performance.now()-lastStep<170)return;
+        if(busy()||performance.now()-lastStep<110)return;
         if(!canStep(hold.side)||hold.remaining===0){stop();return;}
-        if(hold.source.type==='inertia'){turnDuration=Math.min(360,165+hold.count*40);hold.count++;hold.remaining--;}
+        if(hold.source.type==='inertia'){turnDuration=Math.min(280,120+hold.count*40);hold.count++;hold.remaining--;}
         lastStep=performance.now();step(hold.side);
     }
     function begin(side,source) {
         stop();if(!canRun())return;
-        turnDuration=180;hold={side,source,epoch:epoch()};
+        turnDuration=120;hold={side,source,epoch:epoch()};
         timer=setTimeout(()=>{if(!hold)return;rapid=true;if(source.type==='pointer')suppressClickUntil=Infinity;tick();if(hold)loop=setInterval(tick,32);},500);
     }
     document.addEventListener('keyup',e=>{if(hold?.source.type==='key'&&hold.source.key===e.key)stop();});
@@ -29,7 +29,7 @@ export function createViewerRiffle({canRun,canStep,busy,step,cancelTurn,epoch}) 
     document.addEventListener('visibilitychange',()=>{if(document.hidden){stop();suppressClickUntil=Date.now()+500;}});
     return {stop,get turnDuration(){return turnDuration;},fling(side,speed){
         if(!canRun()||matchMedia('(prefers-reduced-motion:reduce)').matches)return false;
-        stop();turnDuration=165;rapid=true;lastStep=0;
+        stop();turnDuration=120;rapid=true;lastStep=0;
         hold={side,source:{type:'inertia'},epoch:epoch(),remaining:Math.min(5,Math.max(2,Math.floor(speed-1))),count:0};
         tick();if(hold)loop=setInterval(tick,24);return true;
     },get active(){return rapid;},keyDown(e){
