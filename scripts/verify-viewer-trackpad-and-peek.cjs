@@ -9,7 +9,7 @@ await p.evaluate(()=>toggleUi(false));await p.mouse.move(610,400);await p.mouse.
 await wheel(0,-180);await wait('peek');
 const scale=await p.locator('.edge-fan-sheet[data-active=true]').evaluateAll(ns=>ns.map(n=>{const strips=[...n.children],left=n.dataset.side==='left',near=left?strips.at(-1):strips[0],far=left?strips[0]:strips.at(-1);const size=s=>{const m=new DOMMatrix(getComputedStyle(s).transform),w=parseFloat(s.style.width),a=new DOMPoint(0,320).matrixTransform(m),b=new DOMPoint(w,320).matrixTransform(m);return Math.abs(b.x/b.w-a.x/a.w)/w};return {near:size(near),far:size(far)}}));for(const q of scale)assert.ok(q.near<q.far,JSON.stringify(q));
 await p.evaluate(()=>toggleUi(true));await p.screenshot({path:'outputs/peek-perspective-fixed.png'});
-const before=await p.locator('#viewer-edge-peek input').inputValue();await wheel(-130,0);assert.notEqual(await p.locator('#viewer-edge-peek input').inputValue(),before,'horizontal trackpad changes peek selection');
+const before=await p.locator('#page-slider').inputValue();await wheel(-130,0);assert.notEqual(await p.locator('#page-slider').inputValue(),before,'horizontal trackpad changes peek selection');
 await wheel(0,180);await wait('reading');const position=await p.locator('#page-slider').inputValue();await wheel(-130,0);assert.notEqual(await p.locator('#page-slider').inputValue(),position,'horizontal trackpad turns reading page');
 for(const state of ['peek','edge','spine']){await wheel(0,-180);await wait(state);}assert.ok((await p.locator('#viewer-book-pose .book-spine-title').textContent()).length>0,'thin booklet spine title visible');
 for(const state of ['edge','peek','reading']){await wheel(0,180);await wait(state);}

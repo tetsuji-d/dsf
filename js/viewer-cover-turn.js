@@ -184,5 +184,5 @@ export function createViewerCoverTurn({canvas, stage, width, height, getTurn, re
         const rect = canvas.getBoundingClientRect();
         if (Math.abs(rect.width - parseFloat(turn.layer.style.width)) > 1 || Math.abs(rect.height - parseFloat(turn.layer.style.height)) > 1) cancel();
     }).observe(canvas);
-    return {step, pointerDown, pointerMove, pointerUp, pointerCancel, handleWheel, cancel, get active() { return !!turn; }};
+    return {step, pointerDown, pointerMove, pointerUp, pointerCancel, handleWheel, cancel, get atSpine() { return !!turn?.ready && !turn.settling && turn.p === .5; }, get active() { return !!turn; }};
 }

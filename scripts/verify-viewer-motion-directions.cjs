@@ -8,7 +8,7 @@ for(const lang of ['ja','en']){
  const pos=async()=>+(await p.locator('#page-slider').inputValue());
  const first=await pos();await swipe(-280,{edge:true});await p.waitForTimeout(2100);const last=await pos();assert.ok(lang==='ja'?last<first-1:last>first+1,lang+' edge flick direction');
  const paused=await pos();await swipe(125,{pause:220});await p.waitForTimeout(900);assert.ok(Math.abs(await pos()-paused)<=1,'a pause before release removes inertia');
- await p.evaluate(()=>{document.activeElement.blur();toggleUi(true);});await p.keyboard.press('ArrowUp');await p.locator('#viewer-edge-peek .edge-peek-leaf').waitFor();await p.locator('.viewer-pose-transition').waitFor({state:'detached'});await p.locator('#viewer-edge-peek input').fill('50');await p.waitForTimeout(400);await swipe(65);await p.waitForTimeout(750);const selected=+(await p.locator('#viewer-edge-peek input').inputValue());assert.ok(lang==='ja'?selected>50:selected<50,lang+' reversed preview swipe');
+ await p.evaluate(()=>{document.activeElement.blur();toggleUi(true);});await p.keyboard.press('ArrowUp');await p.locator('#viewer-edge-peek .edge-peek-leaf').waitFor();await p.locator('.viewer-pose-transition').waitFor({state:'detached'});await p.locator('#page-slider').fill('50');await p.waitForTimeout(400);await swipe(65);await p.waitForTimeout(750);const selected=+(await p.locator('#page-slider').inputValue());assert.ok(lang==='ja'?selected>50:selected<50,lang+' reversed preview swipe');
  assert.ok(await p.locator('.edge-fan-strip').count()<220,'hidden block layers are not rendered as meshes');
  await p.keyboard.press('Escape');await p.close();console.log(lang,{first,last,selected});
 }

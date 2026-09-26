@@ -195,5 +195,5 @@ export function initializeViewerReaderChrome({getSnapshot, onLayoutChange, befor
         }
     }
     syncControls();
-    return {update,cancelPose,step,setEdgePhase,openReading,beginGesture,drawGesture,finishGesture,get state(){return state();},get transitioning(){return !!transition;},get mode(){return mode;},get pageNumberSettings(){return {...prefs};},get active(){return !!mode||!!transition||motion.active;},get settingsOpen(){return settings.open;}};
+    return {update,cancelPose,adoptSpine(){beforePose();mode='spine';phase='edge';update();},step,setEdgePhase,openReading,beginGesture,drawGesture,finishGesture,get state(){return state();},get transitioning(){return !!transition;},get mode(){return mode;},get pageNumberSettings(){return {...prefs};},get active(){return !!mode||!!transition||motion.active;},get settingsOpen(){return settings.open;}};
 }

@@ -6,7 +6,7 @@ const base=process.env.DSF_VIEWER_TEST_ORIGIN||'http://127.0.0.1:5275';
  await p.goto(base+'/viewer?bookEdges=1&src=/outputs/book-edges-'+total+'.json');await p.waitForFunction(()=>+document.querySelector('#page-slider').max>1);await p.waitForTimeout(350);
  await p.keyboard.press('ArrowUp');await p.locator('#viewer-edge-peek .edge-peek-leaf').waitFor();await p.locator('.viewer-pose-transition').waitFor({state:'detached'});
  for(const position of [0,Math.floor((total-4)/2),total-5]){
- await p.evaluate(()=>toggleUi(true));await p.locator('#viewer-edge-peek input').fill(String(position));await p.waitForTimeout(350);
+ await p.evaluate(()=>toggleUi(true));await p.locator('#page-slider').fill(String(mobile?position+3:Math.floor((position+1)/2)+2));await p.waitForTimeout(350);
  const result=await p.evaluate(()=>{
  const project=(e,x,y)=>{const m=new DOMMatrix(getComputedStyle(e).transform),p=new DOMPoint(x,y).matrixTransform(m);return {x:p.x/p.w,y:p.y/p.w};};
  const outline=e=>{const strips=[...e.children];return [...strips.map(s=>project(s,0,0)),project(strips.at(-1),parseFloat(strips.at(-1).style.width),0),project(strips.at(-1),parseFloat(strips.at(-1).style.width),640),...strips.reverse().map(s=>project(s,0,640))];};

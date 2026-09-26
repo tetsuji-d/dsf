@@ -9,16 +9,16 @@ const base=process.env.DSF_VIEWER_TEST_ORIGIN||'http://127.0.0.1:5275';
   raw.book.mode=mode;raw.book.covers=mode==='full'?{c1:{pageIndex:3},c2:{pageIndex:0},c3:{pageIndex:bodyCount+2},c4:{pageIndex:2}}:{c1:{pageIndex:2},c4:{pageIndex:bodyCount}};
   await p.goto(base+'/viewer?bookEdges=1');await p.waitForFunction(()=>typeof loadDsf==='function');await p.locator('#file-input').setInputFiles({name:'cover-order.json',mimeType:'application/json',buffer:Buffer.from(JSON.stringify(raw))});await p.waitForFunction(()=>+document.querySelector('#page-slider').max>1);
   const wait=state=>p.waitForFunction(state=>document.querySelector('#viewer-reader-controls').dataset.bookState===state&&!document.querySelector('.viewer-pose-transition')&&!document.querySelector('body.viewer-fan-preparing'),state);
-  const pairs=new Map(),max=+(await p.locator('#page-slider').getAttribute('max'));
+  const pairs=new Map(),labelUnits=new Map(),max=+(await p.locator('#page-slider').getAttribute('max'));
   for(let unit=2;unit<max;unit++){
    await p.evaluate(unit=>jumpToPage(unit),unit);await p.waitForTimeout(80);
-   const labels=await p.locator('.reader-page-number').allTextContents();for(const label of labels)if(/^\d+$/.test(label))pairs.set(label,labels);
+   const labels=await p.locator('.reader-page-number').allTextContents();for(const label of labels)if(/^\d+$/.test(label)){pairs.set(label,labels);labelUnits.set(label,unit);}
   }
   assert.equal(pairs.size,bodyCount);
   await p.keyboard.press('ArrowUp');await wait('peek');
-  const peek=p.locator('#viewer-edge-peek'),slider=peek.locator('input');
+  const peek=p.locator('#viewer-edge-peek'),slider=p.locator('#page-slider');
   for(let i=0;i<bodyCount;i++){
-   await p.evaluate(()=>toggleUi(true));await slider.fill(String(i));await p.waitForFunction(i=>+document.querySelector('#viewer-edge-peek input').value===i&&!document.querySelector('#viewer-edge-peek button').disabled,i);
+   await p.evaluate(()=>toggleUi(true));await slider.fill(String(labelUnits.get(String(i+1))));await p.waitForFunction(()=>document.querySelector('#viewer-edge-peek').dataset.ready==='true'&&!document.querySelector('.edge-fan-turn'));
    const active=await p.locator('.edge-fan-sheet[data-active=true]').evaluateAll(ns=>ns.map(n=>n.dataset.pageLabel));
    const expected=pairs.get(String(i+1));assert.deepEqual(active.filter(Boolean),expected.filter(label=>label!=='BODY'),`${mode} ${lang} body ${i+1}`);
    const boards=await p.locator('.edge-fan-cover').evaluateAll(ns=>ns.map(n=>({side:n.dataset.side,role:n.dataset.cover,outside:+n.dataset.outsideSourceIndex,inside:n.dataset.insideCover,faces:n.querySelectorAll('.edge-cover-outside').length})));

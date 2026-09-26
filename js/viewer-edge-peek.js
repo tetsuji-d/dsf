@@ -117,16 +117,16 @@ function makeBinding(width, color) {
     rim.setAttribute('fill','none');rim.setAttribute('stroke','#b4ad97');rim.setAttribute('stroke-width','1');svg.append(rim);
     return svg;
 }
-export function createViewerEdgePeek({getItems, getLayout, renderSurface, formatSurface, getNumberSettings=()=>({number:true,numberEdge:"top",numberAlign:"outer"}), onPhaseChange=()=>{}, onConfirm, open, openCover, navigationBusy=()=>false}) {
+export function createViewerEdgePeek({getItems, getLayout, renderSurface, formatSurface, getNumberSettings=()=>({number:true,numberEdge:"top",numberAlign:"outer"}), onPhaseChange=()=>{}, onSelection=()=>{}, onConfirm, open, openCover, navigationBusy=()=>false}) {
     const root=document.createElement('aside');root.id='viewer-edge-peek';root.hidden=true;
-    root.innerHTML='<div class="edge-peek-leaf" hidden><div class="edge-fan-scene"></div></div><div class="edge-peek-controls"><label><span class="edge-peek-sr">覗き見るページ</span><input type="range" min="0" value="0" aria-label="覗き見るページ"></label><output></output><button type="button" aria-label="このページを開く" title="このページを開く" disabled><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6 18 18 6M6 6h12v12"/></svg></button></div>';
+    root.innerHTML='<div class="edge-peek-leaf" hidden><div class="edge-fan-scene"></div></div><output class="edge-peek-sr" aria-live="polite"></output>';
     document.body.append(root);
-    const leaf=root.querySelector('.edge-peek-leaf'),content=root.querySelector('.edge-fan-scene'),slider=root.querySelector('input'),status=root.querySelector('output'),button=root.querySelector('button');
+    const leaf=root.querySelector('.edge-peek-leaf'),content=root.querySelector('.edge-fan-scene'),status=root.querySelector('output');
     const pose=document.getElementById('viewer-book-pose');
-    let items=[],key='',selected=-1,ticket=0,ready=false,snapshot=null,lastTap=null,frame=0,tapTimer=0,suppressClickUntil=0,rendering=false,pendingIndex=null;
+    let items=[],key='',selected=-1,ticket=0,ready=false,snapshot=null,lastTap=null,frame=0,tapTimer=0,suppressClickUntil=0,rendering=false,pendingIndex=null,pendingCover=null;
     let hoverHeld=false,hoverAnchor=null;
     function holdHover(){hoverHeld=true;hoverAnchor=null;}
-    function clear(){drag=null;rendering=false;pendingIndex=null;cancelAnimationFrame(frame);clearTimeout(tapTimer);root.dataset.opened='false';root.hidden=true;leaf.hidden=true;document.body.classList.remove('viewer-edge-fan-active');content.replaceChildren();items=[];key='';selected=-1;ready=false;ticket++;lastTap=null;onPhaseChange('edge');}
+    function clear(){drag=null;rendering=false;pendingIndex=null;pendingCover=null;root.dataset.ready='false';cancelAnimationFrame(frame);clearTimeout(tapTimer);root.dataset.opened='false';root.hidden=true;leaf.hidden=true;document.body.classList.remove('viewer-edge-fan-active');content.replaceChildren();items=[];key='';selected=-1;ready=false;ticket++;lastTap=null;onPhaseChange('edge');}
     function numberSheet(sheet,label){
         sheet.dataset.pageLabel=label;
         const prefs=getNumberSettings(),align=prefs.numberAlign==='center'?'center':(prefs.numberAlign==='inner'?(sheet.dataset.side==='left'?'right':'left'):sheet.dataset.side);
@@ -141,14 +141,14 @@ export function createViewerEdgePeek({getItems, getLayout, renderSurface, format
         if(rendering){pendingIndex=index;return;}
         void renderSelection(index);
     }
-    function settle(id){if(id!==ticket)return;rendering=false;const next=pendingIndex;pendingIndex=null;if(next!==null&&next!==selected)show(next);}
+    function settle(id){if(id!==ticket)return;rendering=false;if(pendingCover!==null&&ready){const cover=pendingCover;pendingCover=null;pendingIndex=null;openCover?.(cover);return;}const next=pendingIndex;pendingIndex=null;if(next!==null&&next!==selected)show(next);}
     async function renderSelection(index) {
         index=Math.max(0,Math.min(items.length-1,Math.round(index)));
         if(!items[index]||index===selected)return;
         rendering=true;
         const previous=selected, previousLayout=previous>=0?getLayout(items[previous].index):null;
         const previousData={...root.dataset},gesture=drag;
-        selected=index;slider.value=index;root.dataset.sourceIndex=items[index].index;ready=false;button.disabled=true;
+        selected=index;root.dataset.sourceIndex=items[index].index;ready=false;root.dataset.ready='false';
         root.dataset.opened='true';onPhaseChange('peek');
         const layout=getLayout(items[index].index);
         if(!layout){rendering=false;return;}
@@ -180,7 +180,7 @@ export function createViewerEdgePeek({getItems, getLayout, renderSurface, format
             for(const j of [0,10]){const stack=make('',side,j/10*depth,'edge-fan-stack');stack.dataset.side=side<0?'left':'right';next.append(stack);}
         }
         for(const side of [-1,1])next.append(...makePaperEdges(side,Number(root.dataset[side<0?'leftThickness':'rightThickness']),bindingWidth,hinge));
-        root.dataset.boundary=layout.boundary;root.dataset.spreadPosition=layout.position;
+        root.dataset.boundary=layout.boundary;root.dataset.spreadPosition=layout.position;onSelection();
         for(const {surface,side,extent,selected:chosen,active} of layout.layers){
             const isInside=/^C[23]$/.test(surface?.bookRole||surface?.role||'');
             const sheet=make(renderSurface(surface),side*extent,0,isInside?'edge-fan-endpaper':'');
@@ -196,7 +196,7 @@ export function createViewerEdgePeek({getItems, getLayout, renderSurface, format
             if(id!==ticket)return;
             const previousPages=content.firstElementChild;
             cancelAnimationFrame(frame);ready=true;leaf.hidden=false;
-            document.body.classList.add('viewer-edge-fan-active');button.disabled=false;
+            document.body.classList.add('viewer-edge-fan-active');root.dataset.ready='true';
             status.textContent=`${items[index].label} / ${snapshot.total??items.length}`;
             if(previous>=0&&previousLayout?.position!==layout.position&&!matchMedia('(prefers-reduced-motion: reduce)').matches){
                 const direction=(index>previous?1:-1)*(snapshot.rtl?1:-1);
@@ -251,7 +251,7 @@ export function createViewerEdgePeek({getItems, getLayout, renderSurface, format
                         turn.dataset.hinge=initialHinge;turn.dataset.bias=initialBias;turn.dataset.stackDepth=previousData[direction>0?'leftThickness':'rightThickness'];
                         shapeSheet(turn,-direction*(front?.extent??.57));numberSheet(turn,formatSurface(front?.surface));
                         if(pendingIndex===index)pendingIndex=null;
-                        content.replaceChildren(previousPages);selected=previous;slider.value=previous;Object.assign(root.dataset,previousData);
+                        content.replaceChildren(previousPages);selected=previous;Object.assign(root.dataset,previousData);onSelection();
                         status.textContent=`${items[previous].label} / ${snapshot.total??items.length}`;
                     }else{turn.remove();stationary.remove();for(const sheet of hidden)sheet.style.visibility='';}
                     settle(id);
@@ -303,9 +303,7 @@ export function createViewerEdgePeek({getItems, getLayout, renderSurface, format
         if(el===pose){scrub(e,pose);}else (onConfirm?onConfirm():confirm());
     }
     pose.addEventListener('keydown',e=>{if(!root.hidden&&['Enter',' '].includes(e.key)){e.preventDefault();void show(Math.max(0,items.findIndex(item=>item.index===snapshot.peekIndex)));}});
-    slider.oninput=()=>void show(+slider.value);
-    slider.addEventListener('pointermove',e=>{if(e.pointerType==='mouse'&&!e.buttons)hover(e,slider);});
-    for(const el of [pose,slider,leaf]) {
+    for(const el of [pose,leaf]) {
         el.addEventListener('dblclick',e=>{if(root.hidden)return;e.preventDefault();e.stopPropagation();activate(e,el);});
         let down=null;
         el.addEventListener('pointerdown',e=>{if(root.hidden||e.pointerType!=='touch')return;down={id:e.pointerId,x:e.clientX,y:e.clientY};});
@@ -344,15 +342,20 @@ export function createViewerEdgePeek({getItems, getLayout, renderSurface, format
         clearTimeout(tapTimer);if(e.detail>1)return;
         tapTimer=setTimeout(()=>{if(!root.hidden)window.toggleUi();},360);
     });
-    button.onclick=()=>onConfirm?onConfirm():confirm();
-    slider.addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();if(onConfirm)onConfirm();else confirm();}});
-    return {get element(){return root;},get ready(){return ready;},get sourceIndex(){return items[selected]?.index;},confirm,
+    return {get element(){return root;},get ready(){return ready;},get sourceIndex(){return items[selected]?.index;},confirm,seek(index){
+        holdHover();
+        if(index===snapshot?.covers?.front||index===snapshot?.covers?.back){pendingCover=index;if(!rendering)settle(ticket);return;}
+        pendingCover=null;
+        const position=getLayout(index)?.position,exact=items.findIndex(item=>item.index===index);
+        const at=exact>=0?exact:items.findIndex(item=>getLayout(item.index)?.position===position);
+        if(at>=0)show(at);
+    },
     async prepare(index){const found=items.findIndex(item=>item.index===index),chosen=found>=0?found:(index===snapshot.covers?.back?items.length-1:0);if(selected===chosen&&ready)return true;await renderSelection(chosen);return ready;},
     update(mode,data) {
         if(mode!=='edge'||!data){clear();return;}
         snapshot=data;root.hidden=false;onPhaseChange(selected>=0?'peek':'edge');
         for(const sheet of content.querySelectorAll('[data-page-label]'))numberSheet(sheet,sheet.dataset.pageLabel);
-        if(key!==data.peekKey){rendering=false;pendingIndex=null;cancelAnimationFrame(frame);root.dataset.opened='false';document.body.classList.remove('viewer-edge-fan-active');onPhaseChange('edge');items=getItems();key=data.peekKey;selected=-1;ticket++;leaf.hidden=true;content.replaceChildren();ready=false;button.disabled=true;slider.max=Math.max(0,items.length-1);slider.value='0';status.textContent='左右になぞると中身が見えます';}
+        if(key!==data.peekKey){rendering=false;pendingIndex=null;cancelAnimationFrame(frame);root.dataset.opened='false';document.body.classList.remove('viewer-edge-fan-active');onPhaseChange('edge');items=getItems();key=data.peekKey;selected=-1;ticket++;leaf.hidden=true;content.replaceChildren();ready=false;root.dataset.ready='false';status.textContent='左右になぞると中身が見えます';}
         if(!items.length){clear();return;}
         // No space is reserved for controls: fit the complete book to the viewport.
         const viewport=window.visualViewport, width=viewport?.width||innerWidth,height=viewport?.height||innerHeight;
@@ -361,7 +364,7 @@ export function createViewerEdgePeek({getItems, getLayout, renderSurface, format
         root.style.setProperty('--peek-width',w+'px');root.style.setProperty('--peek-height',h+'px');
         root.style.setProperty('--fan-scale',scale);
         Object.assign(root.style,{left:((viewport?.offsetLeft||0)+width/2)+'px',top:((viewport?.offsetTop||0)+(height-h)/2)+'px'});
-        slider.style.direction=data.rtl?'rtl':'ltr';root.dataset.direction=data.rtl?'rtl':'ltr';
+        root.dataset.direction=data.rtl?'rtl':'ltr';
     },holdHover,endDrag(){if(drag)drag.ended=false;drag=null;},get opened(){return !root.hidden&&selected>=0;},handleKey(e){
         if(root.hidden||selected<0||!['ArrowLeft','ArrowRight'].includes(e.key))return false;
         e.preventDefault();stepPage((e.key==='ArrowRight'?1:-1)*(snapshot.rtl?-1:1),!!e.repeat);return true;
