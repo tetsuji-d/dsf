@@ -5,7 +5,8 @@ export function createViewerPeekCover({layout,snapshot,renderSurface,project}) {
     const group=document.createElement('div');group.className='edge-fan-closed';group.dataset.cover=layout.role;
     const side=snapshot.rtl?1:-1,depth=Math.max(2,Math.min(64,snapshot.thickness||8));
     const dx=side*depth*.8,dy=-Math.min(14,3+depth*.2);
-    const front=[{x:225,y:48},{x:575,y:30},{x:575,y:652},{x:225,y:670}].map(p=>({x:p.x-dx/2,y:p.y+10-dy/2}));
+    // Front-facing 9:16 rectangle; only the depth recedes obliquely.
+    const front=[{x:220,y:40},{x:580,y:40},{x:580,y:680},{x:220,y:680}].map(p=>({x:p.x-dx/2,y:p.y-dy/2}));
     const rear=front.map(p=>({x:p.x+dx,y:p.y+dy}));
     const color=snapshot.design?.backgroundColor||'#173d42';
     const ns='http://www.w3.org/2000/svg',head=document.createElementNS(ns,'svg');head.setAttribute('viewBox','0 0 800 720');head.classList.add('edge-cover-head');
