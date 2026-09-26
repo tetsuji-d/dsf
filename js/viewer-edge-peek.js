@@ -1,9 +1,9 @@
 import {VIEWER_PEEK_OPEN_EXTENT, VIEWER_PEEK_PAGE_REACH} from './viewer-peek-layout.js';
+import {peekPaperPoint as paperPoint} from './viewer-peek-geometry.js';
 import {createViewerPeekCover} from './viewer-peek-cover.js';
 import {createViewerPeekCoverMotion} from './viewer-peek-cover-motion.js';
 /** A curved fan of neighbouring sheets sharing one binding. No reading state is
  * changed until confirmation; CSS strips also support fixed-text surfaces. */
-const perspectiveX=t=>Math.expm1(.32*t)/Math.expm1(.32);
 let needsAffineTriangles;
 function usesAffineTriangles() {
     if(needsAffineTriangles!==undefined)return needsAffineTriangles;
@@ -24,7 +24,9 @@ export function projectStrip(el, points, width) {
         el.classList.remove('edge-fan-affine');
         for(const tri of el.affineTriangles||[])tri.remove();
         el.affineTriangles=null;el.affineHtml=null;
-        el.style.transform=`matrix(${(q.x-p.x)/w},${(q.y-p.y)/w},${(s.x-p.x)/rasterHeight},${(s.y-p.y)/rasterHeight},${p.x},${p.y})`;
+        // Keep affine strips on the same compositing path as curved ones;
+        // 2D clipping otherwise leaves pale vertical seams in Chromium.
+        el.style.transform=`matrix3d(${(q.x-p.x)/w},${(q.y-p.y)/w},0,0,${(s.x-p.x)/rasterHeight},${(s.y-p.y)/rasterHeight},0,0,0,0,1,0,${p.x},${p.y},0,1)`;
         return;
     }
     // Some WebKit compositors flatten a projective matrix without its W division.
@@ -52,25 +54,6 @@ export function projectStrip(el, points, width) {
     const a=q.x-p.x+g*q.x, b=s.x-p.x+h*s.x;
     const d=q.y-p.y+g*q.y, e=s.y-p.y+h*s.y;
     el.style.transform=`matrix3d(${a/w},${d/w},0,${g/w},${b/(640*raster)},${e/(640*raster)},0,${h/(640*raster)},0,0,1,0,${p.x},${p.y},0,1)`;
-}
-// The exposed pages meet within the spine at the selected reading position,
-// while the backs of their paper blocks attach across the full spine width.
-function paperPoint({side,extent=1,bias=0,bindingWidth=0,hinge=405,stackDepth=0,layer=1,cover=false,lift=0},t,v) {
-    const bow=Math.sin(Math.PI*t),attachment=cover?side*bindingWidth*.5:side*bindingWidth*.5*(1-layer)+(hinge-405)*layer;
-    const outer=cover?VIEWER_PEEK_PAGE_REACH+1.5:VIEWER_PEEK_PAGE_REACH-layer*stackDepth*.55;
-    const topInset=cover?-.6:1+layer*stackDepth*t;
-    const bottomInset=cover?.6:-1;
-    const x=405+attachment*(1-t)+bias*(1-extent)*.8*t+side*extent*outer*perspectiveX(t);
-    let y=30+v*510+t*(65+(1-extent)*100+v*50)+bow*(18+lift*45)+topInset*(1-v)+bottomInset*v;
-    if(!cover && extent===1 && v===1){
-        // From above, the rear cover ends higher than the paper toward us.
-        // Keep this slope on the side face; do not draw an underside.
-        const distance=side*(x-405),half=bindingWidth/2;
-        let lo=0,hi=1;
-        for(let i=0;i<20;i++){const u=(lo+hi)/2;if(half*(1-u)+(VIEWER_PEEK_PAGE_REACH+1.5)*perspectiveX(u)<distance)lo=u;else hi=u;}
-        const u=(lo+hi)/2;y=539+115*u+18*Math.sin(Math.PI*u)+layer*stackDepth*.75*t;
-    }
-    return {x,y};
 }
 function shapeSheet(sheet, spread, depth=0, lift=0) {
     sheet.dataset.side=spread<0?'left':'right';
@@ -130,9 +113,9 @@ function makeBinding(width, color) {
     svg.dataset.left=left;svg.dataset.right=right;svg.dataset.width=width;
     // Exterior spine joins both covers behind the pages. The reading surfaces
     // cover its middle, exposing only the continuous head/foot of the binding.
-    const back=document.createElementNS(ns,'path');back.setAttribute('d',`M${left},29.4 H${right} V540.6 H${left} Z`);
+    const back=document.createElementNS(ns,'path');back.setAttribute('d',`M${left},18 H${right} V662 H${left} Z`);
     back.setAttribute('fill',color);svg.append(back);
-    const rim=document.createElementNS(ns,'path');rim.setAttribute('d',`M${left},30 H${right} M${left},540 H${right}`);
+    const rim=document.createElementNS(ns,'path');rim.setAttribute('d',`M${left},19 H${right} M${left},661 H${right}`);
     rim.setAttribute('fill','none');rim.setAttribute('stroke','#b4ad97');rim.setAttribute('stroke-width','1');svg.append(rim);
     return svg;
 }
@@ -425,10 +408,11 @@ export function createViewerEdgePeek({getItems, getLayout, renderSurface, format
         if(!items.length){clear();return;}
         // No space is reserved for controls: fit the complete book to the viewport.
         const viewport=window.visualViewport, width=viewport?.width||innerWidth,height=viewport?.height||innerHeight;
-        const fanWidth=2*(VIEWER_PEEK_PAGE_REACH+25);
+        const fanWidth=2*(VIEWER_PEEK_PAGE_REACH+48);
         const heightScale=height/720,scale=Math.min(width/fanWidth,heightScale),w=fanWidth*scale,h=height;
         root.style.setProperty('--fan-offset-x',(fanWidth/2-405)+'px');
-        root.style.setProperty('--fan-height-scale',heightScale);
+        // One scale on both axes keeps every source page in proportion, including phones.
+        root.style.setProperty('--fan-offset-y',((height-720*scale)/2)+'px');
         root.style.setProperty('--cover-scale',Math.min((width-12)/(360+Math.min(64,data.thickness||8)*.8),(height-12)/660));
         root.style.setProperty('--peek-width',w+'px');root.style.setProperty('--peek-height',h+'px');
         root.style.setProperty('--fan-scale',scale);

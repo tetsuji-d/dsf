@@ -1,7 +1,7 @@
-// Fan the neighbouring faces outward: expose about a third of the next
-// page and a quarter of the furthest page instead of narrow decorative slivers.
+import {PEEK_PAGE_WIDTH} from './viewer-peek-geometry.js';
+// Keep the source sheet at 360 x 640; separation comes from bending, not stretching.
 export const VIEWER_PEEK_OPEN_EXTENT = .48;
-export const VIEWER_PEEK_PAGE_REACH = 480;
+export const VIEWER_PEEK_PAGE_REACH = PEEK_PAGE_WIDTH;
 
 /** Share the reading spread order; never infer physical sides from a body index. */
 export function getViewerPeekLayout({units, covers, sourceIndex, rtl, bodyPageCount}) {

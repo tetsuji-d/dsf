@@ -3252,7 +3252,7 @@ body.viewer-edge-fan-active #viewer-book-pose[data-mode=edge] {visibility:hidden
 #viewer-edge-peek {position:fixed;z-index:106;transform:translateX(-50%);width:var(--peek-width);pointer-events:none;}
 #viewer-edge-peek[hidden],.edge-peek-leaf[hidden] {display:none!important;}
 .edge-peek-leaf {position:relative;width:var(--peek-width);height:var(--peek-height);pointer-events:auto;touch-action:none;cursor:ew-resize;}
-.edge-fan-scene {position:absolute;width:800px;height:720px;transform:scale(var(--fan-scale),var(--fan-height-scale)) translate(var(--fan-offset-x,-40px),-20px);transform-origin:0 0;filter:drop-shadow(0 14px 16px #0005);pointer-events:none;}
+.edge-fan-scene {position:absolute;width:800px;height:720px;top:var(--fan-offset-y,0px);transform:scale(var(--fan-scale)) translate(var(--fan-offset-x,-40px),0px);transform-origin:0 0;filter:drop-shadow(0 14px 16px #0005);pointer-events:none;}
 .edge-fan-pages,.edge-fan-sheet {position:absolute;inset:0;pointer-events:none;}
 .edge-fan-strip,.edge-fan-triangle {position:absolute;left:0;top:0;width:36px;height:640px;overflow:hidden;transform-origin:0 0;background:#f8f4e8;backface-visibility:hidden;}
 .edge-fan-strip::after,.edge-fan-triangle::after {content:"";position:absolute;inset:0;background:linear-gradient(90deg,rgba(36,29,14,var(--shade-start,.1)),rgba(36,29,14,var(--shade-end,.1)));border-top:1px solid #fff8;border-bottom:1px solid #4b432933;pointer-events:none;}
