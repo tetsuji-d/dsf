@@ -1,5 +1,5 @@
 /** One trackpad stroke owns one axis, including its momentum tail. */
-export function createViewerBookWheel({enabled, begin, progress, finish, horizontal, busy, step, onClaim=()=>{}}) {
+export function createViewerBookWheel({enabled, begin, progress, finish, horizontal, busy, step, onClaim=()=>{},fling=()=>false}) {
     const threshold=32;
     let gesture=null,timer=0,queued=null,queueFrame=0;
     function cancelQueue(){queued=null;cancelAnimationFrame(queueFrame);}
@@ -28,7 +28,7 @@ export function createViewerBookWheel({enabled, begin, progress, finish, horizon
     return {get active(){return !!gesture||!!queued;},cancel:()=>release(true),handle(e){
         if(e.ctrlKey||e.metaKey||!enabled()){release(true);return false;}
         const unit=e.deltaMode===1?16:e.deltaMode===2?innerHeight:1;
-        const x=e.deltaX*unit,y=e.deltaY*unit,now=performance.now();
+        const x=e.deltaX*unit,y=e.deltaY*unit,now=e.timeStamp;
         // A renewed impulse after a decaying tail is a fresh stroke. Do not make
         // the user wait for every tiny momentum event to disappear first.
         if(gesture?.axis){
@@ -40,7 +40,7 @@ export function createViewerBookWheel({enabled, begin, progress, finish, horizon
         if(!gesture){
             if(e.target.closest?.('button,a,input,select,textarea,summary,[contenteditable],#viewer-header,#viewer-info-panel,#reader-assist-panel,#viewer-page-settings,.edge-peek-controls,[role=dialog]'))return false;
             if(e.target!==document.body&&e.target!==document.documentElement&&!e.target.closest?.('#viewer-layout,#viewer-book-pose,#viewer-edge-peek,.viewer-pose-transition'))return false;
-            gesture={x:0,y:0,axis:null,manual:false,started:false,done:false,peak:0,lastAmplitude:0,decayed:false};onClaim();
+            gesture={beganAt:now,flung:false,x:0,y:0,axis:null,manual:false,started:false,done:false,peak:0,lastAmplitude:0,decayed:false};onClaim();
         }
         e.preventDefault();clearTimeout(timer);
         try{
@@ -56,12 +56,19 @@ export function createViewerBookWheel({enabled, begin, progress, finish, horizon
             g.peak=Math.max(g.peak,amplitude);if(amplitude<g.peak*.4)g.decayed=true;g.lastAmplitude=amplitude;
             g.distance=g[g.axis];
             if(g.distance*g.sign>=threshold&&!g.committedAt)g.committedAt=now;
-            if(g.done)return true;
+            // Only the initial strong horizontal impulse can launch a riffle;
+            // ignore the long, low-amplitude momentum tail and vertical strokes.
+            const fast=g.axis==='x'&&now-g.beganAt<=180&&Math.abs(g.x)>=120&&g.peak>=24;
+            if(g.done){
+                if(fast&&!g.flung){g.flung=true;fling(g.sign>0?'right':'left',Math.min(6,2+Math.floor(Math.abs(g.x)/120)));}
+                return true;
+            }
             if(g.axis==='y'){
                 if(!g.started&&!busy()){g.started=true;g.manual=begin(g.sign<0?'up':'down');}
                 if(g.manual)progress(Math.max(0,Math.min(1,g.distance*g.sign/160)));
             }else if(g.distance*g.sign>=threshold&&!busy()){
                 g.done=true;horizontal(g.sign>0?'right':'left');
+                if(fast){g.flung=true;fling(g.sign>0?'right':'left',Math.min(6,2+Math.floor(Math.abs(g.x)/120)));}
             }
             return true;
         }finally{

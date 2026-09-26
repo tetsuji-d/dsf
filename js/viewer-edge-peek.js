@@ -1,4 +1,5 @@
 import {createViewerPeekCover} from './viewer-peek-cover.js';
+import {createViewerPeekCoverMotion} from './viewer-peek-cover-motion.js';
 /** A curved fan of neighbouring sheets sharing one binding. No reading state is
  * changed until confirmation; CSS strips also support fixed-text surfaces. */
 const perspectiveX=t=>Math.expm1(.32*t)/Math.expm1(.32);
@@ -143,7 +144,22 @@ export function createViewerEdgePeek({getItems, getLayout, renderSurface, format
     let items=[],key='',selected=-1,ticket=0,ready=false,snapshot=null,lastTap=null,frame=0,tapTimer=0,suppressClickUntil=0,rendering=false,pendingIndex=null;
     let hoverHeld=false,hoverAnchor=null,pendingRapid=false,lastStepAt=0,lastStepDelta=0;
     function holdHover(){hoverHeld=true;hoverAnchor=null;}
-    function clear(){pendingRapid=false;lastStepAt=0;lastStepDelta=0;drag=null;rendering=false;pendingIndex=null;root.dataset.ready='false';cancelAnimationFrame(frame);clearTimeout(tapTimer);root.dataset.opened='false';root.hidden=true;leaf.hidden=true;document.body.classList.remove('viewer-edge-fan-active');content.replaceChildren();items=[];key='';selected=-1;ready=false;ticket++;lastTap=null;onPhaseChange('edge');}
+    const coverMotion=createViewerPeekCoverMotion();
+    let inertia=null;
+    function stopRiffle(){inertia=null;delete root.dataset.riffling;}
+    function continueRiffle(){
+        if(!inertia||rendering||drag)return;
+        const next=adjacentIndex(selected,inertia.delta);
+        if(inertia.remaining<=0||next===null||getLayout(items[next].index)?.exterior){stopRiffle();return;}
+        inertia.remaining--;show(next,Math.round(125+105*(1-inertia.remaining/inertia.total)));
+    }
+    function startRiffle(delta,count){
+        if(root.hidden||selected<0||getLayout(items[selected].index)?.exterior)return false;
+        holdHover();inertia={delta,remaining:count,total:count};root.dataset.riffling='true';continueRiffle();return true;
+    }
+    window.addEventListener('blur',stopRiffle);
+    document.addEventListener('visibilitychange',()=>{if(document.hidden)stopRiffle();});
+    function clear(){stopRiffle();coverMotion.cancel();pendingRapid=false;lastStepAt=0;lastStepDelta=0;drag=null;rendering=false;pendingIndex=null;root.dataset.ready='false';cancelAnimationFrame(frame);clearTimeout(tapTimer);root.dataset.opened='false';root.hidden=true;leaf.hidden=true;document.body.classList.remove('viewer-edge-fan-active');content.replaceChildren();items=[];key='';selected=-1;ready=false;ticket++;lastTap=null;onPhaseChange('edge');}
     function numberSheet(sheet,label){
         sheet.dataset.pageLabel=label;
         const prefs=getNumberSettings(),align=prefs.numberAlign==='center'?'center':(prefs.numberAlign==='inner'?(sheet.dataset.side==='left'?'right':'left'):sheet.dataset.side);
@@ -158,7 +174,7 @@ export function createViewerEdgePeek({getItems, getLayout, renderSurface, format
         if(rendering){pendingIndex=index;pendingRapid=rapid;return;}
         void renderSelection(index,rapid);
     }
-    function settle(id){if(id!==ticket)return;rendering=false;const next=pendingIndex,rapid=pendingRapid;pendingIndex=null;pendingRapid=false;if(next!==null&&next!==selected)show(next,rapid);}
+    function settle(id){if(id!==ticket)return;rendering=false;const next=pendingIndex,rapid=pendingRapid;pendingIndex=null;pendingRapid=false;if(next!==null&&next!==selected)show(next,rapid);else continueRiffle();}
     async function renderSelection(index,rapid=false) {
         index=Math.max(0,Math.min(items.length-1,Math.round(index)));
         if(!items[index]||index===selected)return;
@@ -239,18 +255,19 @@ export function createViewerEdgePeek({getItems, getLayout, renderSurface, format
                 // The incoming face becomes stationary only after the turn lands.
                 next.append(stationary,turn);content.replaceChildren(next);
                 const frontHtml=renderSurface(front?.surface),backHtml=renderSurface(back?.surface);
-                const turnTime=rapid&&!gesture?160:280;
+                const turnTime=typeof rapid==='number'?rapid:rapid&&!gesture?160:280;
                 let backShown=false,start=performance.now(),held=0,from=0,releasing=!gesture;
                 const initialHinge=Number(turn.dataset.hinge),initialBias=Number(turn.dataset.bias);
                 function animate(now){
                     if(id!==ticket)return;
                     const heldGesture=gesture&&gesture.ended===null;
                     let t;
+                    const duration=gesture?Math.max(40,(gesture.flung?125:turnTime)*Math.abs((gesture.ended===false?0:1)-from)):turnTime;
                     if(heldGesture){t=gesture.progress;releasing=false;}
                     else{
                         if(!releasing){from=held;start=now;releasing=true;}
                         const end=gesture?.ended===false?0:1;
-                        t=from+(end-from)*Math.min(1,(now-start)/turnTime);
+                        t=from+(end-from)*Math.min(1,(now-start)/duration);
                     }
                     t=Math.max(0,Math.min(1,t));
                     if(heldGesture&&t===held){frame=requestAnimationFrame(animate);return;}
@@ -267,7 +284,7 @@ export function createViewerEdgePeek({getItems, getLayout, renderSurface, format
                     turn.dataset.bias=initialBias+(bias-initialBias)*ease;
                     turn.dataset.stackDepth=spread<0?leftDepth:rightDepth;
                     shapeSheet(turn,Math.abs(spread)<.018?.018*(spread<0?-1:1):spread,0,Math.sin(t*Math.PI));
-                    if(heldGesture||now-start<turnTime){frame=requestAnimationFrame(animate);return;}
+                    if(heldGesture||now-start<duration){frame=requestAnimationFrame(animate);return;}
                     if(gesture?.ended===false){
                         turnSlot.replaceWith(turn);stationarySlot.replaceWith(stationary);
                         turn.classList.remove('edge-fan-turn');turn.dataset.active='true';stationary.dataset.active='true';
@@ -281,7 +298,15 @@ export function createViewerEdgePeek({getItems, getLayout, renderSurface, format
                     settle(id);
                 }
                 frame=requestAnimationFrame(animate);
-            }else{content.replaceChildren(next);if(previous>=0&&(layout.exterior||previousLayout?.exterior)&&!matchMedia('(prefers-reduced-motion:reduce)').matches)next.animate([{opacity:.4},{opacity:1}],{duration:180});settle(id);}
+            }else{
+                if(previous>=0&&(layout.exterior||previousLayout?.exterior)){
+                    ready=false;root.dataset.ready='false';
+                    await coverMotion.play(content,previousPages,next,{from:previousLayout?.role||'peek',to:layout.role||'peek',thickness:snapshot.thickness,hinge:Number(previousData.hinge)||405});
+                    if(id!==ticket)return;
+                    ready=true;root.dataset.ready='true';
+                }else content.replaceChildren(next);
+                settle(id);
+            }
         } catch {if(id===ticket){status.textContent='このページを表示できません';settle(id);}}
         finally {clearTimeout(timer);}
     }
@@ -294,7 +319,7 @@ export function createViewerEdgePeek({getItems, getLayout, renderSurface, format
     function scrub(e,element) {if(!root.hidden&&items.length)void show(positionAt(e,element));}
     function hover(e,element){
         if(getLayout(items[selected]?.index)?.exterior)return;
-        if(navigationBusy()){holdHover();return;}
+        if(navigationBusy()||inertia||rendering){holdHover();return;}
         if(hoverHeld){
             if(!hoverAnchor){hoverAnchor={x:e.clientX,y:e.clientY};return;}
             if(Math.hypot(e.clientX-hoverAnchor.x,e.clientY-hoverAnchor.y)<18)return;
@@ -314,14 +339,19 @@ export function createViewerEdgePeek({getItems, getLayout, renderSurface, format
         return null;
     }
     function stepPage(delta,repeat=false){
-        holdHover();
+        stopRiffle();holdHover();
+        if(rendering&&getLayout(items[selected]?.index)?.exterior)return;
         const at=pendingIndex??selected,next=adjacentIndex(at,delta);
         if(next!==null){
             if(getLayout(items[next].index)?.exterior&&(repeat||rendering||!ready))return;
             const now=performance.now(),rapid=repeat||(delta===lastStepDelta&&now-lastStepAt<450);
             lastStepAt=now;lastStepDelta=delta;show(next,rapid);return;
         }
-        // The exterior cover is the end of the peek sequence; it never opens reading implicitly.
+        // A fresh outward input rolls the closed book over without leaving peek.
+        if(!repeat&&!rendering&&ready&&getLayout(items[at]?.index)?.exterior){
+            const opposite=delta<0?items.length-1:0;
+            if(getLayout(items[opposite]?.index)?.exterior)show(opposite);
+        }
     }
     function activate(e,el){
         clearTimeout(tapTimer);suppressClickUntil=performance.now()+400;
@@ -343,10 +373,11 @@ export function createViewerEdgePeek({getItems, getLayout, renderSurface, format
     }
 
     let drag=null;
-    leaf.addEventListener('pointerdown',e=>{holdHover();drag={id:e.pointerId,x:e.clientX,y:e.clientY,index:pendingIndex??selected,progress:0,target:null,sign:0,ended:null};try{leaf.setPointerCapture(e.pointerId);}catch{}});
+    leaf.addEventListener('pointerdown',e=>{stopRiffle();holdHover();if(rendering)return;drag={samples:[{x:e.clientX,t:e.timeStamp}],width:leaf.getBoundingClientRect().width,id:e.pointerId,x:e.clientX,y:e.clientY,index:pendingIndex??selected,progress:0,target:null,sign:0,ended:null};try{leaf.setPointerCapture(e.pointerId);}catch{}});
     leaf.addEventListener('pointermove',e=>{
         if(e.pointerType==='mouse'&&!e.buttons){hover(e,leaf);return;}
         if(drag?.id!==e.pointerId)return;
+        const now=e.timeStamp;drag.samples.push({x:e.clientX,t:now});while(drag.samples.length>2&&now-drag.samples[1].t>100)drag.samples.shift();
         const dx=e.clientX-drag.x,dy=e.clientY-drag.y;
         if(!drag.sign){
             if(Math.abs(dx)<24||Math.abs(dx)<Math.abs(dy)*1.35)return;
@@ -359,8 +390,17 @@ export function createViewerEdgePeek({getItems, getLayout, renderSurface, format
         const g=drag;drag=null;if(!g||g.id!==e.pointerId)return;
         const dx=e.clientX-g.x,dy=e.clientY-g.y;
         g.ended=!cancelled&&dx*g.sign>=24&&Math.abs(dx)>Math.abs(dy)*1.35;
+        if(g.ended)suppressClickUntil=performance.now()+400;
         if(g.ended&&g.target!==null&&(getLayout(items[g.target].index)?.exterior||getLayout(items[g.index].index)?.exterior))show(g.target);
         if(g.ended&&g.target===null)stepPage(g.sign*(snapshot.rtl?1:-1));
+        if(g.ended&&g.target!==null&&!getLayout(items[g.index].index)?.exterior&&!getLayout(items[g.target].index)?.exterior){
+            const now=e.timeStamp,sample=g.samples.find(s=>now-s.t<=130);
+            const velocity=sample?(e.clientX-sample.x)/Math.max(16,now-sample.t):0;
+            const speed=Math.abs(velocity)*1000/g.width;
+            if(Math.abs(dx)>=Math.max(60,g.width*.2)&&speed>=3.4&&Math.abs(velocity)>=1.25&&Math.sign(velocity)===g.sign){
+                g.flung=true;startRiffle(g.sign*(snapshot.rtl?1:-1),Math.min(6,2+Math.floor((speed-3.4)*.8)));
+            }
+        }
     }
     leaf.addEventListener('pointerup',e=>endPeekDrag(e));leaf.addEventListener('pointercancel',e=>endPeekDrag(e,true));
     for(const el of [pose,leaf])el.addEventListener('click',e=>{
@@ -369,7 +409,7 @@ export function createViewerEdgePeek({getItems, getLayout, renderSurface, format
         tapTimer=setTimeout(()=>{if(!root.hidden)window.toggleUi();},360);
     });
     return {get element(){return root;},get ready(){return ready;},get sourceIndex(){return items[selected]?.index;},confirm,seek(index){
-        holdHover();
+        stopRiffle();holdHover();
 
         const position=getLayout(index)?.position,exact=items.findIndex(item=>item.index===index);
         const at=exact>=0?exact:items.findIndex(item=>getLayout(item.index)?.position===position);
@@ -380,7 +420,7 @@ export function createViewerEdgePeek({getItems, getLayout, renderSurface, format
         if(mode!=='edge'||!data){clear();return;}
         snapshot=data;root.hidden=false;onPhaseChange(selected>=0?'peek':'edge');
         for(const sheet of content.querySelectorAll('[data-page-label]'))numberSheet(sheet,sheet.dataset.pageLabel);
-        if(key!==data.peekKey){rendering=false;pendingIndex=null;cancelAnimationFrame(frame);root.dataset.opened='false';document.body.classList.remove('viewer-edge-fan-active');onPhaseChange('edge');items=getItems();key=data.peekKey;selected=-1;ticket++;leaf.hidden=true;content.replaceChildren();ready=false;root.dataset.ready='false';status.textContent='左右になぞると中身が見えます';}
+        if(key!==data.peekKey){stopRiffle();coverMotion.cancel();rendering=false;pendingIndex=null;cancelAnimationFrame(frame);root.dataset.opened='false';document.body.classList.remove('viewer-edge-fan-active');onPhaseChange('edge');items=getItems();key=data.peekKey;selected=-1;ticket++;leaf.hidden=true;content.replaceChildren();ready=false;root.dataset.ready='false';status.textContent='左右になぞると中身が見えます';}
         if(!items.length){clear();return;}
         // No space is reserved for controls: fit the complete book to the viewport.
         const viewport=window.visualViewport, width=viewport?.width||innerWidth,height=viewport?.height||innerHeight;
@@ -391,7 +431,7 @@ export function createViewerEdgePeek({getItems, getLayout, renderSurface, format
         root.style.setProperty('--fan-scale',scale);
         Object.assign(root.style,{left:((viewport?.offsetLeft||0)+width/2)+'px',top:((viewport?.offsetTop||0)+(height-h)/2)+'px'});
         root.dataset.direction=data.rtl?'rtl':'ltr';
-    },holdHover,endDrag(){if(drag)drag.ended=false;drag=null;},get opened(){return !root.hidden&&selected>=0;},handleKey(e){
+    },holdHover,stopRiffle,fling(side,count){return startRiffle((side==='right'?1:-1)*(snapshot?.rtl?-1:1),count);},endDrag(){stopRiffle();if(drag)drag.ended=false;drag=null;},get opened(){return !root.hidden&&selected>=0;},handleKey(e){
         if(root.hidden||selected<0||!['ArrowLeft','ArrowRight'].includes(e.key))return false;
         e.preventDefault();stepPage((e.key==='ArrowRight'?1:-1)*(snapshot.rtl?-1:1),!!e.repeat);return true;
     },clear};

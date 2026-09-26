@@ -479,7 +479,8 @@ async function init() {
     if(readerChrome) bookWheel=createViewerBookWheel({
         enabled:()=>getViewerBookThickness()!==undefined&&viewScale<=1.05&&!readingGuides?.isAssisting(),
         busy:()=>readerChrome.transitioning||!!activePageCurl?.active||(!!coverTurn?.active&&!coverTurn.atSpine),
-        onClaim:()=>edgePeek?.holdHover(),
+        onClaim:()=>{edgePeek?.stopRiffle();edgePeek?.holdHover();},
+        fling:(side,count)=>!readerChrome.transitioning&&!!edgePeek?.fling(side,count),
         step:direction=>stepViewerBookVertical(direction),
         begin:direction=>stepViewerBookVertical(direction,true),progress:p=>readerChrome.drawGesture(p),finish:accept=>readerChrome.finishGesture(accept),
         horizontal:side=>{

@@ -3332,3 +3332,6 @@ body.viewer-fan-preparing #viewer-book-pose,body.viewer-fan-preparing #viewer-ed
 .edge-fan-closed,.edge-cover-head {position:absolute;inset:0;width:800px;height:720px;pointer-events:none;}
 .edge-fan-rigid .edge-peek-content::after {display:none;}
 .edge-fan-rigid .edge-fan-folio {color:#fff;text-shadow:0 1px 3px #000,0 0 2px #000;}
+
+.edge-peek-cover-motion {position:fixed;inset:0;z-index:106;pointer-events:none;overflow:hidden;}
+.edge-peek-motion-side {position:absolute;overflow:hidden;background:repeating-linear-gradient(90deg,#b8b09a 0px,#efe9d8 1px,#efe9d8 2px);pointer-events:none;}
