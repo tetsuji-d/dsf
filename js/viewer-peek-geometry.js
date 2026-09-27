@@ -8,46 +8,53 @@ export const PEEK_DEPTH_PROJECTION = .30;
 const radians = degrees => degrees * Math.PI / 180;
 const mix = (a, b, t) => a + (b - a) * t;
 
+// A soft-cover section has a rounded crest one third across the horizontal
+// gutter-to-fore-edge chord. Both ends of the rear sheet lie on the desk (z=0).
+// Arc-length parametrization maps the entire fixed-layout page onto this shape
+// without changing its physical width, even as portrait view deepens the bow.
+const bowAt = u => 6.75*u*(1-u)*(1-u);
+const bowSlope = u => 6.75*(1-u)*(1-3*u);
+const PROFILE_STEPS = 256;
+const profileCache = new Map();
 export function peekPaperProfile(extent=1, tilt=0, lift=0, compact=0) {
-    const e=Math.max(0,Math.min(1,extent)), c=Math.max(0,Math.min(1,compact));
-    // Use physical bend radii: the cover/rear leaf has R = page width / 3.
-    // The broad arc reaches the middle of the page instead of making a short
-    // hinge followed by a long, rigid panel. Portrait mode changes its pose,
-    // not its radius or the source paper dimensions.
-    // Inner leaves curve across their whole width, including on narrow screens.
-    // A short circular hinge followed by a long flat tail looks like a board.
-    const poses=[{e:0,h:90,f:90,r:Infinity},
-        {e:.48,h:mix(80,87,c),f:mix(28,74,c),r:Infinity},
-        // Open the middle leaf towards the rear and keep a broader bow on phones.
-        // Equal-looking edge gaps otherwise hide most of its source content.
-        {e:.74,h:mix(78,87,c),f:mix(-1,46,c),r:Infinity},
-        {e:1,h:mix(70,10,c),f:mix(-30,-89,c),r:PEEK_PAGE_WIDTH/3}];
+    const e=Math.max(0,Math.min(1,extent)),c=Math.max(0,Math.min(1,compact));
+    const key=`${e}:${tilt}:${lift}:${c}`;
+    if(profileCache.has(key))return profileCache.get(key);
+    const pose=(e,h,d)=>({e,angle:Math.atan(d),bow:h/Math.hypot(1,d)});
+    const poses=[{e:0,angle:Math.PI/2,bow:0},
+        pose(.48,mix(.26,.75,c),mix(1.7,4.7,c)),
+        pose(.74,mix(.35,.95,c),mix(.98,3.3,c)),
+        pose(1,mix(.26,1.15,c),0)];
     const index=poses.findIndex(p=>p.e>=e),a=poses[Math.max(0,index-1)],b=poses[index];
-    const t=b.e===a.e?0:(e-a.e)/(b.e-a.e),raise=tilt*(1-.85*c)+lift*5*e;
-    const hinge=Math.min(89.5,mix(a.h,b.h,t)+raise),edge=Math.min(89.5,mix(a.f,b.f,t)+raise);
-    const bend=radians(edge-hinge);
-    const kneeFor=p=>Number.isFinite(p.r)?Math.min(1,Math.abs(radians(p.f-p.h))*p.r/PEEK_PAGE_WIDTH):1;
-    // Narrow views expose the outer tail. Give it a gentle continuation of the
-    // same outward bend instead of a single straight panel. Keep the final
-    // tangent and main bend radius; desktop geometry remains unchanged.
-    const tailBend=-radians(12)*c*Math.max(0,(e-.74)/.26);
-    const mainBend=bend-tailBend;
-    const knee=mix(kneeFor(a),kneeFor(b),t)*(bend?mainBend/bend:1);
-    return {hinge:radians(hinge),bend:mainBend,knee,tailBend};
+    const t=b.e===a.e?0:(e-a.e)/(b.e-a.e);
+    const angle=mix(a.angle,b.angle,t);
+    const run=Math.cos(angle),rise=Math.sin(angle);
+    // Thickness raises the body of the sheet, not either desk contact. A turn
+    // can lift the paper while keeping its attachment and arc length unchanged.
+    const bow=mix(a.bow,b.bow,t)+run*(radians(tilt)*.35+lift*.06)*e;
+    const speed=u=>Math.hypot(run,rise+bow*bowSlope(u));
+    const arcs=new Float64Array(PROFILE_STEPS+1);
+    for(let i=1;i<=PROFILE_STEPS;i++){
+        const u0=(i-1)/PROFILE_STEPS,u1=i/PROFILE_STEPS;
+        arcs[i]=arcs[i-1]+(speed(u0)+4*speed((u0+u1)/2)+speed(u1))/(6*PROFILE_STEPS);
+    }
+    const arc=arcs[PROFILE_STEPS];
+    const profile={run,rise,bow,arcs,arc};
+    if(profileCache.size>=96)profileCache.delete(profileCache.keys().next().value);
+    profileCache.set(key,profile);
+    return profile;
 }
-
+function sourceAt(profile,u) {
+    const index=Math.min(PROFILE_STEPS-1,Math.floor(u*PROFILE_STEPS)),t=u*PROFILE_STEPS-index;
+    return mix(profile.arcs[index],profile.arcs[index+1],t)/profile.arc;
+}
 export function peekPaperSection(t, {extent=1, tilt=0, lift=0, compact=0, length=PEEK_PAGE_WIDTH}={}) {
-    const {hinge,bend,knee,tailBend}=peekPaperProfile(extent,tilt,lift,compact);
-    if(Math.abs(bend)<1e-7)return {x:length*t*Math.cos(hinge),z:length*t*Math.sin(hinge)};
-    const u=Math.min(t/knee,1),angle=hinge+bend*u,tail=Math.max(0,t-knee)*length;
-    let x=length*knee*(Math.sin(angle)-Math.sin(hinge))/bend;
-    let z=length*knee*(Math.cos(hinge)-Math.cos(angle))/bend;
-    if(Math.abs(tailBend)>1e-7&&knee<1){
-        const radius=length*(1-knee)/tailBend,tailAngle=angle+tailBend*Math.max(0,t-knee)/(1-knee);
-        x+=radius*(Math.sin(tailAngle)-Math.sin(angle));
-        z+=radius*(Math.cos(angle)-Math.cos(tailAngle));
-    }else{x+=tail*Math.cos(angle);z+=tail*Math.sin(angle);}
-    return {x,z};
+    const p=peekPaperProfile(extent,tilt,lift,compact),distance=Math.max(0,Math.min(1,t))*p.arc;
+    let lo=0,hi=PROFILE_STEPS;
+    while(hi-lo>1){const mid=(lo+hi)>>1;if(p.arcs[mid]<distance)lo=mid;else hi=mid;}
+    const u=(lo+(distance-p.arcs[lo])/(p.arcs[hi]-p.arcs[lo]))/PROFILE_STEPS;
+    const scale=length/p.arc;
+    return {x:scale*p.run*u,z:scale*(p.rise*u+p.bow*bowAt(u))};
 }
 
 export function peekPaperPoint({side,extent=1,bindingWidth=0,hinge=405,
@@ -62,7 +69,7 @@ export function peekPaperPoint({side,extent=1,bindingWidth=0,hinge=405,
 }
 
 // Fit the physical shape, never the x/y axes independently. A narrow viewport
-// increases the backward curl until the book can use the available height.
+// deepens the bow while keeping the spine and rear fore-edges on the desk.
 let lastFrameKey, lastFrame;
 export function peekViewportFrame(width,height,thickness=8) {
     const key=`${width}:${height}:${thickness}`;
@@ -86,12 +93,21 @@ export function peekViewportFrame(width,height,thickness=8) {
     return lastFrame={...frame,compact,scale,offsetX:(width/scale-frame.width)/2-frame.minX,offsetY:(height-frame.height*scale)/2-frame.minY*scale};
 }
 
-// Share the existing strip budget between the main bow and a curved outer tail.
-export function peekPaperSample(index,count,knee=1,tailBend=0) {
-    if(knee>=.999||count<2)return index/count;
-    if(Math.abs(tailBend)>1e-7&&count>=4){
-        const tailCount=Math.max(3,Math.round(count*.25)),mainCount=count-tailCount;
-        return index<=mainCount?knee*index/mainCount:knee+(1-knee)*(index-mainCount)/tailCount;
+// Distribute the existing strip budget by the projected curve's deviation
+// from a straight chord. This puts samples around the bow, not only the gutter.
+// The primitive integrates sqrt(abs(bowAt''(u))) (constant factor cancels).
+const sampleCache=new Map();
+export function peekPaperSample(index,count,profile) {
+    if(index===0)return 0;if(index===count)return 1;
+    if(!sampleCache.has(count)){
+        const primitive=u=>u<=2/3?(8-(4-6*u)**1.5)/9:(8+(6*u-4)**1.5)/9;
+        const total=primitive(1),values=[];
+        for(let i=0;i<=count;i++){
+            let lo=0,hi=1;
+            for(let j=0;j<32;j++){const mid=(lo+hi)/2;if(primitive(mid)<total*i/count)lo=mid;else hi=mid;}
+            values.push((lo+hi)/2);
+        }
+        sampleCache.set(count,values);
     }
-    return index===count?1:knee*index/(count-1);
+    return sourceAt(profile,sampleCache.get(count)[index]);
 }

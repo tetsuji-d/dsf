@@ -65,8 +65,9 @@ function shapeSheet(sheet, spread, depth=0, lift=0) {
     const point=(u,v)=>paperPoint(geometry,side<0?1-u:u,v);
     sheet.dataset.attachment=paperPoint(geometry,0,0).x;
     const count=sheet.children.length;
-    const {knee,tailBend}=peekPaperProfile(extent,0,lift,peekCompact);
-    const sample=i=>side<0?1-peekPaperSample(count-i,count,knee,tailBend):peekPaperSample(i,count,knee,tailBend);
+    const tilt=cover?0:Math.atan2(layer*stackDepth,360)*180/Math.PI;
+    const profile=peekPaperProfile(extent,tilt,lift,peekCompact);
+    const sample=i=>side<0?1-peekPaperSample(count-i,count,profile):peekPaperSample(i,count,profile);
     [...sheet.children].forEach((strip,i)=>{
         // Concentrate the bounded strip budget near the bend.
         // One-pixel overlaps still sample their matching image pixels.
@@ -99,9 +100,9 @@ function makePaperEdges(side, depth, bindingWidth, hinge) {
     return sections.map(([name,coordinates])=>{
         const svg=document.createElementNS(ns,'svg');svg.setAttribute('viewBox','0 0 800 760');svg.classList.add('edge-fan-'+name);
         svg.setAttribute('aria-hidden','true');svg.dataset.side=side<0?'left':'right';svg.dataset.thickness=depth;
-        const {knee,tailBend}=peekPaperProfile(1,0,0,peekCompact);
+        const profile=peekPaperProfile(1,0,0,peekCompact);
         const points=layer=>Array.from({length:49},(_,i)=>{
-            const [t,v]=coordinates(name==='top'?peekPaperSample(i,48,knee,tailBend):i/48);const p=paperPoint({side,stackDepth:depth,bindingWidth,hinge,layer,compact:peekCompact},t,v);return [p.x,p.y];
+            const [t,v]=coordinates(name==='top'?peekPaperSample(i,48,profile):i/48);const p=paperPoint({side,stackDepth:depth,bindingWidth,hinge,layer,compact:peekCompact},t,v);return [p.x,p.y];
         });
         const path=(pts,fill,close=false)=>{const el=document.createElementNS(ns,'path');el.setAttribute('d','M'+pts.map(p=>p.join(',')).join(' L')+(close?' Z':''));el.setAttribute('fill',fill);el.setAttribute('stroke','#968e7c');el.setAttribute('stroke-width','.5');svg.append(el);};
         path([...points(0),...points(1).reverse()],name==='fore-edge'?'#ddd5c2':'#e6dfce',true);

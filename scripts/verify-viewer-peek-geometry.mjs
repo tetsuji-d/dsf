@@ -1,147 +1,108 @@
 import assert from 'node:assert/strict';
-import {peekPaperSection, peekPaperPoint, peekPaperProfile, peekViewportFrame, peekPaperSample, PEEK_PAGE_WIDTH, PEEK_PAGE_HEIGHT} from '../js/viewer-peek-geometry.js';
-assert.equal(PEEK_PAGE_WIDTH / PEEK_PAGE_HEIGHT, 9 / 16);
-for(const compact of [0,.8,1]) for (const extent of [0,.018,.2,.48,.6,.74,.9,1]) {
-    for (const tilt of [0,6,12]) for (const lift of [0,1]) {
-        let previous=peekPaperSection(0,{extent,tilt,lift,compact}), arc=0;
-        for(let i=1;i<=2000;i++) {
-            const point=peekPaperSection(i/2000,{extent,tilt,lift,compact});
-            arc+=Math.hypot(point.x-previous.x,point.z-previous.z); previous=point;
-        }
-        assert.ok(Math.abs(arc-360)<.001, `source paper must not stretch: ${arc}`);
+import {peekPaperSection,peekPaperPoint,peekPaperProfile,peekPaperSample,peekViewportFrame,PEEK_PAGE_WIDTH,PEEK_PAGE_HEIGHT} from '../js/viewer-peek-geometry.js';
+const near=(a,b,tolerance,message)=>assert.ok(Math.abs(a-b)<tolerance,`${message}: ${a} vs ${b}`);
+assert.equal(PEEK_PAGE_WIDTH/PEEK_PAGE_HEIGHT,9/16);
+
+// A/B/C and every intermediate turn are the same physical sheet. Integrating
+// their 3D cross-sections independently catches stretched source content.
+for(const compact of [0,.4,.8,1])for(const extent of [0,.018,.2,.48,.6,.74,.9,1])
+for(const tilt of [0,6,12])for(const lift of [0,1]){
+    const geometry={extent,compact,tilt,lift};
+    let last=peekPaperSection(0,geometry),arc=0;
+    for(let i=1;i<=2000;i++){
+        const p=peekPaperSection(i/2000,geometry);
+        assert.ok(p.x>=last.x-1e-8,'paper never folds through the gutter or reverses content');
+        arc+=Math.hypot(p.x-last.x,p.z-last.z);last=p;
     }
-    for(const side of [-1,1]) for(const layer of [0,.5,1]) {
-        const geometry={compact,side,extent,layer,bindingWidth:80,hinge:430,stackDepth:64};
-        for(let t=0;t<=1;t+=.025){
-            const top=peekPaperPoint(geometry,t,0),bottom=peekPaperPoint(geometry,t,1);
-            assert.equal(top.x,bottom.x);
-            assert.ok(Math.abs(bottom.y-top.y-640)<1e-9,'same height at hinge and fore-edge');
-            assert.ok(top.x>=0&&top.x<=810&&top.y>=-140&&bottom.y<=820,'book fits its unscaled frame');
-        }
+    near(arc,360,.001,'all sheets retain the same paper width');
+}
+
+// The spine and C fore-edges share the desk plane, including thick books.
+// The entire soft cover arches above it, with no artificial raised binding.
+for(const compact of [0,.5,1])for(const tilt of [0,12]){
+    near(peekPaperSection(0,{compact,tilt}).z,0,1e-10,'spine touches the desk');
+    near(peekPaperSection(1,{compact,tilt}).z,0,1e-10,'rear fore-edge touches the desk');
+    const end=peekPaperSection(1,{compact,tilt});let peak={z:0};
+    for(let i=1;i<2000;i++){
+        const p=peekPaperSection(i/2000,{compact,tilt});
+        assert.ok(p.z>0,'soft cover stays above the desk');
+        if(p.z>peak.z)peak=p;
+    }
+    near(peak.x/end.x,1/3,.001,'bow crest lies one third across the visible chord');
+    assert.ok(peak.z>70,'rear sheet has a visible rounded bow');
+    for(const side of [-1,1])for(const cover of [false,true]){
+        const g={side,cover,compact,stackDepth:64,bindingWidth:80,hinge:430};
+        for(const v of [0,1])near(peekPaperPoint(g,0,v).y,peekPaperPoint(g,1,v).y,1e-8,'rear hinge and tip project to the same level');
     }
 }
-for(const hinge of [369,405,441]) {
-    const left=peekPaperPoint({side:-1,hinge,bindingWidth:80,stackDepth:60},0,0);
-    const right=peekPaperPoint({side:1,hinge,bindingWidth:80,stackDepth:4},0,0);
-    assert.deepEqual(left,right,'unbalanced page blocks meet at the same gutter');
+for(const hinge of [369,405,441]){
+    const l=peekPaperPoint({side:-1,hinge,bindingWidth:80,stackDepth:60},0,0);
+    const r=peekPaperPoint({side:1,hinge,bindingWidth:80,stackDepth:4},0,0);
+    assert.deepEqual(l,r,'left and right papers meet at their shared gutter');
 }
-// The outward arch lies beyond the straight chord, and flattens toward the edge.
-// An inward roll has the opposite curvature and must fail this check.
-for(const extent of [.48,.74,1]) for(const tilt of [0,6,12]) {
-    const profile=peekPaperProfile(extent,tilt);
-    assert.ok(profile.bend<0,'tangent relaxes from gutter toward fore-edge');
-    const mid=peekPaperSection(.5,{extent,tilt}),end=peekPaperSection(1,{extent,tilt});
-    assert.ok(mid.z*end.x-mid.x*end.z>0,'paper arches outward from its chord');
-
-}
-// Even the rearmost leaf and its soft cover must visibly bow beyond their chord.
-for(const cover of [false,true]) for(const side of [-1,1]) {
-    const geometry={side,cover,extent:1,layer:0,bindingWidth:16};
-    const start=peekPaperPoint(geometry,0,0),mid=peekPaperPoint(geometry,.5,0),end=peekPaperPoint(geometry,1,0);
-    const fraction=(mid.x-start.x)/(end.x-start.x);
-    assert.ok(mid.y-(start.y+(end.y-start.y)*fraction)>3,'rear leaf and soft cover have a visible outward arch');
-}
-for(let t=0;t<=1;t+=.025) {
-    const geometry={side:1,extent:1,layer:0,bindingWidth:16};
-    const cover=peekPaperPoint({...geometry,cover:true},t,0),paper=peekPaperPoint(geometry,t,0);
-    assert.ok(Math.hypot(cover.x-paper.x,cover.y-paper.y)<3,'soft cover follows the adjacent paper block closely');
-}
-const spans=[.48,.74,1].map(extent=>peekPaperSection(1,{extent}).x);
-assert.ok((spans[1]-spans[0])/spans[1]>.2,'middle page reveals readable content');
-assert.ok((spans[2]-spans[1])/spans[2]>.14,'rear page is more than a decorative sliver');
-assert.ok(spans[2]/640<=9/16,'rear page never becomes wider than the source');
-
-for(const compact of [0,.8,1]) {
-    const profiles=[.48,.74,1].map(e=>peekPaperProfile(e,0,0,compact));
-    const curvatures=profiles.map(p=>Math.abs(p.bend)/p.knee);
-    assert.ok(curvatures[2]>curvatures[1]&&curvatures[1]>curvatures[0],'rear pages bend more strongly');
-    assert.ok(peekPaperSection(1,{extent:1,compact}).z<0,'rear fore-edge passes behind the binding');
-}
-for(const [width,height] of [[390,844],[360,640],[844,390],[1600,1000]])for(const thickness of [8,64]) {
-    const f=peekViewportFrame(width,height,thickness);
-    assert.ok(f.height*f.scale/height>.85,'portrait book uses screen height');
-    assert.ok(f.width*f.scale<=width&&f.height*f.scale<=height,'uniform fit stays in viewport');
+for(const compact of [0,.5,1])for(const extent of [.48,.74,1])for(const side of [-1,1]){
+    const g={side,extent,compact};
+    for(let i=0;i<=40;i++){
+        const top=peekPaperPoint(g,i/40,0),bottom=peekPaperPoint(g,i/40,1);
+        near(top.x,bottom.x,1e-8,'parallel vertical generators');
+        near(bottom.y-top.y,640,1e-8,'paper height stays constant from gutter to tip');
+    }
 }
 
-for(const knee of [.04,.22,.55,1]) {
-    const samples=Array.from({length:17},(_,i)=>peekPaperSample(i,16,knee));
-    assert.equal(samples[0],0);assert.equal(samples[16],1);
-    assert.ok(samples.every((x,i)=>!i||x>samples[i-1]),'adaptive strips cover the entire source exactly once');
-    assert.ok(samples.filter(x=>x<=knee).length>=16,'curved region retains smooth sampling on phones');
+// A and B have a broad bow as well, above their inclined gutter-to-tip chord.
+// This prevents solving the desk contacts by turning inner leaves into boards.
+for(const compact of [0,.5,1])for(const extent of [.48,.74]){
+    const end=peekPaperSection(1,{extent,compact});let crest={above:0};
+    for(let i=1;i<2000;i++){
+        const p=peekPaperSection(i/2000,{extent,compact}),above=p.z-end.z*p.x/end.x;
+        if(above>crest.above)crest={above,x:p.x};
+    }
+    near(crest.x/end.x,1/3,.002,'inner bows also peak towards the gutter');
+    assert.ok(crest.above>40,'inner paper has a substantial bow across its width');
 }
 
-for(const compact of [0,.5,1]) {
-    const profile=peekPaperProfile(1,0,0,compact);
-    const radius=PEEK_PAGE_WIDTH*profile.knee/Math.abs(profile.bend);
-    assert.ok(Math.abs(radius-PEEK_PAGE_WIDTH/3)<1e-8,'cover radius stays one third of the paper width');
-    assert.ok(profile.knee>.5,'cover curvature extends through the page centre on every viewport');
-}
-for(const compact of [0,.5,1]) {
-    const mid=peekPaperSection(.5,{extent:1,compact}),a=peekPaperSection(.49,{extent:1,compact}),b=peekPaperSection(.51,{extent:1,compact});
-    assert.ok(Math.hypot(mid.x-(a.x+b.x)/2,mid.z-(a.z+b.z)/2)>.04,'cover centre is curved on both desktop and phones');
+// Covers stay close to their adjacent paper and use the same curve family.
+for(const compact of [0,.5,1])for(let i=0;i<=40;i++){
+    const g={side:1,extent:1,layer:0,bindingWidth:16,compact};
+    const cover=peekPaperPoint({...g,cover:true},i/40,0),paper=peekPaperPoint(g,i/40,0);
+    assert.ok(Math.hypot(cover.x-paper.x,cover.y-paper.y)<3,'soft cover follows the paper block');
 }
 
-// Screen-space sag must remain visible, not only the 3D radius.
-const coverShape={side:1,cover:true,extent:1};
-const start=peekPaperPoint(coverShape,0,0),end=peekPaperPoint(coverShape,1,0),middle=peekPaperPoint(coverShape,.4,0);
-const chordY=start.y+(end.y-start.y)*(middle.x-start.x)/(end.x-start.x);
-assert.ok(middle.y-chordY>25,'cover arch is visibly deep in the rendered projection');
-for(const compact of [0,.5,1]) {
-    const radii=[1,.74,.48].map(e=>{const p=peekPaperProfile(e,0,0,compact);return 360*p.knee/Math.abs(p.bend)});
-    assert.ok(radii[0]<radii[1]&&radii[1]<radii[2],'radius increases towards inner pages');
-}
-
-// Inner sheets keep bending past the centre, rather than ending in a rigid tail.
-for(const compact of [0,.5,1]) {
-    assert.equal(peekPaperProfile(.74,0,0,compact).knee,1,'middle leaf bends all the way to its fore-edge');
-    const a=peekPaperSection(.84,{extent:.74,compact}),m=peekPaperSection(.85,{extent:.74,compact}),b=peekPaperSection(.86,{extent:.74,compact});
-    assert.ok(Math.hypot(m.x-(a.x+b.x)/2,m.z-(a.z+b.z)/2)>.007,'outer half of middle leaf is still curved');
-    const reach=[.48,.74,1].map(extent=>peekPaperSection(1,{extent,compact}).x);
-    assert.ok(reach[0]<reach[1]&&reach[1]<reach[2],'opening the front keeps both rear layers exposed');
-}
-assert.ok(peekPaperSection(1,{extent:.48}).x>200,'desktop front leaf opens farther');
-assert.ok(peekPaperSection(1,{extent:.48,compact:1}).x>55,'portrait front leaf opens farther');
-const desktopFrame=peekViewportFrame(1600,1000,8);
-assert.ok(desktopFrame.width*desktopFrame.scale>800,'desktop uses a wider physical book without stretching');
-
-// Measure readable source width beyond the page in front. Projected edge gaps
-// alone miss how much content is squeezed into the backward-curled rear edge.
-function exposedSourceWidth(extent, obscuredX, compact) {
+// Check actual visible source fractions, not merely the gap between tips.
+function exposed(extent,x,compact){
     let lo=0,hi=1;
-    for(let i=0;i<32;i++) {
-        const t=(lo+hi)/2;
-        if(peekPaperSection(t,{extent,compact}).x<obscuredX)lo=t;else hi=t;
-    }
+    for(let i=0;i<32;i++){const t=(lo+hi)/2;if(peekPaperSection(t,{extent,compact}).x<x)lo=t;else hi=t;}
     return 1-(lo+hi)/2;
 }
-for(const [width,height] of [[1600,1000],[390,844],[390,664],[360,640]]) {
-    const {compact}=peekViewportFrame(width,height,8);
-    const reach=[.48,.74,1].map(extent=>peekPaperSection(1,{extent,compact}).x);
-    const middleVisible=exposedSourceWidth(.74,reach[0],compact);
-    const rearVisible=exposedSourceWidth(1,reach[1],compact);
-    assert.ok(middleVisible/rearVisible>.8&&middleVisible/rearVisible<1.3,'middle and rear content have comparable exposure');
-    if(width<height)assert.ok(middleVisible>.25,'portrait middle leaf exposes meaningful content beyond the front');
-    assert.ok(reach[2]>reach[1],'opening the middle does not hide the rear leaf completely');
-}
-
-// The rear outer tail remains curved and sampled on phones; its join has no kink.
-for(const compact of [.65,.85,1]) {
-    const profile=peekPaperProfile(1,0,0,compact),geometry={side:1,extent:1,compact};
-    const samples=Array.from({length:17},(_,i)=>peekPaperSample(i,16,profile.knee,profile.tailBend));
-    assert.equal(samples[0],0);assert.equal(samples[16],1);
-    assert.ok(samples.every((t,i)=>!i||t>samples[i-1]),'curved tail keeps complete monotone source coverage');
-    assert.ok(samples.filter(t=>t>profile.knee).length>=4,'rear outer curve gets several strips');
-    const a=peekPaperPoint(geometry,profile.knee,0),b=peekPaperPoint(geometry,1,0),mid=peekPaperPoint(geometry,(1+profile.knee)/2,0);
-    const bow=Math.abs((mid.x-a.x)*(b.y-a.y)-(mid.y-a.y)*(b.x-a.x))/Math.hypot(b.x-a.x,b.y-a.y);
-    assert.ok(bow>1.5,'rear fore-edge is visibly curved, not a flat tail');
-    for(let i=0;i<16;i++){
-        const a=peekPaperPoint(geometry,samples[i],0),b=peekPaperPoint(geometry,samples[i+1],0),mid=peekPaperPoint(geometry,(samples[i]+samples[i+1])/2,0);
-        assert.ok(Math.hypot(mid.x-(a.x+b.x)/2,mid.y-(a.y+b.y)/2)<.4,'mobile curve subdivisions stay below visible faceting');
+for(const [width,height] of [[1600,1000],[1024,768],[768,1024],[390,844],[390,664],[360,640],[844,390]])
+for(const thickness of [8,64]){
+    const f=peekViewportFrame(width,height,thickness);
+    assert.ok(f.height*f.scale/height>.85,'book still uses the screen height');
+    assert.ok(f.width*f.scale<=width&&f.height*f.scale<=height,'uniform fit remains inside the viewport');
+    const reach=[.48,.74,1].map(extent=>peekPaperSection(1,{extent,compact:f.compact}).x);
+    assert.ok(reach[0]<reach[1]&&reach[1]<reach[2],'all three layers remain exposed');
+    const middle=exposed(.74,reach[0],f.compact),rear=exposed(1,reach[1],f.compact);
+    assert.ok(middle>.16&&rear>.14,'both neighbouring sheets expose useful content');
+    assert.ok(middle/rear>.65&&middle/rear<1.5,'middle content is balanced against the cover-side content');
+    for(const side of [-1,1])for(const extent of [.48,.74,1])for(let i=0;i<=40;i++){
+        const g={side,extent,compact:f.compact,bindingWidth:thickness*1.25,stackDepth:thickness*1.1};
+        for(const v of [0,1]){const p=peekPaperPoint(g,i/40,v),x=(p.x+f.offsetX)*f.scale,y=p.y*f.scale+f.offsetY;
+            assert.ok(x>=0&&x<=width&&y>=0&&y<=height,'paper fits without clipping or axis-specific scaling');}
     }
-    const eps=1e-5,l=peekPaperSection(profile.knee-eps,{compact}),j=peekPaperSection(profile.knee,{compact}),r=peekPaperSection(profile.knee+eps,{compact});
-    const before=Math.atan2(j.z-l.z,j.x-l.x),after=Math.atan2(r.z-j.z,r.x-j.x);
-    assert.ok(Math.abs(before-after)<.001,'main bow and outer curve meet tangentially');
 }
-for(const extent of [.48,.74,1])assert.equal(Math.abs(peekPaperProfile(extent,0,0,0).tailBend),0,'desktop retains its existing shape');
+assert.ok(peekViewportFrame(1600,1000).width*peekViewportFrame(1600,1000).scale>800,'desktop retains a broad book');
 
-console.log('Unstretched 9:16 paper, outward/backward curl, adaptive sampling and full-height viewport fit passed');
+// Keep the bounded phone strip count, but place samples where they are needed.
+// Every strip covers its own source pixels; subpixel sag prevents faceted tips.
+for(const compact of [0,.5,1])for(const extent of [.018,.48,.74,1])for(const count of [12,16,24]){
+    const profile=peekPaperProfile(extent,0,0,compact),g={side:1,extent,compact};
+    const samples=Array.from({length:count+1},(_,i)=>peekPaperSample(i,count,profile));
+    assert.equal(samples[0],0);assert.equal(samples[count],1);
+    assert.ok(samples.every((t,i)=>!i||t>samples[i-1]),'complete monotone source coverage');
+    for(let i=0;i<count;i++){
+        const a=peekPaperPoint(g,samples[i],0),b=peekPaperPoint(g,samples[i+1],0),m=peekPaperPoint(g,(samples[i]+samples[i+1])/2,0);
+        const sag=Math.abs((m.x-a.x)*(b.y-a.y)-(m.y-a.y)*(b.x-a.x))/Math.hypot(b.x-a.x,b.y-a.y);
+        assert.ok(sag<(count===12?.65:.4),'curve chord error stays below visible faceting');
+    }
+}
+console.log('Desk contacts, equal 9:16 sheets, rounded bow, exposed neighbours, phone sampling and responsive fit passed');
