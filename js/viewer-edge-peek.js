@@ -448,7 +448,22 @@ export function createViewerEdgePeek({getItems, getLayout, renderSurface, format
         clearTimeout(tapTimer);if(e.detail>1)return;
         tapTimer=setTimeout(()=>{if(!root.hidden)window.toggleUi();},360);
     });
-    return {setReading,transitionReading,drawReading,finishReading,cancelReading,get reading(){return bookReading;},get busy(){return rendering;},get element(){return root;},get ready(){return ready;},get sourceIndex(){return items[selected]?.index;},confirm,seek(index){
+    function edgeTapSide(x,y){
+        if(!ready||rendering||navigationBusy()||readingMotion)return null;
+        // Hit the actual fore-edge of A, not the viewport or the hidden B/C
+        // sheets. Closed covers have one surface and accept either edge.
+        for(const sheet of content.querySelectorAll('.edge-fan-sheet[data-active=true]')){
+            const sides=sheet.classList.contains('edge-fan-rigid')?['left','right']:[sheet.dataset.side];
+            for(const side of sides){
+                const strip=side==='left'?sheet.firstElementChild:sheet.lastElementChild;
+                const r=strip.getBoundingClientRect(),edge=side==='left'?r.left:r.right;
+                const inward=side==='left'?x-edge:edge-x;
+                if(y>=r.top&&y<=r.bottom&&inward>=0&&inward<=Math.min(48,leaf.clientWidth*.12))return side;
+            }
+        }
+        return null;
+    }
+    return {edgeTapSide,setReading,transitionReading,drawReading,finishReading,cancelReading,get reading(){return bookReading;},get busy(){return rendering;},get element(){return root;},get ready(){return ready;},get sourceIndex(){return items[selected]?.index;},confirm,seek(index){
         stopRiffle();holdHover();
 
         const position=getLayout(index)?.position,exact=items.findIndex(item=>item.index===index);

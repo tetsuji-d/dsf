@@ -7,6 +7,7 @@ import { normalizeBookSettings } from './page-labels.js';
 import { getBookThickness, getBookEdgeState, fitBookPageWidth, BOOK_EDGE_PROJECTION } from './book-volume.js';
 import { createBookEdges, paintBookEdges } from './viewer-book-edges.js';
 import {createViewerBookPinch} from './viewer-book-pinch.js';
+import {createViewerEdgeTap, viewerEdgeTapSide} from './viewer-edge-tap.js';
 import {createViewerBookSwipe} from './viewer-book-swipe.js';
 import {createViewerCoverTurn} from './viewer-cover-turn.js';
 import {initializeViewerFullscreen} from './viewer-fullscreen.js';
@@ -4201,21 +4202,17 @@ function isZoneClickSuppressed() {
     return Date.now() <= suppressZoneClickUntil;
 }
 
+// Touch taps call this only after single-contact/movement validation. The
+// subsequent compatibility click still goes through the suppression guard.
+function navigateViewerSide(side) {
+    if(readerChrome?.transitioning)return;
+    if(edgePeek?.handleKey({key:side==='left'?'ArrowLeft':'ArrowRight',preventDefault(){}}))return;
+    if(['edge','spine'].includes(readerChrome?.mode)&&!edgePeek?.opened){readerChrome.openReading();return;}
+    (side==='left')===(getPageDirection()==='rtl') ? goNext() : goPrev();
+}
 // RTL（右→左）: 右タップ = 前ページ、左タップ = 次ページ
-window.viewerNavRight = () => {
-    if (isZoneClickSuppressed()) return;
-    if(readerChrome?.transitioning)return;
-    if(edgePeek?.handleKey({key:'ArrowRight',preventDefault(){}}))return;
-    if(['edge','spine'].includes(readerChrome?.mode)&&!edgePeek?.opened){readerChrome.openReading();return;}
-    getPageDirection() === 'rtl' ? goPrev() : goNext();
-};
-window.viewerNavLeft  = () => {
-    if (isZoneClickSuppressed()) return;
-    if(readerChrome?.transitioning)return;
-    if(edgePeek?.handleKey({key:'ArrowLeft',preventDefault(){}}))return;
-    if(['edge','spine'].includes(readerChrome?.mode)&&!edgePeek?.opened){readerChrome.openReading();return;}
-    getPageDirection() === 'rtl' ? goNext() : goPrev();
-};
+window.viewerNavRight = () => {if(!isZoneClickSuppressed())navigateViewerSide('right');};
+window.viewerNavLeft = () => {if(!isZoneClickSuppressed())navigateViewerSide('left');};
 
 window.jumpToPage = (val) => {
     const page = parseInt(val, 10);
@@ -5380,8 +5377,24 @@ function setViewScaleAtClientPoint(nextScale, clientX, clientY) {
     viewY = next.y;
 }
 
+const edgeTap = createViewerEdgeTap();
+function getViewerTouchEdge(e) {
+    if(e.pointerType!=='touch'||viewScale>1.05||readingGuides?.isAssisting()||readerChrome?.transitioning||activePageCurl?.active||coverTurn?.active||bookPinch?.active)return null;
+    if(e.target.closest?.('button,a,input,select,textarea,summary,#viewer-ui,#viewer-info-panel,#reader-assist-panel,#viewer-bottom-navigation'))return null;
+    let side=null;
+    if(edgePeek?.opened) {
+        if(e.target.closest?.('#viewer-edge-peek'))side=edgePeek.edgeTapSide(e.clientX,e.clientY);
+    } else if(!readerChrome?.active&&e.target.closest?.('#click-layer')) {
+        side=viewerEdgeTapSide(e.clientX,e.clientY,document.getElementById('viewer-canvas').getBoundingClientRect());
+    }
+    return side ? {side,key:`${viewerDocumentRevision}:${state.activeLang}:${getIndex()}:${bookSpreadIndex}:${readerChrome?.state}:${edgePeek?.sourceIndex}`} : null;
+}
+window.addEventListener('blur',()=>edgeTap.reset());
+window.addEventListener('resize',()=>edgeTap.reset());
+document.addEventListener('visibilitychange',()=>{if(document.hidden)edgeTap.reset();});
 let curlGesture=null;
 document.addEventListener('pointerdown',e=>{
+    edgeTap.down(e,getViewerTouchEdge(e));
     if(bookPinch?.pointerDown(e))return;
     flick?.down(e);
     if (bookSwipe?.pointerDown(e)) return;
@@ -5394,6 +5407,7 @@ document.addEventListener('pointerdown',e=>{
     curlGesture={id:e.pointerId,x:e.clientX,y:e.clientY,width:r.width,started:false};
 },true);
 document.addEventListener('pointermove',e=>{
+    edgeTap.move(e);
     if(bookPinch?.pointerMove(e))return;
     flick?.move(e);
     if (bookSwipe?.pointerMove(e)) return;
@@ -5410,10 +5424,19 @@ document.addEventListener('pointermove',e=>{
     e.stopPropagation();e.preventDefault();activePageCurl.draw(dx*curlGesture.sign/(curlGesture.width*.8));
 }, {capture:true,passive:false});
 document.addEventListener('pointerup',e=>{
+    const tap=edgeTap.up(e);
     if(bookPinch?.pointerEnd(e))return;
     const impulse=flick?.up(e);
     if (bookSwipe?.pointerUp(e)) return;
     if (coverTurn?.pointerUp(e)) return;
+    const target=tap&&getViewerTouchEdge(e);
+    if(target&&target.side===tap.side&&target.key===tap.key){
+        e.preventDefault();e.stopImmediatePropagation();
+        curlGesture=null;pointerCache=[];activeGesturePointerId=null;lastTapTime=0;resetSingleSpreadSwipe();
+        edgePeek?.endDrag();navigateViewerSide(tap.side);
+        suppressZoneClickUntil=Date.now()+900;
+        return;
+    }
     if(curlGesture?.id!==e.pointerId||!curlGesture.started){
         if(impulse&&riffle?.fling(impulse.side,impulse.speed)){e.preventDefault();e.stopImmediatePropagation();pointerCache=[];activeGesturePointerId=null;curlGesture=null;resetSingleSpreadSwipe();suppressZoneClickUntil=Date.now()+900;}
         return;
@@ -5423,7 +5446,7 @@ document.addEventListener('pointerup',e=>{
     activePageCurl?.finish(!!impulse||activePageCurl.progress>.4,impulse?160:undefined);
     if(impulse)riffle?.fling(impulse.side,impulse.speed);
 },true);
-document.addEventListener('pointercancel',e=>{if(bookPinch?.pointerEnd(e,true))return;flick?.up(e,true);if(bookSwipe?.pointerCancel(e))return;if(coverTurn?.pointerCancel(e))return;if(curlGesture?.started)activePageCurl?.cancel();curlGesture=null;},true);
+document.addEventListener('pointercancel',e=>{edgeTap.up(e,true);if(bookPinch?.pointerEnd(e,true))return;flick?.up(e,true);if(bookSwipe?.pointerCancel(e))return;if(coverTurn?.pointerCancel(e))return;if(curlGesture?.started)activePageCurl?.cancel();curlGesture=null;},true);
 
 function onPointerDown(e) {
     if (readerChrome?.active) return;
