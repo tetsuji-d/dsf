@@ -19,5 +19,5 @@ export function createViewerFlick({eligible}) {
     const reset=()=>{contacts.clear();gesture=null;};
     window.addEventListener('blur',reset);window.addEventListener('resize',reset);
     document.addEventListener('visibilitychange',()=>{if(document.hidden)reset();});
-    return {down,move,up};
+    return {reset,down,move,up};
 }

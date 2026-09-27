@@ -6,6 +6,7 @@ import {createViewerRiffle} from './viewer-riffle.js';
 import { normalizeBookSettings } from './page-labels.js';
 import { getBookThickness, getBookEdgeState, fitBookPageWidth, BOOK_EDGE_PROJECTION } from './book-volume.js';
 import { createBookEdges, paintBookEdges } from './viewer-book-edges.js';
+import {createViewerBookPinch} from './viewer-book-pinch.js';
 import {createViewerBookSwipe} from './viewer-book-swipe.js';
 import {createViewerCoverTurn} from './viewer-cover-turn.js';
 import {initializeViewerFullscreen} from './viewer-fullscreen.js';
@@ -103,6 +104,7 @@ function isDsfHorizonV2MetadataDeclared(metadata) {
 }
 
 // 見開き表示フラグ
+let bookPinch=null;
 let spreadMode = false;
 let requestedBookMode = '';
 let viewerBookModel = null;
@@ -440,6 +442,7 @@ async function init() {
         onSettingsChange: open => {clearViewerUiAutoHide(); if(!open) scheduleViewerUiAutoHide();},
         onPoseChange: (mode,data) => edgePeek?.update(mode,data),
         getPeek: () => edgePeek,
+        canReadBook:()=>{const {W}=getViewerCanvasSpace();return Math.min(W,document.documentElement.clientWidth)>=700;},
         renderPosePage:index=>{const surface=getViewerSurfaceForDisplayIndex(index);return surface?renderSurfaceContentHTML(surface,state.activeLang)+renderSurfaceBubblesHTML(surface,state.activeLang):'';},
         beforePose: () => {riffle?.stop();coverTurn?.cancel(); activePageCurl?.cancel(); clearViewerUiAutoHide();},
     });
@@ -492,6 +495,29 @@ async function init() {
             const forward=(side==='left')===(getPageDirection()==='rtl');
             if(forward)goNext();else goPrev();
         },
+    });
+    if(readerChrome) bookPinch=createViewerBookPinch({
+        enabled:()=>getViewerBookThickness()!==undefined&&!readingGuides?.isAssisting(),
+        state:()=>readerChrome.state,scale:()=>viewScale,wide:()=>readerChrome.canReadBook(),
+        busy:()=>readerChrome.transitioning||!!edgePeek?.busy||!!activePageCurl?.active,
+        claim:point=>{
+            bookWheel?.cancel();bookSwipe?.reset();flick?.reset();edgePeek?.endDrag();edgePeek?.holdHover();riffle?.stop();coverTurn?.cancel();activePageCurl?.cancel();
+            curlGesture=null;pointerCache=[];activeGesturePointerId=null;isPinching=false;isPanning=false;lastTapTime=0;
+            readingGuides?.cancelPointer();resetSingleSpreadSwipe();
+            const focus=getZoomFocusPoint(point.x,point.y);pinchStartScale=viewScale;
+            pinchAnchorX=(focus.x-viewX)/viewScale;pinchAnchorY=(focus.y-viewY)/viewScale;
+        },
+        begin:(target,manual)=>{
+            if(manual&&matchMedia('(prefers-reduced-motion:reduce)').matches)return false;
+            return readerChrome.changeTo(target,manual);
+        },
+        draw:p=>readerChrome.drawGesture(p),finish:accept=>readerChrome.finishGesture(accept),
+        zoom:(scale,point)=>{
+            const focus=getZoomFocusPoint(point.x,point.y);
+            const next=calculateViewerAnchoredZoom({currentScale:pinchStartScale,nextScale:scale,focusX:focus.x,focusY:focus.y,anchorX:pinchAnchorX,anchorY:pinchAnchorY});
+            viewScale=next.scale;viewX=next.x;viewY=next.y;applyTransform(true);
+        },
+        consume:()=>{suppressZoneClickUntil=Date.now()+900;},
     });
     readingGuides = initializeViewerReadingGuides({onLayoutChange: scheduleViewerResize, onAssistanceChange: active => {
         if (active) coverTurn?.cancel();
@@ -5356,6 +5382,7 @@ function setViewScaleAtClientPoint(nextScale, clientX, clientY) {
 
 let curlGesture=null;
 document.addEventListener('pointerdown',e=>{
+    if(bookPinch?.pointerDown(e))return;
     flick?.down(e);
     if (bookSwipe?.pointerDown(e)) return;
     if (coverTurn?.pointerDown(e)) return;
@@ -5367,6 +5394,7 @@ document.addEventListener('pointerdown',e=>{
     curlGesture={id:e.pointerId,x:e.clientX,y:e.clientY,width:r.width,started:false};
 },true);
 document.addEventListener('pointermove',e=>{
+    if(bookPinch?.pointerMove(e))return;
     flick?.move(e);
     if (bookSwipe?.pointerMove(e)) return;
     if (coverTurn?.pointerMove(e)) return;
@@ -5382,6 +5410,7 @@ document.addEventListener('pointermove',e=>{
     e.stopPropagation();e.preventDefault();activePageCurl.draw(dx*curlGesture.sign/(curlGesture.width*.8));
 }, {capture:true,passive:false});
 document.addEventListener('pointerup',e=>{
+    if(bookPinch?.pointerEnd(e))return;
     const impulse=flick?.up(e);
     if (bookSwipe?.pointerUp(e)) return;
     if (coverTurn?.pointerUp(e)) return;
@@ -5394,7 +5423,7 @@ document.addEventListener('pointerup',e=>{
     activePageCurl?.finish(!!impulse||activePageCurl.progress>.4,impulse?160:undefined);
     if(impulse)riffle?.fling(impulse.side,impulse.speed);
 },true);
-document.addEventListener('pointercancel',e=>{flick?.up(e,true);if(bookSwipe?.pointerCancel(e))return;if(coverTurn?.pointerCancel(e))return;if(curlGesture?.started)activePageCurl?.cancel();curlGesture=null;},true);
+document.addEventListener('pointercancel',e=>{if(bookPinch?.pointerEnd(e,true))return;flick?.up(e,true);if(bookSwipe?.pointerCancel(e))return;if(coverTurn?.pointerCancel(e))return;if(curlGesture?.started)activePageCurl?.cancel();curlGesture=null;},true);
 
 function onPointerDown(e) {
     if (readerChrome?.active) return;
@@ -5579,6 +5608,7 @@ function stepViewerBookVertical(direction,manual=false){
 }
 
 function onWheel(e) {
+    if(bookPinch?.wheel(e))return;
     if (readerChrome && e.target.closest?.('#viewer-page-settings')) return;
     if (bookWheel?.handle(e)) return;
     if (readerChrome?.active) {e.preventDefault(); return;}
@@ -5607,7 +5637,7 @@ function onWheel(e) {
 
 function onKeydown(e) {
     if(e.key==='Escape') {bookWheel?.cancel();riffle?.stop();}
-    if (readerChrome?.active && e.key==='Escape') {readerChrome.cancelPose();return;}
+    if (readerChrome?.active && e.key==='Escape') {if(readerChrome.state==='book')readerChrome.openReading();else readerChrome.cancelPose();return;}
     if (readerChrome && e.target.closest?.('input,select,textarea,summary,[contenteditable="true"],#viewer-page-settings')) return;
     if (e.key === 'Escape' && coverTurn?.active) { coverTurn.cancel(); return; }
     if (readingGuides?.handleKey(e)) return;

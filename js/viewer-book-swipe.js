@@ -35,5 +35,5 @@ export function createViewerBookSwipe({canvas, enabled, contextKey, onClaim, onC
         const accept=!cancelled&&enabled()&&g.key===contextKey()&&primary*g.sign>=g.threshold&&Math.abs(primary)>Math.abs(secondary)*1.35;
         if(g.manual)onFinish(accept);else if(accept)onPose(g.action);return true;
     }
-    return {pointerDown,pointerMove,pointerUp:e=>finish(e,false),pointerCancel:e=>finish(e,true)};
+    return {reset(){cancel();contacts.clear();blocked=false;},pointerDown,pointerMove,pointerUp:e=>finish(e,false),pointerCancel:e=>finish(e,true)};
 }

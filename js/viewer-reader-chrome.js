@@ -6,6 +6,7 @@ const iconPaths = {
     spine:'<rect x="8" y="3" width="8" height="18" rx="2"/><path d="M10.5 7h3M10.5 17h3"/>',
     edge:'<path d="M6 3.5h12v17H6zM9 5v14M12 5v14M15 5v14"/>',
     peek:'<path d="M5 4l7 5 7-5v14l-7 4-7-4zM12 9v13M8 3l4 6 4-6"/>',
+    book:'<path d="M2 6q5-4 10 1 5-5 10-1v13q-5-4-10 1-5-5-10-1zM12 7v13"/>',
     open:'<path d="M3 5q5-2 9 1 4-3 9-1v14q-5-2-9 1-4-3-9-1zM12 6v14"/>',
     left:'<path d="m15.5 5-7 7 7 7"/>',
     right:'<path d="m8.5 5 7 7-7 7"/>',
@@ -19,7 +20,7 @@ export function setViewerReaderIcon(button, icon, label) {
 }
 const KEY = 'dsf.viewer.reader-chrome.v1';
 const defaults = {number:true, title:true, total:true, numberEdge:'top', numberAlign:'outer', metaEdge:'top'};
-export function initializeViewerReaderChrome({getSnapshot, onLayoutChange, beforePose, onSettingsChange, onPoseChange, getPeek, renderPosePage}) {
+export function initializeViewerReaderChrome({getSnapshot, onLayoutChange, beforePose, onSettingsChange, onPoseChange, getPeek, renderPosePage, canReadBook=()=>false}) {
     let prefs = {...defaults}, mode = '', phase='edge', transition=null, serial=0, remembered=null;
     try {
         const saved = JSON.parse(localStorage.getItem(KEY));
@@ -73,14 +74,14 @@ export function initializeViewerReaderChrome({getSnapshot, onLayoutChange, befor
     settings.addEventListener('keydown', e => {if(e.key==='Escape') {settings.open=false; settings.querySelector('summary').focus();}});
     document.addEventListener('pointerdown', e => {if(!settings.contains(e.target)) settings.open = false;});
     document.addEventListener('viewer-chrome-change', () => {if(!document.body.classList.contains('viewer-ui-visible')) settings.open=false;});
-    const states=['spine','edge','peek','reading'];
-    const actionLabels={spine:'半回転して背表紙を表示',edge:'閉じて小口を表示',peek:'ページを少し開いて覗く',reading:'このページを開く'};
-    function state(){return transition?.from || (mode==='edge'&&phase==='peek'?'peek':mode||'reading');}
+    const states=()=>canReadBook()?['spine','edge','peek','book','reading']:['spine','edge','peek','reading'];
+    const actionLabels={spine:'半回転して背表紙を表示',edge:'閉じて小口を表示',peek:'ページを少し開いて覗く',book:'紙のしなりを残して読む',reading:'このページを開く'};
+    function state(){return transition?.from || (mode==='edge'&&phase==='peek'?(getPeek()?.reading===1?'book':'peek'):mode||'reading');}
     function syncControls(){
-        const current=state(),at=states.indexOf(current),snapshot=getSnapshot();rail.dataset.bookState=current;
+        const current=state(),at=states().indexOf(current),snapshot=getSnapshot();rail.dataset.bookState=current;
         for(const [button,offset] of [[up,-1],[down,1]]){
-            const target=states[at+offset],icon=target||current;
-            const label=target?(current==='spine'&&target==='edge'?'半回転して小口を表示':current==='reading'?'ページを少し閉じて覗く':actionLabels[target]):(current==='spine'?'背表紙を表示中':'ページを開いています');
+            const target=states()[at+offset],icon=target||current;
+            const label=target?(current==='spine'&&target==='edge'?'半回転して小口を表示':current==='reading'&&target==='peek'?'ページを少し閉じて覗く':actionLabels[target]):(current==='spine'?'背表紙を表示中':'ページを開いています');
             setViewerReaderIcon(button,icon==='reading'?'open':icon,label);
             if(!button.querySelector('.reader-direction-mark')){
                 const mark=document.createElement('span');mark.className='reader-direction-mark';mark.setAttribute('aria-hidden','true');
@@ -96,20 +97,21 @@ export function initializeViewerReaderChrome({getSnapshot, onLayoutChange, befor
     const motion=createViewerPoseTransition({render:renderPosePage});
     function spineMarkup(data){const el=document.createElement('div');renderBookSpine(el,getBookSpinePresentation(data.design,{title:data.title,author:data.author,publisherName:data.publisher,width:360*data.rect.height/640,thickness:data.thickness}));return el.innerHTML;}
     function cancelPose() {
-        serial++;transition=null;motion.cancel();document.body.classList.remove('viewer-fan-preparing');
+        serial++;transition=null;getPeek()?.cancelReading();motion.cancel();document.body.classList.remove('viewer-fan-preparing');
         mode='';phase='edge';pose.hidden=true;pose.replaceChildren();onPoseChange?.('',null);
         document.body.classList.remove('viewer-book-pose-active');syncControls();
     }
     function restore(from){
         transition=null;document.body.classList.remove('viewer-fan-preparing');
         if(from==='reading'){cancelPose();return;}
-        mode=from==='peek'?'edge':from;
-        if(from!=='peek')getPeek()?.clear();
+        mode=['peek','book'].includes(from)?'edge':from;
+        if(!['peek','book'].includes(from))getPeek()?.clear();
+        else getPeek()?.setReading(from==='book'?1:0);
         update();syncControls();
     }
     function changeTo(target,manual=false,readingIndex){
         const from=state(),data=getSnapshot();
-        if(target===from||transition||!data?.thickness||data.busy)return false;
+        if(target===from||transition||!data?.thickness||data.busy||getPeek()?.busy)return false;
         beforePose();const id=++serial;
         transition={from,to:target,progress:0,finish:null};syncControls();
         const peek=getPeek();
@@ -118,41 +120,48 @@ export function initializeViewerReaderChrome({getSnapshot, onLayoutChange, befor
             if(!accept){restore(from);return;}
             transition=null;document.body.classList.remove('viewer-fan-preparing');
             if(target==='reading'){
-                if(from==='peek')peek.confirm(readingIndex);else cancelPose();
-            }else if(target==='peek'){mode='edge';phase='peek';update();}
-            else {if(from==='peek')remembered={key:data.peekKey,index:peek.sourceIndex};peek.clear();mode=target;phase='edge';update();}
+                if(['peek','book'].includes(from))peek.confirm(readingIndex);else cancelPose();
+            }else if(['peek','book'].includes(target)){peek.setReading(target==='book'?1:0);mode='edge';phase='peek';update();}
+            else {if(['peek','book'].includes(from))remembered={key:data.peekKey,index:peek.sourceIndex};peek.clear();mode=target;phase='edge';update();}
             syncControls();
         };
-        if(from==='peek'||target==='peek'){
+        if(['peek','book'].includes(from)&&['peek','book'].includes(target)){
+            transition.book=true;
+            if(!peek.transitionReading(target==='book'?1:0,{manual,onFinish:done})){restore(from);return false;}
+            return true;
+        }
+        if(['peek','book'].includes(from)||['peek','book'].includes(target)){
             // Decode the fan before animating. While loading, keep the reading page visible.
             const index=from==='reading'?data.peekIndex:(remembered?.key===data.peekKey?remembered.index:data.peekIndex);
-            if(from!=='peek'){
+            if(!['peek','book'].includes(from)){
                 if(from==='reading')document.body.classList.add('viewer-fan-preparing');
                 mode='edge';update();
             }
-            Promise.resolve(from==='peek'?peek.ready:peek.prepare(index)).then(ready=>{
+            Promise.resolve(['peek','book'].includes(from)?peek.ready:peek.prepare(index)).then(ready=>{
                 if(id!==serial)return;
                 if(!ready){done(false);return;}
-                const readingData=from==='peek'&&target==='reading'?getSnapshot(readingIndex??peek.sourceIndex):data;
-                motion.playFan(from,target,readingData,peek.element,{manual,onFinish:done});
+                if(target==='book')peek.setReading(1);
+                const readingData=['peek','book'].includes(from)&&target==='reading'?getSnapshot(readingIndex??peek.sourceIndex):data;
+                motion.playFan(from==='book'?'peek':from,target==='book'?'peek':target,readingData,peek.element,{manual,onFinish:done});
                 document.body.classList.remove('viewer-fan-preparing');
                 if(manual&&transition){motion.draw(transition.progress);if(transition.finish!==null)motion.finish(transition.finish);}
             }).catch(()=>done(false));
         }else motion.play(from==='reading'?'':from,data,spineMarkup(data),{to:target,manual,onFinish:done});
         return true;
     }
-    function step(direction,manual=false){const at=states.indexOf(state()),target=states[at+(direction==='up'?-1:1)];return target?changeTo(target,manual):false;}
+    function step(direction,manual=false){const at=states().indexOf(state()),target=states()[at+(direction==='up'?-1:1)];return target?changeTo(target,manual):false;}
     function openReading(manual=false,readingIndex){return changeTo('reading',manual,readingIndex);}
     function beginGesture(action){
         if(matchMedia('(prefers-reduced-motion:reduce)').matches)return false;
         return action==='open'?openReading(true):step(action,true);
     }
-    function drawGesture(p){if(transition)transition.progress=p;motion.draw(p);}
-    function finishGesture(accept){if(transition)transition.finish=accept;motion.finish(accept);}
+    function drawGesture(p){if(transition)transition.progress=p;if(transition?.book)getPeek()?.drawReading(p);else motion.draw(p);}
+    function finishGesture(accept){if(transition)transition.finish=accept;if(transition?.book)getPeek()?.finishReading(accept);else motion.finish(accept);}
     function update() {
         const snapshot = getSnapshot(); labels.replaceChildren();
         if (!snapshot) {rail.hidden = true; cancelPose(); return;}
         rail.hidden = false;
+        if(!transition&&state()==='book'&&!canReadBook()){getPeek()?.confirm();return;}
         const {rect, pages, title, total, thickness, busy} = snapshot;
         // Mobile controls overlay the actual page instead of reserving a side column.
         const style = document.documentElement.style;
@@ -195,5 +204,5 @@ export function initializeViewerReaderChrome({getSnapshot, onLayoutChange, befor
         }
     }
     syncControls();
-    return {update,cancelPose,adoptSpine(){beforePose();mode='spine';phase='edge';update();},step,setEdgePhase,openReading,beginGesture,drawGesture,finishGesture,get state(){return state();},get transitioning(){return !!transition;},get mode(){return mode;},get pageNumberSettings(){return {...prefs};},get active(){return !!mode||!!transition||motion.active;},get settingsOpen(){return settings.open;}};
+    return {update,cancelPose,changeTo,canReadBook,adoptSpine(){beforePose();mode='spine';phase='edge';update();},step,setEdgePhase,openReading,beginGesture,drawGesture,finishGesture,get state(){return state();},get transitioning(){return !!transition;},get mode(){return mode;},get pageNumberSettings(){return {...prefs};},get active(){return !!mode||!!transition||motion.active;},get settingsOpen(){return settings.open;}};
 }
