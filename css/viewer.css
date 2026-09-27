@@ -3186,8 +3186,10 @@ body.viewer-reader-chrome #viewer-bottom-navigation[data-lines=false] .reader-bo
 #viewer-page-furniture {position:fixed;inset:0;pointer-events:none;z-index:102;}
 .viewer-page-labels {position:absolute;font:11px/20px system-ui;color:var(--text-secondary,#aaa);font-variant-numeric:tabular-nums;}
 .reader-page-number,.reader-page-meta {position:absolute;height:20px;white-space:nowrap;}
-.viewer-page-labels [data-edge=top] {top:8px;}
-.viewer-page-labels [data-edge=bottom] {bottom:8px;}
+/* The canonical page is 640px high with a 20px reading margin.
+   Center the label line at 10/640 of the displayed page height. */
+.viewer-page-labels [data-edge=top] {top:max(0px,calc(1.5625% - 10px));}
+.viewer-page-labels [data-edge=bottom] {bottom:max(0px,calc(1.5625% - 10px));}
 .reader-page-number[data-align=left] {left:12px;}
 .reader-page-number[data-align=right] {right:12px;}
 .reader-page-number[data-align=center] {left:50%;transform:translateX(-50%);}
@@ -3276,8 +3278,10 @@ body.viewer-reader-chrome #viewer-header {min-height:56px;}
 
 /* Peek-only furniture follows the same projected sheet as its content. */
 .edge-fan-folio {position:absolute;z-index:2;font:12px/18px system-ui;color:#43524b;text-shadow:0 1px 2px #fff9;font-variant-numeric:tabular-nums;}
-.edge-fan-folio[data-edge=top] {top:12px;}
-.edge-fan-folio[data-edge=bottom] {bottom:12px;}
+/* Curved sheets use canonical coordinates: the 18px line is centered
+   within the same 20px margin before the paper is projected. */
+.edge-fan-folio[data-edge=top] {top:1px;}
+.edge-fan-folio[data-edge=bottom] {bottom:1px;}
 .edge-fan-folio[data-align=left] {left:14px;}
 .edge-fan-folio[data-align=right] {right:14px;}
 .edge-fan-folio[data-align=center] {left:50%;transform:translateX(-50%);}
