@@ -28,7 +28,7 @@ import { db, auth as firebaseAuth, ensureUserBootstrap } from './firebase.js';
 import { initGIS, renderGISButton, signInWithGoogle, signOutUser, onAuthChanged, handleRedirectResult } from './gis-auth.js';
 import { getOptimizedImageUrl } from './sections.js';
 import { applyTheme, bindThemePreferenceListener, getThemeMode, setThemeMode } from './theme.js';
-import { doc, getDoc, getDocs, setDoc, deleteDoc, addDoc, collection, query, where, limit, serverTimestamp, runTransaction } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
+import { doc, getDoc, getDocs, getDocFromServer, getDocsFromServer, setDoc, deleteDoc, addDoc, collection, query, where, limit, serverTimestamp, increment, runTransaction } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
 import { parseAndLoadDSF } from './export.js';
 import { CANONICAL_PAGE_WIDTH, CANONICAL_PAGE_HEIGHT, CANONICAL_PAGE_ASPECT } from './page-geometry.js';
 import {
@@ -56,6 +56,7 @@ import {
     resolveOwnerHistoricalReleaseIdentity,
 } from './viewer-owner-preview.js';
 import { assertRequestedViewerReleaseIsCurrent, normalizeRequestedViewerReleaseId } from './viewer-release-route.js';
+import { createReviewClient, reviewWorkIsPublic } from './review-client.js';
 import { resolveWorksDsfRelease } from './works-dsf-release.js';
 
 // ── Module State ──────────────────────────────────────────────
@@ -73,6 +74,8 @@ let bookmarkRestoreAttempted = false;
 let bookmarkSaveTimer = null;
 let bookmarkUiState = createBookmarkUiState();
 let reviewUiState = createReviewUiState();
+let reviewGeneration = 0;
+const reviewClient = createReviewClient(db, { doc, collection, query, where, limit, getDocFromServer, getDocsFromServer, runTransaction, serverTimestamp, increment });
 let viewerFixedTextContext = null;
 let viewerLocalFixtureAssetUrls = new Map();
 let viewerLocalPortableSession = null;
@@ -266,10 +269,14 @@ const VIEWER_UI = {
         infoLinerNotes: 'ライナーノーツ',
         infoReviews: 'レビュー',
         reviewSignedOut: 'ログインするとレビューを投稿できます。',
-        reviewNotShared: '共有作品でのみレビューできます。',
+        reviewNotShared: '公開中・限定公開中の作品でレビューを利用できます。',
         reviewLoading: 'レビューを読み込んでいます…',
         reviewEmpty: 'まだレビューはありません。',
         reviewError: 'レビューの処理に失敗しました: {message}',
+        reviewRetry: '再読み込み',
+        reviewUnavailable: '公開状態が変わりました。作品を開き直してください。',
+        reviewEditionChanged: '公開版が更新されました。作品を開き直してから投稿してください。',
+        reviewPermissionDenied: '公開状態またはアカウントの制限により処理できませんでした。',
         reviewBodyLabel: 'レビュー本文',
         reviewBodyPlaceholder: 'この作品の感想を書く',
         reviewSubmit: 'レビューを投稿',
@@ -359,10 +366,14 @@ const VIEWER_UI = {
         infoLinerNotes: 'Liner Notes',
         infoReviews: 'Reviews',
         reviewSignedOut: 'Sign in to post a review.',
-        reviewNotShared: 'Reviews are available for shared works only.',
+        reviewNotShared: 'Reviews are available while this work is public or unlisted.',
         reviewLoading: 'Loading reviews…',
         reviewEmpty: 'No reviews yet.',
         reviewError: 'Review failed: {message}',
+        reviewRetry: 'Reload reviews',
+        reviewUnavailable: 'Publication status changed. Reopen this work.',
+        reviewEditionChanged: 'The published edition changed. Reopen this work before posting.',
+        reviewPermissionDenied: 'Publication or account restrictions prevented this action.',
         reviewBodyLabel: 'Review',
         reviewBodyPlaceholder: 'Write a review',
         reviewSubmit: 'Post review',
@@ -703,6 +714,8 @@ async function initAuth() {
                 bookmarkRestoreAttempted = false;
                 resetBookmarkUiState();
             }
+            resetReviewUiState();
+            if (projectLoaded && !ownerPreviewRoute) void loadViewerReviews();
             renderViewerAuthSlot(user || null);
             renderViewerInfoPanel();
             if (firstState) {
@@ -1513,11 +1526,13 @@ function createReviewUiState() {
         reviews: [],
         lastError: '',
         posted: false,
-        reactionPendingId: ''
+        reactionPendingId: '',
+        draft: ''
     };
 }
 
 function resetReviewUiState() {
+    reviewGeneration++;
     reviewUiState = createReviewUiState();
 }
 
@@ -1527,7 +1542,7 @@ function setReviewUiState(patch) {
 }
 
 function canUseViewerReviews() {
-    return viewerProjectMeta.source === 'shared' && !!viewerProjectMeta.workId;
+    return viewerProjectMeta.source === 'shared' && !!viewerProjectMeta.workId && reviewWorkIsPublic(viewerProjectMeta);
 }
 
 function normalizeReviewData(id, data = {}) {
@@ -1549,58 +1564,36 @@ function normalizeReviewData(id, data = {}) {
     };
 }
 
-async function hydrateViewerReviewReactions(reviews) {
-    if (!state.uid || !viewerProjectMeta.workId || !reviews.length) return reviews;
-    const hydrated = await Promise.all(reviews.map(async (review) => {
-        try {
-            const reactionRef = doc(db, 'reviews', viewerProjectMeta.workId, 'items', review.reviewId, 'reactions', state.uid);
-            const reactionSnap = await getDoc(reactionRef);
-            if (!reactionSnap.exists()) return review;
-            const reaction = reactionSnap.data()?.reaction;
-            return {
-                ...review,
-                userReaction: reaction === 'good' || reaction === 'bad' ? reaction : ''
-            };
-        } catch (_) {
-            return review;
-        }
-    }));
-    return hydrated;
+function reviewErrorMessage(error) {
+    const key = { 'review-unavailable': 'reviewUnavailable', 'review-edition-changed': 'reviewEditionChanged',
+        'permission-denied': 'reviewPermissionDenied' }[error?.code];
+    return key ? vt(key) : (error?.message || String(error));
+}
+
+function captureReviewContext() {
+    const generation = reviewGeneration;
+    const context = { ...viewerProjectMeta, uid: state.uid || '' };
+    return { context, current: () => generation === reviewGeneration
+        && context.uid === (state.uid || '') && context.workId === viewerProjectMeta.workId };
 }
 
 async function loadViewerReviews(options = {}) {
+    reviewGeneration++;
     if (!canUseViewerReviews()) {
         setReviewUiState({ status: 'idle', reviews: [], lastError: '' });
         return;
     }
-    const previousReviews = Array.isArray(reviewUiState.reviews) ? reviewUiState.reviews : [];
-    setReviewUiState({ status: 'loading', lastError: '' });
+    const { context, current } = captureReviewContext();
+    setReviewUiState({ status: 'loading', reviews: [], lastError: '' });
     try {
-        const reviewQuery = query(
-            collection(db, 'reviews', viewerProjectMeta.workId, 'items'),
-            where('status', '==', 'published'),
-            limit(20)
-        );
-        const snap = await getDocs(reviewQuery);
-        let reviews = snap.docs
-            .map((entry) => normalizeReviewData(entry.id, entry.data()))
+        const data = await reviewClient.load(context, { postedReviewId: options.postedReviewId });
+        if (!current()) return;
+        const reviews = data.map(entry => normalizeReviewData(entry.reviewId, entry))
             .sort((a, b) => compareFirestoreTimestampDesc(a.createdAt, b.createdAt));
-        reviews = await hydrateViewerReviewReactions(reviews);
-        if (options.keepPosted) {
-            const seen = new Set(reviews.map((review) => review.reviewId));
-            reviews = [
-                ...previousReviews.filter((review) => review.reviewId && !seen.has(review.reviewId)),
-                ...reviews
-            ].sort((a, b) => compareFirestoreTimestampDesc(a.createdAt, b.createdAt));
-        }
-        setReviewUiState({
-            status: 'loaded',
-            reviews,
-            lastError: '',
-            posted: !!options.keepPosted && reviewUiState.posted
-        });
+        setReviewUiState({ status: 'loaded', reviews, lastError: '', posted: !!options.keepPosted });
     } catch (e) {
-        setReviewUiState({ status: 'error', lastError: e?.message || String(e) });
+        if (!current()) return;
+        setReviewUiState({ status: 'error', reviews: [], lastError: reviewErrorMessage(e) });
         console.warn('[Viewer] reviews load failed:', e);
     }
 }
@@ -1630,107 +1623,45 @@ function bindReviewTextareaAutosize(container) {
 }
 
 async function submitViewerReview(container) {
-    if (!state.uid || !canUseViewerReviews()) return;
+    if (!state.uid || !canUseViewerReviews() || reviewUiState.status === 'submitting' || reviewUiState.reactionPendingId) return;
     const { body } = getReviewFormValues(container);
-    if (!body) return;
+    if (!body || body.length > 2000) return;
     if (!window.confirm(vt('reviewConfirm', { body: body.slice(0, 1000) }))) return;
-    setReviewUiState({ status: 'submitting', lastError: '', posted: false });
+    reviewGeneration++;
+    const { context, current } = captureReviewContext();
+    const user = state.user;
+    setReviewUiState({ status: 'submitting', lastError: '', posted: false, draft: body });
     try {
-        const account = await ensureUserBootstrap(state.user).catch(() => null);
-        const publicName = account?.publicProfile?.displayName || state.user?.displayName || vt('reviewAnonymous');
-        const reviewRef = doc(collection(db, 'reviews', viewerProjectMeta.workId, 'items'));
-        const payload = {
-            reviewId: reviewRef.id,
-            workId: viewerProjectMeta.workId,
-            releaseId: viewerProjectMeta.releaseId || state.releaseId || '',
-            projectId: viewerProjectMeta.projectId || state.projectId || '',
-            authorUid: viewerProjectMeta.authorUid || '',
-            readerUid: state.uid,
-            readerName: String(publicName).slice(0, 80),
-            goodCount: 0,
-            badCount: 0,
-            body: body.slice(0, 2000),
-            status: 'published',
-            createdAt: serverTimestamp(),
-            updatedAt: serverTimestamp()
-        };
-        await setDoc(reviewRef, payload);
-        const localReview = normalizeReviewData(reviewRef.id, {
-            ...payload,
-            createdAt: { toMillis: () => Date.now() },
-            updatedAt: { toMillis: () => Date.now() }
-        });
-        setReviewUiState({
-            status: 'loaded',
-            reviews: [localReview, ...reviewUiState.reviews.filter((review) => review.reviewId !== reviewRef.id)],
-            lastError: '',
-            posted: true
-        });
-        const bodyInput = container.querySelector('[name="review-body"]');
-        if (bodyInput) {
-            bodyInput.value = '';
-            autoResizeReviewTextarea(bodyInput);
-        }
-        void loadViewerReviews({ keepPosted: true });
+        const account = await ensureUserBootstrap(user);
+        if (!current()) return;
+        const postedReviewId = await reviewClient.submit(context, { body,
+            readerName: account?.publicProfile?.displayName || user?.displayName || vt('reviewAnonymous') });
+        if (!current()) return;
+        setReviewUiState({ status: 'loaded', lastError: '', posted: true, draft: '' });
+        await loadViewerReviews({ keepPosted: true, postedReviewId });
     } catch (e) {
-        setReviewUiState({ status: 'error', lastError: e?.message || String(e), posted: false });
-        throw e;
+        if (!current()) return;
+        setReviewUiState({ status: 'error', reviews: [], lastError: reviewErrorMessage(e), posted: false });
+        console.warn('[Viewer] review submit failed:', e);
     }
 }
 
 async function setViewerReviewReaction(reviewId, reaction) {
-    if (!state.uid || !canUseViewerReviews()) return;
-    if (reaction !== 'good' && reaction !== 'bad') return;
-    const existingReview = (reviewUiState.reviews || []).find((review) => review.reviewId === reviewId);
-    if (!existingReview) return;
-    const previousReaction = existingReview.userReaction || '';
-    const nextReaction = previousReaction === reaction ? '' : reaction;
-    setReviewUiState({ reactionPendingId: reviewId, lastError: '' });
+    if (!state.uid || !canUseViewerReviews() || reviewUiState.reactionPendingId
+        || ['loading', 'submitting'].includes(reviewUiState.status)) return;
+    if (!['good', 'bad'].includes(reaction)
+        || !reviewUiState.reviews.some(review => review.reviewId === reviewId)) return;
+    reviewGeneration++;
+    const { context, current } = captureReviewContext();
+    setReviewUiState({ reactionPendingId: reviewId, lastError: '', posted: false });
     try {
-        const reviewRef = doc(db, 'reviews', viewerProjectMeta.workId, 'items', reviewId);
-        const reactionRef = doc(db, 'reviews', viewerProjectMeta.workId, 'items', reviewId, 'reactions', state.uid);
-        const result = await runTransaction(db, async (transaction) => {
-            const reviewSnap = await transaction.get(reviewRef);
-            if (!reviewSnap.exists()) throw new Error('review not found');
-            const reactionSnap = await transaction.get(reactionRef);
-            const currentReaction = reactionSnap.exists() ? reactionSnap.data()?.reaction : '';
-            const resolvedNext = currentReaction === reaction ? '' : reaction;
-            let goodCount = Math.max(0, Number(reviewSnap.data()?.goodCount) || 0);
-            let badCount = Math.max(0, Number(reviewSnap.data()?.badCount) || 0);
-            if (currentReaction === 'good') goodCount = Math.max(0, goodCount - 1);
-            if (currentReaction === 'bad') badCount = Math.max(0, badCount - 1);
-            if (resolvedNext === 'good') goodCount += 1;
-            if (resolvedNext === 'bad') badCount += 1;
-            transaction.update(reviewRef, { goodCount, badCount, updatedAt: serverTimestamp() });
-            if (resolvedNext) {
-                if (reactionSnap.exists()) {
-                    transaction.update(reactionRef, { reaction: resolvedNext, updatedAt: serverTimestamp() });
-                } else {
-                    transaction.set(reactionRef, {
-                        workId: viewerProjectMeta.workId,
-                        reviewId,
-                        uid: state.uid,
-                        reaction: resolvedNext,
-                        createdAt: serverTimestamp(),
-                        updatedAt: serverTimestamp()
-                    });
-                }
-            } else if (reactionSnap.exists()) {
-                transaction.delete(reactionRef);
-            }
-            return { goodCount, badCount, userReaction: resolvedNext };
-        });
-        setReviewUiState({
-            reactionPendingId: '',
-            reviews: (reviewUiState.reviews || []).map((review) => review.reviewId === reviewId
-                ? { ...review, ...result }
-                : review)
-        });
+        const result = await reviewClient.react(context, reviewId, reaction);
+        if (!current()) return;
+        setReviewUiState({ status: 'loaded', reactionPendingId: '',
+            reviews: reviewUiState.reviews.map(review => review.reviewId === reviewId ? { ...review, ...result } : review) });
     } catch (e) {
-        setReviewUiState({
-            reactionPendingId: '',
-            lastError: e?.message || String(e)
-        });
+        if (!current()) return;
+        setReviewUiState({ status: 'error', reactionPendingId: '', reviews: [], lastError: reviewErrorMessage(e) });
         console.warn('[Viewer] review reaction failed:', e);
     }
 }
@@ -1752,25 +1683,26 @@ function renderViewerReviewSection() {
         : (reviewUiState.status === 'error'
             ? vt('reviewError', { message: reviewUiState.lastError || 'unknown' })
             : (reviewUiState.posted ? vt('reviewPosted') : ''));
-    const reviews = reviewUiState.reviews || [];
+    const reviews = enabled ? reviewUiState.reviews || [] : [];
 
     container.innerHTML = `
         <div class="viewer-review-card">
             ${disabledMessage ? `<div class="viewer-review-note">${esc(disabledMessage)}</div>` : ''}
-            ${statusMessage ? `<div class="viewer-review-note">${esc(statusMessage)}</div>` : ''}
+            ${statusMessage ? `<div class="viewer-review-note" role="status">${esc(statusMessage)}</div>` : ''}
+            ${reviewUiState.status === 'error' && enabled ? `<button type="button" class="viewer-review-retry">${esc(vt('reviewRetry'))}</button>` : ''}
             ${signedIn && enabled ? `
                 <form class="viewer-review-form">
                     <label class="viewer-review-field">
                         <span>${esc(vt('reviewBodyLabel'))}</span>
                         <textarea name="review-body" rows="1" maxlength="2000" placeholder="${esc(vt('reviewBodyPlaceholder'))}"></textarea>
                     </label>
-                    <button type="submit" class="viewer-review-submit" ${reviewUiState.status === 'submitting' ? 'disabled' : ''}>
+                    <button type="submit" class="viewer-review-submit" ${reviewUiState.status === 'submitting' || reviewUiState.reactionPendingId ? 'disabled' : ''}>
                         ${esc(reviewUiState.status === 'submitting' ? vt('reviewSubmitting') : vt('reviewSubmit'))}
                     </button>
                 </form>
             ` : ''}
             <div class="viewer-review-list">
-                ${reviews.length ? reviews.map(renderViewerReviewItem).join('') : `<div class="viewer-review-empty">${esc(vt('reviewEmpty'))}</div>`}
+                ${reviews.length ? reviews.map(renderViewerReviewItem).join('') : (reviewUiState.status === 'loaded' ? `<div class="viewer-review-empty">${esc(vt('reviewEmpty'))}</div>` : '')}
             </div>
         </div>
     `;
@@ -1779,6 +1711,13 @@ function renderViewerReviewSection() {
         event.preventDefault();
         void submitViewerReview(container).catch((e) => console.warn('[Viewer] review submit failed:', e));
     });
+    container.querySelector('.viewer-review-retry')?.addEventListener('click', () => { void loadViewerReviews(); });
+    const draftInput = container.querySelector('[name="review-body"]');
+    if (draftInput) {
+        draftInput.value = reviewUiState.draft;
+        draftInput.disabled = reviewUiState.status === 'submitting';
+        draftInput.addEventListener('input', () => { reviewUiState.draft = draftInput.value; });
+    }
     bindReviewTextareaAutosize(container);
     container.querySelectorAll('.viewer-review-reaction').forEach((button) => {
         button.addEventListener('click', () => {
@@ -1790,7 +1729,7 @@ function renderViewerReviewSection() {
 }
 
 function renderViewerReviewItem(review) {
-    const pending = reviewUiState.reactionPendingId === review.reviewId;
+    const pending = !state.uid || !!reviewUiState.reactionPendingId || reviewUiState.status === 'submitting' || !canUseViewerReviews();
     const goodActive = review.userReaction === 'good';
     const badActive = review.userReaction === 'bad';
     return `
@@ -1802,12 +1741,12 @@ function renderViewerReviewItem(review) {
             </div>
             <p>${esc(review.body)}</p>
             <div class="viewer-review-reactions" aria-label="review reactions">
-                <button type="button" class="viewer-review-reaction ${goodActive ? 'is-active' : ''}" data-review-id="${esc(review.reviewId)}" data-reaction="good" ${pending ? 'disabled' : ''}>
+                <button type="button" class="viewer-review-reaction ${goodActive ? 'is-active' : ''}" data-review-id="${esc(review.reviewId)}" data-reaction="good" aria-pressed="${goodActive}" ${pending ? 'disabled' : ''}>
                     <span class="material-icons" aria-hidden="true">thumb_up</span>
                     <span>${esc(vt('reviewGood'))}</span>
                     <strong>${Math.max(0, Number(review.goodCount) || 0)}</strong>
                 </button>
-                <button type="button" class="viewer-review-reaction ${badActive ? 'is-active' : ''}" data-review-id="${esc(review.reviewId)}" data-reaction="bad" ${pending ? 'disabled' : ''} aria-label="${esc(vt('reviewBad'))}">
+                <button type="button" class="viewer-review-reaction ${badActive ? 'is-active' : ''}" data-review-id="${esc(review.reviewId)}" data-reaction="bad" aria-pressed="${badActive}" ${pending ? 'disabled' : ''} aria-label="${esc(vt('reviewBad'))}">
                     <span class="material-icons" aria-hidden="true">thumb_down</span>
                 </button>
             </div>

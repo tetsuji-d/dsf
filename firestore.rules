@@ -805,41 +805,69 @@ service cloud.firestore {
         && request.resource.data.updatedAt == request.time;
     }
 
+    // Candidate: review access follows the live publication, not the cached Viewer.
+    function reviewWorkIsPublic(workId) {
+      let w = publicProjectRecord(workId);
+      let p = w.publication;
+      return publicProjectExists(workId)
+        && w.workId == workId
+        && w.dsfStatus in ['public', 'unlisted']
+        && p is map
+        && p.publicFrom is timestamp && p.publicFrom <= request.time
+        && p.listedUntil is timestamp && p.listedUntil > request.time
+        && (p.get('listedFrom', null) == null || p.listedFrom <= request.time)
+        && (p.publicUntil == null || p.publicUntil > request.time)
+        && p.expiredAt == null && p.expireReason == null;
+    }
+
+    function reviewMatchesPublication(workId) {
+      let w = publicProjectRecord(workId);
+      return request.resource.data.authorUid == w.authorUid
+        && request.resource.data.projectId == w.projectId
+        && request.resource.data.releaseId == (w.get('releaseId', null) == null ? '' : w.releaseId);
+    }
+
     function validReviewCreate(workId, reviewId) {
       return isSignedIn()
         && accountCanPost(request.auth.uid)
+        && reviewWorkIsPublic(workId)
+        && reviewMatchesPublication(workId)
         && reviewHasValidShape()
         && reviewHasValidValues(workId, reviewId);
     }
 
     function validReviewStaffUpdate() {
       return isStaff()
-        && request.resource.data.diff(resource.data).changedKeys().hasOnly(['status', 'updatedAt'])
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'updatedAt'])
         && request.resource.data.status in ['published', 'hidden', 'removed']
         && request.resource.data.updatedAt == request.time;
     }
 
-    function priorReviewGoodCount() {
-      return resource.data.keys().hasAny(['goodCount']) ? resource.data.goodCount : 0;
+    function reviewVoteDelta(previous, next, kind) {
+      return (next == kind ? 1 : 0) - (previous == kind ? 1 : 0);
     }
 
-    function priorReviewBadCount() {
-      return resource.data.keys().hasAny(['badCount']) ? resource.data.badCount : 0;
+    // Both documents must change in the same atomic write. Neither can be forged alone.
+    function validReviewReactionChange(workId, reviewId, uid) {
+      let parent = /databases/$(database)/documents/reviews/$(workId)/items/$(reviewId);
+      let vote = /databases/$(database)/documents/reviews/$(workId)/items/$(reviewId)/reactions/$(uid);
+      let before = get(parent).data;
+      let after = getAfter(parent).data;
+      let previous = exists(vote) ? get(vote).data.reaction : '';
+      let next = existsAfter(vote) ? getAfter(vote).data.reaction : '';
+      return accountCanPost(uid) && reviewWorkIsPublic(workId)
+        && before.status == 'published'
+        && previous in ['', 'good', 'bad'] && next in ['', 'good', 'bad'] && previous != next
+        && after.diff(before).affectedKeys().hasOnly(['goodCount', 'badCount', 'updatedAt'])
+        && after.goodCount is int && after.goodCount >= 0
+        && after.badCount is int && after.badCount >= 0
+        && after.goodCount == before.get('goodCount', 0) + reviewVoteDelta(previous, next, 'good')
+        && after.badCount == before.get('badCount', 0) + reviewVoteDelta(previous, next, 'bad')
+        && after.updatedAt == request.time;
     }
 
-    function validReviewReactionAggregateUpdate() {
-      return isSignedIn()
-        && accountCanPost(request.auth.uid)
-        && request.resource.data.diff(resource.data).changedKeys().hasOnly(['goodCount', 'badCount', 'updatedAt'])
-        && request.resource.data.goodCount is int
-        && request.resource.data.goodCount >= 0
-        && request.resource.data.goodCount <= priorReviewGoodCount() + 1
-        && request.resource.data.goodCount >= priorReviewGoodCount() - 1
-        && request.resource.data.badCount is int
-        && request.resource.data.badCount >= 0
-        && request.resource.data.badCount <= priorReviewBadCount() + 1
-        && request.resource.data.badCount >= priorReviewBadCount() - 1
-        && request.resource.data.updatedAt == request.time;
+    function validReviewReactionAggregateUpdate(workId, reviewId) {
+      return isSignedIn() && validReviewReactionChange(workId, reviewId, request.auth.uid);
     }
 
     function validReviewReactionShape(uid) {
@@ -864,7 +892,7 @@ service cloud.firestore {
     }
 
     function validReviewReactionCreate(workId, reviewId, uid) {
-      return accountCanPost(uid)
+      return validReviewReactionChange(workId, reviewId, uid)
         && validReviewReactionShape(uid)
         && request.resource.data.workId == workId
         && request.resource.data.reviewId == reviewId
@@ -872,12 +900,10 @@ service cloud.firestore {
         && request.resource.data.updatedAt == request.time;
     }
 
-    function validReviewReactionUpdate() {
-      return isSignedIn()
-        && accountCanPost(request.auth.uid)
-        && resource.data.uid == request.auth.uid
-        && request.resource.data.diff(resource.data).changedKeys().hasOnly(['reaction', 'updatedAt'])
-        && request.resource.data.reaction in ['good', 'bad']
+    function validReviewReactionUpdate(workId, reviewId, uid) {
+      return validReviewReactionChange(workId, reviewId, uid)
+        && validReviewReactionShape(uid)
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['reaction', 'updatedAt'])
         && request.resource.data.updatedAt == request.time;
     }
 
@@ -1038,20 +1064,20 @@ service cloud.firestore {
       allow read, write: if false;
 
       match /items/{reviewId} {
-        allow read: if resource.data.status == 'published'
+        allow read: if (resource.data.status == 'published' && reviewWorkIsPublic(workId))
                     || (isSignedIn() && resource.data.readerUid == request.auth.uid)
                     || isStaff();
         allow create: if validReviewCreate(workId, reviewId);
         allow update: if validReviewStaffUpdate()
-                      || validReviewReactionAggregateUpdate();
+                      || validReviewReactionAggregateUpdate(workId, reviewId);
         allow delete: if isStaff()
                       || (isSignedIn() && resource.data.readerUid == request.auth.uid);
 
         match /reactions/{uid} {
           allow read: if isOwner(uid) || isStaff();
           allow create: if validReviewReactionCreate(workId, reviewId, uid);
-          allow update: if validReviewReactionUpdate();
-          allow delete: if isOwner(uid) || isStaff();
+          allow update: if validReviewReactionUpdate(workId, reviewId, uid);
+          allow delete: if validReviewReactionChange(workId, reviewId, uid);
         }
       }
     }

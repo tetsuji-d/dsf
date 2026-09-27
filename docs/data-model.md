@@ -808,7 +808,7 @@ Viewer の閲覧行動を append-only の raw event として保存する。日�
 }
 ```
 
-`badCount` は公開 Viewer では表示しない。作品投稿者ダッシュボードや運営モデレーションで確認するために保持する。
+`badCount` は公開 Viewer では表示しない。作品投稿者ダッシュボードや運営モデレーションで確認するために保持する。ただし公開レビュー文書の一部であり、アクセス制御上の秘密ではない。非公開化には保存先の分離と移行の合意が必要。
 
 ### `reviews/{workId}/items/{reviewId}/reactions/{uid}` — レビューリアクション
 
@@ -1014,14 +1014,17 @@ metric_events/{eventId}:
   - update/delete: 不可
 
 reviews/{workId}/items/{reviewId}:
-  - read: status == 'published'、投稿者本人、または staff のみ
-  - create: ログイン済み読者のみ。workId / reviewId / readerUid / body / goodCount / badCount / status / timestamps を検証
-  - update: staff が status と updatedAt のみ変更可。ログイン済み読者はリアクション集計として goodCount / badCount / updatedAt のみ変更可
+  - read: status == 'published' かつ作品インデックスが存在し public/unlisted・掲載/公開期間内・未失効。投稿者本人と staff の既存の閲覧権限は維持
+  - create: ログイン済み・停止/投稿制限のない本人のみ。公開条件、workId / reviewId / readerUid / body / counts / status / timestamps と、公開中の authorUid / projectId / releaseId との一致を検証
+  - update: staff は status と updatedAt のみ。読者は自分の評価票の変更と同一のatomic writeで正確な差分だけ集計更新可。無関係フィールドの追加/削除も拒否
   - delete: 投稿者本人または staff
 
 reviews/{workId}/items/{reviewId}/reactions/{uid}:
   - read: 本人または staff のみ
-  - create/update/delete: 本人または staff。reaction は good / bad のみ
+  - create/update/delete: 停止/投稿制限のない本人のみ。作品公開中、親レビューpublished、本人票と親集計の同時更新が必要
+  - reaction: good / bad。取消は票削除と対応する集計の減算を同時に行う。staffも票単体削除は不可
+  - 旧版レビューは同じworkIdの公開中に閲覧・評価可。既存の不整合集計は自動修復せず更新を止める
+
 ```
 
 ### Storage Rules（`storage.rules` — デプロイ済み 2026-02-25）
