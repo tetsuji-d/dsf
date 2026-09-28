@@ -27,3 +27,13 @@ The auth UI inserted the guest cloud-save prompt but never removed it after sign
 Application commit: 3fabb48. Deployment: https://60836689.dsf-studio.pages.dev . Alias: https://staging.dsf-studio.pages.dev . Fourteen served HTML/JS/CSS/service-worker resources matched the local dist SHA-256 values. The deployed Studio dashboard opened without console errors. No production deployment, main merge, Rules deployment, or user manuscript mutation. Untracked outputs are retained.
 
 Downloaded synthetic DSF SHA-256: 1bb808898548da49c9210611846454c1b59671cb668a24b73cad86e81e885a53 .
+
+## Offline navigation follow-up (2026-09-28)
+
+The user reported Chrome ERR_FAILED on /studio.html?room=home. HTTP reads succeeded and redirected to /studio, while the already-installed offline browser reproduced ERR_FAILED. The service worker returned the redirected cached HTML Response directly; navigation requests using manual redirect mode cannot consume that response. The fetch handler now reconstructs entry responses with the same bytes/status/headers and no redirect metadata, including network fallback with explicit redirect follow. Old cached bytes remain usable and authoring storage is untouched.
+
+Added /studio-repair (public/studio-repair.html and studio-repair.js) outside the offline entry route list. An explicit button updates only the existing Studio worker, waits for installation/activation, and opens /studio. It never clears IndexedDB, localStorage, caches or login data, and never reloads other tabs.
+
+Commit 27f8b3a; staging deployment https://abacacc7.dsf-studio.pages.dev . All three served repair/SW files matched dist SHA-256. Redirected cached-entry, manual navigation, fallback and storage-boundary regression checks passed; staging build passed.
+
+Browser verification: an IAB with the existing broken offline worker recovered through the repair button; its existing local draft remained listed. A fresh tab successfully opened the exact /studio.html?room=home route after recovery. Navigation of an already-restored local-draft tab was blocked by the unsaved-work guard (ERR_ABORTED), which was not bypassed. The user's Chrome error tab was then restored through the same visible repair button; Dashboard and twelve existing local working-copy entries, including the recent manuscript copy, were visible. No manuscript was opened, edited, saved or deleted. Chrome was left on the restored dashboard.
