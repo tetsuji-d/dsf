@@ -136,6 +136,11 @@
                         <div class="home-section-title-wrap">
                             <span class="material-icons" aria-hidden="true">devices</span>
                             <span id="home-local-count" class="home-section-count">0</span>
+                            <span class="home-save-scope" data-start-label="allSpaces">全スペース共通</span>
+                            <div class="home-recent-controls">
+                                <button type="button" class="home-action-btn" data-home-recent-step="-1" aria-controls="home-local-grid" aria-label="前の作業を表示" disabled><span class="material-icons" aria-hidden="true">chevron_left</span></button>
+                                <button type="button" class="home-action-btn" data-home-recent-step="1" aria-controls="home-local-grid" aria-label="次の作業を表示" disabled><span class="material-icons" aria-hidden="true">chevron_right</span></button>
+                            </div>
                         </div>
                         <div class="home-section-actions">
                             <button class="home-action-btn" onclick="document.getElementById('dsp-upload').click()">
@@ -143,7 +148,7 @@
                             </button>
                         </div>
                     </div>
-                    <div id="home-local-grid" class="home-project-grid"></div>
+                    <div id="home-local-grid" class="home-project-grid" tabindex="0" aria-label="最近の作業（全スペース共通）"></div>
                 </details>
             </div>
         </div>

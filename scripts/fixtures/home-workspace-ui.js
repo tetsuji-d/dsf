@@ -26,7 +26,10 @@ function render(){
  document.getElementById('home-cloud-scope').textContent=spaces.destination()+' / '+spaces.label();
  document.getElementById('home-dashboard-stats').innerHTML=[['library_books',rows.length,en?'Works':'作品'],['public',0,en?'Published':'公開中'],['chat_bubble_outline',0,en?'Reviews':'レビュー']].map(([icon,value,label])=>'<article class="home-stat-card"><span class="material-icons">'+icon+'</span><div><strong>'+value+'</strong><span>'+label+'</span></div></article>').join('');
  document.getElementById('home-work-grid').innerHTML='<p>'+(en?'No published works yet.':'公開した作品はまだありません。')+'</p><button class="home-action-btn" data-home-nav="projects">'+(en?'Choose a work':'作品を選ぶ')+'</button>';
- document.getElementById('home-local-grid').innerHTML='<p>'+(en?'A working copy on this device':'この端末の作業コピー')+' — 潮騒の図書館</p>';document.getElementById('home-local-count').textContent='1';
+ const localRows=isEmpty?[]:Array.from({length:12},(_,i)=>({id:'local_'+(i+1),title:(i===11?'最終の原稿':samples[i%4][1])+' '+(i+1),color:samples[i%4][2]}));
+ document.getElementById('home-local-grid').innerHTML=localRows.length?localRows.map(p=>'<div class="home-project-entry"><button class="home-project-card" data-fixture-local="'+p.id+'"><div class="home-project-thumb" style="background:'+p.color+'"></div><div class="home-project-info"><div class="home-project-title">'+p.title+'</div><span class="home-project-resume">'+(en?'Continue editing':'続きから編集')+'</span><div class="home-project-meta home-project-work-title">'+(en?'Work title: ':'作品タイトル: ')+p.title+'</div><div class="home-project-meta">'+(en?'12 pages · Browser copy':'12ページ · ブラウザ内のコピー')+' · 2026/9/28 18:31</div></div></button></div>').join(''):'<div class="home-empty-state">'+(en?'No working copies.':'作業コピーはありません。')+'</div>';
+ document.querySelectorAll('[data-fixture-local]').forEach(b=>b.onclick=()=>{notice.firstChild.textContent='検証：'+b.dataset.fixtureLocal+'の編集へ ';});
+ document.getElementById('home-local-count').textContent=localRows.length;
 }
 const device=()=>{document.body.dataset.device=innerWidth<1024?'mobile':'desktop';};device();window.addEventListener('resize',device);
 installHomeStart({root:document.getElementById('home-room'),getLocale:getUILang,readState:()=>({uid,workId:'fixture-work',blocks:[{}]}),readShared:()=>null,onResume:()=>window.switchRoom('editor')});
