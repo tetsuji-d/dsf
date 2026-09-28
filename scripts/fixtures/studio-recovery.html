@@ -1,0 +1,12 @@
+<!doctype html><html lang="ja"><meta charset="utf-8"><title>Studio recovery fixture</title><link rel="stylesheet" href="/css/studio.css"><body style="display:block;padding:32px;background:#f6f8fc;color:#17243a"><h1>保存表示・Press復旧の検証</h1><p>検証用データ。実アカウント・原稿への操作なし。</p><p id="save-status" role="status"></p><button id="login">ログイン</button><button id="saved">保存成功</button><button id="failed">保存失敗</button><button id="logout">ログアウト</button><button id="language">JA / EN</button><hr><section id="failure" class="press-flow-local-release-summary"></section><p id="action" role="status"></p><script type="module">
+import {syncAuthSaveStatus} from '/js/studio-auth-save-status.js';
+import {renderPressModuleLoadError} from '/js/press-module-load-error.js';
+import {STRINGS} from '/js/i18n-studio.js';
+let uid='',en=false;const status=document.getElementById('save-status');
+const render=()=>{syncAuthSaveStatus(status,{uid,en});document.getElementById('failure').innerHTML=renderPressModuleLoadError(new Error('Failed to fetch dynamically imported module: /assets/old.js'),key=>STRINGS[en?'en':'ja'][key],x=>x);};
+document.getElementById('login').onclick=()=>{uid='fixture-owner';render();};
+document.getElementById('logout').onclick=()=>{uid='';render();};
+for(const [id,phase,text] of [['saved','saved','保存済み (Cloud)'],['failed','error','保存失敗']])document.getElementById(id).onclick=()=>{delete status.dataset.authNotice;status.dataset.saveStatus=phase;status.dataset.saveTarget='Cloud';status.textContent=text;render();};
+document.getElementById('language').onclick=()=>{en=!en;render();};
+window.exportDSP=()=>{document.getElementById('action').textContent='DSP保存の入口を実行';};window.switchRoom=room=>{document.getElementById('action').textContent=room+'へ移動';};render();
+</script></body></html>

@@ -249,7 +249,7 @@ assert.match(source, /credentials:\s*'omit'/);
 assert.match(source, /redirect:\s*'error'/);
 
 const pressSource = readFileSync(new URL('../js/press.js', import.meta.url), 'utf8');
-assert.match(pressSource, /import\('\.\/flow-press-local-release-package\.js'\)/);
+assert.match(pressSource, /import \* as \w+ from '\.\/flow-press-local-release-package\.js'/);
 assert.match(pressSource, /press-flow-local-release-package-summary/);
 assert.match(pressSource, /data-flow-portable-download/);
 assert.match(pressSource, /btn\.disabled = !flowPortableReady/);

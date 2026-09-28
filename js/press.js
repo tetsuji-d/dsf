@@ -1,3 +1,14 @@
+// Load production Press code with Studio, before a later deployment can remove its chunk URLs.
+import * as _pressFlowProductionPreparationModule from './flow-press-publication-preparation.js';
+import * as _pressFlowLocalReleasePlanningModule from './flow-press-local-release-planning.js';
+import * as _pressFlowLocalReleaseSealingModule from './dsf-release-byte-sealing.js';
+import * as _pressFlowLocalReleasePackageModule from './flow-press-local-release-package.js';
+import * as _pressFlowHorizonHandoffModule from './flow-press-horizon-release-handoff.js';
+import * as _pressFlowHorizonUploadModule from './flow-press-horizon-release-upload.js';
+import * as _pressFlowHorizonDraftModule from './flow-press-horizon-draft-write.js';
+import * as fontRegistryModule from './dsf-font-registry.js';
+import * as fontRuntimeModule from './dsf-production-font-runtime.js';
+import * as rendererModule from './dsf-fixed-text-thumbnail-renderer.js';
 import { ensurePublishingSpace } from './publishing-space-publish.js';
 import { preparePrivateProjectAction, runPrivateProjectAction } from './private-project-actions.js';
 import { renderPressModuleLoadError } from './press-module-load-error.js';
@@ -93,7 +104,7 @@ let _pressFlowProductionPreparationState = 'idle';
 let _pressFlowProductionPreparationError = null;
 let _pressFlowProductionPreparationRequestId = 0;
 let _pressFlowProductionPreparationController = null;
-let _pressFlowProductionPreparationModule = null;
+
 let _pressFlowProductionPreparationResult = null;
 let _pressFlowProductionPreparationSignature = '';
 let _pressFlowProductionPreparationProgress = null;
@@ -101,8 +112,8 @@ let _pressFlowLocalReleasePlanningState = 'idle';
 let _pressFlowLocalReleasePlanningError = null;
 let _pressFlowLocalReleasePlanningRequestId = 0;
 let _pressFlowLocalReleasePlanningController = null;
-let _pressFlowLocalReleasePlanningModule = null;
-let _pressFlowLocalReleaseSealingModule = null;
+
+
 let _pressFlowLocalReleasePlanningResult = null;
 let _pressFlowLocalReleasePlanningSignature = '';
 let _pressFlowLocalReleaseSealedAssets = null;
@@ -110,14 +121,14 @@ let _pressFlowLocalReleasePackageState = 'idle';
 let _pressFlowLocalReleasePackageError = null;
 let _pressFlowLocalReleasePackageRequestId = 0;
 let _pressFlowLocalReleasePackageController = null;
-let _pressFlowLocalReleasePackageModule = null;
+
 let _pressFlowLocalReleasePackageResult = null;
 let _pressFlowLocalReleasePackageSignature = '';
 let _pressFlowHorizonHandoffState = 'idle';
 let _pressFlowHorizonHandoffError = null;
 let _pressFlowHorizonHandoffRequestId = 0;
 let _pressFlowHorizonHandoffController = null;
-let _pressFlowHorizonHandoffModule = null;
+
 let _pressFlowHorizonHandoffResult = null;
 let _pressFlowHorizonHandoffSignature = '';
 let _pressFlowHorizonHandoffReleaseId = '';
@@ -125,14 +136,14 @@ let _pressFlowHorizonUploadState = 'idle';
 let _pressFlowHorizonUploadError = null;
 let _pressFlowHorizonUploadRequestId = 0;
 let _pressFlowHorizonUploadController = null;
-let _pressFlowHorizonUploadModule = null;
+
 let _pressFlowHorizonUploadResult = null;
 let _pressFlowHorizonUploadSignature = '';
 let _pressFlowHorizonUploadProgress = null;
 let _pressFlowHorizonDraftState = 'idle';
 let _pressFlowHorizonDraftError = null;
 let _pressFlowHorizonDraftRequestId = 0;
-let _pressFlowHorizonDraftModule = null;
+
 let _pressFlowHorizonDraftResult = null;
 let _pressFlowHorizonDraftSignature = '';
 const PRESS_IMAGE_WEBP_QUALITY_BY_SCALE = Object.freeze({
@@ -1734,7 +1745,6 @@ async function _requestPressFlowProductionPreparation() {
     _renderPressFlowLocalReleasePackageSummary();
     _renderPressFlowLocalReleaseSize();
     try {
-        _pressFlowProductionPreparationModule ||= await import('./flow-press-publication-preparation.js');
         const result = await _pressFlowProductionPreparationModule.prepareFlowPressPublication({
             project: state,
             languages: _getSelectedPressLangs(),
@@ -1927,10 +1937,7 @@ async function _requestPressFlowLocalReleasePlanning(preparation = _pressFlowPro
     _renderPressFlowLocalReleaseSize();
 
     try {
-        [_pressFlowLocalReleasePlanningModule, _pressFlowLocalReleaseSealingModule] = await Promise.all([
-            _pressFlowLocalReleasePlanningModule || import('./flow-press-local-release-planning.js'),
-            _pressFlowLocalReleaseSealingModule || import('./dsf-release-byte-sealing.js'),
-        ]);
+        // All module bytes were loaded at Studio startup.
         _throwIfPressFlowLocalReleaseCancelled(controller.signal, requestId);
         const preparedLanguages = new Set(preparation.languages.map((result) => result?.language).filter(Boolean));
         const languages = _getSelectedPressLangs().filter((language) => preparedLanguages.has(language));
@@ -2043,7 +2050,6 @@ async function _requestPressFlowHorizonHandoff(
     _updatePublishBtn();
 
     try {
-        _pressFlowHorizonHandoffModule ||= await import('./flow-press-horizon-release-handoff.js');
         _throwIfPressFlowHorizonHandoffCancelled(controller.signal, requestId);
         const result = await _pressFlowHorizonHandoffModule.createFlowPressHorizonReleaseHandoff({
             planning,
@@ -2168,7 +2174,6 @@ async function _executePressFlowHorizonUpload() {
     _updatePublishBtn();
 
     try {
-        _pressFlowHorizonUploadModule ||= await import('./flow-press-horizon-release-upload.js');
         _throwIfPressFlowHorizonUploadCancelled(controller.signal, requestId);
         const result = await _pressFlowHorizonUploadModule.executeFlowPressHorizonReleaseUpload({
             handoff,
@@ -2332,11 +2337,7 @@ function _collectFixedTextThumbnailFontWeights(manifest, page) {
 }
 
 async function _renderFlowFixedTextPublicationThumbnail(index, manifest, page) {
-    const [fontRegistryModule, fontRuntimeModule, rendererModule] = await Promise.all([
-        import('./dsf-font-registry.js'),
-        import('./dsf-production-font-runtime.js'),
-        import('./dsf-fixed-text-thumbnail-renderer.js'),
-    ]);
+
     const fontWeights = _collectFixedTextThumbnailFontWeights(manifest, page);
     const leases = [];
     const fontFamiliesByRef = {};
@@ -2515,7 +2516,6 @@ async function _writePressFlowHorizonDraftMetadata(upload, account, privateConte
     _renderPressFlowLocalReleaseSummary();
     _updatePublishBtn();
     try {
-        _pressFlowHorizonDraftModule ||= await import('./flow-press-horizon-draft-write.js');
         _assertCurrentFlowHorizonDraftIdentity(upload);
         const publishedAt = new Date();
         let publication = createDefaultPublication(account, publishedAt);
@@ -2681,7 +2681,6 @@ async function _requestPressFlowLocalReleasePackage(
     _updatePublishBtn();
 
     try {
-        _pressFlowLocalReleasePackageModule ||= await import('./flow-press-local-release-package.js');
         _throwIfPressFlowLocalPackageCancelled(controller.signal, requestId);
         const result = await _pressFlowLocalReleasePackageModule.createFlowPressLocalReleasePackage({
             planning,
@@ -4277,7 +4276,7 @@ function _esc(str) {
 
 /** Read-only editor preview; uses the same certified Flow and portable ZIP pipeline as Press. */
 export async function createEditorFlowPreview({project,languages,signal,check,onProgress,printOptions=null}) {
-  const {prepareFlowPressPublication}=await import('./flow-press-publication-preparation.js');
+  const {prepareFlowPressPublication}=_pressFlowProductionPreparationModule;
   const preparation=await prepareFlowPressPublication({project,languages,revision:Date.now(),documentRef:document,signal,onProgress});check();
   if (!preparation.ok) {
         const error = new Error('PREVIEW_PREPARATION_BLOCKED');
@@ -4288,11 +4287,10 @@ export async function createEditorFlowPreview({project,languages,signal,check,on
         });
         throw error;
     }
-  _pressFlowLocalReleaseSealingModule ||= await import('./dsf-release-byte-sealing.js');
   const {imageAssets,backgroundAssets,sealedAssets}=await _createPressFlowLocalReleaseImageAssets(preparation,languages,printOptions?2160:1080,printOptions?3840:1920,signal,null,check,printOptions);check();
-  const {createFlowPressLocalReleasePlanning}=await import('./flow-press-local-release-planning.js');
+  const {createFlowPressLocalReleasePlanning}=_pressFlowLocalReleasePlanningModule;
   const planning=await createFlowPressLocalReleasePlanning({preparation,defaultLang:languages.includes(project.defaultLang)?project.defaultLang:languages[0],languages,pageDirections:Object.fromEntries(languages.map(l=>[l,_getLangDirection(l)])),imageAssets,backgroundAssets});check();
-  const {createFlowPressLocalReleasePackage}=await import('./flow-press-local-release-package.js');
+  const {createFlowPressLocalReleasePackage}=_pressFlowLocalReleasePackageModule;
   const result=await createFlowPressLocalReleasePackage({planning,sealedAssets,metadata:_createPressFlowLocalReleaseMetadata(languages),signal});check();
   return result.zipPackage.blob;
 }

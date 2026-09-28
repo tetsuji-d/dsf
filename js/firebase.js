@@ -930,13 +930,14 @@ export function onAuthChanged(callback) {
  * 保存ステータスを更新してUIに反映する
  */
 let lastSaveIndicatorMessage = '';
-document.addEventListener('studio-ui-language-change',()=>{if(lastSaveIndicatorMessage)updateSaveIndicator(saveStatus,lastSaveIndicatorMessage);});
+document.addEventListener('studio-ui-language-change',()=>{if(lastSaveIndicatorMessage&&!document.getElementById('save-status')?.dataset.authNotice)updateSaveIndicator(saveStatus,lastSaveIndicatorMessage);});
 function updateSaveIndicator(status, message) {
     lastSaveIndicatorMessage=message||'';
     saveStatus = status;
     const el = document.getElementById('save-status');
     if (!el) return;
 
+    delete el.dataset.authNotice;
     const icons = { idle: '', saving: '●', saved: '✓', error: '!' };
     const colors = { idle: '#999', saving: '#f0ad4e', saved: '#34c759', error: '#ff3b30' };
 

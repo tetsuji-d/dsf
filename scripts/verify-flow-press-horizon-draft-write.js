@@ -216,7 +216,7 @@ for (const forbidden of ['./firebase', './press', 'setDoc(', 'writeBatch(', 'del
     assert.equal(moduleSource.includes(forbidden), false, `draft contract cannot depend on ${forbidden}`);
 }
 const pressSource = readFileSync(new URL('../js/press.js', import.meta.url), 'utf8');
-assert.match(pressSource, /import\('\.\/flow-press-horizon-draft-write\.js'\)/);
+assert.match(pressSource, /import \* as \w+ from '\.\/flow-press-horizon-draft-write\.js'/);
 assert.match(pressSource, /await runTransaction\(db, async \(transaction\) =>/);
 assert.match(pressSource, /if \(publicSnap\.exists\(\)\) transaction\.delete\(publicRefs\[index\]\)/);
 assert.match(pressSource, /FLOW_HORIZON_DRAFT_PUBLIC_INDEX_OWNER_MISMATCH/);

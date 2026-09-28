@@ -1,3 +1,4 @@
+import {syncAuthSaveStatus} from './studio-auth-save-status.js';
 import {createStudioInbox} from './studio-inbox.js';
 import {createPersonalSharingClient,openPersonalSharingDialog} from './personal-sharing-ui.js';
 import {renderJoinedSpaceWorks} from './joined-space-works.js';
@@ -4976,10 +4977,7 @@ function updateAuthUI() {
     if (authSlotNav) renderStudioAuthSlot(authSlotNav, effectiveUser, { mobile: false, slotName: 'nav' });
     if (authSlotMobile) renderStudioAuthSlot(authSlotMobile, effectiveUser, { mobile: true, slotName: 'mobile' });
 
-    if (!signedIn && saveStatus && !saveStatus.textContent.trim()) {
-        saveStatus.textContent = t('login_prompt');
-        saveStatus.style.color = '#8a5d00';
-    }
+    syncAuthSaveStatus(saveStatus, {uid: effectiveUser?.uid || state.uid || '', en: getUILang() === 'en'});
     document.body.classList.toggle('auth-guest', !signedIn);
     document.querySelectorAll('[data-auth-required]').forEach((el) => {
         const flowPortableReady = isVerifiedFlowPortableDownloadControl(el);

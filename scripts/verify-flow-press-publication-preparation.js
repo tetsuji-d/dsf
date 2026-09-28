@@ -338,7 +338,7 @@ assert.equal(productionSource.includes('./fixtures/'), false, 'production prepar
 
 const pressSource = readFileSync(new URL('../js/press.js', import.meta.url), 'utf8');
 const exportSource = readFileSync(new URL('../js/export.js', import.meta.url), 'utf8');
-assert.match(pressSource, /import\('\.\/flow-press-publication-preparation\.js'\)/);
+assert.match(pressSource, /import \* as \w+ from '\.\/flow-press-publication-preparation\.js'/);
 assert.match(pressSource, /summary\.dataset\.testid = 'press-flow-production-preparation-summary'/);
 assert.match(pressSource, /_pressFlowProductionPreparationResult\.ok \? 'ready' : 'blocked'/);
 assert.match(pressSource, /void _requestPressFlowProductionPreparation\(\);[\s\S]*if \(import\.meta\.env\.DEV\)/);

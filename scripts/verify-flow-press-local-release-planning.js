@@ -234,7 +234,7 @@ for (const source of [localPlanningSource, portableEstimateSource]) {
 }
 
 const pressSource = readFileSync(new URL('../js/press.js', import.meta.url), 'utf8');
-assert.match(pressSource, /import\('\.\/flow-press-local-release-planning\.js'\)/);
+assert.match(pressSource, /import \* as \w+ from '\.\/flow-press-local-release-planning\.js'/);
 assert.match(pressSource, /press-flow-local-release-summary/);
 assert.match(pressSource, /btn\.disabled = hasFlow/);
 assert.match(pressSource, /if \(hasFlowGroups\(state\)\)[\s\S]*await uploadFlowHorizonReleaseFiles\(\)/);

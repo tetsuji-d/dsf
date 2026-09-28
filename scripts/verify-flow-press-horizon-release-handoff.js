@@ -340,7 +340,7 @@ for (const relativePath of ['../js/firebase.js', '../js/viewer.js']) {
 
 const pressSource = readFileSync(new URL('../js/press.js', import.meta.url), 'utf8');
 const studioI18nSource = readFileSync(new URL('../js/i18n-studio.js', import.meta.url), 'utf8');
-assert.match(pressSource, /import\('\.\/flow-press-horizon-release-handoff\.js'\)/);
+assert.match(pressSource, /import \* as \w+ from '\.\/flow-press-horizon-release-handoff\.js'/);
 assert.match(pressSource, /createFlowPressHorizonReleaseHandoff\(\{/);
 assert.match(pressSource, /press-flow-horizon-handoff-readiness/);
 assert.match(pressSource, /dataset\.flowHorizonState/);

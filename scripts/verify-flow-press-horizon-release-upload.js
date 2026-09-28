@@ -109,7 +109,7 @@ for (const forbidden of ['./firebase', './press', 'setDoc(', 'writeBatch(', 'pub
 }
 
 const pressSource = readFileSync(new URL('../js/press.js', import.meta.url), 'utf8');
-assert.match(pressSource, /import\('\.\/flow-press-horizon-release-upload\.js'\)/);
+assert.match(pressSource, /import \* as \w+ from '\.\/flow-press-horizon-release-upload\.js'/);
 assert.match(pressSource, /export function uploadFlowHorizonReleaseFiles/);
 assert.match(pressSource, /if \(hasFlowGroups\(state\)\)[\s\S]*await uploadFlowHorizonReleaseFiles\(\)/,
     'Flow publish execution must use the verified upload boundary');

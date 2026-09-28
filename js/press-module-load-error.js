@@ -14,5 +14,6 @@ export function renderPressModuleLoadError(error, t, escapeHtml) {
     if (!isPressModuleLoadError(error)) return null;
     return `<span role="alert">${escapeHtml(t('press_module_load_failed'))}</span>
         <small>${escapeHtml(t('press_module_load_recovery'))}</small>
+        <div class="press-recovery-actions"><button type="button" onclick="exportDSP()">${escapeHtml(t('press_recovery_save_dsp'))}</button><button type="button" onclick="switchRoom('editor')">${escapeHtml(t('press_recovery_editor'))}</button></div>
         <details><summary>${escapeHtml(t('press_module_load_details'))}</summary><small>${escapeHtml(error?.message || '')}</small></details>`;
 }
