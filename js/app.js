@@ -1,3 +1,4 @@
+import { localCopySpaceLabel } from './home-local-space.js';
 import {syncAuthSaveStatus} from './studio-auth-save-status.js';
 import {createStudioInbox} from './studio-inbox.js';
 import {createPersonalSharingClient,openPersonalSharingDialog} from './personal-sharing-ui.js';
@@ -4377,6 +4378,25 @@ window.newSpaceProject = async () => {
 };
 
 
+function homeLocalSpaceLabel(project) {
+    return localCopySpaceLabel(project, {
+        uid: state.uid || '', catalogue: getPublishingSpaceUI().destinations(),
+        cloudProjectIds: homeCloudProjectsCache?.uid === state.uid
+            ? new Set(homeCloudProjectsCache.projects.map(p => p.id)) : null,
+        online: navigator.onLine, locale: getUILang(),
+    });
+}
+
+function refreshHomeLocalSpaceLabels(localGrid, projects) {
+    if (!localGrid) return;
+    const byId = new Map(projects.map(p => [p.id, p]));
+    for (const card of localGrid.querySelectorAll('[data-home-source="local"]')) {
+        const project = byId.get(card.dataset.id);
+        const badge = card.querySelector('.home-local-space');
+        if (project && badge) badge.textContent = homeLocalSpaceLabel(project);
+    }
+}
+
 function renderHomeCard(project, source) {
     const projectName = resolveProjectName(project);
     const workTitle = resolveProjectDisplayTitle(project, { locale: getUILang() });
@@ -4410,6 +4430,7 @@ function renderHomeCard(project, source) {
             </div>
             <div class="home-project-info">
                 <div class="home-project-title">${escapeStudioHtml(displayName)}</div>
+                ${source === 'local' ? `<div class="home-local-space">${escapeStudioHtml(homeLocalSpaceLabel(project))}</div>` : ''}
                 <span class="home-project-resume">${getUILang() === 'en' ? 'Continue editing' : '続きから編集'}</span>
                 ${workTitleMeta ? `<div class="home-project-meta home-project-work-title">${escapeStudioHtml(workTitleMeta)}</div>` : ''}
                 <div class="home-project-meta">${escapeStudioHtml(t('home_pages_count', { count: pageCount }))} · ${escapeStudioHtml(sourceLabel)}${updatedAt ? ` · ${escapeStudioHtml(updatedAt)}` : ''}</div>
@@ -4758,8 +4779,12 @@ async function renderHomeDashboard({ refreshSpaces = true, forceRefresh = false 
     syncStudioInbox();
     const joined=spaceUI.joinedSelection?.();
     document.getElementById('home-room')?.classList.toggle('home-joined-space',!!joined);
-    const cloudProjectsPromise = !navigator.onLine||joined?null:fetchHomeCloudProjects();
+    const cloudProjectsPromise = !navigator.onLine ? null : fetchHomeCloudProjects();
     let localProjects = [], statsInput = null;
+    void cloudProjectsPromise?.then(() => {
+        if (renderRevision !== homeDashboardRenderRevision || state.uid !== dashboardUid) return;
+        refreshHomeLocalSpaceLabels(localGrid, localProjects);
+    });
     void withHomeDeadline(listLocalRecentProjects(), 5000).then(projects => {
         if (renderRevision !== homeDashboardRenderRevision || state.uid !== dashboardUid) return;
         localProjects = projects;

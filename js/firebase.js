@@ -896,9 +896,18 @@ export async function cacheLocalRecentProject(snapshotState, imageMap = window.l
 export async function listLocalRecentProjects() {
     const storedIndex = await idbGet(LOCAL_RECENT_INDEX_KEY);
     const index = Array.isArray(storedIndex) ? storedIndex : [];
-    return index
-        .filter((item) => item && item.id)
+    const sorted = index.filter((item) => item && item.id)
         .sort((a, b) => Number(b.updatedAt || 0) - Number(a.updatedAt || 0));
+    return Promise.all(sorted.map(async item => {
+        if (!item.projectId) return item;
+        // Read existing snapshot identity only; do not migrate the index or authoring data.
+        try {
+            const record = await idbGet(LOCAL_RECENT_PREFIX + item.id);
+            const snapshot = record?.state;
+            const owner = snapshot?.projectId === item.projectId ? (snapshot.ownerUid || snapshot.uid) : '';
+            return { ...item, localOwnerUid: typeof owner === 'string' ? owner : '' };
+        } catch { return { ...item, localOwnerUid: '' }; }
+    }));
 }
 
 export async function loadLocalRecentProject(snapshotId) {

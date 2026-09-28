@@ -3,6 +3,7 @@ import { readFile } from 'node:fs/promises';
 import { publishingSpacesFixture } from './fixtures/publishing-spaces-fixture.js';
 const f=publishingSpacesFixture(), port=Number(process.env.PORT || 5192);
 const allowed=new Map([
+ ['/js/home-local-space.js',['js/home-local-space.js','text/javascript']],
  ['/js/home-start.js',['js/home-start.js','text/javascript']],
  ['/js/project-copy-ui.js',['js/project-copy-ui.js','text/javascript']],
  ['/js/project-actions-ui.js',['js/project-actions-ui.js','text/javascript']],

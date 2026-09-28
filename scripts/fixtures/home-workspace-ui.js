@@ -1,9 +1,11 @@
+import {localCopySpaceLabel} from '/js/home-local-space.js';
 // Isolated sample data; shares the actual Studio shell and space management UI.
 import {installHomeStart} from '/js/home-start.js';
 import {createHomeWorkspace} from '/js/home-workspace.js';
 import {createPublishingSpaceUI} from '/js/publishing-spaces-ui.js';
 import {createPublishingSpacesClient} from '/js/publishing-spaces-transport.js';
 import {setUILang,getUILang} from '/js/i18n-studio.js';
+let fixtureOffline=false;
 let uid='owner_1';const user={uid,getIdToken:async()=> 'fixture-owner'};
 const request=createPublishingSpacesClient({getUser:()=>uid?user:null});
 const shell=createHomeWorkspace({root:document.getElementById('home-room'),getLocale:getUILang});
@@ -16,6 +18,8 @@ const language=document.createElement('button');language.id='fixture-language';l
 const empty=document.createElement('button');empty.id='fixture-empty';empty.textContent='作品あり / なし';let isEmpty=false;empty.onclick=()=>{isEmpty=!isEmpty;render();};
 const logout=document.createElement('button');logout.id='fixture-account';logout.textContent='ログイン / ログアウト';logout.onclick=async()=>{uid=uid?'':'owner_1';await spaces.load();render();};
 for(const b of [language,empty,logout]){b.type='button';notice.append(' ',b);}
+const connection=document.createElement('button');connection.textContent='所属確認: オンライン / オフライン';connection.onclick=()=>{fixtureOffline=!fixtureOffline;render();};notice.append(' ',connection);
+const fixtureSpaceLabel=i=>localCopySpaceLabel(i%4===0?{projectId:'book_1',localOwnerUid:'owner_1'}:i%4===1?{projectId:'book_2',localOwnerUid:'owner_1'}:i%4===2?{}:{projectId:'book_other',localOwnerUid:'owner_2'},{uid,online:!fixtureOffline,locale:getUILang(),catalogue:{uid:'owner_1',spaces:[{id:'space_sample',name:'検証出版'}],assignments:{book_1:'space_sample'}},cloudProjectIds:new Set(['book_1','book_2'])});
 const permissions=document.createElement('a');permissions.href='/members';permissions.textContent='メンバーと権限の試作';permissions.style.marginLeft='12px';notice.append(permissions);
 function render(){
  spaces.render();shell.render({spaceKind:spaces.viewKind()});const en=getUILang()==='en';
@@ -26,8 +30,8 @@ function render(){
  document.getElementById('home-cloud-scope').textContent=spaces.destination()+' / '+spaces.label();
  document.getElementById('home-dashboard-stats').innerHTML=[['library_books',rows.length,en?'Works':'作品'],['public',0,en?'Published':'公開中'],['chat_bubble_outline',0,en?'Reviews':'レビュー']].map(([icon,value,label])=>'<article class="home-stat-card"><span class="material-icons">'+icon+'</span><div><strong>'+value+'</strong><span>'+label+'</span></div></article>').join('');
  document.getElementById('home-work-grid').innerHTML='<p>'+(en?'No published works yet.':'公開した作品はまだありません。')+'</p><button class="home-action-btn" data-home-nav="projects">'+(en?'Choose a work':'作品を選ぶ')+'</button>';
- const localRows=isEmpty?[]:Array.from({length:12},(_,i)=>({id:'local_'+(i+1),title:(i===11?'最終の原稿':samples[i%4][1])+' '+(i+1),color:samples[i%4][2]}));
- document.getElementById('home-local-grid').innerHTML=localRows.length?localRows.map(p=>'<div class="home-project-entry"><button class="home-project-card" data-fixture-local="'+p.id+'"><div class="home-project-thumb" style="background:'+p.color+'"></div><div class="home-project-info"><div class="home-project-title">'+p.title+'</div><span class="home-project-resume">'+(en?'Continue editing':'続きから編集')+'</span><div class="home-project-meta home-project-work-title">'+(en?'Work title: ':'作品タイトル: ')+p.title+'</div><div class="home-project-meta">'+(en?'12 pages · Browser copy':'12ページ · ブラウザ内のコピー')+' · 2026/9/28 18:31</div></div></button></div>').join(''):'<div class="home-empty-state">'+(en?'No working copies.':'作業コピーはありません。')+'</div>';
+ const localRows=isEmpty?[]:Array.from({length:12},(_,i)=>({id:'local_'+(i+1),title:(i===11?'最終の原稿':samples[i%4][1])+' '+(i+1),color:samples[i%4][2],spaceLabel:fixtureSpaceLabel(i)}));
+ document.getElementById('home-local-grid').innerHTML=localRows.length?localRows.map(p=>'<div class="home-project-entry"><button class="home-project-card" data-fixture-local="'+p.id+'"><div class="home-project-thumb" style="background:'+p.color+'"></div><div class="home-project-info"><div class="home-project-title">'+p.title+'</div><div class="home-local-space">'+p.spaceLabel+'</div><span class="home-project-resume">'+(en?'Continue editing':'続きから編集')+'</span><div class="home-project-meta home-project-work-title">'+(en?'Work title: ':'作品タイトル: ')+p.title+'</div><div class="home-project-meta">'+(en?'12 pages · Browser copy':'12ページ · ブラウザ内のコピー')+' · 2026/9/28 18:31</div></div></button></div>').join(''):'<div class="home-empty-state">'+(en?'No working copies.':'作業コピーはありません。')+'</div>';
  document.querySelectorAll('[data-fixture-local]').forEach(b=>b.onclick=()=>{notice.firstChild.textContent='検証：'+b.dataset.fixtureLocal+'の編集へ ';});
  document.getElementById('home-local-count').textContent=localRows.length;
 }
