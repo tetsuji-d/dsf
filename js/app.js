@@ -1,3 +1,5 @@
+import {localRecentId} from './local-recent-store.js';
+import {localCopyDeleteButton,confirmLocalCopyDeletion,showLocalCopyUndo} from './local-copy-delete-ui.js';
 import {detachLocalProject,clearCloudMetadata} from './authoring-location.js';
 import {chooseAuthoringDestination} from './authoring-destination-dialog.js';
 import { localCopySpaceLabel } from './home-local-space.js';
@@ -67,7 +69,7 @@ import { installSharedRecoveryUI } from './shared-recovery-ui.js';
 import { installSharedStudioUI } from './shared-studio-ui.js';
 import { readSharedStudioAccess, canEditSharedStudio, canReadSharedStudio, assertSharedStudioEdit, assertPersonalStudioOperation } from './shared-studio-access.js';
 import { loadSharedProject, checkSharedStudioAccess, sharedStudioLockAction } from './firebase.js';
-import { sharedDraftRecovery, prepareSharedSpaceLeave, finishSharedSpaceLeave, getEditorSaveStatus, restorePreviousCloudAuthoring, getLoadedPrivateAuthoringHead, saveProject as persistProject, loadProject, uploadToStorage, prepareAuthoringImage, uploadCoverToStorage, uploadStructureToStorage, triggerAutoSave, flushSave, flushPendingSave, generateCroppedThumbnail, listLocalRecentProjects, loadLocalRecentProject, cacheLocalRecentProject, ensureUserBootstrap, storePublicationThumbnailFile, auth as firebaseAuth, authReady, db } from './firebase.js';
+import { sharedDraftRecovery, prepareSharedSpaceLeave, finishSharedSpaceLeave, getEditorSaveStatus, restorePreviousCloudAuthoring, getLoadedPrivateAuthoringHead, saveProject as persistProject, loadProject, uploadToStorage, prepareAuthoringImage, uploadCoverToStorage, uploadStructureToStorage, triggerAutoSave, flushSave, flushPendingSave, removeLocalRecentProject, restoreLocalRecentProject, generateCroppedThumbnail, listLocalRecentProjects, loadLocalRecentProject, cacheLocalRecentProject, ensureUserBootstrap, storePublicationThumbnailFile, auth as firebaseAuth, authReady, db } from './firebase.js';
 import { initGIS, renderGISButton, signInWithGoogle, signOutUser, onAuthChanged, handleRedirectResult } from './gis-auth.js';
 import { handleCanvasClick, selectBubble, renderBubbleHTML, getBubbleText, setBubbleText, addBubbleAtCenter, startDrag, startTailDrag, startSpikeDrag } from './bubbles.js';
 import { addSection, addTextSection, changeSection, changeBlock, insertStructureBlock, renderThumbs, canDeleteActive, deleteActive, deleteSectionAt, insertSectionAt, insertSpreadImageAt, duplicateSectionAt, moveSection, moveSectionRange, insertPageNearBlock, duplicateBlockAt, moveBlockAt, getOptimizedImageUrl } from './sections.js';
@@ -4721,6 +4723,33 @@ function bindHomeWorkActions(workGrid, cloudProjects) {
     });
 }
 
+let deletingLocalCopy=false;
+async function deleteHomeLocalCopy(project) {
+    if(deletingLocalCopy)return;
+    deletingLocalCopy=true;
+    const en=getUILang()==='en';
+    try {
+        const current=(await listLocalRecentProjects()).find(p=>p.id===project.id);
+        if(!current)throw Error('LOCAL_COPY_CHANGED');
+        const name=current.projectName||current.title||(en?'Untitled project':'無題のプロジェクト');
+        const epoch=getProjectSessionEpoch(),active=localRecentId(state)===current.id;
+        if(active&&readSharedStudioAccess())throw Error('SHARED_STUDIO_ACTIVE');
+        if(!await confirmLocalCopyDeletion({name,active,en}))return;
+        const token=await removeLocalRecentProject(current.id,current.updatedAt,()=>epoch===getProjectSessionEpoch());
+        if(active&&epoch===getProjectSessionEpoch()){
+            const languageKey=state.defaultLang||'ja';
+            initializeNewProject({languageKey,pageDirection:state.languageConfigs?.[languageKey]?.pageDirection||'rtl'},null,{autosave:false});
+            window.localImageMap={};
+        }
+        const host=document.querySelector('#home-room .home-browser-copies');
+        showLocalCopyUndo({host,name,en,restore:()=>restoreLocalRecentProject(token)});
+        window.dispatchEvent(new Event('home-start-refresh'));
+    } catch(error) {
+        alert(en?'Could not delete this copy. It may be saving or have changed. Wait for saving to finish and try again.':'コピーを削除できませんでした。保存中、または内容が更新された可能性があります。保存が終わってからもう一度お試しください。');
+        void renderHomeDashboard();
+    } finally {deletingLocalCopy=false;}
+}
+
 function renderHomeLocalProjects(localGrid, localCount, localProjects) {
     if (localProjects.length === 0) {
         localGrid.innerHTML = `<div class="home-empty-state"><span class="material-icons">folder_open</span><p>${t('home_local_empty')}</p></div>`;
@@ -4728,6 +4757,13 @@ function renderHomeLocalProjects(localGrid, localCount, localProjects) {
     } else {
         localGrid.innerHTML = localProjects.map((project) => renderHomeCard(project, 'local')).join('');
         if (localCount) localCount.textContent = String(localProjects.length);
+    }
+
+    for(const entry of localGrid.querySelectorAll('.home-project-entry')){
+        const project=localProjects.find(p=>p.id===entry.dataset.projectEntry);
+        if(!project)continue;
+        const button=localCopyDeleteButton(project,getUILang()==='en');
+        button.onclick=()=>void deleteHomeLocalCopy(project);entry.append(button);
     }
 
     localGrid.querySelectorAll('.home-project-card').forEach((card) => {
@@ -10197,7 +10233,7 @@ window.newProject = async () => {
     return initializeNewProject(choice);
 };
 
-function initializeNewProject(choice, draft = null) {
+function initializeNewProject(choice, draft = null, {autosave=true} = {}) {
     assertPersonalStudioOperation();
     resetFlowRuntimeForProjectChange();
     state.projectAssets = [];
@@ -10239,10 +10275,11 @@ function initializeNewProject(choice, draft = null) {
     dispatch({ type: actionTypes.SET_ACTIVE_BUBBLE_INDEX, payload: null });
     clearHistory();
     if (draft) selectFlowSource(initialBlocks[0].id);
+    if(!autosave)state.workId=null;
     refresh();
     renderLangSettings();
     closeProjectModal();
-    triggerAutoSave();
+    if(autosave)triggerAutoSave();
     return true;
 };
 

@@ -139,3 +139,12 @@ body[data-room="home"] .room-nav-tabs .room-tab:not([data-room="home"]) { displa
 .authoring-destination-actions button:disabled { opacity:.5; cursor:not-allowed; }
 .authoring-destination-actions button:focus-visible { outline:2px solid #1769e8; outline-offset:2px; }
 @media(max-width:480px) { .authoring-destination-actions button { flex:1 1 100%; } }
+
+#home-room #home-local-grid .home-project-entry { position:relative; }
+#home-room #home-local-grid .home-project-card { padding-right:42px; }
+#home-room .home-local-delete { position:absolute; top:6px; right:6px; display:grid; place-items:center; width:32px; height:32px; border:1px solid transparent; border-radius:6px; background:transparent; color:var(--studio-subtext,#52637a); cursor:pointer; }
+#home-room .home-local-delete:hover,#home-room .home-local-delete:focus-visible { color:#b42318; border-color:#f4b4ad; background:#fff1ef; }
+#home-room .home-local-delete .material-icons { font-size:19px; }
+.home-local-delete-notice { display:flex; align-items:center; flex-wrap:wrap; gap:12px; padding:10px 0; font-size:13px; }
+.home-local-delete-notice button { padding:6px 12px; cursor:pointer; }
+.authoring-destination-actions .local-copy-delete-confirm { background:#b42318; color:#fff; border-color:#b42318; }

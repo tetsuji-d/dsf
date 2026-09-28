@@ -1,3 +1,4 @@
+import {createLocalRecentStore,localRecentId,LOCAL_RECENT_INDEX_KEY,LOCAL_RECENT_PREFIX} from './local-recent-store.js';
 import {useLocalAuthoringAssets} from './authoring-location.js';
 import {noteLocalDraftEdit} from './local-draft-runtime.js';
 import {createSharedDraftRecovery} from './shared-draft-recovery.js';
@@ -60,9 +61,7 @@ window.localImageMap = window.localImageMap || {};
 // When VITE_STORAGE_BACKEND=r2, uploads go to Cloudflare R2 via the Pages
 // Function at /upload. Otherwise, Firebase Storage is used.
 const _USE_R2 = import.meta.env.VITE_STORAGE_BACKEND === 'r2';
-const LOCAL_RECENT_INDEX_KEY = 'dsf_local_recent_index';
-const LOCAL_RECENT_PREFIX = 'dsf_local_recent_project_';
-const LOCAL_RECENT_LIMIT = 12;
+const localRecentStore = createLocalRecentStore();
 const projectAssetByteCache = new Map();
 const AUTHORING_IMAGE_MAX_LONG_EDGE = 2160;
 const AUTHORING_IMAGE_WEBP_QUALITY = 0.9;
@@ -880,18 +879,31 @@ async function buildLocalRecentMeta(snapshotState) {
 export async function cacheLocalRecentProject(snapshotState, imageMap = window.localImageMap || {}) {
     const projectState = prepareProjectForSave(JSON.parse(JSON.stringify(snapshotState || state)));
     ensureLocalProjectIdentity(projectState);
-    const snapshotId = getLocalRecentSnapshotId(projectState);
-    await idbSet(`${LOCAL_RECENT_PREFIX}${snapshotId}`, {
-        state: projectState,
-        imageMap: imageMap || {}
-    });
-
-    const storedIndex = await idbGet(LOCAL_RECENT_INDEX_KEY);
-    const prevIndex = Array.isArray(storedIndex) ? storedIndex : [];
     const nextEntry = await buildLocalRecentMeta(projectState);
-    const nextIndex = [nextEntry, ...prevIndex.filter((item) => item?.id !== snapshotId)].slice(0, LOCAL_RECENT_LIMIT);
-    await idbSet(LOCAL_RECENT_INDEX_KEY, nextIndex);
+    await localRecentStore.put({state:projectState,imageMap:imageMap||{}},nextEntry);
     window.dispatchEvent(new Event('local-recents-updated'));
+}
+
+export async function removeLocalRecentProject(snapshotId,updatedAt,isCurrent) {
+    const active=localRecentId(state)===snapshotId;
+    // Deletion must never start a cloud save. An in-flight save must finish first.
+    if(active&&activeSavePromise)throw Error('LOCAL_COPY_BUSY');
+    const revision=editorRevision;
+    const hadPending=active&&!!(autoSaveTimer||saveRequested);
+    const current=()=>isCurrent()&&(!active||(localRecentId(state)===snapshotId&&editorRevision===revision));
+    const editedCopy=active?{state:prepareProjectForSave(JSON.parse(JSON.stringify(state))),imageMap:{...window.localImageMap}}:null;
+    if(active){clearTimeout(autoSaveTimer);autoSaveTimer=null;saveRequested=false;}
+    try {
+        const token=await localRecentStore.remove(snapshotId,updatedAt,current);
+        if(editedCopy){token.record=editedCopy;if(token.backup)token.backup=editedCopy;}
+        window.dispatchEvent(new Event('local-recents-updated'));return token;
+    } catch(error) {
+        if(hadPending&&current())triggerAutoSave();
+        throw error;
+    }
+}
+export async function restoreLocalRecentProject(token) {
+    await localRecentStore.restore(token);window.dispatchEvent(new Event('local-recents-updated'));
 }
 
 export async function listLocalRecentProjects() {
