@@ -11,6 +11,10 @@ const FONTS=[
 const SAMPLE='https://picsum.photos/id/10/600/1066';
 const absolute=url=>new URL(url,self.location.origin).href;
 const known=new Set([...SHELL,...SDK,...FONT_CSS,...FONTS,SAMPLE].map(absolute));
+// Pages redirects .html URLs to extensionless routes. A redirected cached response
+// cannot satisfy a navigation with redirect mode manual. Preserve bytes and headers,
+// but return a fresh response without the network redirect's URL metadata.
+function navigationResponse(response){return new Response(response.body,{status:response.status,statusText:response.statusText,headers:response.headers});}
 async function store(cache,url){
  const response=await fetch(url,{credentials:'omit',cache:'reload',signal:AbortSignal.timeout(45000)});
  if(!response.ok||response.type==='opaque')throw Error('OFFLINE_RESOURCE_UNAVAILABLE');
@@ -50,7 +54,8 @@ self.addEventListener('fetch',event=>{
  // Fonts are only served if installed with the known Google stylesheet. No runtime caching.
  const isOldAsset=url.origin===self.location.origin&&url.pathname.startsWith('/assets/');
  if(!isEntry&&!isOldAsset&&!known.has(key)&&url.origin!=='https://fonts.gstatic.com')return;
- event.respondWith((async()=>{const cache=await caches.open(CACHE),hit=await cache.match(key);if(hit)return hit;
+ event.respondWith((async()=>{const cache=await caches.open(CACHE),hit=await cache.match(key);if(hit)return isEntry?navigationResponse(hit):hit;
   if(isOldAsset){for(const name of await caches.keys()){if(name.startsWith('dsf-studio-shell-')&&name!==CACHE){const old=await (await caches.open(name)).match(key);if(old)return old;}}}
+  if(isEntry){const response=await fetch(new Request(request,{redirect:'follow'}));return navigationResponse(response);}
   return fetch(request);})());
 });
