@@ -1,0 +1,10 @@
+import assert from 'node:assert/strict';
+import {canResumeHomeProject} from '../js/home-start.js';
+const project={workId:'work_example',blocks:[{}]};
+assert.equal(canResumeHomeProject({blocks:[{}]},null),false,'initial sample is not an open manuscript');
+assert.equal(canResumeHomeProject(project,null,false),true,'local project can resume offline');
+assert.equal(canResumeHomeProject({...project,blocks:[]},null),false);
+assert.equal(canResumeHomeProject(project,{status:'ready'},true),true);
+assert.equal(canResumeHomeProject(project,{status:'ready'},false),false);
+assert.equal(canResumeHomeProject(project,{status:'unavailable'},true),false);
+console.log('Home resume: empty state, local offline and shared access boundaries passed.');

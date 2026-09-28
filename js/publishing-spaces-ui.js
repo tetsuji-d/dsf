@@ -139,6 +139,9 @@ export function createPublishingSpaceUI({ root, request, getLocale, getUid, onCh
             }
             const trigger=host.querySelector('[data-space-trigger]'), popup=host.querySelector('[popover]');
             const focused=document.activeElement?.dataset?.spaceChoice;
+            if(host.id==='home-space-launcher'){
+                let name=trigger.querySelector('[data-home-space-name]');if(!name){name=document.createElement('span');name.dataset.homeSpaceName='';trigger.querySelector('.space-switcher-chevron').before(name);}name.textContent=uid?selectionLabel():t.title;
+            }
             trigger.title=t.select + ': ' + (uid ? selectionLabel() : t.title);
             trigger.setAttribute('aria-label',trigger.title);trigger.setAttribute('aria-expanded',String(popup.matches(':popover-open')));
             trigger.querySelector('[data-space-avatar]').dataset.spaceAvatar=active()?.id || selected;

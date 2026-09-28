@@ -79,6 +79,7 @@ import { moveAuthoringUnitInSpine, moveFixedPageRangeInSpine } from './fixed-pag
 import {localDraftStatus,isLocalDraft,noteLocalDraftEdit} from './local-draft-runtime.js';
 import {chooseDspFilename,confirmDspDownload} from './dsp-save-dialog.js';
 import {installStudioPwa} from './studio-pwa.js';
+import {installHomeStart} from './home-start.js';
 import { buildDSP, buildDSF, parseAndLoadDSP } from './export.js';
 import { hydrateProjectFromPersistence } from './project-persistence.js';
 import { applyTheme, bindThemePreferenceListener, getThemeMode, setThemeMode } from './theme.js';
@@ -4344,7 +4345,7 @@ function getHomeWorkspace() {
 function getPublishingSpaceUI() {
     if (!publishingSpaceUI) publishingSpaceUI = createPublishingSpaceUI({
         root: document.getElementById('home-publishing-spaces'),
-        switcherRoots: [document.getElementById('studio-space-switcher'), document.getElementById('mobile-space-switcher')],
+        switcherRoots: [document.getElementById('studio-space-switcher'), document.getElementById('mobile-space-switcher'), document.getElementById('home-space-launcher')],
         identityRoots: [document.getElementById('home-space-identity')],
         onSelect: () => { getHomeWorkspace().select('overview'); if (getCurrentRoom() !== 'home') window.switchRoom('home'); },
         requestJoined:createInvitationsClient({getUser:()=>firebaseAuth.currentUser}),
@@ -4378,7 +4379,7 @@ window.newSpaceProject = async () => {
 function renderHomeCard(project, source) {
     const projectName = resolveProjectName(project);
     const workTitle = resolveProjectDisplayTitle(project, { locale: getUILang() });
-    const displayName = projectName || workTitle || project.id || t('works_untitled');
+    const displayName = projectName || workTitle || t('works_untitled');
     const workTitleMeta = projectName
         ? (workTitle
             ? t('home_work_title', { title: workTitle })
@@ -4392,7 +4393,7 @@ function renderHomeCard(project, source) {
     const pageCount = source === 'cloud'
         ? (Number(project.pageCount) || getPageCount(project.pages, project.blocks, project.sections))
         : Math.max(1, Number(project.pageCount || 0));
-    const updatedAt = formatHomeDate(project.lastUpdated || project.updatedAt);
+    const updatedAt = formatHomeDate(project.lastUpdated || project.updatedAt) + (source==='local'&&project.updatedAt ? ' '+new Date(project.updatedAt).toLocaleTimeString(getUILang()==='en'?'en-US':'ja-JP',{hour:'2-digit',minute:'2-digit'}) : '');
     const sourceLabel = source === 'cloud' ? t('home_source_cloud') : t('home_source_local');
     const languageLabel = formatProjectLanguages(project.languages);
     const sizeLabel = formatProjectBytes(project.projectBytes);
@@ -4749,14 +4750,14 @@ async function renderHomeDashboard({ refreshSpaces = true, forceRefresh = false 
 
     const dashboardUid = state.uid;
     const spaceUI = getPublishingSpaceUI();
-    if (refreshSpaces) void spaceUI.load({ notify: true });
+    if (refreshSpaces && navigator.onLine) void spaceUI.load({ notify: true });
     else spaceUI.render();
     getHomeWorkspace().render({spaceKind:spaceUI.viewKind?.()||'all'});
     syncSpaceMembersSettings();
     syncStudioInbox();
     const joined=spaceUI.joinedSelection?.();
     document.getElementById('home-room')?.classList.toggle('home-joined-space',!!joined);
-    const cloudProjectsPromise = joined?null:fetchHomeCloudProjects();
+    const cloudProjectsPromise = !navigator.onLine||joined?null:fetchHomeCloudProjects();
     let localProjects = [], statsInput = null;
     void withHomeDeadline(listLocalRecentProjects(), 5000).then(projects => {
         if (renderRevision !== homeDashboardRenderRevision || state.uid !== dashboardUid) return;
@@ -4771,6 +4772,14 @@ async function renderHomeDashboard({ refreshSpaces = true, forceRefresh = false 
         localGrid.querySelector('[data-home-retry]')?.addEventListener('click', () => void renderHomeDashboard({ refreshSpaces: false }));
     });
 
+    if(!navigator.onLine){
+        if(statsEl)statsEl.replaceChildren();
+        if(cloudCount)cloudCount.textContent='—';
+        if(workCount)workCount.textContent='—';
+        const message=getUILang()==='en'?'Cloud works and publishing spaces are available when connected. Open a saved DSP or a working copy on this device.':'クラウド作品・出版スペースは接続後に利用できます。保存したDSPや、この端末の作業コピーから制作を続けられます。';
+        for(const grid of [cloudGrid,workGrid]){if(!grid)continue;grid.replaceChildren();const p=document.createElement('p');p.className='home-empty-state';p.textContent=message;grid.append(p);}
+        return;
+    }
     if(joined){
         const en=getUILang()==='en';
         const scope=document.getElementById('home-cloud-scope');if(scope)scope.textContent=(en?'Shared works / ':'共有作品 / ')+spaceUI.label();
@@ -4789,7 +4798,7 @@ async function renderHomeDashboard({ refreshSpaces = true, forceRefresh = false 
         const value = project.lastUpdated || project.updatedAt;
         return Number(value?.toMillis?.() || (value?.seconds ? value.seconds * 1000 : 0) || (typeof value === 'number' ? value : Date.parse(value)) || 0);
     };
-    const spaceUnavailable=Array.isArray(allCloudProjects)&&spaceUI.viewKind?.()!=='all'&&spaceUI.catalogueReady?.()===false;
+    const spaceUnavailable=!!state.uid&&Array.isArray(allCloudProjects)&&spaceUI.viewKind?.()!=='all'&&spaceUI.catalogueReady?.()===false;
     const cloudProjects = spaceUnavailable?null:Array.isArray(allCloudProjects) ? [...spaceUI.filter(allCloudProjects)].sort((a,b)=>modifiedTime(b)-modifiedTime(a)) : allCloudProjects;
     const scopeLabel = document.getElementById('home-cloud-scope');
     if (scopeLabel) scopeLabel.textContent = spaceUI.destination() + ' / ' + spaceUI.label();
@@ -11954,8 +11963,15 @@ window.pasteImagePage = installImagePagePaste({ importer: imagePageImporter,
     inEditor: () => getCurrentRoom() === 'editor' && canEditSharedStudio(), onStatus: showImagePasteStatus });
 
 installStudioPwa({getLocale:getUILang});
+installHomeStart({root:document.getElementById('home-room'),getLocale:getUILang,readState:()=>state,readShared:readSharedStudioAccess,onResume:()=>window.switchRoom('editor'),onConnectivity:()=>{if(getCurrentRoom()==='home')void renderHomeDashboard({refreshSpaces:navigator.onLine});}});
 document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='hidden'&&isLocalDraft())void flushPendingSave().catch(()=>{});});
 
 const localFileNote=document.createElement('span');localFileNote.id='local-dsp-status';localFileNote.setAttribute('role','status');localFileNote.style.cssText='font-size:12px;margin-inline:8px';document.querySelector('#project-title')?.after(localFileNote);
 const syncLocalFileNote=()=>{localFileNote.hidden=!isLocalDraft();localFileNote.textContent=localDraftStatus.read().dirty?(getUILang()==='en'?'DSP file not saved':'DSPファイル未保存'):'';};
 window.addEventListener('local-draft-status',syncLocalFileNote);document.addEventListener('studio-ui-language-change',syncLocalFileNote);syncLocalFileNote();
+
+window.addEventListener('local-recents-updated',()=>{
+    if(getCurrentRoom()!=='home')return;
+    const revision=homeDashboardRenderRevision,uid=state.uid;
+    void listLocalRecentProjects().then(projects=>{if(getCurrentRoom()==='home'&&revision===homeDashboardRenderRevision&&uid===state.uid)renderHomeLocalProjects(document.getElementById('home-local-grid'),document.getElementById('home-local-count'),projects);}).catch(()=>{});
+});

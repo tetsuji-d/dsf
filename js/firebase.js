@@ -890,6 +890,7 @@ export async function cacheLocalRecentProject(snapshotState, imageMap = window.l
     const nextEntry = await buildLocalRecentMeta(projectState);
     const nextIndex = [nextEntry, ...prevIndex.filter((item) => item?.id !== snapshotId)].slice(0, LOCAL_RECENT_LIMIT);
     await idbSet(LOCAL_RECENT_INDEX_KEY, nextIndex);
+    window.dispatchEvent(new Event('local-recents-updated'));
 }
 
 export async function listLocalRecentProjects() {

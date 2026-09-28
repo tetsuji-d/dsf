@@ -1,4 +1,5 @@
 // Isolated sample data; shares the actual Studio shell and space management UI.
+import {installHomeStart} from '/js/home-start.js';
 import {createHomeWorkspace} from '/js/home-workspace.js';
 import {createPublishingSpaceUI} from '/js/publishing-spaces-ui.js';
 import {createPublishingSpacesClient} from '/js/publishing-spaces-transport.js';
@@ -6,7 +7,7 @@ import {setUILang,getUILang} from '/js/i18n-studio.js';
 let uid='owner_1';const user={uid,getIdToken:async()=> 'fixture-owner'};
 const request=createPublishingSpacesClient({getUser:()=>uid?user:null});
 const shell=createHomeWorkspace({root:document.getElementById('home-room'),getLocale:getUILang});
-const spaces=createPublishingSpaceUI({root:document.getElementById('home-publishing-spaces'),switcherRoots:[document.getElementById('studio-space-switcher'),document.getElementById('mobile-space-switcher')],identityRoots:[document.getElementById('home-space-identity')],getUid:()=>uid,getLocale:getUILang,request,onChange:render,onSelect:()=>shell.select('overview')});
+const spaces=createPublishingSpaceUI({root:document.getElementById('home-publishing-spaces'),switcherRoots:[document.getElementById('studio-space-switcher'),document.getElementById('mobile-space-switcher'),document.getElementById('home-space-launcher')],identityRoots:[document.getElementById('home-space-identity')],getUid:()=>uid,getLocale:getUILang,request,onChange:render,onSelect:()=>shell.select('overview')});
 const samples=[['book_1','潮騒の図書館','#18344d'],['book_2','旅の写真集','#547571'],['book_3','夜明けのノート','#725e76'],['book_4','季節のたより','#9c774d']];
 const notice=document.createElement('p');notice.id='fixture-workspace-action';notice.setAttribute('role','status');notice.style.cssText='margin:0;padding:6px 12px;background:#fff2c6;color:#58471d;font-size:12px';notice.textContent='検証用サンプル：操作は実際の原稿・クラウドに反映されません。';document.querySelector('.home-workspace-main').prepend(notice);
 window.newSpaceProject=()=>{notice.firstChild.textContent='検証：作品の作成へ';};window.switchRoom=room=>{notice.firstChild.textContent='検証：'+room+'へ';};
@@ -28,6 +29,7 @@ function render(){
  document.getElementById('home-local-grid').innerHTML='<p>'+(en?'A working copy on this device':'この端末の作業コピー')+' — 潮騒の図書館</p>';document.getElementById('home-local-count').textContent='1';
 }
 const device=()=>{document.body.dataset.device=innerWidth<1024?'mobile':'desktop';};device();window.addEventListener('resize',device);
+installHomeStart({root:document.getElementById('home-room'),getLocale:getUILang,readState:()=>({uid,workId:'fixture-work',blocks:[{}]}),readShared:()=>null,onResume:()=>window.switchRoom('editor')});
 setUILang('ja');await spaces.load();render();
 
 if(new URLSearchParams(location.search).get('profile')==='1'){

@@ -1,6 +1,6 @@
 # Studio: 個人ローカル制作のオフライン対応
 
-2026-09-28、feature/studio-local-pwa の実装。未コミット・未デプロイ。
+2026-09-28、feature/studio-local-pwa の実装。基盤を79800b5でコミット。ステージング反映記録は[制作ホーム](studio-home-entry.md)を参照。
 
 ## 対象と使い方
 

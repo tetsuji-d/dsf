@@ -84,11 +84,18 @@
             <div class="home-room-header">
                 <h2 data-home-title tabindex="-1">ダッシュボード</h2>
                 <div class="home-room-actions">
+                    <button type="button" class="home-action-btn" data-home-resume disabled><span class="material-icons" aria-hidden="true">edit</span><span data-start-label="resume">編集中の作品に戻る</span></button>
                     <button class="home-action-btn" onclick="document.getElementById('dsp-upload').click()"><span class="material-icons" aria-hidden="true">file_upload</span><span data-home-label="import">DSPを取り込む</span></button>
                     <button class="home-action-btn primary" onclick="newSpaceProject()"><span class="material-icons" aria-hidden="true">add</span><span data-home-label="create">作品を作成</span></button>
                 </div>
             </div>
             <div class="home-room-body">
+                <section class="home-start-tools" data-home-views="overview projects local">
+                    <label class="home-start-search"><span class="material-icons" aria-hidden="true">search</span><span class="sr-only" data-start-label="search">一覧の原稿を検索</span><input type="search" data-home-search placeholder="作品名・プロジェクト名で検索" aria-label="一覧の原稿を検索"></label>
+                    <p class="home-search-empty" data-home-search-empty hidden role="status"></p>
+                    <div class="home-space-entry"><span data-start-label="spaces">スペースを開く</span><div id="home-space-launcher"></div><button type="button" class="home-action-btn" data-home-nav="shared" data-start-label="shared">共有された作品</button></div>
+                    <p data-start-label="scope" class="home-overview-hint">スペースを切り替えても原稿の保存先は変わりません。</p>
+                </section>
                 <p class="home-overview-hint" data-home-views="overview" data-home-label="hint">作品を選んで、続きから編集できます。</p>
                 <section id="home-shared-inbox" data-home-views="shared" class="space-members-settings"></section>
                 <section id="home-notifications" data-home-views="notifications" class="space-members-settings"></section>
@@ -123,8 +130,8 @@
                     <div id="home-work-grid" class="home-work-grid"></div>
                 </section>
                 <details class="home-browser-copies" data-home-views="overview local">
-                    <summary data-i18n="home_section_local">このブラウザの作業コピー</summary>
-                    <p class="home-storage-note" data-i18n="home_local_storage_note"></p>
+                    <summary data-home-label="local">最近の作業（この端末）</summary>
+                    <p class="home-storage-note" data-start-label="localNote"></p>
                     <div class="home-section-head">
                         <div class="home-section-title-wrap">
                             <span class="material-icons" aria-hidden="true">devices</span>
