@@ -190,9 +190,10 @@
                     <div class="ribbon-group">
                         <button id="btn-flow-search" type="button" class="btn-tool btn-tool-icon" aria-expanded="false" aria-controls="flow-search-bar" title="Flow原稿を検索 (Ctrl+F)"><span class="material-icons" aria-hidden="true">search</span></button>
                         <button id="btn-editor-preview" class="btn-tool btn-tool-icon" onclick="previewEditorInViewer()" data-i18n-title="editor_viewer_preview" data-i18n-aria="editor_viewer_preview" title="Viewerでプレビュー"><span class="material-icons">visibility</span></button>
-                        <button id="btn-save" class="btn-tool btn-tool-icon" onclick="saveProject()" title="保存 (Ctrl+S)" data-auth-required>
+                        <button id="btn-save" class="btn-tool btn-tool-icon" onclick="saveProject()" title="保存 (Ctrl+S)" data-authoring-save>
                             <span class="material-icons" aria-hidden="true">save</span><span data-i18n="btn_save">保存</span>
                         </button>
+                        <button type="button" class="btn-tool btn-tool-icon" onclick="saveToCloud()" title="クラウドに保存" aria-label="クラウドに保存"><span class="material-icons" aria-hidden="true">cloud_upload</span></button>
                         <button id="btn-share" class="btn-tool btn-tool-icon" onclick="shareProject()" title="ビューワーURLをコピー" data-auth-required>
                             <span class="material-icons" aria-hidden="true">share</span><span data-i18n="btn_share">共有</span>
                         </button>
@@ -708,7 +709,7 @@
         <div id="mobile-action-sheet">
             <div id="mobile-sheet-menu" class="mobile-sheet-content mobile-sheet-menu">
                 <button class="btn-tool btn-tool-icon" onclick="openMobileSheet('lang')"><span class="material-icons" aria-hidden="true">translate</span><span data-i18n="bottom_lang">作品言語</span></button>
-                <button class="btn-tool btn-tool-icon" onclick="saveProject()" data-auth-required data-mobile-room-only="editor"><span class="material-icons" aria-hidden="true">save</span><span data-i18n="btn_save">保存</span></button>
+                <button class="btn-tool btn-tool-icon" onclick="saveProject()" data-authoring-save data-mobile-room-only="editor"><span class="material-icons" aria-hidden="true">save</span><span data-i18n="btn_save">保存</span></button>
                 <button class="btn-tool btn-tool-icon" onclick="shareProject()" data-auth-required data-mobile-room-only="editor"><span class="material-icons" aria-hidden="true">share</span><span data-i18n="btn_share">共有</span></button>
                 <button class="btn-tool btn-tool-icon" onclick="performUndo()" data-mobile-room-only="editor"><span class="material-icons" aria-hidden="true">undo</span><span data-i18n="btn_undo">元に戻す</span></button>
                 <button class="btn-tool btn-tool-icon" onclick="performRedo()" data-mobile-room-only="editor"><span class="material-icons" aria-hidden="true">redo</span><span data-i18n="btn_redo">やり直す</span></button>
@@ -723,7 +724,7 @@
                 <button class="btn-tool btn-tool-icon" onclick="document.getElementById('file-upload').click()" data-fixed-page-edit><span class="material-icons" aria-hidden="true">image</span><span data-i18n="btn_add_image">画像追加</span></button>
             </div>
             <div id="mobile-sheet-export" class="mobile-sheet-content">
-                <button class="btn-tool btn-tool-icon" onclick="saveProject()" data-auth-required><span class="material-icons" aria-hidden="true">cloud_upload</span><span data-i18n="mobile_save_cloud">クラウド保存</span></button>
+                <button class="btn-tool btn-tool-icon" onclick="saveToCloud()"><span class="material-icons" aria-hidden="true">cloud_upload</span><span data-i18n="mobile_save_cloud">クラウド保存</span></button>
                 <button class="btn-tool btn-tool-icon" onclick="shareProject()" data-auth-required><span class="material-icons" aria-hidden="true">share</span><span data-i18n="btn_share">共有</span></button>
                 <button class="btn-tool btn-tool-icon" onclick="document.getElementById('dsp-upload-mobile').click()"><span class="material-icons" aria-hidden="true">folder_open</span><span data-i18n="mobile_open_local">ローカルから開く (.dsp)</span></button>
                 <input type="file" id="dsp-upload-mobile" style="display: none;" onchange="importDSP(event)">
@@ -1037,7 +1038,7 @@
             <div class="modal-header">
                 <h2><span class="material-icons" aria-hidden="true">folder</span> <span data-i18n="modal_projects_title">プロジェクト一覧</span></h2>
                 <div class="modal-header-actions">
-                    <button class="btn-modal primary" onclick="newProject()" data-i18n="btn_new_project_modal">＋ 新規プロジェクト</button>
+                    <button class="btn-modal primary" onclick="newSpaceProject()" data-i18n="btn_new_project_modal">＋ 新規プロジェクト</button>
                     <button class="btn-modal" onclick="closeProjectModal()" data-i18n="btn_modal_close">閉じる</button>
                 </div>
             </div>

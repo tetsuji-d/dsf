@@ -14,7 +14,7 @@ export function createHomeWorkspace({root,getLocale,onSelect}) {
   const t={...labels[en?'en':'ja']};root.dataset.homeView=view;root.dataset.spaceKind=spaceKind;
   if(personal){t.hint=en?'A personal place for drafts, notes and photo books.':'試作、ノート、写真集を作る個人の制作場所です。';t.settings=en?'Settings & invitations':'設定・招待';t.nav=en?'Manage My space':'マイスペースの管理';}
   if(personal||spaceKind==='all')t.create=en?'New project':'新規作成';
-  if(spaceKind==='owned')t.create=en?'New in this space':'このスペースで新規作成';
+  t.create=en?'New project':'新規作成';
   root.querySelectorAll('[data-home-label]').forEach(el=>{el.textContent=t[el.dataset.homeLabel]||'';});
   root.querySelectorAll('[data-home-nav]').forEach(button=>{if(button.dataset.homeNav===view)button.setAttribute('aria-current','page');else button.removeAttribute('aria-current');});
   root.querySelectorAll('[data-home-views]').forEach(el=>{el.hidden=!el.dataset.homeViews.split(' ').includes(view);});

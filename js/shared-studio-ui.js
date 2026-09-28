@@ -38,7 +38,7 @@ export function installSharedStudioUI({getUILang,checkAccess,lockAction,openReco
             doc.body.dataset.sharedStudio=access?(readonly?'readonly':'editing'):'';
             for(const el of doc.querySelectorAll(blocked)) {if(readonly&&!el.inert){el.inert=true;el.dataset.sharedInert='1';}else if(!readonly&&el.dataset.sharedInert){el.inert=false;delete el.dataset.sharedInert;}}
             for(const el of doc.querySelectorAll('#ribbon-bar button,#ribbon-bar input,#ribbon-bar select,#project-title')){
-                const deny=(readonly&&!el.matches(safe)) || !!access&&el.matches('#btn-share,#btn-restore-private-authoring,[onclick*="exportDSP"],[onclick*="exportDSF"],[onclick*="shareProject"]');
+                const deny=(readonly&&!el.matches(safe)) || !!access&&el.matches('#btn-share,#btn-restore-private-authoring,[onclick*="exportDSP"],[onclick*="exportDSF"],[onclick*="shareProject"],[onclick*="saveToCloud"]');
                 if(deny&&el.getAttribute('aria-disabled')!=='true'){el.setAttribute('aria-disabled','true');el.dataset.sharedDisabled='1';}
                 if(!deny&&el.dataset.sharedDisabled){el.removeAttribute('aria-disabled');delete el.dataset.sharedDisabled;}
             }

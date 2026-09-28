@@ -1,3 +1,5 @@
+import {detachLocalProject,clearCloudMetadata} from './authoring-location.js';
+import {chooseAuthoringDestination} from './authoring-destination-dialog.js';
 import { localCopySpaceLabel } from './home-local-space.js';
 import {syncAuthSaveStatus} from './studio-auth-save-status.js';
 import {createStudioInbox} from './studio-inbox.js';
@@ -23,7 +25,7 @@ import { discardPreparedAuthoringImage, inspectPageImageAsset } from './firebase
 import { createProjectWithBackup } from './editor-project-create.js';
 import { formatFlowPageStatus } from './editor-flow-labels.js';
 import { initStudioWebMCP, studioWebMCPMarkup } from './studio-webmcp.js';
-import { getProjectSessionIdentity, resetProjectSession, subscribeProjectSession } from './state.js';
+import { getProjectSessionIdentity, getProjectSessionEpoch, resetProjectSession, subscribeProjectSession } from './state.js';
 let studioAI = null;
 import { initStudioHelp } from './studio-help.js';
 import {applyFlowReplacePlan} from './flow-replace.js';
@@ -78,7 +80,7 @@ import { t, applyI18n, setUILang, getUILang } from './i18n-studio.js';
 import { createPageBlockFromSection, createSectionFromPageBlock, getBlockIndexFromPageIndex, getPageIndexFromBlockIndex, migrateSectionsToBlocks, syncBlocksWithSections, extractSectionsFromBlocks } from './blocks.js';
 import { blocksToPages } from './pages.js';
 import { moveAuthoringUnitInSpine, moveFixedPageRangeInSpine } from './fixed-page-spine.js';
-import {localDraftStatus,isLocalDraft,noteLocalDraftEdit} from './local-draft-runtime.js';
+import {localDraftStatus,isLocalDraft,noteLocalDraftEdit,setLocalCloudTransitionPending} from './local-draft-runtime.js';
 import {chooseDspFilename,confirmDspDownload} from './dsp-save-dialog.js';
 import {installStudioPwa} from './studio-pwa.js';
 import {installHomeStart} from './home-start.js';
@@ -4356,25 +4358,57 @@ function getPublishingSpaceUI() {
     });
     return publishingSpaceUI;
 }
-window.newSpaceProject = async () => {
-    const ui = getPublishingSpaceUI();
-    if (ui.joinedSelection()) return;
-    const selectedSpace = ui.selection(), uid = state.uid;
-    if (!await window.newProject()) return;
-    const createdWorkId = state.workId, user = firebaseAuth.currentUser;
-    if (!selectedSpace) ui.select('unassigned');
-    window.switchRoom('editor');
-    if (uid && state.uid === uid && selectedSpace) {
-        try {
-            await persistProject();
-            if (state.uid !== uid || firebaseAuth.currentUser !== user || state.workId !== createdWorkId || !state.projectId) return;
-            if (!await ui.assign(state.projectId, selectedSpace)) throw new Error('SPACE_ASSIGNMENT_FAILED');
-        } catch {
-            alert(getUILang() === 'en'
-                ? 'Could not save to the selected space. Check save status; organize the manuscript from My space after cloud saving succeeds.'
-                : '選択したスペースへの保存を完了できませんでした。保存状態を確認し、クラウド保存後に「マイスペース」から整理してください。');
-        }
+async function chooseCloudDestination({allowLocal=false,purpose='save'}={}) {
+    const uid=state.uid||'', user=firebaseAuth.currentUser, epoch=getProjectSessionEpoch();
+    return chooseAuthoringDestination({allowLocal,purpose,uid,en:getUILang()==='en',
+        defaultSpaceId:getPublishingSpaceUI().selection(),loadCatalogue:()=>requestPublishingSpaces(),
+        isCurrent:()=>(state.uid||'')===uid&&firebaseAuth.currentUser===user&&getProjectSessionEpoch()===epoch,
+        onLogin:()=>{if(!firebaseAuth.currentUser)void window.toggleAuth();}});
+}
+let cloudDestinationBusy=false, pendingCloudDestination=null;
+async function saveCloudDestination(choice) {
+    if(cloudDestinationBusy||!choice||choice.uid!==state.uid||firebaseAuth.currentUser?.uid!==choice.uid)return false;
+    cloudDestinationBusy=true;
+    if(!state.projectId){setLocalCloudTransitionPending(true);ensureProjectIdentity();}
+    const user=firebaseAuth.currentUser, workId=state.workId, epoch=getProjectSessionEpoch();
+    const current=()=>firebaseAuth.currentUser===user&&state.uid===choice.uid&&state.workId===workId&&getProjectSessionEpoch()===epoch;
+    const projectId=state.projectId;
+    pendingCloudDestination={...choice,projectId,workId};
+    try {
+        await persistProject();
+        if(!current()||state.projectId!==projectId)return false;
+        if(choice.spaceId){const data=await requestPublishingSpaces();if(!current())return false;
+            const assigned=data.assignments[projectId]||null;
+            if(assigned!==choice.spaceId)await requestPublishingSpaces({kind:'assign',projectId,spaceId:choice.spaceId,expectedSpaceId:assigned,baseRevision:data.revision});}
+        if(!current())return false;
+        pendingCloudDestination=null;setLocalCloudTransitionPending(false);
+        await getPublishingSpaceUI().load({notify:true});
+        refresh();await refreshFlowHorizonDryRunReadiness();return true;
+    } catch(error) {
+        if(current())alert((getUILang()==='en'?'Cloud saving or space assignment did not finish. Keep this manuscript open and retry cloud saving, or save a DSP file.\n':'クラウド保存またはスペースへの所属設定を完了できませんでした。原稿を開いたまま「クラウドに保存」から再試行するか、DSPファイルに保存してください。\n')+(error?.message||''));
+        return false;
+    } finally {cloudDestinationBusy=false;}
+}
+window.saveToCloud = async ({purpose='save'}={}) => {
+    assertPersonalStudioOperation();
+    if(pendingCloudDestination?.projectId===state.projectId&&pendingCloudDestination?.workId===state.workId){
+        if(pendingCloudDestination.uid!==state.uid){alert(getUILang()==='en'?'Sign in with the account that started this cloud save, or save a DSP copy.':'クラウド保存を開始したアカウントでログインして再試行するか、DSPファイルに保存してください。');return false;}
+        return saveCloudDestination(pendingCloudDestination);
     }
+    if(state.projectId&&state.uid){try{await persistProject();return true;}catch(error){alert(error.message);return false;}}
+    const choice=await chooseCloudDestination({purpose});
+    return choice?saveCloudDestination(choice):false;
+};
+window.prepareHorizonCloudSource=()=>{
+    if(state.projectId&&state.uid&&!isLocalDraft())return Promise.resolve(true);
+    return window.saveToCloud({purpose:'horizon'});
+};
+window.newSpaceProject = async () => {
+    const choice=await chooseCloudDestination({allowLocal:true});if(!choice)return;
+    if(!await window.newProject())return;
+    window.switchRoom('editor');
+    if(choice.kind==='cloud')await saveCloudDestination(choice);
+    return true;
 };
 
 
@@ -5002,9 +5036,10 @@ function updateAuthUI() {
     if (authSlotNav) renderStudioAuthSlot(authSlotNav, effectiveUser, { mobile: false, slotName: 'nav' });
     if (authSlotMobile) renderStudioAuthSlot(authSlotMobile, effectiveUser, { mobile: true, slotName: 'mobile' });
 
-    syncAuthSaveStatus(saveStatus, {uid: effectiveUser?.uid || state.uid || '', en: getUILang() === 'en'});
+    syncAuthSaveStatus(saveStatus, {uid: effectiveUser?.uid || state.uid || '', local:!state.projectId, en: getUILang() === 'en'});
     document.body.classList.toggle('auth-guest', !signedIn);
     document.querySelectorAll('[data-auth-required]').forEach((el) => {
+        if(el.id==='press-publish-cloud-btn'&&(!state.projectId||!signedIn)){el.disabled=false;el.title=getUILang()==='en'?'Choose a cloud space to continue':'クラウド保存先を選んで進む';return;}
         const flowPortableReady = isVerifiedFlowPortableDownloadControl(el);
         const flowHorizonControl = isFlowHorizonPublishControl(el);
         const flowHorizonReady = isReadyFlowHorizonPublishControl(el);
@@ -5436,6 +5471,7 @@ function setCurrentDeviceThumbColumns(cols) {
 //  refresh — 画面全体を再描画する (Gen3: image pages only)
 // ──────────────────────────────────────
 function refresh(options = {}) {
+    window.dispatchEvent(new Event('local-draft-status'));
     const restoreButton = document.getElementById('btn-restore-private-authoring');
     if (restoreButton) {
         let available = false;
@@ -5665,6 +5701,7 @@ function refresh(options = {}) {
         else if (!isImageAdjusting) activeBubbleLayer.style.pointerEvents = '';
     }
     document.querySelectorAll('[data-flow-publication-required]').forEach((control) => {
+        if(control.id==='press-publish-cloud-btn'&&(!state.projectId||!state.uid)){control.disabled=false;control.title=getUILang()==='en'?'Choose a cloud space to continue':'クラウド保存先を選んで進む';return;}
         const needsAuth = control.hasAttribute('data-auth-required');
         const flowPortableReady = isVerifiedFlowPortableDownloadControl(control);
         const flowHorizonControl = isFlowHorizonPublishControl(control);
@@ -9859,7 +9896,7 @@ window.restoreCloudManuscript = async () => {
 
 window.saveProject = async () => {
     assertSharedStudioEdit();
-    ensureProjectIdentity();
+    if(isLocalDraft())return window.exportDSP();
     await persistProject();
     refresh();
 };
@@ -9879,7 +9916,7 @@ window.importDSP = async (event) => {
 
     try {
         await flushPendingSave();
-        const loadedState = hydrateProjectFromPersistence(await parseAndLoadDSP(file));
+        const loadedState = detachLocalProject(hydrateProjectFromPersistence(await parseAndLoadDSP(file)),createId('work'));
 
         resetFlowRuntimeForProjectChange();
         clearHistory();
@@ -9887,7 +9924,8 @@ window.importDSP = async (event) => {
             type: actionTypes.LOAD_PROJECT,
             payload: loadedState
         });
-        await cacheLocalRecentProject(JSON.parse(JSON.stringify(state)), window.localImageMap);
+        localDraftStatus.confirm(localDraftStatus.checkpoint());
+        await flushSave(); // Keep the current local manuscript as the startup recovery copy too.
 
         // Update title UI
         const pt = document.getElementById('project-title');
@@ -10164,6 +10202,7 @@ function initializeNewProject(choice, draft = null) {
     resetFlowRuntimeForProjectChange();
     state.projectAssets = [];
     state.localProjectId = null;
+    clearCloudMetadata(state);
     state.dsfPages = [];
     dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'projectId', value: null } });
     dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'version', value: draft ? PROJECT_SCHEMA_VERSION : 5 } });
@@ -10187,7 +10226,7 @@ function initializeNewProject(choice, draft = null) {
     dispatch({ type: actionTypes.SET_ACTIVE_LANGUAGE, payload: choice.languageKey });
     const initialSections = draft ? [] : [{
         type: 'image',
-        background: 'https://picsum.photos/id/10/600/1066',
+        background: '',
         backgrounds: {},
         bubbles: []
     }];
@@ -10933,7 +10972,7 @@ const MOBILE_ROOM_ACTIONS = {
             icon: 'add_circle',
             labelKey: 'bottom_new_project',
             onClick: async () => {
-                if (await window.newProject()) {
+                if (await window.newSpaceProject()) {
                     window.switchRoom('editor');
                 }
             }
@@ -11989,8 +12028,9 @@ installStudioPwa({getLocale:getUILang});
 installHomeStart({root:document.getElementById('home-room'),getLocale:getUILang,readState:()=>state,readShared:readSharedStudioAccess,onResume:()=>window.switchRoom('editor'),onConnectivity:()=>{if(getCurrentRoom()==='home')void renderHomeDashboard({refreshSpaces:navigator.onLine});}});
 document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='hidden'&&isLocalDraft())void flushPendingSave().catch(()=>{});});
 
+const locationNote=document.createElement('span');locationNote.id='authoring-location-status';document.querySelector('#project-title')?.after(locationNote);
 const localFileNote=document.createElement('span');localFileNote.id='local-dsp-status';localFileNote.setAttribute('role','status');localFileNote.style.cssText='font-size:12px;margin-inline:8px';document.querySelector('#project-title')?.after(localFileNote);
-const syncLocalFileNote=()=>{localFileNote.hidden=!isLocalDraft();localFileNote.textContent=localDraftStatus.read().dirty?(getUILang()==='en'?'DSP file not saved':'DSPファイル未保存'):'';};
+const syncLocalFileNote=()=>{const en=getUILang()==='en';locationNote.textContent=!state.projectId?(en?'Creating on this device':'この端末で制作中'):(isLocalDraft()?(en?'Cloud save needs confirmation':'クラウド保存の確認が必要'):(en?'Cloud manuscript':'クラウドの原稿'));document.querySelectorAll('[data-authoring-save]').forEach(b=>{b.title=isLocalDraft()?(en?'Save DSP file':'DSPファイルを保存'):(en?'Save to cloud':'クラウド保存');});localFileNote.hidden=!isLocalDraft();localFileNote.textContent=localDraftStatus.read().dirty?(getUILang()==='en'?'DSP file: unsaved changes':'DSPファイル：未保存の変更あり'):(localDraftStatus.read().fileSaved?(getUILang()==='en'?'DSP file: saved':'DSPファイル：保存済み'):(getUILang()==='en'?'DSP file: not saved':'DSPファイル：未保存'));};
 window.addEventListener('local-draft-status',syncLocalFileNote);document.addEventListener('studio-ui-language-change',syncLocalFileNote);syncLocalFileNote();
 
 window.addEventListener('local-recents-updated',()=>{

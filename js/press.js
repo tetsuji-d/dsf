@@ -3205,6 +3205,7 @@ function _updatePublishBtn() {
         const needsAuth = btn.hasAttribute('data-auth-required');
         const isPortableDownload = btn.hasAttribute('data-flow-portable-download');
         const isHorizonPublish = btn.id === 'press-publish-cloud-btn';
+        if(isHorizonPublish&&(!state.projectId||!state.uid)){btn.disabled=false;btn.title=getUILang()==='en'?'Choose a cloud space to continue':'クラウド保存先を選んで進む';return;}
         if (hasFlow && isPortableDownload) {
             btn.dataset.flowPortableState = flowPortableReady ? 'ready' : 'waiting';
             btn.disabled = !flowPortableReady;
@@ -3339,6 +3340,8 @@ window.updatePressBookCover = (key, value) => {
 
 /** Press Room の「Horizonへ下書き保存」ボタンから呼ばれる */
 window.publishToCloud = async () => {
+    if(!await window.prepareHorizonCloudSource?.())return;
+    await refreshFlowHorizonDryRunReadiness();
     const spaceProjectId = state.projectId, spaceEpoch = getProjectSessionEpoch();
     if (!await ensurePublishingSpace({projectId:spaceProjectId, purpose:'draft',
         isCurrent:() => state.projectId === spaceProjectId && getProjectSessionEpoch() === spaceEpoch})) return;

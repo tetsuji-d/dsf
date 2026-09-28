@@ -96,7 +96,7 @@ export function createPublishingSpaceUI({ root, request, getLocale, getUid, onCh
     }
     function renderSwitchers() {
         for (const host of identityRoots.filter(Boolean)) {
-            host.innerHTML='<span class="space-switcher-avatar" data-space-avatar="'+escape(active()?.id || selected)+'"></span><div><small>'+(selected==='unassigned'?(getLocale()==='en'?'Personal':'個人用'):tr().title)+'</small><strong>'+escape(uid ? selectionLabel() : (getLocale()==='en'?'Personal workspace':'個人の作業スペース'))+'</strong></div>';
+            host.innerHTML='<span class="space-switcher-avatar" data-space-avatar="'+escape(active()?.id || selected)+'"></span><div><small>'+(selected==='unassigned'?(getLocale()==='en'?'Personal':'個人用'):tr().title)+'</small><strong>'+escape(uid ? selectionLabel() : (getLocale()==='en'?'My space (cloud)':'マイスペース（クラウド）'))+'</strong></div>';
         }
         const t = tr(), en = getLocale() === 'en';
         for (const [index,host] of switchers.entries()) {

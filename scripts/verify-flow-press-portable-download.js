@@ -101,7 +101,7 @@ assert.match(pressSource, /data-flow-portable-download/);
 assert.match(pressSource, /function _invalidatePressFlowLocalReleaseForSettingsChange\(\)/);
 assert.match(pressSource, /press-resolution'\)\?\.addEventListener\('change', _handlePressLocalReleaseSettingChange\)/);
 assert.match(pressSource, /window\.togglePressLang = \(code\) => \{[\s\S]*?_handlePressLocalReleaseSettingChange\(\);/);
-assert.match(pressSource, /window\.updatePressBookMode = \(mode\) => \{[\s\S]*?_invalidatePressFlowLocalReleaseForSettingsChange\(\);/);
+assert.match(pressSource, /window\.updatePressBookMode = \(mode\) => \{[\s\S]*?_handlePressLocalReleaseSettingChange\(\);/);
 assert.match(pressSource, /state\.bookMode \|\| ''[\s\S]*?state\.book \|\| \{\}/);
 assert.match(exportSource, /getFlowPortableDsfDownloadArtifact/);
 assert.match(exportSource, /saveAs\(currentArtifact\.blob, currentArtifact\.filename\)/);

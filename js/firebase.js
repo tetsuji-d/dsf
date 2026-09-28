@@ -1,3 +1,4 @@
+import {useLocalAuthoringAssets} from './authoring-location.js';
 import {noteLocalDraftEdit} from './local-draft-runtime.js';
 import {createSharedDraftRecovery} from './shared-draft-recovery.js';
 import {createOwnerImageSession} from './owner-authoring-assets.js';
@@ -377,7 +378,7 @@ async function _createPublicationThumbnailBlob(file) {
 async function _storePublicationThumbnailBlob(blob) {
     if (!(await isWebPBlob(blob))) throw new Error('作品サムネイルのWebP変換に失敗しました。');
     const digest = await _sha256Hex(blob);
-    if (!state.uid) {
+    if (!readSharedStudioAccess() && useLocalAuthoringAssets(state,navigator.onLine)) {
         const localKey = `local_publication_thumbnail_${digest}`;
         await idbSet(localKey, blob);
         const localUrl = URL.createObjectURL(blob);
@@ -953,7 +954,7 @@ function updateSaveIndicator(status, message) {
     const target=message?.includes('(Cloud)')?'Cloud':message?.includes('(Local)')?'Local':'';
     el.dataset.saveStatus=status;el.dataset.saveTarget=target;
     const en={idle:'Unsaved',saving:'Saving…',saved:'Saved',error:'Save failed'};
-    const display=getUILang()==='en'?(en[status]||message)+(target?' ('+target+')':''):message||'';
+    const display=target==='Local'&&status==='saved'?(getUILang()==='en'?'Recovery copy retained in this browser':'ブラウザの復元用コピーを保持'):getUILang()==='en'?(en[status]||message)+(target?' ('+target+')':''):message||'';
     el.textContent = `${icons[status]} ${display}`;
     el.style.color = colors[status];
 }
@@ -1682,7 +1683,7 @@ export async function generateCroppedThumbnail(bgUrl, pos, refresh) {
 
         const blob = await encodeCanvasToWebP(canvas, 0.8, 'サムネイル');
         let thumbUrl = '';
-        if (!state.uid) {
+        if (!readSharedStudioAccess() && useLocalAuthoringAssets(state,navigator.onLine)) {
             const thumbKey = `local_img_thumb_adjusted_${timestamp}`;
             await idbSet(thumbKey, blob);
             thumbUrl = URL.createObjectURL(blob);
@@ -1773,7 +1774,7 @@ export async function prepareAuthoringImage(file, { uid = state.uid, maxLongEdge
         if (sharedStudioSession !== active || imageEpoch !== getProjectSessionEpoch()) throw new AuthoringClientError('AUTHORING_SESSION_CHANGED');
         return {mainUrl:main.url,thumbUrl:thumb.url,...metadata};
     }
-    if (!uid) {
+    if (!uid || useLocalAuthoringAssets(state,navigator.onLine)) {
         const mainKey = `local_img_main_${timestamp}`;
         const thumbKey = `local_img_thumb_${timestamp}`;
         await Promise.all([idbSet(mainKey, mainBlob), idbSet(thumbKey, thumbBlob)]);
@@ -1964,7 +1965,8 @@ export async function loadProject(pid, refresh) {
  * @param {function} refresh - 画面更新コールバック
  */
 export async function uploadCoverToStorage(input, refresh) {
-    const uid = requireUid();
+    assertSharedStudioEdit();
+    const imageEpoch = getProjectSessionEpoch();
     const file = input.files[0];
     if (!file) return;
 
@@ -1975,21 +1977,8 @@ export async function uploadCoverToStorage(input, refresh) {
     }
 
     try {
-        const [mainBlob, thumbBlob] = await Promise.all([
-            compressImage(file, AUTHORING_IMAGE_MAX_LONG_EDGE, AUTHORING_IMAGE_WEBP_QUALITY),
-            compressImage(file, THUMBNAIL_IMAGE_MAX_LONG_EDGE, THUMBNAIL_IMAGE_WEBP_QUALITY)
-        ]);
-
-        const timestamp = Date.now();
-        const filename = file.name.replace(/\.[^/.]+$/, "");
-        const base = block.kind === 'cover_front' ? 'cover_front' : 'cover_back';
-        const mainPath = `users/${uid}/dsf/covers/${base}_${timestamp}_${filename}.webp`;
-        const thumbPath = `users/${uid}/dsf/covers/thumbs/${base}_${timestamp}_${filename}_thumb.webp`;
-
-        const [mainUrl, thumbUrl] = await Promise.all([
-            _storeFile(mainBlob, mainPath),
-            _storeFile(thumbBlob, thumbPath),
-        ]);
+        const {mainUrl,thumbUrl} = await prepareAuthoringImage(file);
+        if(imageEpoch!==getProjectSessionEpoch())throw new AuthoringClientError('AUTHORING_SESSION_CHANGED');
 
         if (!block.content || typeof block.content !== 'object') block.content = {};
         block.content.background = mainUrl;
@@ -2016,7 +2005,8 @@ export async function uploadCoverToStorage(input, refresh) {
  * @param {function} refresh
  */
 export async function uploadStructureToStorage(input, refresh) {
-    const uid = requireUid();
+    assertSharedStudioEdit();
+    const imageEpoch = getProjectSessionEpoch();
     const file = input.files[0];
     if (!file) return;
 
@@ -2027,20 +2017,8 @@ export async function uploadStructureToStorage(input, refresh) {
     }
 
     try {
-        const [mainBlob, thumbBlob] = await Promise.all([
-            compressImage(file, AUTHORING_IMAGE_MAX_LONG_EDGE, AUTHORING_IMAGE_WEBP_QUALITY),
-            compressImage(file, THUMBNAIL_IMAGE_MAX_LONG_EDGE, THUMBNAIL_IMAGE_WEBP_QUALITY)
-        ]);
-        const timestamp = Date.now();
-        const filename = file.name.replace(/\.[^/.]+$/, "");
-        const base = block.kind;
-        const mainPath = `users/${uid}/dsf/structure/${base}_${timestamp}_${filename}.webp`;
-        const thumbPath = `users/${uid}/dsf/structure/thumbs/${base}_${timestamp}_${filename}_thumb.webp`;
-
-        const [mainUrl, thumbUrl] = await Promise.all([
-            _storeFile(mainBlob, mainPath),
-            _storeFile(thumbBlob, thumbPath),
-        ]);
+        const {mainUrl,thumbUrl} = await prepareAuthoringImage(file);
+        if(imageEpoch!==getProjectSessionEpoch())throw new AuthoringClientError('AUTHORING_SESSION_CHANGED');
 
         if (!block.content || typeof block.content !== 'object') block.content = {};
         block.content.background = mainUrl;

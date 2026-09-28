@@ -1,10 +1,10 @@
 // Runtime evidence only. DSP/DSF and cloud schemas are unchanged.
 export function createLocalDraftStatus(onChange=()=>{}) {
- let session=0, revision=0, savedRevision=0;
- const read=()=>({session,revision,dirty:revision!==savedRevision});
- return {read, reset(){session++;revision=savedRevision=0;onChange(read());},
+ let session=0, revision=0, savedRevision=0, fileSaved=false;
+ const read=()=>({session,revision,dirty:revision!==savedRevision,fileSaved});
+ return {read, reset(){session++;revision=savedRevision=0;fileSaved=false;onChange(read());},
   dirty(){revision++;onChange(read());}, checkpoint:()=>({session,revision}),
-  confirm(token){if(token.session!==session||token.revision!==revision)return false;savedRevision=revision;onChange(read());return true;}};
+  confirm(token){if(token.session!==session||token.revision!==revision)return false;savedRevision=revision;fileSaved=true;onChange(read());return true;}};
 }
 export function installLocalLeaveWarning({target,tracker,isLocal}) {
  let attached=false;

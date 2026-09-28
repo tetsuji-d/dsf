@@ -1,3 +1,4 @@
+import {clearCloudMetadata} from './authoring-location.js';
 /**
  * state.js — アプリケーション共有ステート
  * `blocks` が authoring canonical。
@@ -147,6 +148,7 @@ export function dispatch(action) {
             };
             delete projectPayload.uid;
             delete projectPayload.user;
+            clearCloudMetadata(state);
             Object.assign(state, projectPayload);
             setSharedStudioAccess(null);
             break;

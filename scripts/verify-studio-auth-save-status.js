@@ -15,3 +15,7 @@ syncAuthSaveStatus(el);assert.equal(el.textContent,'ログインでクラウド�
 el.dataset={};el.textContent='Sign in to save to cloud';syncAuthSaveStatus(el,{uid:'alice'});assert.match(el.textContent,/ログイン済み/);
 const app=readFileSync('js/app.js','utf8');assert.match(app,/syncAuthSaveStatus\(saveStatus/);
 console.log('PASS auth guidance: guest to login, account switch, logout, language, preserve saving/success/failure');
+
+syncAuthSaveStatus(el,{uid:'alice',local:true});assert.match(el.textContent,/この端末/);assert.equal(el.dataset.saveTarget,'');
+delete el.dataset.authNotice;el.textContent='復元用コピー';syncAuthSaveStatus(el,{uid:'alice',local:true});assert.equal(el.textContent,'復元用コピー');
+syncAuthSaveStatus(el,{uid:'alice',local:false});assert.match(el.textContent,/ログイン済み/);
