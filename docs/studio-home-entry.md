@@ -28,3 +28,14 @@ DSP/DSF仕様、固定レイアウト、クラウド保存契約、既存公開�
 
 79800b5: 前回までのローカルPWA、未保存保護、共有原稿復旧、インストール案内をコミット。
 ホーム改修と併せてCloudflare Pagesのstagingへ反映する。本番とmainは変更しない。
+
+### ステージング確認済み
+
+- アプリのリリースコミット: 7e94004。前回分79800b5を含む。
+- 固定デプロイ: https://acb7493d.dsf-studio.pages.dev
+- 常設URL: https://staging.dsf-studio.pages.dev/studio?room=home
+- Studio/Viewer HTML、Service Worker、manifest、Studio参照JS/CSSの計19件がHTTP 200で、ローカルdistとSHA-256一致。
+- 常設URLで検索の該当なし/解除、既存作業コピーの表示、PWA準備が「オフライン利用可」へ進むことを画面確認。既存原稿の編集・再保存はしていない。
+- ステージングのビルド/Pages Functionsのみ反映。本番、main、Firestore Rulesは変更なし。
+- ブラウザー検証用スクリプトは新ラベルと複数の切替ボタンに合わせて更新。今回はCuaで実操作を行い、これらPlaywrightスクリプト自体は実行していない。
+- outputs/は検証記録として未追跡のまま保持。

@@ -6,7 +6,7 @@ const {chromium}=require(process.env.DSF_PLAYWRIGHT_MODULE),assert=require('node
   const base=process.env.DSF_SPACES_FIXTURE_URL||'http://127.0.0.1:5198';
   const proof=async()=> (await page.request.get(base+'/fixture/proof')).json();
   const before=await proof();
-  await page.goto(base+'/workspace');await page.locator('[data-space-trigger]:visible').click();await page.locator('[data-space-choice="all"]:visible').click();await page.locator('[data-fixture-work]').first().waitFor();
+  await page.goto(base+'/workspace');await page.locator('#home-space-launcher [data-space-trigger]').click();await page.locator('[data-space-choice="all"]:visible').click();await page.locator('[data-fixture-work]').first().waitFor();
   const nav=view=>page.locator('.home-management-sidebar [data-home-nav="'+view+'"]');
   const choose=async view=>{await nav(view).click();assert.equal(await page.locator('#home-room').getAttribute('data-home-view'),view);assert(await page.locator('[data-home-title]').evaluate(e=>e===document.activeElement),await page.evaluate(()=>document.activeElement.outerHTML));};
   assert.equal(await page.locator('#home-cloud-grid .home-project-entry:visible').count(),3);
@@ -40,7 +40,7 @@ const {chromium}=require(process.env.DSF_PLAYWRIGHT_MODULE),assert=require('node
   for(const projectId of ['book_1','book_2']){
    const result=await page.request.post(base+'/api/publishing-spaces',{headers,data:{kind:'assign',projectId,spaceId,baseRevision:catalogue.revision,expectedSpaceId:catalogue.assignments[projectId]||null}});assert(result.ok(),await result.text());catalogue=await result.json();
   }
-  const assigned=await proof();await page.reload();await page.locator('[data-space-trigger]:visible').click();await page.locator('[data-space-choice="'+spaceId+'"]:visible').click();
+  const assigned=await proof();await page.reload();await page.locator('#home-space-launcher [data-space-trigger]').click();await page.locator('[data-space-choice="'+spaceId+'"]:visible').click();
   assert.match(await page.locator('#home-space-identity').innerText(),/灯台出版/);assert.equal(await page.locator('#home-cloud-grid .home-project-entry:visible').count(),2);
   await choose('settings');await page.locator('[data-space-settings="profile"]').click();assert(await page.getByRole('button',{name:'基本情報を設定',exact:true}).isVisible());
   await page.getByRole('button',{name:'基本情報を設定',exact:true}).click();await page.locator('textarea[name="description"]').waitFor();await page.getByRole('button',{name:'キャンセル',exact:true}).click();
