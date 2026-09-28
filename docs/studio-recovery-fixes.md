@@ -21,3 +21,9 @@ The auth UI inserted the guest cloud-save prompt but never removed it after sign
 - Staging build passed (existing large-chunk warnings).
 - Built Studio at 127.0.0.1:5198: after startup, all additional /assets/*.js requests were blocked through browser developer tooling. Imported a synthetic one-paragraph vertical Flow DSP; Press production preflight, release planning and six-entry ZIP integrity verification passed. Exported Press読み込み検証.dsf, 4,352,755 bytes. The block was then removed. Initial fixture envelope mistakes were corrected and validated with the production envelope validator before the successful run.
 - Real users' open drafts were not modified or reloaded. Existing old tabs require a one-time DSP backup and reload to receive these changes.
+
+## Staging release
+
+Application commit: 3fabb48. Deployment: https://60836689.dsf-studio.pages.dev . Alias: https://staging.dsf-studio.pages.dev . Fourteen served HTML/JS/CSS/service-worker resources matched the local dist SHA-256 values. The deployed Studio dashboard opened without console errors. No production deployment, main merge, Rules deployment, or user manuscript mutation. Untracked outputs are retained.
+
+Downloaded synthetic DSF SHA-256: 1bb808898548da49c9210611846454c1b59671cb668a24b73cad86e81e885a53 .
