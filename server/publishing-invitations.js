@@ -152,6 +152,7 @@ export function createPublishingInvitationsApi({service,verifyToken,directory=nu
             const identity=await verifyToken(token[1]);check(identity?.uid,'AUTH_INVALID',401);
             const command=parseJson(await readBounded(request.body,16384));
             if(authorizeCommand)await authorizeCommand(identity,command);
+            if(directory&&['getMemberExit','removeMember','leaveSpace'].includes(command?.kind))return response(await directory.memberExit(identity,command));
             if(directory&&['getMemberAccess','setMemberAccess'].includes(command?.kind))return response(await directory.memberAccess(identity,command));
             if(directory&&command?.kind==='listJoinedSpaces')return response(await directory.listJoinedSpaces(identity,command));
             if(directory&&command?.kind==='listMembers')return response(await directory.listMembers(identity,command));

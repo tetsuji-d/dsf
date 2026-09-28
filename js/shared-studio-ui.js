@@ -1,5 +1,5 @@
 import {readSharedStudioAccess,canEditSharedStudio,subscribeSharedStudioAccess} from './shared-studio-access.js';
-export function installSharedStudioUI({getUILang,checkAccess,lockAction,doc=document}) {
+export function installSharedStudioUI({getUILang,checkAccess,lockAction,openRecovery=()=>{},doc=document}) {
     const style=doc.createElement('style');style.textContent='[data-shared-disabled]{opacity:.4!important;cursor:not-allowed!important}';doc.head.append(style);
     const note=doc.createElement('div');note.id='shared-studio-status';note.setAttribute('role','status');
     note.style.cssText='padding:10px 16px;background:#eaf2ff;color:#163a67;display:none;align-items:center;gap:12px;flex-wrap:wrap';
@@ -7,7 +7,7 @@ export function installSharedStudioUI({getUILang,checkAccess,lockAction,doc=docu
     errorNote.setAttribute('role','alert');note.append(message,actions,errorNote);
     let pendingAction=false,controlsKey='';
     async function act(action){if(pendingAction)return;pendingAction=true;sync();errorNote.textContent='';
-        try{if(action==='refresh')await checkAccess();else await lockAction(action);}
+        try{if(action==='recovery')await openRecovery();else if(action==='refresh')await checkAccess();else await lockAction(action);}
         catch(error){errorNote.textContent=getUILang()==='en'?'Could not change editing access. Check the connection and current editor.':'編集権を変更できませんでした。接続と現在の編集者を確認してください。';}
         finally{pendingAction=false;sync();}}
     doc.querySelector('#editor-room')?.prepend(note);
@@ -22,6 +22,7 @@ export function installSharedStudioUI({getUILang,checkAccess,lockAction,doc=docu
                 access.canEdit?(en?'Shared manuscript · Editing · Saved to its publishing space':'共有原稿・編集可 ／ 出版スペースの原稿へ保存'):(access.lock?.holderName?(en?'Editing: '+access.lock.holderName+' · Read only':access.lock.holderName+' さんが編集中 ／ 閲覧のみ'):(en?'Shared manuscript · Read only · Latest saved changes refresh automatically':'共有原稿・閲覧のみ ／ 最新の保存内容を自動反映'));
             note.style.display=access?'flex':'none';if(message.textContent!==text)message.textContent=text;
             const buttons=[];
+            if(access&&access.spaceId!=='personal')buttons.push(['recovery',en?'Recovery drafts':'復旧用下書き']);
             if(access?.status==='disconnected')buttons.push(['refresh',en?'Reconnect':'接続を再確認']);
             if(access?.status==='ready'&&access.permissionCanEdit){
                 if(access.needsReload)buttons.push(['acquire',en?'Open latest and start editing':'最新原稿を開いて編集']);

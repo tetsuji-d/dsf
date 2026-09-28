@@ -1,0 +1,26 @@
+import assert from 'node:assert/strict';
+import {createSharedDraftRecovery} from '../js/shared-draft-recovery.js';
+let uid='reader_1',fail=false,wait=null;
+const records=new Map(),storage={async put(r){if(wait)await wait;if(fail)throw Error('quota');records.set(r.id,structuredClone(r));},async remove(id){if(fail)throw Error('storage');records.delete(id);},async list(account){return [...records.values()].filter(r=>r.uid===account).map(r=>structuredClone(r));}};
+const vault=createSharedDraftRecovery({getUid:()=>uid,storage});
+const input={id:'session_one',uid,spaceId:'space_demo',workId:'work_library',revision:1,project:{version:6,title:'復旧検証',blocks:[{kind:'flow',flow:{document:{sections:[{blocks:[{texts:{ja:'未保存の本文'}}]}]}}}]},assets:[{url:'blob:old-image',ref:'assets/private/hash.webp',blob:new Blob(['image bytes'],{type:'image/webp'})}]};
+vault.capture(input);input.project.title='mutated';await vault.settled();assert.equal((await vault.list())[0].record.project.title,'復旧検証');assert.equal(await (await vault.list())[0].record.assets[0].blob.text(),'image bytes');
+const reopened=createSharedDraftRecovery({getUid:()=>uid,storage});assert.equal((await reopened.list()).length,1,'survives reload');
+uid='reader_2';assert.deepEqual(await vault.list(),[]);await assert.rejects(vault.remove('session_one'));assert.throws(()=>vault.capture(input));uid='reader_1';
+fail=true;vault.capture({...input,revision:2,project:{title:'quota fallback'}});await vault.settled();assert.equal((await vault.list())[0].persisted,false);assert.equal((await vault.list())[0].record.project.title,'quota fallback');await assert.rejects(vault.remove('session_one'));assert.equal((await vault.list()).length,1);fail=false;
+let release;wait=new Promise(r=>release=r);vault.capture({...input,revision:3});await Promise.resolve();vault.capture({...input,revision:4});release();wait=null;await vault.settled();assert.equal(records.get('session_one').revision,4);
+await vault.saved('session_one',3);assert.equal((await vault.list())[0].record.revision,4,'old save cannot erase newer draft');await vault.saved('session_one',4);assert.deepEqual(await vault.list(),[]);
+vault.capture({...input,revision:5});vault.retain('session_one');await vault.settled();await vault.saved('session_one',5);assert.equal((await vault.list()).length,1,'failed draft retained even after successful retry');await vault.remove('session_one');assert.deepEqual(await vault.list(),[]);
+let finish;const delayed=createSharedDraftRecovery({getUid:()=>uid,storage:{...storage,list:()=>new Promise(r=>finish=r)}});const pending=delayed.list();uid='reader_2';finish([{schemaVersion:1,...input}]);assert.deepEqual(await pending,[],'late previous-account read discarded');
+console.log('Recovery passed: immutable manuscript and image capture, reload, account isolation, quota fallback, failure retention, ordered writes, old-save race and explicit deletion.');
+
+const {buildSharedRecoveryArchive}=await import('../js/shared-recovery-ui.js');
+const {default:JSZip}=await import('jszip');
+const archive=await buildSharedRecoveryArchive({schemaVersion:1,...input});
+const zip=await JSZip.loadAsync(await archive.arrayBuffer());
+const recovered=JSON.parse(await zip.file('recovery.json').async('string'));
+assert.deepEqual(recovered.project,input.project);
+assert.equal(recovered.assets[0].ref,input.assets[0].ref);
+assert.equal(await zip.file(recovered.assets[0].file).async('string'),'image bytes');
+assert.equal(Object.keys(zip.files).filter(k=>!zip.files[k].dir).length,2);
+console.log('Recovery ZIP passed: original manuscript, asset references and image bytes preserved.');

@@ -6,6 +6,6 @@ let lang='ja';let user;const actor=document.querySelector('#actor');
 const setUser=()=>{const uid=actor.value;user={uid,getIdToken:async()=> 'fixture-'+uid};};setUser();
 const ui=createSpaceMembersSettings({root:document.querySelector('#members'),execute:createInvitationsClient({getUser:()=>user}),getLocale:()=>lang});
 const navigation=createSpaceSettingsNavigation({root:document.querySelector('main'),getLocale:()=>lang});
-const render=()=>{navigation.render(true);ui.update({uid:user.uid,spaceId:user.uid==='reader_1'?null:'space_demo'});};
+const render=()=>{navigation.render(true);ui.update({uid:user.uid,spaceId:'space_demo',joined:user.uid!=='owner_1',manageMembers:user.uid!=='reader_1'});};
 actor.onchange=()=>{setUser();render();};document.querySelector('#language').onclick=()=>{lang=lang==='ja'?'en':'ja';render();};render();
 </script></html>

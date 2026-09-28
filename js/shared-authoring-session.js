@@ -7,10 +7,10 @@ const check=(ok,code)=>{if(!ok)throw new AuthoringClientError(code);};
 export async function openSharedAuthoringSession({spaceId,workId,user,isCurrent,fetcher=globalThis.fetch,onInvalidated=()=>{},sessionId=crypto.randomUUID()}) {
     check(isPrivateAuthoringId(spaceId)&&isPrivateAuthoringId(workId)&&isPrivateAuthoringId(user?.uid),'AUTHORING_SCOPE_INVALID');
     const base=`/api/spaces/${encodeURIComponent(spaceId)}/works/${encodeURIComponent(workId)}`;
-    const actorUid=user.uid,urls=new Map(),refs=new Map();let disposed=false,context,edited=false;
+    const actorUid=user.uid,urls=new Map(),refs=new Map(),blobs=new Map();let disposed=false,context,edited=false;
     const current=()=>!disposed&&isCurrent()&&user.uid===actorUid;
-    function dispose(){disposed=true;for(const url of urls.values())URL.revokeObjectURL(url);urls.clear();refs.clear();}
-    function failed(error){if([401,403].includes(error.status)||/SESSION_CHANGED/.test(error.code||'')){dispose();onInvalidated(error);}throw error;}
+    function dispose(){disposed=true;for(const url of urls.values())URL.revokeObjectURL(url);urls.clear();refs.clear();blobs.clear();}
+    function failed(error){if([401,403].includes(error.status)||/SESSION_CHANGED/.test(error.code||'')){try{onInvalidated(error);}finally{dispose();}}throw error;}
     const lockHeaders=()=>({'X-Shared-Session':sessionId,...(context?.lock?.fence?{'X-Shared-Lock':context.lock.fence}:{})});
     const scopedFetch=(url,options={})=>fetcher(url,{...options,headers:{...options.headers,...lockHeaders()}});
     async function request(path,options={},limit=32*1024){
@@ -33,7 +33,7 @@ export async function openSharedAuthoringSession({spaceId,workId,user,isCurrent,
         const hash=privateImageHash(ref);check(hash,'PRIVATE_IMAGES_REQUIRED');if(urls.has(ref))return urls.get(ref);
         const {bytes,response}=await request('/assets/'+hash,{},25*1024*1024);
         check(response.headers.get('Content-Type')==='image/webp'&&await sha256DsfBytes(bytes)===hash,'PRIVATE_IMAGE_CORRUPT');
-        check(current(),'AUTHORING_SESSION_CHANGED');const url=URL.createObjectURL(new Blob([bytes],{type:'image/webp'}));urls.set(ref,url);refs.set(url,ref);return url;
+        check(current(),'AUTHORING_SESSION_CHANGED');const blob=new Blob([bytes],{type:'image/webp'}),url=URL.createObjectURL(blob);urls.set(ref,url);refs.set(url,ref);blobs.set(ref,blob);return url;
     }
     try {
         await getContext();
@@ -41,6 +41,7 @@ export async function openSharedAuthoringSession({spaceId,workId,user,isCurrent,
         let client=makeClient();
         const loaded=await client.load(),project=await mapSharedImageSlots(loaded,image);
         return Object.freeze({project,context:{...context},dispose,getHead:()=>client.getHead(),
+            recoveryAssets(){return [...urls].map(([ref,url])=>({ref,url,blob:blobs.get(ref)}));},
             noteEdit(){edited=true;},
             async refreshReadOnly(){try{
                 check(!context.canEdit,'EDIT_FORBIDDEN');

@@ -10,7 +10,13 @@ export function createSharedEditLock({db,assertLiveIdentity,spaceId,workId,now=D
         const path=`users/${scope.ownerUid}/projects/${scope.projectId}/authoringLocks/current`;
         const [stored,user]=await tx.getMany([path,'users/'+identity.uid]);
         const matching=stored?.spaceId===spaceId&&stored.workId===workId&&stored.generationId===source.scope.generationId;
-        const lock=matching?stored:null;
+        let lock=matching?stored:null;
+        if(lock?.holder){
+            try{
+                const holderAccess=lock.holder.uid===identity.uid?scope:await resolveSpaceWorkAccess(tx,{actorUid:lock.holder.uid,spaceId,workId,action:'readWork'});
+                if(!holderAccess.canEdit||lock.holder.accessToken!==holderAccess.accessToken)lock=null;
+            }catch(error){if(error.status===403)lock=null;else throw error;}
+        }
         return {scope,path,lock,generationId:source.scope.generationId,name:String(user?.publicProfile?.displayName||user?.displayName||identity.uid).slice(0,80)};
     }
     const mine=(lock,identity,sessionId)=>!!lock?.holder&&lock.holder.uid===identity.uid&&lock.holder.sessionId===sessionId;
@@ -33,7 +39,7 @@ export function createSharedEditLock({db,assertLiveIdentity,spaceId,workId,now=D
     }
     function holder(c,identity,sessionId) {
         return {schemaVersion:1,spaceId,workId,generationId:c.generationId,
-            holder:{uid:identity.uid,sessionId,name:c.name},fence:newId(),expiresAt:now()+EDIT_LOCK_TTL,lastEditAt:now(),request:null};
+            holder:{uid:identity.uid,sessionId,name:c.name,accessToken:c.scope.accessToken},fence:newId(),expiresAt:now()+EDIT_LOCK_TTL,lastEditAt:now(),request:null};
     }
     return {assertWrite,
         async status(identity,sessionId) {await assertLiveIdentity(identity);return db.transaction(async tx=>view(await read(tx,identity),identity,sessionId));},
@@ -61,8 +67,8 @@ export function createSharedEditLock({db,assertLiveIdentity,spaceId,workId,now=D
                     if(action==='heartbeat'||action==='edited') next={...c.lock,expiresAt:now()+EDIT_LOCK_TTL,...(action==='edited'?{lastEditAt:now()}:{})};
                     if(action==='grant') {
                         const r=pending(c.lock);check(r&&r.id===requestId,'EDIT_REQUEST_UNAVAILABLE',409);
-                        await resolveSpaceWorkAccess(tx,{actorUid:r.uid,spaceId,workId,action:'editWork'});
-                        next=holder({...c,name:r.name},{uid:r.uid},r.sessionId);
+                        const recipientScope=await resolveSpaceWorkAccess(tx,{actorUid:r.uid,spaceId,workId,action:'editWork'});
+                        next=holder({...c,scope:recipientScope,name:r.name},{uid:r.uid},r.sessionId);
                     }
                 }
                 if(next!==c.lock)tx.set(c.path,{...next,lastEvent:{action,uid:identity.uid,at:now()}});

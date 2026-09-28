@@ -50,7 +50,7 @@ if(process.env.NOTIFICATIONS_FIXTURE==='true'){
  f.docs.delete('users/reader_1/spaceMemberships/space_demo');
  await f.call('owner_1',{kind:'invite',id:'inv_00000000-0000-4000-8000-000000000001',spaceId:'space_demo',recipientUid:'reader_1',role:'member',grants:[{role:'viewer',scope:'work',targetId:'work_notes'}],expiryDays:7});
 }
-let publicWrites=0,personalWrites=0;
+let publicWrites=0,personalWrites=0,failSharedSave=false;
 const ownerAssets=projectId=>createOwnerAssets({db:f.db,bucket:shared.r2,assertLiveIdentity:f.assertLiveIdentity,projectId});
 const ownerService=createAuthoringService({db:f.db,bucket:createAuthoringBucket(shared.r2),assertLiveIdentity:f.assertLiveIdentity,validateSnapshot:(tx,actor,project,write)=>ownerAssets(project.projectId).validateReferences(tx,actor,project,write)});
 if(process.env.OWNER_PRIVATE_IMAGE_FIXTURE==='true') {
@@ -88,6 +88,8 @@ configureServer(server){server.middlewares.use(async(req,res,next)=>{try{
  if(url.pathname==='/fixture/write'){const {path}=JSON.parse(bytes);if(!/^users\/(reader_1|reader_2|admin_1|owner_1)$/.test(path)){personalWrites++;res.statusCode=403;}return res.end('{}');}
  if(url.pathname==='/fixture/advance'&&req.method==='POST'){clockOffset+=Math.max(0,Number(JSON.parse(bytes).ms)||0);return res.end('{}');}
  if(url.pathname==='/fixture/status')return res.end(JSON.stringify({head:f.docs.get('users/owner_1/projects/book_library/authoringHeads/current'),publicWrites,personalWrites,participantProject:f.docs.has('users/reader_1/projects/book_library')}));
+ if(url.pathname==='/fixture/save-failure'&&req.method==='POST'){failSharedSave=JSON.parse(bytes).enabled===true;return res.end('{}');}
+ if(failSharedSave&&url.pathname.endsWith('/authoring')&&req.method==='PUT'){res.statusCode=503;return res.end(JSON.stringify({error:'AUTHORING_UNAVAILABLE'}));}
  if(url.pathname==='/fixture/role'&&req.method==='POST'){const {role}=JSON.parse(bytes),m=f.docs.get('users/reader_1/spaceMemberships/space_demo');if(role==='revoked')m.status='revoked';else {m.status='active';m.grants[0].role=role;}return res.end('{}');}
  if(url.pathname==='/upload'){publicWrites++;res.statusCode=403;return res.end('{}');}
  if(url.pathname==='/api/invitations'){const response=await f.handler({env:{...f.env,SHARED_AUTHORING_ENABLED:'true'},request:new Request(url,{method:req.method,headers:req.headers,...(req.method==='POST'?{body:bytes}:{})})});res.writeHead(response.status,Object.fromEntries(response.headers));return res.end(Buffer.from(await response.arrayBuffer()));}

@@ -59,10 +59,11 @@ import '../css/flow-annotations.css';
 import { openAnnotationDialog } from './flow-annotation-ui.js';
 import { refreshFlowRichInput } from './flow-source-rich-input.js';
 import { state, dispatch, actionTypes } from './state.js';
+import { installSharedRecoveryUI } from './shared-recovery-ui.js';
 import { installSharedStudioUI } from './shared-studio-ui.js';
 import { readSharedStudioAccess, canEditSharedStudio, canReadSharedStudio, assertSharedStudioEdit, assertPersonalStudioOperation } from './shared-studio-access.js';
 import { loadSharedProject, checkSharedStudioAccess, sharedStudioLockAction } from './firebase.js';
-import { getEditorSaveStatus, restorePreviousCloudAuthoring, getLoadedPrivateAuthoringHead, saveProject as persistProject, loadProject, uploadToStorage, prepareAuthoringImage, uploadCoverToStorage, uploadStructureToStorage, triggerAutoSave, flushSave, flushPendingSave, generateCroppedThumbnail, listLocalRecentProjects, loadLocalRecentProject, cacheLocalRecentProject, ensureUserBootstrap, storePublicationThumbnailFile, auth as firebaseAuth, authReady, db } from './firebase.js';
+import { sharedDraftRecovery, prepareSharedSpaceLeave, finishSharedSpaceLeave, getEditorSaveStatus, restorePreviousCloudAuthoring, getLoadedPrivateAuthoringHead, saveProject as persistProject, loadProject, uploadToStorage, prepareAuthoringImage, uploadCoverToStorage, uploadStructureToStorage, triggerAutoSave, flushSave, flushPendingSave, generateCroppedThumbnail, listLocalRecentProjects, loadLocalRecentProject, cacheLocalRecentProject, ensureUserBootstrap, storePublicationThumbnailFile, auth as firebaseAuth, authReady, db } from './firebase.js';
 import { initGIS, renderGISButton, signInWithGoogle, signOutUser, onAuthChanged, handleRedirectResult } from './gis-auth.js';
 import { handleCanvasClick, selectBubble, renderBubbleHTML, getBubbleText, setBubbleText, addBubbleAtCenter, startDrag, startTailDrag, startSpikeDrag } from './bubbles.js';
 import { addSection, addTextSection, changeSection, changeBlock, insertStructureBlock, renderThumbs, canDeleteActive, deleteActive, deleteSectionAt, insertSectionAt, insertSpreadImageAt, duplicateSectionAt, moveSection, moveSectionRange, insertPageNearBlock, duplicateBlockAt, moveBlockAt, getOptimizedImageUrl } from './sections.js';
@@ -75,6 +76,9 @@ import { t, applyI18n, setUILang, getUILang } from './i18n-studio.js';
 import { createPageBlockFromSection, createSectionFromPageBlock, getBlockIndexFromPageIndex, getPageIndexFromBlockIndex, migrateSectionsToBlocks, syncBlocksWithSections, extractSectionsFromBlocks } from './blocks.js';
 import { blocksToPages } from './pages.js';
 import { moveAuthoringUnitInSpine, moveFixedPageRangeInSpine } from './fixed-page-spine.js';
+import {localDraftStatus,isLocalDraft,noteLocalDraftEdit} from './local-draft-runtime.js';
+import {chooseDspFilename,confirmDspDownload} from './dsp-save-dialog.js';
+import {installStudioPwa} from './studio-pwa.js';
 import { buildDSP, buildDSF, parseAndLoadDSP } from './export.js';
 import { hydrateProjectFromPersistence } from './project-persistence.js';
 import { applyTheme, bindThemePreferenceListener, getThemeMode, setThemeMode } from './theme.js';
@@ -4323,9 +4327,10 @@ function syncSpaceMembersSettings() {
     const root = document.getElementById('home-space-members');
     if (!root) return;
     if (!spaceMembersSettings) spaceMembersSettings = createSpaceMembersSettings({ root, getLocale:getUILang,
-        execute:createInvitationsClient({getUser:()=>firebaseAuth.currentUser}),personalExecute:createPersonalSharingClient({getUser:()=>firebaseAuth.currentUser}) });
+        execute:createInvitationsClient({getUser:()=>firebaseAuth.currentUser}),personalExecute:createPersonalSharingClient({getUser:()=>firebaseAuth.currentUser}),
+        beforeLeave:prepareSharedSpaceLeave,onEnded:async({spaceId,self})=>{if(self){finishSharedSpaceLeave(spaceId);getPublishingSpaceUI().select('unassigned');await getPublishingSpaceUI().refreshJoined();}else await checkSharedStudioAccess().catch(()=>{});} });
     const selected=getPublishingSpaceUI().joinedSelection();
-    spaceMembersSettings.update({uid:state.uid,spaceId:getPublishingSpaceUI().selection(),manageMembers:!selected||selected.canManageMembers===true});
+    spaceMembersSettings.update({uid:state.uid,spaceId:getPublishingSpaceUI().selection(),manageMembers:!selected||selected.canManageMembers===true,joined:!!selected});
 }
 
 function getHomeWorkspace() {
@@ -4677,6 +4682,7 @@ function renderHomeLocalProjects(localGrid, localCount, localProjects) {
                 resetFlowRuntimeForProjectChange();
                 clearHistory();
                 dispatch({ type: actionTypes.LOAD_PROJECT, payload: loadedState });
+                noteLocalDraftEdit();
                 refresh();
                 window.switchRoom('editor');
             } catch (e) {
@@ -4997,8 +5003,11 @@ function updateAuthUI() {
 }
 
 function applyStudioAuthUser(user) {
-    state.user = user || null;
-    state.uid = user?.uid || null;
+    const nextUser=user||null;
+    if(state.uid!==(nextUser?.uid||null)||state.user!==nextUser){
+        dispatch({type:actionTypes.SET_AUTH_STATE,payload:{uid:nextUser?.uid||null,user:nextUser}});
+        window.dispatchEvent(new Event('shared-recovery-account'));
+    }
     syncStudioInbox();
     updateAuthUI();
     if (document.body?.dataset?.room === 'press' && hasFlowGroups(state)) {
@@ -5131,6 +5140,7 @@ function updateStudioThemeSwitchers() {
 }
 
 async function hydrateStudioAccount(user) {
+    if(!navigator.onLine)return null;
     if (!user?.uid) {
         studioAccount = null;
         updateAuthUI();
@@ -9869,7 +9879,9 @@ window.exportDSP = async () => {
     const btnDataList = document.querySelectorAll('button[onclick="exportDSP()"]');
     btnDataList.forEach(btn => btn.textContent = '⏳ ZIP生成中...');
     try {
-        await buildDSP();
+        const token=localDraftStatus.checkpoint(), local=isLocalDraft();
+        const result=await buildDSP({chooseFilename:name=>chooseDspFilename(name,getUILang()==='en')});
+        if(local&&result?.status==='download-started')confirmDspDownload({filename:result.filename,en:getUILang()==='en',onConfirm:()=>isLocalDraft()&&localDraftStatus.confirm(token)});
     } catch (e) {
         console.error("Export DSP failed:", e);
         alert("エクスポート中にエラーが発生しました。\n" + e.message);
@@ -9896,7 +9908,7 @@ window.exportDSF = async () => {
         btn.setAttribute('aria-busy', 'true');
     });
     try {
-        await buildDSF();
+        await buildDSF({chooseFilename:name=>chooseDspFilename(name,getUILang()==='en','dsf')});
     } catch (e) {
         console.error("Export DSF failed:", e);
         if (e?.code === 'PRESS_RENDER_CANCELLED') {
@@ -10159,7 +10171,7 @@ function initializeNewProject(choice, draft = null) {
     refresh();
     renderLangSettings();
     closeProjectModal();
-    if (draft) triggerAutoSave();
+    triggerAutoSave();
     return true;
 };
 
@@ -11289,18 +11301,18 @@ async function bootstrapApp() {
     const sharedTarget = urlParams.has('sharedWork') ? {spaceId:urlParams.get('sharedSpace'),workId:urlParams.get('sharedWork')} : null;
     const hasCloudId = urlParams.has('id') || !!sharedTarget;
 
-    const redirectOutcome = await handleRedirectResult(firebaseAuth);
+    const redirectOutcome = navigator.onLine ? await handleRedirectResult(firebaseAuth) : null;
     if (redirectOutcome?.error) {
         alert(t('auth_google_failed', { message: redirectOutcome.error?.message || String(redirectOutcome.error) }));
     }
     if (redirectOutcome?.result?.user) {
         applyStudioAuthUser(redirectOutcome.result.user);
         await hydrateStudioAccount(redirectOutcome.result.user);
-    } else if (firebaseAuth.currentUser) {
+    } else if (firebaseAuth.currentUser && navigator.onLine) {
         applyStudioAuthUser(firebaseAuth.currentUser);
         await hydrateStudioAccount(firebaseAuth.currentUser);
     }
-    await initGIS({ authInstance: firebaseAuth, autoPrompt: false });
+    if(navigator.onLine) void initGIS({ authInstance: firebaseAuth, autoPrompt: false });
 
     if (!hasCloudId) {
         try {
@@ -11331,6 +11343,7 @@ async function bootstrapApp() {
                 resetFlowRuntimeForProjectChange();
                 clearHistory();
                 dispatch({ type: actionTypes.LOAD_PROJECT, payload: restoredState });
+                noteLocalDraftEdit();
                 console.log("[DSF] Auto-save restored successfully.");
                 } else { Object.keys(restoredMap).forEach(url=>URL.revokeObjectURL(url)); }
             }
@@ -11932,9 +11945,17 @@ function showImagePasteStatus(code) {
 }
 const imagePageImporter = createImagePageImporter({ readState: readStudioAIState, prepareImage: prepareAuthoringImage,
     discardImage: discardPreparedAuthoringImage, applyImagePage: result => applyEditorSpineChange(result), onStatus: showImagePasteStatus });
-installSharedStudioUI({getUILang,checkAccess:checkSharedStudioAccess,lockAction:action=>sharedStudioLockAction(action,()=>{resetFlowRuntimeForProjectChange({keepSession:true});clearHistory();refresh();})});
+const recoveryUI=installSharedRecoveryUI({vault:sharedDraftRecovery,getUid:()=>firebaseAuth.currentUser?.uid===state.uid?state.uid:null,getLocale:getUILang});
+installSharedStudioUI({getUILang,openRecovery:()=>recoveryUI.open(),checkAccess:checkSharedStudioAccess,lockAction:action=>sharedStudioLockAction(action,()=>{resetFlowRuntimeForProjectChange({keepSession:true});clearHistory();refresh();})});
 window.addEventListener('shared-studio-unavailable',()=>{
     clearHistory();resetFlowRuntimeForProjectChange({keepSession:true});queueMicrotask(()=>refresh());
 });
 window.pasteImagePage = installImagePagePaste({ importer: imagePageImporter,
     inEditor: () => getCurrentRoom() === 'editor' && canEditSharedStudio(), onStatus: showImagePasteStatus });
+
+installStudioPwa({getLocale:getUILang});
+document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='hidden'&&isLocalDraft())void flushPendingSave().catch(()=>{});});
+
+const localFileNote=document.createElement('span');localFileNote.id='local-dsp-status';localFileNote.setAttribute('role','status');localFileNote.style.cssText='font-size:12px;margin-inline:8px';document.querySelector('#project-title')?.after(localFileNote);
+const syncLocalFileNote=()=>{localFileNote.hidden=!isLocalDraft();localFileNote.textContent=localDraftStatus.read().dirty?(getUILang()==='en'?'DSP file not saved':'DSPファイル未保存'):'';};
+window.addEventListener('local-draft-status',syncLocalFileNote);document.addEventListener('studio-ui-language-change',syncLocalFileNote);syncLocalFileNote();

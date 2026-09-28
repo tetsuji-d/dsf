@@ -3,6 +3,7 @@
   "version": "1.0.0",
   "type": "module",
   "scripts": {
+    "verify:studio-local-pwa": "node scripts/verify-studio-local-pwa.js",
     "verify:personal-sharing": "node scripts/verify-personal-sharing.mjs",
     "verify:personal-sharing-browser": "node scripts/verify-personal-sharing-browser.cjs",
     "verify:my-space-profile": "node scripts/verify-my-space-profile.js",

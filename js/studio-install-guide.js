@@ -1,0 +1,16 @@
+// Instructions remain available even without beforeinstallprompt.
+export function openStudioInstallGuide({en=false}={}) {
+ const dialog=document.createElement('dialog');dialog.className='local-file-dialog studio-install-guide';
+ const title=document.createElement('h2');title.id='studio-install-guide-title';title.textContent=en?'Install DSF Studio':'DSF Studioを端末に追加';dialog.setAttribute('aria-labelledby',title.id);
+ const intro=document.createElement('p');intro.textContent=en?'Choose your device. You can also keep using Studio in your browser. Menu names vary by browser version.':'お使いの端末を選んで手順を確認できます。インストールせず、ブラウザーでも使えます。メニュー名はブラウザーのバージョンによって異なります。';
+ const guides=[
+  ['Windows',en?'Open Studio in Chrome. Choose the install icon in the address bar, or the menu → Cast, save, and share → Install page as app. If Studio shows an Install button, you can use it.':'ChromeでStudioを開き、アドレスバーのインストールアイコン、またはメニュー →「キャスト、保存、共有」→「ページをアプリとしてインストール」を選びます。Studio内に「インストール」ボタンが出ていれば、そこからも追加できます。','https://support.google.com/chrome/answer/9658361?co=GENIE.Platform%3DDesktop'],
+  ['Mac',en?'In Safari on macOS Sonoma 14 or later, choose File → Add to Dock. Chrome also offers an install icon or menu → Cast, save, and share → Install page as app.':'macOS Sonoma 14以降のSafariでは「ファイル」→「Dockに追加」を選びます。Chromeではアドレスバーのインストールアイコン、またはメニュー →「キャスト、保存、共有」→「ページをアプリとしてインストール」から追加できます。','https://support.apple.com/104996'],
+  ['iPhone / iPad',en?'Open Studio in Safari, open Share, then Add to Home Screen. If Open as Web App appears, turn it on and tap Add.':'SafariでStudioを開き、「共有」→「ホーム画面に追加」を選びます。「Webアプリとして開く」が表示された場合はオンにして「追加」を押します。','https://support.apple.com/guide/iphone/iphea86e5236/ios'],
+  ['Android',en?'Open Studio in Chrome. From the menu choose Add to home screen → Install, then follow the instructions. You can also use the Install button when Studio shows it.':'ChromeでStudioを開き、メニュー →「ホーム画面に追加」→「インストール」を選び、画面の案内に従います。Studio内に「インストール」ボタンが出ていれば、そこからも追加できます。','https://support.google.com/chrome/answer/9658361?co=GENIE.Platform%3DAndroid']
+ ];
+ dialog.append(title,intro);
+ for(const [name,instruction,url] of guides){const section=document.createElement('details'),heading=document.createElement('summary'),body=document.createElement('p'),link=document.createElement('a');heading.textContent=name;body.textContent=instruction;link.textContent=en?'Official instructions':'公式の手順';link.href=url;link.target='_blank';link.rel='noopener noreferrer';section.append(heading,body,link);dialog.append(section);}
+ const note=document.createElement('p');note.textContent=en?'After installation, open the app while connected and select Prepare offline use. Wait for Offline use ready before disconnecting. Browser working copies may not transfer to the installed app; save a DSP file first, then open it in the app.':'追加後は、通信できる状態でアプリを開き、「オフライン利用を準備」から「オフライン利用可」になるまで待ってください。ブラウザーの作業コピーがアプリへ引き継がれない環境もあるため、編集中の原稿は先にDSPとして保存し、アプリで開いてください。';
+ const close=document.createElement('button');close.type='button';close.textContent=en?'Close':'閉じる';close.onclick=()=>dialog.close();dialog.addEventListener('close',()=>dialog.remove(),{once:true});dialog.append(note,close);document.body.append(dialog);dialog.showModal();close.focus();
+}

@@ -10499,3 +10499,7 @@ dialog.personal-sharing-dialog details { margin-block: 16px; }
 
 .ps-spine-fields .ps-spine-source { grid-column: 1 / -1; flex-direction: row; align-items: center; }
 .ps-spine-source input[type=checkbox] { width: auto; }
+
+.local-file-dialog{width:min(540px,calc(100vw - 32px));box-sizing:border-box;max-height:90dvh;overflow:auto;padding:24px;border:1px solid #93a3b8;border-radius:12px;color:#172033;background:#fff}.local-file-dialog::backdrop{background:#1119}.local-file-dialog label{display:block}.local-file-dialog input{display:block;box-sizing:border-box;width:100%;padding:10px;margin:8px 0 20px}.local-file-dialog button{padding:10px;margin:4px;border:1px solid #8392a5;border-radius:6px}.studio-offline-panel{padding:12px 24px;background:var(--studio-surface,#fff);color:var(--studio-text,#172033);border-bottom:1px solid #ccd4df}.studio-offline-panel button{margin:4px;padding:6px 10px}.studio-offline-panel p{margin:6px 0;font-size:13px}
+
+.studio-install-guide details{border-block-start:1px solid #d4dbe5;padding:12px 0}.studio-install-guide summary{cursor:pointer;font-weight:600}.studio-install-guide p{line-height:1.7}.studio-install-guide a{color:#155bbb;text-decoration:underline}

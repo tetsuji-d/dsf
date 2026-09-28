@@ -32,7 +32,7 @@ export async function resolveSpaceWorkAccess(tx,{actorUid,spaceId,workId,action}
     const context=await readSpacePrincipal(tx,actorUid,spaceId),item=await readBoundWork(tx,context.space,workId);
     check(canAccessPublishingSpace(context,action,item.resource),'WORK_FORBIDDEN',403);
     if(action==='editWork')check(context.actor.entitlements?.canCreateProject===true&&context.owner.entitlements?.canCreateProject===true,'EDIT_FORBIDDEN',403);
-    return {ownerUid:context.space.ownerUid,projectId:item.binding.projectId,workId,spaceId,
+    return {ownerUid:context.space.ownerUid,projectId:item.binding.projectId,workId,spaceId,accessToken:actorUid===context.space.ownerUid?'owner':await memberToken(context.member),
         canEdit:canAccessPublishingSpace(context,'editWork',item.resource)&&context.actor.entitlements?.canCreateProject===true&&context.owner.entitlements?.canCreateProject===true};
 }
 // Used at both invitation creation and acceptance. Names come from canonical records.
@@ -53,8 +53,8 @@ export async function validateSpaceInvitationTargets(tx,space,grants){
     }
     return labels;
 }
-async function memberToken(member){
-    const value=[member.uid,member.spaceId,member.role,member.status,member.grants.map(g=>[g.role,g.scope,g.targetId??null]),member.joinedAt??null,member.invitationId??null];
+export async function memberToken(member){
+    const value=[member.uid,member.spaceId,member.role,member.status,member.grants.map(g=>[g.role,g.scope,g.targetId??null]),member.joinedAt??null,member.invitationId??null,member.endedAt??null,member.endRequestId??null];
     const bytes=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(JSON.stringify(value)));
     return Array.from(new Uint8Array(bytes),b=>b.toString(16).padStart(2,'0')).join('');
 }
@@ -83,6 +83,43 @@ export function createSpaceDirectoryService({db,assertLiveIdentity,now=Date.now,
                         access:c.member.role==='admin'?'editor':c.member.grants.some(g=>g.role==='editor')?'editor':'viewer'});
                 }
                 return {uid:identity.uid,items,nextCursor:ids.length>20?ids[19]:null};
+            });
+        },
+        async memberExit(identity,command){
+            const {spaceId,kind}=command,memberUid=command.memberUid??identity.uid;
+            segment(identity.uid);segment(spaceId);segment(memberUid);
+            check(['getMemberExit','removeMember','leaveSpace'].includes(kind),'INVALID_COMMAND',400);
+            if(allowedSpaceId)check(spaceId===allowedSpaceId,'SPACE_FORBIDDEN',403);
+            const self=identity.uid===memberUid;
+            check(kind==='getMemberExit'||(kind==='leaveSpace')===self,'MEMBER_FORBIDDEN',403);
+            await assertLiveIdentity(identity);
+            return db.transaction(async tx=>{
+                const path='users/'+memberUid+'/spaceMemberships/'+spaceId;
+                const [actor,stored,current,person]=await tx.getMany(['users/'+identity.uid,'publishing_spaces/'+spaceId,path,'users/'+memberUid]);
+                check(live(actor,identity.uid),'ACCOUNT_UNAVAILABLE',403);
+                check(stored&&stored.status!=='deleted','SPACE_FORBIDDEN',403);segment(stored.ownerUid);
+                const [owner,actorMember]=await tx.getMany(['users/'+stored.ownerUid,'users/'+identity.uid+'/spaceMemberships/'+spaceId]);
+                check(live(owner,stored.ownerUid),'SPACE_FORBIDDEN',403);
+                const space={...stored,id:spaceId},context={actorUid:identity.uid,actor,space,owner,member:actorMember};
+                check(memberUid!==space.ownerUid&&current?.uid===memberUid&&current.spaceId===spaceId,'MEMBER_FORBIDDEN',403);
+                if(!self)check(canManageSpaceMember(context,current,null),'MEMBER_FORBIDDEN',403);
+                const token=await memberToken(current);
+                const status=self?'left':'revoked';
+                if(kind==='getMemberExit'){
+                    check(validSpaceMember(current,spaceId),'MEMBER_CONFLICT',409);
+                    return {space:{id:spaceId,name:space.name},member:{uid:memberUid,displayName:person?.publicProfile?.displayName||person?.displayName||memberUid,role:current.role,grants:current.grants},memberToken:token,status};
+                }
+                check(typeof command.expectedToken==='string'&&/^[a-f0-9]{64}$/.test(command.expectedToken),'INVALID_TOKEN',400);
+                check(typeof command.requestId==='string'&&/^[a-z0-9-]{16,64}$/.test(command.requestId),'INVALID_ID',400);
+                const auditPath='users/'+space.ownerUid+'/memberExitChanges/'+command.requestId;
+                const [audit]=await tx.getMany([auditPath]);
+                const signature=JSON.stringify([identity.uid,spaceId,memberUid,kind,command.expectedToken]);
+                if(audit){check(audit.signature===signature&&audit.afterToken===token,'MEMBER_CONFLICT',409);return audit.result;}
+                check(validSpaceMember(current,spaceId)&&token===command.expectedToken,'MEMBER_CONFLICT',409);
+                const next={...current,status,endedAt:now(),endedBy:identity.uid,endRequestId:command.requestId};
+                const afterToken=await memberToken(next),result={spaceId,memberUid,status};
+                tx.set(path,next);tx.set(auditPath,{actorUid:identity.uid,memberUid,spaceId,kind,at:next.endedAt,beforeToken:token,afterToken,signature,result});
+                return result;
             });
         },
         async memberAccess(identity,command){
@@ -132,7 +169,7 @@ export function createSpaceDirectoryService({db,assertLiveIdentity,now=Date.now,
                 records.forEach((m,i)=>{const uid=selected[i],a=users[i];if(uid===c.space.ownerUid||!m||m.status!=='active')return;
                     check(m.uid===uid&&validSpaceMember(m,spaceId),'MEMBERS_UNAVAILABLE',503);
                     items.push({uid,displayName:a?.publicProfile?.displayName||a?.displayName||uid,role:m.role,grants:m.grants,
-                        available:live(a,uid),canChangeScope:m.role==='member'&&canManageSpaceMember(c,m,m),joinedAt:m.joinedAt??null});});
+                        available:live(a,uid),canRemove:canManageSpaceMember(c,m,null),canChangeScope:m.role==='member'&&canManageSpaceMember(c,m,m),joinedAt:m.joinedAt??null});});
                 return {space:{id:spaceId,name:c.space.name},owner:{uid:c.space.ownerUid,displayName:c.owner.publicProfile?.displayName||c.owner.displayName||c.space.ownerUid,role:'owner',grants:[]},
                     items,nextCursor:ids.length>20?selected.at(-1):null};
             });

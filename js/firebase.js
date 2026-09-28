@@ -1,3 +1,5 @@
+import {noteLocalDraftEdit} from './local-draft-runtime.js';
+import {createSharedDraftRecovery} from './shared-draft-recovery.js';
 import {createOwnerImageSession} from './owner-authoring-assets.js';
 import {createPublishingSpacesClient} from './publishing-spaces-transport.js';
 import {createProjectCopyJob} from './project-copy.js';
@@ -74,6 +76,24 @@ const PUBLICATION_THUMBNAIL_WEBP_QUALITY = 0.86;
 const userBootstrapPromiseCache = new Map();
 let privateAuthoringSession = null;
 let sharedStudioSession = null;
+export const sharedDraftRecovery=createSharedDraftRecovery({getUid:()=>auth.currentUser?.uid===state.uid?state.uid:null,
+    onChange:()=>window.dispatchEvent(new Event('shared-recovery-change'))});
+function captureSharedDraft(){
+    const active=sharedStudioSession;
+    if(!active?.dirty||active.user!==auth.currentUser||active.user.uid!==state.uid)return;
+    try{
+        sharedDraftRecovery.capture({id:active.recoveryId,uid:active.user.uid,spaceId:active.session.context.spaceId,workId:active.session.context.workId,
+            project:buildAuthoringProjectInput(),assets:active.session.recoveryAssets(),revision:editorRevision});
+    }catch{window.dispatchEvent(new Event('shared-recovery-failed'));}
+}
+export async function prepareSharedSpaceLeave(spaceId){
+    const active=sharedStudioSession;
+    if(!active||active.session.context.spaceId!==spaceId)return;
+    if(active.dirty){await flushSave();if(active!==sharedStudioSession||active.dirty)throw new AuthoringClientError('AUTHORING_SESSION_CHANGED');}
+}
+export function finishSharedSpaceLeave(spaceId){
+    if(readSharedStudioAccess()?.spaceId===spaceId)setSharedStudioAccess({...readSharedStudioAccess(),status:'unavailable',canEdit:false});
+}
 const sharedStudioClientId = crypto.randomUUID();
 let sharedAccessTimer = null;
 function cancelSharedSave() { clearTimeout(autoSaveTimer); autoSaveTimer = null; saveRequested = false; }
@@ -82,6 +102,7 @@ function disposeSharedStudio() {
     sharedStudioSession?.session.dispose(); sharedStudioSession = null;
 }
 subscribeProjectSession(() => {
+    window.dispatchEvent(new Event('shared-recovery-account'));
     privateAuthoringSession?.images?.dispose();
     privateAuthoringSession = null;
     if (!readSharedStudioAccess()) return;
@@ -90,6 +111,8 @@ subscribeProjectSession(() => {
 subscribeSharedStudioAccess(access => {
     if (access && !access.canEdit) cancelSharedSave();
     if (access?.status === 'unavailable') {
+        captureSharedDraft();
+        if(sharedStudioSession?.dirty)sharedDraftRecovery.retain(sharedStudioSession.recoveryId);
         disposeSharedStudio();
         // Do not leave another account's manuscript in the editor or AI context.
         Object.assign(state,{projectId:null,workId:null,title:'',projectName:'',meta:{},blocks:[],sections:[],pages:[],projectAssets:[],dsfPages:[],publicationThumbnailUrl:''});
@@ -178,7 +201,7 @@ export async function loadSharedProject({spaceId,workId}, refresh) {
             releaseId:null,dsfPages:[],dsfStatus:null,publication:null,visibility:'private',
             activeLang:data.defaultLang || data.languages?.[0] || 'ja',activeIdx:0,activePageIdx:0,activeBlockIdx:0,activeBubbleIdx:null}});
         epoch = getProjectSessionEpoch(); privateAuthoringSession = null;
-        sharedStudioSession = {session,epoch,projectId:session.context.projectId,user,dirty:false,refresh,fence:session.context.lock?.fence};
+        sharedStudioSession = {session,epoch,projectId:session.context.projectId,user,dirty:false,recoveryId:crypto.randomUUID(),refresh,fence:session.context.lock?.fence};
         window.localImageMap = {};
         setSharedStudioAccess({...session.context,status:'ready'});
         sharedAccessTimer = setInterval(()=>{if(document.visibilityState==='visible')void checkSharedStudioAccess().catch(()=>{});},10000);
@@ -831,7 +854,7 @@ async function buildProjectListThumbnail(snapshotState) {
 async function buildLocalRecentMeta(snapshotState) {
     let listThumbnail = '';
     try {
-        listThumbnail = await buildProjectListThumbnail(snapshotState);
+        listThumbnail = navigator.onLine ? await buildProjectListThumbnail(snapshotState) : getProjectPreviewSource(snapshotState).thumbnail || '';
     } catch (e) {
         console.warn('[DSF] Failed to build local recent thumbnail:', e);
         listThumbnail = getProjectPreviewSource(snapshotState).thumbnail || '';
@@ -929,9 +952,11 @@ function updateSaveIndicator(status, message) {
  */
 export function triggerAutoSave() {
     if (!canEditSharedStudio()) return;
-    if(sharedStudioSession){sharedStudioSession.dirty=true;sharedStudioSession.session.noteEdit();}
+    if(sharedStudioSession){if(sharedStudioSession.recoveryRetained){sharedStudioSession.recoveryId=crypto.randomUUID();sharedStudioSession.recoveryRetained=false;}sharedStudioSession.dirty=true;sharedStudioSession.session.noteEdit();}
+    noteLocalDraftEdit();
     editorSaveEvidence.dirty();
     editorRevision += 1;
+    captureSharedDraft();
     if (autoSaveTimer) clearTimeout(autoSaveTimer);
 
     updateSaveIndicator('idle', '未保存');
@@ -1181,7 +1206,7 @@ async function performSaveOnce() {
     });
     privateSave = saveIdentity.session?.epoch === saveIdentity.epoch;
     const saveIsCurrent = () => getProjectSessionEpoch() === saveIdentity.epoch
-        && state.projectId === saveIdentity.projectId && state.uid === saveIdentity.uid
+        && String(state.projectId || '') === saveIdentity.projectId && String(state.uid || '') === saveIdentity.uid
         && auth.currentUser === saveIdentity.user;
     const cloudSaved = () => {
         saveEvidence.cloudSaved();
@@ -1220,9 +1245,9 @@ async function performSaveOnce() {
             if (!saveIsCurrent() || sharedStudioSession !== active) throw new AuthoringClientError('AUTHORING_SESSION_CHANGED');
             await active.session.save({...authoringProject,ownerUid:active.session.context.ownerUid});
             if (!saveIsCurrent() || sharedStudioSession !== active) throw new AuthoringClientError('AUTHORING_SESSION_CHANGED');
-            if(editorRevision===saveIdentity.editorRevision)active.dirty=false;
+            if(editorRevision===saveIdentity.editorRevision){active.dirty=false;void sharedDraftRecovery.saved(active.recoveryId,saveIdentity.editorRevision);}
             cloudSaved();
-        } catch(error) { if(saveIsCurrent()){updateSaveIndicator('error',authoringSaveMessage(error));if(error.code==='EDIT_LOCK_LOST')await checkSharedStudioAccess().catch(()=>{});}throw error; }
+        } catch(error) { sharedDraftRecovery.retain(active.recoveryId);active.recoveryRetained=true;if(saveIsCurrent()){updateSaveIndicator('error',authoringSaveMessage(error));if(error.code==='EDIT_LOCK_LOST')await checkSharedStudioAccess().catch(()=>{});}throw error; }
         return;
     }
     // 1. ローカルバックアップ (常に実行)

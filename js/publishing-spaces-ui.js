@@ -338,6 +338,7 @@ export function createPublishingSpaceUI({ root, request, getLocale, getUid, onCh
     return { load, render, filter, card, bind, select:selectSpace,
         openJoined:async id=>{sync();const beforeUid=uid;await loadJoined();if(beforeUid===getUid())selectSpace('joined:'+id);},
         retryIfFailed:()=>{sync();if(joinedFailed&&!joinedPending)void loadJoined();if(failed&&!pending)return load({notify:true});},
+        refreshJoined:()=>loadJoined(),
         joinedSelection:()=>{sync();return isJoined()?{id:selected.slice(7),...active()}:null;},
         destinations: () => { sync(); if(!data||failed||busy)return null;return {uid,spaces:data.spaces.map(s=>({id:s.id,name:s.name})),assignments:{...data.assignments}}; },
         selection: () => { sync(); return isJoined()?selected.slice(7):active()?.id || null; },

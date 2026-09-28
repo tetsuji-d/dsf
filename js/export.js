@@ -101,7 +101,7 @@ function buildMetadata(formatStr, options = {}) {
 }
 
 // --- Build .dsp (Project Archive) ---
-export async function buildDSP() {
+export async function buildDSP(options = {}) {
     const zip = new JSZip();
 
     // 1. Mimetype
@@ -204,10 +204,10 @@ export async function buildDSP() {
     // 4. Determine Filename
     const safeTitle = (meta.title || 'project').replace(/[\\/:*?"<>|]/g, '_');
     const defaultFilename = `${safeTitle}.dsp`;
-    let filename = prompt("保存するファイル名を入力してください:", defaultFilename);
+    let filename = options.chooseFilename ? await options.chooseFilename(defaultFilename) : prompt("保存するファイル名を入力してください:", defaultFilename);
 
     if (filename === null) {
-        return; // User cancelled
+        return {status:'cancelled'}; // User cancelled
     }
     if (!filename.trim()) {
         filename = defaultFilename;
@@ -220,6 +220,7 @@ export async function buildDSP() {
 
     // 6. Trigger Download
     saveAs(content, filename);
+    return {status:'download-started',filename};
 }
 
 // --- Build .dsf (Content/Publish Archive) ---
@@ -363,7 +364,7 @@ export async function buildDSF(options = {}) {
         const safeTitle = (meta.title || 'comic').replace(/[\\/:*?"<>|]/g, '_');
         const defaultFilename = `${safeTitle}.dsf`;
         if(options.preview){const blob=await zip.generateAsync({type:"blob"});options.check?.();return blob;}
-        let filename = prompt("配信データのエクスポート名を入力してください:", defaultFilename);
+        let filename = options.chooseFilename ? await options.chooseFilename(defaultFilename) : prompt("配信データのエクスポート名を入力してください:", defaultFilename);
 
         if (filename === null) {
             return; // User cancelled

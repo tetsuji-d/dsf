@@ -1,12 +1,13 @@
+import {openMemberExitDialog} from './member-exit-dialog.js';
 import {mountPersonalSharingInbox} from './personal-sharing-ui.js';
 import {openMemberAccessDialog} from './member-access-dialog.js';
 import {createPublishingInvitationsUI} from './publishing-invitations-ui.js';
-export function createSpaceMembersSettings({root,execute,personalExecute=null,getLocale=()=> 'ja'}){
+export function createSpaceMembersSettings({root,execute,personalExecute=null,getLocale=()=> 'ja',beforeLeave=async()=>{},onEnded=()=>{}}){
     let key='',epoch=0,ui=null,personalUI=null;
     const text=(ja,en)=>getLocale()==='en'?en:ja;
     const el=(tag,value)=>{const node=document.createElement(tag);if(value!==undefined)node.textContent=value;return node;};
-    function update({uid,spaceId,force=false,manageMembers=true}){
-        const next=JSON.stringify([uid,spaceId,getLocale(),manageMembers]);if(next===key&&!force)return;
+    function update({uid,spaceId,force=false,manageMembers=true,joined=false}){
+        const next=JSON.stringify([uid,spaceId,getLocale(),manageMembers,joined]);if(next===key&&!force)return;
         key=next;const revision=++epoch;ui?.destroy();ui=null;personalUI?.destroy();personalUI=null;root.replaceChildren();
         const title=el('h2',text('メンバーと招待','Members & invitations'));root.append(title);
         const openSpace=async invitation=>{
@@ -20,10 +21,13 @@ export function createSpaceMembersSettings({root,execute,personalExecute=null,ge
         const personalInbox=()=>{const host=el('section');root.append(host);ui=createPublishingInvitationsUI({root:host,execute,getLocale,onOpenSpace:openSpace});};
         if(!uid){root.append(el('p',text('ログインしてください。','Sign in to continue.')));return;}
         if(!spaceId){title.textContent=text('招待と共有','Invitations & sharing');root.append(el('p',text('招待はヘッダーのお知らせベル、承諾済みの作品は左の「共有された作品」から開けます。','Open invitations from the header bell, and accepted works from Shared with me.')));return;}
+        const endMembership=(memberUid,self=false)=>openMemberExitDialog({root,execute,spaceId,memberUid,self,getLocale,isCurrent:()=>revision===epoch,beforeLeave,
+            onEnded:async result=>{await onEnded(result);if(revision===epoch)update({uid,spaceId:self?null:spaceId,force:true,manageMembers,joined:self?false:joined});}});
+        if(joined){const leave=el('button',text('出版スペースから脱退','Leave publishing space'));leave.type='button';leave.onclick=()=>endMembership(uid,true);root.append(leave);}
         if(!manageMembers){root.append(el('p',text('参加中の出版スペースです。メンバー・共有範囲の管理は所有者または管理者が行います。','You have joined this space. Its owner or administrators manage membership and access.')));personalInbox();return;}
         const status=el('p',text('メンバーを読み込み中…','Loading members…'));status.setAttribute('role','status');root.append(status);
         const button=(label,action)=>{const b=el('button',label);b.type='button';b.onclick=action;return b;};
-        const reload=()=>update({uid,spaceId,force:true,manageMembers});
+        const reload=()=>update({uid,spaceId,force:true,manageMembers,joined});
         void (async()=>{
             try{
                 const data=await execute({kind:'listMembers',spaceId});if(revision!==epoch)return;
@@ -32,7 +36,7 @@ export function createSpaceMembersSettings({root,execute,personalExecute=null,ge
                 const names=new Map(),members=[data.owner,...data.items];
                 const row=m=>{const r=el('article');r.className='space-member-row';r.append(el('strong',m.displayName||m.uid));
                     const role=m.role==='owner'?text('所有者','Owner'):m.role==='admin'?text('管理者','Administrator'):m.grants.map(g=>(g.role==='editor'?text('編集可','Can edit'):text('閲覧のみ','View only'))+' · '+(g.scope==='space'?text('スペース全体','Entire space'):names.get(g.targetId)||text(g.scope==='work'?'指定作品':'指定レーベル',g.scope==='work'?'Selected work':'Selected label'))).join(' / ');
-                    r.append(el('span',role));if(m.canChangeScope)r.append(button(text('共有範囲を設定','Sharing access'),()=>openMemberAccessDialog({root,execute,spaceId,memberUid:m.uid,getLocale,isCurrent:()=>revision===epoch,onSaved:reload})));if(m.available===false)r.append(el('small',text('利用制限中','Account unavailable')));list.append(r);};
+                    r.append(el('span',role));if(m.canChangeScope)r.append(button(text('共有範囲を設定','Sharing access'),()=>openMemberAccessDialog({root,execute,spaceId,memberUid:m.uid,getLocale,isCurrent:()=>revision===epoch,onSaved:reload})));if(m.canRemove)r.append(button(text('参加を解除','Remove member'),()=>endMembership(m.uid)));if(m.available===false)r.append(el('small',text('利用制限中','Account unavailable')));list.append(r);};
                 row(data.owner);data.items.forEach(row);
                 let cursor=data.nextCursor;
                 const more=button(text('さらに表示','Show more'),async()=>{more.disabled=true;try{const page=await execute({kind:'listMembers',spaceId,afterUid:cursor});if(revision!==epoch)return;members.push(...page.items);page.items.forEach(row);cursor=page.nextCursor;more.hidden=!cursor;}catch{status.textContent=text('追加のメンバーを取得できませんでした。','Could not load more members.');}finally{more.disabled=false;}});more.hidden=!cursor;root.append(more);

@@ -15,7 +15,7 @@ const language=document.createElement('button');language.id='fixture-language';l
 window.toggleStudioLogoMenu=()=>{};window.toggleMobileStudioNavMenu=()=>{};
 async function render(){
  const epoch=++revision;const uid=user.uid;spaces.render();shell.render({spaceKind:spaces.viewKind()});const joined=spaces.joinedSelection();root.classList.toggle('home-joined-space',!!joined);
- members.update({uid,spaceId:spaces.selection(),manageMembers:!joined||joined.canManageMembers===true});
+ members.update({uid,spaceId:spaces.selection(),manageMembers:!joined||joined.canManageMembers===true,joined:!!joined});
  const grid=document.getElementById('home-cloud-grid');document.getElementById('home-dashboard-stats').replaceChildren();document.getElementById('home-work-grid').textContent='';
  document.getElementById('home-cloud-scope').textContent=(joined?'共有作品 / ':'個人原稿 / ')+spaces.label();
  if(joined)await renderJoinedSpaceWorks({root:grid,count:document.getElementById('home-cloud-count'),spaceId:joined.id,execute,getLocale:()=>lang,isCurrent:()=>epoch===revision&&uid===user.uid});

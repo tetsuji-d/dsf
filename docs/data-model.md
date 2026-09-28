@@ -1240,3 +1240,14 @@ Firebase本人確認、所有者、authoring許可対象、アカウント停止
 ## Optional physical spine design
 
 See [Physical spine design](book-spine-design.md) for `book.spineDesign` and portable DSF presentation metadata.
+
+
+## 出版スペースの参加終了（2026-09-28、ローカル実装・検証済み）
+
+users/{uid}/spaceMemberships/{spaceId}の既存参加情報を保持し、終了時にstatus:'revoked'|'left'、endedAt（Unixミリ秒）、endedBy（実行者uid）、endRequestId（操作ID）を記録する。active以外は既存の権限判定で拒否する。原稿や共有作品bindingは削除しない。
+
+users/{ownerUid}/memberExitChanges/{requestId}はサーバー専用操作履歴。actorUid/memberUid/spaceId/kind/at/beforeToken/afterToken/signature/resultを持ち、同一要求の再送と再参加後の古い要求を区別する。クライアント直接書き込みは許可しない。
+
+編集ロックのholder.accessTokenは参加情報のSHA-256トークン（所有者は固定値owner）。現在の参加情報と一致しなければロックを再取得する。通常の認証やfenceの代替ではない。
+
+API・解除/脱退UI・端末内復旧下書きをローカル実装・検証済み。未配備。詳細は[publishing-space-lifecycle.md](publishing-space-lifecycle.md)。

@@ -13,6 +13,9 @@
         href="https://fonts.googleapis.com/css2?family=Noto+Sans:wght@400;700&family=Noto+Sans+JP:wght@400;700&family=Noto+Serif:wght@400;700&family=Noto+Serif+JP:wght@400;700&display=swap"
         rel="stylesheet">
     <link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet">
+    <link rel="manifest" href="/studio.webmanifest">
+    <link rel="apple-touch-icon" href="/studio-icon-192.png">
+    <meta name="theme-color" content="#111827">
 </head>
 
 <body data-room="home" data-device="desktop" data-booting="true">
@@ -35,7 +38,7 @@
                     </a>
                     <button class="studio-logo-menu-link" role="menuitem" data-studio-room-nav="home" onclick="closeStudioLogoMenu(); switchRoom('home')"><span class="material-icons" aria-hidden="true">dashboard</span><span data-i18n="nav_dashboard">ダッシュボード</span></button>
                     <button class="studio-logo-menu-link" role="menuitem" data-studio-room-nav="editor" onclick="closeStudioLogoMenu(); switchRoom('editor')"><span class="material-icons" aria-hidden="true">edit</span><span data-i18n="nav_editor">エディター</span></button>
-                    <button class="studio-logo-menu-link" role="menuitem" data-studio-room-nav="press" onclick="closeStudioLogoMenu(); switchRoom('press')" data-auth-required><span class="material-icons" aria-hidden="true">publish</span><span data-i18n="nav_press">プレス</span></button>
+                    <button class="studio-logo-menu-link" role="menuitem" data-studio-room-nav="press" onclick="closeStudioLogoMenu(); switchRoom('press')"><span class="material-icons" aria-hidden="true">publish</span><span data-i18n="nav_press">プレス</span></button>
                     <button class="studio-logo-menu-link" role="menuitem" data-studio-room-nav="works" onclick="closeStudioLogoMenu(); switchRoom('works')" data-auth-required><span class="material-icons" aria-hidden="true">library_books</span><span data-i18n="nav_works">作品</span></button>
                 </div>
             </div>
@@ -671,7 +674,7 @@
                 </a>
                 <button class="mobile-studio-nav-link" role="menuitem" data-mobile-room-nav="home" onclick="closeMobileStudioNavMenu(); switchRoom('home')"><span class="material-icons" aria-hidden="true">dashboard</span><span data-i18n="nav_dashboard">ダッシュボード</span></button>
                 <button class="mobile-studio-nav-link" role="menuitem" data-mobile-room-nav="editor" onclick="closeMobileStudioNavMenu(); switchRoom('editor')"><span class="material-icons" aria-hidden="true">edit</span><span data-i18n="nav_editor">エディター</span></button>
-                <button class="mobile-studio-nav-link" role="menuitem" data-mobile-room-nav="press" onclick="closeMobileStudioNavMenu(); switchRoom('press')" data-auth-required><span class="material-icons" aria-hidden="true">publish</span><span data-i18n="nav_press">プレス</span></button>
+                <button class="mobile-studio-nav-link" role="menuitem" data-mobile-room-nav="press" onclick="closeMobileStudioNavMenu(); switchRoom('press')"><span class="material-icons" aria-hidden="true">publish</span><span data-i18n="nav_press">プレス</span></button>
                 <button class="mobile-studio-nav-link" role="menuitem" data-mobile-room-nav="works" onclick="closeMobileStudioNavMenu(); switchRoom('works')" data-auth-required><span class="material-icons" aria-hidden="true">library_books</span><span data-i18n="nav_works">作品</span></button>
             </div>
             <div id="mobile-space-switcher"></div>

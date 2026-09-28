@@ -103,7 +103,9 @@ OSのプロパティ表示や表紙サムネイル拡張は対象外。まずVie
 - portable DSFのみ削除して再生成する案は、元Releaseの画像・JSON・正確なフォント等を保持できる場合に限る。
 - 再生成、重複排除、自動削除は別の実装単位。未参照というだけで削除可能とは判定しない。
 
-## 7. PWAとオフラインViewer（設計案・未実装）
+## 7. PWAとオフラインViewer（Horizon向けは設計案）
+
+2026-09-28追記: 個人のローカル制作限定のStudio PWAを作業ブランチに実装。Horizon本棚のオフライン化とは別の範囲で、詳細は[StudioローカルPWA](studio-local-pwa.md)を参照。
 
 PWAの名称・起動入口はDSF Horizonを候補とし、Viewerを通信とGoogle認証から独立して起動できる構造にする。
 インストール案内の表示はブラウザ判断であり、URL欄のボタンを常時表示できるとは約束しない。
@@ -152,7 +154,7 @@ PWAの名称・起動入口はDSF Horizonを候補とし、Viewerを通信とGoo
 | 過去Releaseの読取・版指定preview | 実装あり。[Release運用契約](dsf-release-operations-hardening.md) |
 | Horizon読者向けDL許可UI・保存DSF提供 | 未実装。ローカル書き出しがあることと区別する |
 | 自動版番号・更新メモ・世代保持ポリシー | 本書の設計案として未実装 |
-| PWAインストール・Viewerオフライン起動 | 現ブランチでmanifest／service worker接続を確認できない。過去の別ブランチでの実装記録を完成根拠にしない |
+| PWAインストール・Viewerオフライン起動 | 基準コミットでは未接続。2026-09-28にStudio用manifest／service workerを作業ブランチへ追加。Horizon向けPWA、OS実機インストール検証は別途 |
 | OS関連付け・共有先登録 | 現ブランチで未実装 |
 
 次の候補は「HorizonのPWA化＋Viewerオフライン起動＋ローカルDSF閲覧」。
