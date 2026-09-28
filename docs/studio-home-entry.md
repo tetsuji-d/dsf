@@ -79,3 +79,7 @@ DSP/DSF仕様、固定レイアウト、クラウド保存契約、既存公開�
 - アプリコミット94c4aea、固定デプロイ https://ddbd3d09.dsf-studio.pages.dev 、常設staging反映済み。
 - Studio HTML/Service Worker/参照JS・CSS計14件のHTTP 200とdist SHA-256一致を確認。
 - IABの既存作業コピーを残して更新し、未ログイン時の「所属確認にはログインが必要」を実アプリで確認。ログイン済みの所属各パターンは隔離fixtureで確認し、実アカウントの保存・公開は実行していない。
+
+## 制作場所の明示
+
+この端末とクラウドを分ける新規作成・DSP保存・Horizon導線は [studio-authoring-location.md](studio-authoring-location.md) を参照。マイスペースはクラウドであり、DSPを開く操作だけでは所属・共有されない。

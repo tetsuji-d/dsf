@@ -26,3 +26,10 @@ DSP/DSF・Firestoreのスキーマ、公開境界、権限ルールは変更し�
 ## リリース
 
 検証後にstagingのみ反映。本番、main、Rulesは対象外。outputs/は未追跡の検証資料として保持。
+
+### ステージング配信確認
+
+- アプリコミット: cee227a。固定デプロイ: https://3a084a9e.dsf-studio.pages.dev 。常設stagingへ反映済み。
+- Studio/Viewer HTML、Service Worker、manifest、Studio参照JS/CSSの計16件でHTTP 200とローカルdistとのSHA-256一致を確認。
+- ダウンロードした検証用DSP（5,996 bytes）とFlow DSF（4,352,756 bytes）のZIP内容を読み取り確認。
+- 常設stagingの既存PWAから更新を準備し、検証タブを閉じて開き直した後に新しい制作場所ダイアログを確認。既存の作業コピー1件が残り、「オフライン利用可」へ進むことも確認。原稿の編集・クラウドへの再保存はしていない。

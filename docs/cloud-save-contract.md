@@ -324,3 +324,7 @@ Each attempt has an actual abort deadline, with one retry for transient failures
 failures are not retried. Account changes discard responses. The existing 30-second in-memory
 cache survives view/filter changes, while explicit refresh invalidates it. A failed load can
 be retried from navigation or when connectivity returns without reloading the browser.
+
+## Explicit device-to-cloud transition
+
+New device drafts and imported DSP files retain a null projectId even after sign-in. DSP import detaches publication and cloud routing identities while preserving manuscript content. Saving to cloud is an explicit destination choice and uses the existing save contract with a fresh identity. Space assignment follows successful source saving; it is not an atomic part of that save. Neither cloud saving nor assignment publishes or shares the work. See [Studio authoring location](studio-authoring-location.md) for retry behavior and UI verification.
