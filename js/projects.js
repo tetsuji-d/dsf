@@ -1,27 +1,31 @@
+import {createProjectTrashClient} from './project-trash-client.js';
+import {confirmProjectTrash} from './project-trash-ui.js';
 import {readProjectList} from './project-list-reader.js';
 import {auth,firebaseConfig} from './firebase-core.js';
-import { preparePrivateProjectAction, runPrivateProjectAction } from './private-project-actions.js';
+
 /**
  * projects.js — プロジェクト一覧モーダル管理
  */
-import { deleteDoc, doc, getDoc, writeBatch } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
+
 import { state } from './state.js';
-import { db } from './firebase.js';
-import { stageProjectSummaryDelete } from './project-summary-firestore.js';
+
+
 
 /**
  * クラウドプロジェクト一覧を取得する（サマリーフィールドのみ）。
  * pages / blocks / sections は含まない。プロジェクト読み込みは loadProject() を使うこと。
  */
-export async function fetchCloudProjects() {
+export async function fetchCloudProjects({includeTrash=false}={}) {
     if (!state.uid) return [];
 
     const snapshot = await readProjectList({projectId:firebaseConfig.projectId,uid:state.uid,getUser:()=>auth.currentUser});
     const projects = [];
     snapshot.forEach(raw => {
+        if(raw.projectTrash && !includeTrash)return;
         const lastUpdated = raw.lastUpdated instanceof Date ? raw.lastUpdated : new Date(0);
         projects.push({
             id: raw.id,
+            projectTrash: raw.projectTrash || null,
             workId: typeof raw.workId === 'string' ? raw.workId : '',
             projectName: typeof raw.projectName === 'string' ? raw.projectName : '',
             title: typeof raw.title === 'string' ? raw.title : '',
@@ -45,24 +49,18 @@ export async function fetchCloudProjects() {
     return projects;
 }
 
+const trashClient = createProjectTrashClient({getUser:()=>auth.currentUser});
 export async function deleteCloudProject(projectId, expectedUid = state.uid) {
-    if (!state.uid || state.uid !== expectedUid) throw new Error('ログインしてください');
-    const privateContext = await preparePrivateProjectAction(projectId);
-    if (state.uid !== expectedUid || (privateContext && privateContext.uid !== expectedUid)) throw new Error('ログイン状態が変わりました');
-    if (privateContext) return runPrivateProjectAction(privateContext, 'delete');
-    const projectRef = doc(db, "users", state.uid, "projects", projectId);
-    const snap = await getDoc(projectRef);
-    const workId = snap.exists() && typeof snap.data()?.workId === 'string'
-        ? snap.data().workId
-        : '';
-    if (state.uid !== expectedUid) throw new Error('ログイン状態が変わりました');
-    const batch = writeBatch(db);
-    batch.delete(doc(db, 'users', state.uid, 'projects', projectId, 'authoring', 'current'));
-    batch.delete(projectRef);
-    stageProjectSummaryDelete(batch, db, state.uid, projectId);
-    await batch.commit();
-    if (workId) await deleteDoc(doc(db, 'public_projects', workId)).catch(() => {});
-    await deleteDoc(doc(db, 'public_projects', projectId)).catch(() => {});
+    if (!expectedUid || state.uid !== expectedUid || auth.currentUser?.uid !== expectedUid) throw new Error('AUTH_CHANGED');
+    const result = await trashClient('trash', projectId);
+    window.dispatchEvent(new CustomEvent('project-trash-updated', {detail:{uid:expectedUid}}));
+    return result;
+}
+export async function restoreCloudProject(projectId, expectedUid = state.uid) {
+    if (!expectedUid || state.uid !== expectedUid || auth.currentUser?.uid !== expectedUid) throw new Error('AUTH_CHANGED');
+    const result = await trashClient('restore', projectId);
+    window.dispatchEvent(new CustomEvent('project-trash-updated', {detail:{uid:expectedUid}}));
+    return result;
 }
 
 /**
@@ -82,7 +80,9 @@ export async function openProjectModal(onLoadProject) {
     }
 
     try {
+        const listUid = state.uid;
         const projects = await fetchCloudProjects();
+        if (state.uid !== listUid) return;
 
         if (projects.length === 0) {
             grid.innerHTML = '<div class="project-loading">保存されたプロジェクトはありません</div>';
@@ -105,7 +105,7 @@ export async function openProjectModal(onLoadProject) {
                         <div class="project-card-title">${displayName}</div>
                         <div class="project-card-meta">${p.pageCount || '-'}ページ · ${dateStr}</div>
                     </div>
-                    <button class="project-card-delete" title="削除" data-delete-id="${p.id}">✕</button>
+                    <button class="project-card-delete" title="ゴミ箱へ移す" data-delete-id="${p.id}">✕</button>
                 </div>
             `;
         }).join('');
@@ -135,9 +135,9 @@ export async function openProjectModal(onLoadProject) {
             btn.addEventListener('click', async (e) => {
                 e.stopPropagation();
                 const pid = btn.dataset.deleteId;
-                if (!confirm(`「${pid}」を削除しますか？`)) return;
+                if (!await confirmProjectTrash(projects.find(p=>p.id===pid)?.projectName || pid)) return;
                 try {
-                    await deleteCloudProject(pid);
+                    await deleteCloudProject(pid, listUid);
                     btn.closest('.project-card').remove();
                 } catch (err) {
                     alert("削除に失敗しました: " + err.message);

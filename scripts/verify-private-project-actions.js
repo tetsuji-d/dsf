@@ -28,7 +28,7 @@ async function ok(f, c) { const r = await send(f, c); assert.equal(r.status, 200
 async function denied(f, c, code, status = 409) { const r = await send(f, c); assert.equal(r.status, status, JSON.stringify(r.data)); assert.equal(r.data.error, code); }
 const v1 = () => ({ releaseId: 'release_new', thumbnail: thumb, dsfLangs: ['ja'], dsfPages: [{ pageNum: 1, pageType: 'normal_image', workId: 'work_1', releaseId: 'release_new', urls: { ja: `${baseUrl}/users/owner_1/dsf/work_1/release_new/ja/page_001.webp` }, bytesByLang: { ja: 100 }, totalBytes: 100 }], bookConfig: { bookMode: 'simple', book: { mode: 'simple', covers: {} } } });
 const publish = (f, status = 'public') => command(f, 'publication', { status, expectedStatus: f.db.docs.get(root).dsfStatus, expectedReleaseId: f.db.docs.get(root).releaseId });
-await test('v1 draft, publication, profile, listing and deletion are atomic and manuscript-free', async () => {
+await test('v1 draft/publication/profile/listing preserve source and legacy immediate deletion is refused', async () => {
     const f = await setup();
     await ok(f, command(f, 'draft', v1()));
     assert.equal(f.db.docs.get(root).dsfStatus, 'draft');
@@ -41,10 +41,9 @@ await test('v1 draft, publication, profile, listing and deletion are atomic and 
     await ok(f, publish(f, 'private')); assert(!f.db.docs.has('public_projects/work_1'));
     await ok(f, publish(f));
     for (const [path, value] of f.db.docs) if (!path.includes('/authoring')) assert(!JSON.stringify(value).includes('PRIVATE_MANUSCRIPT_SENTINEL'), path);
-    const deletion = command(f, 'delete'); await ok(f, deletion); await ok(f, deletion);
-    assert(!f.db.docs.has(root)); assert(!f.db.docs.has('public_projects/work_1')); assert(!f.db.docs.has('users/owner_1/project_summaries/project_1'));
-    assert.equal(f.db.docs.get(control).status, 'deleted'); assert.equal(f.r2.objects.size, 1);
-    assert.equal((await f.request('PUT', { id: 'resurrect', base: 1 })).status, 404);
+    await denied(f, command(f, 'delete'), 'PROJECT_TRASH_REQUIRED');
+    assert(f.db.docs.has(root)); assert(f.db.docs.has('public_projects/work_1'));
+    assert.equal(f.db.docs.get(control).status, 'active'); assert.equal(f.r2.objects.size, 1);
 });
 await test('idempotency never returns a stale state after another metadata/body write or generation change', async () => {
     const f = await setup(), a = command(f, 'listing', { projectBytes: 1000, pageCount: 1, listThumbnail: '' });
@@ -170,4 +169,15 @@ await test('removing assignment during release verification blocks the final com
     await denied(f,command(f,'draft',v1()),'PUBLISHING_SPACE_REQUIRED');
     assert.deepEqual(f.db.docs.get(root),original);
     assert(!f.db.docs.has('users/owner_1/works/work_1/releases/release_new'));
+});
+
+await test('trashed private manuscripts keep public delivery and allow only publication stop',async()=>{
+ const f=await setup();await ok(f,command(f,'draft',v1()));await ok(f,publish(f));
+ f.db.docs.get(root).projectTrash={revision:1,trashedAtMs:1,restoreUntilMs:2};
+ assert(f.db.docs.has('public_projects/work_1'));
+ assert.equal((await f.request('GET')).status,409);
+ await denied(f,command(f,'listing',{projectBytes:1000,pageCount:1,listThumbnail:''}),'PROJECT_TRASHED');
+ await denied(f,publish(f,'unlisted'),'PROJECT_TRASHED');
+ const context=await f.actions.context(f.identity,'project_1');assert(context.head);
+ await ok(f,publish(f,'private'));assert(!f.db.docs.has('public_projects/work_1'));assert(f.db.docs.get(root).projectTrash);
 });

@@ -6,7 +6,7 @@ export async function prepareProjectCopy(source,{projectId,workId,name}){
     if(typeof name!=='string'||!name.trim()||name.trim().length>200)fail('COPY_NAME_INVALID');
     if(!projectId||!workId||projectId===source.projectId||workId===source.workId)fail('COPY_ID_INVALID');
     const copy=structuredClone(prepareFirestoreProjectIngress(source));
-    for(const key of Object.keys(copy))if(/^(authoring|dsf)/.test(key)||['uid','ownerUid','localProjectId','publication','releaseId','releases','visibility','pageCount','projectBytes','listThumbnail','listingThumbnail','publicationThumbnailUrl','publicationThumbnailSource','publicUrl','publishedAt','sharedScope','spaceId','labelId','lastUpdated','createdAt','updatedAt'].includes(key))delete copy[key];
+    for(const key of Object.keys(copy))if(/^(authoring|dsf)/.test(key)||['projectTrash','uid','ownerUid','localProjectId','publication','releaseId','releases','visibility','pageCount','projectBytes','listThumbnail','listingThumbnail','publicationThumbnailUrl','publicationThumbnailSource','publicUrl','publishedAt','sharedScope','spaceId','labelId','lastUpdated','createdAt','updatedAt'].includes(key))delete copy[key];
     Object.assign(copy,{projectId,workId,projectName:name.trim(),visibility:'private',dsfStatus:'draft',releaseId:null});
     const checked=await mapSharedImageSlots(copy,async url=>{
         if(privateImageHash(url))fail('COPY_PRIVATE_IMAGES_UNSUPPORTED');

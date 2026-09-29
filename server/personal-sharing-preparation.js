@@ -15,6 +15,7 @@ export function createPersonalSharingPreparation({db,privateBucket,publicBucket,
         const [account,root,catalogue]=await tx.getMany(['users/'+uid,'users/'+uid+'/projects/'+projectId,'users/'+uid+'/publishing/catalogue']);
         check(account?.uid===uid&&account.status?.disabled===false&&account.status?.moderationHold!==true,'ACCOUNT_UNAVAILABLE',403);
         check(root?.ownerUid===uid&&root.projectId===projectId,'WORK_FORBIDDEN',403);
+        check(!root.projectTrash,'PROJECT_TRASHED',409);
         check(!catalogue?.assignments?.[projectId],'PERSONAL_WORK_REQUIRED',409);
         await assertPersonalMutation(tx,uid,projectId,root);
         return root;

@@ -1,3 +1,5 @@
+import {confirmProjectTrash} from './project-trash-ui.js';
+import {projectTrashError} from './project-trash-client.js';
 import { ensurePublishingSpace } from './publishing-space-publish.js';
 import { preparePrivateProjectAction, runPrivateProjectAction } from './private-project-actions.js';
 import { deleteCloudProject } from './projects.js';
@@ -270,22 +272,15 @@ export async function openWorksRoom(roomMode = false, options = {}) {
                 const proj = projects.find(x => x.id === pid);
                 const row = btn.closest('.works-row');
                 if (state.uid !== ownerUid) return;
-                if (!confirm(t('works_delete_confirm', { name: _getWorksDisplayTitle(proj) }))) return;
+                if (!await confirmProjectTrash(_getWorksDisplayTitle(proj), getUILang()==='en')) return;
                 if (!_beginWorksProjectMutation(listEl, ownerUid, pid)) return;
                 try {
                     await deleteCloudProject(pid, ownerUid);
                     if (state.uid !== ownerUid) return;
-                    _removeWorksProject(projects, pid);
-                    if (_worksViewCache?.uid === ownerUid && _worksViewCache.projects !== projects) {
-                        _removeWorksProject(_worksViewCache.projects, pid);
-                    }
-                    if (row?.isConnected) {
-                        row.remove();
-                    } else {
-                        void refreshWorksRoomLanguage(roomMode);
-                    }
+                    _worksViewCache = null;
+                    await openWorksRoom(roomMode);
                 } catch (err) {
-                    alert(t('works_delete_failed', { message: err.message }));
+                    alert(projectTrashError(err, getUILang()==='en'));
                 } finally {
                     _endWorksProjectMutation(listEl, ownerUid, pid);
                 }
@@ -590,7 +585,7 @@ function _renderRow(p, account = {}) {
         : `<div class="works-thumb-placeholder"><span class="material-icons">image</span></div>`;
     const langs = p.dsfLangs.length ? p.dsfLangs.map(l => l.toUpperCase()).join(' / ') : '—';
     const publicationMeta = _renderPublicationMeta(p.publication, p.dsfStatus);
-    const publicationEditor = _renderPublicationEditor(p, account);
+    const publicationEditor = p.projectTrash ? `<p>${getUILang()==='en'?'Manuscript in Trash. Restore it from the Dashboard to edit. Publication can still be stopped here.':'原稿はゴミ箱にあります。編集するにはダッシュボードから復元してください。公開停止はここで操作できます。'}</p>` : _renderPublicationEditor(p, account);
     const size = p.dsfTotalBytes ? ` · ${(p.dsfTotalBytes / (1024 * 1024)).toFixed(1)} MB` : '';
     const releaseMeta = p.releaseKind === 'horizon-v2'
         ? t('works_meta_v2', { pages: p.pageCount, langs, size })
@@ -624,18 +619,18 @@ function _renderRow(p, account = {}) {
                 <span class="works-dsf-badge ${dsf.cls}">${_statusIcon(dsf.icon)}<span>${dsf.label}</span></span>
                 <select class="works-dsf-select" data-pid="${_esc(p.id)}" data-prev="${_esc(p.dsfStatus)}">
                     <option value="draft"    ${p.dsfStatus === 'draft'    ? 'selected' : ''}>${_esc(t('works_status_draft'))}</option>
-                    <option value="unlisted" ${p.dsfStatus === 'unlisted' ? 'selected' : ''}>${_esc(t('works_status_unlisted'))}</option>
-                    <option value="public"   ${p.dsfStatus === 'public'   ? 'selected' : ''}>${_esc(t('works_status_public'))}</option>
+                    <option value="unlisted" ${p.projectTrash?'disabled':''} ${p.dsfStatus === 'unlisted' ? 'selected' : ''}>${_esc(t('works_status_unlisted'))}</option>
+                    <option value="public" ${p.projectTrash?'disabled':''}   ${p.dsfStatus === 'public'   ? 'selected' : ''}>${_esc(t('works_status_public'))}</option>
                     <option value="private"  ${p.dsfStatus === 'private'  ? 'selected' : ''}>${_esc(t('works_status_private'))}</option>
                 </select>
                 ${_renderViewerAction(p)}
-                <button class="works-btn-edit"
+                <button class="works-btn-edit" ${p.projectTrash?'disabled':''}
                     onclick="window.loadAndOpenProject('${_esc(p.id)}')"
                     title="${_esc(t('works_edit_title'))}"><span class="material-icons" aria-hidden="true">edit</span><span>${_esc(t('works_edit'))}</span></button>
-                <button class="works-btn-press"
+                <button class="works-btn-press" ${p.projectTrash?'disabled':''}
                     onclick="window.loadAndRepress('${_esc(p.id)}')"
                     title="${_esc(t('works_republish_title'))}"><span class="material-icons" aria-hidden="true">autorenew</span><span>${_esc(t('works_republish'))}</span></button>
-                <button class="works-btn-delete"
+                <button class="works-btn-delete" ${p.projectTrash?'disabled':''}
                     data-delete-pid="${_esc(p.id)}"
                     title="${_esc(t('works_delete_title'))}"><span class="material-icons" aria-hidden="true">delete</span><span>${_esc(t('works_delete'))}</span></button>
             </div>

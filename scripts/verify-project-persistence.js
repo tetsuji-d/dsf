@@ -311,8 +311,8 @@ assert.match(firestoreRules, /function projectV6AuthoringExistsAfter\(uid, pid\)
 assert.match(firestoreRules, /getAfter\([^\n]+authoring\/current/);
 assert.match(firestoreRules, /authoring\/current/);
 assert.match(firestoreRules, /match \/authoring\/\{authoringId\}/);
-assert.match(firestoreRules, /!existsAfter\([^\n]+authoring\/current\)/);
-assert.match(firestoreRules, /!existsAfter\([^\n]+projects\/\$\(pid\)\)/);
+assert.match(firestoreRules, /allow delete: if false; \/\/ Manuscript deletion uses the 30-day Trash API/);
+assert.match(firestoreRules, /allow delete: if false; \/\/ Source is retained with its manuscript/);
 assert.match(firestoreRules, /!request\.resource\.data\.keys\(\)\.hasAny\(\['authoringRef', 'authoringSchemaVersion'\]\)/);
 
 const exportSource = readFileSync(new URL('../js/export.js', import.meta.url), 'utf8');

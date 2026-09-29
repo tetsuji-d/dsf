@@ -1533,6 +1533,7 @@ export function newCloudProjectCopyJob(projectId) {
             if(!isCurrent())throw new AuthoringClientError('AUTH_CHANGED');
             if(!snap.exists())throw new Error('PROJECT_NOT_FOUND');
             const root=snap.data();
+            if(root.projectTrash)throw new Error('PROJECT_TRASHED');
             if(root.ownerUid&&root.ownerUid!==uid)throw new Error('OWNER_REQUIRED');
             if(usesPrivateAuthoring(root)){const source=await createPrivateAuthoringClient({uid,projectId,user,isCurrent}).load();return {...source,listThumbnail:root.listThumbnail||'',pageCount:root.pageCount||0};}
             if(root.version===6||root.authoringRef==='authoring/current'||root.authoringSchemaVersion===6){
@@ -1885,7 +1886,8 @@ export async function loadProject(pid, refresh) {
     if (!snap.exists()) throw new AuthoringClientError('PROJECT_NOT_FOUND',404);
     if (snap.exists()) {
         const rootData = snap.data() || {};
-        let persistedData = rootData;
+        if (rootData.projectTrash) throw new Error('この原稿はゴミ箱にあります。ダッシュボードのゴミ箱から復元してください。');
+        let persistedData = {...rootData}; delete persistedData.projectTrash;
         if (usesPrivateAuthoring(rootData)) {
             assertPrivateAuthoringRoot(rootData, uid, pid);
             privateClient = createPrivateAuthoringClient({ uid, projectId: pid, user, isCurrent });

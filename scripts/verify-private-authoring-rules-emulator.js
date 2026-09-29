@@ -74,7 +74,7 @@ try {
     // A missing root with a retained control document remains protected.
     await admin.doc(root).delete();
     await denied(() => setDoc(doc(owner, root), { version: 5, projectId: 'migrated' }));
-    // Legacy v5 and atomic v6 saving/deletion retain their existing contract.
+    // Legacy v5/v6 saving remains available; deletion now uses the Trash API.
     const legacy = 'users/owner/projects/legacy';
     await setDoc(doc(owner, legacy), { version: 5, projectId: 'legacy', blocks: [] }); checks++;
     const batch = writeBatch(owner);
@@ -82,7 +82,7 @@ try {
     batch.set(doc(owner, legacy), { version: 6, projectId: 'legacy', authoringRef: 'authoring/current', authoringSchemaVersion: 6 });
     await batch.commit(); checks++;
     await denied(() => getDoc(doc(other, `${legacy}/authoring/current`)));
-    const deletion = writeBatch(owner); deletion.delete(doc(owner, legacy)); deletion.delete(doc(owner, `${legacy}/authoring/current`)); await deletion.commit(); checks++;
+    const deletion = writeBatch(owner); deletion.delete(doc(owner, legacy)); deletion.delete(doc(owner, `${legacy}/authoring/current`)); await denied(() => deletion.commit());
     // New publication requires a server-owned assignment; editing remains available.
     const draftPath='users/owner/projects/space_draft', legacyPublic='users/owner/projects/old_public';
     await setDoc(doc(owner,draftPath),{version:5,projectId:'space_draft',title:'Draft',dsfStatus:'draft',releaseId:null}); checks++;
@@ -141,7 +141,7 @@ try {
     await denied(() => setDoc(doc(own, r), { ...rootData, authoringRollbackGeneration: 'forged' }));
     await denied(() => setDoc(doc(own, `${r}/authoringControl/current`), { status: 'rolledBack', generationId: 'forged' }));
     await denied(() => setDoc(doc(own, r), { ...rootData, authoringBackend: 'r2-private' }));
-    const remove = writeBatch(own); remove.delete(doc(own, `${r}/authoring/current`)); remove.delete(doc(own, r)); await remove.commit(); checks++;
+    const remove = writeBatch(own); remove.delete(doc(own, `${r}/authoring/current`)); remove.delete(doc(own, r)); await denied(() => remove.commit()); await admin.doc(r).delete();
     await denied(() => setDoc(doc(own, r), rootData));
     const v5Path = 'users/owner/projects/R2に移行';
     const v5Restored = {version:5, projectId:'R2に移行', ownerUid:'owner', blocks:[], authoringRollbackGeneration:'legacy_5'};

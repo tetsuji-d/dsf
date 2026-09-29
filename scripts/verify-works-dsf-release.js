@@ -460,7 +460,7 @@ assert.match(i18nSource, /works_status_draft:\s+'Draft'/);
 assert.equal((i18nSource.match(/works_publication_thumbnail_required:/g) || []).length, 2,
     'missing publication-thumbnail guidance must be localized in JA and EN');
 assert.match(i18nSource, /works_republish:\s+'Republish'/);
-assert.match(i18nSource, /works_delete:\s+'Delete'/);
+assert.match(i18nSource, /works_delete:\s+'Move to Trash'/);
 assert.match(
     appSource,
     /if \(currentRoom === 'works'\) \{\s*void refreshWorksRoomLanguage\(true\);\s*\}/,

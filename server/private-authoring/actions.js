@@ -20,8 +20,8 @@ function assertBase(context, command) {
         && (context.control.mutationRevision || 0) === command.mutationRevision, 'AUTHORING_REVISION_CONFLICT', 409);
 }
 export function createProjectActions({ db, bucket, service, assertLiveIdentity, verifyRelease, publicBaseUrl, requirePublishingSpace = false, now = Date.now }) {
-    async function personalContext(tx,identity,projectId){
-        const c=await readContext(tx,identity,projectId);
+    async function personalContext(tx,identity,projectId,allowTrashed=false){
+        const c=await readContext(tx,identity,projectId,undefined,undefined,{allowTrashed});
         await assertPersonalMutation(tx,identity.uid,projectId,c.root);return c;
     }
     const origins = () => [new URL(publicBaseUrl).origin];
@@ -37,6 +37,7 @@ export function createProjectActions({ db, bucket, service, assertLiveIdentity, 
             const p = paths(identity.uid, projectId);
             const [account, control, usage, root] = await tx.getMany([p.account, p.control, p.usage,p.root]);
             check(account?.uid === identity.uid && account.status?.disabled === false, 'ACCOUNT_NOT_EDITABLE', 403);
+            check(!root?.projectTrash || (command.kind === 'publication' && ['draft','private'].includes(command.payload?.status)), 'PROJECT_TRASHED', 409);
             check(control?.generationId === command.generationId, 'AUTHORING_GENERATION_CONFLICT', 409);
             check(control.status === 'active' || (command.kind === 'delete' && control.status === 'deleted'), 'AUTHORING_NOT_ACTIVE', 409);
             await assertPersonalMutation(tx,identity.uid,projectId,root);
@@ -57,13 +58,15 @@ export function createProjectActions({ db, bucket, service, assertLiveIdentity, 
     }
     return {
         async context(identity, projectId) {
-            const c = await service.access(identity, projectId);
+            const c = await service.access(identity, projectId, {allowTrashed:true});
             return { ...(c.sharedScope?{sharedScope:c.sharedScope}:{}),head: c.head, mutationRevision: c.control.mutationRevision || 0,
                 previousRevisionId: c.control.previousHead?.revisionId || null,
                 releaseId: c.root.releaseId || null, dsfStatus: c.root.dsfStatus || 'draft' };
         },
         async execute(identity, projectId, command) {
             check(command && ['draft', 'publication', 'delete', 'restore', 'profile', 'listing'].includes(command.kind), 'ACTION_INVALID', 400);
+            check(command.kind !== 'delete', 'PROJECT_TRASH_REQUIRED', 409);
+            const stopping = command.kind === 'publication' && ['draft','private'].includes(command.payload?.status);
             segment(command.requestId); segment(command.generationId);
             check(Number.isSafeInteger(command.baseRevision) && command.baseRevision >= 1
                 && Number.isSafeInteger(command.mutationRevision) && command.mutationRevision >= 0, 'ACTION_BASE_INVALID', 400);
@@ -72,7 +75,7 @@ export function createProjectActions({ db, bucket, service, assertLiveIdentity, 
             await gate(identity, projectId, command);
             const prior = await db.transaction(async tx => (await tx.getMany([actionPath]))[0]);
             if (prior) { check(prior.signature === signature, 'AUTHORING_REQUEST_REUSED', 409); if (prior.result) return db.transaction(tx => replay(tx, p, prior, command,identity,projectId)); }
-            const initial = await db.transaction(tx => personalContext(tx, identity, projectId));
+            const initial = await db.transaction(tx => personalContext(tx, identity, projectId, stopping));
             if (command.kind === 'restore') {
                 const previous = await db.transaction(async tx => {
                     const c = await personalContext(tx, identity, projectId);
@@ -137,7 +140,7 @@ export function createProjectActions({ db, bucket, service, assertLiveIdentity, 
             }
             await assertLiveIdentity(identity);
             return db.transaction(async tx => {
-                const c = await personalContext(tx, identity, projectId);
+                const c = await personalContext(tx, identity, projectId, stopping);
                 const [existingAction] = await tx.getMany([actionPath]);
                 if (existingAction) return replay(tx, p, existingAction, command,identity,projectId);
                 assertBase(c, command);

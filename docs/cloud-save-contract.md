@@ -328,3 +328,15 @@ be retried from navigation or when connectivity returns without reloading the br
 ## Explicit device-to-cloud transition
 
 New device drafts and imported DSP files retain a null projectId even after sign-in. DSP import detaches publication and cloud routing identities while preserving manuscript content. Saving to cloud is an explicit destination choice and uses the existing save contract with a fresh identity. Space assignment follows successful source saving; it is not an atomic part of that save. Neither cloud saving nor assignment publishes or shares the work. See [Studio authoring location](studio-authoring-location.md) for retry behavior and UI verification.
+
+## Recoverable manuscript trash (2026-09-29)
+
+Owner manuscript deletion now calls POST /api/project-trash, rather than deleting root/source/publication. The server fixes a 30-day restore deadline and validates account, personal-authoring boundary, assigned-space ownership, lifecycle revision and root updateTime in one transaction. Exact request replay preserves the original deadline. Restore rejects at the deadline and rechecks current access.
+
+Legacy v5 root source and v6 authoring/current remain intact. Rules deny direct root/source deletion and marker changes. While trashed, source reads/writes and new publication are blocked; owner listing and existing public reads remain. A separate stop-publication transition is still allowed. Browser recovery copies and DSP files are independent.
+
+Private R2 load/save/copy/share/assignment and publication start fail closed for trashed projects. The old private delete command returns PROJECT_TRASH_REQUIRED. Trash and restore advance head.revision and authoringControl.mutationRevision without changing source descriptors or object bytes, fencing in-flight and stale saves. Publication context permits separate draft/private transitions without exposing source. This does not add general legacy-save CAS after restoration; that remains the later conflict-resolution unit.
+
+Client lists retain projectTrash in the lightweight projection, omit trashed manuscripts from normal lists, and keep published works visible. Trash mutations invalidate the Dashboard cache and capture the account before confirmation. Failed-response retries reuse the frozen command.
+
+The current unit excludes canonical collaborative manuscripts and physical garbage collection after expiration. Expired manuscripts are not described as physically deleted. Public release retention is independent. Staging Rules deployment was explicitly approved; production is outside scope.

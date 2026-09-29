@@ -1,6 +1,6 @@
 // Read only dashboard fields directly; do not download legacy manuscript bodies.
 // Firebase ID tokens retain the same owner-only Firestore rules as SDK reads.
-export const PROJECT_LIST_FIELDS=Object.freeze(['workId','projectName','title','languages','dsfPages','dsfStatus','dsfPublishedAt','releaseId','dsfLangs','dsfTotalBytes','dsfResolution','dsfQuality','listThumbnail','projectBytes','pageCount','lastUpdated']);
+export const PROJECT_LIST_FIELDS=Object.freeze(['projectTrash','workId','projectName','title','languages','dsfPages','dsfStatus','dsfPublishedAt','releaseId','dsfLangs','dsfTotalBytes','dsfResolution','dsfQuality','listThumbnail','projectBytes','pageCount','lastUpdated']);
 function decode(value){
     if('stringValue' in value)return value.stringValue;
     if('integerValue' in value)return Number(value.integerValue);

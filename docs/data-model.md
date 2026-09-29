@@ -1251,3 +1251,14 @@ users/{ownerUid}/memberExitChanges/{requestId}はサーバー専用操作履歴�
 編集ロックのholder.accessTokenは参加情報のSHA-256トークン（所有者は固定値owner）。現在の参加情報と一致しなければロックを再取得する。通常の認証やfenceの代替ではない。
 
 API・解除/脱退UI・端末内復旧下書きをローカル実装・検証済み。未配備。詳細は[publishing-space-lifecycle.md](publishing-space-lifecycle.md)。
+
+## 原稿の30日ゴミ箱（2026-09-29）
+
+承認済みのライフサイクル情報。DSP/DSF本文形式に変更なし。
+- root users/{uid}/projects/{pid} の projectTrash: null または {revision, trashedAtMs, restoreUntilMs}。未設定は通常状態。
+- サーバー専用 users/{uid}/project_trash/{pid}: schemaVersion:1, revision, status:active|trashed, requestId, signature, trashedAtMs, restoreUntilMs, updatedAtMs。クライアント読書き不可。
+- POST /api/project-trash の context/trash/restore が本人・有効アカウント・所有スペース・共有境界を再確認し、原子的に更新。root updateTime と lifecycle revision による競合拒否、同一要求の再送を重複適用しない。
+- 30日はサーバー時刻基準。期限ちょうどから復元不可。原稿・素材・所属・Work/Release/public_projectsは保持し、公開停止は別操作。
+- private R2では本文・source descriptorを保持したままhead.revisionとmutationRevisionを進め、古い保存を無効化する。
+- Rulesはroot/sourceの直接削除、projectTrashの直接変更、ゴミ箱内の本文保存を拒否。公開閲覧と別操作の公開停止は維持。
+- 対象は本人所有の原稿（マイスペース・所有する出版スペース）。canonical共同編集原稿は既存境界で拒否。30日後のR2物理回収は未実装。

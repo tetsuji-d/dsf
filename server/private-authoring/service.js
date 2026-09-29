@@ -54,13 +54,14 @@ function validateOperation(operation, scope) {
     }
     check(jsonBytes(operation) <= 16 * 1024, 'INVALID_OPERATION_RECORD');
 }
-export async function readContext(tx, identity, projectId, requestId, generationId) {
+export async function readContext(tx, identity, projectId, requestId, generationId, {allowTrashed = false} = {}) {
     const p = paths(identity.uid, projectId, requestId);
     const names = [p.account, p.root, p.control, p.head, p.usage];
     if (p.operation) names.push(p.operation);
     const [account, root, control, head, usage, operation = null] = await tx.getMany(names);
     check(account?.uid === identity.uid && account.status?.disabled === false, 'ACCOUNT_NOT_EDITABLE', 403);
     check(root && root.ownerUid === identity.uid && root.projectId === projectId, 'PROJECT_NOT_FOUND', 404);
+    check(allowTrashed || !root.projectTrash, 'PROJECT_TRASHED', 409);
     check([5, 6].includes(root.version) && root.authoringBackend === 'r2-private' && root.authoringStorageVersion === 1
         && root.authoringRef === 'authoringHeads/current', 'PROJECT_NOT_MIGRATED', 409);
     check(!['blocks', 'sections', 'pages'].some(key => Object.hasOwn(root, key)), 'ROOT_CONTAINS_AUTHORING');
@@ -112,11 +113,11 @@ function rejectOperation(tx, context, errorCode, time) {
 /** No API here creates/migrates/deletes projects. Those are separate rollout units. */
 export function createAuthoringService({ db, bucket, assertLiveIdentity, now = Date.now, resolveAccess = null, validateSnapshot = null }) {
     // Optional trusted server resolver. Existing owner-only callers never supply it.
-    async function contextFor(tx, identity, projectId, requestId, generationId, write = false) {
+    async function contextFor(tx, identity, projectId, requestId, generationId, write = false, allowTrashed = false) {
         const access = resolveAccess ? await resolveAccess(tx, identity, projectId, write ? 'editWork' : 'readWork') : null;
         if (resolveAccess) check(access && typeof access.ownerUid === 'string', 'WORK_FORBIDDEN', 403);
         const ownerUid = access?.ownerUid || identity.uid;
-        const context = await readContext(tx, { uid: ownerUid }, projectId, requestId, generationId);
+        const context = await readContext(tx, { uid: ownerUid }, projectId, requestId, generationId, {allowTrashed});
         if (access) {
             check(context.root.workId === access.workId, 'WORK_FORBIDDEN', 403);
             if (context.operation) check((context.operation.actorUid || ownerUid) === identity.uid, 'OPERATION_FORBIDDEN', 403);
@@ -129,10 +130,10 @@ export function createAuthoringService({ db, bucket, assertLiveIdentity, now = D
     }
     return {
         // Called before reading a PUT body, so authenticated request/CPU load is bounded.
-        async access(identity, projectId, { write = false, requestId, generationId } = {}) {
+        async access(identity, projectId, { write = false, requestId, generationId, allowTrashed = false } = {}) {
             await assertLiveIdentity(identity);
             return db.transaction(async tx => {
-                const context = await contextFor(tx, identity, projectId, requestId, generationId, write);
+                const context = await contextFor(tx, identity, projectId, requestId, generationId, write, allowTrashed);
                 const usage = usageValue(context.usage, now());
                 check(usage.requestCount < AUTHORING_LIMITS.requestsPerMinute, 'RATE_LIMITED', 429);
                 usage.requestCount += 1;

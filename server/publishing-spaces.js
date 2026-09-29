@@ -89,6 +89,7 @@ export function createPublishingSpacesService({ db, assertLiveIdentity, now = Da
             if (command.kind === 'assign') {
                 const [project] = await tx.getMany([accountPath + '/projects/' + command.projectId]);
                 check(project && (!project.ownerUid || project.ownerUid === identity.uid), 'PROJECT_NOT_FOUND', 404);
+                check(!project.projectTrash, 'PROJECT_TRASHED', 409);
                 const previous = Object.hasOwn(index.assignments, command.projectId) ? index.assignments[command.projectId] : null;
                 if (previous === command.spaceId) return result(); // Lost response: safe exact retry.
                 const sharedRecords=await tx.getMany([...(project.workId?['publishing_work_scopes/'+segment(project.workId)]:[]),accountPath+'/projects/'+command.projectId+'/authoringLocks/current']);
