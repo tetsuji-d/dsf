@@ -4724,7 +4724,7 @@ function bindHomeWorkActions(workGrid, cloudProjects) {
 }
 
 let deletingLocalCopy=false;
-async function deleteHomeLocalCopy(project) {
+async function deleteHomeLocalCopy(project, {fromEditor=false}={}) {
     if(deletingLocalCopy)return;
     deletingLocalCopy=true;
     const en=getUILang()==='en';
@@ -4741,6 +4741,7 @@ async function deleteHomeLocalCopy(project) {
             initializeNewProject({languageKey,pageDirection:state.languageConfigs?.[languageKey]?.pageDirection||'rtl'},null,{autosave:false});
             window.localImageMap={};
         }
+        if(fromEditor){window.closeProjectSettings();window.switchRoom('home');}
         const host=document.querySelector('#home-room .home-browser-copies');
         showLocalCopyUndo({host,name,en,restore:()=>restoreLocalRecentProject(token)});
         window.dispatchEvent(new Event('home-start-refresh'));
@@ -10790,6 +10791,25 @@ function bindProjectPublicationThumbnailSettings() {
     }
 }
 
+let editorCopyDeleteRevision=0;
+async function refreshEditorCopyDelete() {
+    const button=document.getElementById('ps-browser-copy-delete'),status=document.getElementById('ps-browser-copy-status');
+    if(!button||!status)return;
+    const en=getUILang()==='en',revision=++editorCopyDeleteRevision,epoch=getProjectSessionEpoch(),id=localRecentId(state);
+    document.getElementById('ps-browser-copy-heading').textContent=en?'Recovery copy in this browser':'このブラウザーの復元用コピー';
+    document.getElementById('ps-browser-copy-note').textContent=en?'Delete this manuscript’s recovery copy. Cloud manuscripts and saved DSP files are unchanged.':'この原稿の復元用コピーを削除します。クラウド原稿・保存済みDSPファイルには影響しません。';
+    button.textContent=en?'Delete recovery copy':'復元用コピーを削除';button.disabled=true;button.onclick=null;
+    if(readSharedStudioAccess()){status.textContent=en?'Shared editing recovery is managed separately.':'共有編集中の復元データは別に管理されます。';return;}
+    status.textContent=en?'Checking the recovery copy…':'復元用コピーを確認しています…';
+    const current=()=>revision===editorCopyDeleteRevision&&epoch===getProjectSessionEpoch()&&id===localRecentId(state);
+    try {
+        const copy=(await listLocalRecentProjects()).find(project=>project.id===id);
+        if(!current())return;
+        status.textContent=copy?(en?'Deleting closes this manuscript. Undo is available on the Dashboard.':'削除するとこの原稿を閉じます。ダッシュボードで元に戻せます。'):(en?'There is no recovery copy for this manuscript.':'この原稿の復元用コピーはありません。');
+        button.disabled=!copy;
+        if(copy)button.onclick=async()=>{if(!current()||_psPublicationThumbnailSaving)return;button.disabled=true;await deleteHomeLocalCopy(copy,{fromEditor:true});void refreshEditorCopyDelete();};
+    } catch {if(current())status.textContent=en?'Could not check the recovery copy. Reopen these settings to retry.':'復元用コピーを確認できませんでした。設定を開き直してお試しください。';}
+}
 window.openProjectSettings = () => {
     const modal = document.getElementById('project-settings-modal');
     if (!modal) return;
@@ -10823,6 +10843,7 @@ window.openProjectSettings = () => {
     renderProjectTextPaperSettings();
 
     modal.style.display = 'flex';
+    void refreshEditorCopyDelete();
 };
 
 window.closeProjectSettings = (e) => {
@@ -11364,6 +11385,7 @@ window.setStudioUILang = (lang) => {
         renderLangAddSelect();
         renderProjectBookSettings();
         renderProjectPublicationThumbnailSettings();
+        void refreshEditorCopyDelete();
     }
     if (currentRoom === 'press') {
         enterPressRoom();
@@ -12075,6 +12097,7 @@ const syncLocalFileNote=()=>{const en=getUILang()==='en';locationNote.textConten
 window.addEventListener('local-draft-status',syncLocalFileNote);document.addEventListener('studio-ui-language-change',syncLocalFileNote);syncLocalFileNote();
 
 window.addEventListener('local-recents-updated',()=>{
+    if(document.getElementById('project-settings-modal')?.style.display==='flex')void refreshEditorCopyDelete();
     if(getCurrentRoom()!=='home')return;
     const revision=homeDashboardRenderRevision,uid=state.uid;
     void listLocalRecentProjects().then(projects=>{if(getCurrentRoom()==='home'&&revision===homeDashboardRenderRevision&&uid===state.uid)renderHomeLocalProjects(document.getElementById('home-local-grid'),document.getElementById('home-local-count'),projects);}).catch(()=>{});
