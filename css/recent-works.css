@@ -1,0 +1,18 @@
+#home-recent-works { margin: 0 0 20px; min-width: 0; }
+.recent-works-toolbar { display: flex; gap: 10px; flex-wrap: wrap; }
+.recent-works-toolbar input,.recent-works-toolbar select { min-width: 0; padding: 10px; border: 1px solid var(--border-color,#d5dae3); border-radius: 8px; background: var(--bg-panel,#fff); color: inherit; }
+.recent-works-toolbar input { flex: 1 1 240px; }
+.recent-works-toolbar select { max-width: 100%; }
+.recent-works-shelf { display: flex; gap: 12px; overflow-x: auto; padding: 8px 2px 14px; scroll-snap-type: x proximity; }
+.recent-work-card { flex: 0 0 270px; box-sizing: border-box; padding: 14px; border: 1px solid var(--border-color,#d5dae3); border-radius: 12px; scroll-snap-align: start; overflow-wrap: anywhere; }
+.recent-work-card img { width: 42px; height: 65px; object-fit: cover; float: inline-start; margin-inline-end: 10px; }
+.recent-work-card h4 { margin: 0 0 8px; font-size: 14px; }
+.recent-work-card p { font-size: 12px; line-height: 1.5; margin: 8px 0; }
+.recent-work-actions { display: flex; flex-wrap: wrap; gap: 6px; clear: both; }
+.recent-work-actions .home-action-btn { font-size: 12px; padding: 8px; }
+.recent-copy-delete { border: 0; background: none; color: inherit; text-decoration: underline; cursor: pointer; font-size: 12px; }
+.recent-works-note,.recent-works-status { font-size: 12px; line-height: 1.6; opacity: .8; }
+.recent-works-controls { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
+@media(max-width:600px) { .recent-work-card { flex-basis: 250px; } .recent-works-toolbar input { flex-basis:100%; } }
+
+.recent-works-controls [hidden] { display: none !important; }

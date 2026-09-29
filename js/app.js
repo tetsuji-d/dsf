@@ -1,3 +1,7 @@
+import {createRecentActivityClient} from './recent-activity-client.js';
+import '../css/recent-works.css';
+import {createRecentWorksUI} from './recent-works-ui.js';
+import {createRecentDirectory} from './recent-works.js';
 import '../css/project-trash.css';
 import {renderProjectTrash, confirmProjectTrash} from './project-trash-ui.js';
 import {projectTrashError} from './project-trash-client.js';
@@ -70,7 +74,7 @@ import { refreshFlowRichInput } from './flow-source-rich-input.js';
 import { state, dispatch, actionTypes } from './state.js';
 import { installSharedRecoveryUI } from './shared-recovery-ui.js';
 import { installSharedStudioUI } from './shared-studio-ui.js';
-import { readSharedStudioAccess, canEditSharedStudio, canReadSharedStudio, assertSharedStudioEdit, assertPersonalStudioOperation } from './shared-studio-access.js';
+import { subscribeSharedStudioAccess, readSharedStudioAccess, canEditSharedStudio, canReadSharedStudio, assertSharedStudioEdit, assertPersonalStudioOperation } from './shared-studio-access.js';
 import { loadSharedProject, checkSharedStudioAccess, sharedStudioLockAction } from './firebase.js';
 import { sharedDraftRecovery, prepareSharedSpaceLeave, finishSharedSpaceLeave, getEditorSaveStatus, restorePreviousCloudAuthoring, getLoadedPrivateAuthoringHead, saveProject as persistProject, loadProject, uploadToStorage, prepareAuthoringImage, uploadCoverToStorage, uploadStructureToStorage, triggerAutoSave, flushSave, flushPendingSave, removeLocalRecentProject, restoreLocalRecentProject, generateCroppedThumbnail, listLocalRecentProjects, loadLocalRecentProject, cacheLocalRecentProject, ensureUserBootstrap, storePublicationThumbnailFile, auth as firebaseAuth, authReady, db } from './firebase.js';
 import { initGIS, renderGISButton, signInWithGoogle, signOutUser, onAuthChanged, handleRedirectResult } from './gis-auth.js';
@@ -4346,8 +4350,9 @@ function syncSpaceMembersSettings() {
 function getHomeWorkspace() {
     if (!homeWorkspace) homeWorkspace = createHomeWorkspace({root:document.getElementById('home-room'),getLocale:getUILang,onSelect:view=>{
         if(['shared','notifications'].includes(view))syncStudioInbox().show(view);
+        if(['overview','recent'].includes(view))void refreshRecentWorks();
         if(['overview','projects','activity','settings'].includes(view))void getPublishingSpaceUI().retryIfFailed();
-        if(['overview','projects','activity','trash'].includes(view)&&state.uid&&!homeCloudProjectsRequest&&(!homeCloudProjectsCache||Date.now()-homeCloudProjectsCache.time>=30000))void renderHomeDashboard({refreshSpaces:false,forceRefresh:true});
+        if(['overview','recent','projects','activity','trash'].includes(view)&&state.uid&&!homeCloudProjectsRequest&&(!homeCloudProjectsCache||Date.now()-homeCloudProjectsCache.time>=30000))void renderHomeDashboard({refreshSpaces:false,forceRefresh:true});
     }});
     return homeWorkspace;
 }
@@ -4745,7 +4750,7 @@ async function deleteHomeLocalCopy(project, {fromEditor=false}={}) {
             window.localImageMap={};
         }
         if(fromEditor){window.closeProjectSettings();window.switchRoom('home');}
-        const host=document.querySelector('#home-room .home-browser-copies');
+        const host=document.getElementById('home-local-copy-feedback');
         showLocalCopyUndo({host,name,en,restore:()=>restoreLocalRecentProject(token)});
         window.dispatchEvent(new Event('home-start-refresh'));
     } catch(error) {
@@ -4788,6 +4793,48 @@ function renderHomeLocalProjects(localGrid, localCount, localProjects) {
             }
         });
     });
+}
+
+const recentActivity=createRecentActivityClient({getUser:()=>firebaseAuth.currentUser});
+function noteRecentCloudOpen(target){if(!state.uid||!navigator.onLine)return;void recentActivity.opened(target).catch(()=>{});}
+let recentSharedIdentity=null;
+subscribeSharedStudioAccess(access=>{
+    if(!access){recentSharedIdentity=null;return;}
+    if(access.status!=='ready')return;
+    const key=JSON.stringify([state.uid,access.spaceId,access.workId]);
+    if(key===recentSharedIdentity)return;recentSharedIdentity=key;
+    noteRecentCloudOpen({spaceId:access.spaceId,workId:access.workId});
+});
+let recentWorksUI=null,recentWorksEpoch=0,recentDirectory=null,recentDirectoryUid=null,recentDirectoryAt=0;
+async function openRecentLocalCopy(copy) {
+    try {
+        await flushPendingSave();
+        const loadedState=hydrateProjectFromPersistence(await loadLocalRecentProject(copy.id));
+        resetFlowRuntimeForProjectChange();clearHistory();dispatch({type:actionTypes.LOAD_PROJECT,payload:loadedState});
+        noteLocalDraftEdit();refresh();window.switchRoom('editor');
+    }catch(e){alert(t('home_local_open_error',{message:e.message}));}
+}
+async function refreshRecentWorks({force=false,more=false,keepCloudRequest=false}={}) {
+    const root=document.getElementById('home-recent-works');if(!root)return;
+    const uid=state.uid||'',online=navigator.onLine,epoch=++recentWorksEpoch;
+    const current=()=>epoch===recentWorksEpoch&&uid===(state.uid||'')&&online===navigator.onLine;
+    if(!recentWorksUI)recentWorksUI=createRecentWorksUI({root,getLocale:getUILang,
+        onCloud:async row=>{if(state.uid!==row.ownerUid)return;if(await onLoadProject(row.projectId))window.switchRoom('editor');},
+        onLocal:openRecentLocalCopy,onDelete:deleteHomeLocalCopy,
+        onRefresh:()=>void refreshRecentWorks({force:true}),onMore:()=>void refreshRecentWorks({more:true})});
+    if(force&&!keepCloudRequest){homeCloudProjectsCache=null;homeCloudProjectsRequest=null;++homeCloudProjectsRequestToken;}
+    if(!online||!uid||recentDirectoryUid!==uid||force||(!more&&Date.now()-recentDirectoryAt>30000)){
+        recentDirectory=null;recentDirectoryUid=uid;recentDirectoryAt=Date.now();
+        if(uid&&online){const directoryUid=uid;recentDirectory=createRecentDirectory({execute:createInvitationsClient({getUser:()=>firebaseAuth.currentUser}),isCurrent:()=>state.uid===directoryUid&&navigator.onLine});}
+    }
+    const directory=recentDirectory;
+    let data={uid,online,owned:null,locals:[],catalogue:getPublishingSpaceUI().destinations(),directory:directory?.snapshot(),loading:true};
+    const paint=()=>{if(current())recentWorksUI.render({...data,shared:data.directory?.works||[]});};paint();
+    const tasks=[listLocalRecentProjects().then(locals=>{data.locals=locals;paint();}).catch(()=>{data.localFailed=true;paint();}),
+        online&&uid?recentActivity.list({force}).then(history=>{data.history=history;paint();}).catch(()=>{data.historyFailed=true;paint();}):Promise.resolve(),
+        online&&uid?fetchHomeCloudProjects().then(owned=>{data.owned=owned;data.catalogue=getPublishingSpaceUI().destinations();paint();}):Promise.resolve(),
+        directory&&(more||(!directory.snapshot().started&&!directory.snapshot().unavailable))?directory.load().then(result=>{data.directory=result;paint();}):Promise.resolve()];
+    await Promise.allSettled(tasks);data.loading=false;paint();
 }
 
 let homeDashboardRenderRevision = 0;
@@ -4861,6 +4908,7 @@ async function renderHomeDashboard({ refreshSpaces = true, forceRefresh = false 
     const joined=spaceUI.joinedSelection?.();
     document.getElementById('home-room')?.classList.toggle('home-joined-space',!!joined);
     const cloudProjectsPromise = !navigator.onLine ? null : fetchHomeCloudProjects();
+    void refreshRecentWorks({force:forceRefresh,keepCloudRequest:true});
     let localProjects = [], statsInput = null;
     void cloudProjectsPromise?.then(() => {
         if (renderRevision !== homeDashboardRenderRevision || state.uid !== dashboardUid) return;
@@ -8246,6 +8294,7 @@ function onLoadProject(pid) {
     openingProject={pid,promise};return promise;
 }
 async function performLoadProject(pid) {
+    const openingUid=state.uid;
     try {
         await flushPendingSave();
         await loadProject(pid, () => {
@@ -8257,6 +8306,7 @@ async function performLoadProject(pid) {
             renderLangSettings();
             if (getCurrentRoom() === 'press') enterPressRoom();
         });
+        if(state.uid===openingUid&&state.projectId===pid&&!readSharedStudioAccess())noteRecentCloudOpen({projectId:pid});
         return true;
     } catch (error) {
         console.error('[Studio] Project load failed:', error);
@@ -12116,6 +12166,7 @@ window.addEventListener('local-draft-status',syncLocalFileNote);document.addEven
 window.addEventListener('local-recents-updated',()=>{
     if(document.getElementById('project-settings-modal')?.style.display==='flex')void refreshEditorCopyDelete();
     if(getCurrentRoom()!=='home')return;
+    void refreshRecentWorks();
     const revision=homeDashboardRenderRevision,uid=state.uid;
     void listLocalRecentProjects().then(projects=>{if(getCurrentRoom()==='home'&&revision===homeDashboardRenderRevision&&uid===state.uid)renderHomeLocalProjects(document.getElementById('home-local-grid'),document.getElementById('home-local-count'),projects);}).catch(()=>{});
 });

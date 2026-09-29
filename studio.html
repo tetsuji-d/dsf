@@ -78,6 +78,7 @@
                     <button type="button" data-home-nav="activity"><span class="material-icons" aria-hidden="true">insights</span><span data-home-label="activity">公開状況・反応</span></button>
                     <button type="button" data-home-nav="settings"><span class="material-icons" aria-hidden="true">tune</span><span data-home-label="settings">スペースの設定</span></button>
                     <button type="button" data-home-nav="trash"><span class="material-icons" aria-hidden="true">delete_outline</span><span data-home-label="trash">ゴミ箱</span></button>
+                    <button type="button" data-home-nav="recent"><span class="material-icons" aria-hidden="true">history</span><span data-home-label="recentWork">最近の作業</span></button>
                     <button type="button" data-home-nav="local" class="home-local-nav"><span class="material-icons" aria-hidden="true">devices</span><span data-home-label="local">このブラウザの作業コピー</span></button>
                 </nav>
             </aside>
@@ -91,7 +92,7 @@
                 </div>
             </div>
             <div class="home-room-body">
-                <section class="home-start-tools" data-home-views="overview projects local">
+                <section class="home-start-tools" data-home-views="projects local">
                     <label class="home-start-search"><span class="material-icons" aria-hidden="true">search</span><span class="sr-only" data-start-label="search">一覧の原稿を検索</span><input type="search" data-home-search placeholder="作品名・プロジェクト名で検索" aria-label="一覧の原稿を検索"></label>
                     <p class="home-search-empty" data-home-search-empty hidden role="status"></p>
                     <div class="home-space-entry"><span data-start-label="spaces">スペースを開く</span><div id="home-space-launcher"></div><button type="button" class="home-action-btn" data-home-nav="shared" data-start-label="shared">共有された作品</button></div>
@@ -103,9 +104,11 @@
                 <section id="home-notifications" data-home-views="notifications" class="space-members-settings"></section>
                 <section id="home-space-members" data-space-settings-panel="members" data-home-views="settings" class="space-members-settings"></section>
                 <section id="home-publishing-spaces" data-space-settings-panel="profile" data-home-views="settings" class="publishing-space-panel" aria-label="Publishing spaces"></section>
+                <div id="home-local-copy-feedback" data-home-views="overview recent local"></div>
+                <section id="home-recent-works" data-home-views="overview recent"></section>
                 <section id="home-dashboard-stats" data-home-views="overview activity" class="home-dashboard-stats" aria-live="polite"></section>
 
-                <section class="home-project-section" data-home-views="overview projects">
+                <section class="home-project-section" data-home-views="projects">
                     <div class="home-section-head">
                         <div class="home-section-title-wrap">
                             <h3 data-home-cloud-heading>最近の作品</h3>
@@ -131,7 +134,7 @@
                     </div>
                     <div id="home-work-grid" class="home-work-grid"></div>
                 </section>
-                <details class="home-browser-copies" data-home-views="overview local">
+                <details class="home-browser-copies" data-home-views="local">
                     <summary data-home-label="local">最近の作業（この端末）</summary>
                     <p class="home-storage-note" data-start-label="localNote"></p>
                     <div class="home-section-head">

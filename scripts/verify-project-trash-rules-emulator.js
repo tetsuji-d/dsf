@@ -45,5 +45,8 @@ try {
  // Unrelated account features keep their existing writes/deletes.
  await setDoc(doc(owner,'users/trash_owner/bookmarks/book'),{workId:'book'});await deleteDoc(doc(owner,'users/trash_owner/bookmarks/book'));checks++;
  await setDoc(doc(owner,'users/trash_owner/works/work'),{projectId:'legacy'});await deleteDoc(doc(owner,'users/trash_owner/works/work'));checks++;
- console.log(`PASS ${checks} Trash Rules checks: normal v5/v6 saves, private access, lifecycle protection, direct manuscript deletion denied, publication preserved/stoppable, restore and unrelated bookmark/work operations.`);
+ const activity='users/trash_owner/studioActivity/recent';
+ await admin.doc(activity).set({schemaVersion:1,entries:[]});
+ for(const client of [owner,other,anon]){await denied(()=>getDoc(doc(client,activity)));await denied(()=>setDoc(doc(client,activity),{entries:[]}));}
+ console.log(`PASS ${checks} Trash and activity Rules checks: normal v5/v6 saves, private access, lifecycle protection, direct manuscript deletion denied, publication preserved/stoppable, restore and unrelated bookmark/work operations.`);
 } finally {await Promise.all(clients.map(async({db,app})=>{await terminate(db);await deleteApp(app);}));await adminDelete(app);}

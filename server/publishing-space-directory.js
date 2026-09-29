@@ -215,7 +215,7 @@ export function createSpaceDirectoryService({db,assertLiveIdentity,now=Date.now,
                     // Reconcile legacy assignment/root/work for every result before pagination.
                     // Stale entries are omitted, never interpreted as access to their old space.
                     let item;try{item=await readBoundWork(tx,context.space,id);}catch(e){if(e.code==='WORK_FORBIDDEN')continue;throw e;}
-                    allowed.push({workId:id,projectId:item.binding.projectId,title:item.root.title||item.root.projectName||id,
+                    allowed.push({ownerUid:context.space.ownerUid,updatedAt:item.root.lastUpdated instanceof Date?item.root.lastUpdated.getTime():null,workId:id,projectId:item.binding.projectId,title:item.root.title||item.root.projectName||id,
                         labelId:item.binding.labelId,canEdit:canAccessPublishingSpace(context,'editWork',resource)
                             &&context.actor.entitlements?.canCreateProject===true&&context.owner.entitlements?.canCreateProject===true});
                 }

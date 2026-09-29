@@ -340,3 +340,11 @@ Private R2 load/save/copy/share/assignment and publication start fail closed for
 Client lists retain projectTrash in the lightweight projection, omit trashed manuscripts from normal lists, and keep published works visible. Trash mutations invalidate the Dashboard cache and capture the account before confirmation. Failed-response retries reuse the frozen command.
 
 The current unit excludes canonical collaborative manuscripts and physical garbage collection after expiration. Expired manuscripts are not described as physically deleted. Public release retention is independent. Staging Rules deployment was explicitly approved; production is outside scope.
+
+## Cross-space recents and open activity
+
+Dashboard combines all owned-space listing metadata, paged authorized joined-space directories and up to 12 local browser copies. Grouping requires exact ownerUid/projectId; detached DSP imports and unknown/foreign-account copies stay separate. Cloud and local versions remain explicit choices. No timestamp-based overwrite or content merge occurs.
+
+A server-only 100-entry activity index records successful cloud opens, using server time and a 60-second same-item debounce. Shared session renewals do not record new opens. Activity failures do not block manuscript opening or saving. List reads are account scoped and cached for 30 seconds, with explicit refresh. Local-only creation and browser-copy opening never transmit manuscript or activity. Actual cross-device hardware was not used in verification; isolated independent browser tabs exercised server persistence and fresh client reads.
+
+Shared listing/recording retains the current invitation and shared-authoring rollout restrictions. The UI explicitly shows unavailable joined browsing, partial pages, errors and loaded-item search counts. It loads at most three 20-work pages per interaction, with more on demand. Owner listing remains the existing lightweight query, and no source-body download is added by recents. IndexedDB copy listing retains its existing identity checks.
