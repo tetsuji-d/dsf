@@ -1,14 +1,15 @@
 <!doctype html><html lang="ja"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>ゴミ箱の操作検証</title>
 <link rel="stylesheet" href="/css/project-trash.css"><style>body{font:16px system-ui;margin:24px;max-width:900px;color:#172a42;background:#f5f7fb}button{padding:10px 18px;margin:8px 8px 8px 0;cursor:pointer}article,section{background:white;border-radius:12px;padding:16px;margin:16px 0}h1{font-size:24px}p{line-height:1.6}</style>
-<h1>Studio ゴミ箱 — 隔離データでの操作検証</h1><p>実アカウントの原稿は使用しません。</p><button id="lang">English</button><section><h2>通常の作品一覧</h2><div id="active"></div></section><section id="trash"></section><p id="status" role="status"></p><p id="publication" role="status"></p>
+<h1>Studio ゴミ箱 — 隔離データでの操作検証</h1><p>実アカウントの原稿は使用しません。</p><button id="lang">English</button><label>サムネイル <select id="preview"><option value="image">画像あり</option><option value="none">画像なし</option><option value="broken">読込失敗</option></select></label><section><h2>通常の作品一覧</h2><div id="active"></div></section><section id="trash"></section><p id="status" role="status"></p><p id="publication" role="status"></p>
 <script type="module">
 import {createProjectTrashClient,projectTrashError} from '/js/project-trash-client.js';
 import {renderProjectTrash,confirmProjectTrash} from '/js/project-trash-ui.js';
+const cover=document.createElement('canvas');cover.width=180;cover.height=320;const c=cover.getContext('2d');c.fillStyle='#214663';c.fillRect(0,0,180,320);c.fillStyle='#eac777';c.fillRect(18,18,144,4);c.fillRect(18,298,144,4);c.fillStyle='white';c.font='20px sans-serif';c.fillText('星の図書館',38,132);c.font='12px sans-serif';c.fillText('ゴミ箱の表示検証',40,165);const coverUrl=cover.toDataURL('image/webp');
 let en=false;const user={uid:'owner_1',getIdToken:async()=> 'fixture'},request=createProjectTrashClient({getUser:()=>user});
 async function render(){const data=await(await fetch('/api/test-trash-list')).json(),active=document.getElementById('active');active.replaceChildren();
 for(const p of data.projects.filter(p=>!p.projectTrash)){const card=document.createElement('article'),name=document.createElement('h3'),button=document.createElement('button');name.textContent=p.projectName;button.textContent=en?'Move to Trash':'ゴミ箱へ移す';button.onclick=async()=>{if(!await confirmProjectTrash(p.projectName,en))return;button.disabled=true;try{await request('trash',p.id);await render();}catch(e){document.getElementById('status').textContent=projectTrashError(e,en);button.disabled=false;}};card.append(name,button);active.append(card);}
 if(!active.children.length)active.textContent=en?'No active manuscripts':'通常一覧に原稿はありません';
-renderProjectTrash({root:document.getElementById('trash'),projects:data.projects,en,onRestore:async id=>{await request('restore',id);await render();},onPublication:()=>{document.getElementById('publication').textContent='公開管理への導線を確認しました';},onRetry:render});
+renderProjectTrash({root:document.getElementById('trash'),projects:data.projects.map(p=>({...p,listThumbnail:document.getElementById('preview').value==='image'?coverUrl:document.getElementById('preview').value==='broken'?location.origin+'/missing-trash-image.webp':''})),en,onRestore:async id=>{await request('restore',id);await render();},onPublication:()=>{document.getElementById('publication').textContent='公開管理への導線を確認しました';},onRetry:render});
 document.getElementById('status').textContent=`公開継続: ${data.published} / 本文保持: ${data.sourceIntact}`;
-}document.getElementById('lang').onclick=()=>{en=!en;render();};render();
+}document.getElementById('preview').onchange=render;document.getElementById('lang').onclick=()=>{en=!en;render();};render();
 </script></html>

@@ -13,19 +13,29 @@ export function renderProjectTrash({root, projects, en=false, onRestore, onPubli
     if (!items.length) root.append(el('p',en?'Trash is empty.':'ゴミ箱は空です。'));
     for (const p of items) {
         const card=el('article','');card.className='project-trash-card';
-        card.append(el('h4',p.projectName||p.title||p.id));
-        const space=spaceLabel(p.id);if(space)card.append(el('p',(en?'Space: ':'所属：')+space));
+        const preview=el('div','');preview.className='project-trash-thumbnail';
+        const fallback=el('span',en?'No image':'画像なし');preview.append(fallback);
+        const thumbnail=typeof p.listThumbnail==='string'?p.listThumbnail.trim():'';
+        if(/^(https?:\/\/|blob:|data:image\/)/i.test(thumbnail)){
+            const image=document.createElement('img');image.alt='';image.loading='lazy';image.decoding='async';
+            image.onload=()=>{fallback.hidden=true;};
+            image.onerror=()=>{image.remove();fallback.hidden=false;};
+            image.src=thumbnail;preview.append(image);
+        }
+        const details=el('div','');details.className='project-trash-details';card.append(preview,details);
+        details.append(el('h4',p.projectName||p.title||p.id));
+        const space=spaceLabel(p.id);if(space)details.append(el('p',(en?'Space: ':'所属：')+space));
         const until=new Date(p.projectTrash.restoreUntilMs);
-        card.append(el('p',(en?'Restore until: ':'復元期限：')+until.toLocaleString(en?'en-US':'ja-JP')));
-        if(Date.now()>=until.getTime())card.append(el('p',en?'The displayed recovery deadline has passed. The server checks eligibility when you restore.':'表示上の復元期限を過ぎています。復元可否はサーバーで確認します。'));
+        details.append(el('p',(en?'Restore until: ':'復元期限：')+until.toLocaleString(en?'en-US':'ja-JP')));
+        if(Date.now()>=until.getTime())details.append(el('p',en?'The displayed recovery deadline has passed. The server checks eligibility when you restore.':'表示上の復元期限を過ぎています。復元可否はサーバーで確認します。'));
         const published=['public','unlisted'].includes(p.dsfStatus);
-        card.append(el('p',published?(en?'Published release remains available.':'公開は継続中です。'):(en?'Not currently public.':'現在は公開されていません。')));
+        details.append(el('p',published?(en?'Published release remains available.':'公開は継続中です。'):(en?'Not currently public.':'現在は公開されていません。')));
         const status=el('p','');status.setAttribute('role','status');
         const restore=el('button',en?'Restore manuscript':'原稿を復元');restore.type='button';restore.className='home-action-btn';
         restore.onclick=async()=>{restore.disabled=true;status.textContent=en?'Restoring…':'復元しています…';try{await onRestore(p.id);status.textContent=en?'Restored.':'復元しました。';}catch(e){status.textContent=projectTrashError(e,en);restore.disabled=false;}};
-        card.append(restore);
-        if(published){const manage=el('button',en?'Manage publication':'公開状態を管理');manage.type='button';manage.className='home-action-btn';manage.onclick=onPublication;card.append(manage);}
-        card.append(status);root.append(card);
+        details.append(restore);
+        if(published){const manage=el('button',en?'Manage publication':'公開状態を管理');manage.type='button';manage.className='home-action-btn';manage.onclick=onPublication;details.append(manage);}
+        details.append(status);root.append(card);
     }
 }
 export function confirmProjectTrash(name,en=false) {
