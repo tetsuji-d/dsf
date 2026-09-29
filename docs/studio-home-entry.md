@@ -116,7 +116,7 @@ DSP/DSF仕様、固定レイアウト、クラウド保存契約、既存公開�
 - アプリコミット2c3d408、固定デプロイ https://73102d72.dsf-studio.pages.dev 、常設stagingへ反映済み。バージョンv2026.09.29-115621。
 - Studio/Viewer HTML、Service Worker、version JSONと参照JS/CSSの計16件がHTTP 200、distとSHA-256一致。
 - 固定デプロイ上の未ログイン・検証用ローカル原稿で、新しい設定欄、確認ダイアログ、キャンセル後の保持を確認。既存のユーザー原稿やクラウドデータは削除していない。
-- 次のゴミ箱・横断一覧・競合対応は [実装計画](studio-recents-trash-plan.md) を参照。30日保持・公開別管理は合意済み。権限ルールの変更と反映は別途承認待ち。
+- 次のゴミ箱・横断一覧・競合対応は [実装計画](studio-recents-trash-plan.md) を参照。30日保持・公開別管理は合意済み。この記録時点では権限ルールの変更・反映は承認待ちで、その後の明示承認を受けて下記のゴミ箱を反映。
 
 ## クラウド原稿のゴミ箱（2026-09-29）
 
@@ -126,3 +126,10 @@ DSP/DSF仕様、固定レイアウト、クラウド保存契約、既存公開�
 - 実サービスを使った隔離fixtureで移動、キャンセル、復元、公開管理への入口、日英表示を画面操作で確認。390px幅も確認。実Studioで未ログインのゴミ箱入口と案内を確認。ユーザー原稿のクラウド削除はしていない。
 - API 6シナリオ、ゴミ箱Rules 22検証、既存private Rules 112検証、private API 24検証、private actions 11検証と関連一覧・保存・Works検証が成功。
 - 残る進め方はスペース横断の最近の作業・検索、その後に端末版とクラウド版の競合対応。日時だけで自動上書きしない。
+
+### ゴミ箱のステージング確認
+
+- アプリコミット60bfc53。固定デプロイ https://3ba8712e.dsf-studio.pages.dev 、常設 https://staging.dsf-studio.pages.dev に反映。バージョンv2026.09.29-124934。
+- Firebase vmnn-26345-stg のFirestore Rulesはコンパイル・反映成功。Pagesを続けて反映。本番・Storage Rules・mainは変更なし。
+- 両URLのStudio/Viewer/Service Worker/version/manifestと参照資材20件でHTTP 200とdist SHA-256一致。新APIの未認証POSTは401 AUTH_REQUIRED。
+- 固定デプロイの実Studioでゴミ箱ナビゲーション・未ログイン案内・最新版表示を操作確認。原稿の移動・復元はローカル隔離fixtureとFirestore emulatorで検証し、ステージング上の既存ユーザー原稿は削除していない。
