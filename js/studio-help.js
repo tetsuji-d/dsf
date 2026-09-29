@@ -63,7 +63,7 @@ export function initStudioHelp() {
   if(e.key==='Escape'&&!e.isComposing){e.preventDefault();e.stopImmediatePropagation();if(picking){endPicking();pick.focus();}else closeHelp();return;}
   // Keep editor shortcuts from changing the document while help has focus.
   e.stopPropagation();
-  if(e.key==='Tab'){const root=picking?shield:panel;const controls=[...root.querySelectorAll('button,input')].filter(el=>!el.disabled&&el.getClientRects().length);const first=controls[0],last=controls.at(-1);if(e.shiftKey&&document.activeElement===first){e.preventDefault();last.focus();}else if(!e.shiftKey&&document.activeElement===last){e.preventDefault();first.focus();}}
+  if(e.key==='Tab'){const root=picking?shield:panel;const controls=[...root.querySelectorAll('button,input,a[href]')].filter(el=>!el.disabled&&el.getClientRects().length);const first=controls[0],last=controls.at(-1);if(e.shiftKey&&document.activeElement===first){e.preventDefault();last.focus();}else if(!e.shiftKey&&document.activeElement===last){e.preventDefault();first.focus();}}
  },true);
  window.addEventListener('resize',positionSpot);window.addEventListener('scroll',positionSpot,true);document.addEventListener('studio-ui-language-change',refresh);
  let frame;new MutationObserver(records=>{if(records.every(r=>backdrop.contains(r.target)||shield.contains(r.target)))return;cancelAnimationFrame(frame);frame=requestAnimationFrame(()=>{tagTargets();const status=detail.querySelector('[role=status]');if(active&&status&&!backdrop.hidden)status.textContent=helpAvailability(active).text;});}).observe(document.getElementById('app-shell'),{childList:true,subtree:true,attributes:true,attributeFilter:['disabled','aria-disabled','data-disabled-reason']});

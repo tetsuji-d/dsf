@@ -1,6 +1,7 @@
 /* Build-time placeholders. This file is emitted as /studio-sw.js by Vite. */
 const VERSION=__STUDIO_VERSION__, CACHE='dsf-studio-shell-'+VERSION;
 const SHELL=__STUDIO_PRECACHE__;
+const BUILD=__STUDIO_BUILD_INFO__;
 const SDK=['app','auth','firestore','storage'].map(name=>'https://www.gstatic.com/firebasejs/10.7.1/firebase-'+name+'.js');
 const FONT_CSS=[
  'https://fonts.googleapis.com/css2?family=Noto+Sans:wght@400;700&family=Noto+Sans+JP:wght@400;700&family=Noto+Serif:wght@400;700&family=Noto+Serif+JP:wght@400;700&display=swap',
@@ -39,6 +40,7 @@ self.addEventListener('activate',event=>event.waitUntil((async()=>{
 })()));
 self.addEventListener('message',event=>{
  if(event.data?.type==='STUDIO_ACTIVATE')self.skipWaiting();
+ if(event.data?.type==='STUDIO_BUILD')event.ports[0]?.postMessage(BUILD);
  if(event.data?.type==='STUDIO_STATUS')event.waitUntil((async()=>{
   const cache=await caches.open(CACHE),keys=await cache.keys();
   const present=new Set(keys.map(k=>k.url));

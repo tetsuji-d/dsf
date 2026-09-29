@@ -148,3 +148,13 @@ body[data-room="home"] .room-nav-tabs .room-tab:not([data-room="home"]) { displa
 .home-local-delete-notice { display:flex; align-items:center; flex-wrap:wrap; gap:12px; padding:10px 0; font-size:13px; }
 .home-local-delete-notice button { padding:6px 12px; cursor:pointer; }
 .authoring-destination-actions .local-copy-delete-confirm { background:#b42318; color:#fff; border-color:#b42318; }
+
+.home-room-heading { display:flex; flex-direction:column; gap:4px; min-width:0; }
+.studio-version { display:flex; align-items:center; flex-wrap:wrap; gap:8px; font-size:12px; line-height:1.5; }
+.studio-version-number { color:#758296; font-variant-numeric:tabular-nums; white-space:nowrap; }
+.studio-version .studio-version-update { padding:2px 4px; border:0; background:transparent; color:#1766c0; text-decoration:underline; cursor:pointer; font:inherit; }
+.studio-version [hidden] { display:none!important; }
+.studio-version-update:disabled { opacity:.6; cursor:default; }
+.studio-version-status { flex-basis:100%; color:#68758a; }
+#studio-help-panel .studio-version { border-top:1px solid #cbd3de; padding-top:12px; margin-top:16px; }
+#studio-help-panel .studio-version a { color:#1766c0; }

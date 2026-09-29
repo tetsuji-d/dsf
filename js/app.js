@@ -12061,7 +12061,11 @@ window.addEventListener('shared-studio-unavailable',()=>{
 window.pasteImagePage = installImagePagePaste({ importer: imagePageImporter,
     inEditor: () => getCurrentRoom() === 'editor' && canEditSharedStudio(), onStatus: showImagePasteStatus });
 
-installStudioPwa({getLocale:getUILang});
+installStudioPwa({getLocale:getUILang,updateBlocked:()=>{
+    if(isLocalDraft())return localDraftStatus.read().dirty;
+    if(!state.projectId&&!readSharedStudioAccess())return false;
+    return !getEditorSaveStatus().cloudCurrent;
+}});
 installHomeStart({root:document.getElementById('home-room'),getLocale:getUILang,readState:()=>state,readShared:readSharedStudioAccess,onResume:()=>window.switchRoom('editor'),onConnectivity:()=>{if(getCurrentRoom()==='home')void renderHomeDashboard({refreshSpaces:navigator.onLine});}});
 document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='hidden'&&isLocalDraft())void flushPendingSave().catch(()=>{});});
 
