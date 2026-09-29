@@ -18,8 +18,9 @@ export function createLocalRecentStore(store=createStore('keyval-store','keyval'
             };}
         }));
     }
-    async function put(record,meta){
-        return transaction([LOCAL_RECENT_INDEX_KEY],(values,s)=>{
+    async function put(record,meta,options={}){
+        return transaction([LOCAL_RECENT_INDEX_KEY,LOCAL_RECENT_PREFIX+meta.id],(values,s)=>{
+            if(options.expected!==undefined&&JSON.stringify(values[LOCAL_RECENT_PREFIX+meta.id]??null)!==options.expected)throw Error('LOCAL_COPY_CHANGED');
             const index=Array.isArray(values[LOCAL_RECENT_INDEX_KEY])?values[LOCAL_RECENT_INDEX_KEY].filter(x=>x && typeof x.id==='string'):[];
             s.put(record,LOCAL_RECENT_PREFIX+meta.id);
             s.put([meta,...index.filter(x=>x.id!==meta.id)].slice(0,12),LOCAL_RECENT_INDEX_KEY);

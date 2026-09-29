@@ -6,6 +6,9 @@ import '../css/project-trash.css';
 import {renderProjectTrash, confirmProjectTrash} from './project-trash-ui.js';
 import {projectTrashError} from './project-trash-client.js';
 import {localRecentId} from './local-recent-store.js';
+import {showSafeResume} from './safe-resume-ui.js';
+import '../css/safe-resume.css';
+import {safeResume,protectLocalRecentProject,protectCloudBrowserCopy,flushBeforeSafeResume,isCloudResumeBlocked,markRestoredCloudCopy} from './firebase.js';
 import {localCopyDeleteButton,confirmLocalCopyDeletion,showLocalCopyUndo} from './local-copy-delete-ui.js';
 import {detachLocalProject,clearCloudMetadata} from './authoring-location.js';
 import {chooseAuthoringDestination} from './authoring-destination-dialog.js';
@@ -4777,20 +4780,8 @@ function renderHomeLocalProjects(localGrid, localCount, localProjects) {
 
     localGrid.querySelectorAll('.home-project-card').forEach((card) => {
         card.addEventListener('click', async () => {
-            const snapshotId = card.dataset.id;
-            try {
-                await flushPendingSave();
-                const loadedState = hydrateProjectFromPersistence(await loadLocalRecentProject(snapshotId));
-                resetFlowRuntimeForProjectChange();
-                clearHistory();
-                dispatch({ type: actionTypes.LOAD_PROJECT, payload: loadedState });
-                noteLocalDraftEdit();
-                refresh();
-                window.switchRoom('editor');
-            } catch (e) {
-                console.error('[Home] Local project restore failed:', e);
-                alert(t('home_local_open_error', { message: e.message }));
-            }
+            const copy=localProjects.find(p=>p.id===card.dataset.id);
+            if(copy)await openRecentLocalCopy(copy);
         });
     });
 }
@@ -4805,16 +4796,19 @@ subscribeSharedStudioAccess(access=>{
     if(key===recentSharedIdentity)return;recentSharedIdentity=key;
     noteRecentCloudOpen({spaceId:access.spaceId,workId:access.workId});
 });
+let protectedDialog=null,protectedListRevision=0;
 let recentWorksUI=null,recentWorksEpoch=0,recentDirectory=null,recentDirectoryUid=null,recentDirectoryAt=0;
 async function openRecentLocalCopy(copy) {
     try {
-        await flushPendingSave();
+        await flushBeforeSafeResume();
+        if(copy.projectId){const kept=await protectLocalRecentProject(copy.id);await openProtectedCopy(kept.id);return;}
         const loadedState=hydrateProjectFromPersistence(await loadLocalRecentProject(copy.id));
         resetFlowRuntimeForProjectChange();clearHistory();dispatch({type:actionTypes.LOAD_PROJECT,payload:loadedState});
         noteLocalDraftEdit();refresh();window.switchRoom('editor');
     }catch(e){alert(t('home_local_open_error',{message:e.message}));}
 }
 async function refreshRecentWorks({force=false,more=false,keepCloudRequest=false}={}) {
+    void refreshProtectedCopies();
     const root=document.getElementById('home-recent-works');if(!root)return;
     const uid=state.uid||'',online=navigator.onLine,epoch=++recentWorksEpoch;
     const current=()=>epoch===recentWorksEpoch&&uid===(state.uid||'')&&online===navigator.onLine;
@@ -8296,7 +8290,7 @@ function onLoadProject(pid) {
 async function performLoadProject(pid) {
     const openingUid=state.uid;
     try {
-        await flushPendingSave();
+        await flushBeforeSafeResume();
         await loadProject(pid, () => {
             resetFlowRuntimeForProjectChange({keepSession:true});
             clearHistory();
@@ -11516,6 +11510,7 @@ async function bootstrapApp() {
             const backup = await idbGet('dsf_autosave');
             if (backup && backup.state && initialSession === getProjectSessionIdentity() && !openingProject) {
                 console.log("[DSF] Found local auto-save backup. Restoring...");
+                if(backup.state.projectId)await safeResume.protect(backup);
 
                 // Restore object URLs for unsaved guest images
                 let stateStr = JSON.stringify(backup.state);
@@ -11540,6 +11535,7 @@ async function bootstrapApp() {
                 resetFlowRuntimeForProjectChange();
                 clearHistory();
                 dispatch({ type: actionTypes.LOAD_PROJECT, payload: restoredState });
+                if(restoredState.projectId){markRestoredCloudCopy();setLocalCloudTransitionPending(true);}
                 noteLocalDraftEdit();
                 console.log("[DSF] Auto-save restored successfully.");
                 } else { Object.keys(restoredMap).forEach(url=>URL.revokeObjectURL(url)); }
@@ -12170,3 +12166,59 @@ window.addEventListener('local-recents-updated',()=>{
     const revision=homeDashboardRenderRevision,uid=state.uid;
     void listLocalRecentProjects().then(projects=>{if(getCurrentRoom()==='home'&&revision===homeDashboardRenderRevision&&uid===state.uid)renderHomeLocalProjects(document.getElementById('home-local-grid'),document.getElementById('home-local-count'),projects);}).catch(()=>{});
 });
+
+// Protected versions are independent of the recent-12 list and the cloud trash.
+
+subscribeProjectSession(()=>{protectedDialog?.close();protectedDialog=null;queueMicrotask(()=>void refreshProtectedCopies());});
+async function openProtectedCopy(id){
+    const epoch=getProjectSessionEpoch(),uid=firebaseAuth.currentUser?.uid||'';
+    const current=()=>epoch===getProjectSessionEpoch()&&uid===(firebaseAuth.currentUser?.uid||'');
+    const kept=await safeResume.read(id);if(!current())throw Error('RESUME_SCOPE_CHANGED');
+    protectedDialog?.close();
+    protectedDialog=showSafeResume({name:kept.name,locale:getUILang(),compare:()=>safeResume.compare(id),
+        onFork:async()=>{
+            if(!current())throw Error('RESUME_SCOPE_CHANGED');await flushBeforeSafeResume();
+            if(!current())throw Error('RESUME_SCOPE_CHANGED');const copy=await safeResume.fork(id);
+            if(!current())throw Error('RESUME_SCOPE_CHANGED');
+            const loaded=hydrateProjectFromPersistence(await loadLocalRecentProject(localRecentId(copy)));
+            if(!current())throw Error('RESUME_SCOPE_CHANGED');
+            resetFlowRuntimeForProjectChange();clearHistory();dispatch({type:actionTypes.LOAD_PROJECT,payload:loaded});
+            noteLocalDraftEdit();refresh();updateAuthUI();triggerAutoSave();window.switchRoom('editor');
+        },
+        onCloud:kept.projectId&&uid&&kept.sourceOwner===uid&&navigator.onLine?async()=>{
+            if(!current())throw Error('RESUME_SCOPE_CHANGED');
+            if(!await onLoadProject(kept.projectId))throw Error('RESUME_LOAD_FAILED');window.switchRoom('editor');
+        }:null});
+}
+async function refreshProtectedCopies(){
+    const host=document.getElementById('home-protected-copies'),button=document.getElementById('editor-resume-copy');
+    const en=getUILang()==='en';
+    if(button){button.hidden=!isCloudResumeBlocked();button.textContent=en?'Review browser version':'端末版を確認';}
+    if(!host)return;const revision=++protectedListRevision,uid=firebaseAuth.currentUser?.uid||'';
+    try{const rows=await safeResume.list();if(revision!==protectedListRevision||uid!==(firebaseAuth.currentUser?.uid||''))return;
+        const expanded=!!host.querySelector('details')?.open;host.replaceChildren();if(!rows.length)return;
+        const node=(tag,text)=>{const e=document.createElement(tag);e.textContent=text;return e;};
+        const details=node('details',''),summary=node('summary',(en?'Protected browser versions':'保護した端末版')+' ('+rows.length+')');details.open=expanded;details.append(summary);
+        details.append(node('p',en?'Kept on this browser until you delete them. Separate from the cloud trash.':'このブラウザーに、削除するまで保持します。クラウドのゴミ箱とは別です。'));
+        for(const r of rows){const card=node('article',''),name=node('strong',r.name),date=node('span',new Date(r.createdAt).toLocaleString(en?'en':'ja'));
+            const open=node('button',en?'Compare / resume':'比較して再開');open.type='button';open.className='home-action-btn';open.onclick=()=>void openProtectedCopy(r.id).catch(()=>alert(en?'This version is unavailable.':'この端末版を開けませんでした。'));
+            const remove=node('button',en?'Delete':'削除');remove.type='button';remove.className='home-action-btn';remove.onclick=async()=>{
+                if(!confirm(en?'Delete this protected browser version? The cloud manuscript is unchanged.':'この保護した端末版を削除しますか？ クラウドの原稿は変わりません。'))return;
+                remove.disabled=true;try{const token=await safeResume.remove(r.id);await refreshProtectedCopies();
+                    if(token)showLocalCopyUndo({host:document.getElementById('home-local-copy-feedback'),name:r.name,en,restore:async()=>{await safeResume.restore(token);await refreshProtectedCopies();}});
+                }catch{remove.disabled=false;alert(en?'Could not delete this version.':'この端末版を削除できませんでした。');}
+            };card.append(name,date,open,remove);details.append(card);
+        }host.append(details);
+    }catch{if(revision===protectedListRevision)host.textContent=en?'Could not read protected browser versions.':'保護した端末版を読み込めませんでした。';}
+}
+document.getElementById('editor-resume-copy')?.addEventListener('click',async()=>{
+    try{await flushBeforeSafeResume();
+        const kept=await protectCloudBrowserCopy(state.projectId);if(!kept)throw Error('LOCAL_COPY_MISSING');await openProtectedCopy(kept.id);
+    }catch{alert(getUILang()==='en'?'Could not protect this version. Save a DSP file first.':'端末版を保護できませんでした。先にDSPファイルへ保存してください。');}
+});
+window.addEventListener('safe-resume-change',()=>void refreshProtectedCopies());
+window.addEventListener('local-recents-updated',()=>void refreshProtectedCopies());
+window.addEventListener('home-start-refresh',()=>void refreshProtectedCopies());
+document.addEventListener('studio-ui-language-change',()=>void refreshProtectedCopies());
+
+window.addEventListener('shared-recovery-account',()=>{protectedDialog?.close();protectedDialog=null;void refreshProtectedCopies();});

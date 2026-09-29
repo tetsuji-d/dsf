@@ -1,3 +1,5 @@
+import {createSafeResumeService,createCloudResumeGuard} from './safe-resume-service.js';
+import {fingerprintProject} from './safe-resume-model.js';
 import {createLocalRecentStore,localRecentId,LOCAL_RECENT_INDEX_KEY,LOCAL_RECENT_PREFIX} from './local-recent-store.js';
 import {useLocalAuthoringAssets} from './authoring-location.js';
 import {noteLocalDraftEdit} from './local-draft-runtime.js';
@@ -20,7 +22,7 @@ import { decodeDspPublicationThumbnailImage } from './dsp-publication-thumbnail-
  *   VITE_STORAGE_BACKEND=firebase  → Firebase Storage (local Vite development)
  *   VITE_STORAGE_BACKEND=r2        → Cloudflare R2 via Pages Function at /upload (Pages production/preview)
  */
-import { doc, setDoc, getDoc, deleteDoc, serverTimestamp, writeBatch } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
+import { doc, setDoc, getDoc, getDocFromServer, deleteDoc, serverTimestamp, writeBatch } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
 import {
     onAuthStateChanged
 } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js";
@@ -75,6 +77,13 @@ export const PUBLICATION_THUMBNAIL_MAX_SOURCE_PIXELS = 80_000_000;
 const PUBLICATION_THUMBNAIL_WEBP_QUALITY = 0.86;
 const userBootstrapPromiseCache = new Map();
 let privateAuthoringSession = null;
+const cloudResumeGuard=createCloudResumeGuard();
+const localResumeTab=crypto.randomUUID();
+let resumeProofSequence=0;
+let restoredCloudProjectId=null;
+export function markRestoredCloudCopy(){restoredCloudProjectId=state.projectId;}
+const resumeIdentity=()=>({environment:firebaseConfig.projectId,ownerUid:auth.currentUser?.uid||'',projectId:state.projectId||'',epoch:getProjectSessionEpoch()});
+export const isCloudResumeBlocked=()=>!!state.projectId&&!readSharedStudioAccess()&&!cloudResumeGuard.accepts(resumeIdentity());
 let sharedStudioSession = null;
 export const sharedDraftRecovery=createSharedDraftRecovery({getUid:()=>auth.currentUser?.uid===state.uid?state.uid:null,
     onChange:()=>window.dispatchEvent(new Event('shared-recovery-change'))});
@@ -102,6 +111,7 @@ function disposeSharedStudio() {
     sharedStudioSession?.session.dispose(); sharedStudioSession = null;
 }
 subscribeProjectSession(() => {
+    cloudResumeGuard.reset();
     window.dispatchEvent(new Event('shared-recovery-account'));
     privateAuthoringSession?.images?.dispose();
     privateAuthoringSession = null;
@@ -374,10 +384,10 @@ async function _createPublicationThumbnailBlob(file) {
     }
 }
 
-async function _storePublicationThumbnailBlob(blob) {
+async function _storePublicationThumbnailBlob(blob, {cloudSave=false}={}) {
     if (!(await isWebPBlob(blob))) throw new Error('作品サムネイルのWebP変換に失敗しました。');
     const digest = await _sha256Hex(blob);
-    if (!readSharedStudioAccess() && useLocalAuthoringAssets(state,navigator.onLine)) {
+    if (!cloudSave && !readSharedStudioAccess() && (useLocalAuthoringAssets(state,navigator.onLine)||isCloudResumeBlocked())) {
         const localKey = `local_publication_thumbnail_${digest}`;
         await idbSet(localKey, blob);
         const localUrl = URL.createObjectURL(blob);
@@ -419,7 +429,7 @@ export async function ensurePublicationThumbnailCloudUrl(value) {
         ? await idbGet(localKey)
         : await fetchAssetBlob(candidate, '作品サムネイル');
     if (!blob) return '';
-    const publicUrl = await _storePublicationThumbnailBlob(blob);
+    const publicUrl = await _storePublicationThumbnailBlob(blob, {cloudSave:true});
     if (publicUrl && localKey) {
         window.localImageMap[publicUrl] = localKey;
         delete window.localImageMap[candidate];
@@ -879,8 +889,18 @@ async function buildLocalRecentMeta(snapshotState) {
 export async function cacheLocalRecentProject(snapshotState, imageMap = window.localImageMap || {}) {
     const projectState = prepareProjectForSave(JSON.parse(JSON.stringify(snapshotState || state)));
     ensureLocalProjectIdentity(projectState);
+    delete projectState.user;
+    const identity=resumeIdentity(),resume=projectState.projectId===identity.projectId?cloudResumeGuard.read(identity):null;
+    const session=localResumeTab+':'+identity.epoch;
+    const record={state:projectState,imageMap:structuredClone(imageMap||{}),resume,resumeSession:session};
     const nextEntry = await buildLocalRecentMeta(projectState);
-    await localRecentStore.put({state:projectState,imageMap:imageMap||{}},nextEntry);
+    let written=false;
+    for(let attempt=0;attempt<3&&!written;attempt++){
+        const previous=await idbGet(LOCAL_RECENT_PREFIX+nextEntry.id);
+        if(projectState.projectId&&previous?.state&&previous.resumeSession!==session){await safeResume.protect(previous);window.dispatchEvent(new Event('safe-resume-change'));}
+        try{await localRecentStore.put(record,nextEntry,{expected:JSON.stringify(previous??null)});written=true;}
+        catch(error){if(error.message!=='LOCAL_COPY_CHANGED'||attempt===2)throw error;}
+    }
     window.dispatchEvent(new Event('local-recents-updated'));
 }
 
@@ -1232,8 +1252,14 @@ async function performSaveOnce() {
     const saveIsCurrent = () => getProjectSessionEpoch() === saveIdentity.epoch
         && String(state.projectId || '') === saveIdentity.projectId && String(state.uid || '') === saveIdentity.uid
         && auth.currentUser === saveIdentity.user;
+    const savedResumeIdentity={environment:firebaseConfig.projectId,ownerUid:saveIdentity.uid,projectId:saveIdentity.projectId,epoch:saveIdentity.epoch};
+    const savedImageMap={...window.localImageMap};
     const cloudSaved = () => {
         saveEvidence.cloudSaved();
+        if(saveIsCurrent()&&!readSharedStudioAccess()){
+            cloudResumeGuard.loaded(savedResumeIdentity);
+            void captureCloudResumeProof(savedResumeIdentity,structuredClone(authoringProject),savedImageMap);
+        }
         if (saveIsCurrent()) updateSaveIndicator(editorRevision === saveIdentity.editorRevision ? 'saved' : 'idle',
             editorRevision === saveIdentity.editorRevision ? '保存済み (Cloud)' : '変更あり・保存待ち');
     };
@@ -1284,6 +1310,7 @@ async function performSaveOnce() {
             bookMode: bookToSave.mode,
             book: bookToSave,
         }));
+        delete localSnapshot.user;
         ensureLocalProjectIdentity(localSnapshot);
         state.localProjectId = localSnapshot.localProjectId;
         await idbSet('dsf_autosave', {
@@ -1296,6 +1323,7 @@ async function performSaveOnce() {
     } catch (e) {
         saveEvidence.failed('local', e);
         console.warn("[DSF] Local auto-save to IndexedDB failed:", e);
+        throw e;
     }
 
     // 2. クラウドバックアップ (ログイン時のみ)
@@ -1308,14 +1336,20 @@ async function performSaveOnce() {
             // Read the current root before uploading blobs. A future/newer
             // schema must never be overwritten by this client.
             const rootRef = projectDocRef(saveIdentity.projectId, saveIdentity.uid);
-            const existingSnap = await getDoc(rootRef);
+            const existingSnap = await getDocFromServer(rootRef);
             const existingData = existingSnap.exists() ? existingSnap.data() : {};
+            if(!saveIsCurrent())throw new AuthoringClientError('AUTHORING_SESSION_CHANGED');
             if (!isProjectVersionTransitionAllowed(existingData.version, authoringProject.version)) {
                 throw new Error(`保存済みProject v${String(existingData.version)}をv${authoringProject.version}で上書きできません。`);
             }
 
             let session = saveIdentity.session;
             if (session?.epoch !== saveIdentity.epoch || session?.projectId !== saveIdentity.projectId) session = null;
+            // Restored copies have no live cloud base. Stop before uploading any assets.
+            if((existingSnap.exists()||restoredCloudProjectId===saveIdentity.projectId)
+                &&!cloudResumeGuard.accepts(savedResumeIdentity)&&!session){
+                throw new AuthoringClientError('AUTHORING_RELOAD_REQUIRED');
+            }
             const newPrivate = (import.meta.env.VITE_PRIVATE_AUTHORING_NEW_PROJECTS === 'true' && !existingSnap.exists())
                 || session?.creating === true;
             if (newPrivate && !session) {
@@ -1470,6 +1504,7 @@ async function performSaveOnce() {
                     updatedAt: serverTimestamp()
                 }, { merge: true });
             }
+            if(!saveIsCurrent())throw new AuthoringClientError('AUTHORING_SESSION_CHANGED');
             await batch.commit();
 
             // 公開インデックス（public_projects）は Press / Works が管理する。
@@ -1487,7 +1522,7 @@ async function performSaveOnce() {
         saveEvidence.failed('cloud', error);
         console.error('[DSF] Project save failed before persistence:', error);
         if (!privateSave && startedEpoch === getProjectSessionEpoch() && startedProjectId === state.projectId) {
-            updateSaveIndicator('error', '保存失敗');
+            updateSaveIndicator('error', error.code==='AUTHORING_RELOAD_REQUIRED'?'端末版を保持・比較して再開してください':'保存失敗');
         }
         throw error;
     }
@@ -1696,7 +1731,7 @@ export async function generateCroppedThumbnail(bgUrl, pos, refresh) {
 
         const blob = await encodeCanvasToWebP(canvas, 0.8, 'サムネイル');
         let thumbUrl = '';
-        if (!readSharedStudioAccess() && useLocalAuthoringAssets(state,navigator.onLine)) {
+        if (!readSharedStudioAccess() && (useLocalAuthoringAssets(state,navigator.onLine)||isCloudResumeBlocked())) {
             const thumbKey = `local_img_thumb_adjusted_${timestamp}`;
             await idbSet(thumbKey, blob);
             thumbUrl = URL.createObjectURL(blob);
@@ -1787,7 +1822,7 @@ export async function prepareAuthoringImage(file, { uid = state.uid, maxLongEdge
         if (sharedStudioSession !== active || imageEpoch !== getProjectSessionEpoch()) throw new AuthoringClientError('AUTHORING_SESSION_CHANGED');
         return {mainUrl:main.url,thumbUrl:thumb.url,...metadata};
     }
-    if (!uid || useLocalAuthoringAssets(state,navigator.onLine)) {
+    if (!uid || (useLocalAuthoringAssets(state,navigator.onLine)||isCloudResumeBlocked())) {
         const mainKey = `local_img_main_${timestamp}`;
         const thumbKey = `local_img_thumb_${timestamp}`;
         await Promise.all([idbSet(mainKey, mainBlob), idbSet(thumbKey, thumbBlob)]);
@@ -1881,7 +1916,9 @@ export async function loadProject(pid, refresh) {
     const isCurrent = () => epoch === getProjectSessionEpoch()
         && (committed ? privateAuthoringSession?.client === privateClient : sequence === projectLoadSequence)
         && state.uid === uid && auth.currentUser === user;
-    const snap = await getDoc(projectDocRef(pid, uid));
+    await protectCloudBrowserCopy(pid);
+    if(!isCurrent())throw new AuthoringClientError('AUTHORING_SESSION_CHANGED');
+    const snap = await getDocFromServer(projectDocRef(pid, uid));
     if (!isCurrent()) throw new AuthoringClientError('AUTHORING_SESSION_CHANGED');
     if (!snap.exists()) throw new AuthoringClientError('PROJECT_NOT_FOUND',404);
     if (snap.exists()) {
@@ -1904,7 +1941,7 @@ export async function loadProject(pid, refresh) {
             || rootData.authoringRef === 'authoring/current'
             || rootData.authoringSchemaVersion === 6
         ) {
-            const authoringSnap = await getDoc(projectAuthoringDocRef(pid, uid));
+            const authoringSnap = await getDocFromServer(projectAuthoringDocRef(pid, uid));
             if (!authoringSnap.exists()) {
                 throw new Error('Project v6 authoring/current が見つからないため、安全に読み込めません。');
             }
@@ -1965,6 +2002,8 @@ export async function loadProject(pid, refresh) {
         epoch = getProjectSessionEpoch();
         privateAuthoringSession = privateClient ? { client: privateClient, projectId: pid, epoch, images, assets: images.refs } : null;
         committed = true;
+        cloudResumeGuard.loaded(resumeIdentity());
+        void captureCloudResumeProof(resumeIdentity(),structuredClone(buildAuthoringProjectInput()),{...window.localImageMap});
         dispatch({ type: actionTypes.SET_ACTIVE_LANGUAGE, payload: defaultLang });
         dispatch({ type: actionTypes.SET_ACTIVE_INDEX, payload: 0 });
         dispatch({ type: actionTypes.SET_ACTIVE_BLOCK_INDEX, payload: Math.max(0, getBlockIndexFromPageIndex(data.blocks || [], 0)) });
@@ -2051,4 +2090,65 @@ export async function uploadStructureToStorage(input, refresh) {
     } finally {
         input.value = '';
     }
+}
+// Safe-resume adapters: reads and device-local writes only; original cloud source is never mutated here.
+async function resumeReadCloud(pid){
+ const user=auth.currentUser,uid=state.uid,epoch=getProjectSessionEpoch();
+ if(!navigator.onLine||!user||user.uid!==uid)return null;
+ const current=()=>auth.currentUser===user&&state.uid===uid&&getProjectSessionEpoch()===epoch;
+ const snap=await getDocFromServer(projectDocRef(pid,uid));if(!current()||!snap.exists())return null;
+ const root=snap.data();if(root.projectTrash||(root.ownerUid&&root.ownerUid!==uid))return null;
+ let project,images=null;const blobs=new Map();
+ if(usesPrivateAuthoring(root)){
+  assertPrivateAuthoringRoot(root,uid,pid);
+  project=await createPrivateAuthoringClient({uid,projectId:pid,user,isCurrent:current}).load();
+  images=createOwnerImageSession({projectId:pid,user,isCurrent:current,onBlob:async(url,blob)=>{blobs.set(url,blob);}});
+ }else if(root.version===6||root.authoringRef==='authoring/current'){
+  const source=await getDocFromServer(projectAuthoringDocRef(pid,uid));if(!current()||!source.exists())return null;
+  project=prepareFirestoreProjectIngress(source.data());
+ }else project=prepareFirestoreProjectIngress(root);
+ if(!current()){images?.dispose();throw Error('RESUME_SCOPE_CHANGED');}
+ const resolveImage=async ref=>{
+  if(!current())throw Error('RESUME_SCOPE_CHANGED');
+  if(ref.startsWith('assets/private/')&&images){const resolved=await images.hydrate({publicationThumbnailUrl:ref});return blobs.get(resolved.publicationThumbnailUrl)||null;}
+  if(!/^https:\/\//.test(ref))return null;
+  const response=await fetch(ref,{credentials:'omit',signal:AbortSignal.timeout(10000)});if(!response.ok)return null;
+  const reader=response.body.getReader(),parts=[];let size=0;
+  try{for(;;){const {done,value}=await reader.read();if(done)break;size+=value.length;if(size>25*1024*1024)throw Error('RESUME_IMAGE_TOO_LARGE');parts.push(value);}}catch(e){await reader.cancel().catch(()=>{});throw e;}finally{reader.releaseLock();}
+  if(!current())throw Error('RESUME_SCOPE_CHANGED');return new Blob(parts,{type:response.headers.get('Content-Type')||'image/webp'});
+ };
+ return {project,resolveImage,dispose:()=>images?.dispose()};
+}
+export const safeResume=createSafeResumeService({
+ scope:()=>({environment:firebaseConfig.projectId,ownerUid:auth.currentUser?.uid||''}),readBlob:idbGet,writeBlob:idbSet,
+ readCloud:resumeReadCloud,saveLocal:cacheLocalRecentProject
+});
+export async function protectLocalRecentProject(id){const record=await idbGet(LOCAL_RECENT_PREFIX+id);const result=await safeResume.protect(record);window.dispatchEvent(new Event('safe-resume-change'));return result;}
+export async function protectCloudBrowserCopy(pid){
+ const record=await idbGet(LOCAL_RECENT_PREFIX+'cloud:'+pid);if(!record?.state)return null;
+ const result=await safeResume.protect(record);window.dispatchEvent(new Event('safe-resume-change'));return result;
+}
+async function captureCloudResumeProof(identity,project,imageMap){
+ const sequence=++resumeProofSequence;
+ let fingerprint=null;try{fingerprint=await fingerprintProject(project,async ref=>{const id=imageMap?.[ref];return id?await idbGet(id):null;});}catch{}
+ if(sequence!==resumeProofSequence||JSON.stringify(resumeIdentity())!==JSON.stringify(identity))return;
+ cloudResumeGuard.loaded(identity,fingerprint);window.dispatchEvent(new Event('safe-resume-change'));
+}
+// Leaving a restored cloud copy may proceed only after its current edit was saved locally and protected.
+export async function flushBeforeSafeResume(){
+ const epoch=getProjectSessionEpoch(),revision=editorRevision;
+ const current=()=>epoch===getProjectSessionEpoch()&&revision===editorRevision;
+ try{await flushPendingSave();}catch(error){
+  if(readSharedStudioAccess()||!state.projectId||!current())throw error;
+  // A failed cloud request may be left only after a fresh, successful local retention below.
+ }
+ if(!current())throw new AuthoringClientError('AUTHORING_SESSION_CHANGED');
+ if(state.projectId&&!readSharedStudioAccess()){
+  const snapshot=JSON.parse(JSON.stringify(state));delete snapshot.user;
+  await cacheLocalRecentProject(snapshot,{...window.localImageMap});
+  if(!current())throw new AuthoringClientError('AUTHORING_SESSION_CHANGED');
+  await protectCloudBrowserCopy(state.projectId);
+  if(!current())throw new AuthoringClientError('AUTHORING_SESSION_CHANGED');
+ }
+ return true;
 }

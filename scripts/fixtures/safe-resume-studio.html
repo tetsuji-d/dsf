@@ -1,0 +1,17 @@
+<!doctype html><html lang="ja"><meta charset="utf-8"><title>安全な再開 Studio接続検証</title><h1>Studio接続検証</h1><p>このローカルホストだけに検証原稿を作ります。クラウドへの書込はありません。</p><button id="seed">検証用端末版を用意する</button><a href="/studio.html?room=home">Studioを開く</a><button id="inspect">保持状況を読む</button><pre id="result"></pre><script type="module">
+import {set,get,keys} from 'idb-keyval';
+import {createLocalRecentStore,LOCAL_RECENT_PREFIX} from '/js/local-recent-store.js';
+import {createResumeStore} from '/js/safe-resume-store.js';
+import {prepareProjectForSave} from '/js/project-persistence.js';
+const result=document.getElementById('result');
+document.getElementById('seed').onclick=async()=>{
+ const canvas=document.createElement('canvas');canvas.width=360;canvas.height=640;const c=canvas.getContext('2d');c.fillStyle='#214663';c.fillRect(0,0,360,640);c.fillStyle='white';c.font='26px sans-serif';c.fillText('保護した端末版',60,150);c.fillText('画像・本文を保持',60,220);const image=await new Promise(r=>canvas.toBlob(r,'image/webp'));await set('resume_fixture_image',image);
+ const state=prepareProjectForSave({version:6,projectId:'resume-studio-fixture',workId:'fixture-work',projectName:'安全な再開の検証原稿',title:'保存した本文と画像',languages:['ja'],defaultLang:'ja',languageConfigs:{ja:{pageDirection:'rtl'}},bookMode:'simple',meta:{author:'検証用の作者'},blocks:[{id:'image',kind:'page',content:{pageKind:'image',background:'blob:fixture-original'}}]});
+ const record={state,imageMap:{'blob:fixture-original':'resume_fixture_image'}};
+ await createLocalRecentStore().put(record,{id:'cloud:resume-studio-fixture',projectId:state.projectId,projectName:state.projectName,title:state.title,pageCount:1,updatedAt:Date.now()});await set('dsf_autosave',record);result.textContent='準備できました。Studioを開いてください。';
+};
+document.getElementById('inspect').onclick=async()=>{
+ const copies=[];for(const k of await keys()){if(typeof k==='string'&&k.startsWith(LOCAL_RECENT_PREFIX)){const r=await get(k);if(r.state.projectName.includes('安全な再開'))copies.push({name:r.state.projectName,projectId:r.state.projectId,workId:r.state.workId,releaseId:r.state.releaseId,meta:r.state.meta,imageCount:Object.keys(r.imageMap||{}).length});}}
+ const kept=await createResumeStore().list({environment:import.meta.env.VITE_FIREBASE_PROJECT_ID,ownerUid:''});result.textContent=JSON.stringify({copies,protectedCount:kept.length,protectedNames:kept.map(r=>r.name)},null,2);
+};
+</script></html>
