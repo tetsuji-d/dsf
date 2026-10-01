@@ -1,3 +1,4 @@
+import {installFileLaunch} from './file-launch-ui.js';
 import {createViewerBookWheel} from './viewer-book-wheel.js';
 import {createViewerFlick} from './viewer-flick.js';
 import {createViewerEdgePeek} from './viewer-edge-peek.js';
@@ -555,6 +556,12 @@ async function init() {
     applyViewerDevSmoothingClass();
 
     const params = new URLSearchParams(window.location.search);
+    if(params.get('fileLaunch')==='dsf'){
+        showStandaloneEmpty();
+        installFileLaunch({extension:'.dsf',getLocale:()=>viewerUiLang,openFile:file=>loadViewerFile(file,{preview:true})});
+        resizeCanvas();updateUiVisibility();
+        return;
+    }
     const editorPreview=params.get('editorPreview');
     if(editorPreview&&window.opener){
         const source=window.opener,origin=location.origin;

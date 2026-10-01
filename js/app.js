@@ -1,3 +1,4 @@
+import {installFileLaunch} from './file-launch-ui.js';
 import {createRecentActivityClient} from './recent-activity-client.js';
 import '../css/recent-works.css';
 import {createRecentWorksUI} from './recent-works-ui.js';
@@ -9999,7 +10000,7 @@ window.saveProject = async () => {
     refresh();
 };
 
-window.importDSP = async (event) => {
+window.importDSP = async (event, {external = false} = {}) => {
     assertPersonalStudioOperation();
     const file = event.target.files[0];
     if (!file) return;
@@ -10013,8 +10014,12 @@ window.importDSP = async (event) => {
     document.body.style.cursor = 'wait';
 
     try {
-        await flushPendingSave();
+        if(external)assertExternalDspOpenReady();
+        await (external ? flushBeforeSafeResume() : flushPendingSave());
+        const epoch=getProjectSessionEpoch();
+        const before=external ? JSON.stringify(state) : '';
         const loadedState = detachLocalProject(hydrateProjectFromPersistence(await parseAndLoadDSP(file)),createId('work'));
+        if(external){assertExternalDspOpenReady();if(epoch!==getProjectSessionEpoch()||before!==JSON.stringify(state))throw Error('busy');}
 
         resetFlowRuntimeForProjectChange();
         clearHistory();
@@ -10034,6 +10039,7 @@ window.importDSP = async (event) => {
         refresh();
         window.switchRoom('editor');
     } catch (e) {
+        if(external)throw e;
         console.error("DSP Import failed", e);
         alert("読み込みエラー: " + e.message);
     } finally {
@@ -11491,6 +11497,7 @@ async function bootstrapApp() {
     // Prevent local restore if we are explicitly loading a cloud project via URL
     const sharedTarget = urlParams.has('sharedWork') ? {spaceId:urlParams.get('sharedSpace'),workId:urlParams.get('sharedWork')} : null;
     const hasCloudId = urlParams.has('id') || !!sharedTarget;
+    const fileLaunchStartup = urlParams.get('fileLaunch') === 'dsp' && !hasCloudId;
 
     const redirectOutcome = navigator.onLine ? await handleRedirectResult(firebaseAuth) : null;
     if (redirectOutcome?.error) {
@@ -11528,9 +11535,13 @@ async function bootstrapApp() {
                 }
 
                 if(initialSession === getProjectSessionIdentity() && !openingProject) {
-                window.localImageMap = restoredMap;
                 const restoredState = hydrateProjectFromPersistence(JSON.parse(stateStr));
-
+                if(fileLaunchStartup){
+                    // Preserve the previous draft before a new file can replace the startup backup.
+                    try{await cacheLocalRecentProject(restoredState,restoredMap);}
+                    finally{Object.keys(restoredMap).forEach(url=>URL.revokeObjectURL(url));}
+                } else {
+                window.localImageMap = restoredMap;
                 // Only dispatch state keys that exist in our actual store
                 resetFlowRuntimeForProjectChange();
                 clearHistory();
@@ -11538,10 +11549,12 @@ async function bootstrapApp() {
                 if(restoredState.projectId){markRestoredCloudCopy();setLocalCloudTransitionPending(true);}
                 noteLocalDraftEdit();
                 console.log("[DSF] Auto-save restored successfully.");
+                }
                 } else { Object.keys(restoredMap).forEach(url=>URL.revokeObjectURL(url)); }
             }
         } catch (err) {
             console.warn("[DSF] Error restoring local auto-save:", err);
+            if(fileLaunchStartup)throw err;
         }
     }
 
@@ -11688,7 +11701,9 @@ if (import.meta.env.MODE !== 'production') {
     });
 }
 
-bootstrapApp();
+const studioBootReady = bootstrapApp();
+// File launches wait for recovery/auth startup to finish before switching documents.
+void studioBootReady.catch(error => console.warn('[Studio] Startup failed:', error));
 
 // --- 右サイドバーリサイザー初期化 ---
 function initSidebarResizer() {
@@ -12222,3 +12237,15 @@ window.addEventListener('home-start-refresh',()=>void refreshProtectedCopies());
 document.addEventListener('studio-ui-language-change',()=>void refreshProtectedCopies());
 
 window.addEventListener('shared-recovery-account',()=>{protectedDialog?.close();protectedDialog=null;void refreshProtectedCopies();});
+
+// Incoming files require an explicit Open action and never replace unsaved work.
+function assertExternalDspOpenReady() {
+    assertPersonalStudioOperation();
+    if(readStudioAIState().busy || openingProject)throw Error('busy');
+    if(isLocalDraft() ? localDraftStatus.read().dirty : state.projectId && !getEditorSaveStatus().cloudCurrent)throw Error('unsaved');
+}
+installFileLaunch({extension:'.dsp',getLocale:getUILang,openFile:async file=>{
+    try{await studioBootReady;}catch{throw Error('not-ready');}
+    assertExternalDspOpenReady();
+    await window.importDSP({target:{files:[file],value:''}},{external:true});
+}});

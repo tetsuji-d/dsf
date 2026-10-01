@@ -43,7 +43,7 @@ Service Workerはビルド時に決まるアプリ資材、固定URLのSDK・フ
 
 ## インストール案内
 
-ダッシュボードの「端末への追加方法」はインストールイベントの有無にかかわらず表示する。Windows/Chrome、Mac/SafariとChrome、iPhone/iPad/Safari、Android/Chromeの操作を公式案内リンク付きで表示。インストール後のアプリでオフライン準備を確認し、ブラウザーとの作業コピー共有を前提にせずDSPで移すよう案内する。OSからDSPを直接起動するfile_handlers/launchQueueと元ファイルへの上書き保存はまだ未実装。
+ダッシュボードの「端末への追加方法」はインストールイベントの有無にかかわらず表示する。Windows/Chrome、Mac/SafariとChrome、iPhone/iPad/Safari、Android/Chromeの操作を公式案内リンク付きで表示。インストール後のアプリでオフライン準備を確認し、ブラウザーとの作業コピー共有を前提にせずDSPで移すよう案内する。OSからDSP/DSFを受け取るfile_handlers/launchQueueは下記の2026-10-01変更で追加。元ファイルへの上書き保存は未実装。
 
 
 ## 端末ごとのバージョン確認（2026-09-29）
@@ -72,3 +72,24 @@ Service Workerはビルド時に決まるアプリ資材、固定URLのSDK・フ
 - ローカル実アプリでは390px幅も確認。実機iPhone/Androidの操作とは区別する。
 
 - 最終配置調整: 5707547、https://60b8e90a.dsf-studio.pages.dev 、表示版 v2026.09.29-102637。PCヘッダーの操作ボタン右寄せを維持。配信15資材の一致、staging旧版での更新リンク自動出現、更新後のリンク消去と番号・配置を実画面確認。
+
+
+## DSP / DSFのファイル起動（2026-10-01）
+
+- Studioのmanifestに既存MIMEと拡張子を登録。DSPは /studio?room=home&fileLaunch=dsp、DSFは /viewer?fileLaunch=dsf へ渡す。Viewerにも同じmanifestを参照させ、PWAの識別子は /studio を維持する。
+- 対応PCブラウザーのインストール済みPWAで利用する。OSの「プログラムから開く」で選択し、ブラウザーの確認に従う。未対応環境や関連付けがまだ反映されない場合は、既存の画面内ファイル選択を使う。既定のアプリを強制変更しない。
+- launch_handler.client_mode=navigate-new と file_handlers.launch_type=multiple-clients を指定し、対応環境では既存の編集画面をナビゲーションで置き換えない。
+- 受け取り時には読み込み・保存をせず、一覧から本人が「開く」を選ぶ。複数ファイル、あとで再開、一覧から外す、読み取り失敗時の再試行に対応。一覧から外しても元ファイルは削除しない。ハンドルは画面内のメモリだけに保持し、閉じた後は元ファイルから再度開く。
+- DSPの新規起動では前回の起動用バックアップを既存の復元用コピー一覧に保持してから、指定ファイルを開けるようにする。クラウド由来の保護処理も維持し、保持失敗時はファイル起動を停止する。通常起動の自動復元は変えない。
+- 起動完了前はDSPを置き換えない。編集中の未保存変更、クラウド保存未確認、共有原稿、組版等の操作中は開く操作を停止。読み込み中に原稿が変わった場合も適用しない。DSPは既存の取り込み処理により別の端末専用原稿として開き、自動でクラウド保存しない。
+- DSFは既存のv1/v2ローカル読み込み処理を使用し、固定レイアウトは変更しない。破損ファイルの再試行を表示し、ファイル起動から公開作品の読み込みを開始しない。
+- ファイル内容のクラウド送信、ファイル形式変更、DSP元ファイルへの上書き保存、Explorerの表紙サムネイル／プレビュー拡張は含まない。
+
+### 検証範囲
+
+- node scripts/verify-file-launch.js: 明示操作まで未読、複数受け取り、未保存停止と再試行、拡張子、読み取り拒否、二重操作防止、処理中の追加受け取り。
+- 既存のstudio-local-pwa、dsp-publication-thumbnail-import、dsf-local-viewer-package、editor-save-statusの検証とstagingビルド。
+- 合成DSP/DSFを使い、実際のStudio/Viewerをローカルブラウザーで操作。画像表示、不正ZIP時の作品保持、未保存タイトル変更時の停止、「あとで」からの再開、一覧から外す、前回のコピーの保持・再読み込みを確認。
+- OSからの受け渡しはlaunchQueueを模擬して検証。Windowsの実インストール／Explorerダブルクリック、既存インストールのmanifest更新、実機Mac/iPhone/Androidは未検証。PWAインストールだけで全環境の関連付けを保証しない。
+
+仕様参照: [Microsoft File Handling](https://learn.microsoft.com/en-us/microsoft-edge/progressive-web-apps/how-to/handle-files)、[Launch Handler](https://developer.mozilla.org/en-US/docs/Web/Progressive_web_apps/Manifest/Reference/launch_handler)。

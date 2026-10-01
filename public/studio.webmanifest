@@ -23,5 +23,28 @@
       "sizes": "any",
       "type": "image/svg+xml"
     }
-  ]
+  ],
+  "file_handlers": [
+    {
+      "action": "/studio?room=home&fileLaunch=dsp",
+      "accept": {
+        "application/vnd.dsf.project+zip": [
+          ".dsp"
+        ]
+      },
+      "launch_type": "multiple-clients"
+    },
+    {
+      "action": "/viewer?fileLaunch=dsf",
+      "accept": {
+        "application/vnd.dsf.content+zip": [
+          ".dsf"
+        ]
+      },
+      "launch_type": "multiple-clients"
+    }
+  ],
+  "launch_handler": {
+    "client_mode": "navigate-new"
+  }
 }
