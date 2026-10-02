@@ -27,4 +27,6 @@ OS側の表示はPWAのインストール・更新、対応ブラウザー、既
 
 SVG/PNG寸法・透過、PWAの参照先、既存起動契約、オフライン資材一覧、stagingビルドを確認。ブラウザーのインストール案内・受信一覧で見た目と開く操作を確認。OSの実際の関連付け表示とは区別する。
 
+新規インストールの実機確認手順と、DSFから独立した最小PWAによる切り分け結果は [インストール確認](file-association-acceptance.md) を参照。
+
 仕様参照: [Chrome File Handling API](https://developer.chrome.com/docs/capabilities/web-apis/file-handling)（file_handlers.icons）。
