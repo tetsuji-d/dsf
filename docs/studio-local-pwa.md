@@ -76,6 +76,15 @@ Service Workerはビルド時に決まるアプリ資材、固定URLのSDK・フ
 
 ## DSP / DSFのファイル起動（2026-10-01）
 
+### 起動と更新の補強（2026-10-03）
+
+- DSPは起動完了・未保存・操作中の確認を、受信したファイルを読む前にも実行。取得後と取り込み適用前の確認は維持し、取得中の編集も保護する。
+- インストール情報はオンライン時にnetwork-firstで取得し、ネットワーク失敗時だけオフライン用コピーを使う。古いshell cacheがブラウザーの関連付け更新を隠さないようにする。原稿DBは変更しない。
+- stagingビルドのアプリ名をDSF Studio (staging)にし、本番のDSF Studioと識別する。manifest id、scope、起動先は維持。既存インストールの表示名更新時期はブラウザーに依存する。
+- 端末への追加方法に、OS別のファイル起動範囲、検証版と本番版の違い、更新・関連付けの復旧案内を追加。アプリのバージョン確認をOSアイコン登録の成功判定には使わない。
+- verify-studio-install-manifestで本番／stagingの識別子・名前、DSP／DSF起動先、PNG寸法とオフライン資材を検証。verify-file-launchとverify-studio-local-pwaで読み込み前の保存保護、manifestのオンライン更新／オフラインfallbackを確認する。
+- Windows上の隔離Chromeで開発者APIによるインストール／再インストールと実DSP・DSFの受け渡しを確認。通常のインストール画面・Explorerからの起動と、独自アイコンの自動登録は別途確認する（docs/file-icons.md）。
+
 - Studioのmanifestに既存MIMEと拡張子を登録。DSPは /studio?room=home&fileLaunch=dsp、DSFは /viewer?fileLaunch=dsf へ渡す。Viewerにも同じmanifestを参照させ、PWAの識別子は /studio を維持する。
 - 対応PCブラウザーのインストール済みPWAで利用する。OSの「プログラムから開く」で選択し、ブラウザーの確認に従う。未対応環境や関連付けがまだ反映されない場合は、既存の画面内ファイル選択を使う。既定のアプリを強制変更しない。
 - launch_handler.client_mode=navigate-new と file_handlers.launch_type=multiple-clients を指定し、対応環境では既存の編集画面をナビゲーションで置き換えない。

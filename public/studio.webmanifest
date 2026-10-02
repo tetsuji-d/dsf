@@ -27,6 +27,7 @@
   "file_handlers": [
     {
       "action": "/studio?room=home&fileLaunch=dsp",
+      "name": "DSP Manuscript",
       "accept": {
         "application/vnd.dsf.project+zip": [
           ".dsp"
@@ -73,6 +74,7 @@
     },
     {
       "action": "/viewer?fileLaunch=dsf",
+      "name": "DSF Publication",
       "accept": {
         "application/vnd.dsf.content+zip": [
           ".dsf"

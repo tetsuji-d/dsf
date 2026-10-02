@@ -51,6 +51,15 @@ self.addEventListener('message',event=>{
 self.addEventListener('fetch',event=>{
  const request=event.request,url=new URL(request.url);
  if(request.method!=='GET'||request.headers.has('Authorization'))return;
+ // Let the browser discover updated OS associations instead of a pinned manifest.
+ // The cached copy is only an offline fallback.
+ if(url.origin===self.location.origin&&url.pathname==='/studio.webmanifest'){
+  event.respondWith(fetch(new Request(request,{cache:'no-cache'})).catch(async error=>{
+   const cached=await (await caches.open(CACHE)).match(request.url);
+   if(cached)return cached;
+   throw error;
+  }));return;
+ }
  const isEntry=url.origin===self.location.origin&&['/studio','/studio.html','/viewer','/viewer.html'].includes(url.pathname);
  const key=isEntry?absolute(url.pathname.startsWith('/studio')?'/studio.html':'/viewer.html'):request.url;
  // Fonts are only served if installed with the known Google stylesheet. No runtime caching.

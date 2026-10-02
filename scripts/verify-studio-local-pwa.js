@@ -37,3 +37,14 @@ r.listeners.fetch({request:new Request(r.origin+'/studio.html',{redirect:'manual
 assert.equal((await response).redirected,false);
 const repair=fs.readFileSync('public/studio-repair.js','utf8');assert.doesNotMatch(repair,/indexedDB|caches\.delete|unregister\(|localStorage\.clear/);
 console.log('PASS redirected navigation: cached .html and extensionless routes, network fallback, no draft storage deletion');
+// An old installed shell must not hide the browser's new file associations.
+r.entries.set(r.origin+'/studio.webmanifest',new Response('old manifest'));
+r.listeners.fetch({request:new Request(r.origin+'/studio.webmanifest'),respondWith:p=>response=p});
+assert.equal(await (await response).text(),'app bytes','online manifest bypasses old shell cache');
+const failedManifest=runtime(true);
+// This mocked host fails fetches whose URL contains firestore.
+const offlineManifest=failedManifest.origin+'/studio.webmanifest?firestore=offline';
+failedManifest.entries.set(offlineManifest,new Response('offline manifest'));
+failedManifest.listeners.fetch({request:new Request(offlineManifest),respondWith:p=>response=p});
+assert.equal(await (await response).text(),'offline manifest','offline launch retains installed manifest');
+console.log('PASS manifest refresh: online latest and offline fallback');

@@ -1,5 +1,5 @@
 // File handles live only in this window. Receiving a file never opens or uploads it.
-export function createFileLaunchInbox({extension,openFile,onChange=()=>{}}) {
+export function createFileLaunchInbox({extension,openFile,beforeOpen=()=>{},onChange=()=>{}}) {
     let nextId=0,busy=false;
     const items=[];
     const read=()=>({busy,items:items.map(({id,name,error})=>({id,name,error}))});
@@ -25,6 +25,8 @@ export function createFileLaunchInbox({extension,openFile,onChange=()=>{}}) {
             if(busy||!item||!item.name.toLowerCase().endsWith(extension))return false;
             busy=true;item.error='';changed();
             try {
+                // Check manuscript safety before accessing the incoming file.
+                await beforeOpen();
                 const file=await item.handle.getFile();
                 if(!String(file?.name||'').toLowerCase().endsWith(extension))throw Error('type');
                 if(await openFile(file,item.handle)===false)throw Error('open');

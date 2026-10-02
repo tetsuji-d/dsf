@@ -23,3 +23,11 @@ inbox.receive({files:[handle('next.dsp')]});release();await pending;release=null
 assert.ok(inbox.read().items.find(i=>i.name==='next.dsp'),'a later launch is retained during an open');
 inbox.remove(3);assert.equal(inbox.read().items.some(i=>i.id===3),false);
 console.log('PASS file launch: explicit opening, multiple files, unsaved protection, retry, access failure, type validation and serialization');
+let safe=false,guardReads=0,guardOpens=0;
+const guarded=createFileLaunchInbox({extension:'.dsp',beforeOpen:async()=>{if(!safe)throw Error('unsaved');},openFile:async()=>{guardOpens++;}});
+guarded.receive({files:[handle('protected.dsp',async()=>{guardReads++;return {name:'protected.dsp'};})]});
+assert.equal(await guarded.open(1),false);
+assert.equal(guardReads,0,'unsaved manuscript is checked before accessing the received file');
+assert.equal(guarded.read().items[0].error,'unsaved');
+safe=true;assert.equal(await guarded.open(1),true);assert.equal(guardReads,1);assert.equal(guardOpens,1);
+console.log('PASS file launch pre-read protection and retry');

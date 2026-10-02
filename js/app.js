@@ -12301,8 +12301,10 @@ function assertExternalDspOpenReady() {
     if(reason)throw Object.assign(Error('busy'),{reason});
     if(isLocalDraft() ? localDraftStatus.read().dirty : state.projectId && !getEditorSaveStatus().cloudCurrent)throw Error('unsaved');
 }
-installFileLaunch({extension:'.dsp',getLocale:getUILang,openFile:async (file,handle)=>{
+installFileLaunch({extension:'.dsp',getLocale:getUILang,beforeOpen:async()=>{
     try{await studioBootReady;}catch{throw Error('not-ready');}
+    assertExternalDspOpenReady();
+},openFile:async (file,handle)=>{
     assertExternalDspOpenReady();
     await window.importDSP({target:{files:[file],value:''}},{external:true,handle});
 }});

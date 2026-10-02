@@ -1,7 +1,7 @@
 import {createFileLaunchInbox} from './file-launch.js';
 import '../css/file-launch.css';
 
-export function installFileLaunch({extension,openFile,getLocale=()=> 'ja',target=window}) {
+export function installFileLaunch({extension,openFile,beforeOpen,getLocale=()=> 'ja',target=window}) {
     if(typeof target.launchQueue?.setConsumer!=='function')return null;
     const en=()=>getLocale()==='en';
     const dialog=document.createElement('dialog');dialog.className='file-launch-dialog';
@@ -41,7 +41,7 @@ export function installFileLaunch({extension,openFile,getLocale=()=> 'ja',target
         if(!items.length&&dialog.open)dialog.close();
         else if(dialog.open&&!busy)close.focus();
     }
-    inbox=createFileLaunchInbox({extension,openFile,onChange:render});
+    inbox=createFileLaunchInbox({extension,openFile,beforeOpen,onChange:render});
     const show=()=>{if(inbox.read().items.length&&!dialog.open){dialog.showModal();close.focus();}};
     close.onclick=()=>dialog.close();reopen.onclick=show;
     dialog.addEventListener('cancel',event=>{if(inbox.read().busy)event.preventDefault();});
