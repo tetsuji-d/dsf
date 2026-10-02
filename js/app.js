@@ -1,4 +1,5 @@
 import {installFileLaunch} from './file-launch-ui.js';
+import {createDspFileSession,fingerprintDspFile,DSP_FILE_TYPES,dspFilename} from './dsp-file-session.js';
 import {createRecentActivityClient} from './recent-activity-client.js';
 import '../css/recent-works.css';
 import {createRecentWorksUI} from './recent-works-ui.js';
@@ -94,7 +95,7 @@ import { createPageBlockFromSection, createSectionFromPageBlock, getBlockIndexFr
 import { blocksToPages } from './pages.js';
 import { moveAuthoringUnitInSpine, moveFixedPageRangeInSpine } from './fixed-page-spine.js';
 import {localDraftStatus,isLocalDraft,noteLocalDraftEdit,setLocalCloudTransitionPending} from './local-draft-runtime.js';
-import {chooseDspFilename,confirmDspDownload} from './dsp-save-dialog.js';
+import {chooseDspFilename,confirmDspDownload,showDspSaveError} from './dsp-save-dialog.js';
 import {installStudioPwa} from './studio-pwa.js';
 import {installHomeStart} from './home-start.js';
 import { buildDSP, buildDSF, parseAndLoadDSP } from './export.js';
@@ -9995,12 +9996,12 @@ window.restoreCloudManuscript = async () => {
 
 window.saveProject = async () => {
     assertSharedStudioEdit();
-    if(isLocalDraft())return window.exportDSP();
+    if(isLocalDraft())return saveDspFile();
     await persistProject();
     refresh();
 };
 
-window.importDSP = async (event, {external = false} = {}) => {
+window.importDSP = async (event, {external = false, handle = null} = {}) => {
     assertPersonalStudioOperation();
     const file = event.target.files[0];
     if (!file) return;
@@ -10018,6 +10019,7 @@ window.importDSP = async (event, {external = false} = {}) => {
         await (external ? flushBeforeSafeResume() : flushPendingSave());
         const epoch=getProjectSessionEpoch();
         const before=external ? JSON.stringify(state) : '';
+        const fingerprint=handle ? await fingerprintDspFile(file) : null;
         const loadedState = detachLocalProject(hydrateProjectFromPersistence(await parseAndLoadDSP(file)),createId('work'));
         if(external){assertExternalDspOpenReady();if(epoch!==getProjectSessionEpoch()||before!==JSON.stringify(state))throw Error('busy');}
 
@@ -10027,6 +10029,7 @@ window.importDSP = async (event, {external = false} = {}) => {
             type: actionTypes.LOAD_PROJECT,
             payload: loadedState
         });
+        if(handle&&fingerprint)dspFileSession.attach(handle,fingerprint);
         localDraftStatus.confirm(localDraftStatus.checkpoint());
         await flushSave(); // Keep the current local manuscript as the startup recovery copy too.
 
@@ -10048,21 +10051,35 @@ window.importDSP = async (event, {external = false} = {}) => {
     }
 };
 
-window.exportDSP = async () => {
+let dspSaveBusy=false;
+async function saveDspFile({saveAs=false,download=false}={}) {
     assertPersonalStudioOperation();
-    const btnDataList = document.querySelectorAll('button[onclick="exportDSP()"]');
-    btnDataList.forEach(btn => btn.textContent = '⏳ ZIP生成中...');
+    if(dspSaveBusy||readStudioAIState().busy)return;
+    dspSaveBusy=true;
+    const buttons=[...document.querySelectorAll('[data-authoring-save],button[onclick="exportDSP()"],button[onclick="downloadDSP()"]')];
+    const disabled=buttons.map(b=>b.disabled);buttons.forEach(b=>{b.disabled=true;b.setAttribute('aria-busy','true');});
+    const epoch=getProjectSessionEpoch(),local=isLocalDraft();
     try {
-        const token=localDraftStatus.checkpoint(), local=isLocalDraft();
-        const result=await buildDSP({chooseFilename:name=>chooseDspFilename(name,getUILang()==='en')});
-        if(local&&result?.status==='download-started')confirmDspDownload({filename:result.filename,en:getUILang()==='en',onConfirm:()=>isLocalDraft()&&localDraftStatus.confirm(token)});
-    } catch (e) {
-        console.error("Export DSP failed:", e);
-        alert("エクスポート中にエラーが発生しました。\n" + e.message);
+        if(!download&&(typeof window.showSaveFilePicker==='function'||(!saveAs&&dspFileSession.read().name))){
+            const result=await dspFileSession.save({saveAs,
+                chooseHandle:()=>window.showSaveFilePicker({suggestedName:dspFilename(dspFileSession.read().name||state.projectName||state.title),types:DSP_FILE_TYPES,excludeAcceptAllOption:true}),
+                buildBlob:async()=>{const token=localDraftStatus.checkpoint();const result=await buildDSP({returnBlob:true});return {...result,token};}
+            });
+            if(result.status==='saved'&&local&&isLocalDraft()&&epoch===getProjectSessionEpoch())localDraftStatus.confirm(result.token);
+        } else {
+            const token=localDraftStatus.checkpoint();
+            const result=await buildDSP({chooseFilename:name=>chooseDspFilename(name,getUILang()==='en')});
+            if(local&&result?.status==='download-started')confirmDspDownload({filename:result.filename,en:getUILang()==='en',onConfirm:()=>{if(!isLocalDraft()||!localDraftStatus.confirm(token))return false;dspFileSession.clear();return true;}});
+        }
+    } catch(error) {
+        showDspSaveError({code:error.code||error.name,en:getUILang()==='en',
+            onSaveAs:()=>saveDspFile({saveAs:true}),onDownload:()=>saveDspFile({download:true})});
     } finally {
-        btnDataList.forEach(btn => btn.textContent = '⬇ プロジェクト保存 (.dsp)');
+        dspSaveBusy=false;buttons.forEach((b,i)=>{b.disabled=disabled[i];b.removeAttribute('aria-busy');});
     }
-};
+}
+window.exportDSP=()=>saveDspFile({saveAs:true});
+window.downloadDSP=()=>saveDspFile({download:true});
 
 let _dsfExportInProgress = false;
 
@@ -11106,7 +11123,7 @@ const MOBILE_ROOM_ACTIONS = {
             key: 'open-local',
             icon: 'folder_open',
             labelKey: 'bottom_open_local',
-            onClick: () => document.getElementById('dsp-upload')?.click()
+            onClick: () => window.openDSP()
         },
         {
             key: 'menu',
@@ -12238,14 +12255,42 @@ document.addEventListener('studio-ui-language-change',()=>void refreshProtectedC
 
 window.addEventListener('shared-recovery-account',()=>{protectedDialog?.close();protectedDialog=null;void refreshProtectedCopies();});
 
+const dspFileSession=createDspFileSession({
+    readScope:()=>JSON.stringify([getProjectSessionEpoch(),state.projectId,state.uid,!!readSharedStudioAccess()]),
+    canBind:()=>!state.projectId&&!readSharedStudioAccess(),
+    onChange:()=>window.dispatchEvent(new Event('dsp-file-change'))
+});
+subscribeProjectSession(()=>dspFileSession.clear());
+window.addEventListener('dsp-file-change',()=>{syncLocalFileNote();if(dspFileSession.read().name)localFileNote.textContent+=' · '+dspFileSession.read().name;});
+const appendDspFilename=()=>{if(dspFileSession.read().name)localFileNote.textContent+=' · '+dspFileSession.read().name;};
+window.addEventListener('local-draft-status',appendDspFilename);
+document.addEventListener('studio-ui-language-change',appendDspFilename);
+window.openDspInput=async event=>{try{await studioBootReady;await window.importDSP(event,{external:true});}catch(error){alert(error.message==='unsaved'?(getUILang()==='en'?'Save the current manuscript before opening another file.':'別のファイルを開く前に、編集中の原稿を保存してください。'):error.message);}finally{if(event.target)event.target.value='';}};
+window.openDSP=async()=>{
+    try{
+        assertExternalDspOpenReady();
+        if(typeof window.showOpenFilePicker!=='function'){document.getElementById('dsp-upload').click();return;}
+        const [handle]=await window.showOpenFilePicker({types:DSP_FILE_TYPES,multiple:false,excludeAcceptAllOption:true});
+        await studioBootReady;
+        const file=await handle.getFile();
+        await window.importDSP({target:{files:[file],value:''}},{external:true,handle});
+    }catch(error){if(error.name!=='AbortError')alert(error.message==='unsaved'?(getUILang()==='en'?'Save the current manuscript before opening another file.':'別のファイルを開く前に、編集中の原稿を保存してください。'):error.message);}
+};
+document.addEventListener('keydown',event=>{
+    if((event.ctrlKey||event.metaKey)&&event.key.toLowerCase()==='s'&&getCurrentRoom()==='editor'){
+        event.preventDefault();event.stopImmediatePropagation();
+        if(document.querySelector('dialog[open]'))return;
+        void (event.shiftKey?window.exportDSP():window.saveProject()).catch(error=>alert(error.message));
+    }
+},{capture:true});
 // Incoming files require an explicit Open action and never replace unsaved work.
 function assertExternalDspOpenReady() {
     assertPersonalStudioOperation();
-    if(readStudioAIState().busy || openingProject)throw Error('busy');
+    if(dspSaveBusy || readStudioAIState().busy || openingProject)throw Error('busy');
     if(isLocalDraft() ? localDraftStatus.read().dirty : state.projectId && !getEditorSaveStatus().cloudCurrent)throw Error('unsaved');
 }
-installFileLaunch({extension:'.dsp',getLocale:getUILang,openFile:async file=>{
+installFileLaunch({extension:'.dsp',getLocale:getUILang,openFile:async (file,handle)=>{
     try{await studioBootReady;}catch{throw Error('not-ready');}
     assertExternalDspOpenReady();
-    await window.importDSP({target:{files:[file],value:''}},{external:true});
+    await window.importDSP({target:{files:[file],value:''}},{external:true,handle});
 }});

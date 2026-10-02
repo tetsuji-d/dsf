@@ -27,7 +27,7 @@ export function createFileLaunchInbox({extension,openFile,onChange=()=>{}}) {
             try {
                 const file=await item.handle.getFile();
                 if(!String(file?.name||'').toLowerCase().endsWith(extension))throw Error('type');
-                if(await openFile(file)===false)throw Error('open');
+                if(await openFile(file,item.handle)===false)throw Error('open');
                 items.splice(items.indexOf(item),1);
                 return true;
             } catch(error) {

@@ -87,7 +87,7 @@
                 <h2 data-home-title tabindex="-1">ダッシュボード</h2>
                 <div class="home-room-actions">
                     <button type="button" class="home-action-btn" data-home-resume disabled><span class="material-icons" aria-hidden="true">edit</span><span data-start-label="resume">編集中の作品に戻る</span></button>
-                    <button class="home-action-btn" onclick="document.getElementById('dsp-upload').click()"><span class="material-icons" aria-hidden="true">file_upload</span><span data-home-label="import">DSPを取り込む</span></button>
+                    <button class="home-action-btn" onclick="openDSP()"><span class="material-icons" aria-hidden="true">file_upload</span><span data-home-label="import">DSPを取り込む</span></button>
                     <button class="home-action-btn primary" onclick="newSpaceProject()"><span class="material-icons" aria-hidden="true">add</span><span data-home-label="create">作品を作成</span></button>
                 </div>
             </div>
@@ -149,7 +149,7 @@
                             </div>
                         </div>
                         <div class="home-section-actions">
-                            <button class="home-action-btn" onclick="document.getElementById('dsp-upload').click()">
+                            <button class="home-action-btn" onclick="openDSP()">
                                 <span class="material-icons">folder_open</span> <span data-i18n="home_open_file">ファイルから開く (.dsp)</span>
                             </button>
                         </div>
@@ -283,9 +283,10 @@
                 </div>
                 <div class="ribbon-panel" data-ribbon-panel="export">
                     <div class="ribbon-group">
-                        <button class="btn-tool btn-tool-icon" onclick="exportDSP()" title=".dsp ファイルをローカルに保存">
-                            <span class="material-icons" aria-hidden="true">download</span><span data-i18n="btn_save_dsp">DSP 保存</span>
+                        <button class="btn-tool btn-tool-icon" onclick="exportDSP()" title="名前を付けて保存 (.dsp)">
+                            <span class="material-icons" aria-hidden="true">save_as</span><span data-i18n="btn_save_dsp">名前を付けて保存</span>
                         </button>
+                        <button class="btn-tool btn-tool-icon" onclick="downloadDSP()" title="DSPをダウンロード保存"><span class="material-icons" aria-hidden="true">download</span><span data-i18n="btn_download_dsp">ダウンロード保存</span></button>
                         <button id="btn-restore-private-authoring" class="btn-tool btn-tool-icon" hidden onclick="restoreCloudManuscript()">
                             <span class="material-icons" aria-hidden="true">restore</span><span data-i18n="authoring_restore">前のクラウド原稿に戻す</span>
                         </button>
@@ -296,7 +297,7 @@
                         </button>
                     </div>
                 </div>
-                <input type="file" id="dsp-upload" style="display: none;" onchange="importDSP(event)">
+                <input type="file" id="dsp-upload" style="display: none;" accept=".dsp" onchange="openDspInput(event)">
             </div>
         </header>
 
@@ -733,9 +734,10 @@
             <div id="mobile-sheet-export" class="mobile-sheet-content">
                 <button class="btn-tool btn-tool-icon" onclick="saveToCloud()"><span class="material-icons" aria-hidden="true">cloud_upload</span><span data-i18n="mobile_save_cloud">クラウド保存</span></button>
                 <button class="btn-tool btn-tool-icon" onclick="shareProject()" data-auth-required><span class="material-icons" aria-hidden="true">share</span><span data-i18n="btn_share">共有</span></button>
-                <button class="btn-tool btn-tool-icon" onclick="document.getElementById('dsp-upload-mobile').click()"><span class="material-icons" aria-hidden="true">folder_open</span><span data-i18n="mobile_open_local">ローカルから開く (.dsp)</span></button>
-                <input type="file" id="dsp-upload-mobile" style="display: none;" onchange="importDSP(event)">
-                <button class="btn-tool btn-tool-icon" onclick="exportDSP()"><span class="material-icons" aria-hidden="true">download</span><span data-i18n="mobile_export_dsp">Project (.dsp)</span></button>
+                <button class="btn-tool btn-tool-icon" onclick="openDSP()"><span class="material-icons" aria-hidden="true">folder_open</span><span data-i18n="mobile_open_local">ローカルから開く (.dsp)</span></button>
+                <input type="file" id="dsp-upload-mobile" style="display: none;" accept=".dsp" onchange="openDspInput(event)">
+                <button class="btn-tool btn-tool-icon" onclick="exportDSP()"><span class="material-icons" aria-hidden="true">save_as</span><span data-i18n="mobile_export_dsp">名前を付けて保存 (.dsp)</span></button>
+                <button class="btn-tool btn-tool-icon" onclick="downloadDSP()"><span class="material-icons" aria-hidden="true">download</span><span data-i18n="btn_download_dsp">ダウンロード保存</span></button>
                 <button class="btn-tool btn-tool-icon" onclick="exportDSF()" data-flow-publication-required data-flow-portable-download><span class="material-icons" aria-hidden="true">publish</span><span data-i18n="mobile_export_dsf">Publish (.dsf)</span></button>
                 <button class="btn-tool btn-tool-icon" onclick="openProjectModal()" data-auth-required><span class="material-icons" aria-hidden="true">folder</span><span data-i18n="mobile_projects">プロジェクト一覧</span></button>
             </div>

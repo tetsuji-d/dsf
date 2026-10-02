@@ -394,7 +394,8 @@ export const STRINGS = {
         btn_fit:              'フィット',
 
         // Ribbon – Export
-        btn_save_dsp:         'DSP 保存',
+        btn_save_dsp:         '名前を付けて保存',
+        btn_download_dsp:     'ダウンロード保存',
         btn_press_room:       'Press Room →',
 
         // Auth
@@ -752,7 +753,7 @@ export const STRINGS = {
         bottom_lang:             '言語',
         mobile_save_cloud:       'クラウド保存',
         mobile_open_local:       'ローカルから開く (.dsp)',
-        mobile_export_dsp:       'Project (.dsp)',
+        mobile_export_dsp:       '名前を付けて保存 (.dsp)',
         mobile_export_dsf:       'Publish (.dsf)',
         mobile_projects:         'プロジェクト一覧',
 
@@ -1154,7 +1155,8 @@ export const STRINGS = {
         btn_fit:              'Fit',
 
         // Ribbon – Export
-        btn_save_dsp:         'Save DSP',
+        btn_save_dsp:         'Save DSP as',
+        btn_download_dsp:     'Download DSP',
         btn_press_room:       'Press Room →',
 
         // Auth
@@ -1512,7 +1514,7 @@ export const STRINGS = {
         bottom_lang:             'Lang',
         mobile_save_cloud:       'Save to Cloud',
         mobile_open_local:       'Open Local (.dsp)',
-        mobile_export_dsp:       'Project (.dsp)',
+        mobile_export_dsp:       'Save DSP as',
         mobile_export_dsf:       'Publish (.dsf)',
         mobile_projects:         'Projects',
 

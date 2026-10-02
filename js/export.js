@@ -133,6 +133,7 @@ export async function buildDSP(options = {}) {
         blocks: state.blocks || [],
         pages: state.pages || [],
     });
+    const exportMeta = structuredClone(buildMetadata('dsp', { projectVersion: initialProject.version }));
     const exportSections = JSON.parse(JSON.stringify(initialProject.sections || []));
 
     // Download images and modify paths
@@ -196,7 +197,7 @@ export async function buildDSP(options = {}) {
 
     // 3. Metadata. DSP schema v2 identifies Project v6 authoring archives;
     // published DSF metadata remains schema v1.
-    const meta = buildMetadata('dsp', { projectVersion: projectData.version });
+    const meta = exportMeta;
     zip.file('meta.json', JSON.stringify(meta, null, 2));
 
     zip.file("project.json", JSON.stringify(projectData, null, 2));
@@ -204,7 +205,7 @@ export async function buildDSP(options = {}) {
     // 4. Determine Filename
     const safeTitle = (meta.title || 'project').replace(/[\\/:*?"<>|]/g, '_');
     const defaultFilename = `${safeTitle}.dsp`;
-    let filename = options.chooseFilename ? await options.chooseFilename(defaultFilename) : prompt("保存するファイル名を入力してください:", defaultFilename);
+    let filename = options.returnBlob ? defaultFilename : options.chooseFilename ? await options.chooseFilename(defaultFilename) : prompt("保存するファイル名を入力してください:", defaultFilename);
 
     if (filename === null) {
         return {status:'cancelled'}; // User cancelled
@@ -217,6 +218,8 @@ export async function buildDSP(options = {}) {
 
     // 5. Generate ZIP ArrayBuffer
     const content = await zip.generateAsync({ type: "blob" });
+
+    if(options.returnBlob)return {status:'ready',blob:content,filename};
 
     // 6. Trigger Download
     saveAs(content, filename);

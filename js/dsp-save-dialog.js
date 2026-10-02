@@ -21,3 +21,20 @@ export function confirmDspDownload({filename,onConfirm,en=false}) {
  const yes=document.createElement('button');yes.textContent=en?'I have the saved DSP file':'DSPファイルの保存を確認しました';yes.onclick=()=>{if(onConfirm()){close();}else{hint.textContent=en?'The manuscript changed during export. Save the latest version again.':'書き出し中に原稿が変わりました。最新の内容をもう一度保存してください。';yes.disabled=true;}};
  d.append(h,p,hint,later,yes);document.body.append(d);d.showModal();
 }
+
+export function showDspSaveError({code,en=false,onSaveAs,onDownload}) {
+ const messages={
+  DSP_FILE_CHANGED:en?'The file changed outside this editor. Save under a different name to keep both versions.':'元のファイルが別の操作で変更されています。別の名前で保存して両方の内容を残してください。',
+  DSP_FILE_SESSION_CHANGED:en?'The active manuscript or account changed during saving. Saving was stopped or could not be confirmed. Check the file before continuing.':'保存中に原稿またはアカウントが変わったため、保存を中止したか、完了を確認できませんでした。ファイルを確認してください。',
+  DSP_FILE_VERIFY_FAILED:en?'Could not verify the saved file. Keep this editor open and save another copy.':'保存後のファイル内容を確認できませんでした。この画面を閉じずに、別のファイルへ保存してください。',
+  DSP_FILE_PERMISSION:en?'Write permission was not granted. Choose another destination or download a copy.':'書き込みが許可されませんでした。別の保存先を選ぶか、ダウンロードしてください。',
+  NotAllowedError:en?'Writing was not permitted. Choose another destination or download a copy.':'書き込みが許可されませんでした。別の保存先を選ぶか、ダウンロードしてください。',
+  NoModificationAllowedError:en?'The file is being used. Try again after the other save finishes.':'ファイルが使用中です。別の保存操作が終わってから再試行してください。'
+ };
+ const d=document.createElement('dialog');d.className='local-file-dialog';
+ const h=document.createElement('h2');h.textContent=en?'DSP saving needs attention':'DSPファイルの保存を確認してください';
+ const p=document.createElement('p');p.textContent=messages[code]||(en?'Could not save the DSP file. Your manuscript remains in this editor. Choose another destination or download a copy.':'DSPファイルを保存できませんでした。原稿はエディターに残っています。別の保存先を選ぶか、ダウンロードしてください。');
+ const add=(label,action)=>{const b=document.createElement('button');b.type='button';b.textContent=label;b.onclick=()=>{d.close();d.remove();action?.();};return b;};
+ d.append(h,p,add(en?'Save as':'名前を付けて保存',onSaveAs),add(en?'Download copy':'ダウンロード保存',onDownload),add(en?'Close':'閉じる'));
+ d.addEventListener('close',()=>d.remove(),{once:true});document.body.append(d);d.showModal();
+}

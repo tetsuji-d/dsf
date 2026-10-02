@@ -43,7 +43,7 @@ Service Workerはビルド時に決まるアプリ資材、固定URLのSDK・フ
 
 ## インストール案内
 
-ダッシュボードの「端末への追加方法」はインストールイベントの有無にかかわらず表示する。Windows/Chrome、Mac/SafariとChrome、iPhone/iPad/Safari、Android/Chromeの操作を公式案内リンク付きで表示。インストール後のアプリでオフライン準備を確認し、ブラウザーとの作業コピー共有を前提にせずDSPで移すよう案内する。OSからDSP/DSFを受け取るfile_handlers/launchQueueは下記の2026-10-01変更で追加。元ファイルへの上書き保存は未実装。
+ダッシュボードの「端末への追加方法」はインストールイベントの有無にかかわらず表示する。Windows/Chrome、Mac/SafariとChrome、iPhone/iPad/Safari、Android/Chromeの操作を公式案内リンク付きで表示。インストール後のアプリでオフライン準備を確認し、ブラウザーとの作業コピー共有を前提にせずDSPで移すよう案内する。OSからDSP/DSFを受け取るfile_handlers/launchQueueは下記の2026-10-01変更で追加。元ファイルへの上書き保存は下記の2026-10-02変更で追加。
 
 
 ## 端末ごとのバージョン確認（2026-09-29）
@@ -93,3 +93,23 @@ Service Workerはビルド時に決まるアプリ資材、固定URLのSDK・フ
 - OSからの受け渡しはlaunchQueueを模擬して検証。Windowsの実インストール／Explorerダブルクリック、既存インストールのmanifest更新、実機Mac/iPhone/Androidは未検証。PWAインストールだけで全環境の関連付けを保証しない。
 
 仕様参照: [Microsoft File Handling](https://learn.microsoft.com/en-us/microsoft-edge/progressive-web-apps/how-to/handle-files)、[Launch Handler](https://developer.mozilla.org/en-US/docs/Web/Progressive_web_apps/Manifest/Reference/launch_handler)。
+
+
+## DSPの上書き保存・名前を付けて保存（2026-10-02）
+
+- 対応環境では「DSPファイルを開く」とPWAファイル起動で受け取ったハンドルを、そのエディター画面内だけ保持。「保存」で元ファイルへ書き込み、「名前を付けて保存」で保存先を選択する。新規原稿の初回保存でも保存先を選択する。
+- ローカル原稿の状態表示にファイル名を併記。原稿の切り替え・再読み込み後はハンドルを引き継がず、ファイルを開き直すか保存先を選択する。クラウド原稿の通常保存は従来どおりクラウドへ保存。DSP書き出しでクラウド原稿にローカルファイルを紐づけない。
+- エディター内のCtrl/Cmd+Sで保存、Shift併用でDSPの別名保存。モーダル表示中にはショートカットで保存を始めない。
+- 保存先選択・書込許可は本人の操作から行う。元ファイルのサイズ・更新時刻・SHA-256を照合し、外部変更を検出した場合は上書きを停止して別名保存を案内。同じファイルを別名保存で選び直しても検査する。
+- 一時書き込み完了後のcloseと保存後の内容検査が成功した場合だけ保存済みにする。権限拒否・失敗・キャンセルでは未保存の変更を残す。作成途中に編集された場合、保存できた版と現在の版を区別し、未保存表示を消さない。原稿・アカウント変更時も保存処理を停止／完了未確認にする。
+- ブラウザー間の排他書込を要求するが、OSの別アプリを含む完全な原子的比較・交換は提供されない。最後の比較からcloseまでの外部書込を完全には防げない。外部アプリとの同時編集を自動統合する機能ではない。
+- 未対応環境および明示した「ダウンロード保存」は既存のDSPダウンロードと本人の保存確認を使用する。ダウンロードを確認した場合は以前の上書き先との結び付きを解除する。書込権限拒否後に無断でダウンロードへ切り替えない。
+- DSPのproject.jsonとmeta.jsonは同じ時点の原稿から生成。DSP/DSF形式、クラウド保存方式、IndexedDBの形式は変更しない。ファイルのハンドル・権限・ハッシュを永続保存しない。
+
+### 保存機能の検証
+
+- verify-dsp-file-session: 上書き、別名保存、同一ファイル選択、外部変更、キャンセル、権限拒否、生成・書込・close失敗、保存後の再検査、二重保存、原稿切替、保存中編集を検証。
+- ローカル実画面でFile System Accessの実ハンドル・書込ストリームを使い、上書き、別名保存、外部変更検出と別名への退避、ショートカット、未対応時のダウンロード確認を検証。保存DSPはZIPのCRC、作品タイトルとmeta.jsonの一致、画像の保持を検査。
+- 保存先選択だけテスト用ブラウザー内ファイル（OPFS）へ差し替えた検証。OSのファイル選択画面・Windowsの実ファイルへの書込、実機Mac/iPhone/Androidは未検証。
+
+仕様参照: [Chrome File System Access](https://developer.chrome.com/docs/capabilities/web-apis/file-system-access)、[createWritable](https://developer.mozilla.org/en-US/docs/Web/API/FileSystemFileHandle/createWritable)。
