@@ -25,7 +25,11 @@ export function installFileLaunch({extension,openFile,getLocale=()=> 'ja',target
         list.replaceChildren();
         for(const item of items) {
             const row=document.createElement('li'),name=document.createElement('strong'),actions=document.createElement('div');
-            name.textContent=item.name;row.append(name);
+            name.textContent=item.name;
+            const label=document.createElement('div');label.className='file-launch-name';
+            const kind=item.name.toLowerCase().endsWith('.dsp')?'dsp':item.name.toLowerCase().endsWith('.dsf')?'dsf':null;
+            if(kind){const icon=document.createElement('img');icon.src='/file-icons/'+kind+'.svg';icon.alt='';icon.width=icon.height=40;label.append(icon);}
+            label.append(name);row.append(label);
             if(item.error){const error=document.createElement('p');error.setAttribute('role','alert');error.textContent=errors()[item.error];row.append(error);}
             const open=document.createElement('button'),remove=document.createElement('button');
             open.type=remove.type='button';open.textContent=en()?'Open':'開く';remove.textContent=en()?'Remove from list':'一覧から外す';
