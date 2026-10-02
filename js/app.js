@@ -1,3 +1,4 @@
+import {dspOpenErrorMessage} from './dsp-open-status.js';
 import {installFileLaunch} from './file-launch-ui.js';
 import {createDspFileSession,fingerprintDspFile,DSP_FILE_TYPES,dspFilename} from './dsp-file-session.js';
 import {createRecentActivityClient} from './recent-activity-client.js';
@@ -12265,7 +12266,7 @@ window.addEventListener('dsp-file-change',()=>{syncLocalFileNote();if(dspFileSes
 const appendDspFilename=()=>{if(dspFileSession.read().name)localFileNote.textContent+=' · '+dspFileSession.read().name;};
 window.addEventListener('local-draft-status',appendDspFilename);
 document.addEventListener('studio-ui-language-change',appendDspFilename);
-window.openDspInput=async event=>{try{await studioBootReady;await window.importDSP(event,{external:true});}catch(error){alert(error.message==='unsaved'?(getUILang()==='en'?'Save the current manuscript before opening another file.':'別のファイルを開く前に、編集中の原稿を保存してください。'):error.message);}finally{if(event.target)event.target.value='';}};
+window.openDspInput=async event=>{try{await studioBootReady;await window.importDSP(event,{external:true});}catch(error){alert(dspOpenErrorMessage(error,getUILang()==='en'));}finally{if(event.target)event.target.value='';}};
 window.openDSP=async()=>{
     try{
         assertExternalDspOpenReady();
@@ -12274,7 +12275,7 @@ window.openDSP=async()=>{
         await studioBootReady;
         const file=await handle.getFile();
         await window.importDSP({target:{files:[file],value:''}},{external:true,handle});
-    }catch(error){if(error.name!=='AbortError')alert(error.message==='unsaved'?(getUILang()==='en'?'Save the current manuscript before opening another file.':'別のファイルを開く前に、編集中の原稿を保存してください。'):error.message);}
+    }catch(error){if(error.name!=='AbortError')alert(dspOpenErrorMessage(error,getUILang()==='en'));}
 };
 document.addEventListener('keydown',event=>{
     if((event.ctrlKey||event.metaKey)&&event.key.toLowerCase()==='s'&&getCurrentRoom()==='editor'){
@@ -12283,10 +12284,21 @@ document.addEventListener('keydown',event=>{
         void (event.shiftKey?window.exportDSP():window.saveProject()).catch(error=>alert(error.message));
     }
 },{capture:true});
+// DSP contains canonical authoring data; preview pagination is not an authoring lock.
+// A cancelled preview may leave flowReflowPending on a connected, hidden proxy.
+function readDspOpenBlockReason() {
+    if(dspSaveBusy)return 'saving';
+    if(openingProject)return 'opening';
+    if(editorDragBlocked(false))return 'editing';
+    if(_flowDirectEditSession && _flowDirectEditProxy?.isConnected
+        && _flowDirectEditProxy.value!==_flowDirectEditSession.expectedText)return 'uncommitted';
+    return '';
+}
 // Incoming files require an explicit Open action and never replace unsaved work.
 function assertExternalDspOpenReady() {
     assertPersonalStudioOperation();
-    if(dspSaveBusy || readStudioAIState().busy || openingProject)throw Error('busy');
+    const reason=readDspOpenBlockReason();
+    if(reason)throw Object.assign(Error('busy'),{reason});
     if(isLocalDraft() ? localDraftStatus.read().dirty : state.projectId && !getEditorSaveStatus().cloudCurrent)throw Error('unsaved');
 }
 installFileLaunch({extension:'.dsp',getLocale:getUILang,openFile:async (file,handle)=>{

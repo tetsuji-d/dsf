@@ -113,3 +113,11 @@ Service Workerはビルド時に決まるアプリ資材、固定URLのSDK・フ
 - 保存先選択だけテスト用ブラウザー内ファイル（OPFS）へ差し替えた検証。OSのファイル選択画面・Windowsの実ファイルへの書込、実機Mac/iPhone/Androidは未検証。
 
 仕様参照: [Chrome File System Access](https://developer.chrome.com/docs/capabilities/web-apis/file-system-access)、[createWritable](https://developer.mozilla.org/en-US/docs/Web/API/FileSystemFileHandle/createWritable)。
+
+
+## DSPを開く際の表示待ち誤判定（2026-10-02）
+
+- ダッシュボードの「DSPファイルを開く」がAI操作用のbusy判定を流用し、Flowの表示用ページ生成・キャンセル後のflowReflowPendingまで原稿変更中と扱っていた。DSP取り込みの事前判定を分け、表示用処理だけではファイル選択を止めない。
+- 保存中、作品読込中、IME入力・画像取込・翻訳中、確定していない直接入力、未保存のローカル原稿・保存未確認のクラウド原稿、共有原稿の境界は維持。読み込み中の原稿変更も引き続き適用前に停止する。
+- busy等の内部文字列を利用者へ直接表示せず、待っている処理または原稿確認・保存の案内を日英で表示する。
+- verify-dsp-open-statusで表示待ち残留と保護条件を検証。隔離した実Studio画面に表示待ち状態を注入し、旧判定による停止と修正版でのDSP取込・画像表示を確認する。OSファイル選択は合成DSPを返す検証用代替で、実際の利用者原稿は操作しない。
