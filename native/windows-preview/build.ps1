@@ -29,6 +29,11 @@ foreach ($file in @('miniz.c','miniz_tinfl.c','miniz_zip.c')) {
     $objects += $obj
 }
 $src = Join-Path $PSScriptRoot 'src'
+& node (Join-Path $PSScriptRoot 'build-badges.cjs')
+if ($LASTEXITCODE) { throw 'File type badge generation failed' }
+$badges = Join-Path $out 'badges.res'
+& $Zig rc /i $out /fo $badges (Join-Path $src 'badges.rc')
+if ($LASTEXITCODE) { throw 'File type badge resource compilation failed' }
 $webpFiles = @(Get-ChildItem (Join-Path $webp 'src/dec') -Filter '*.c' | ForEach-Object { $_.FullName })
 foreach ($name in @('alpha_processing','cpu','dec','dec_clip_tables','filters','lossless','rescaler','upsampling','yuv')) {
     $webpFiles += Join-Path $webp ('src/dsp/'+$name+'.c')
@@ -49,7 +54,7 @@ foreach ($file in $webpFiles) {
 $common += @('-I',(Join-Path $webp 'src'))
 $base = @((Join-Path $src 'archive.cpp'),(Join-Path $src 'image.cpp'))
 $libs = @('-lole32','-luuid','-lgdi32','-lshlwapi','-lshell32','-lwindowscodecs','-lbcrypt','-ladvapi32')
-& $Zig c++ @common -std=c++17 @base (Join-Path $src 'thumbnail.cpp') (Join-Path $src 'thumbnail.def') @objects @libs -shared -o (Join-Path $out 'DsfThumbnail.dll')
+& $Zig c++ @common -std=c++17 @base (Join-Path $src 'thumbnail.cpp') (Join-Path $src 'thumbnail.def') $badges @objects @libs -shared -o (Join-Path $out 'DsfThumbnail.dll')
 if ($LASTEXITCODE) { throw 'Thumbnail provider build failed' }
 & $Zig c++ @common -std=c++17 @base (Join-Path $src 'check.cpp') @objects @libs -municode -static -o (Join-Path $out 'dsf-thumbnail-check.exe')
 if ($LASTEXITCODE) { throw 'Thumbnail checker build failed' }

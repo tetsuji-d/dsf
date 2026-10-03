@@ -66,6 +66,18 @@ try {
 
     if ($Action -eq 'Uninstall') {
         if (!$record) { Write-Output 'No DSF thumbnail installation was found.'; return }
+        if (!$TestId) { & (Join-Path $PSScriptRoot 'user-badges.ps1') -Action Uninstall }
+        foreach ($overlay in $record.overlays) {
+            if ($overlay.extension -notin $extensions) { throw 'Unknown overlay extension in installation record.' }
+            $path=$base+$overlay.extension
+            if ((Read-Value $machine $path 'TypeOverlay') -eq $overlay.written) {
+                if ($overlay.existed) { Set-Value $path 'TypeOverlay' $overlay.previous }
+                else {
+                    $key=$machine.OpenSubKey($path,$true)
+                    try { $key.DeleteValue('TypeOverlay',$false) } finally { $key.Dispose() }
+                }
+            }
+        }
         foreach ($entry in $record.extensionKeys) {
             if ($entry.extension -notin $extensions) { throw 'Unknown extension in installation record.' }
             $path=$base+$entry.extension+'\shellex\'+$handler
@@ -142,6 +154,31 @@ try {
         }
     }
     if (!$record) { $record=[pscustomobject]@{schemaVersion=1;owner=$owner;versions=@();extensionKeys=$baseline} }
+    if (!$record.PSObject.Properties['overlays']) {
+        $record | Add-Member -NotePropertyName overlays -NotePropertyValue @()
+    }
+    foreach ($extension in $extensions) {
+        $overlay=@($record.overlays | Where-Object extension -eq $extension)
+        if ($overlay.Count -gt 1) { throw 'Duplicate overlay registration record.' }
+        if (!$overlay.Count) {
+            $key=$machine.OpenSubKey($base+$extension)
+            try {
+                $existed=$key -and $key.GetValueNames() -contains 'TypeOverlay'
+                if ($existed -and $key.GetValueKind('TypeOverlay') -ne [Microsoft.Win32.RegistryValueKind]::String) { throw 'Unknown TypeOverlay value kind. Nothing will be overwritten.' }
+                $overlay=[pscustomobject]@{extension=$extension;existed=[bool]$existed;previous=(Read-Value $machine ($base+$extension) 'TypeOverlay');written=''}
+            } finally { if($key){$key.Dispose()} }
+            $record.overlays=@($record.overlays)+@($overlay)
+        } else {
+            $overlay=$overlay[0]
+            $existingOverlay=Read-Value $machine ($base+$extension) 'TypeOverlay'
+            if ($null -ne $existingOverlay -and $existingOverlay -ne $overlay.written -and $existingOverlay -ne $overlay.previous) {
+                throw "TypeOverlay was changed by another application for $extension. Refusing to replace it."
+            }
+        }
+        # Use the standard Windows overlay, not pixels baked into the cover image.
+        $resource=if($extension -eq $extensions[0]){102}else{101}
+        $overlay.written=(Join-Path $destination 'DsfThumbnail.dll')+',-'+$resource
+    }
     New-Item -ItemType Directory -Path $destination -Force | Out-Null
     foreach ($file in $manifest.files) {
         $target=Join-Path $destination $file.name
@@ -159,6 +196,8 @@ try {
     Set-Value ($classPath+'\InprocServer32') '' (Join-Path $destination 'DsfThumbnail.dll')
     Set-Value ($classPath+'\InprocServer32') 'ThreadingModel' 'Apartment'
     foreach ($extension in $extensions) { Set-Value ($base+$extension+'\shellex\'+$handler) '' $clsid }
+    foreach ($overlay in $record.overlays) { Set-Value ($base+$overlay.extension) 'TypeOverlay' $overlay.written }
+    if (!$TestId) { & (Join-Path $PSScriptRoot 'user-badges.ps1') -Action Install }
     Notify-Shell
     Write-Output 'DSF cover thumbnails installed for this PC. Default apps and file icons were preserved.'
 } finally { $machine.Dispose() }

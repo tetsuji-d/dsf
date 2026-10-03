@@ -21,6 +21,9 @@ Windows x64用`IThumbnailProvider`を実装。**専用拡張子でのExplorer実
 ## ビルド
 
 Zig 0.15.2のWindows x64版（システムインストール不要）で検証した。
+種類表示のICO生成にはNode.js、PlaywrightとChromeを使用する。
+Playwrightを外部の共有環境から使う場合は`DSF_PLAYWRIGHT_MODULE`へmoduleの絶対パスを指定する。
+文字形状は既存の`public/file-icons/dsf.svg`／`dsp.svg`と共通で、フォントには依存しない。
 公式ZIP: https://ziglang.org/download/0.15.2/zig-x86_64-windows-0.15.2.zip
 
 SHA-256: `3a0ed1e8799a2f8ce2a6e6290a9ff22e6906f8227865911fb7ddedc3cc14cb0c`
@@ -82,10 +85,10 @@ Machineは事前承認とWindows管理者確認が必要。`run-machine-diagnost
 出力先: `outputs/windows-preview/DSF-Windows-Preview-<DLL hash先頭12文字>.zip`。
 解凍後の`setup.ps1`はStatus／Install／Uninstallを持つ。使用方法は同梱README.txtを参照。
 
-- Program Filesへhash別にDLLとライセンスを置き、HKLMのthumbnail handlerだけ登録する。
+- Program Filesへhash別にDLLとライセンスを置き、HKLMのthumbnail handlerと`TypeOverlay`を登録する。
 - 既存の別handlerは上書きせず停止。既定アプリ・種類別アイコン・原稿は変更しない。
 - package内のファイルhashを照合し、所有する登録・既知のファイルだけを解除する。
-- 同じ版の再実行は検証済み。異なる版への更新はhash別配置で実装したが、実機更新試験は未実施。
+- 同じ版の再実行を検証済み。異なる版への更新は下記の種類表示追加版で確認した。
 - 検証用Install→再Install→Shell描画→Uninstallを実行。元原稿・実`.dsp`／`.dsf`の関連付け不変、
   一時キー・Program Files内の検証フォルダーの消去を確認した。
   記録は`outputs/windows-preview/install-verification.json`。
@@ -94,6 +97,29 @@ Machineは事前承認とWindows管理者確認が必要。`run-machine-diagnost
   DLL SHA-256: `e394388d99a9046f2a55085defcca350df8b806bd2e88ba23108c182833f6f4b`。
   既定アプリ・種類別アイコンなど、thumbnail binding以外の拡張子設定が不変であることを照合した。
   記録は`outputs/windows-preview/permanent-install.json`と同ディレクトリの導入ログ。
+
+### 表紙上のDSF／DSP種類表示（実表示確認待ち）
+
+- 表紙PNGや原稿を加工せず、Windows標準の`TypeOverlay`で青のDSF／緑のDSPを表示する。
+  DLLのICON resource 101／102へ既存の種類別アイコンと同じ文字・色を同梱する。
+  16〜256pxの32-bit DIB ICOを使い、Windowsの`ExtractIconEx`で双方の取得を確認した。
+- このPCでChromeのマークはreaderが生成するPNGには含まれていなかった。
+  Windowsが関連アプリのマークを表紙の右下へ重ねている。
+- `setup.ps1`は拡張子の`TypeOverlay`を登録し、元の値を保存して解除時に戻す。
+  `user-badges.ps1`はこのユーザーのDSF Studio専用ProgIDを確認して登録する。
+  対象は`DSFStudio.Project.1`／`Publication.1`と、拡張子・起動先が一致するChrome／EdgeのPWA登録だけ。
+  共通ブラウザー登録、UserChoice、開くコマンド、DefaultIconは変更しない。
+- 管理者として別アカウントを使う場合は、ふだんのユーザーでも`user-badges.ps1`を実行する。
+  他ユーザーへ自動で書き込まない。解除前に、設定した各ユーザーで同スクリプトのUninstallを実行する。
+- 2026-10-03、DLL `4d023f2034bb308dff0306d2feb4d4bc8b03e99927ce26f2e7c82a4a335fb314`へ実機更新。
+  30件のnative検証、既定アプリ等の不変、ユーザー種類表示の解除・再登録・再実行を確認した。
+  `IQueryAssociations`と実ファイルの`BHID_AssociationArray`は正しいラベルを返した。
+  `UserChoiceLatest`の生値だけでは実際の参照ProgIDを断定できないため、Shell APIを照合する。
+- **Explorerの既存・新規ウィンドウではChromeマークが残る。表示成功とは扱わない。**
+  F5、新しいコピー、標準アイコン再表示でも変わらず、Explorer再起動はユーザー確認待ち。
+  一時的に試した`SystemFileAssociations`設定は元へ戻した。全体キャッシュの削除は行っていない。
+- 記録: `outputs/windows-preview/badge-update.json`、`user-badge-verification.json`。
+  新しいZIPはラベル実表示の確認が終わるまで一般配布しない。
 
 ### 実拡張子・OneDrive内の確認
 
@@ -113,12 +139,13 @@ Machineは事前承認とWindows管理者確認が必要。`run-machine-diagnost
 ## 配布前の残作業
 
 1. DSPの任意表紙PNG同梱は承認・実装済み。Flow表紙など現時点で省略している構成への対応を検討する。
-2. OneDrive内の表紙取得待ちを調査する。異なる版への更新、新規Windows端末での再現性も確認する。
+2. OneDrive内の表紙取得待ちを調査する。新規Windows端末での再現性も確認する。
 3. 署名・一般配布方法を整える。現在は開発用の未署名ZIP。
 4. 第2段階の本文プレビューへ進む。固定テキスト・言語・ページ順を既存Viewerと照合し、
    画像だけを抜き出して本文が欠けたプレビューを完成扱いしない。
 
 Microsoftの根拠:
 - [Thumbnail handlers](https://learn.microsoft.com/en-us/windows/win32/shell/building-thumbnail-providers)
+- [Thumbnail overlays](https://learn.microsoft.com/en-us/windows/win32/shell/thumbnail-providers#thumbnail-overlays)
 - [Preview handlers](https://learn.microsoft.com/en-us/windows/win32/shell/building-preview-handlers)
 - [In-process extensions](https://learn.microsoft.com/en-us/windows/win32/shell/shell-and-managed-code)

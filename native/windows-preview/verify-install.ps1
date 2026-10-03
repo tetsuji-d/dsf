@@ -39,7 +39,7 @@ $before=File-Associations
 $result=[ordered]@{testId=$testId;install=$false;repeatInstall=$false;shell=$false;removed=$false;associationsUnchanged=$false;originalsUnchanged=$false}
 New-Item -ItemType Directory -Path $folder | Out-Null
 $sources=@((Join-Path $fixture 'v1-webp.dsf'),(Join-Path $out 'cover-roundtrip.dsp'),(Join-Path $fixture 'dsp-stale-source.dsf'))
-$copies=@((Join-Path $folder ('01-DSF-cover.dsftest'+$testId+'1')),(Join-Path $folder ('02-DSP-cover.dsftest'+$testId+'2')),(Join-Path $folder ('03-stale-preview.dsftest'+$testId+'2')))
+$copies=@((Join-Path $folder ('01-DSF-cover.dsftest'+$testId+'2')),(Join-Path $folder ('02-DSP-cover.dsftest'+$testId+'1')),(Join-Path $folder ('03-stale-preview.dsftest'+$testId+'1')))
 for($i=0;$i -lt $sources.Count;$i++){Copy-Item -LiteralPath $sources[$i] -Destination $copies[$i]}
 try {
     & $setup -Action Install -TestId $testId
