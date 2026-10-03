@@ -147,3 +147,11 @@ alias `https://staging.dsf-studio.pages.dev` のStudio/ViewerはHTTP 200、版�
 照合成功後の再読み込みに限り離脱警告を一時抑制し、DSP・クラウドの保存済み状態、閉じる／原稿置換の保護は変更しない。通常の離脱では従来の警告を維持する。原稿データ、保存形式、クラウド契約は変更しない。
 
 `studio-restored-reload.js`と回帰検査を追加。隔離した実IndexedDBを用いる`studio-restored-update.html`で追加保存なしの実再読み込みを2回連続実施し、本文保持を確認した。画像欠落と更新準備中の追加入力で停止することも実画面で確認。Service Worker配信部分はこのfixtureでは差し替えており、旧stagingから修正版への更新完了は配信後の検証課題。
+
+### ステージング配信記録（2026-10-03）
+
+ユーザーのコミット・デプロイ指示により、上記の編集対象ツール整理と復元原稿の更新保護修正を`452b912`でコミットし、stagingへ配信した。版は`v2026.10.03-121902`、固定URLは`https://833b281e.dsf-studio.pages.dev`。本番・main・Rulesは変更していない。
+
+restored reload、Studio version、local PWA、safe resume integration、work statusの回帰検査とstagingビルドが成功。staging aliasのStudio/ViewerはHTTP 200、版情報、Studio JS/CSS、Service Workerの配信内容がdistと一致した。固定URLの実画面でも配信版を確認した。
+
+ただし旧版のService Workerが残る検証用ブラウザーでは、`studio-repair.html`の更新操作後も`v2026.10.03-115606`が表示され、最新の`121902`への移行完了は確認できなかった。復元原稿は保持されている。旧タブやユーザーのChromeの原稿は強制再読込していない。配信完了と既存インストールの更新完了は区別し、この経路は継続調査対象とする。サイトデータ削除を回避策として案内しない。
