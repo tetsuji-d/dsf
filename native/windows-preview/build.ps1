@@ -26,7 +26,7 @@ foreach ($file in @('miniz.c','miniz_tinfl.c','miniz_zip.c')) {
 }
 $src = Join-Path $PSScriptRoot 'src'
 $base = @((Join-Path $src 'archive.cpp'),(Join-Path $src 'image.cpp'))
-$libs = @('-lole32','-luuid','-lgdi32','-lshlwapi','-lwindowscodecs','-lbcrypt')
+$libs = @('-lole32','-luuid','-lgdi32','-lshlwapi','-lshell32','-lwindowscodecs','-lbcrypt')
 & $Zig c++ @common -std=c++17 @base (Join-Path $src 'thumbnail.cpp') (Join-Path $src 'thumbnail.def') @objects @libs -shared -o (Join-Path $out 'DsfThumbnail.dll')
 if ($LASTEXITCODE) { throw 'Thumbnail provider build failed' }
 & $Zig c++ @common -std=c++17 @base (Join-Path $src 'check.cpp') @objects @libs -municode -static -o (Join-Path $out 'dsf-thumbnail-check.exe')

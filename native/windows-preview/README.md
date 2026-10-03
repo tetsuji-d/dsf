@@ -60,6 +60,19 @@ OS画面上の表示成功とは区別する。一般利用者のPCにはまだ�
 結果を`outputs/windows-preview/shell-verification.json`へ保存する。
 隔離を無効化して成功扱いにはしない。通常のExplorer確認は引き続き未完了。
 
+追加切り分け（同日）:
+- 標準PNGは`IShellItemImageFactory`で成功する。DSFの拡張子からCLSIDの検索も成功する。
+- 関連付け変更通知、短い検証拡張子、明示した検証用ProgIDでも同じエラーが残る。
+- Windows標準Thumbnail Cacheの生成は成功、そこからの抽出は同じ`0x80040154`。
+- 現在の実行環境は64 bit・通常ユーザー・medium integrity・非restricted tokenで、HKCUは通常のuser Classes hive。
+  パッケージの仮想レジストリが原因とは確認されていない。
+- 一時登録中の実Explorerも、検証ファイルは白いアイコンのままで、隣のPNG／WebPは表示できた。
+- `-TestSurrogate`による独立したCOM別プロセス起動も未成功。登録は毎回解除済み。
+
+`verify-shell.ps1 -InspectSeconds 120`は最大2分だけ検証登録を保持してExplorerで確認できる。
+既存の`.dsp`／`.dsf`、既定アプリ、Windowsの隔離設定、セキュリティ設定は変更しない。
+成功するまで一般配布や実ファイルへの登録へ進めない。
+
 ## 配布前の残作業
 
 1. DSPの任意表紙PNG同梱は承認・実装済み。Flow表紙など現時点で省略している構成への対応を検討する。
