@@ -1,3 +1,4 @@
+import {privateImageHash} from './shared-authoring-assets.js';
 import { isPrivateAuthoringId } from './private-authoring-ids.js';
 import {
     assertPrivateAuthoringHead, createPrivateAuthoringSnapshot,
@@ -23,6 +24,8 @@ export function assertPrivateAuthoringRoot(root, uid, projectId) {
         && !['blocks', 'pages', 'sections'].some(key => Object.hasOwn(root, key)), 'AUTHORING_ROOT_INVALID');
 }
 export function authoringSaveMessage(error) {
+    if(error?.code==='SHARED_AUTHORING_REQUIRED')return '共有原稿に切り替わりました。未保存の内容を退避してから出版スペースで開き直してください';
+    if(error?.code==='SHARED_SCOPE_UNAVAILABLE')return '共有原稿の所属を確認できません。出版スペースの管理者に確認してください';
     if (/CONFLICT|REUSED/.test(error?.code || '')) return '別の更新があります。ローカル原稿を退避し、クラウド版を開き直してください';
     if (/SESSION|RELOAD|LEASE|EXPIRED|REJECTED/.test(error?.code || '')) return 'クラウド未保存。ローカル原稿を退避し、クラウド版を開き直してください';
     if (/TOO_LARGE|INVALID|SIZE|COMPLEXITY/.test(error?.code || '')) return '原稿の容量・形式を確認してください。クラウド未保存です';
@@ -53,12 +56,15 @@ function parse(bytes) {
 
 /** One open editor session. No token, revision or pending body is placed in project state. */
 export function createPrivateAuthoringClient({ uid, projectId, user, isCurrent,
-    fetcher = globalThis.fetch, newRequestId = () => crypto.randomUUID(), timeoutMs = 30_000 }) {
+    storageUid = uid, sharedScope = null, fetcher = globalThis.fetch, newRequestId = () => crypto.randomUUID(), timeoutMs = 30_000 }) {
     check(isPrivateAuthoringId(uid) && isPrivateAuthoringId(projectId), 'AUTHORING_SCOPE_INVALID');
-    const path = `/api/projects/${encodeURIComponent(projectId)}/authoring`;
+    check(isPrivateAuthoringId(storageUid), 'AUTHORING_SCOPE_INVALID');
+    check(sharedScope ? isPrivateAuthoringId(sharedScope.spaceId) && isPrivateAuthoringId(sharedScope.workId) : storageUid === uid, 'AUTHORING_SCOPE_INVALID');
+    const path = sharedScope ? `/api/spaces/${encodeURIComponent(sharedScope.spaceId)}/works/${encodeURIComponent(sharedScope.workId)}/authoring`
+        : `/api/projects/${encodeURIComponent(projectId)}/authoring`;
     let head = null, pending = null, creating = null, blocked = null, busy = false;
     const current = () => check(isCurrent() && user?.uid === uid, 'AUTHORING_SESSION_CHANGED');
-    const scope = value => ({ uid, projectId, generationId: value.generationId });
+    const scope = value => ({ uid: storageUid, projectId, generationId: value.generationId });
     const validateHead = value => {
         check(value && typeof value === 'object', 'AUTHORING_RECEIPT_INVALID');
         assertPrivateAuthoringHead(value, scope(head || value)); return value;
@@ -76,8 +82,13 @@ export function createPrivateAuthoringClient({ uid, projectId, user, isCurrent,
             const bytes = await bytesLimited(response, response.ok ? limit : 32 * 1024);
             current();
             if (!response.ok) {
-                const code = parse(bytes)?.error;
-                throw new AuthoringClientError(typeof code === 'string' && /^[A-Z0-9_]{1,80}$/.test(code) ? code : 'AUTHORING_UNAVAILABLE', response.status);
+                const data=parse(bytes),code=data?.error;
+                const error=new AuthoringClientError(typeof code === 'string' && /^[A-Z0-9_]{1,80}$/.test(code) ? code : 'AUTHORING_UNAVAILABLE', response.status);
+                const scope=data?.sharedScope;
+                if(!sharedScope&&code==='SHARED_AUTHORING_REQUIRED'&&response.status===409
+                    &&scope?.projectId===projectId&&isPrivateAuthoringId(scope.spaceId)&&isPrivateAuthoringId(scope.workId))
+                    error.sharedScope={spaceId:scope.spaceId,workId:scope.workId,projectId};
+                throw error;
             }
             return { bytes, response };
         } finally { clearTimeout(timer); }
@@ -122,6 +133,7 @@ export function createPrivateAuthoringClient({ uid, projectId, user, isCurrent,
             } finally { busy = false; }
         },
         async create(project) {
+            check(!sharedScope, 'AUTHORING_CREATE_NOT_ALLOWED');
             current(); check(!busy && !head, 'AUTHORING_RELOAD_REQUIRED');
             if (blocked) throw blocked;
             busy = true;
@@ -175,7 +187,7 @@ export async function resolvePrivateAuthoringAssets(project, upload) {
         if (typeof value !== 'string' || !/^blob:/i.test(value)) return;
         if (!uploaded.has(value)) uploaded.set(value, await upload(value));
         const url = uploaded.get(value);
-        check(typeof url === 'string' && /^https?:\/\//.test(url), 'AUTHORING_ASSET_UNRESOLVED');
+        check(typeof url === 'string' && (/^https?:\/\//.test(url) || privateImageHash(url)), 'AUTHORING_ASSET_UNRESOLVED');
         owner[key] = url;
     }
     async function owner(value) {
@@ -187,6 +199,7 @@ export async function resolvePrivateAuthoringAssets(project, upload) {
         }
     }
     await owner(result);
+    for (const asset of result.projectAssets || []) await owner(asset);
     for (const block of result.blocks || []) await owner(block.content);
     for (const section of result.sections || []) await owner(section);
     for (const page of result.pages || []) await owner(page);

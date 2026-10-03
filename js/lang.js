@@ -209,7 +209,7 @@ const LANGS = {
  * 未登録コードはコードをラベルにした汎用プロパティを返す
  */
 export function getLangProps(code) {
-    return LANGS[code] || {
+    return LANGS[code] || LANGS[String(code).toLowerCase()] || {
         label: code.toUpperCase(),
         align: 'left',
         sectionAlign: 'left',

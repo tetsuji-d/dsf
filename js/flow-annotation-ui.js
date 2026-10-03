@@ -78,7 +78,7 @@ export function getAnnotationSelection(element) {
 }
 
 /** Applies only to a caller-owned in-memory document after an explicit dialog action. */
-export function openAnnotationDialog({ source, sectionId, blockId, range, languageKey='ja', onApply, onClose }) {
+export function openAnnotationDialog({ source, sectionId, blockId, range, languageKey='ja', initialFocus='reading', onApply, onClose }) {
     const block = source.sections.find(s=>s.id===sectionId).blocks.find(b=>b.id===blockId);
     const text = block.texts[languageKey];
     const list = block.annotations?.[languageKey] || [];
@@ -152,5 +152,5 @@ export function openAnnotationDialog({ source, sectionId, blockId, range, langua
         catch { dialog.querySelector('[data-error]').textContent='原稿が変更されています。閉じて対象文字を選び直してください。'; }
     }};
     dialog.addEventListener('close',()=>{dialog.remove();previous?.focus?.({preventScroll:true});onClose?.();},{once:true});
-    document.body.append(dialog);update();dialog.showModal();reading.focus();return true;
+    document.body.append(dialog);update();dialog.showModal();(initialFocus==='mark'?mark:reading).focus();return true;
 }

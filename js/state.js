@@ -1,8 +1,10 @@
+import {clearCloudMetadata} from './authoring-location.js';
 /**
  * state.js — アプリケーション共有ステート
  * `blocks` が authoring canonical。
  * `sections` と `pages` は互換レンダリング/出力のための派生面として保持する。
  */
+import { assertSharedStudioEdit, readSharedStudioAccess, setSharedStudioAccess } from './shared-studio-access.js';
 export const state = {
     // Project authoring envelope. Existing Fixed projects remain v5 until they
     // intentionally adopt a Project v6 Flow spine.
@@ -15,6 +17,7 @@ export const state = {
     localProjectId: null,
     projectName: '',
     title: '',               // 作品タイトル（ヘッダー表示用）
+    projectAssets: [],
     publicationThumbnailUrl: '', // 空なら発行時のC1表紙をHorizonサムネイルに使用
     dsfPages: [],
     languages: ['ja'],       // プロジェクトの対応言語
@@ -71,9 +74,23 @@ export const state = {
     }
 };
 
-/**
- * Action Types
- */
+// Runtime only: never added to state or exported project data.
+let projectSessionIdentity = {};
+const projectSessionListeners = new Set();
+export const getProjectSessionIdentity = () => projectSessionIdentity;
+export function subscribeProjectSession(listener) {
+    projectSessionListeners.add(listener);
+    return () => projectSessionListeners.delete(listener);
+}
+export function resetProjectSession() {
+    projectSessionEpoch += 1;
+    projectSessionIdentity = {};
+    for (const listener of projectSessionListeners) {
+        try { listener(); } catch { console.warn('[State] Project session listener failed'); }
+    }
+}
+
+/** Action Types */
 export const actionTypes = {
     // Project loading
     LOAD_PROJECT: 'LOAD_PROJECT',
@@ -110,15 +127,18 @@ export const getProjectSessionEpoch = () => projectSessionEpoch;
 export function dispatch(action) {
     const { type, payload } = action;
 
+    const uiActions = ['LOAD_PROJECT','SET_AUTH_STATE','SET_ACTIVE_LANG','SET_ACTIVE_LANGUAGE','SET_ACTIVE_INDEX','SET_ACTIVE_BLOCK_INDEX','SET_ACTIVE_BUBBLE_INDEX','SET_THUMB_COLUMNS'];
+    if (!uiActions.includes(type) && !(type === 'SET_STATE_FIELD' && ['activeIdx','activePageIdx','activeBlockIdx','activeBubbleIdx','uiPrefs'].includes(payload?.key))) assertSharedStudioEdit();
     switch (type) {
         case actionTypes.LOAD_PROJECT: {
-            projectSessionEpoch += 1;
+            resetProjectSession();
             // バックアップ/DSP 復元に含まれる uid・user は古いセッションの残骸で
             // Firebase Auth の現在ユーザーとズレると R2 の path と ID トークンが不一致になる。
             const projectPayload = {
                 dsfPages: [],
                 releaseId: null,
                 localProjectId: null,
+                projectAssets: [],
                 publicationThumbnailUrl: '',
                 activeIdx: 0,
                 activePageIdx: 0,
@@ -128,12 +148,18 @@ export function dispatch(action) {
             };
             delete projectPayload.uid;
             delete projectPayload.user;
+            clearCloudMetadata(state);
             Object.assign(state, projectPayload);
+            setSharedStudioAccess(null);
             break;
         }
 
         case actionTypes.SET_AUTH_STATE:
-            if (state.uid !== payload.uid || state.user !== payload.user) projectSessionEpoch += 1;
+            if (state.uid !== payload.uid || state.user !== payload.user) {
+                projectSessionEpoch += 1;
+                const shared = readSharedStudioAccess();
+                if (shared) setSharedStudioAccess({...shared, status:'unavailable', canEdit:false});
+            }
             state.user = payload.user;
             state.uid = payload.uid;
             break;

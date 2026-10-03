@@ -1,3 +1,5 @@
+import {appendFlowGraphicPreview} from './graphic-object-renderer.js';
+import { appendGraphicThumbnail } from './graphic-object-renderer.js';
 /**
  * sections.js — editor-facing page operations + thumbnail rendering
  *
@@ -14,7 +16,7 @@ import {
     getCachedFlowRuntimePageProjection,
     getSelectedFlowRuntimePageIndex,
 } from './flow-runtime-pages.js';
-import { isFlowSourceSelected } from './flow-editor-session.js';
+import { getFlowEditorProjectionScope, isFlowSourceSelected } from './flow-editor-session.js';
 import { moveFlowGroupInSpine, removeFixedPageRangeFromSpine } from './fixed-page-spine.js';
 
 // ──────────────────────────────────────────────────────────────
@@ -813,7 +815,7 @@ export function renderThumbs() {
                 || blocks[state.activeBlockIdx]?.flow?.document?.sourceLanguage || 'ja',
             state.sections || [],
             document,
-            'editor',
+            getFlowEditorProjectionScope(),
         )
         : null;
     const runtimePagesByBlock = new Map();
@@ -1057,6 +1059,7 @@ export function renderThumbs() {
             writingMode: page.writingMode,
             typography: page.typography,
         });
+        void appendFlowGraphicPreview(pageElement,page.page,state.projectAssets || [],page.languageKey,state.defaultLang).catch(()=>{});
         const viewport = pageElement.parentElement;
         const scale = Math.max(0, (viewport?.clientWidth || 0) / CANONICAL_PAGE_WIDTH);
         pageElement.style.position = 'absolute';
@@ -1080,6 +1083,10 @@ export function renderThumbs() {
         `;
     }
 
+    container.querySelectorAll('.thumb-wrap[data-block-index]').forEach(wrap=>{
+        const content=blocks[Number(wrap.dataset.blockIndex)]?.content;
+        if(content?.graphicObjects?.length||content?.objectOrder)appendGraphicThumbnail(wrap.querySelector('.thumb-canvas'),content,state.projectAssets||[],state.activeLang,state.defaultLang).catch(()=>{});
+    });
     container.querySelectorAll('.thumb-render-loader').forEach((img) => {
         if (img.complete && img.naturalWidth) {
             window.syncDsfThumbImagePosition(img);

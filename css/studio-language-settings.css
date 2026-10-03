@@ -1,0 +1,17 @@
+.source-language-dialog { color:var(--text-primary,#e5edf6); background:var(--bg-secondary,#172234); border:1px solid var(--border-color,#61748c); border-radius:12px; padding:22px; width:min(420px,calc(100vw - 40px)); }
+.source-language-dialog::backdrop {background:#0008;}
+.source-language-dialog h2 {font-size:18px;margin:0 0 18px;}
+.source-language-dialog label {display:grid;gap:6px;margin:12px 0;}
+.source-language-dialog select {width:100%;min-height:34px;}
+.source-language-dialog p {font-size:12px;line-height:1.6;}
+.source-language-dialog footer {display:flex;justify-content:flex-end;gap:10px;margin-top:18px;}
+.source-language-dialog button {padding:7px 18px;cursor:pointer;}
+.source-language-dialog .primary {background:#2463bd;color:white;border:1px solid #2463bd;border-radius:4px;}
+.auth-panel .ui-lang-switcher {display:flex;gap:6px;margin-top:6px;}
+.auth-panel .ui-lang-btn {width:auto;padding:6px 14px;min-height:30px;}
+#editor-language-status {display:inline-flex;align-items:center;gap:8px;flex-wrap:wrap;}
+#editor-language-status[hidden] {display:none;}
+#editor-language-status button {font:inherit;color:inherit;background:transparent;border:1px solid currentColor;border-radius:4px;padding:1px 5px;cursor:pointer;}
+.flow-compare-missing {min-inline-size:2em;}
+.ps-default-language {display:grid;gap:5px;margin-bottom:12px;}
+.ps-default-language small {font-size:12px;opacity:.8;}

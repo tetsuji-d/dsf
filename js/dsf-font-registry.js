@@ -322,7 +322,7 @@ export function resolveDsfProductionFont(registry, fontId, requirements = {}) {
     const entry = registry.fonts?.[fontId];
     if (!entry) return { ok: false, code: 'FONT_NOT_CERTIFIED', fontId: fontId || null };
     const capabilities = entry.capabilities;
-    if (requirements.language && !capabilities.languages.includes(requirements.language)) {
+    if (requirements.language && !capabilities.languages.some(language => language.toLowerCase() === String(requirements.language).toLowerCase())) {
         return { ok: false, code: 'FONT_LANGUAGE_UNSUPPORTED', fontId, language: requirements.language };
     }
     if (requirements.writingMode && !capabilities.writingModes.includes(requirements.writingMode)) {

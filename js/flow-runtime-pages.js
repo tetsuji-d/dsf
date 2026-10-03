@@ -1,3 +1,5 @@
+import {applyFlowPagePlacements} from './flow-page-placement-layout.js';
+import {composeFlowWithAnchoredObjects} from './flow-wrap-composition.js';
 /** Browser-only runtime pagination for persisted Project v6 Flow groups. */
 
 import {
@@ -100,7 +102,9 @@ function hasCompleteFlowLanguage(document, languageKey) {
     return sawTextBlock;
 }
 
-export function resolveFlowRuntimeLanguage(group, requestedLanguageKey) {
+export function isFlowEditorLanguageScope(scope) { return scope === 'editor' || scope === 'editor-compare'; }
+
+export function resolveFlowRuntimeLanguage(group, requestedLanguageKey, sessionScope = 'default') {
     const profiles = group?.flow?.layout?.typographyByLanguage || {};
     const requestedProfile = profiles[requestedLanguageKey];
     const sourceLanguage = String(group?.flow?.document?.sourceLanguage || '');
@@ -112,9 +116,10 @@ export function resolveFlowRuntimeLanguage(group, requestedLanguageKey) {
     const translationStatus = requestedLanguageKey === sourceLanguage
         ? null
         : deriveFlowTranslationStatus(group, requestedLanguageKey);
-    const requiresSourceFallback = translationStatus?.requiresSourceFallback === true;
+    // Both editor modes display drafts. Default/Press/Viewer retain their output contract.
+    const requiresSourceFallback = translationStatus?.requiresSourceFallback === true && !isFlowEditorLanguageScope(sessionScope);
 
-    if (requestedLanguageKey === sourceLanguage || (requestedHasText && requestedHasProfile && !requiresSourceFallback)) {
+    if (requestedLanguageKey === sourceLanguage || (requestedHasProfile && ((requestedHasText && !requiresSourceFallback) || isFlowEditorLanguageScope(sessionScope)))) {
         if (!requestedHasProfile) {
             throw new FlowRuntimePageError(
                 'FLOW_LANGUAGE_TYPOGRAPHY_MISSING',
@@ -130,7 +135,7 @@ export function resolveFlowRuntimeLanguage(group, requestedLanguageKey) {
         });
     }
 
-    if (requestedHasText && !requestedHasProfile && !requiresSourceFallback) {
+    if (!requestedHasProfile && (isFlowEditorLanguageScope(sessionScope) || (requestedHasText && !requiresSourceFallback))) {
         throw new FlowRuntimePageError(
             'FLOW_LANGUAGE_TYPOGRAPHY_MISSING',
             `Flow typography is not available for translated language ${requestedLanguageKey}.`,
@@ -258,7 +263,7 @@ function waitForPromiseOrAbort(promise, signal) {
 
 async function paginateFlowGroup(group, options) {
     const { requestedLanguageKey, ownerDocument, signal } = options;
-    const language = resolveFlowRuntimeLanguage(group, requestedLanguageKey);
+    const language = resolveFlowRuntimeLanguage(group, requestedLanguageKey, options.sessionScope);
     const { languageKey, profile } = language;
     const cacheKey = getGroupCacheKey(group, language, ownerDocument, options);
     const cached = getCachedGroup(cacheKey);
@@ -322,7 +327,21 @@ async function paginateFlowGroup(group, options) {
     }
 
     session.measurer.resetMetrics();
-    const { pagination, changeSet } = await session.paginator.paginateAsync(group.flow.document, {
+    // Missing targets are empty runtime placeholders, never source text presented
+    // as a translation and never written into the authoring document.
+    let paginationDocument = group.flow.document;
+    if (isFlowEditorLanguageScope(options.sessionScope) && languageKey !== group.flow.document.sourceLanguage) {
+        paginationDocument = deepClone(paginationDocument);
+        for (const section of paginationDocument.sections) for (const block of section.blocks) {
+            if (['heading', 'paragraph'].includes(block.type) && typeof block.texts?.[languageKey] !== 'string') {
+                block.texts = {...block.texts, [languageKey]: ''};
+            }
+        }
+    }
+    const { pagination:unplacedPagination, changeSet } = group.flow.layout.anchoredObjects?.length
+        ? {pagination:composeFlowWithAnchoredObjects({...group,flow:{...group.flow,document:paginationDocument}},
+            {pageBox,languageKey,writingMode,typography,ownerDocument,signal,maxPages:options.maxPagesPerGroup||DEFAULT_MAX_PAGES_PER_GROUP}),changeSet:null}
+        : await session.paginator.paginateAsync(paginationDocument, {
             revision: options.revision,
             signal,
             maxPagesPerChunk: options.maxPagesPerChunk || 1,
@@ -338,6 +357,7 @@ async function paginateFlowGroup(group, options) {
             },
         });
     throwIfAborted(signal);
+    const pagination=applyFlowPagePlacements(group,unplacedPagination,{ownerDocument,typography});
     const result = Object.freeze({
         groupId: group.id,
         documentId: group.flow.document.id,

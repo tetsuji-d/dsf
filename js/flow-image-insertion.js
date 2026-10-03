@@ -1,3 +1,4 @@
+import {partitionFlowObjects} from './flow-anchored-objects.js';
 import { moveAuthoringUnitInSpine } from './fixed-page-spine.js';
 /**
  * Insert a Fixed image at a semantic caret. Each side paginates independently.
@@ -64,6 +65,7 @@ export function createFlowImageInsertion(blocks, session, options = {}) {
         { ...section, blocks: section.blocks.slice(0, tailIndex) },
     ];
     const trailingBlockIds = new Set(trailing.flow.document.sections.flatMap(s => s.blocks.map(b => b.id)));
+    partitionFlowObjects(leading,trailing,trailingBlockIds);
     const trailingSectionIds = new Set(trailing.flow.document.sections.map(s => s.id));
     const leadingSectionIds = new Set(document.sections.map(s => s.id));
     // Route known metadata with its units. Retain unknown/orphan metadata on the

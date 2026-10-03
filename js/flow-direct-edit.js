@@ -5,6 +5,7 @@
  * operation always targets the persisted heading/paragraph source block.
  */
 
+import { inspectFlowParagraphMerge } from './flow-paragraph-merge.js';
 import { mapFlowTextUtf16OffsetToGrapheme } from './flow-source-mapping.js';
 
 const DIRECT_TEXT_TYPES = new Set(['heading', 'paragraph']);
@@ -90,27 +91,29 @@ function createSourcePoint(target, text, utf16Offset, affinity = 'nearest') {
     });
 }
 
-function requireCurrentDirectSession(groupInput, session) {
+function requireCurrentDirectSession(groupInput, session, allowTranslation = false) {
     const group = requireFlowGroup(groupInput);
     if (!session || session.groupId !== group.id) {
         fail('FLOW_DIRECT_SESSION_STALE', 'The direct-edit session no longer targets the active Flow group.');
     }
     const sourceLanguage = String(group.flow.document.sourceLanguage || '');
-    if (session.languageKey !== sourceLanguage || !DIRECT_TEXT_WRITING_MODES.has(session.writingMode)) {
+    if ((!allowTranslation && session.languageKey !== sourceLanguage) || !DIRECT_TEXT_WRITING_MODES.has(session.writingMode)) {
         fail('FLOW_DIRECT_SESSION_STALE', 'The direct-edit language or writing mode changed.');
     }
     const { section, block } = requireSourceTarget(group, session.sectionId, session.blockId);
     if (block.type !== session.blockType) {
         fail('FLOW_DIRECT_SESSION_STALE', 'The direct-edit source block changed type.');
     }
-    const currentText = requireDirectEditableText(block.texts?.[sourceLanguage] ?? '');
+    const languageKey = session.languageKey;
+    if (!session.allowMissingTranslation && languageKey !== sourceLanguage && !Object.hasOwn(block.texts || {}, languageKey)) fail('FLOW_DIRECT_SOURCE_FALLBACK', 'The exact language text is missing.');
+    const currentText = requireDirectEditableText(block.texts?.[languageKey] ?? '');
     if (currentText !== session.expectedText) {
         fail('FLOW_DIRECT_SOURCE_STALE', 'The semantic source changed after the generated page was rendered.', {
             expectedText: session.expectedText,
             currentText,
         });
     }
-    return { group, sourceLanguage, section, block, currentText };
+    return { group, sourceLanguage, languageKey, section, block, currentText };
 }
 
 function requireNewBlockId(value) {
@@ -122,16 +125,9 @@ function requireNewBlockId(value) {
     return value;
 }
 
-function requireMergeRemovalSafe(block, sourceLanguage) {
-    const translatedLanguageKeys = Object.entries(block.texts || {})
-        .filter(([key, value]) => key !== sourceLanguage && typeof value === 'string')
-        .map(([key]) => key);
-    if (translatedLanguageKeys.length) {
-        fail('FLOW_DIRECT_MERGE_TRANSLATION_DATA_PRESENT', 'A Paragraph with saved translations cannot be removed by merging.', {
-            blockId: block.id,
-            translatedLanguageKeys,
-        });
-    }
+function requireMergeRemovalSafe(left, right) {
+    const reason = inspectFlowParagraphMerge(left, right);
+    if (reason) fail('FLOW_DIRECT_MERGE_' + reason, 'Paragraph settings must be compatible before merging.');
 }
 
 function requireDisposableEmptyParagraph(group, block, sourceLanguage) {
@@ -179,8 +175,8 @@ export function createFlowDirectEditSession(groupInput, options = {}) {
     if (options.isSourceFallback === true) {
         fail('FLOW_DIRECT_SOURCE_FALLBACK', 'A fallback rendering cannot edit the requested language.');
     }
-    if (!sourceLanguage || pageLanguageKey !== sourceLanguage) {
-        fail('FLOW_DIRECT_SOURCE_LANGUAGE_ONLY', 'Direct page editing currently supports the source language only.', {
+    if (!sourceLanguage || !pageLanguageKey) {
+        fail('FLOW_DIRECT_LANGUAGE_REQUIRED', 'An exact page language is required.', {
             sourceLanguage,
             pageLanguageKey,
         });
@@ -192,11 +188,11 @@ export function createFlowDirectEditSession(groupInput, options = {}) {
     }
     if (
         !sourcePoint
-        || String(sourcePoint.languageKey || '') !== sourceLanguage
+        || String(sourcePoint.languageKey || '') !== pageLanguageKey
         || !String(sourcePoint.sectionId || '')
         || !String(sourcePoint.blockId || '')
     ) {
-        fail('FLOW_DIRECT_SOURCE_POINT_INVALID', 'A complete source-language caret is required.');
+        fail('FLOW_DIRECT_SOURCE_POINT_INVALID', 'A complete caret for the displayed language is required.');
     }
 
     const sectionId = String(sourcePoint.sectionId);
@@ -208,12 +204,13 @@ export function createFlowDirectEditSession(groupInput, options = {}) {
             sourceBlockType: block.type,
         });
     }
-    const text = requireDirectEditableText(block.texts?.[sourceLanguage] ?? '');
+    if (options.allowMissingTranslation !== true && pageLanguageKey !== sourceLanguage && !Object.hasOwn(block.texts || {}, pageLanguageKey)) fail('FLOW_DIRECT_SOURCE_FALLBACK', 'The exact language text is missing.');
+    const text = requireDirectEditableText(block.texts?.[pageLanguageKey] ?? '');
     const utf16Offset = requireSelectionOffset(sourcePoint.utf16Offset, text.length, 'utf16Offset');
     const mapped = mapFlowTextUtf16OffsetToGrapheme(
         text,
         utf16Offset,
-        sourceLanguage,
+        pageLanguageKey,
         sourcePoint.affinity,
     );
     if (
@@ -232,8 +229,9 @@ export function createFlowDirectEditSession(groupInput, options = {}) {
         sectionId,
         blockId,
         blockType: block.type,
-        languageKey: sourceLanguage,
+        languageKey: pageLanguageKey,
         writingMode,
+        allowMissingTranslation: options.allowMissingTranslation === true,
         expectedText: text,
         selectionStart: mapped.utf16Offset,
         selectionEnd: mapped.utf16Offset,
@@ -242,7 +240,7 @@ export function createFlowDirectEditSession(groupInput, options = {}) {
             sectionId,
             blockId,
             blockType: block.type,
-            languageKey: sourceLanguage,
+            languageKey: pageLanguageKey,
         }, text, mapped.utf16Offset, sourcePoint.affinity),
     });
 }
@@ -280,7 +278,7 @@ export function createFlowDirectBlockFormatTransaction(groupInput, session, inpu
  * separators are rejected before state mutation.
  */
 export function createFlowDirectEditTransaction(groupInput, session, input = {}) {
-    const { group, sourceLanguage } = requireCurrentDirectSession(groupInput, session);
+    const { group, languageKey } = requireCurrentDirectSession(groupInput, session, true);
     const text = requireDirectEditableText(input.text);
     const selectionStart = requireSelectionOffset(input.selectionStart, text.length, 'selectionStart');
     const selectionEnd = requireSelectionOffset(input.selectionEnd, text.length, 'selectionEnd');
@@ -292,7 +290,7 @@ export function createFlowDirectEditTransaction(groupInput, session, input = {})
         sectionId: session.sectionId,
         blockId: session.blockId,
         blockType: session.blockType,
-        languageKey: sourceLanguage,
+        languageKey,
     };
     const collapsed = selectionStart === selectionEnd;
     const startPoint = createSourcePoint(target, text, selectionStart, 'forward');
@@ -305,7 +303,7 @@ export function createFlowDirectEditTransaction(groupInput, session, input = {})
             groupId: group.id,
             sectionId: session.sectionId,
             blockId: session.blockId,
-            languageKey: sourceLanguage,
+            languageKey,
             text,
         }),
         nextSession: Object.freeze({
@@ -654,7 +652,7 @@ export function createFlowDirectEmptyParagraphAfterHeadingRemovalTransaction(gro
 
 /**
  * Convert Backspace at the start of a Paragraph into one atomic backward merge.
- * The removed Paragraph must not own saved target-language text.
+ * Translations and annotations are preserved; incompatible title/settings boundaries remain protected.
  */
 export function createFlowDirectParagraphMergeBackwardTransaction(groupInput, session, input = {}) {
     const {
@@ -693,7 +691,7 @@ export function createFlowDirectParagraphMergeBackwardTransaction(groupInput, se
             previousBlockType: previousBlock?.type || '',
         });
     }
-    requireMergeRemovalSafe(block, sourceLanguage);
+    requireMergeRemovalSafe(previousBlock, block);
 
     const previousText = requireDirectEditableText(previousBlock.texts?.[sourceLanguage] ?? '');
     const mergedText = previousText + currentText;
@@ -708,6 +706,7 @@ export function createFlowDirectParagraphMergeBackwardTransaction(groupInput, se
     return Object.freeze({
         operation: Object.freeze({
             type: 'mergeParagraphBackward',
+            preserveTranslations: true,
             groupId: group.id,
             sectionId: session.sectionId,
             blockId: session.blockId,
@@ -774,7 +773,7 @@ export function createFlowDirectParagraphMergeForwardTransaction(groupInput, ses
             nextBlockType: nextBlock?.type || '',
         });
     }
-    requireMergeRemovalSafe(nextBlock, sourceLanguage);
+    requireMergeRemovalSafe(block, nextBlock);
 
     const nextText = requireDirectEditableText(nextBlock.texts?.[sourceLanguage] ?? '');
     const mergedText = currentText + nextText;
@@ -789,6 +788,7 @@ export function createFlowDirectParagraphMergeForwardTransaction(groupInput, ses
     return Object.freeze({
         operation: Object.freeze({
             type: 'mergeParagraphBackward',
+            preserveTranslations: true,
             groupId: group.id,
             sectionId: session.sectionId,
             blockId: nextBlock.id,

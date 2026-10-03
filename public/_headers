@@ -1,2 +1,21 @@
 /*
   Cross-Origin-Opener-Policy: same-origin-allow-popups
+
+/studio-sw.js
+  Cache-Control: no-cache
+  Service-Worker-Allowed: /
+/studio.webmanifest
+  Content-Type: application/manifest+json
+  Cache-Control: no-cache
+
+/studio-repair
+  Cache-Control: no-store
+/studio-repair.html
+  Cache-Control: no-store
+/studio-repair.js
+  Cache-Control: no-store
+/studio-update-core.js
+  Cache-Control: no-store
+
+/studio-version.json
+  Cache-Control: public, max-age=0, must-revalidate

@@ -128,3 +128,9 @@ export function isFlowDirectEditing(groupId) {
 export function resetFlowEditorSelections() {
     selectionByGroup.clear();
 }
+
+// Runtime presentation preference shared by the editor and its thumbnail strip.
+// Never persisted or consumed by Press/Viewer.
+let comparisonEnabled = false;
+export function setFlowComparisonEnabled(value) { comparisonEnabled = value === true; }
+export function getFlowEditorProjectionScope() { return comparisonEnabled ? 'editor-compare' : 'editor'; }

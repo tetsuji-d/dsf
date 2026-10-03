@@ -13,6 +13,9 @@
         href="https://fonts.googleapis.com/css2?family=Noto+Sans:wght@400;700&family=Noto+Sans+JP:wght@400;700&family=Noto+Serif:wght@400;700&family=Noto+Serif+JP:wght@400;700&display=swap"
         rel="stylesheet">
     <link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet">
+    <link rel="manifest" href="/studio.webmanifest">
+    <link rel="apple-touch-icon" href="/studio-icon-192.png">
+    <meta name="theme-color" content="#111827">
 </head>
 
 <body data-room="home" data-device="desktop" data-booting="true">
@@ -35,10 +38,11 @@
                     </a>
                     <button class="studio-logo-menu-link" role="menuitem" data-studio-room-nav="home" onclick="closeStudioLogoMenu(); switchRoom('home')"><span class="material-icons" aria-hidden="true">dashboard</span><span data-i18n="nav_dashboard">ダッシュボード</span></button>
                     <button class="studio-logo-menu-link" role="menuitem" data-studio-room-nav="editor" onclick="closeStudioLogoMenu(); switchRoom('editor')"><span class="material-icons" aria-hidden="true">edit</span><span data-i18n="nav_editor">エディター</span></button>
-                    <button class="studio-logo-menu-link" role="menuitem" data-studio-room-nav="press" onclick="closeStudioLogoMenu(); switchRoom('press')" data-auth-required><span class="material-icons" aria-hidden="true">publish</span><span data-i18n="nav_press">プレス</span></button>
+                    <button class="studio-logo-menu-link" role="menuitem" data-studio-room-nav="press" onclick="closeStudioLogoMenu(); switchRoom('press')"><span class="material-icons" aria-hidden="true">publish</span><span data-i18n="nav_press">プレス</span></button>
                     <button class="studio-logo-menu-link" role="menuitem" data-studio-room-nav="works" onclick="closeStudioLogoMenu(); switchRoom('works')" data-auth-required><span class="material-icons" aria-hidden="true">library_books</span><span data-i18n="nav_works">作品</span></button>
                 </div>
             </div>
+            <div id="studio-space-switcher"></div>
             <div class="room-nav-tabs">
                 <button class="room-tab" data-room="home" onclick="switchRoom('home')">
                     <span class="material-icons">dashboard</span> <span data-i18n="nav_dashboard">ダッシュボード</span>
@@ -54,10 +58,8 @@
                 </button>
             </div>
             <div class="room-nav-right">
-                <div class="ui-lang-switcher">
-                    <button class="ui-lang-btn" data-lang="ja" onclick="setStudioUILang('ja')">JA</button>
-                    <button class="ui-lang-btn" data-lang="en" onclick="setStudioUILang('en')">EN</button>
-                </div>
+                <button id="studio-help-open" type="button" data-open-studio-help aria-label="操作ヘルプ" aria-controls="studio-help-panel" aria-expanded="false">?</button>
+                <button type="button" class="studio-notifications" data-studio-notifications aria-label="お知らせ"><span class="material-icons" aria-hidden="true">notifications</span><span data-notification-count hidden></span></button>
                 <div id="studio-auth-slot-nav" class="studio-auth-slot studio-auth-slot-nav"></div>
             </div>
         </nav>
@@ -66,65 +68,97 @@
         <div class="room-container">
 
         <!-- Home Room -->
-        <div id="home-room" class="room">
+        <div id="home-room" class="room" data-home-view="overview">
+            <aside class="home-management-sidebar">
+                <div id="home-space-identity" class="home-space-identity"></div>
+                <nav data-home-navigation>
+                    <button type="button" data-home-nav="overview"><span class="material-icons" aria-hidden="true">dashboard</span><span data-home-label="overview">ダッシュボード</span></button>
+                    <button type="button" data-home-nav="projects"><span class="material-icons" aria-hidden="true">library_books</span><span data-home-label="projects">作品</span></button>
+                    <button type="button" data-home-nav="shared"><span class="material-icons" aria-hidden="true">people</span><span data-home-label="shared">共有された作品</span></button>
+                    <button type="button" data-home-nav="activity"><span class="material-icons" aria-hidden="true">insights</span><span data-home-label="activity">公開状況・反応</span></button>
+                    <button type="button" data-home-nav="settings"><span class="material-icons" aria-hidden="true">tune</span><span data-home-label="settings">スペースの設定</span></button>
+                    <button type="button" data-home-nav="trash"><span class="material-icons" aria-hidden="true">delete_outline</span><span data-home-label="trash">ゴミ箱</span></button>
+                    <button type="button" data-home-nav="recent"><span class="material-icons" aria-hidden="true">history</span><span data-home-label="recentWork">最近の作業</span></button>
+                    <button type="button" data-home-nav="local" class="home-local-nav"><span class="material-icons" aria-hidden="true">devices</span><span data-home-label="local">このブラウザの作業コピー</span></button>
+                </nav>
+            </aside>
+            <div class="home-workspace-main">
             <div class="home-room-header">
-                <h2 data-i18n="home_title">Dashboard</h2>
+                <h2 data-home-title tabindex="-1">ダッシュボード</h2>
+                <div class="home-room-actions">
+                    <button type="button" class="home-action-btn" data-home-resume hidden disabled><span class="material-icons" aria-hidden="true">edit</span><span data-start-label="resume">編集中の作品に戻る</span></button>
+                    <button class="home-action-btn" onclick="openDSP()"><span class="material-icons" aria-hidden="true">file_upload</span><span data-home-label="import">DSPを取り込む</span></button>
+                    <button class="home-action-btn primary" onclick="newSpaceProject()"><span class="material-icons" aria-hidden="true">add</span><span data-home-label="create">作品を作成</span></button>
+                </div>
             </div>
             <div class="home-room-body">
-                <section class="home-dashboard-hero">
-                    <div class="home-dashboard-copy">
-                        <span class="home-dashboard-kicker" data-i18n="home_dashboard_kicker">作品運用</span>
-                        <h3 data-i18n="home_dashboard_title">作品の状態を確認する</h3>
-                        <p data-i18n="home_dashboard_subtitle">公開状態、レビュー、読者反応を確認し、必要な作品やプロジェクトへ移動します。</p>
-                    </div>
-                    <div class="home-dashboard-actions">
-                        <button class="home-action-btn primary" onclick="switchRoom('works')">
-                            <span class="material-icons">library_books</span> <span data-i18n="nav_works">作品</span>
-                        </button>
-                        <button class="home-action-btn" onclick="newProject().then(created => { if (created) switchRoom('editor'); })">
-                            <span class="material-icons">add</span> <span data-i18n="btn_new_project">新規プロジェクト</span>
-                        </button>
-                    </div>
+                <div id="home-current-work"></div>
+                <section class="home-start-tools" data-home-views="projects local">
+                    <label class="home-start-search"><span class="material-icons" aria-hidden="true">search</span><span class="sr-only" data-start-label="search">一覧の原稿を検索</span><input type="search" data-home-search placeholder="作品名・プロジェクト名で検索" aria-label="一覧の原稿を検索"></label>
+                    <p class="home-search-empty" data-home-search-empty hidden role="status"></p>
+                    <div class="home-space-entry"><span data-start-label="spaces">スペースを開く</span><div id="home-space-launcher"></div><button type="button" class="home-action-btn" data-home-nav="shared" data-start-label="shared">共有された作品</button></div>
+                    <p data-start-label="scope" class="home-overview-hint">スペースを切り替えても原稿の保存先は変わりません。</p>
                 </section>
-                <section id="home-dashboard-stats" class="home-dashboard-stats" aria-live="polite"></section>
-                <section class="home-work-section">
+                <p class="home-overview-hint" data-home-views="overview" data-home-label="hint">作品を選んで、続きから編集できます。</p>
+                <section id="home-project-trash" data-home-views="trash" class="space-members-settings" aria-live="polite"></section>
+                <section id="home-shared-inbox" data-home-views="shared" class="space-members-settings"></section>
+                <section id="home-notifications" data-home-views="notifications" class="space-members-settings"></section>
+                <section id="home-space-members" data-space-settings-panel="members" data-home-views="settings" class="space-members-settings"></section>
+                <section id="home-publishing-spaces" data-space-settings-panel="profile" data-home-views="settings" class="publishing-space-panel" aria-label="Publishing spaces"></section>
+                <div id="home-local-copy-feedback" data-home-views="overview recent local"></div>
+                <section id="home-protected-copies" data-home-views="local"></section>
+                <section id="home-recent-works" data-home-views="overview recent"></section>
+                <section id="home-dashboard-stats" data-home-views="overview activity" class="home-dashboard-stats" aria-live="polite"></section>
+
+                <section class="home-project-section" data-home-views="projects">
                     <div class="home-section-head">
                         <div class="home-section-title-wrap">
-                            <h3 data-i18n="home_section_works">作品アナリティクス</h3>
+                            <h3 data-home-cloud-heading>最近の作品</h3>
+                            <span id="home-cloud-count" class="home-section-count">0</span>
+                        </div>
+                        <button type="button" class="home-action-btn" data-home-nav="projects" data-home-views="overview" data-home-label="all">作品をすべて見る</button>
+                    </div>
+                    <p id="home-cloud-scope" class="home-save-scope"></p>
+                    <p class="home-storage-note" data-home-views="projects" data-i18n="home_cloud_storage_note"></p>
+                    <div id="home-cloud-grid" class="home-project-grid"></div>
+                </section>
+                <section class="home-work-section" data-home-views="overview activity">
+                    <div class="home-section-head">
+                        <div class="home-section-title-wrap">
+                            <h3 data-home-label="published">発行した作品</h3>
                             <span id="home-work-count" class="home-section-count">0</span>
                         </div>
                         <div class="home-section-actions">
                             <button class="home-action-btn" onclick="switchRoom('works')">
-                                <span class="material-icons">open_in_new</span> <span data-i18n="home_open_works">Works Room</span>
+                                <span class="material-icons">open_in_new</span> <span data-home-label="publication">公開設定を管理</span>
                             </button>
                         </div>
                     </div>
                     <div id="home-work-grid" class="home-work-grid"></div>
                 </section>
-                <section class="home-project-section">
+                <details class="home-browser-copies" data-home-views="local">
+                    <summary data-home-label="local">最近の作業（この端末）</summary>
+                    <p class="home-storage-note" data-start-label="localNote"></p>
                     <div class="home-section-head">
                         <div class="home-section-title-wrap">
-                            <h3 data-i18n="home_section_cloud">クラウドプロジェクト</h3>
-                            <span id="home-cloud-count" class="home-section-count">0</span>
-                        </div>
-                    </div>
-                    <div id="home-cloud-grid" class="home-project-grid"></div>
-                </section>
-                <section class="home-project-section">
-                    <div class="home-section-head">
-                        <div class="home-section-title-wrap">
-                            <h3 data-i18n="home_section_local">ローカル</h3>
+                            <span class="material-icons" aria-hidden="true">devices</span>
                             <span id="home-local-count" class="home-section-count">0</span>
+                            <span class="home-save-scope" data-start-label="allSpaces">全スペース共通</span>
+                            <div class="home-recent-controls">
+                                <button type="button" class="home-action-btn" data-home-recent-step="-1" aria-controls="home-local-grid" aria-label="前の作業を表示" disabled><span class="material-icons" aria-hidden="true">chevron_left</span></button>
+                                <button type="button" class="home-action-btn" data-home-recent-step="1" aria-controls="home-local-grid" aria-label="次の作業を表示" disabled><span class="material-icons" aria-hidden="true">chevron_right</span></button>
+                            </div>
                         </div>
                         <div class="home-section-actions">
-                            <button class="home-action-btn" onclick="document.getElementById('dsp-upload').click()">
-                                <span class="material-icons">folder_open</span> <span data-i18n="btn_open_local">ローカルから開く</span>
+                            <button class="home-action-btn" onclick="openDSP()">
+                                <span class="material-icons">folder_open</span> <span data-i18n="home_open_file">ファイルから開く (.dsp)</span>
                             </button>
                         </div>
                     </div>
-                    <div id="home-local-grid" class="home-project-grid"></div>
-                </section>
+                    <div id="home-local-grid" class="home-project-grid" tabindex="0" aria-label="最近の作業（全スペース共通）"></div>
+                </details>
             </div>
+        </div>
         </div>
 
         <!-- Editor Room -->
@@ -136,7 +170,11 @@
                     <span id="project-title" class="project-title" contenteditable="true"
                         oninput="onProjectTitleInput()" onkeydown="onProjectTitleKeydown(event)"
                         onblur="onProjectTitleBlur()" aria-label="プロジェクト名" title="プロジェクト名を編集">新規プロジェクト</span>
-                    <span id="save-status" class="save-status" aria-live="polite"></span>
+                    <div id="editor-work-bar" class="editor-work-bar">
+                        <button id="btn-save" type="button" onclick="saveProject()" data-authoring-save>保存</button>
+                        <button id="editor-resume-copy" type="button" hidden>復元原稿を確認</button>
+                    </div>
+                    <span id="save-status" class="save-status" hidden></span>
                 </div>
                 <div class="ribbon-tabs">
                     <button class="ribbon-tab active" data-ribbon-tab="home" data-i18n="tab_home">ホーム</button>
@@ -158,11 +196,11 @@
                         <button id="btn-redo" class="btn-tool btn-tool-icon" onclick="performRedo()" title="やり直す (Ctrl+Shift+Z)" disabled>
                             <span class="material-icons" aria-hidden="true">redo</span><span data-i18n="btn_redo">やり直す</span>
                         </button>
+                        <button type="button" class="btn-tool btn-tool-icon" data-edit-history title="編集履歴" aria-label="編集履歴"><span class="material-icons" aria-hidden="true">history</span></button>
                     </div>
                     <div class="ribbon-group">
-                        <button id="btn-save" class="btn-tool btn-tool-icon" onclick="saveProject()" title="保存 (Ctrl+S)" data-auth-required>
-                            <span class="material-icons" aria-hidden="true">save</span><span data-i18n="btn_save">保存</span>
-                        </button>
+                        <button id="btn-flow-search" type="button" class="btn-tool btn-tool-icon" aria-expanded="false" aria-controls="flow-search-bar" title="Flow原稿を検索 (Ctrl+F)"><span class="material-icons" aria-hidden="true">search</span></button>
+                        <button id="btn-editor-preview" class="btn-tool btn-tool-icon" onclick="previewEditorInViewer()" data-i18n-title="editor_viewer_preview" data-i18n-aria="editor_viewer_preview" title="Viewerでプレビュー"><span class="material-icons">visibility</span></button>
                         <button id="btn-share" class="btn-tool btn-tool-icon" onclick="shareProject()" title="ビューワーURLをコピー" data-auth-required>
                             <span class="material-icons" aria-hidden="true">share</span><span data-i18n="btn_share">共有</span>
                         </button>
@@ -245,9 +283,10 @@
                 </div>
                 <div class="ribbon-panel" data-ribbon-panel="export">
                     <div class="ribbon-group">
-                        <button class="btn-tool btn-tool-icon" onclick="exportDSP()" title=".dsp ファイルをローカルに保存">
-                            <span class="material-icons" aria-hidden="true">download</span><span data-i18n="btn_save_dsp">DSP 保存</span>
+                        <button class="btn-tool btn-tool-icon" onclick="exportDSP()" title="名前を付けて保存 (.dsp)">
+                            <span class="material-icons" aria-hidden="true">save_as</span><span data-i18n="btn_save_dsp">名前を付けて保存</span>
                         </button>
+                        <button class="btn-tool btn-tool-icon" onclick="downloadDSP()" title="DSPをダウンロード保存"><span class="material-icons" aria-hidden="true">download</span><span data-i18n="btn_download_dsp">ダウンロード保存</span></button>
                         <button id="btn-restore-private-authoring" class="btn-tool btn-tool-icon" hidden onclick="restoreCloudManuscript()">
                             <span class="material-icons" aria-hidden="true">restore</span><span data-i18n="authoring_restore">前のクラウド原稿に戻す</span>
                         </button>
@@ -258,7 +297,7 @@
                         </button>
                     </div>
                 </div>
-                <input type="file" id="dsp-upload" style="display: none;" onchange="importDSP(event)">
+                <input type="file" id="dsp-upload" style="display: none;" accept=".dsp" onchange="openDspInput(event)">
             </div>
         </header>
 
@@ -298,6 +337,7 @@
                         <button class="btn" onclick="document.getElementById('asset-upload').click()">
                             <span class="material-icons inline-icon">upload</span> <span data-i18n="btn_upload_image">画像をアップロード</span>
                         </button>
+                        <button class="btn" type="button" onclick="pasteImagePage()" title="Ctrl+V / ⌘V" data-image-paste-button>画像を貼り付けてページ追加</button>
                         <input type="file" id="asset-upload" accept="image/*" multiple style="display:none;" onchange="uploadAsset(event)">
                     </div>
                     <div id="asset-grid" class="asset-grid"></div>
@@ -360,8 +400,6 @@
                     ondragover="handleCanvasDragOver(event)"
                     ondragleave="handleCanvasDragLeave(event)"
                     ondrop="handleCanvasDrop(event)">
-                    <button type="button" id="flow-image-insert" class="flow-image-insert btn-sm" data-flow-insert-image
-                        data-i18n="flow_image_insert_short" data-i18n-title="flow_image_insert_hint" hidden>＋ 画像ページ</button>
                     <input type="file" id="flow-image-file" accept="image/*" hidden>
                     <div id="flow-authoring-surface" data-testid="flow-authoring" hidden></div>
                     <div id="canvas-stage">
@@ -429,9 +467,6 @@
                         <button id="image-flip-btn" class="btn-sm zoom-btn img-zoom-btn" onmousedown="event.stopPropagation()"
                             ontouchstart="event.stopPropagation()" onclick="toggleImageFlipX()" title="左右反転">⇄</button>
                     </div>
-                    <button id="fab-add-bubble" class="fab-btn" onclick="addBubbleFab()" title="テキスト追加" data-fixed-page-edit>
-                        <span class="material-icons">text_fields</span>
-                    </button>
                 </div>
                 <div id="page-strip">
                     <div id="page-strip-handle">
@@ -477,6 +512,31 @@
 
                     <div id="flow-page-source-props" class="flow-direct-format-props" hidden>
                         <button type="button" id="flow-open-source" class="btn-sm" data-testid="flow-open-source">原稿を開く</button>
+                        <details id="flow-page-placement">
+                            <summary data-i18n="flow_placement_title">Flowのページ内配置</summary>
+                            <button type="button" id="flow-make-title" class="btn-sm" data-i18n="flow_make_title">このページを扉にする</button>
+                            <button type="button" id="flow-restore-body" class="btn-sm" data-i18n="flow_restore_body" hidden>通常の本文に戻す</button>
+                            <label for="flow-placement-scope" data-i18n="flow_placement_scope">適用範囲</label>
+                            <select id="flow-placement-scope">
+                                <option value="page" data-i18n="flow_scope_page">このページ</option>
+                                <option value="group" data-i18n="flow_scope_group">Flow全体</option>
+                            </select>
+                            <p data-i18n="flow_placement_hint">このFlowの選択言語に適用します。扉は本文とは別のFlowで作成してください。</p>
+                            <label for="flow-placement-inline" data-i18n="flow_placement_inline">行内の文字揃え</label>
+                            <select id="flow-placement-inline">
+                                <option value="start" data-i18n="flow_placement_start">先頭</option>
+                                <option value="center" data-i18n="flow_placement_center">中央</option>
+                                <option value="end" data-i18n="flow_placement_end">末尾</option>
+                                <option value="justify" data-i18n="flow_placement_justify">均等揃え</option>
+                            </select>
+                            <label for="flow-placement-block" data-i18n="flow_placement_block">行のまとまりの配置</label>
+                            <select id="flow-placement-block">
+                                <option value="start" data-i18n="flow_placement_start">先頭</option>
+                                <option value="center" data-i18n="flow_placement_center">中央</option>
+                                <option value="end" data-i18n="flow_placement_end">末尾</option>
+                            </select>
+                            <p data-i18n="flow_placement_axes">縦書き：文字揃えは上下、まとまりは左右。横書き：文字揃えは左右、まとまりは上下。</p>
+                        </details>
                         <p data-i18n="flow_source_location_hint">編集中の位置から原稿全体を開きます。ページのドラッグでFlow全体を移動できます。</p>
                     </div>
                     <div id="flow-direct-format-props" class="flow-direct-format-props" data-testid="flow-direct-format" hidden>
@@ -635,9 +695,10 @@
                 </a>
                 <button class="mobile-studio-nav-link" role="menuitem" data-mobile-room-nav="home" onclick="closeMobileStudioNavMenu(); switchRoom('home')"><span class="material-icons" aria-hidden="true">dashboard</span><span data-i18n="nav_dashboard">ダッシュボード</span></button>
                 <button class="mobile-studio-nav-link" role="menuitem" data-mobile-room-nav="editor" onclick="closeMobileStudioNavMenu(); switchRoom('editor')"><span class="material-icons" aria-hidden="true">edit</span><span data-i18n="nav_editor">エディター</span></button>
-                <button class="mobile-studio-nav-link" role="menuitem" data-mobile-room-nav="press" onclick="closeMobileStudioNavMenu(); switchRoom('press')" data-auth-required><span class="material-icons" aria-hidden="true">publish</span><span data-i18n="nav_press">プレス</span></button>
+                <button class="mobile-studio-nav-link" role="menuitem" data-mobile-room-nav="press" onclick="closeMobileStudioNavMenu(); switchRoom('press')"><span class="material-icons" aria-hidden="true">publish</span><span data-i18n="nav_press">プレス</span></button>
                 <button class="mobile-studio-nav-link" role="menuitem" data-mobile-room-nav="works" onclick="closeMobileStudioNavMenu(); switchRoom('works')" data-auth-required><span class="material-icons" aria-hidden="true">library_books</span><span data-i18n="nav_works">作品</span></button>
             </div>
+            <div id="mobile-space-switcher"></div>
             <button id="mobile-header-nav" class="mobile-header-nav-btn" type="button" onclick="handleMobileHeaderNav()" hidden>
                 <span class="material-icons">arrow_back</span>
             </button>
@@ -646,10 +707,7 @@
                 <span id="mobile-header-title" class="mobile-title">DSF Studio</span>
             </div>
             <div class="mobile-header-actions">
-                <div class="ui-lang-switcher mobile-header-lang-switcher">
-                    <button class="ui-lang-btn" data-lang="ja" onclick="setStudioUILang('ja')">JA</button>
-                    <button class="ui-lang-btn" data-lang="en" onclick="setStudioUILang('en')">EN</button>
-                </div>
+                <button type="button" class="studio-notifications" data-studio-notifications aria-label="お知らせ"><span class="material-icons" aria-hidden="true">notifications</span><span data-notification-count hidden></span></button>
                 <div id="studio-auth-slot-mobile" class="studio-auth-slot studio-auth-slot-mobile"></div>
             </div>
         </div>
@@ -659,10 +717,11 @@
         <div id="mobile-action-sheet">
             <div id="mobile-sheet-menu" class="mobile-sheet-content mobile-sheet-menu">
                 <button class="btn-tool btn-tool-icon" onclick="openMobileSheet('lang')"><span class="material-icons" aria-hidden="true">translate</span><span data-i18n="bottom_lang">作品言語</span></button>
-                <button class="btn-tool btn-tool-icon" onclick="saveProject()" data-auth-required data-mobile-room-only="editor"><span class="material-icons" aria-hidden="true">save</span><span data-i18n="btn_save">保存</span></button>
+                <button class="btn-tool btn-tool-icon" onclick="saveProject()" data-authoring-save data-mobile-room-only="editor"><span class="material-icons" aria-hidden="true">save</span><span data-i18n="btn_save">保存</span></button>
                 <button class="btn-tool btn-tool-icon" onclick="shareProject()" data-auth-required data-mobile-room-only="editor"><span class="material-icons" aria-hidden="true">share</span><span data-i18n="btn_share">共有</span></button>
                 <button class="btn-tool btn-tool-icon" onclick="performUndo()" data-mobile-room-only="editor"><span class="material-icons" aria-hidden="true">undo</span><span data-i18n="btn_undo">元に戻す</span></button>
                 <button class="btn-tool btn-tool-icon" onclick="performRedo()" data-mobile-room-only="editor"><span class="material-icons" aria-hidden="true">redo</span><span data-i18n="btn_redo">やり直す</span></button>
+                <button type="button" class="btn-tool btn-tool-icon" data-edit-history data-mobile-room-only="editor" aria-label="編集履歴"><span class="material-icons" aria-hidden="true">history</span></button>
                 <button class="btn-tool btn-tool-icon" onclick="closeMobileSheet(); openProjectSettings();" data-mobile-room-only="editor"><span class="material-icons" aria-hidden="true">settings</span><span data-i18n="mobile_home_project_settings">プロジェクト設定</span></button>
             </div>
             <div id="mobile-sheet-add" class="mobile-sheet-content">
@@ -673,11 +732,12 @@
                 <button class="btn-tool btn-tool-icon" onclick="document.getElementById('file-upload').click()" data-fixed-page-edit><span class="material-icons" aria-hidden="true">image</span><span data-i18n="btn_add_image">画像追加</span></button>
             </div>
             <div id="mobile-sheet-export" class="mobile-sheet-content">
-                <button class="btn-tool btn-tool-icon" onclick="saveProject()" data-auth-required><span class="material-icons" aria-hidden="true">cloud_upload</span><span data-i18n="mobile_save_cloud">クラウド保存</span></button>
+                <button class="btn-tool btn-tool-icon" onclick="saveToCloud()"><span class="material-icons" aria-hidden="true">cloud_upload</span><span data-i18n="mobile_save_cloud">クラウド保存</span></button>
                 <button class="btn-tool btn-tool-icon" onclick="shareProject()" data-auth-required><span class="material-icons" aria-hidden="true">share</span><span data-i18n="btn_share">共有</span></button>
-                <button class="btn-tool btn-tool-icon" onclick="document.getElementById('dsp-upload-mobile').click()"><span class="material-icons" aria-hidden="true">folder_open</span><span data-i18n="mobile_open_local">ローカルから開く (.dsp)</span></button>
-                <input type="file" id="dsp-upload-mobile" style="display: none;" onchange="importDSP(event)">
-                <button class="btn-tool btn-tool-icon" onclick="exportDSP()"><span class="material-icons" aria-hidden="true">download</span><span data-i18n="mobile_export_dsp">Project (.dsp)</span></button>
+                <button class="btn-tool btn-tool-icon" onclick="openDSP()"><span class="material-icons" aria-hidden="true">folder_open</span><span data-i18n="mobile_open_local">ローカルから開く (.dsp)</span></button>
+                <input type="file" id="dsp-upload-mobile" style="display: none;" accept=".dsp" onchange="openDspInput(event)">
+                <button class="btn-tool btn-tool-icon" onclick="exportDSP()"><span class="material-icons" aria-hidden="true">save_as</span><span data-i18n="mobile_export_dsp">名前を付けて保存 (.dsp)</span></button>
+                <button class="btn-tool btn-tool-icon" onclick="downloadDSP()"><span class="material-icons" aria-hidden="true">download</span><span data-i18n="btn_download_dsp">ダウンロード保存</span></button>
                 <button class="btn-tool btn-tool-icon" onclick="exportDSF()" data-flow-publication-required data-flow-portable-download><span class="material-icons" aria-hidden="true">publish</span><span data-i18n="mobile_export_dsf">Publish (.dsf)</span></button>
                 <button class="btn-tool btn-tool-icon" onclick="openProjectModal()" data-auth-required><span class="material-icons" aria-hidden="true">folder</span><span data-i18n="mobile_projects">プロジェクト一覧</span></button>
             </div>
@@ -844,6 +904,13 @@
                     </div>
                 </section>
 
+                <section class="ps-section" id="ps-browser-copy-section">
+                    <h3 id="ps-browser-copy-heading">このブラウザーの復元用コピー</h3>
+                    <p class="ps-hint" id="ps-browser-copy-note">この原稿の復元用コピーを削除します。クラウド原稿・保存済みDSPファイルには影響しません。</p>
+                    <button type="button" class="btn" id="ps-browser-copy-delete" disabled>復元用コピーを削除</button>
+                    <p class="ps-hint" id="ps-browser-copy-status" role="status"></p>
+                </section>
+
                 <!-- 2. 言語設定 -->
                 <section class="ps-section">
                     <h3 data-i18n="ps_section_lang">言語設定</h3>
@@ -987,7 +1054,7 @@
             <div class="modal-header">
                 <h2><span class="material-icons" aria-hidden="true">folder</span> <span data-i18n="modal_projects_title">プロジェクト一覧</span></h2>
                 <div class="modal-header-actions">
-                    <button class="btn-modal primary" onclick="newProject()" data-i18n="btn_new_project_modal">＋ 新規プロジェクト</button>
+                    <button class="btn-modal primary" onclick="newSpaceProject()" data-i18n="btn_new_project_modal">＋ 新規プロジェクト</button>
                     <button class="btn-modal" onclick="closeProjectModal()" data-i18n="btn_modal_close">閉じる</button>
                 </div>
             </div>

@@ -1,0 +1,14 @@
+.flow-indent-ruler,.flow-indent-guide,.flow-indent-line,.flow-indent-paragraph{position:fixed;z-index:80;pointer-events:none;box-sizing:border-box}
+.flow-indent-ruler[hidden],.flow-indent-guide[hidden],.flow-indent-line[hidden],.flow-indent-paragraph[hidden]{display:none}
+.flow-indent-ruler{background:#17263a;border:1px solid #527091;border-radius:3px;user-select:none}
+.flow-indent-marker{position:absolute;pointer-events:auto;touch-action:none;padding:0!important;min-width:18px;min-height:18px;width:18px;height:18px;line-height:18px!important;font-size:12px!important;color:#0a1625!important;border:0!important;border-radius:2px!important;transform:translateX(-50%);cursor:grab}
+.flow-indent-marker.first{background:#64d9df!important;top:-5px}.flow-indent-marker.start{background:#83afff!important;bottom:-5px}.flow-indent-marker.end{background:#f2c17c!important;bottom:-5px}
+.flow-indent-ruler.vertical .flow-indent-marker{transform:translateY(-50%)}.flow-indent-ruler.vertical .first{right:-5px}.flow-indent-ruler.vertical .start,.flow-indent-ruler.vertical .end{left:-5px;bottom:auto}
+.flow-indent-marker:focus-visible{outline:2px solid white;outline-offset:3px}.flow-indent-marker:disabled{opacity:.45;cursor:default}
+.flow-indent-tick{position:absolute;top:12px;border-left:1px solid #6a7e94;height:7px;padding-left:2px;font:9px system-ui;color:#c3d3e7}
+.vertical .flow-indent-tick{top:auto;left:10px;border-left:0;border-top:1px solid #6a7e94;width:7px;height:auto;padding-top:1px}
+.flow-indent-guide{opacity:.5;background:#83afff}.flow-indent-guide.first{background:#64d9df}.flow-indent-guide.end{background:#f2c17c}
+.flow-indent-paragraph{background:#2875c410;outline:1px solid #428ed533}.flow-indent-line{background:#2875c419}
+.flow-indent-controls{border:1px solid #33465f;border-radius:7px;padding:10px;margin-top:12px;color:inherit}.flow-indent-controls summary{cursor:pointer;margin-bottom:8px}
+.flow-indent-field{display:flex!important;align-items:center;gap:8px;margin:8px 0!important;font-size:12px}.flow-indent-field span:first-child{flex:1}.flow-indent-field input{width:70px!important;padding:6px!important;background:#101c2c;color:#e4edfa;border:1px solid #4e627d;border-radius:4px}
+.flow-indent-help{font-size:11px;line-height:1.6;color:#a7b8cf}.flow-indent-toggle{display:inline-flex!important;align-items:center;gap:4px;margin:10px 8px 0 0!important;font-size:11px}.flow-indent-toggle input{width:auto!important}.flow-indent-reset{font-size:12px!important;width:100%;padding:8px!important}

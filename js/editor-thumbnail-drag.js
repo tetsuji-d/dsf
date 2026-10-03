@@ -1,6 +1,6 @@
 /** Pointer-based thumbnail dragging. All mutations are delegated to canonical spine operations. */
 export function bindEditorThumbnailDrag({ root, begin, resolve, commit, finish, moveByKey }) {
-    let drag = null, frame = 0, suppressUntil = 0;
+    let drag = null, frame = 0, suppressUntil = 0, holdTimer=0;
     const marker = document.createElement('div');
     marker.className = 'editor-drop-marker';
     const badge = document.createElement('div');
@@ -8,6 +8,7 @@ export function bindEditorThumbnailDrag({ root, begin, resolve, commit, finish, 
     badge.setAttribute('role', 'status');
     const clearHint = () => { marker.remove(); };
     const stop = () => {
+        clearTimeout(holdTimer);holdTimer=0;
         cancelAnimationFrame(frame); frame = 0;
         if (drag?.active) suppressUntil = Date.now() + 300;
         root.querySelectorAll('.editor-unit-dragging').forEach(el => el.classList.remove('editor-unit-dragging'));
@@ -43,23 +44,26 @@ export function bindEditorThumbnailDrag({ root, begin, resolve, commit, finish, 
         document.body.appendChild(marker);
     };
     root.addEventListener('pointerdown', event => {
-        const thumb = event.target.closest('.thumb-wrap[data-editor-unit-id]');
+        const thumb = event.target.closest('.thumb-wrap[data-editor-unit-id],.editor-canvas-drag-handle[data-editor-unit-id]');
         if (!thumb || event.button !== 0 || event.isPrimary === false || drag) return;
         if (event.target.closest('button, input, select')) return;
-        if (event.pointerType === 'touch') return; // Keep ordinary touch scrolling without visible grips.
+        const canvas=thumb.classList.contains('editor-canvas-drag-handle');
+        if (event.pointerType === 'touch'&&!canvas) return; // Keep ordinary touch scrolling without visible grips.
         const context = begin(thumb);
         if (!context) return;
         drag = { context, pointerId: event.pointerId, startX: event.clientX, startY: event.clientY,
-            x: event.clientX, y: event.clientY, active: false, target: null };
+            x: event.clientX, y: event.clientY, active: false, target: null, canvas };
+        if(canvas)holdTimer=setTimeout(()=>{if(!drag)return;drag.active=true;document.body.classList.add("editor-thumbnail-dragging");document.body.appendChild(badge);frame=requestAnimationFrame(paint);},450);
         // Prevent native image dragging and text selection; clicks still select pages.
         if (event.pointerType !== 'touch') event.preventDefault();
     });
     root.addEventListener('dragstart', event => {
-        if (event.target.closest('.thumb-wrap[data-editor-unit-id]')) event.preventDefault();
+        if (event.target.closest('.thumb-wrap[data-editor-unit-id],.editor-canvas-drag-handle[data-editor-unit-id]')) event.preventDefault();
     });
     document.addEventListener('pointermove', event => {
         if (!drag || event.pointerId !== drag.pointerId) return;
         drag.x = event.clientX; drag.y = event.clientY;
+        if(!drag.active&&drag.canvas){if(Math.hypot(drag.x-drag.startX,drag.y-drag.startY)>7)stop();return;}
         if (!drag.active && Math.hypot(drag.x - drag.startX, drag.y - drag.startY) < 7) return;
         event.preventDefault();
         if (!drag.active) {
@@ -87,11 +91,11 @@ export function bindEditorThumbnailDrag({ root, begin, resolve, commit, finish, 
     document.addEventListener('keydown', event => {
         if (event.key === 'Escape' && drag) { event.preventDefault(); stop(); }
         if (!event.altKey || !['ArrowLeft', 'ArrowRight'].includes(event.key)) return;
-        const thumb = event.target.closest('.thumb-wrap[data-editor-unit-id]');
+        const thumb = event.target.closest('.thumb-wrap[data-editor-unit-id],.editor-canvas-drag-handle[data-editor-unit-id]');
         if (thumb) { event.preventDefault(); moveByKey?.(thumb, event.key); }
     });
     root.addEventListener('click', event => {
-        if (Date.now() < suppressUntil && event.target.closest('.thumb-wrap')) {
+        if (Date.now() < suppressUntil && event.target.closest('.thumb-wrap,.editor-canvas-drag-handle')) {
             event.preventDefault(); event.stopImmediatePropagation();
         }
     }, true);

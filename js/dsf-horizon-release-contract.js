@@ -234,24 +234,23 @@ function collectReferencedImages(assembly) {
     for (const [language, manifest] of Object.entries(assembly.bundle.manifests)) {
         const manifestPath = assembly.files.manifests[language]?.path;
         manifest.pages.forEach((page, pageIndex) => {
-            if (page.renderKind === 'fixedText' && page.background?.imageHref) {
-                fail(
-                    'HORIZON_RELEASE_FIXED_TEXT_BACKGROUND_UNPLANNED',
-                    `assembly.bundle.manifests.${language}.pages[${pageIndex}].background.imageHref`,
-                    'Fixed-text background images need an explicit sealed asset plan before Horizon publication.',
-                );
+            const background=page.renderKind==='fixedText' && !!page.background?.imageHref;
+            if(page.renderKind!=='image' && !background)return;
+            const path=`assembly.bundle.manifests.${language}.pages[${pageIndex}].${background?'background.imageHref':'image.href'}`;
+            const relativePath=resolveReleaseResourcePath(manifestPath,background?page.background.imageHref:page.image.href,path);
+            if(background && !assembly.files.assets.some(asset=>asset.path===relativePath && asset.purpose==='fixedTextBackground')) {
+                fail('HORIZON_RELEASE_FIXED_TEXT_BACKGROUND_UNPLANNED',path,'Background requires an explicit sealed asset plan.');
             }
-            if (page.renderKind !== 'image') return;
-            const path = `assembly.bundle.manifests.${language}.pages[${pageIndex}].image.href`;
-            const relativePath = resolveReleaseResourcePath(manifestPath, page.image.href, path);
             if (references.has(relativePath)) {
                 fail('HORIZON_RELEASE_IMAGE_PATH_DUPLICATE', path, 'A Horizon image path cannot be shared by multiple delivery pages.');
             }
             references.set(relativePath, {
                 language,
                 pageIndex,
-                width: page.image.width,
-                height: page.image.height,
+                width: background ? null : page.image.width,
+                height: background ? null : page.image.height,
+                blockId: background ? page.sourceAnchor?.flowGroupId : page.sourceAnchor?.blockId,
+                purpose: background ? 'fixedTextBackground' : undefined,
             });
         });
     }
@@ -278,8 +277,12 @@ function assertAssets(assembly) {
         if (!reference
             || asset.language !== reference.language
             || asset.pageIndex !== reference.pageIndex
-            || asset.width !== reference.width
-            || asset.height !== reference.height) {
+            || asset.blockId !== reference.blockId
+            || asset.purpose !== reference.purpose
+            || (reference.purpose==='fixedTextBackground'
+                ? (!Number.isSafeInteger(asset.width) || !Number.isSafeInteger(asset.height) || asset.width<1 || asset.height<1
+                    || asset.width*640!==asset.height*360)
+                : (asset.width !== reference.width || asset.height !== reference.height))) {
             fail('HORIZON_RELEASE_IMAGE_ASSET_MISMATCH', path, 'Horizon image asset does not exactly match its delivery page.');
         }
         assets.set(asset.path, asset);

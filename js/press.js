@@ -1,4 +1,21 @@
+// Load production Press code with Studio, before a later deployment can remove its chunk URLs.
+import * as _pressFlowProductionPreparationModule from './flow-press-publication-preparation.js';
+import * as _pressFlowLocalReleasePlanningModule from './flow-press-local-release-planning.js';
+import * as _pressFlowLocalReleaseSealingModule from './dsf-release-byte-sealing.js';
+import * as _pressFlowLocalReleasePackageModule from './flow-press-local-release-package.js';
+import * as _pressFlowHorizonHandoffModule from './flow-press-horizon-release-handoff.js';
+import * as _pressFlowHorizonUploadModule from './flow-press-horizon-release-upload.js';
+import * as _pressFlowHorizonDraftModule from './flow-press-horizon-draft-write.js';
+import * as fontRegistryModule from './dsf-font-registry.js';
+import * as fontRuntimeModule from './dsf-production-font-runtime.js';
+import * as rendererModule from './dsf-fixed-text-thumbnail-renderer.js';
+import { ensurePublishingSpace } from './publishing-space-publish.js';
 import { preparePrivateProjectAction, runPrivateProjectAction } from './private-project-actions.js';
+import { renderPressModuleLoadError } from './press-module-load-error.js';
+import {appendFlowGraphicPreview} from './graphic-object-renderer.js';
+import {drawGraphicObject} from './graphic-object-renderer.js';
+import { compositeGraphicObjects, appendGraphicThumbnail } from './graphic-object-renderer.js';
+import { calculateHorizonSaveProgress, isManualHorizonSaveCancellation } from './horizon-save-progress.js';
 /**
  * press.js — Press Room ロジック
  * DSP → DSF レンダリング・R2アップロード・Firestore発行
@@ -87,7 +104,7 @@ let _pressFlowProductionPreparationState = 'idle';
 let _pressFlowProductionPreparationError = null;
 let _pressFlowProductionPreparationRequestId = 0;
 let _pressFlowProductionPreparationController = null;
-let _pressFlowProductionPreparationModule = null;
+
 let _pressFlowProductionPreparationResult = null;
 let _pressFlowProductionPreparationSignature = '';
 let _pressFlowProductionPreparationProgress = null;
@@ -95,8 +112,8 @@ let _pressFlowLocalReleasePlanningState = 'idle';
 let _pressFlowLocalReleasePlanningError = null;
 let _pressFlowLocalReleasePlanningRequestId = 0;
 let _pressFlowLocalReleasePlanningController = null;
-let _pressFlowLocalReleasePlanningModule = null;
-let _pressFlowLocalReleaseSealingModule = null;
+
+
 let _pressFlowLocalReleasePlanningResult = null;
 let _pressFlowLocalReleasePlanningSignature = '';
 let _pressFlowLocalReleaseSealedAssets = null;
@@ -104,14 +121,14 @@ let _pressFlowLocalReleasePackageState = 'idle';
 let _pressFlowLocalReleasePackageError = null;
 let _pressFlowLocalReleasePackageRequestId = 0;
 let _pressFlowLocalReleasePackageController = null;
-let _pressFlowLocalReleasePackageModule = null;
+
 let _pressFlowLocalReleasePackageResult = null;
 let _pressFlowLocalReleasePackageSignature = '';
 let _pressFlowHorizonHandoffState = 'idle';
 let _pressFlowHorizonHandoffError = null;
 let _pressFlowHorizonHandoffRequestId = 0;
 let _pressFlowHorizonHandoffController = null;
-let _pressFlowHorizonHandoffModule = null;
+
 let _pressFlowHorizonHandoffResult = null;
 let _pressFlowHorizonHandoffSignature = '';
 let _pressFlowHorizonHandoffReleaseId = '';
@@ -119,14 +136,14 @@ let _pressFlowHorizonUploadState = 'idle';
 let _pressFlowHorizonUploadError = null;
 let _pressFlowHorizonUploadRequestId = 0;
 let _pressFlowHorizonUploadController = null;
-let _pressFlowHorizonUploadModule = null;
+
 let _pressFlowHorizonUploadResult = null;
 let _pressFlowHorizonUploadSignature = '';
 let _pressFlowHorizonUploadProgress = null;
 let _pressFlowHorizonDraftState = 'idle';
 let _pressFlowHorizonDraftError = null;
 let _pressFlowHorizonDraftRequestId = 0;
-let _pressFlowHorizonDraftModule = null;
+
 let _pressFlowHorizonDraftResult = null;
 let _pressFlowHorizonDraftSignature = '';
 const PRESS_IMAGE_WEBP_QUALITY_BY_SCALE = Object.freeze({
@@ -952,6 +969,7 @@ function _createPressFlowPreflightPreviewSignature() {
         state.languageConfigs || {},
         _getSelectedPressLangs(),
         state.blocks || [],
+        state.projectAssets || [],
     ]);
 }
 
@@ -1322,6 +1340,7 @@ function _createPressFlowLocalReleaseMetadata(languages) {
         modified: now,
         generator: 'DSF Studio local package verification',
         spread: state.bookMode === 'none' || state.book?.mode === 'none' ? 'none' : 'auto',
+        ...(state.book?.spineDesign ? { spineDesign: state.book.spineDesign } : {}),
     };
 }
 
@@ -1358,6 +1377,11 @@ function _renderPressFlowLocalReleaseSummary() {
         return;
     }
     if (_pressFlowLocalReleasePlanningState === 'error') {
+        const recovery = renderPressModuleLoadError(_pressFlowLocalReleasePlanningError, t, _esc);
+        if (recovery) {
+            summary.innerHTML = `<strong>${_esc(t('press_flow_release_title'))}</strong>${recovery}`;
+            return;
+        }
         const issue = _pressFlowLocalReleasePlanningError?.issues?.[0];
         const code = issue?.code || _pressFlowLocalReleasePlanningError?.code || 'FLOW_LOCAL_RELEASE_FAILED';
         summary.innerHTML = `
@@ -1431,9 +1455,8 @@ function _renderPressFlowHorizonHandoffStatus() {
             return `<span ${attributes} role="alert"><b>${_esc(t('press_horizon_draft_title'))}</b> ${_esc(failed)}${diagnostic}</span>`;
         }
         if (_pressFlowHorizonUploadState === 'working') {
-            const completed = Number(_pressFlowHorizonUploadProgress?.completedFileCount || 0);
-            const total = Number(_pressFlowHorizonUploadProgress?.fileCount || result.summary.fileCount || 0);
-            return `<span ${attributes}><b>${_esc(t('press_horizon_upload_title'))}</b> ${_esc(t('press_horizon_upload_working', { done: completed, total }))}</span>`;
+            const display = _formatHorizonSaveProgress(_pressFlowHorizonUploadProgress || {});
+            return `<span ${attributes}><b>${_esc(t('press_horizon_upload_title'))}</b> ${_esc(display.label)}</span>`;
         }
         if (_pressFlowHorizonUploadState === 'error') {
             const failed = getUILang() === 'en' ? 'Upload failed.' : 'アップロードに失敗しました。';
@@ -1513,6 +1536,11 @@ function _renderPressFlowLocalReleasePackageSummary() {
         return;
     }
     if (_pressFlowLocalReleasePackageState === 'error') {
+        const recovery = renderPressModuleLoadError(_pressFlowLocalReleasePackageError, t, _esc);
+        if (recovery) {
+            summary.innerHTML = `<strong>${_esc(t('press_flow_zip_title'))}</strong>${recovery}`;
+            return;
+        }
         const issue = _pressFlowLocalReleasePackageError?.issues?.[0];
         const code = issue?.code || _pressFlowLocalReleasePackageError?.code || 'FLOW_LOCAL_PACKAGE_FAILED';
         summary.innerHTML = `
@@ -1717,7 +1745,6 @@ async function _requestPressFlowProductionPreparation() {
     _renderPressFlowLocalReleasePackageSummary();
     _renderPressFlowLocalReleaseSize();
     try {
-        _pressFlowProductionPreparationModule ||= await import('./flow-press-publication-preparation.js');
         const result = await _pressFlowProductionPreparationModule.prepareFlowPressPublication({
             project: state,
             languages: _getSelectedPressLangs(),
@@ -1775,21 +1802,23 @@ function _throwIfPressFlowLocalReleaseCancelled(signal, requestId) {
     throw error;
 }
 
-async function _createPressFlowLocalReleaseImageAssets(preparation, languages, targetWidth, targetHeight, signal, requestId) {
+async function _createPressFlowLocalReleaseImageAssets(preparation, languages, targetWidth, targetHeight, signal, requestId, check = () => _throwIfPressFlowLocalReleaseCancelled(signal, requestId), printOptions = null) {
     const pageBlocks = Array.isArray(state.blocks)
         ? state.blocks.filter((block) => block?.kind === 'page')
         : [];
     const renderablePages = _getRenderablePages();
     const imageAssets = {};
+    const backgroundAssets = {};
     const sealedAssets = [];
     for (const language of languages) {
-        _throwIfPressFlowLocalReleaseCancelled(signal, requestId);
+        check();
         const languageResult = preparation.languages.find((result) => result?.language === language);
         imageAssets[language] = {};
+        backgroundAssets[language] = {};
         const imageDecisions = (languageResult?.preflight?.decisions || [])
             .filter((decision) => decision?.renderKind === 'image');
         for (const decision of imageDecisions) {
-            _throwIfPressFlowLocalReleaseCancelled(signal, requestId);
+            check();
             if (decision.sourceKind !== 'fixed') {
                 const error = new Error('Flow image fallback cannot be included implicitly.');
                 error.code = 'FLOW_LOCAL_RELEASE_IMAGE_SOURCE_UNSUPPORTED';
@@ -1803,14 +1832,14 @@ async function _createPressFlowLocalReleaseImageAssets(preparation, languages, t
                 throw error;
             }
             const blob = await renderPressSectionToWebP(
-                section,
+                printOptions?.omitPaperColor && section.type === 'text' ? {...section, backgroundColor: '#ffffff'} : section,
                 language,
                 targetWidth,
                 targetHeight,
                 fixedPageIndex,
                 renderablePages,
             );
-            _throwIfPressFlowLocalReleaseCancelled(signal, requestId);
+            check();
             if (!(blob instanceof Blob) || blob.type !== 'image/webp') {
                 const error = new Error(`Fixed page ${decision.blockId} did not produce a WebP asset.`);
                 error.code = 'FLOW_LOCAL_RELEASE_WEBP_MISSING';
@@ -1835,7 +1864,25 @@ async function _createPressFlowLocalReleaseImageAssets(preparation, languages, t
             });
         }
     }
-    return { imageAssets, sealedAssets };
+    for(const language of languages){
+        const result=preparation.languages.find(r=>r.language===language);
+        for(const decision of result.preflight.decisions) for(const bg of decision.projection?.backgrounds || []) {
+            check();
+            if(bg.revision!==decision.projection.revision)throw new Error('FLOW_BACKGROUND_STALE');
+            const canvas=document.createElement('canvas');canvas.width=targetWidth;canvas.height=targetHeight;
+            const ctx=canvas.getContext('2d');ctx.scale(targetWidth/360,targetHeight/640);
+            ctx.fillStyle=decision.projection.manifest.pages[bg.pageIndex].background.color;ctx.fillRect(0,0,360,640);
+            await drawGraphicObject(ctx,bg.object.graphic,state.projectAssets || [],language,state.defaultLang);
+            check();
+            const blob=await new Promise(resolve=>canvas.toBlob(resolve,'image/webp',.95));
+            const index=decision.deliveryPageIndex+bg.pageIndex;
+            const sealed=await _pressFlowLocalReleaseSealingModule.sealDsfWebPAsset({bytes:blob,expectedWidth:targetWidth,expectedHeight:targetHeight});
+            check();
+            backgroundAssets[language][JSON.stringify([decision.blockId,bg.pageIndex])]=sealed.descriptor;
+            sealedAssets.push({language,blockId:decision.blockId,pageIndex:index,sealed});
+        }
+    }
+    return { imageAssets, backgroundAssets, sealedAssets };
 }
 
 async function _requestPressFlowLocalReleasePlanning(preparation = _pressFlowProductionPreparationResult) {
@@ -1890,10 +1937,7 @@ async function _requestPressFlowLocalReleasePlanning(preparation = _pressFlowPro
     _renderPressFlowLocalReleaseSize();
 
     try {
-        [_pressFlowLocalReleasePlanningModule, _pressFlowLocalReleaseSealingModule] = await Promise.all([
-            _pressFlowLocalReleasePlanningModule || import('./flow-press-local-release-planning.js'),
-            _pressFlowLocalReleaseSealingModule || import('./dsf-release-byte-sealing.js'),
-        ]);
+        // All module bytes were loaded at Studio startup.
         _throwIfPressFlowLocalReleaseCancelled(controller.signal, requestId);
         const preparedLanguages = new Set(preparation.languages.map((result) => result?.language).filter(Boolean));
         const languages = _getSelectedPressLangs().filter((language) => preparedLanguages.has(language));
@@ -1905,7 +1949,7 @@ async function _requestPressFlowLocalReleasePlanning(preparation = _pressFlowPro
         const defaultLang = languages.includes(state.defaultLang) ? state.defaultLang : languages[0];
         const resolutionKey = resolvePressResolutionKey(document.getElementById('press-resolution')?.value);
         const { width, height } = getPressResolutionDims(resolutionKey);
-        const { imageAssets, sealedAssets } = await _createPressFlowLocalReleaseImageAssets(
+        const { imageAssets, backgroundAssets, sealedAssets } = await _createPressFlowLocalReleaseImageAssets(
             preparation,
             languages,
             width,
@@ -1919,7 +1963,7 @@ async function _requestPressFlowLocalReleasePlanning(preparation = _pressFlowPro
             defaultLang,
             languages,
             pageDirections: Object.fromEntries(languages.map((language) => [language, _getLangDirection(language)])),
-            imageAssets,
+            imageAssets, backgroundAssets,
         });
         if (
             controller.signal.aborted
@@ -2006,7 +2050,6 @@ async function _requestPressFlowHorizonHandoff(
     _updatePublishBtn();
 
     try {
-        _pressFlowHorizonHandoffModule ||= await import('./flow-press-horizon-release-handoff.js');
         _throwIfPressFlowHorizonHandoffCancelled(controller.signal, requestId);
         const result = await _pressFlowHorizonHandoffModule.createFlowPressHorizonReleaseHandoff({
             planning,
@@ -2091,6 +2134,17 @@ function _throwIfPressFlowHorizonUploadCancelled(signal, requestId) {
     throw error;
 }
 
+function _formatHorizonSaveProgress(progress) {
+    const estimate = calculateHorizonSaveProgress(progress);
+    if (progress?.totalBytes > 0 && progress.completedBytes >= progress.totalBytes) {
+        return { ...estimate, label: t('press_flow_horizon_saving') };
+    }
+    const remaining = estimate.remainingSeconds === null
+        ? t('press_flow_horizon_estimating')
+        : t('press_flow_horizon_remaining', { seconds: estimate.remainingSeconds });
+    return { ...estimate, label: t('press_flow_horizon_uploading', { percent: estimate.percent, remaining }) };
+}
+
 async function _executePressFlowHorizonUpload() {
     if (!_isPressFlowHorizonHandoffReady()) {
         const error = new Error('Flow Horizon upload handoff is not ready.');
@@ -2109,6 +2163,7 @@ async function _executePressFlowHorizonUpload() {
     _pressFlowHorizonUploadRequestId = requestId;
     _pressFlowHorizonUploadController?.abort();
     const controller = new AbortController();
+    const uploadStartedAt = performance.now();
     _pressFlowHorizonUploadController = controller;
     _pressFlowHorizonUploadState = 'working';
     _pressFlowHorizonUploadError = null;
@@ -2119,7 +2174,6 @@ async function _executePressFlowHorizonUpload() {
     _updatePublishBtn();
 
     try {
-        _pressFlowHorizonUploadModule ||= await import('./flow-press-horizon-release-upload.js');
         _throwIfPressFlowHorizonUploadCancelled(controller.signal, requestId);
         const result = await _pressFlowHorizonUploadModule.executeFlowPressHorizonReleaseUpload({
             handoff,
@@ -2127,13 +2181,9 @@ async function _executePressFlowHorizonUpload() {
             signal: controller.signal,
             onProgress(progress) {
                 if (controller.signal.aborted || requestId !== _pressFlowHorizonUploadRequestId) return;
-                _pressFlowHorizonUploadProgress = progress;
-                const completed = Number(progress?.completedFileCount || 0);
-                const total = Number(progress?.fileCount || handoff.summary?.fileCount || 0);
-                _setFlowHorizonPublishProgress(
-                    t('press_flow_horizon_uploading', { done: completed, total }),
-                    total > 0 ? completed / total : null,
-                );
+                _pressFlowHorizonUploadProgress = { ...progress, elapsedMs: performance.now() - uploadStartedAt };
+                const display = _formatHorizonSaveProgress(_pressFlowHorizonUploadProgress);
+                _setFlowHorizonPublishProgress(display.label, display.percent / 100);
                 _renderPressFlowLocalReleaseSummary();
             },
         });
@@ -2287,11 +2337,7 @@ function _collectFixedTextThumbnailFontWeights(manifest, page) {
 }
 
 async function _renderFlowFixedTextPublicationThumbnail(index, manifest, page) {
-    const [fontRegistryModule, fontRuntimeModule, rendererModule] = await Promise.all([
-        import('./dsf-font-registry.js'),
-        import('./dsf-production-font-runtime.js'),
-        import('./dsf-fixed-text-thumbnail-renderer.js'),
-    ]);
+
     const fontWeights = _collectFixedTextThumbnailFontWeights(manifest, page);
     const leases = [];
     const fontFamiliesByRef = {};
@@ -2470,7 +2516,6 @@ async function _writePressFlowHorizonDraftMetadata(upload, account, privateConte
     _renderPressFlowLocalReleaseSummary();
     _updatePublishBtn();
     try {
-        _pressFlowHorizonDraftModule ||= await import('./flow-press-horizon-draft-write.js');
         _assertCurrentFlowHorizonDraftIdentity(upload);
         const publishedAt = new Date();
         let publication = createDefaultPublication(account, publishedAt);
@@ -2636,7 +2681,6 @@ async function _requestPressFlowLocalReleasePackage(
     _updatePublishBtn();
 
     try {
-        _pressFlowLocalReleasePackageModule ||= await import('./flow-press-local-release-package.js');
         _throwIfPressFlowLocalPackageCancelled(controller.signal, requestId);
         const result = await _pressFlowLocalReleasePackageModule.createFlowPressLocalReleasePackage({
             planning,
@@ -2866,6 +2910,10 @@ function _renderPageThumbs() {
         </div>`;
     }).join('');
 
+    container.querySelectorAll('.press-thumb-item').forEach((item,index)=>{
+        const section=previewPages[index]?.section;
+        if(section?.graphicObjects?.length||section?.objectOrder)appendGraphicThumbnail(item.querySelector('.press-thumb-media'),section,state.projectAssets||[],lang,state.defaultLang).catch(()=>{});
+    });
     if (projection) {
         const flowPageByKey = new Map(projection.pages
             .filter((page) => page.kind === 'flow')
@@ -2880,6 +2928,7 @@ function _renderPageThumbs() {
                 writingMode: page.writingMode,
                 typography: page.typography,
             });
+        void appendFlowGraphicPreview(pageElement,page.page,state.projectAssets || [],page.languageKey,state.defaultLang).catch(()=>{});
             pageElement.style.position = 'absolute';
             pageElement.style.left = '0';
             pageElement.style.top = '0';
@@ -3098,7 +3147,7 @@ async function _updateSizeEstimate() {
                 tasks.push({ kind: 'text', section, lang });
             } else {
                 const bgUrl = section.backgrounds?.[lang] || section.background;
-                if (!bgUrl && !_isSpreadImageSection(section)) continue;
+                if (!bgUrl && !section.objectOrder && !_isSpreadImageSection(section)) continue;
                 tasks.push({
                     kind: 'image',
                     section,
@@ -3156,6 +3205,7 @@ function _updatePublishBtn() {
         const needsAuth = btn.hasAttribute('data-auth-required');
         const isPortableDownload = btn.hasAttribute('data-flow-portable-download');
         const isHorizonPublish = btn.id === 'press-publish-cloud-btn';
+        if(isHorizonPublish&&(!state.projectId||!state.uid)){btn.disabled=false;btn.title=getUILang()==='en'?'Choose a cloud space to continue':'クラウド保存先を選んで進む';return;}
         if (hasFlow && isPortableDownload) {
             btn.dataset.flowPortableState = flowPortableReady ? 'ready' : 'waiting';
             btn.disabled = !flowPortableReady;
@@ -3239,7 +3289,7 @@ window.switchPressThumbLang = (code) => {
 
 window.updatePressBookMode = (mode) => {
     const nextMode = mode === 'none' ? 'none' : 'cover';
-    _writeBookSettings({ mode: nextMode });
+    _writeBookSettings({ ...state.book, mode: nextMode });
     _renderBookSettings();
     _renderPageThumbs();
     _handlePressLocalReleaseSettingChange();
@@ -3290,6 +3340,11 @@ window.updatePressBookCover = (key, value) => {
 
 /** Press Room の「Horizonへ下書き保存」ボタンから呼ばれる */
 window.publishToCloud = async () => {
+    if(!await window.prepareHorizonCloudSource?.())return;
+    await refreshFlowHorizonDryRunReadiness();
+    const spaceProjectId = state.projectId, spaceEpoch = getProjectSessionEpoch();
+    if (!await ensurePublishingSpace({projectId:spaceProjectId, purpose:'draft',
+        isCurrent:() => state.projectId === spaceProjectId && getProjectSessionEpoch() === spaceEpoch})) return;
     if (hasFlowGroups(state)) {
         if (!_isPressFlowHorizonHandoffReady()) {
             alert('Flow作品のHorizon配信準備が完了していません。発行言語、翻訳、フォント、クラウド保存状態を確認してください。');
@@ -3301,7 +3356,7 @@ window.publishToCloud = async () => {
         } catch (error) {
             const diagnostic = createDsfReleaseOperationDiagnostic(error);
             console.warn('[Press Flow Horizon authorization] blocked:', diagnostic.code, diagnostic.classification);
-            alert(`${t('press_flow_horizon_failed')}\n${diagnostic.code}`);
+            alert(`${t('press_flow_horizon_failed')}\n${_getPressFlowReleaseDiagnosticCopy(diagnostic.classification).guidance}\n${diagnostic.code}`);
             return;
         }
         if (!confirm(t('press_flow_horizon_confirm'))) return;
@@ -3321,8 +3376,9 @@ window.publishToCloud = async () => {
             const upload = await uploadFlowHorizonReleaseFiles();
             cancelable = false;
             _setFlowHorizonPublishCancelable(false);
-            _setFlowHorizonPublishProgress(t('press_flow_horizon_saving'), null);
+            _setFlowHorizonPublishProgress(t('press_flow_horizon_saving'), 0.99);
             const draft = await writeFlowHorizonDraftMetadata(account, privateContext);
+            _setFlowHorizonPublishProgress(t('press_flow_horizon_success'), 1);
             _closeFlowHorizonPublishModal();
             alert(t('press_flow_horizon_success', {
                 files: upload.summary.fileCount,
@@ -3330,14 +3386,14 @@ window.publishToCloud = async () => {
             }));
             window.switchRoom('works');
         } catch (error) {
-            if (error?.name === 'AbortError') {
-                alert(t('press_render_cancelled'));
+            if (isManualHorizonSaveCancellation(error, _pressRenderCancelled)) {
+                alert(t('press_flow_horizon_cancelled'));
             } else {
                 const fileCount = _pressFlowHorizonUploadResult?.summary?.fileCount
                     ?? _pressFlowLocalReleasePlanningResult?.summary?.fileCount;
                 const diagnostic = createDsfReleaseOperationDiagnostic(error, { fileCount });
                 console.warn('[Press Flow Horizon] failed:', diagnostic.code, diagnostic.classification);
-                alert(`${t('press_flow_horizon_failed')}\n${diagnostic.code}`);
+                alert(`${t('press_flow_horizon_failed')}\n${_getPressFlowReleaseDiagnosticCopy(diagnostic.classification).guidance}\n${diagnostic.code}`);
             }
         } finally {
             window.removeEventListener('keydown', onEscKey, true);
@@ -3399,7 +3455,7 @@ window.publishToCloud = async () => {
         for (const lang of langs) {
             if (section.type === 'text') {
                 totalOps += 1;
-            } else if (section.backgrounds?.[lang] || section.background) {
+            } else if (section.backgrounds?.[lang] || section.background || section.objectOrder) {
                 totalOps += 1;
             }
         }
@@ -3501,7 +3557,7 @@ window.publishToCloud = async () => {
                     blob = await _renderTextSectionToWebP(section, lang, targetW, targetH, _getPressQualityForSection(section, targetW, targetH));
                 } else {
                     const bgUrl = section.backgrounds?.[lang] || section.background;
-                    if (!bgUrl && !_isSpreadImageSection(section)) continue;
+                    if (!bgUrl && !section.objectOrder && !_isSpreadImageSection(section)) continue;
                     done++;
                     setModalProgress(
                         t('press_rendering_progress', { done, total: totalOps }),
@@ -3864,7 +3920,13 @@ async function _renderSpreadImagePairBlobs(bgUrl, pos, targetW, targetH, quality
     return { leftBlob, rightBlob };
 }
 
-async function _renderSectionImageBlob(section, lang, targetW, targetH, quality, pageIndex, pages = _getRenderablePages()) {
+async function _renderSectionImageBlob(section,lang,w,h,quality,pageIndex,pages=_getRenderablePages()) {
+    const hasBackground=section?.backgrounds?.[lang]||section?.backgrounds?.[state.defaultLang]||section?.background;
+    const base=(hasBackground||_isSpreadImageSection(section))?await _renderSectionBaseImageBlob(section,lang,w,h,quality,pageIndex,pages):null;
+    return compositeGraphicObjects(base,section,state.projectAssets||[],lang,state.defaultLang,w,h,c=>encodeCanvasToWebP(c,quality,'Graphic page'));
+}
+
+async function _renderSectionBaseImageBlob(section, lang, targetW, targetH, quality, pageIndex, pages = _getRenderablePages()) {
     const bgUrl = section?.backgrounds?.[lang] || section?.backgrounds?.[state.defaultLang] || section?.background || '';
     const pos = section?.imagePositions?.[lang]
         || section?.imagePositions?.[state.defaultLang]
@@ -3953,7 +4015,8 @@ export function getPressBookConfigForExport(pageCount = _getRenderablePages().le
         bookMode: book.mode,
         book: {
             mode: book.mode,
-            covers: book.covers
+            covers: book.covers,
+            ...(book.spineDesign ? { spineDesign: book.spineDesign } : {})
         }
     };
 }
@@ -3965,7 +4028,7 @@ export async function renderPressSectionToWebP(section, lang, targetW, targetH, 
     const pages = Array.isArray(pagesOverride) ? pagesOverride : _getRenderablePages();
     const pageIndex = Number.isInteger(pageIndexOverride) ? pageIndexOverride : pages.indexOf(section);
     const bgUrl = section?.backgrounds?.[lang] || section?.backgrounds?.[state.defaultLang] || section?.background;
-    if (!bgUrl && !_isSpreadImageSection(section)) return null;
+    if (!bgUrl && !section.objectOrder && !_isSpreadImageSection(section)) return null;
     return _renderSectionImageBlob(section, lang, targetW, targetH, _getPressQualityForSection(section, targetW, targetH), pageIndex, pages);
 }
 
@@ -4196,7 +4259,11 @@ function _drawHorizontalLine(ctx, line, x, baseline, width, justify, align = 'st
  * 縦書きは CSS/html2canvas に任せず、Canvas に列と文字を明示配置する。
  * 横書きも Canvas に直接描画する。html2canvas の foreignObject は環境により白紙化するため使わない。
  */
-async function _renderTextSectionToWebP(section, lang, targetW, targetH, quality) {
+async function _renderTextSectionToWebP(section,lang,w,h,quality) {
+    const base=await _renderTextSectionBaseWebP(section,lang,w,h,quality);
+    return compositeGraphicObjects(base,section,state.projectAssets||[],lang,state.defaultLang,w,h,c=>encodeCanvasToWebP(c,quality,'Graphic text page'));
+}
+async function _renderTextSectionBaseWebP(section, lang, targetW, targetH, quality) {
     const writingMode = getWritingModeFromConfigs(lang, state.languageConfigs || {});
     if (writingMode === 'vertical-rl') {
         return _renderVerticalTextSectionToWebP(section, lang, targetW, targetH, quality);
@@ -4208,4 +4275,25 @@ function _esc(str) {
     return String(str ?? '')
         .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
         .replace(/"/g, '&quot;');
+}
+
+/** Read-only editor preview; uses the same certified Flow and portable ZIP pipeline as Press. */
+export async function createEditorFlowPreview({project,languages,signal,check,onProgress,printOptions=null}) {
+  const {prepareFlowPressPublication}=_pressFlowProductionPreparationModule;
+  const preparation=await prepareFlowPressPublication({project,languages,revision:Date.now(),documentRef:document,signal,onProgress});check();
+  if (!preparation.ok) {
+        const error = new Error('PREVIEW_PREPARATION_BLOCKED');
+        // Preserve only diagnostic codes and locations, never capture payloads.
+        error.previewIssues = preparation.languages.flatMap(result => {
+            const issues = result.preparationIssues.length ? result.preparationIssues : result.preflight.issues;
+            return issues.map(issue => ({code: issue.code, groupId: issue.groupId, language: result.language}));
+        });
+        throw error;
+    }
+  const {imageAssets,backgroundAssets,sealedAssets}=await _createPressFlowLocalReleaseImageAssets(preparation,languages,printOptions?2160:1080,printOptions?3840:1920,signal,null,check,printOptions);check();
+  const {createFlowPressLocalReleasePlanning}=_pressFlowLocalReleasePlanningModule;
+  const planning=await createFlowPressLocalReleasePlanning({preparation,defaultLang:languages.includes(project.defaultLang)?project.defaultLang:languages[0],languages,pageDirections:Object.fromEntries(languages.map(l=>[l,_getLangDirection(l)])),imageAssets,backgroundAssets});check();
+  const {createFlowPressLocalReleasePackage}=_pressFlowLocalReleasePackageModule;
+  const result=await createFlowPressLocalReleasePackage({planning,sealedAssets,metadata:_createPressFlowLocalReleaseMetadata(languages),signal});check();
+  return result.zipPackage.blob;
 }

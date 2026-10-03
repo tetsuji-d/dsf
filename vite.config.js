@@ -1,5 +1,7 @@
 import { defineConfig } from 'vite';
+import {studioPwaPlugin} from './scripts/studio-pwa-plugin.js';
 import { resolve } from 'path';
+import {viewerBookSamplesPlugin} from './scripts/viewer-book-samples-plugin.js';
 
 export default defineConfig(({ mode }) => {
     const input = {
@@ -12,6 +14,7 @@ export default defineConfig(({ mode }) => {
     if (mode !== 'production') input.flowPreview = resolve(__dirname, 'flow-preview.html');
 
     return {
+        plugins: [viewerBookSamplesPlugin(mode),studioPwaPlugin()].filter(Boolean),
         build: {
             rollupOptions: { input },
         },

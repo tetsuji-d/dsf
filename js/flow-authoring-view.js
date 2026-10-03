@@ -580,3 +580,9 @@ export function renderFlowAuthoringView(root, options = {}) {
     root.oncompositionstart = (event) => options.onCompositionStart?.(event);
     root.oncompositionend = (event) => options.onCompositionEnd?.(event);
 }
+
+/** Reuse the same provider/model/job controls on the canvas. */
+export function renderFlowTranslationAutomationPanel(root, automation) {
+    root.innerHTML = renderTranslationAutomation(automation);
+    updateFlowTranslationAutomationView(root, automation);
+}

@@ -11,7 +11,7 @@ Published DSF data and Viewer delivery remain separate from the editable source.
   implicitly upgrade them to v6.
 - A project containing a top-level `kind: "flow"` group must explicitly be
   Project v6.
-- Project v6, FlowDocument v1, and FlowLayout v1 are validated before any
+- Project v6, FlowDocument v1–v4, and FlowLayout v1/v2 are validated before any
   state mutation or persistence write. Unsupported future versions fail closed.
 
 ## Private R2 authoring (scoped rollout)
@@ -63,6 +63,9 @@ rewritten through the legacy admin resync. The API requires explicit enablement 
 secret or live account configuration is performed by Unit C.
 
 See [Unit C implementation and verification](private-authoring-storage-unit-c.md).
+Unit F verified a single staging fixture through real Firebase/R2, Studio/Press,
+and rollback to Firestore. The final staging API is disabled after that rollback;
+production and existing works are not migrated. See [Unit F results](private-authoring-storage-unit-f.md).
 
 ### Migrated project lifecycle (Unit D)
 
@@ -218,3 +221,130 @@ the same normalize-and-validate ingress before dispatching to Studio state.
 DSP schema v1 remains readable for legacy Fixed projects. Project v6 archives
 use `meta.json.schemaVersion: 2` and `project.json.version: 6`. DSF metadata and
 Viewer behavior remain schema v1 in this unit.
+
+
+## Anchored Flow graphics (FlowLayout v2)
+
+The approved [Flow wrapping contract](flow-wrap-integration-contract.md) extends only the Flow layout authoring snapshot.
+Groups using anchored graphics persist `flow.layout.schemaVersion: 2` and `anchoredObjects` through the existing owner-only `authoring/current` path.
+Full WebP images use the existing `projectAssets` mapping. Runtime pages, wrap regions and capture snapshots are not saved.
+Project v6, Firestore collections, Rules and public root projections are unchanged. Layout v1 remains readable; v2 is never silently downgraded.
+Public delivery contains fixedText and sealed background WebP assets, not the authoring Flow layout.
+
+
+## FlowLayout v3：複数配置と画像キャプション
+
+2026-09-11承認済み。v1/v2の読み込みを維持し、新しい画像操作時に対象Groupのみv3へ移行する。
+`anchoredObjects[].graphic.caption`に配置方向・言語別文字列・文字サイズ・間隔・色・揃えを保存する。
+同一段落の複数配置を許可する。公開配信ではキャプションを画像背景へ合成し、本文はfixedTextを維持する。
+Project/Firestore Rules変更はない。詳細は[画像キャプション仕様](flow-image-captions.md)。
+
+
+### Shared authoring foundation (2026-09-22, not routed)
+
+The authoring service accepts an optional server-only access resolver. Existing
+owner-only HTTP routes do not pass it and retain their current behavior.
+`server/shared-authoring.js` binds a space/work to the canonical owner/project,
+reconciles the existing assignment and checks the caller's current membership.
+Authentication always verifies the actual caller; immutable objects and metadata
+remain under the storage owner's paths. Shared operations record actorUid.
+Permission is checked before reads and after R2 I/O, and on both save reservation
+and final commit. A revocation prevents response/commit; no automatic fallback or
+copy into the participant's personal project is allowed.
+This has been tested with the real storage service and fixture R2, not deployed.
+Shared images, client sessions and server-owned binding management remain required
+before enabling cross-account authoring. See [invitation foundation](publishing-invitations.md).
+
+
+### 共有セッションと非公開画像の接続基盤（2026-09-22、未一般提供）
+
+共有専用client sessionは実操作UIDでtokenを取得し、server contextで確定した保存所有者UIDでheadを検証する。
+既存owner-only APIへ参加者UIDを偽装して送ることはない。共有clientは新規project作成を提供しない。
+共有HTTPの原稿GET/PUTには非公開画像参照の検査が入り、未移行の公開画像URLを許可しない。
+画像upload/readは非公開bucketだけを使い、I/O前後の権限・世代照合を必須にする。
+非公開image objectを検証してからready記録を確定し、readyでない参照は原稿保存できない。
+原稿更新と画像の追加は別段階。画像だけのアップロードは原稿headを変更しない。
+詳細・残作業は [招待と共有基盤](publishing-invitations.md) 第3単位を参照。
+
+
+## Shared Studio exception (local rollout)
+
+The shared editor session uses the participant's Firebase identity and the server-resolved
+owner/project scope. It saves only through `/api/spaces/{spaceId}/works/{workId}/authoring`.
+Unlike personal authoring, it does not write `dsf_autosave` or local recent-project snapshots,
+and never falls back to the participant's personal Firestore or public asset uploads.
+Private image references are hydrated to session object URLs and resolved back before saving.
+See [publishing invitations, unit 4](publishing-invitations.md) for the feature gate and limits.
+
+
+### Shared editing lease (local unit 5)
+
+The shared HTTP entry point requires a per-tab editing lease for source and image writes.
+Its fencing token is checked at reservation and commit, in addition to source revision CAS.
+A handover flushes pending saves; the recipient reloads the latest source before editing.
+Connection failures retain the unsaved in-memory draft as read-only; reacquisition does not
+silently discard it. Read-access revocation still clears the shared manuscript and object URLs.
+The lease expires after 90 seconds without renewal; 30 minutes without editing also permits takeover.
+Unit 6 closes alternative owner-only source and mutation routes for canonically shared works.
+Owners enter the same shared editor and must explicitly acquire its lease. Personal catalogue
+assignments without a canonical shared binding retain their previous behavior.
+Protocol and fixture-only metadata are documented in [unit 5](publishing-invitations.md).
+
+### Owner boundary for shared works (local unit 6)
+
+Owner API source loads return `SHARED_AUTHORING_REQUIRED` with a validated shared scope;
+Studio follows it only when shared Studio is enabled. Owner mutations reject canonical shared
+bindings both before I/O and at commit. A released or expired lease does not reopen owner writes.
+A leftover lock without a valid binding fails closed with `SHARED_SCOPE_UNAVAILABLE`.
+The owner API's REST adapter explicitly permits reads of the canonical work/space/label roots.
+This does not activate shared routes, migrate assets, or change deployed Rules. Shared publication
+and restore remain unavailable. See [unit 6](publishing-invitations.md) for scope and verification.
+
+### Allowlisted shared runtime and registration (unit 7, disabled by default)
+
+The Pages `/api/spaces/*` entry point uses real Firebase token verification, live-account checks,
+the transactional Firestore adapter, and the distinct private authoring bucket. Both
+`SHARED_AUTHORING_ENABLED=true` and an exact work/storage/actor allowlist are required.
+Every shared transaction pins the canonical binding to the configured owner/project.
+Owner-only prepare/register calls atomically establish the previously documented work binding
+and index, after source verification and a final revision check. Initial registration accepts
+only image-free private manuscripts; it does not migrate source, images, publication, or membership.
+Legacy assignment refuses moves for shared works. Current environment flags and Rules are unchanged.
+Details and remaining rollout prerequisites: [unit 7](publishing-invitations.md).
+
+
+### Dashboard read path
+
+Dashboard project lists use a Firestore REST structured query with a field projection and
+Firebase ID token. The owner-only Firestore Rules still authorize every request; no server
+credential is sent to the client and no Rules changes are required. Legacy v5 manuscript
+blocks/pages/sections are excluded before transfer, not merely discarded after downloading.
+The query retains listing metadata and published page references for legacy thumbnail fallbacks.
+Each attempt has an actual abort deadline, with one retry for transient failures; permission
+failures are not retried. Account changes discard responses. The existing 30-second in-memory
+cache survives view/filter changes, while explicit refresh invalidates it. A failed load can
+be retried from navigation or when connectivity returns without reloading the browser.
+
+## Explicit device-to-cloud transition
+
+New device drafts and imported DSP files retain a null projectId even after sign-in. DSP import detaches publication and cloud routing identities while preserving manuscript content. Saving to cloud is an explicit destination choice and uses the existing save contract with a fresh identity. Space assignment follows successful source saving; it is not an atomic part of that save. Neither cloud saving nor assignment publishes or shares the work. See [Studio authoring location](studio-authoring-location.md) for retry behavior and UI verification.
+
+## Recoverable manuscript trash (2026-09-29)
+
+Owner manuscript deletion now calls POST /api/project-trash, rather than deleting root/source/publication. The server fixes a 30-day restore deadline and validates account, personal-authoring boundary, assigned-space ownership, lifecycle revision and root updateTime in one transaction. Exact request replay preserves the original deadline. Restore rejects at the deadline and rechecks current access.
+
+Legacy v5 root source and v6 authoring/current remain intact. Rules deny direct root/source deletion and marker changes. While trashed, source reads/writes and new publication are blocked; owner listing and existing public reads remain. A separate stop-publication transition is still allowed. Browser recovery copies and DSP files are independent.
+
+Private R2 load/save/copy/share/assignment and publication start fail closed for trashed projects. The old private delete command returns PROJECT_TRASH_REQUIRED. Trash and restore advance head.revision and authoringControl.mutationRevision without changing source descriptors or object bytes, fencing in-flight and stale saves. Publication context permits separate draft/private transitions without exposing source. This does not add general legacy-save CAS after restoration; that remains the later conflict-resolution unit.
+
+Client lists retain projectTrash in the lightweight projection, omit trashed manuscripts from normal lists, and keep published works visible. Trash mutations invalidate the Dashboard cache and capture the account before confirmation. Failed-response retries reuse the frozen command.
+
+The current unit excludes canonical collaborative manuscripts and physical garbage collection after expiration. Expired manuscripts are not described as physically deleted. Public release retention is independent. Staging Rules deployment was explicitly approved; production is outside scope.
+
+## Cross-space recents and open activity
+
+Dashboard combines all owned-space listing metadata, paged authorized joined-space directories and up to 12 local browser copies. Grouping requires exact ownerUid/projectId; detached DSP imports and unknown/foreign-account copies stay separate. Cloud and local versions remain explicit choices. No timestamp-based overwrite or content merge occurs.
+
+A server-only 100-entry activity index records successful cloud opens, using server time and a 60-second same-item debounce. Shared session renewals do not record new opens. Activity failures do not block manuscript opening or saving. List reads are account scoped and cached for 30 seconds, with explicit refresh. Local-only creation and browser-copy opening never transmit manuscript or activity. Actual cross-device hardware was not used in verification; isolated independent browser tabs exercised server persistence and fresh client reads.
+
+Shared listing/recording retains the current invitation and shared-authoring rollout restrictions. The UI explicitly shows unavailable joined browsing, partial pages, errors and loaded-item search counts. It loads at most three 20-work pages per interaction, with more on demand. Owner listing remains the existing lightweight query, and no source-body download is added by recents. IndexedDB copy listing retains its existing identity checks.

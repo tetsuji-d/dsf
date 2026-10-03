@@ -76,6 +76,7 @@ function getRawText(content, language) {
 
 function hasUnsupportedOverlay(content) {
     return (Array.isArray(content?.bubbles) && content.bubbles.length > 0)
+        || (Array.isArray(content?.graphicObjects) && content.graphicObjects.length > 0)
         || (Array.isArray(content?.layers) && content.layers.length > 0)
         || (Array.isArray(content?.interactions) && content.interactions.length > 0);
 }

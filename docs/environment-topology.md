@@ -1,5 +1,7 @@
 # DSF Environment Topology
 
+> Web専用運営とPWA／Viewerオフライン化の範囲は [DSFプラットフォーム基本方針](dsf-platform-policy.md) に集約する。本書は環境配置の正本。PWAは同じWeb配信の拡張案であり、別OSアプリや新ホスティング基盤を追加する決定ではない。
+
 DSF は **Cloudflare Pages + Firebase + Cloudflare R2** で運用する。
 
 ## 結論
@@ -115,6 +117,8 @@ Firebase Hosting の URL は通常確認先にしない。必要なときだけ 
 
 ## 本番デプロイ手順
 
+2026-10-03のStudio累積改修は、[本番反映の範囲・設定・権限ルール案](studio-production-rollout-plan.md)を先に確認する。ゴミ箱保護と新規発行条件では適用順が異なるため、今回の段階導入には以下の一括手順をそのまま使わない。計画の記載は本番反映の承認ではない。
+
 本番は `npm run deploy:prod:safe` を正とする。
 
 このコマンドは次を順番に実行する。
@@ -162,3 +166,16 @@ UIDリストとアカウントの作成権限で対象を制限する。既存�
 [既存2作品の移行・バックアップ・復旧手順](private-authoring-production-rollout.md)を参照。
 今後の配備でも原稿API／Rules／非公開bindingを保持する。
 APIを停止するだけでは移行済み作品を読めなくなるため、復旧方針を先に確認する。
+
+### 出版スペース（2026-09-21）
+
+出版スペースはFirestoreに基本情報・所属を、非公開AUTHORING_BUCKETにアイコン／背景画像を保存する。
+本体は認証付き/api/publishing-spacesを使う。wrangler.tomlのPUBLISHING_SPACES_ENABLEDは
+previewのみtrue、productionはfalse。設定変更は次回配備時に反映される。
+公開R2_BUCKETへ画像保存を代替しない。既存原稿の保存先や公開Releaseには影響しない。
+実クラウド接続の確認状況は[publishing-spaces.md](publishing-spaces.md)を参照。
+
+新規Horizon発行の所属必須化: staging/developmentでVITE_PUBLISHING_SPACES_REQUIRED=true。
+private authoring APIは独立したPUBLISHING_SPACE_REQUIRED=trueで確定時にも所属を検証する（2026-10-03にスペースAPI有効化から分離、未配備）。
+旧Firestore経路には別途Rules配備が必要。API/UI/Rulesをstagingで揃えてから検証する。
+productionは未有効化。スペースAPI無効の環境へこのRules制約だけ先行配備しない。

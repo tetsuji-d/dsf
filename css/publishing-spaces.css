@@ -1,0 +1,64 @@
+@import './publishing-space-create-dialog.css';
+/* Publishing-space membership is separate from the location of manuscript bytes. */
+.publishing-space-panel { padding:20px; margin-bottom:20px; border:1px solid var(--border-color,#c9d4e3); border-radius:14px; background:var(--panel-bg,#fff); color:var(--text-main,#26364d); }
+.publishing-space-panel h3 { margin:0 0 8px; font-size:20px; }
+.publishing-space-panel p { margin:8px 0; font-size:13px; line-height:1.65; }
+.publishing-space-controls, .publishing-space-panel form { display:flex; align-items:end; flex-wrap:wrap; gap:12px; }
+.publishing-space-panel label { display:grid; gap:6px; font-size:13px; min-width:180px; }
+.publishing-space-panel select, .publishing-space-panel input, .publishing-space-panel button, .home-space-assignment select {
+    font:inherit; color:inherit; background:var(--bg-body,#fff); border:1px solid #aebed3; border-radius:8px; padding:9px 12px; min-height:40px; max-width:100%;
+}
+.publishing-space-panel button { cursor:pointer; }
+.publishing-space-panel button:disabled { opacity:.55; cursor:wait; }
+.publishing-space-panel form { margin-top:16px; padding-top:14px; border-top:1px solid #d8e0eb; }
+.publishing-space-status { min-height:1.65em; }
+.home-project-entry { min-width:0; display:flex; flex-direction:column; }
+.home-project-entry .home-project-card { width:100%; flex:1; }
+.home-space-assignment { display:grid; gap:5px; margin:8px 0 16px; font-size:12px; color:var(--text-main,#26364d); }
+.home-storage-note { font-size:13px; line-height:1.7; margin:0 0 18px; color:var(--text-secondary,#53627a); }
+.home-browser-copies { border:1px dashed #9aaac0; border-radius:12px; padding:18px; margin-top:24px; }
+.home-browser-copies summary { cursor:pointer; font-weight:600; margin-bottom:14px; }
+.home-save-scope { display:inline-block; padding:4px 9px; border-radius:6px; background:#e8f1ff; color:#164983; font-size:12px; margin-bottom:10px; }
+@media(max-width:640px) { .publishing-space-panel { padding:14px; } .publishing-space-controls label { flex:1 1 100%; } }
+
+.space-settings-button { margin-top:12px; }
+.space-profile { margin-top:16px; border:1px solid #cbd5e1; border-radius:12px; overflow:hidden; }
+.space-profile-banner { width:100%; aspect-ratio:3/1; max-height:240px; background:linear-gradient(120deg,#d8e8ed,#bfd0e7); overflow:hidden; }
+.space-profile-banner img { width:100%; height:100%; object-fit:cover; display:block; }
+.space-profile-body { padding:0 24px 24px; overflow-wrap:anywhere; }
+.space-profile-icon { width:88px; height:88px; margin-top:-32px; position:relative; border:4px solid var(--panel-bg,#fff); border-radius:50%; background:#e4ecf8; color:#26446e; display:grid; place-items:center; font-size:32px; overflow:hidden; }
+.space-profile-icon img { width:100%; height:100%; object-fit:cover; }
+.space-profile h4 { margin:12px 0 4px; font-size:24px; }
+.space-profile-description { white-space:pre-wrap; }
+.publishing-space-panel form:has(textarea) { align-items:start; }
+.publishing-space-panel textarea { width:100%; box-sizing:border-box; font:inherit; padding:10px; border:1px solid #aebed3; border-radius:8px; resize:vertical; }
+.space-profile-wide { flex:1 1 100%; min-width:0!important; }
+.space-image-field { flex:1 1 240px; min-width:0; }
+.space-image-field input { width:100%; box-sizing:border-box; }
+.space-image-field button { margin-top:8px; }
+@media(max-width:640px) { .space-profile-body { padding:0 16px 16px; } .space-profile-icon { width:64px; height:64px; margin-top:-24px; } }
+
+/* Global space switcher: shared state with the dashboard, no manuscript writes. */
+.space-switcher { flex:none; align-self:center; margin-right:10px; }
+.space-switcher-trigger { display:flex; align-items:center; justify-content:center; gap:3px; min-width:44px; height:32px; padding:2px 4px; border:1px solid #5d718c; border-radius:8px; background:#24334a; color:#fff; cursor:pointer; font:inherit; }
+.space-switcher-avatar { display:grid; place-items:center; width:26px; height:26px; flex:none; overflow:hidden; border-radius:7px; background:#dae8f6; color:#294766; font:600 15px system-ui,sans-serif; }
+.space-switcher-avatar img { width:100%; height:100%; object-fit:cover; }
+.space-switcher-chevron { font-size:14px; }
+.space-switcher-popup { position:fixed; inset:auto; margin:0; width:min(340px,calc(100vw - 16px)); max-height:calc(100dvh - 80px); box-sizing:border-box; overflow:auto; padding:14px; border:1px solid var(--border-color,#c3cddd); border-radius:14px; background:var(--panel-bg,#fff); color:var(--text-main,#26364d); box-shadow:0 12px 36px #06152940; font:14px/1.5 system-ui,sans-serif; }
+.space-switcher-popup h3 { margin:0 0 12px; font-size:15px; }
+.space-switcher-popup p { margin:8px 0; }
+.space-switcher-list { display:grid; gap:4px; }
+.space-switcher-popup button { font:inherit; color:inherit; cursor:pointer; }
+.space-switcher-popup .space-switcher-choice { display:flex; align-items:center; gap:10px; min-height:48px; width:100%; padding:8px; text-align:left; border:1px solid transparent; border-radius:9px; background:transparent; }
+.space-switcher-popup .space-switcher-choice:hover { background:var(--bg-body,#f1f5fa); }
+.space-switcher-popup .space-switcher-choice[aria-pressed="true"] { background:#e9f2ff; color:#174776; border-color:#bdd5f4; }
+.space-switcher-choice .space-switcher-avatar { width:32px; height:32px; }
+.space-switcher-name { flex:1; min-width:0; overflow-wrap:anywhere; }
+.space-switcher-check { flex:none; width:16px; }
+.space-switcher-popup .space-switcher-create { width:100%; min-height:44px; margin-top:12px; border:1px solid #a6bbd5; border-radius:9px; background:transparent; text-align:left; padding:8px; }
+.space-switcher-popup .space-switcher-note { font-size:12px; opacity:.75; }
+.space-switcher-popup button:disabled { opacity:.5; cursor:wait; }
+.space-switcher button:focus-visible { outline:2px solid #528fff; outline-offset:2px; }
+#mobile-space-switcher { margin-right:0; }
+#mobile-space-switcher .space-switcher-trigger { height:44px; }
+@media(max-width:640px) { .space-switcher-trigger { min-height:44px; } }

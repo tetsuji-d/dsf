@@ -27,7 +27,7 @@ const SHA256_PATTERN = /^(?:[a-f0-9]{64}|sha256-[A-Za-z0-9_-]{43,86})$/i;
 const PAGE_DIRECTIONS = new Set(['ltr', 'rtl']);
 const FORBIDDEN_KEYS = new Set(['__proto__', 'prototype', 'constructor']);
 const INPUT_KEYS = new Set(['defaultLang', 'hashBytes', 'languages']);
-const LANGUAGE_INPUT_KEYS = new Set(['language', 'pageDirection', 'preflight', 'imageAssets']);
+const LANGUAGE_INPUT_KEYS = new Set(['language', 'pageDirection', 'preflight', 'imageAssets', 'backgroundAssets']);
 const IMAGE_ASSET_KEYS = new Set([
     'sha256',
     'byteLength',
@@ -340,6 +340,21 @@ function validateAssemblyInput(input) {
                     issues,
                 );
             }
+            const backgrounds=entry.backgroundAssets || {};
+            if(!isRecord(backgrounds)) issues.push(createIssue('RELEASE_BACKGROUND_MAP_INVALID',path,'Background map must be an object.'));
+            const expected=new Set();
+            for(const decision of entry.preflight?.decisions || []) for(const bg of decision.projection?.backgrounds || []) {
+                const key=JSON.stringify([decision.blockId,bg.pageIndex]);
+                if(decision.sourceKind!=='flow' || decision.renderKind!=='fixedText'
+                    || !Number.isInteger(bg.pageIndex) || bg.pageIndex<0 || bg.pageIndex>=decision.projection.manifest.pages.length
+                    || bg.revision!==decision.projection.revision || expected.has(key)) {
+                    issues.push(createIssue('RELEASE_BACKGROUND_SOURCE_INVALID',path,'Background does not match its projection.'));
+                }
+                expected.add(key);
+                validateImageAsset(backgrounds[key],`${path}.backgroundAssets`,issues);
+                if(backgrounds[key] && backgrounds[key].width*640!==backgrounds[key].height*360)issues.push(createIssue('RELEASE_BACKGROUND_ASPECT_INVALID',path,'Background must match the canonical page aspect ratio.'));
+            }
+            for(const key of Object.keys(backgrounds)) if(!expected.has(key)) issues.push(createIssue('RELEASE_BACKGROUND_UNUSED',path,'Unreferenced background asset.'));
             for (const assetBlockId of Object.keys(entry.imageAssets)) {
                 if (!imageBlockIds.has(assetBlockId)) {
                     issues.push(createIssue(
@@ -479,6 +494,18 @@ function assembleLanguage(entry, languageIndex, fonts) {
                             'Fixed text source anchor must match its authoring decision.',
                         ),
                     ]);
+                }
+                const background=decision.projection.backgrounds?.find(bg=>bg.pageIndex===projectionPageIndex);
+                if(background){
+                    const asset=entry.backgroundAssets[JSON.stringify([decision.blockId,projectionPageIndex])];
+                    const index=pages.length;
+                    const assetPath=`assets/images/language-${String(languageIndex+1).padStart(4,'0')}/page-${String(index+1).padStart(5,'0')}.webp`;
+                    page.background={...page.background,imageHref:`../${assetPath}`};
+                    assets.push({path:assetPath,language:entry.language,blockId:decision.blockId,pageIndex:index,
+                        sha256:asset.sha256,byteLength:asset.byteLength,width:asset.width,height:asset.height,
+                        mimeType:'image/webp',decisionCode:decision.decisionCode,purpose:'fixedTextBackground'});
+                } else if(page.background?.imageHref) {
+                    throw new DsfReleaseAssemblyError([createIssue('RELEASE_BACKGROUND_UNBOUND','background','Background has no sealed asset binding.')]);
                 }
                 rewritePageStyleRefs(page, styleIdMap);
                 pages.push(page);
@@ -623,7 +650,7 @@ export async function assembleDsfV2Release(input = {}) {
             fixedTextPageCount: Object.values(manifests).reduce((sum, manifest) => (
                 sum + manifest.pages.filter((page) => page.renderKind === 'fixedText').length
             ), 0),
-            imagePageCount: assetPlan.length,
+            imagePageCount: Object.values(manifests).reduce((n,m)=>n+m.pages.filter(p=>p.renderKind==='image').length,0),
             externalFontCount: Object.keys(fonts).length,
             totalBytes,
         },

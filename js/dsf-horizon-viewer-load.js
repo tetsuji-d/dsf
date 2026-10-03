@@ -1,3 +1,4 @@
+import { normalizeBookSpineDesign } from './book-spine-design.js';
 /**
  * Fail-closed public Viewer loader for immutable DSF delivery v2 releases.
  *
@@ -366,6 +367,7 @@ function createProject(metadata, transport, index, pages) {
         pages,
         dsfResolution: `${index.canonicalPage.width}x${index.canonicalPage.height}`,
         bookMode: metadata.bookMode || 'simple',
+        ...(metadata.book ? { book: { ...metadata.book, ...(metadata.book.spineDesign ? { spineDesign: normalizeBookSpineDesign(metadata.book.spineDesign) } : {}) } } : {}),
     };
 }
 

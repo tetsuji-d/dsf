@@ -1,0 +1,13 @@
+const text={ja:{title:'端末版とクラウド版を確認',loading:'内容を比較しています…',same:'同じ内容です',local:'端末側に変更があります',cloud:'クラウド側に変更があります',both:'双方に変更があります',unknown:'変更の経緯を確認できません',note:'元の端末版は保護コピーとして保持します。内容は自動で統合しません。',unknownNote:'古いコピー、未取得の画像、通信・権限の状態によっては比較できません。日時だけでは版を選びません。',fork:'端末版を別プロジェクトとして開く',cloudOpen:'クラウド版を開く',cancel:'今は決めない',error:'開けませんでした。保護コピーを残しています。',pending:'元のクラウドへの反映は、競合防止付き保存に対応する次段階で追加します。'},en:{title:'Compare browser and cloud versions',loading:'Comparing contents…',same:'Contents are identical',local:'The browser version has changes',cloud:'The cloud version has changes',both:'Both versions have changes',unknown:'Change history could not be confirmed',note:'The browser version remains as a protected copy. Contents will not be merged automatically.',unknownNote:'An older copy, missing assets, connectivity or access can prevent comparison. Timestamps do not decide the version.',fork:'Open browser version as a new project',cloudOpen:'Open cloud version',cancel:'Decide later',error:'Could not open. The protected copy remains.',pending:'Applying the browser version to the original cloud manuscript requires the next phase of conflict-safe saving.'}};
+export function showSafeResume({name,locale='ja',compare,onFork,onCloud}){
+ const t=text[locale]||text.ja,d=document.createElement('dialog');d.className='safe-resume-dialog';d.setAttribute('aria-label',t.title);
+ const node=(tag,value)=>{const e=document.createElement(tag);e.textContent=value;return e;};
+ d.append(node('h2',t.title),node('h3',name));const status=node('p',t.loading);status.setAttribute('aria-live','polite');d.append(status,node('p',t.note),node('p',t.pending));
+ const actions=node('div','');actions.className='safe-resume-actions';d.append(actions);let alive=true,busy=false;
+ const close=()=>{alive=false;d.close();d.remove();};
+ function action(label,run){const b=node('button',label);b.type='button';b.onclick=async()=>{if(busy)return;busy=true;for(const x of actions.children)x.disabled=true;try{await run();close();}catch{if(alive){status.textContent=t.error;busy=false;for(const x of actions.children)x.disabled=false;}}};actions.append(b);return b;}
+ action(t.fork,onFork);if(onCloud)action(t.cloudOpen,onCloud);action(t.cancel,async()=>{});
+ d.addEventListener('cancel',e=>{e.preventDefault();if(!busy)close();});document.body.append(d);d.showModal();
+ Promise.resolve().then(compare).then(result=>{if(alive&&!busy)status.textContent=t[result]||t.unknown;if(result==='unknown'&&alive)d.insertBefore(node('p',t.unknownNote),actions);}).catch(()=>{if(alive&&!busy)status.textContent=t.unknown;});
+ return {close};
+}
