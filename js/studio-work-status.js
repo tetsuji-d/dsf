@@ -4,7 +4,7 @@ export function describeStudioWork({open=false,title='',identity='',local=false,
     if (open) {
         if (busy || save.state === 'saving') status = 'saving';
         else if (save.state === 'error') status = 'error';
-        else if (local) status = file.dirty ? 'dirty' : file.fileSaved ? 'saved-file' : 'unconfirmed-file';
+        else if (local) status = file.restored ? 'restored' : file.dirty ? 'dirty' : file.fileSaved ? 'saved-file' : 'unconfirmed-file';
         else if (save.cloudCurrent) status = 'saved-cloud';
         else if (!online) status = 'waiting';
         else status = save.state === 'pending' ? 'dirty' : 'unconfirmed';
@@ -22,6 +22,7 @@ export function studioWorkText(work,en=false) {
         none:['開いている原稿はありません','No manuscript is open'],
         saving:['保存・処理中…','Saving or processing…'],
         dirty:['未保存の変更があります','Unsaved changes'],
+        restored:['復元した原稿・保存確認待ち','Recovered manuscript · Saving unconfirmed'],
         'saved-file':['DSPファイルに保存済み','Saved to DSP file'],
         'saved-cloud':['クラウドに保存済み','Saved to cloud'],
         'unconfirmed-file':['DSPファイルへの保存が未確認です','DSP file saving is unconfirmed'],

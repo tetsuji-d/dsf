@@ -10,6 +10,9 @@ const saved=tracker.checkpoint();let prevented=false;const e={preventDefault(){p
 assert.ok(tracker.read().dirty);tracker.dirty();assert.equal(tracker.confirm(saved),false);assert.ok(tracker.read().dirty);
 assert.ok(tracker.confirm(tracker.checkpoint()));assert.equal(handlers.size,0);tracker.dirty();local=false;warning.sync();assert.equal(handlers.size,0);
 local=true;warning.sync();const old=tracker.checkpoint();tracker.reset();assert.equal(tracker.confirm(old),false);assert.equal(handlers.size,0);
+tracker.restore();assert.equal(tracker.read().dirty,false,'restoring is not editing');assert.equal(tracker.read().restored,true);assert.equal(tracker.read().needsSave,true);assert.ok(handlers.has('beforeunload'),'unconfirmed restored data is still protected');
+const restoredToken=tracker.checkpoint();tracker.dirty();assert.equal(tracker.read().restored,false);assert.equal(tracker.read().dirty,true);assert.equal(tracker.confirm(restoredToken),false);
+assert.equal(tracker.confirm(tracker.checkpoint()),true);assert.equal(tracker.read().needsSave,false);assert.equal(handlers.size,0);
 console.log('PASS local warning: edits, cancellation, confirmation, concurrent edit, session switch and shared/cloud exclusion');
 const source=fs.readFileSync('js/studio-service-worker.js','utf8').replace('__STUDIO_BUILD_INFO__','{id:"test"}').replace('__STUDIO_VERSION__','"test"').replace('__STUDIO_PRECACHE__',JSON.stringify(['/studio.html','/viewer.html','/assets/editor.js']));
 function runtime(fail=false){const listeners={},entries=new Map(),oldEntries=new Map(),calls=[],origin='https://test.dsf.invalid';let deleted=false;const key=x=>new URL(typeof x==='string'?x:x.url,origin).href;

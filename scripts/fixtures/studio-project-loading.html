@@ -1,0 +1,11 @@
+<!doctype html><html lang="ja"><meta charset="utf-8"><title>原稿読み込み表示の検証</title><link rel="stylesheet" href="/css/home-workspace.css"><style>body{font:16px system-ui;background:#f6f8fc;padding:32px}dialog{border:1px solid #ccd4df;border-radius:12px;max-width:540px}dialog::backdrop{background:#0006}button{padding:10px;margin:8px}</style>
+<h1>クラウド原稿の読み込み表示（隔離検証）</h1><p>実原稿やクラウドには接続しません。</p><button id="open">クラウドを開く</button><p id="result" role="status"></p>
+<script type="module">
+import {showStudioProjectLoading} from '/js/studio-project-loading.js';
+document.querySelector('#open').onclick=()=>{
+ const loading=showStudioProjectLoading(),dialog=document.querySelector('dialog');loading.update('load');
+ for(const [label,result] of [['読み込み完了を再現','編集画面へ移動'],['読み込み失敗を再現','読み込み失敗・元の原稿を保持']]){
+  const b=document.createElement('button');b.textContent=label;b.onclick=()=>{loading.close();document.querySelector('#result').textContent=result;};dialog.append(b);
+ }
+};
+</script></html>

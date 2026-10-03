@@ -99,6 +99,7 @@ import {localDraftStatus,isLocalDraft,noteLocalDraftEdit,setLocalCloudTransition
 import {chooseDspFilename,confirmDspDownload,showDspSaveError} from './dsp-save-dialog.js';
 import {installStudioPwa} from './studio-pwa.js';
 import {describeStudioWork,installStudioWorkStatus} from './studio-work-status.js';
+import {showStudioProjectLoading} from './studio-project-loading.js';
 import {installHomeStart} from './home-start.js';
 import { buildDSP, buildDSF, parseAndLoadDSP } from './export.js';
 import { hydrateProjectFromPersistence } from './project-persistence.js';
@@ -4808,7 +4809,7 @@ async function openRecentLocalCopy(copy) {
         if(copy.projectId){const kept=await protectLocalRecentProject(copy.id);await openProtectedCopy(kept.id);return;}
         const loadedState=hydrateProjectFromPersistence(await loadLocalRecentProject(copy.id));
         resetFlowRuntimeForProjectChange();clearHistory();dispatch({type:actionTypes.LOAD_PROJECT,payload:loadedState});
-        noteLocalDraftEdit();refresh();window.switchRoom('editor');
+        localDraftStatus.restore();refresh();window.switchRoom('editor');
     }catch(e){alert(t('home_local_open_error',{message:e.message}));}
 }
 async function refreshRecentWorks({force=false,more=false,keepCloudRequest=false}={}) {
@@ -4818,7 +4819,7 @@ async function refreshRecentWorks({force=false,more=false,keepCloudRequest=false
     const current=()=>epoch===recentWorksEpoch&&uid===(state.uid||'')&&online===navigator.onLine;
     if(!recentWorksUI)recentWorksUI=createRecentWorksUI({root,getLocale:getUILang,
         onCloud:async row=>{if(state.uid!==row.ownerUid)return;if(await onLoadProject(row.projectId))window.switchRoom('editor');},
-        onLocal:openRecentLocalCopy,onDelete:deleteHomeLocalCopy,
+        onLocal:openRecentLocalCopy,onRecovery:()=>getHomeWorkspace().select('local'),
         onRefresh:()=>void refreshRecentWorks({force:true}),onMore:()=>void refreshRecentWorks({more:true})});
     if(force&&!keepCloudRequest){homeCloudProjectsCache=null;homeCloudProjectsRequest=null;++homeCloudProjectsRequestToken;}
     if(!online||!uid||recentDirectoryUid!==uid||force||(!more&&Date.now()-recentDirectoryAt>30000)){
@@ -8288,14 +8289,17 @@ function syncLangPanel() {
 let openingProject = null;
 function onLoadProject(pid) {
     if(openingProject)return openingProject.pid===pid?openingProject.promise:Promise.resolve(false);
-    const promise=performLoadProject(pid).finally(()=>{openingProject=null;});
-    openingProject={pid,promise};return promise;
+    const loading=showStudioProjectLoading({getLocale:getUILang});
+    const promise=Promise.resolve().then(()=>performLoadProject(pid,loading)).finally(()=>{openingProject=null;loading.close();window.dispatchEvent(new Event('studio-work-status'));});
+    openingProject={pid,promise};window.dispatchEvent(new Event('studio-work-status'));return promise;
 }
-async function performLoadProject(pid) {
+async function performLoadProject(pid,loading) {
     const openingUid=state.uid;
     try {
         await flushBeforeSafeResume();
+        loading.update('load');
         await loadProject(pid, () => {
+            loading.update('prepare');
             resetFlowRuntimeForProjectChange({keepSession:true});
             clearHistory();
             ensureUiPrefs();
@@ -11568,7 +11572,7 @@ async function bootstrapApp() {
                 clearHistory();
                 dispatch({ type: actionTypes.LOAD_PROJECT, payload: restoredState });
                 if(restoredState.projectId){markRestoredCloudCopy();setLocalCloudTransitionPending(true);}
-                noteLocalDraftEdit();
+                localDraftStatus.restore();
                 console.log("[DSF] Auto-save restored successfully.");
                 }
                 } else { Object.keys(restoredMap).forEach(url=>URL.revokeObjectURL(url)); }
@@ -12222,7 +12226,7 @@ document.addEventListener('visibilitychange',()=>{if(document.visibilityState===
 
 const locationNote=document.createElement('span');locationNote.id='authoring-location-status';document.querySelector('#project-title')?.after(locationNote);
 const localFileNote=document.createElement('span');localFileNote.id='local-dsp-status';localFileNote.setAttribute('role','status');localFileNote.style.cssText='font-size:12px;margin-inline:8px';document.querySelector('#project-title')?.after(localFileNote);
-const syncLocalFileNote=()=>{const en=getUILang()==='en';locationNote.textContent=!state.projectId?(en?'Creating on this device':'この端末で制作中'):(isLocalDraft()?(en?'Cloud save needs confirmation':'クラウド保存の確認が必要'):(en?'Cloud manuscript':'クラウドの原稿'));document.querySelectorAll('[data-authoring-save]').forEach(b=>{b.title=isLocalDraft()?(en?'Save DSP file':'DSPファイルを保存'):(en?'Save to cloud':'クラウド保存');});localFileNote.hidden=!isLocalDraft();localFileNote.textContent=localDraftStatus.read().dirty?(getUILang()==='en'?'DSP file: unsaved changes':'DSPファイル：未保存の変更あり'):(localDraftStatus.read().fileSaved?(getUILang()==='en'?'DSP file: saved':'DSPファイル：保存済み'):(getUILang()==='en'?'DSP file: not saved':'DSPファイル：未保存'));};
+const syncLocalFileNote=()=>{const en=getUILang()==='en';locationNote.textContent=!state.projectId?(en?'Creating on this device':'この端末で制作中'):(isLocalDraft()?(en?'Cloud save needs confirmation':'クラウド保存の確認が必要'):(en?'Cloud manuscript':'クラウドの原稿'));document.querySelectorAll('[data-authoring-save]').forEach(b=>{b.title=isLocalDraft()?(en?'Save DSP file':'DSPファイルを保存'):(en?'Save to cloud':'クラウド保存');});localFileNote.hidden=!isLocalDraft();localFileNote.textContent=localDraftStatus.read().restored?(en?'Recovered manuscript: saving unconfirmed':'復元した原稿：保存確認待ち'):localDraftStatus.read().dirty?(getUILang()==='en'?'DSP file: unsaved changes':'DSPファイル：未保存の変更あり'):(localDraftStatus.read().fileSaved?(getUILang()==='en'?'DSP file: saved':'DSPファイル：保存済み'):(getUILang()==='en'?'DSP file: not saved':'DSPファイル：未保存'));};
 window.addEventListener('local-draft-status',syncLocalFileNote);document.addEventListener('studio-ui-language-change',syncLocalFileNote);syncLocalFileNote();
 
 window.addEventListener('local-recents-updated',()=>{
@@ -12332,7 +12336,7 @@ function assertExternalDspOpenReady() {
     assertPersonalStudioOperation();
     const reason=readDspOpenBlockReason();
     if(reason)throw Object.assign(Error('busy'),{reason});
-    if(isLocalDraft() ? localDraftStatus.read().dirty : state.projectId && !getEditorSaveStatus().cloudCurrent)throw Error('unsaved');
+    if(isLocalDraft() ? localDraftStatus.read().needsSave : state.projectId && !getEditorSaveStatus().cloudCurrent)throw Error('unsaved');
 }
 installFileLaunch({extension:'.dsp',getLocale:getUILang,beforeOpen:async()=>{
     try{await studioBootReady;}catch{throw Error('not-ready');}

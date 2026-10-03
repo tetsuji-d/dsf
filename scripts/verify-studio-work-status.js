@@ -5,6 +5,8 @@ assert.equal(describeStudioWork().blocked,false);
 assert.equal(describeStudioWork({...base,local:true,file:{dirty:false,fileSaved:false}}).blocked,true,'untouched unsaved drafts are not silently discarded');
 assert.equal(describeStudioWork({...base,local:true,file:{dirty:false,fileSaved:true}}).canClose,true);
 assert.equal(describeStudioWork({...base,local:true,file:{dirty:true,fileSaved:true}}).blocked,true);
+const restored=describeStudioWork({...base,local:true,file:{restored:true,dirty:false,fileSaved:false}});
+assert.equal(restored.status,'restored');assert.equal(restored.blocked,true);assert.equal(restored.canClose,false);assert.match(studioWorkText(restored),/保存確認待ち/);
 assert.equal(describeStudioWork({...base,save:{localCurrent:true,cloudCurrent:false}}).blocked,true,'backup is not cloud confirmation');
 assert.equal(describeStudioWork({...base,save:{cloudCurrent:true}}).blocked,false);
 assert.equal(describeStudioWork({...base,save:{cloudCurrent:true},busy:'uncommitted'}).blocked,true,'uncommitted input blocks reload');

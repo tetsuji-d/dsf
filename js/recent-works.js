@@ -21,6 +21,20 @@ export function filterRecentWorks(rows,{query='',scope='all'}={}){
  return rows.filter(r=>(scope==='all'||(scope==='device'?!r.cloud&&!r.shared&&r.spaceId==='device':scope==='copies'?r.locals.length:scope==='personal'?r.spaceId===null:r.spaceId===scope))&&(!q||[r.cloud?.title,r.cloud?.projectName,r.shared?.title,r.spaceName,...r.locals.flatMap(p=>[p.title,p.projectName])].some(s=>normalize(s).includes(q))));
 }
 
+// Recovery records stay intact; only the normal manuscript shelf is projected.
+export function separateRecentRecovery(rows){
+ const manuscripts=[],recovery=[];
+ for(const row of rows){
+  if(row.cloud||row.shared){
+   recovery.push(...row.locals);
+   manuscripts.push({...row,locals:[],updatedAt:Math.max(recentTime(row.cloud?.lastUpdated),recentTime(row.shared?.updatedAt))});
+  }else if(row.unconfirmed||row.otherAccount||row.cloudTrashed)recovery.push(...row.locals);
+  else manuscripts.push(row); // An independent draft may be the only existing manuscript.
+ }
+ manuscripts.sort((a,b)=>Number(!!b.openedAt)-Number(!!a.openedAt)||(b.openedAt||b.updatedAt)-(a.openedAt||a.updatedAt)||a.key.localeCompare(b.key));
+ return {manuscripts,recovery};
+}
+
 // Incremental shared directory reads: at most three work pages per user request.
 export function createRecentDirectory({execute,isCurrent=()=>true}){
  let spaces=[],cursor=null,started=false,queue=[],works=[],failed=false,unavailable=false,busy=false,pending=null;

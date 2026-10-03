@@ -15,4 +15,4 @@
 .recent-works-controls { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
 @media(max-width:600px) { .recent-work-card { flex-basis: 250px; } .recent-works-toolbar input { flex-basis:100%; } }
 
-.recent-works-controls [hidden] { display: none !important; }
+.recent-works-controls [hidden],#home-recent-works [hidden] { display: none !important; }

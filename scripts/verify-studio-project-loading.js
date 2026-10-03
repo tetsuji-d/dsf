@@ -1,0 +1,16 @@
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import vm from 'node:vm';
+const app=fs.readFileSync(new URL('../js/app.js',import.meta.url),'utf8');
+const wrapper=app.slice(app.indexOf('let openingProject = null;'),app.indexOf('async function performLoadProject'));
+let release,reject,opened=0,closed=0,loads=0,events=0;
+const context={Promise,Event,getUILang:()=> 'ja',window:{dispatchEvent(){events++;}},showStudioProjectLoading(){opened++;return{close(){closed++;}};},performLoadProject(){loads++;return new Promise((a,b)=>{release=a;reject=b;});}};
+vm.createContext(context);vm.runInContext(wrapper,context);
+const first=context.onLoadProject('a');assert.equal(opened,1,'feedback opens before async loading');
+assert.equal(context.onLoadProject('a'),first,'same manuscript shares in-flight load');assert.equal(await context.onLoadProject('b'),false,'other manuscript cannot overlap');
+assert.equal(loads,1);release(true);assert.equal(await first,true);assert.equal(closed,1);
+const fail=context.onLoadProject('b');await Promise.resolve();reject(Error('fixture failure'));await assert.rejects(fail);assert.equal(closed,2,'unexpected errors still remove the overlay');
+const retry=context.onLoadProject('b');await Promise.resolve();release(false);assert.equal(await retry,false);assert.equal(closed,3);assert.equal(events,6);
+assert.match(app,/localDraftStatus\.restore\(\);\s*console\.log\("\[DSF\] Auto-save restored/);
+assert.match(app,/localDraftStatus\.read\(\)\.needsSave/);
+console.log('PASS loading: immediate feedback, duplicate clicks, success, error cleanup and retry; restored data remains protected');
