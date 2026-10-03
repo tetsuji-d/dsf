@@ -4,7 +4,9 @@
 
 2026-10-03。2段階の第1段階として、DSFの画像表紙とDSPの検証済み表紙PNGを読み取る
 Windows x64用`IThumbnailProvider`を実装。**専用拡張子でのExplorer実表示と導入・解除を確認済み。**
-実際の`.dsp`／`.dsf`への常設登録は未実施。署名付きの一般配布版ではない。
+続いてArchitectの承認を受け、この開発PCの`.dsp`／`.dsf`へ常設した。
+通常ローカルフォルダーの実表示は成功。OneDrive内の表示には未解決の制約がある（下記）。
+署名付きの一般配布版ではない。
 
 - DSF v1: 指定されたC1（なければ最初のページ）の原文言語画像。
 - DSF v2: 既定言語の最初のページが画像の場合のみ。manifest、meta、content、言語manifestと
@@ -88,12 +90,30 @@ Machineは事前承認とWindows管理者確認が必要。`run-machine-diagnost
   一時キー・Program Files内の検証フォルダーの消去を確認した。
   記録は`outputs/windows-preview/install-verification.json`。
 - 同梱WebP版もExplorerで実表示を確認。新規PC、長期利用、署名付き一般配布は未検証。
-- 実拡張子への常設登録は一時検証の承認に含めず、完成したパッケージを示して別途確認する。
+- 実拡張子への常設登録は一時検証と分けて承認を受けた。2026-10-03にWindowsの管理者確認を経て導入。
+  DLL SHA-256: `e394388d99a9046f2a55085defcca350df8b806bd2e88ba23108c182833f6f4b`。
+  既定アプリ・種類別アイコンなど、thumbnail binding以外の拡張子設定が不変であることを照合した。
+  記録は`outputs/windows-preview/permanent-install.json`と同ディレクトリの導入ログ。
+
+### 実拡張子・OneDrive内の確認
+
+- 既存の実DSFを通常ローカルフォルダーへ複製し、Shell APIとExplorerの両方で作品の表紙表示を確認。
+  表紙PNG入りDSPの表示、旧DSPの種類別アイコンへのfallbackも実画面で確認した。
+- OneDrive内の同一DSFは直接readerでは成功するが、Shellは`0x8004b205`（`WTS_E_EXTRACTIONPENDING`）を返す。
+  通常取得、キャッシュを使わない取得、強制抽出、BindToHandler、再試行でも同じ結果。
+  コピー前後のbytesは同一で、保存場所によって結果が分かれる。
+- OneDrive内の実ExplorerはDSF／DSPの種類別アイコンを表示し、表紙には切り替わらない。
+  Windows／OneDrive経由の取得経路に残る問題として扱い、常設導入だけで全面解決とはしない。
+  他の同期ストレージ、オンライン専用ファイルについても未検証。
+- 元原稿は書き換えず、同期・ピン留め設定、セキュリティ、既定アプリは変更していない。
+  実ファイル検証記録は`outputs/windows-preview/permanent-file-verification.json`。
+- 古いDSPの`DSP_SNAPSHOT_REQUIRED`は期待する未対応状態。表紙PNGが必要なら新しいStudioで保存する。
+  原本を自動変換せず、Flow表紙等の未対応構成は保存し直しても表紙PNGを省略する。
 
 ## 配布前の残作業
 
 1. DSPの任意表紙PNG同梱は承認・実装済み。Flow表紙など現時点で省略している構成への対応を検討する。
-2. 実拡張子への常設導入、異なる版への更新、新規Windows端末での再現性を確認する。
+2. OneDrive内の表紙取得待ちを調査する。異なる版への更新、新規Windows端末での再現性も確認する。
 3. 署名・一般配布方法を整える。現在は開発用の未署名ZIP。
 4. 第2段階の本文プレビューへ進む。固定テキスト・言語・ページ順を既存Viewerと照合し、
    画像だけを抜き出して本文が欠けたプレビューを完成扱いしない。
