@@ -3,7 +3,9 @@ import { mapProjectAssetUrls, validateProjectAssets } from './project-assets.js'
 import JSZip from 'jszip';
 import { saveAs } from 'file-saver';
 import { set as idbSet } from 'idb-keyval';
-import { state } from './state.js';
+import { state, getProjectSessionEpoch } from './state.js';
+import { getHistoryGuard } from './history.js';
+import { createDspCoverPreview, addDspCoverPreview } from './dsp-cover-preview.js';
 import { blocksToPages } from './pages.js';
 import { fetchAssetBlob, guessAssetExtension, shouldEmbedAsset } from './asset-fetch.js';
 import {
@@ -100,16 +102,8 @@ function buildMetadata(formatStr, options = {}) {
     };
 }
 
-// --- Build .dsp (Project Archive) ---
-export async function buildDSP(options = {}) {
-    const zip = new JSZip();
-
-    // 1. Mimetype
-    zip.file("mimetype", "application/vnd.dsf.project+zip");
-
-    // 2. Project Data Dump. The authoring snapshot is validated before any
-    // archive work; Flow-generated pages are never part of this value.
-    const initialProject = prepareProjectForSave({
+function captureDspProject() {
+    return prepareProjectForSave({
         version: state.version || 5,
         projectAssets: state.projectAssets || [],
         projectId: state.projectId,
@@ -133,8 +127,25 @@ export async function buildDSP(options = {}) {
         blocks: state.blocks || [],
         pages: state.pages || [],
     });
+}
+
+// --- Build .dsp (Project Archive) ---
+export async function buildDSP(options = {}) {
+    const zip = new JSZip();
+    zip.file("mimetype", "application/vnd.dsf.project+zip");
+    const initialProject = captureDspProject();
+    const readPreviewGuard = () => JSON.stringify([getProjectSessionEpoch(), getHistoryGuard(), captureDspProject()]);
+    const previewGuard = readPreviewGuard();
     const exportMeta = structuredClone(buildMetadata('dsp', { projectVersion: initialProject.version }));
     const exportSections = JSON.parse(JSON.stringify(initialProject.sections || []));
+    const coverPreview = createDspCoverPreview({
+        project: initialProject, guard: previewGuard, readGuard: readPreviewGuard,
+        render: async (section, language, width, height) => {
+            await document.fonts.ready;
+            if (readPreviewGuard() !== previewGuard) return null;
+            return renderPressSectionToWebP(section, language, width, height, 0, initialProject.sections);
+        },
+    });
 
     // Download images and modify paths
     const assetsFolder = zip.folder("assets");
@@ -200,7 +211,12 @@ export async function buildDSP(options = {}) {
     const meta = exportMeta;
     zip.file('meta.json', JSON.stringify(meta, null, 2));
 
-    zip.file("project.json", JSON.stringify(projectData, null, 2));
+    const projectJson = JSON.stringify(projectData, null, 2);
+    zip.file("project.json", projectJson);
+    await addDspCoverPreview(zip, {
+        png: await coverPreview, projectJson, language: initialProject.defaultLang,
+        hashBytes: sha256DsfBytes,
+    });
 
     // 4. Determine Filename
     const safeTitle = (meta.title || 'project').replace(/[\\/:*?"<>|]/g, '_');

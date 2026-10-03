@@ -222,6 +222,23 @@ pathは相対pathだけを許可し、空segment、`.`、`..`、backslash、先�
 ### `project.json` (DSP ファイル専用)
 現在の `state.js` が保持しているデータをシリアライズした完全なダンプ。
 
+### 任意の表紙プレビュー（DSPのみ、2026-10-03承認）
+
+`preview/cover.png`は、保存する原稿と同じ状態から合成した既定言語の表紙PNG（360×640、最大1 MiB）。
+`preview/cover.json`は`schemaVersion:1`、`language`、`width:360`、`height:640`、
+`sourceSha256`（保存されたproject.jsonのUTF-8 bytes）、`imageSha256`（PNG bytes）を持つ。
+hashはSHA-256の小文字hex。画像と原稿の不一致検出用で、電子署名ではない。
+
+これらは省略可能な派生データであり、編集の正本ではない。読込時は従来どおりproject.jsonを使い、
+この2 entryを本文・画像素材として復元しない。原稿／画像のhash不一致、未対応、欠落、破損時は
+OSプレビューを省略する。原稿の通常読込は従来の検証結果に従う。
+
+表紙生成失敗、時間切れ、生成途中の原稿変更では両entryを省略してDSP保存を続行する。
+古いDSPの自動書換え、必須schema/versionの引上げ、クラウド保存schema、DSF配布ZIPの変更はない。
+最初の実装はFixedの画像／テキスト表紙が対象。Flow表紙と、描画順を確定できない旧構成は省略する。
+
+### DSP authoring version
+
 Fixed-onlyのlegacy DSPは`meta.json.schemaVersion: 1`／Project v5を維持する。Flow Groupを含むDSPは
 `meta.json.schemaVersion: 2`、`projectVersion: 6`、`project.json.version: 6`を必須とする。
 schema v1/v2は読込可能だが、未知のfuture schemaは本文欠落を避けるため停止する。
