@@ -1,0 +1,18 @@
+import assert from 'node:assert/strict';
+import {createViewerEdgeTap,viewerEdgeTapSide} from '../js/viewer-edge-tap.js';
+const rect={left:5,right:385,top:80,bottom:760,width:380};
+assert.equal(viewerEdgeTapSide(12,400,rect),'left');
+assert.equal(viewerEdgeTapSide(375,400,rect),'right');
+assert.equal(viewerEdgeTapSide(190,400,rect),null);
+assert.equal(viewerEdgeTapSide(12,40,rect),null);
+const e=(x=12,y=400,t=0,id=1)=>({pointerType:'touch',pointerId:id,clientX:x,clientY:y,timeStamp:t});
+const target={side:'left',key:'page-5'},t=createViewerEdgeTap();
+t.down(e(),target);assert.deepEqual(t.up(e(15,402,120)),target,'ordinary finger jitter is a tap');
+t.down(e(),target);t.move(e(28));t.move(e());assert.equal(t.up(e(12,400,180)),null,'out-and-back movement stays a swipe');
+t.down(e(),target);assert.equal(t.up(e(32,400,100)),null,'a move arriving only on release is not a tap');
+t.down(e(),target);assert.equal(t.up(e(12,400,500)),null,'holding is not a tap');
+t.down(e(),target);assert.equal(t.up(e(12,400,100),true),null,'cancel cannot turn a page');
+t.down(e(),target);t.down(e(60,400,30,2),target);assert.equal(t.up(e(60,400,80,2)),null);assert.equal(t.up(e(12,400,100)),null,'remaining pinch finger cannot turn a page');
+t.down(e(),target);t.reset();assert.equal(t.up(e(12,400,100)),null,'resize/blur cancels');
+t.down({...e(),pointerType:'mouse'},target);assert.equal(t.up(e(12,400,100)),null,'mouse uses existing click navigation');
+console.log('Edge hit area, jitter, out-and-back, release travel, hold, cancel, multi-touch and reset passed');
