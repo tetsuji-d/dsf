@@ -1,0 +1,4 @@
+LIBRARY DsfThumbnail
+EXPORTS
+    DllGetClassObject
+    DllCanUnloadNow
