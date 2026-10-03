@@ -1,6 +1,6 @@
 import {installStudioVersionUI} from './studio-update-ui.js';
 import {openStudioInstallGuide} from './studio-install-guide.js';
-export function installStudioPwa({getLocale,updateBlocked=()=>false}) {
+export function installStudioPwa({getLocale,updateBlocked=()=>false,work}) {
  const en=()=>getLocale()==='en', host=document.querySelector('#home-room .home-workspace-main');if(!host)return;
  const panel=document.createElement('section');panel.className='studio-offline-panel';panel.setAttribute('aria-label','Offline Studio');
  const status=document.createElement('p');status.setAttribute('role','status');
@@ -11,7 +11,7 @@ export function installStudioPwa({getLocale,updateBlocked=()=>false}) {
  help.textContent=en()?'Personal local projects only. Import or create your manuscript here. Publishing and shared editing need a connection. Keep DSP backups. To install on iPhone, use Share → Add to Home Screen.':'個人のローカル制作に対応します。原稿をこの端末で作成するかDSPを取り込んでください。公開・共同編集には通信が必要です。DSPのバックアップも残してください。iPhoneへの追加は「共有 → ホーム画面に追加」から行えます。';
  status.textContent=busy?(en()?'Preparing app and fonts…':'アプリとフォントを準備しています…'):ready?(navigator.onLine?(en()?'Offline use ready':'オフライン利用可'):(en()?'Offline · Local editing available':'オフライン・ローカル編集できます')):navigator.onLine?(en()?'Offline use is not prepared yet':'オフライン利用は未準備です'):(en()?'Offline preparation could not be confirmed':'オフラインの準備完了を確認できません');};
  const heading=host.querySelector('.home-room-header h2'),versionHost=document.createElement('div');versionHost.className='home-room-heading';heading.before(versionHost);versionHost.append(heading);
- installStudioVersionUI({current:__STUDIO_BUILD__,getLocale,homeHost:versionHost,helpHost:document.getElementById('studio-help-panel'),blocked:updateBlocked,enabled:import.meta.env.PROD});
+ installStudioVersionUI({current:__STUDIO_BUILD__,getLocale,homeHost:versionHost,helpHost:document.getElementById('studio-help-panel'),blocked:updateBlocked,work,enabled:import.meta.env.PROD});
  const inspect=async()=>{const worker=registration?.active;if(!worker)return;const channel=new MessageChannel();const result=await new Promise(resolve=>{const timer=setTimeout(()=>resolve(null),15000);channel.port1.onmessage=e=>{clearTimeout(timer);resolve(e.data);};worker.postMessage({type:'STUDIO_STATUS'},[channel.port2]);});channel.port1.close();ready=!!result?.ready;render();};
  prepare.onclick=async()=>{if(busy)return;busy=true;render();try{
  registration=await navigator.serviceWorker.register('/studio-sw.js',{scope:'/',updateViaCache:'none'});

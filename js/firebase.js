@@ -974,6 +974,7 @@ export function onAuthChanged(callback) {
 let lastSaveIndicatorMessage = '';
 document.addEventListener('studio-ui-language-change',()=>{if(lastSaveIndicatorMessage&&!document.getElementById('save-status')?.dataset.authNotice)updateSaveIndicator(saveStatus,lastSaveIndicatorMessage);});
 function updateSaveIndicator(status, message) {
+    queueMicrotask(()=>window.dispatchEvent(new Event('studio-work-status')));
     lastSaveIndicatorMessage=message||'';
     saveStatus = status;
     const el = document.getElementById('save-status');

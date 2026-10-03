@@ -1,4 +1,5 @@
 import {createStudioVersionCheck,fetchStudioVersion} from './studio-version-check.js';
+import {studioWorkText} from './studio-work-status.js';
 export function waitForStudioWorker(worker,states,timeout=180000) {
  return new Promise((resolve,reject)=>{
   const finish=error=>{clearTimeout(timer);worker.removeEventListener('statechange',changed);error?reject(error):resolve();};
@@ -22,7 +23,7 @@ export async function prepareStudioUpdate(target) {
  const build=await workerBuild(worker);if(build.id!==target.id)throw Error('VERSION_CHANGED');
  if(registration.waiting===worker){const ready=waitForStudioWorker(worker,['activated']);worker.postMessage({type:'STUDIO_ACTIVATE'});await ready;}
 }
-export function installStudioVersionUI({current,getLocale,homeHost,helpHost,blocked=()=>false,fetchVersion=fetchStudioVersion,applyUpdate=prepareStudioUpdate,reload=()=>location.reload(),enabled=true}) {
+export function installStudioVersionUI({current,getLocale,homeHost,helpHost,blocked=()=>false,work,fetchVersion=fetchStudioVersion,applyUpdate=prepareStudioUpdate,reload=()=>location.reload(),enabled=true}) {
  const en=()=>getLocale()==='en',views=[];let dialog=null,applying=false;
  const text=(ja,english)=>en()?english:ja;
  function mount(host,tools=false){if(!host)return;const row=document.createElement('div');row.className='studio-version';
@@ -41,15 +42,38 @@ export function installStudioVersionUI({current,getLocale,homeHost,helpHost,bloc
   dialog=document.createElement('dialog');dialog.className='authoring-destination-dialog';dialog.setAttribute('aria-label',text('アプリを更新','Update app'));
   const heading=document.createElement('h2');heading.textContent=text('アプリを更新しますか？','Update the app?');
   const message=document.createElement('p');const feedback=document.createElement('p');feedback.setAttribute('role','status');
+  const manuscript=document.createElement('p');manuscript.className='studio-update-work';manuscript.setAttribute('role','status');
+  const save=document.createElement('button'),edit=document.createElement('button'),exportFile=document.createElement('button');
+  for(const button of [save,edit,exportFile])button.type='button';
   const actions=document.createElement('div');actions.className='authoring-destination-actions';const later=document.createElement('button');later.textContent=text('後で','Later');const yes=document.createElement('button');yes.textContent=text('更新して再読み込み','Update and reload');
-  const sync=()=>{const unsafe=blocked();message.textContent=unsafe?text('未保存の変更、保存中、または保存状態を確認できない原稿があります。エディターで保存を確認してから更新してください。ローカル原稿はDSPファイルを保存してください。','A manuscript has unsaved changes, is saving, or has an unconfirmed save. Confirm saving in the editor before updating. Save local manuscripts as DSP files.'):text('アプリを更新して、この画面を再読み込みします。端末内の原稿・履歴は削除しません。ほかのタブは再読み込みしません。','Update the app and reload this tab. Local manuscripts and history are kept. Other tabs will not reload.');yes.disabled=applying||!!unsafe||!navigator.onLine;};
-  const close=()=>{if(applying)return;dialog.close();dialog.remove();dialog=null;window.removeEventListener('local-draft-status',sync);};later.onclick=close;dialog.addEventListener('cancel',e=>{e.preventDefault();close();});
-  yes.onclick=async()=>{if(blocked()||applying){sync();return;}applying=true;later.disabled=true;sync();render();feedback.textContent=text('更新を準備しています…','Preparing the update…');
-   try{const result=await checker.check({force:true});if(result.phase!=='checked'||!result.available)throw Error('VERSION_UNCONFIRMED');await applyUpdate(result.latest);
+  const events=['local-draft-status','studio-work-status','online','offline'];
+  const sync=()=>{const unsafe=blocked(),value=work?.read();message.textContent=unsafe?text('開いている原稿の保存を確認してから更新します。保存中は完了をお待ちください。','Confirm saving the open manuscript before updating. Wait for any current save to finish.'):text('アプリを更新して、この画面を再読み込みします。端末内の原稿・履歴は削除しません。ほかのタブは再読み込みしません。','Update the app and reload this tab. Local manuscripts and history are kept. Other tabs will not reload.');yes.disabled=applying||!!unsafe||!navigator.onLine;
+   manuscript.hidden=!value?.open;manuscript.textContent=value?.open?(value.title||text('無題の原稿','Untitled manuscript'))+' — '+studioWorkText(value,en()):'';
+   save.hidden=!value?.open||!unsafe;save.disabled=applying||!value?.canSave||!navigator.onLine;
+   save.textContent=value?.local?text('DSPに保存して更新','Save DSP and update'):text('クラウドに保存して更新','Save to cloud and update');
+   edit.hidden=!value?.open;edit.textContent=text('編集に戻る','Return to editor');edit.disabled=applying;
+   exportFile.hidden=!value?.canExport||!unsafe||value?.local;exportFile.textContent=text('DSPに退避','Save a DSP copy');exportFile.disabled=applying;
+  };
+  const close=()=>{if(applying)return;dialog.close();dialog.remove();dialog=null;for(const name of events)window.removeEventListener(name,sync);};later.onclick=close;dialog.addEventListener('cancel',e=>{e.preventDefault();close();});
+  edit.onclick=()=>{close();work.onResume();};
+  exportFile.onclick=async()=>{if(applying)return;applying=true;later.disabled=true;sync();try{await work.onExport();feedback.textContent=text('DSPの保存結果を確認してください。クラウドへの保存状態は変わりません。','Check the DSP save result. Cloud save status is unchanged.');}catch{feedback.textContent=text('DSPを保存できませんでした。原稿は保持しています。','Could not save DSP. Your manuscript is kept.');}finally{applying=false;later.disabled=false;sync();}};
+  const update=async(saveFirst=false)=>{if(applying||(!saveFirst&&blocked())){sync();return;}const identity=work?.read().identity;
+   if(saveFirst&&!work?.read().canSave)return;
+   applying=true;later.disabled=true;sync();render();feedback.textContent=saveFirst?text('原稿を保存しています…','Saving manuscript…'):text('更新を準備しています…','Preparing the update…');
+   try{
+    if(saveFirst){await work.onSave();if(blocked()||work.read().identity!==identity)throw Error('SAVE_UNCONFIRMED');}
+    const result=await checker.check({force:true});if(result.phase!=='checked'||!result.available)throw Error('VERSION_UNCONFIRMED');
+    if(blocked()||work&&work.read().identity!==identity)throw Error('UNSAVED_CHANGES');
+    feedback.textContent=text('更新を準備しています…','Preparing the update…');await applyUpdate(result.latest);
     // Edits made while assets were downloading must not be discarded.
-    if(blocked())throw Error('UNSAVED_CHANGES');reload();applying=false;later.disabled=false;close();render();
-   }catch{applying=false;later.disabled=false;feedback.textContent=text('更新または再読み込みを完了できませんでした。原稿の保存と通信状態を確認して再試行してください。','Could not complete the update or reload. Check saving and your connection, then retry.');sync();render();}};
-  actions.append(later,yes);dialog.append(heading,message,feedback,actions);document.body.append(dialog);window.addEventListener('local-draft-status',sync);sync();dialog.showModal();later.focus();
+    if(blocked()||work&&work.read().identity!==identity)throw Error('UNSAVED_CHANGES');reload();applying=false;later.disabled=false;close();render();
+   }catch(error){applying=false;later.disabled=false;
+    feedback.textContent=error.message==='SAVE_UNCONFIRMED'?text('保存がキャンセルされたか、完了を確認できていません。DSPの保存確認を完了するか、もう一度保存してください。','Saving was cancelled or has not been confirmed. Confirm the DSP save or save again.'):
+     error.message==='UNSAVED_CHANGES'?text('更新の準備中に原稿または編集内容が変わったため、再読み込みを止めました。現在の原稿を確認してください。','The manuscript or its content changed during update preparation. Reload was stopped. Check the current manuscript.'):
+     work?.read().status==='error'?text('原稿を保存できなかったため、更新を止めました。保存を再試行するか、編集に戻って確認してください。','The manuscript could not be saved, so updating was stopped. Retry saving or return to the editor.'):
+     text('更新を完了できませんでした。原稿は保持しています。通信状態を確認して再試行してください。','Could not complete the update. Your manuscript is kept. Check the connection and retry.');sync();render();}};
+  yes.onclick=()=>update();save.onclick=()=>update(true);
+  actions.append(edit,exportFile,save,later,yes);dialog.append(heading,message,manuscript,feedback,actions);document.body.append(dialog);for(const name of events)window.addEventListener(name,sync);sync();dialog.showModal();later.focus();
  }
  mount(homeHost);mount(helpHost,true);render();
  const check=()=>{if(enabled&&!document.hidden)void checker.check();};

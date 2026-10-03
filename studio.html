@@ -86,11 +86,12 @@
             <div class="home-room-header">
                 <h2 data-home-title tabindex="-1">ダッシュボード</h2>
                 <div class="home-room-actions">
-                    <button type="button" class="home-action-btn" data-home-resume disabled><span class="material-icons" aria-hidden="true">edit</span><span data-start-label="resume">編集中の作品に戻る</span></button>
+                    <button type="button" class="home-action-btn" data-home-resume hidden disabled><span class="material-icons" aria-hidden="true">edit</span><span data-start-label="resume">編集中の作品に戻る</span></button>
                     <button class="home-action-btn" onclick="openDSP()"><span class="material-icons" aria-hidden="true">file_upload</span><span data-home-label="import">DSPを取り込む</span></button>
                     <button class="home-action-btn primary" onclick="newSpaceProject()"><span class="material-icons" aria-hidden="true">add</span><span data-home-label="create">作品を作成</span></button>
                 </div>
             </div>
+            <div id="home-current-work"></div>
             <div class="home-room-body">
                 <section class="home-start-tools" data-home-views="projects local">
                     <label class="home-start-search"><span class="material-icons" aria-hidden="true">search</span><span class="sr-only" data-start-label="search">一覧の原稿を検索</span><input type="search" data-home-search placeholder="作品名・プロジェクト名で検索" aria-label="一覧の原稿を検索"></label>

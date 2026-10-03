@@ -98,6 +98,7 @@ import { moveAuthoringUnitInSpine, moveFixedPageRangeInSpine } from './fixed-pag
 import {localDraftStatus,isLocalDraft,noteLocalDraftEdit,setLocalCloudTransitionPending} from './local-draft-runtime.js';
 import {chooseDspFilename,confirmDspDownload,showDspSaveError} from './dsp-save-dialog.js';
 import {installStudioPwa} from './studio-pwa.js';
+import {describeStudioWork,installStudioWorkStatus} from './studio-work-status.js';
 import {installHomeStart} from './home-start.js';
 import { buildDSP, buildDSF, parseAndLoadDSP } from './export.js';
 import { hydrateProjectFromPersistence } from './project-persistence.js';
@@ -10057,6 +10058,7 @@ async function saveDspFile({saveAs=false,download=false}={}) {
     assertPersonalStudioOperation();
     if(dspSaveBusy||readStudioAIState().busy)return;
     dspSaveBusy=true;
+    window.dispatchEvent(new Event('studio-work-status'));
     const buttons=[...document.querySelectorAll('[data-authoring-save],button[onclick="exportDSP()"],button[onclick="downloadDSP()"]')];
     const disabled=buttons.map(b=>b.disabled);buttons.forEach(b=>{b.disabled=true;b.setAttribute('aria-busy','true');});
     const epoch=getProjectSessionEpoch(),local=isLocalDraft();
@@ -10077,6 +10079,7 @@ async function saveDspFile({saveAs=false,download=false}={}) {
             onSaveAs:()=>saveDspFile({saveAs:true}),onDownload:()=>saveDspFile({download:true})});
     } finally {
         dspSaveBusy=false;buttons.forEach((b,i)=>{b.disabled=disabled[i];b.removeAttribute('aria-busy');});
+        window.dispatchEvent(new Event('studio-work-status'));
     }
 }
 window.exportDSP=()=>saveDspFile({saveAs:true});
@@ -12179,11 +12182,41 @@ window.addEventListener('shared-studio-unavailable',()=>{
 window.pasteImagePage = installImagePagePaste({ importer: imagePageImporter,
     inEditor: () => getCurrentRoom() === 'editor' && canEditSharedStudio(), onStatus: showImagePasteStatus });
 
-installStudioPwa({getLocale:getUILang,updateBlocked:()=>{
-    if(isLocalDraft())return localDraftStatus.read().dirty;
-    if(!state.projectId&&!readSharedStudioAccess())return false;
-    return !getEditorSaveStatus().cloudCurrent;
-}});
+function readCurrentStudioWork() {
+    const shared=readSharedStudioAccess();
+    return describeStudioWork({
+        open:!!(state.projectId||state.localProjectId||state.workId||shared),
+        title:state.projectName||state.title||'',
+        identity:JSON.stringify([getProjectSessionEpoch(),state.uid,state.projectId,state.localProjectId,state.workId]),
+        local:isLocalDraft(),file:localDraftStatus.read(),save:getEditorSaveStatus(),
+        busy:readDspOpenBlockReason()||(_dsfExportInProgress?'exporting':''),
+        shared:!!shared,canEdit:canEditSharedStudio(),online:navigator.onLine,
+    });
+}
+async function saveCurrentStudioWork() {
+    const work=readCurrentStudioWork();
+    if(!work.open||!work.canSave)throw Error('WORK_NOT_READY');
+    if(work.local)await saveDspFile();
+    else {assertSharedStudioEdit();await flushSave();refresh();}
+}
+async function closeCurrentStudioWork() {
+    const before=readCurrentStudioWork();
+    if(!before.canClose)throw Error('WORK_NOT_SAVED');
+    await flushPendingSave();
+    const after=readCurrentStudioWork();
+    if(before.identity!==after.identity||!after.canClose)throw Error('WORK_CHANGED');
+    const languageKey=state.defaultLang||'ja';
+    initializeNewProject({languageKey,pageDirection:state.languageConfigs?.[languageKey]?.pageDirection||'rtl'},null,{autosave:false});
+    window.localImageMap={};
+    window.switchRoom('home');
+    window.dispatchEvent(new Event('home-start-refresh'));
+}
+const currentWorkActions={read:readCurrentStudioWork,onSave:saveCurrentStudioWork,
+    onExport:()=>saveDspFile({saveAs:true}),onResume:()=>window.switchRoom('editor')};
+installStudioPwa({getLocale:getUILang,updateBlocked:()=>readCurrentStudioWork().blocked,work:currentWorkActions});
+installStudioWorkStatus({host:document.getElementById('home-current-work'),getLocale:getUILang,
+    ...currentWorkActions,onClose:closeCurrentStudioWork});
+subscribeProjectSession(()=>queueMicrotask(()=>window.dispatchEvent(new Event('studio-work-status'))));
 installHomeStart({root:document.getElementById('home-room'),getLocale:getUILang,readState:()=>state,readShared:readSharedStudioAccess,onResume:()=>window.switchRoom('editor'),onConnectivity:()=>{if(getCurrentRoom()==='home')void renderHomeDashboard({refreshSpaces:navigator.onLine});}});
 document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='hidden'&&isLocalDraft())void flushPendingSave().catch(()=>{});});
 
