@@ -91,8 +91,8 @@
                     <button class="home-action-btn primary" onclick="newSpaceProject()"><span class="material-icons" aria-hidden="true">add</span><span data-home-label="create">作品を作成</span></button>
                 </div>
             </div>
-            <div id="home-current-work"></div>
             <div class="home-room-body">
+                <div id="home-current-work"></div>
                 <section class="home-start-tools" data-home-views="projects local">
                     <label class="home-start-search"><span class="material-icons" aria-hidden="true">search</span><span class="sr-only" data-start-label="search">一覧の原稿を検索</span><input type="search" data-home-search placeholder="作品名・プロジェクト名で検索" aria-label="一覧の原稿を検索"></label>
                     <p class="home-search-empty" data-home-search-empty hidden role="status"></p>
@@ -122,10 +122,10 @@
                     <p class="home-storage-note" data-home-views="projects" data-i18n="home_cloud_storage_note"></p>
                     <div id="home-cloud-grid" class="home-project-grid"></div>
                 </section>
-                <section class="home-work-section" data-home-views="activity">
+                <section class="home-work-section" data-home-views="overview activity">
                     <div class="home-section-head">
                         <div class="home-section-title-wrap">
-                            <h3 data-i18n="home_section_works">作品アナリティクス</h3>
+                            <h3 data-home-label="published">発行した作品</h3>
                             <span id="home-work-count" class="home-section-count">0</span>
                         </div>
                         <div class="home-section-actions">
@@ -170,8 +170,11 @@
                     <span id="project-title" class="project-title" contenteditable="true"
                         oninput="onProjectTitleInput()" onkeydown="onProjectTitleKeydown(event)"
                         onblur="onProjectTitleBlur()" aria-label="プロジェクト名" title="プロジェクト名を編集">新規プロジェクト</span>
-                    <button id="editor-resume-copy" type="button" hidden>端末版を確認</button>
-                    <span id="save-status" class="save-status" aria-live="polite"></span>
+                    <div id="editor-work-bar" class="editor-work-bar">
+                        <button id="btn-save" type="button" onclick="saveProject()" data-authoring-save>保存</button>
+                        <button id="editor-resume-copy" type="button" hidden>復元原稿を確認</button>
+                    </div>
+                    <span id="save-status" class="save-status" hidden></span>
                 </div>
                 <div class="ribbon-tabs">
                     <button class="ribbon-tab active" data-ribbon-tab="home" data-i18n="tab_home">ホーム</button>
@@ -198,10 +201,6 @@
                     <div class="ribbon-group">
                         <button id="btn-flow-search" type="button" class="btn-tool btn-tool-icon" aria-expanded="false" aria-controls="flow-search-bar" title="Flow原稿を検索 (Ctrl+F)"><span class="material-icons" aria-hidden="true">search</span></button>
                         <button id="btn-editor-preview" class="btn-tool btn-tool-icon" onclick="previewEditorInViewer()" data-i18n-title="editor_viewer_preview" data-i18n-aria="editor_viewer_preview" title="Viewerでプレビュー"><span class="material-icons">visibility</span></button>
-                        <button id="btn-save" class="btn-tool btn-tool-icon" onclick="saveProject()" title="保存 (Ctrl+S)" data-authoring-save>
-                            <span class="material-icons" aria-hidden="true">save</span><span data-i18n="btn_save">保存</span>
-                        </button>
-                        <button type="button" class="btn-tool btn-tool-icon" onclick="saveToCloud()" title="クラウドに保存" aria-label="クラウドに保存"><span class="material-icons" aria-hidden="true">cloud_upload</span></button>
                         <button id="btn-share" class="btn-tool btn-tool-icon" onclick="shareProject()" title="ビューワーURLをコピー" data-auth-required>
                             <span class="material-icons" aria-hidden="true">share</span><span data-i18n="btn_share">共有</span>
                         </button>

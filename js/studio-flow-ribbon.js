@@ -111,7 +111,7 @@ export function initFlowRibbon() {
     root.querySelector('.ribbon-top-row').after(tabRow); tabRow.append(tabs);
     tabRow.append(root.querySelector('.ribbon-auth'));
     const quick = document.createElement('div'); quick.className = 'ribbon-quick'; tabRow.append(quick);
-    for (const [id, name, key] of [['btn-undo','undo','btn_undo'],['btn-redo','redo','btn_redo'],['btn-save','save','btn_save'],['btn-share','share','btn_share']]) {
+    for (const [id, name, key] of [['btn-undo','undo','btn_undo'],['btn-redo','redo','btn_redo'],['btn-share','share','btn_share']]) {
         quick.append(labelButton(byId(id), name, key));
     }
     const settings = root.querySelector('[onclick="openProjectSettings()"]');

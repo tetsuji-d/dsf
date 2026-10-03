@@ -99,7 +99,10 @@ import {localDraftStatus,isLocalDraft,noteLocalDraftEdit,setLocalCloudTransition
 import {chooseDspFilename,confirmDspDownload,showDspSaveError} from './dsp-save-dialog.js';
 import {installStudioPwa} from './studio-pwa.js';
 import {describeStudioWork,installStudioWorkStatus} from './studio-work-status.js';
+import {installEditorWorkBar} from './editor-work-bar.js';
+import '../css/editor-work-bar.css';
 import {showStudioProjectLoading} from './studio-project-loading.js';
+import {renderHomeStatCard as renderHomeStatNavigation} from './home-stat-card.js';
 import {installHomeStart} from './home-start.js';
 import { buildDSP, buildDSF, parseAndLoadDSP } from './export.js';
 import { hydrateProjectFromPersistence } from './project-persistence.js';
@@ -4606,17 +4609,8 @@ async function loadHomeReviewSummaries(works) {
     return new Map(entries);
 }
 
-function renderHomeStatCard(icon, label, value, hint = '') {
-    return `
-        <article class="home-stat-card">
-            <span class="material-icons" aria-hidden="true">${escapeStudioHtml(icon)}</span>
-            <div>
-                <strong>${escapeStudioHtml(value)}</strong>
-                <span>${escapeStudioHtml(label)}</span>
-                ${hint ? `<small>${escapeStudioHtml(hint)}</small>` : ''}
-            </div>
-        </article>
-    `;
+function renderHomeStatCard(icon,label,value,hint='',view='activity') {
+    return renderHomeStatNavigation({icon,label,value,hint,view,en:getUILang()==='en',escape:escapeStudioHtml});
 }
 
 function renderHomeDashboardStats({ cloudProjects, localProjects, works, reviewTotals, reviewsLoading = false }) {
@@ -4633,7 +4627,7 @@ function renderHomeDashboardStats({ cloudProjects, localProjects, works, reviewT
             reviewsLoading ? '…' : String(reviewTotals.reviewCount),
             reviewsLoading ? t('home_loading') : t('home_stat_reviews_hint', { count: reviewTotals.goodCount })
         ),
-        renderHomeStatCard('folder', t('home_stat_projects'), String(cloudCount), t('home_stat_projects_hint', { count: localProjects.length }))
+        renderHomeStatCard('folder', t('home_stat_projects'), String(cloudCount), t('home_stat_projects_hint', { count: localProjects.length }), 'projects')
     ].join('');
 }
 
@@ -4646,7 +4640,9 @@ function renderHomeWorkCard(work, reviewSummary) {
     const nameContext = explicitWorkTitle && projectName
         ? t('works_project_name', { name: projectName })
         : (!explicitWorkTitle && projectName ? t('works_title_fallback') : '');
-    const thumb = getCoverImage(work.dsfPages, work.pages, work.blocks, work.sections);
+    const thumb = work.listThumbnail || work.thumbnail || getCoverImage(work.dsfPages, work.pages, work.blocks, work.sections);
+    let viewerUrl='';
+    if(['public','unlisted'].includes(status))try{viewerUrl=buildPublicViewerUrl(window.location.origin,workId,work.releaseId||'');}catch{/* Keep management available when the release link is incomplete. */}
     const pageCount = Array.isArray(work.dsfPages) && work.dsfPages.length
         ? work.dsfPages.length
         : getPageCount(work.pages, work.blocks, work.sections);
@@ -4688,6 +4684,7 @@ function renderHomeWorkCard(work, reviewSummary) {
                 </div>
                 <div class="home-work-review-note">${escapeStudioHtml(reviewText)}</div>
                 <div class="home-work-actions">
+                    ${viewerUrl?`<a class="home-work-action" href="${escapeStudioHtml(viewerUrl)}" target="_blank" rel="noopener noreferrer"><span class="material-icons" aria-hidden="true">auto_stories</span>${getUILang()==='en'?'Read publication':'作品を読む'}</a>`:''}
                     <button type="button" class="home-work-action" data-home-open-project="${escapeStudioHtml(work.id)}">
                         <span class="material-icons">edit</span>${escapeStudioHtml(t('home_open_project'))}
                     </button>
@@ -12191,6 +12188,7 @@ function readCurrentStudioWork() {
     return describeStudioWork({
         open:!!(state.projectId||state.localProjectId||state.workId||shared),
         title:state.projectName||state.title||'',
+        thumbnail:selectProjectAuthoringCoverThumbnail(state,{allowLocal:true})||state.listThumbnail||state.publicationThumbnailUrl||'',
         identity:JSON.stringify([getProjectSessionEpoch(),state.uid,state.projectId,state.localProjectId,state.workId]),
         local:isLocalDraft(),file:localDraftStatus.read(),save:getEditorSaveStatus(),
         busy:readDspOpenBlockReason()||(_dsfExportInProgress?'exporting':''),
@@ -12223,11 +12221,6 @@ installStudioWorkStatus({host:document.getElementById('home-current-work'),getLo
 subscribeProjectSession(()=>queueMicrotask(()=>window.dispatchEvent(new Event('studio-work-status'))));
 installHomeStart({root:document.getElementById('home-room'),getLocale:getUILang,readState:()=>state,readShared:readSharedStudioAccess,onResume:()=>window.switchRoom('editor'),onConnectivity:()=>{if(getCurrentRoom()==='home')void renderHomeDashboard({refreshSpaces:navigator.onLine});}});
 document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='hidden'&&isLocalDraft())void flushPendingSave().catch(()=>{});});
-
-const locationNote=document.createElement('span');locationNote.id='authoring-location-status';document.querySelector('#project-title')?.after(locationNote);
-const localFileNote=document.createElement('span');localFileNote.id='local-dsp-status';localFileNote.setAttribute('role','status');localFileNote.style.cssText='font-size:12px;margin-inline:8px';document.querySelector('#project-title')?.after(localFileNote);
-const syncLocalFileNote=()=>{const en=getUILang()==='en';locationNote.textContent=!state.projectId?(en?'Creating on this device':'この端末で制作中'):(isLocalDraft()?(en?'Cloud save needs confirmation':'クラウド保存の確認が必要'):(en?'Cloud manuscript':'クラウドの原稿'));document.querySelectorAll('[data-authoring-save]').forEach(b=>{b.title=isLocalDraft()?(en?'Save DSP file':'DSPファイルを保存'):(en?'Save to cloud':'クラウド保存');});localFileNote.hidden=!isLocalDraft();localFileNote.textContent=localDraftStatus.read().restored?(en?'Recovered manuscript: saving unconfirmed':'復元した原稿：保存確認待ち'):localDraftStatus.read().dirty?(getUILang()==='en'?'DSP file: unsaved changes':'DSPファイル：未保存の変更あり'):(localDraftStatus.read().fileSaved?(getUILang()==='en'?'DSP file: saved':'DSPファイル：保存済み'):(getUILang()==='en'?'DSP file: not saved':'DSPファイル：未保存'));};
-window.addEventListener('local-draft-status',syncLocalFileNote);document.addEventListener('studio-ui-language-change',syncLocalFileNote);syncLocalFileNote();
 
 window.addEventListener('local-recents-updated',()=>{
     if(document.getElementById('project-settings-modal')?.style.display==='flex')void refreshEditorCopyDelete();
@@ -12263,7 +12256,7 @@ async function openProtectedCopy(id){
 async function refreshProtectedCopies(){
     const host=document.getElementById('home-protected-copies'),button=document.getElementById('editor-resume-copy');
     const en=getUILang()==='en';
-    if(button){button.hidden=!isCloudResumeBlocked();button.textContent=en?'Review browser version':'端末版を確認';}
+    if(button){button.hidden=!isCloudResumeBlocked();button.textContent=en?'Review recovered copy':'復元原稿を確認';}
     if(!host)return;const revision=++protectedListRevision,uid=firebaseAuth.currentUser?.uid||'';
     try{const rows=await safeResume.list();if(revision!==protectedListRevision||uid!==(firebaseAuth.currentUser?.uid||''))return;
         const expanded=!!host.querySelector('details')?.open;host.replaceChildren();if(!rows.length)return;
@@ -12299,10 +12292,14 @@ const dspFileSession=createDspFileSession({
     onChange:()=>window.dispatchEvent(new Event('dsp-file-change'))
 });
 subscribeProjectSession(()=>dspFileSession.clear());
-window.addEventListener('dsp-file-change',()=>{syncLocalFileNote();if(dspFileSession.read().name)localFileNote.textContent+=' · '+dspFileSession.read().name;});
-const appendDspFilename=()=>{if(dspFileSession.read().name)localFileNote.textContent+=' · '+dspFileSession.read().name;};
-window.addEventListener('local-draft-status',appendDspFilename);
-document.addEventListener('studio-ui-language-change',appendDspFilename);
+const editorWorkBar=installEditorWorkBar({host:document.getElementById('editor-work-bar'),getLocale:getUILang,
+    read:()=>({...readCurrentStudioWork(),cloudLinked:!!state.projectId,fileName:dspFileSession.read().name,
+        recoveryBlocked:isCloudResumeBlocked(),backupCurrent:getEditorSaveStatus().localCurrent,online:navigator.onLine,
+        cloudDestinationPending:!!pendingCloudDestination}),
+    onSave:()=>window.saveProject(),onSaveAs:()=>window.exportDSP(),onDownload:()=>window.downloadDSP(),
+    onCloud:()=>window.saveToCloud(),onRecovery:()=>{window.switchRoom('home');getHomeWorkspace().select('local');}
+});
+subscribeSharedStudioAccess(()=>editorWorkBar?.render());
 window.openDspInput=async event=>{try{await studioBootReady;await window.importDSP(event,{external:true});}catch(error){alert(dspOpenErrorMessage(error,getUILang()==='en'));}finally{if(event.target)event.target.value='';}};
 window.openDSP=async()=>{
     try{

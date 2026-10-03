@@ -9,6 +9,10 @@ Windowsを先行する。PWAのfile_handlers.icons（種類別アイコン）と
 別の開発を先に進め、ユーザーが再開を指定したときにこの文書から状況を確認する。
 これまでの「進めて」という承認を、保留中の自動再開の根拠にはしない。
 
+同日の追加検討で、StudioはWindows・Macの制作環境を優先し、iOS・Android向けStudioの専用整備は後回しとした。
+一体型インストーラーと各OSの配布案は[デスクトップ配布方針](studio-desktop-distribution-plan.md)に記録した。
+ユーザーは検討の記録後にエディター整備へ戻る方針。ここにあるOS連携の保留は継続する。
+
 ### 作業場所と確定済みの状態
 
 - 作業場所: `C:\Users\tetsu\.codex\worktrees\review-boundaries\dsf`

@@ -158,19 +158,37 @@ body[data-room="home"] .room-nav-tabs .room-tab:not([data-room="home"]) { displa
 .studio-version-status { flex-basis:100%; color:#68758a; }
 #studio-help-panel .studio-version { border-top:1px solid #cbd3de; padding-top:12px; margin-top:16px; }
 #studio-help-panel .studio-version a { color:#1766c0; }
-.studio-current-work{display:flex;align-items:center;justify-content:space-between;gap:16px;margin:0 30px 16px;padding:16px 20px;border:1px solid var(--studio-border,#d4dbe5);border-radius:12px;background:var(--studio-surface,#fff);color:var(--studio-text,#243043)}
+.studio-current-work{display:grid;grid-template-columns:72px minmax(0,1fr);align-items:start;gap:16px;box-sizing:border-box;width:min(100%,440px);padding:18px;border:1px solid var(--studio-border,#d4dbe5);border-radius:12px;background:var(--studio-surface,#fff);color:var(--studio-text,#243043)}
 .studio-current-work[hidden]{display:none}
-.studio-current-work>div:first-child{display:grid;gap:5px;min-width:0}
+.studio-current-work-info{display:grid;gap:8px;min-width:0}
+.studio-current-work-cover{width:72px;aspect-ratio:9/16;border-radius:6px;overflow:hidden;background:var(--studio-hover,#eef3fa);display:grid;place-items:center;color:var(--studio-subtext,#67758a)}
+.studio-current-work-cover img{width:100%;height:100%;object-fit:contain}
+.studio-current-work-cover [hidden]{display:none!important}
 .studio-current-work strong{overflow-wrap:anywhere}
 .studio-current-work small{color:var(--studio-subtext,#58677a)}
 .studio-current-work [role=status]{font-size:13px}
 .studio-current-work[data-state=error] [role=status]{color:#b42318}
-.studio-current-work-actions{display:flex;flex-wrap:wrap;gap:8px;flex-shrink:0}
-.studio-current-work button{padding:8px 12px;min-height:38px;border:1px solid var(--studio-border,#c7d1df);border-radius:7px;background:var(--studio-surface,#fff);color:inherit;cursor:pointer}
+.studio-current-work-actions{display:flex;flex-wrap:wrap;gap:8px;grid-column:1 / -1}
+.studio-current-work button{padding:10px 14px;min-height:44px;border:1px solid var(--studio-border,#c7d1df);border-radius:7px;background:var(--studio-surface,#fff);color:inherit;cursor:pointer;font:inherit;font-size:13px}
+.studio-current-work button.studio-current-work-primary{background:#1769ed;border-color:#1769ed;color:#fff}
 .studio-current-work button[hidden]{display:none}
 .studio-current-work button:disabled{opacity:.5;cursor:default}
 .studio-current-work button:focus-visible{outline:2px solid #1769ed;outline-offset:2px}
 .studio-update-work{padding:12px;border:1px solid #c7d1df;border-radius:8px;overflow-wrap:anywhere}
-@media(max-width:700px){.studio-current-work{margin:0 12px 12px;align-items:stretch;flex-direction:column}.studio-current-work-actions{flex-shrink:1}.studio-current-work-actions button{flex:1 1 auto}}
+@media(max-width:700px){.studio-current-work-actions button{flex:1 1 auto}}
 .home-room-actions [data-home-resume][hidden]{display:none!important}
 .studio-project-loading progress{display:block;width:100%;height:8px;margin:18px 0 8px;accent-color:#1769ed}
+#home-room .home-stat-card{font:inherit;text-align:left;cursor:pointer;min-height:100px;box-shadow:none}
+#home-room .home-stat-card:hover{border-color:#1769ed;background:var(--studio-hover,#eef3fa)}
+#home-room .home-stat-card .home-stat-link{color:#1769ed;margin-top:10px}
+#home-room[data-home-view="overview"] .home-work-section{order:3}
+#home-room[data-home-view="overview"] .home-work-grid{grid-template-columns:repeat(auto-fit,minmax(min(100%,320px),1fr))}
+#home-room .studio-offline-panel h3{margin:0 0 8px;font-size:18px}
+.studio-install-options{display:grid;gap:16px;margin-top:16px}
+.studio-install-option{min-width:0}
+.studio-install-optional{padding-top:16px;border-top:1px solid var(--studio-border,#d4dbe5)}
+.studio-install-optional summary{cursor:pointer;min-height:44px;display:list-item;align-content:center;font-weight:600}
+.studio-install-option h4{margin:0 0 8px;font-size:15px}
+#home-room .studio-install-options button{min-height:44px;padding:10px 14px;font:inherit;font-size:13px;cursor:pointer}
+.studio-offline-panel [hidden]{display:none!important}
+@media(max-width:700px){.studio-install-options{grid-template-columns:1fr}}

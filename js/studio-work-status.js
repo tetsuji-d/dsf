@@ -1,5 +1,5 @@
 // Runtime-only view of the open manuscript. No source or persistence schema changes.
-export function describeStudioWork({open=false,title='',identity='',local=false,file={},save={},busy='',shared=false,canEdit=true,online=true}={}) {
+export function describeStudioWork({open=false,title='',thumbnail='',identity='',local=false,file={},save={},busy='',shared=false,canEdit=true,online=true}={}) {
     let status = 'none';
     if (open) {
         if (busy || save.state === 'saving') status = 'saving';
@@ -10,7 +10,7 @@ export function describeStudioWork({open=false,title='',identity='',local=false,
         else status = save.state === 'pending' ? 'dirty' : 'unconfirmed';
     }
     const blocked = open && !['saved-file','saved-cloud'].includes(status);
-    return {open,title,identity,local,shared,status,busy,blocked,
+    return {open,title,thumbnail,identity,local,shared,status,busy,blocked,
         canSave:open && !busy && save.state !== 'saving' && canEdit && (local || online),
         canExport:open && !shared && !busy && save.state !== 'saving',
         canClose:open && !shared && !blocked,
@@ -38,16 +38,23 @@ export function studioWorkText(work,en=false) {
 export function installStudioWorkStatus({host,read,getLocale,onResume,onSave,onExport,onClose}) {
     if (!host) return;
     const section=document.createElement('section');section.className='studio-current-work';
+    const cover=document.createElement('div'),image=document.createElement('img'),fallback=document.createElement('span');
+    cover.className='studio-current-work-cover';image.alt='';image.decoding='async';fallback.className='material-icons';fallback.textContent='description';fallback.setAttribute('aria-hidden','true');cover.append(image,fallback);
+    image.onerror=()=>{image.hidden=true;fallback.hidden=false;};
     const info=document.createElement('div'),caption=document.createElement('small'),title=document.createElement('strong'),status=document.createElement('span');
+    info.className='studio-current-work-info';
     status.setAttribute('role','status');info.append(caption,title,status);
     const actions=document.createElement('div');actions.className='studio-current-work-actions';
     const resume=document.createElement('button'),save=document.createElement('button'),exportFile=document.createElement('button'),close=document.createElement('button');
     for(const button of [resume,save,exportFile,close])button.type='button';
-    actions.append(resume,save,exportFile,close);section.append(info,actions);host.append(section);
+    actions.append(resume,save,exportFile,close);section.append(cover,info,actions);host.append(section);
     let pending=false,error='';
     function render(){const work=read(),en=getLocale()==='en';section.hidden=!work.open;section.dataset.state=work.status;
         caption.textContent=en?'Open manuscript':'開いている原稿';title.textContent=work.title||(en?'Untitled manuscript':'無題の原稿');
+        const src=/^(https:|blob:|data:image\/)/i.test(work.thumbnail||'')?work.thumbnail:'';
+        if(image.dataset.source!==src){image.dataset.source=src;image.hidden=!src;fallback.hidden=!!src;if(src)image.src=src;else image.removeAttribute('src');}
         status.textContent=error||studioWorkText(work,en);resume.textContent=en?'Continue editing':'編集を続ける';
+        resume.className='studio-current-work-primary';
         save.textContent=work.local?(en?'Save DSP file':'DSPファイルに保存'):(en?'Save to cloud':'クラウドに保存');
         exportFile.textContent=en?'Save a DSP copy':'DSPに退避';close.textContent=en?'Close manuscript':'原稿を閉じる';
         save.hidden=!work.blocked;save.disabled=pending||!work.canSave;resume.disabled=pending;

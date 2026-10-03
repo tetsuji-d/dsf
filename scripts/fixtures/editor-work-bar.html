@@ -1,0 +1,10 @@
+<!doctype html><html lang="ja"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Editor save controls verification</title>
+<link rel="stylesheet" href="/css/editor-work-bar.css"><link rel="stylesheet" href="/css/home-workspace.css">
+<style>body{font:14px system-ui;color:#25344b;background:#f6f8fc;margin:24px}button,select{padding:8px}#ribbon-bar{background:white;border:1px solid #ced8e4;padding:12px}.ribbon-top-left{display:flex;align-items:center}.editor-work-bar{display:flex}#project-title{padding:8px;border:1px solid #ced8e4}.studio-current-work-cover{display:none}.studio-current-work{max-width:440px;margin-top:20px;padding:16px;background:white;border:1px solid #ced8e4;border-radius:10px}.studio-current-work-info{display:grid;gap:6px}.studio-current-work-actions{display:flex;gap:8px;margin-top:12px}[hidden]{display:none!important}</style>
+<h1>保存表示の隔離検証</h1><p>テスト原稿のみ。クラウドやファイルへの書込みは行いません。</p>
+<label>状態 <select id="mode"><option value="local">DSP未保存</option><option value="cloud">クラウド保存済み</option><option value="restored">復元確認待ち</option><option value="conflict">クラウド競合</option><option value="offline">オフライン</option><option value="shared">共有・閲覧のみ</option></select></label>
+<label>保存結果 <select id="outcome"><option value="success">成功</option><option value="cancel">キャンセル</option><option value="fail">失敗</option><option value="hold">待機</option></select></label>
+<button id="edit">編集する</button><button id="finish">待機中の保存を完了</button><button id="language">English / 日本語</button>
+<div id="editor-room"><div id="ribbon-bar"><div class="ribbon-top-left"><span>プロジェクト名</span><span id="project-title">保存表示テスト</span><div id="editor-work-bar" class="editor-work-bar"><button id="btn-save" data-authoring-save>保存</button><button id="editor-resume-copy" hidden>復元原稿を確認</button></div></div><label>作品タイトル<input id="prop-title" value="テスト作品"></label></div></div>
+<div id="dashboard"></div><p id="result" role="status"></p>
+<script type="module" src="./editor-work-bar.js"></script></html>

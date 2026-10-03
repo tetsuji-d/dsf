@@ -12,7 +12,7 @@ export function installSharedStudioUI({getUILang,checkAccess,lockAction,openReco
         finally{pendingAction=false;sync();}}
     doc.querySelector('#editor-room')?.prepend(note);
     const blocked='#flow-authoring-surface,#content-render,#bubble-layer,#canvas-page-heading-props,#image-zoom-controls-floating,#panel-right,#asset-grid,#project-settings-modal .ps-dialog';
-    const safe='#btn-editor-preview,#canvas-zoom-select,#lang-tabs-top *,[onclick*="setCanvasZoom"],[onclick*="fitCanvas"],#btn-page-prev,#btn-page-next,#page-nav-slider';
+    const safe='#btn-editor-preview,.editor-work-details,#canvas-zoom-select,#lang-tabs-top *,[onclick*="setCanvasZoom"],[onclick*="fitCanvas"],#btn-page-prev,#btn-page-next,#page-nav-slider';
     let syncing=false;
     function sync(){
         if(syncing)return;syncing=true;

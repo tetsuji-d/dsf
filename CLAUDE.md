@@ -28,6 +28,7 @@ AI エージェント、人間の開発者ともに、まずこの文書を読�
 
 ### 4. 最近の重要テーマ
 
+- **[docs/studio-desktop-distribution-plan.md](docs/studio-desktop-distribution-plan.md)** — StudioはWindows・Macを優先。インストーラーとOS連携の検討を記録し、実装は保留してエディター整備を先行（2026-10-03）
 - **[docs/windows-file-preview-plan.md](docs/windows-file-preview-plan.md)** — ファイルアイコン・OS連携・プレビューの保留／再開記録（2026-10-03に保留）。確定済み範囲、作業場所、一般配布までの残課題
 - **[docs/flow-remaining-implementation-plan.md](docs/flow-remaining-implementation-plan.md)** — Flow／DSF delivery v2の現在地、残作業、安全な実装単位、初期公開の完了条件
 - **[docs/environment-topology.md](docs/environment-topology.md)**  

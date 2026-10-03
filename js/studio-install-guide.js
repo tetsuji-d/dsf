@@ -1,10 +1,18 @@
 // Instructions remain available even without beforeinstallprompt.
-export function openStudioInstallGuide({en=false}={}) {
+export function openStudioInstallGuide({en=false,section='install'}={}) {
  const dialog=document.createElement('dialog');dialog.className='local-file-dialog studio-install-guide';
- const title=document.createElement('h2');title.id='studio-install-guide-title';title.textContent=en?'Install DSF Studio':'DSF Studioを端末に追加';dialog.setAttribute('aria-labelledby',title.id);
- const intro=document.createElement('p');intro.textContent=en?'Choose your device. You can also keep using Studio in your browser. Menu names vary by browser version.':'お使いの端末を選んで手順を確認できます。インストールせず、ブラウザーでも使えます。メニュー名はブラウザーのバージョンによって異なります。';
+ const title=document.createElement('h2');title.id='studio-install-guide-title';title.textContent=en?'Install Studio and open files':'Studioのインストールとファイルの使い方';dialog.setAttribute('aria-labelledby',title.id);
+ const intro=document.createElement('p');intro.textContent=en?'Install Studio to launch it from an app icon, with cloud editing and saving as usual. You can also keep using your browser. Choose your device below; menu names may vary.':'インストールすると、起動用アイコンからStudioを開けます。クラウドでの編集・保存はこれまでどおりです。ブラウザーのままでも使えます。下から端末を選んでください。メニュー名は環境により異なります。';
  const guides=[
-  ['Windows',en?'Open Studio in Chrome. Choose the install icon in the address bar, or the menu → Cast, save, and share → Install page as app. If Studio shows an Install button, you can use it.':'ChromeでStudioを開き、アドレスバーのインストールアイコン、またはメニュー →「キャスト、保存、共有」→「ページをアプリとしてインストール」を選びます。Studio内に「インストール」ボタンが出ていれば、そこからも追加できます。','https://support.google.com/chrome/answer/9658361?co=GENIE.Platform%3DDesktop'],
+  ['Windows',en?[
+   'Open Studio in Chrome. Select Install Studio if shown, or the install icon in the address bar.',
+   'If neither appears, open the Chrome menu → Cast, save, and share → Install page as app. Follow the installation prompts.',
+   'To add a desktop shortcut, enter chrome://apps in Chrome’s address bar. Right-click Studio → Create shortcuts, choose Desktop, then Create.'
+  ]:[
+   'ChromeでStudioを開きます。「Studioをインストール」ボタン、またはアドレスバーのインストールアイコンを押します。',
+   '見つからない場合は、Chromeのメニュー →「キャスト、保存、共有」→「ページをアプリとしてインストール」を選び、案内に従います。',
+   'デスクトップに追加するには、Chromeのアドレス欄に chrome://apps と入力します。Studioを右クリック →「ショートカットを作成」からデスクトップを選び、作成します。'
+  ],'https://support.google.com/chrome/answer/9658361?co=GENIE.Platform%3DDesktop'],
   ['Mac',en?'In Safari on macOS Sonoma 14 or later, choose File → Add to Dock. Chrome also offers an install icon or menu → Cast, save, and share → Install page as app.':'macOS Sonoma 14以降のSafariでは「ファイル」→「Dockに追加」を選びます。Chromeではアドレスバーのインストールアイコン、またはメニュー →「キャスト、保存、共有」→「ページをアプリとしてインストール」から追加できます。','https://support.apple.com/104996'],
   ['iPhone / iPad',en?'Open Studio in Safari, open Share, then Add to Home Screen. If Open as Web App appears, turn it on and tap Add.':'SafariでStudioを開き、「共有」→「ホーム画面に追加」を選びます。「Webアプリとして開く」が表示された場合はオンにして「追加」を押します。','https://support.apple.com/guide/iphone/iphea86e5236/ios'],
   ['Android',en?'Open Studio in Chrome. From the menu choose Add to home screen → Install, then follow the instructions. You can also use the Install button when Studio shows it.':'ChromeでStudioを開き、メニュー →「ホーム画面に追加」→「インストール」を選び、画面の案内に従います。Studio内に「インストール」ボタンが出ていれば、そこからも追加できます。','https://support.google.com/chrome/answer/9658361?co=GENIE.Platform%3DAndroid']
@@ -17,22 +25,30 @@ export function openStudioInstallGuide({en=false}={}) {
  ]){const card=document.createElement('div'),icon=document.createElement('img'),body=document.createElement('div'),labelNode=document.createElement('strong'),descriptionNode=document.createElement('span');
  icon.src='/file-icons/'+kind+'.svg';icon.width=icon.height=64;icon.alt='';labelNode.textContent=label;descriptionNode.textContent=description;body.append(labelNode,descriptionNode);card.append(icon,body);formats.append(card);}
  const iconNote=document.createElement('p');iconNote.className='studio-file-icon-note';iconNote.textContent=en?'File icons depend on your operating system, browser and default app. These identify the file type; they are not cover thumbnails.':'端末上のアイコン表示はOS・ブラウザー・既定のアプリによって異なります。ファイルの種類を示すアイコンで、作品ごとの表紙サムネイルとは別です。';
- dialog.append(title,intro,formats,iconNote,files);
+ dialog.append(title,intro);
+ const fileHelp=document.createElement('details'),fileSummary=document.createElement('summary');fileSummary.textContent=en?'Manuscript files (DSP / DSF)':'原稿ファイルの使い方（DSP / DSF）';fileHelp.append(fileSummary,formats,iconNote,files);
  const environment=document.createElement('p');
  environment.textContent=en?'This app: '+location.host+' · '+(import.meta.env.MODE==='production'?'Production':'Preview / '+import.meta.env.MODE):'このアプリ：'+location.host+' · '+(import.meta.env.MODE==='production'?'本番版':'検証版 / '+import.meta.env.MODE);
  dialog.append(environment);
  const association=document.createElement('details'),associationTitle=document.createElement('summary');
- associationTitle.textContent=en?'File icons, updates and Open with':'ファイルアイコン・更新・プログラムから開く';
+ associationTitle.textContent=en?'File icons and cover previews: setup and availability':'ファイルアイコン・表紙プレビュー：設定方法と対応状況';
  association.append(associationTitle);
  const steps=[
+  [en?'Open a file in Studio':'ファイルをStudioで開く',en?'After installing with a supported desktop browser, right-click a DSP or DSF file → Open with → DSF Studio. DSP opens the editor; DSF opens Viewer. If Studio is not listed, use the file picker inside Studio or Viewer.':'対応するPCブラウザーからインストールした後、DSP・DSFファイルを右クリック →「プログラムから開く」→ DSF Studioを選びます。DSPは編集画面、DSFはViewerで開きます。一覧に出ない場合は、Studio・Viewerの画面内からファイルを選んで開けます。'],
+  [en?'File-type icons (DSP / DSF)':'ファイルの種類を示すアイコン（DSP / DSF）',en?'Studio provides a green DSP icon and a blue DSF icon. Whether they appear in file folders depends on browser and OS file associations. Installation does not guarantee that these icons appear on every device. These are different from the Studio launch shortcut.':'緑のDSP・青のDSFアイコンを用意しています。フォルダー内への表示はOS・ブラウザーの関連付けに依存し、インストールだけですべての端末に表示されることは確認できていません。Studioを起動するショートカットとは別のアイコンです。'],
+  [en?'Cover thumbnails in Windows folders — experimental':'Windowsのフォルダーに表紙を表示 — 検証中',en?'This needs an extra Windows x64 component, separate from installing Studio. A development version has been tested, but a public installer is not available yet. Files without a supported cover keep their file-type icon.':'Studioのインストールとは別に、Windows x64用の追加部品が必要です。開発検証版では表示を確認していますが、一般向けのインストーラーはまだ提供していません。対応する表紙を含まないファイルは、種類アイコンの表示になります。'],
+  [en?'Cover in the Windows preview pane — experimental':'Windowsのプレビュー欄に表紙を表示 — 検証中',en?'This needs a separate Windows x64 cover-preview component; it is not installed with Studio. If already set up, enable File Explorer’s preview pane (Alt+P) and select a file. It shows the cover only. To read pages, open the DSF in Viewer. Downloaded files may be blocked by Windows preview protection.':'こちらも専用のWindows x64用追加部品が必要で、Studioのインストールには含まれません。導入済みの環境では、エクスプローラーのプレビューウィンドウ（Alt+P）を表示してファイルを選びます。表示対象は表紙だけです。本文のページ送りはDSFをViewerで開いて行います。ダウンロードしたファイルはWindowsの保護によってプレビューが止まる場合があります。'],
   [en?'Windows / Mac':'Windows / Mac',en?'File opening from the OS requires a supported desktop browser such as Chrome or Edge. Adding to Dock in Safari is a different installation method; use the file picker inside the app when OS file opening is unavailable.':'OSからファイルを開くには、Chrome・Edgeなど対応するPCブラウザーからのインストールが必要です。Safariの「Dockに追加」とは対応範囲が異なります。関連付けを使えない場合はアプリ内からファイルを選んでください。'],
-  ['iPhone / iPad / Android',en?'Adding the app to the home screen does not register these document icons with the Files app. Open files from inside Studio or Viewer.':'ホーム画面への追加だけでは、「ファイル」などの管理アプリにDSP・DSFの専用アイコンは登録されません。Studio・Viewer内からファイルを開いてください。'],
+  ['Mac / iPhone / iPad / Android',en?'The Windows cover-preview components do not support these devices. Adding the app to a mobile home screen does not register DSP/DSF icons with the Files app. Open files from inside Studio or Viewer.':'Windows用の表紙表示部品は利用できません。スマートフォンのホーム画面への追加だけでは、「ファイル」などの管理アプリにDSP・DSFの専用アイコンは登録されません。Studio・Viewer内からファイルを開いてください。'],
   [en?'After updating':'更新後',en?'Save your manuscript, check for app updates in Help, then close and reopen the app. Browser-managed file associations may update separately. App version checks cannot confirm OS icon registration.':'原稿を保存し、ヘルプからアプリの更新を確認して、アプリを閉じて開き直します。ブラウザーが管理する関連付けは別のタイミングで更新される場合があります。アプリのバージョン確認だけでは、OSのアイコン登録完了は確認できません。'],
   [en?'If icons or opening still fail':'アイコンや起動が反映されない場合',en?'Use Open with to choose the intended DSF Studio. Preview builds are named DSF Studio (staging); they are separate from production. Before reinstalling, save needed manuscripts as DSP files and keep the original files. Do not clear site data or recovery copies to repair an icon. You can continue using the in-app file picker.':'「プログラムから開く」で利用するDSF Studioを選びます。検証版は「DSF Studio (staging)」で、本番版とは別のアプリです。再インストールの前には必要な原稿をDSPで保存し、元ファイルを保管してください。アイコンの修復のためにサイトデータや復元用コピーを削除する必要はありません。アプリ内のファイル選択でも作業を続けられます。']
  ];
  for(const [label,text] of steps){const heading=document.createElement('h3'),body=document.createElement('p');heading.textContent=label;body.textContent=text;association.append(heading,body);}
- dialog.append(association);
- for(const [name,instruction,url] of guides){const section=document.createElement('details'),heading=document.createElement('summary'),body=document.createElement('p'),link=document.createElement('a');heading.textContent=name;body.textContent=instruction;link.textContent=en?'Official instructions':'公式の手順';link.href=url;link.target='_blank';link.rel='noopener noreferrer';section.append(heading,body,link);dialog.append(section);}
- const note=document.createElement('p');note.textContent=en?'After installation, open the app while connected and select Prepare offline use. Wait for Offline use ready before disconnecting. Browser working copies may not transfer to the installed app; save a DSP file first, then open it in the app.':'追加後は、通信できる状態でアプリを開き、「オフライン利用を準備」から「オフライン利用可」になるまで待ってください。ブラウザーの作業コピーがアプリへ引き継がれない環境もあるため、編集中の原稿は先にDSPとして保存し、アプリで開いてください。';
- const close=document.createElement('button');close.type='button';close.textContent=en?'Close':'閉じる';close.onclick=()=>dialog.close();dialog.addEventListener('close',()=>dialog.remove(),{once:true});dialog.append(note,close);document.body.append(dialog);title.tabIndex=-1;dialog.showModal();title.focus();dialog.scrollTop=0;
+ for(const [name,instruction,url] of guides){const section=document.createElement('details'),heading=document.createElement('summary'),body=document.createElement(Array.isArray(instruction)?'ol':'p'),link=document.createElement('a');heading.textContent=name;
+  if(Array.isArray(instruction)){for(const text of instruction){const item=document.createElement('li');item.textContent=text;body.append(item);}}else{body.textContent=instruction;}
+  link.textContent=en?'Official instructions':'公式の手順';link.href=url;link.target='_blank';link.rel='noopener noreferrer';section.append(heading,body,link);dialog.append(section);}
+ dialog.append(fileHelp,association);
+ const note=document.createElement('p');note.textContent=en?'No offline setup is needed for everyday online work. To work somewhere without internet, use the optional preparation section on the dashboard and save your manuscript as a DSP first. Browser working copies may not transfer to an installed app; save current work before switching.':'普段オンラインで使う場合、ネットなし編集の準備は不要です。通信できない場所へ持ち出す場合だけ、ダッシュボードの任意の準備を行い、原稿もDSPとして保存してください。ブラウザーの作業コピーがアプリへ引き継がれない環境もあるため、切り替える前に編集中の原稿を保存してください。';
+ const close=document.createElement('button');close.type='button';close.textContent=en?'Close':'閉じる';close.onclick=()=>dialog.close();dialog.addEventListener('close',()=>dialog.remove(),{once:true});dialog.append(note,close);document.body.append(dialog);title.tabIndex=-1;dialog.showModal();
+ if(section==='files'){association.open=true;associationTitle.focus();association.scrollIntoView({block:'start'});}else{title.focus();dialog.scrollTop=0;}
 }
