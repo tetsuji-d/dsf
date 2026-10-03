@@ -146,7 +146,8 @@ export function createViewerEdgePeek({getItems, getLayout, renderSurface, format
             root.style.setProperty('--fan-offset-x',mix(peekFit.offsetX*peekFit.scale,readingFit.offsetX*readingFit.scale)/scale+'px');
             root.style.setProperty('--fan-offset-y',mix(peekFit.offsetY,readingFit.offsetY)+'px');
         }
-        for(const sheet of content.querySelectorAll('.edge-fan-sheet:not(.edge-fan-rigid)')){
+        // Only paper meshes carry bending geometry; closed-cover side faces stay rigid.
+        for(const sheet of content.querySelectorAll('.edge-fan-sheet[data-shape-spread][data-shape-depth]')){
             shapeSheet(sheet,Number(sheet.dataset.shapeSpread),Number(sheet.dataset.shapeDepth));
             // B/C settle beneath the readable A spread. Keep the covers/paper
             // block as a thin physical rim instead of showing neighbouring text.
