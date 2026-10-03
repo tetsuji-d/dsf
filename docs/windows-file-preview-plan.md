@@ -3,6 +3,75 @@
 2026-10-03。Architectの「表紙サムネイル→内容プレビュー」の順序に沿う。
 Windowsを先行する。PWAのfile_handlers.icons（種類別アイコン）とは別機能。
 
+## 保留・再開用の記録（2026-10-03）
+
+**ユーザーの指示で、ファイルアイコン・OS連携・プレビューの整備はここで保留する。**
+別の開発を先に進め、ユーザーが再開を指定したときにこの文書から状況を確認する。
+これまでの「進めて」という承認を、保留中の自動再開の根拠にはしない。
+
+### 作業場所と確定済みの状態
+
+- 作業場所: `C:\Users\tetsu\.codex\worktrees\review-boundaries\dsf`
+- ブランチ: `codex/windows-file-preview`
+- 実装の区切り: `0aab337 Add read-only Windows Explorer cover preview pane`
+- 種類ラベルの実表示記録: `516668c`。DSPの任意表紙PNG保存: `f7c8012`。
+- 最後に配信確認を記録したWeb版: `v2026.10.03-020741`、
+  https://5c4d5191.dsf-studio.pages.dev 。共通URLは https://staging.dsf-studio.pages.dev 。
+  これは当時の配信記録で、再開時の最新配信を保証しない。再開時に照合する。
+- 今回のWindows部品はこのPCへ導入済み。Webへのデプロイで他端末へ配られるものではない。
+  保留のために解除・再登録はしない。本番デプロイ／mainマージは今回行っていない。
+- `outputs/`は未追跡の検証素材・ビルド結果・ログを含む。削除、一括ステージング、原稿の上書きをしない。
+  `C:\Users\tetsu\projects\dsf`等の別作業場所をこの状態と混同しない。
+
+### WebアプリとOS連携の境界
+
+| 機能 | 現在の実装・確認範囲 |
+|---|---|
+| PWAのアプリアイコン・DSP／DSF受信 | Web側に実装済み。OS・ブラウザーで対応範囲が異なる |
+| 緑DSP／青DSFの種類別アイコン | `file_handlers.icons`設定済み。このPCの手動修復と、新規ユーザーへの自動登録は別。一般環境での自動登録は未確定 |
+| 一覧の表紙サムネイル・種類ラベル | Windows x64用の追加部品。このPCの通常ローカルフォルダーで実表示確認済み |
+| Explorer右側の表紙 | 別のWindows x64用追加部品。ローカル生成DSF／DSP、旧DSP・異常ファイルの案内を実画面で確認済み |
+| 本文ページ送り・言語選択 | 未実装。下記の第2段階B |
+| Mac／iOS／AndroidのOS用表紙・プレビュー | 今回のWindows部品は使えない。別途方式の検討・実機確認が必要 |
+
+Webアプリのインストールだけで、Windowsの追加部品は導入されない。
+「Windowsで表紙・プレビューを有効にする」という任意の導入案内、署名付き配布、
+アプリとOS連携をまとめるインストーラーは今後の候補であり、製品として完成したとは扱わない。
+
+### 未解決の点と再開時の候補順
+
+1. 現在のcheckout・mainへの反映・配信版・端末への導入状態を読み取りで確認し、再開する範囲を決める。
+   別の開発用ブランチを選ぶ場合も、規約と未マージの改修を確認して成果を落とさない。
+2. 通常の新規Windowsインストールで、ファイルからの起動と種類アイコンの自動登録を分けて検証する。
+   開発ツール内のHKCU登録は実Explorerと異なるSilo領域を参照した履歴がある。
+   API成功だけで反映成功と判断せず、実画面を確認する。
+3. 一般ユーザー向け導入案内・署名・更新・解除を整備する。
+   サムネイル／ラベル／右プレビューの別々の導入手順の整理が必要。
+   右プレビューの異なる版への更新・中断回復、新規PCでの導入は未検証。
+4. OneDrive内のサムネイル取得待ち（`WTS_E_EXTRACTIONPENDING`）と、ダウンロード原稿の
+   Windowsによるプレビュー停止（MOTW）を別問題として扱う。後者の保護や印は自動解除しない。
+5. Mac／Androidの実機結果を集める。Windows用の結果を他OSへ一般化しない。
+   MacのChromeとSafari、Androidのアプリ内読込とファイル管理アプリからの起動も区別する。
+6. 第2段階Bの本文プレビューを検討する。DSFの固定テキスト・同梱フォント・ページ順・言語を
+   Viewerと照合し、DSPは未確定の編集原稿をどこまで描画するか先に整理する。
+   本文snapshot等の新しい保存拡張が必要なら、表紙PNGの承認を流用せず影響を説明して合意する。
+
+順序は再開時の目的に応じて見直す。本番デプロイ、mainマージ、権限ルール変更は引き続き別途明示承認が必要。
+
+### 資料・検証物の入口
+
+- [種類別アイコン](file-icons.md): 意匠、PWA設定、自動登録の未確認事項。
+- [インストール確認](file-association-acceptance.md): Mac／Android向け手順、隔離環境での切り分け。
+- [Studioのローカル・PWA対応](studio-local-pwa.md): ファイル受信、ローカル保存、オフラインの範囲。
+- [Windows部品の開発用README](../native/windows-preview/README.md): ビルド、登録、解除、実画面確認、制約。
+- [表紙プレビュー同梱案内](../native/windows-preview/COVER-PANE-README.txt): 利用者向けの導入とWindows警告の案内。
+- 未追跡の配布候補: `outputs/windows-preview/DSF-Windows-Preview-4d023f2034bb.zip`、
+  `outputs/windows-preview/DSF-Cover-Pane-b0ac5982a97f.zip`。
+- 実機確認セット: `outputs/file-launch/DSF-install-check.zip`（解凍して使う）。
+- 右プレビューの検証記録: `outputs/windows-preview/cover-pane-verification.json`（13件）、
+  `cover-pane-install-verification.json`、`cover-pane-ui-verification.json`（同じディレクトリ）。
+  サムネイルの30件検証、種類ラベル・OneDriveの記録は開発用READMEを参照。
+
 ## 第1段階: 表紙サムネイル
 
 ExplorerのIThumbnailProviderに読み取り専用Windows部品を接続する。
