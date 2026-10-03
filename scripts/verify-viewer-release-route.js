@@ -82,8 +82,12 @@ assert.match(appSource, /import \{ buildPublicViewerUrl \} from '\.\/viewer-rele
     'Studio public share/copy actions must use the safe Viewer URL builder.');
 assert.match(appSource, /data-release-id="\$\{escapeStudioHtml\(work\.releaseId \|\| ''\)\}"/,
     'Home Work cards must carry their currently published Release ID.');
-assert.equal((appSource.match(/buildPublicViewerUrl\(/g) || []).length, 3,
-    'Home copy, editor share, and Works copy must all use release-aware Viewer URLs.');
+for (const call of [
+    "buildPublicViewerUrl(window.location.origin,workId,work.releaseId||'')",
+    'buildPublicViewerUrl(window.location.origin, workId, releaseId)',
+    "buildPublicViewerUrl(window.location.origin, state.workId, state.releaseId || '')",
+    'buildPublicViewerUrl(window.location.origin, projectWorkId, releaseId)',
+]) assert.ok(appSource.includes(call), 'Every public action must pass its Work and Release to the safe URL builder: ' + call);
 assert.match(worksSource, /data-release-id="\$\{_esc\(p\.releaseId \|\| ''\)\}"/,
     'Works rows must carry the Release ID used by their public Viewer link.');
 assert.match(viewerSource, /const requestedReleaseId = params\.get\('r'\) \|\| '';/,

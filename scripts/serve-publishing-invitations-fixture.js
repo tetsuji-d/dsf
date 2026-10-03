@@ -1,5 +1,6 @@
 import {attachSharedEditorFixture} from './fixtures/shared-editor-fixture.js';
 import {createServer} from 'node:http';
+import {loadEnv} from 'vite';
 import {readFile,writeFile,rename,mkdir} from 'node:fs/promises';
 import {invitationsFixture} from './fixtures/publishing-invitations-fixture.js';
 const port=Number(process.env.PORT||5200),data=new URL('../outputs/invitation-fixture-'+port+'.json',import.meta.url);
@@ -27,5 +28,5 @@ createServer(async(req,res)=>{try{
         res.writeHead(response.status,Object.fromEntries(response.headers));res.end(Buffer.from(await response.arrayBuffer()));return;
     }
     const path=files.get(url.pathname)||(/^\/js\/[a-z0-9-]+\.js$/.test(url.pathname)?url.pathname.slice(1):null);if(!path){res.writeHead(404);res.end();return;}
-    res.setHeader('Content-Type',(path.endsWith('.html')?'text/html':path.endsWith('.css')?'text/css':'text/javascript')+'; charset=utf-8');res.setHeader('Cache-Control','no-store');res.end(await readFile(new URL('../'+path,import.meta.url)));
+    res.setHeader('Content-Type',(path.endsWith('.html')?'text/html':path.endsWith('.css')?'text/css':'text/javascript')+'; charset=utf-8');res.setHeader('Cache-Control','no-store');const source=await readFile(new URL('../'+path,import.meta.url));res.end(path==='js/studio-rollout.js'?source.toString().replace('import.meta.env',JSON.stringify(loadEnv('staging',process.cwd(),'VITE_'))):source);
 }catch(e){console.error(e);res.writeHead(500);res.end('Fixture unavailable');}}).listen(port,'127.0.0.1',()=>console.log('Invitation fixture: http://127.0.0.1:'+port));

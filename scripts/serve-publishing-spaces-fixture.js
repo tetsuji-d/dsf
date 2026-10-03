@@ -1,8 +1,10 @@
 import { createServer } from 'node:http';
+import {loadEnv} from 'vite';
 import { readFile } from 'node:fs/promises';
 import { publishingSpacesFixture } from './fixtures/publishing-spaces-fixture.js';
 const f=publishingSpacesFixture(), port=Number(process.env.PORT || 5192);
 const allowed=new Map([
+ ['/js/studio-rollout.js',['js/studio-rollout.js','text/javascript']],
  ['/js/home-local-space.js',['js/home-local-space.js','text/javascript']],
  ['/js/home-start.js',['js/home-start.js','text/javascript']],
  ['/js/project-copy-ui.js',['js/project-copy-ui.js','text/javascript']],
@@ -50,6 +52,7 @@ createServer(async(req,res)=>{
         if(url.pathname==='/fixture/proof'){res.setHeader('Content-Type','application/json');res.end(JSON.stringify([...f.docs]));return;}
         const file=allowed.get(url.pathname);if(!file){res.writeHead(404);res.end();return;}
         res.setHeader('Content-Type',file[1]+'; charset=utf-8');res.setHeader('Cache-Control','no-store');
-        res.end(await readFile(new URL('../'+file[0],import.meta.url)));
+        const source=await readFile(new URL('../'+file[0],import.meta.url));
+        res.end(file[0]==='js/studio-rollout.js'?source.toString().replace('import.meta.env',JSON.stringify(loadEnv('staging',process.cwd(),'VITE_'))):source);
     }catch(error){console.error(error);res.writeHead(500);res.end('fixture error');}
 }).listen(port,'127.0.0.1',()=>console.log('Publishing spaces fixture: http://127.0.0.1:'+port));

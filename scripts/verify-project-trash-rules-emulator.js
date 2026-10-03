@@ -13,9 +13,9 @@ const root='users/trash_owner/projects/legacy', source=root+'/authoring/current'
 const marker={revision:1,trashedAtMs:1,restoreUntilMs:2592000001};
 try {
  await admin.doc('users/trash_owner').set({uid:'trash_owner',status:{disabled:false,moderationHold:false}});
- await setDoc(doc(owner,root),{version:5,projectId:'legacy',title:'Original',blocks:[{text:'Manuscript'}],dsfStatus:'public'}).catch(async()=>{
-   await setDoc(doc(owner,root),{version:5,projectId:'legacy',title:'Original',blocks:[{text:'Manuscript'}],dsfStatus:'draft'});
- });
+ // Access isolation starts with a private draft in every rollout phase.
+ // The public-read case is seeded explicitly below, independently of space policy.
+ await setDoc(doc(owner,root),{version:5,projectId:'legacy',title:'Original',blocks:[{text:'Manuscript'}],dsfStatus:'draft'});
  await setDoc(doc(owner,root),{title:'Normal save'},{merge:true}); checks++;
  await denied(()=>getDoc(doc(other,root)));
  await denied(()=>setDoc(doc(owner,root),{projectTrash:marker},{merge:true}));

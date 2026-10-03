@@ -1,11 +1,11 @@
 // Navigation stays local to the selected space; it never changes permissions.
-export function createSpaceSettingsNavigation({root,getLocale=()=> 'ja'}){
+export function createSpaceSettingsNavigation({root,getLocale=()=> 'ja',sharingEnabled=true}){
     const members=root.querySelector('[data-space-settings-panel="members"]');
     const profile=root.querySelector('[data-space-settings-panel="profile"]');
     if(!members||!profile)return {render(){}};
     const nav=document.createElement('nav');nav.className='home-settings-nav';
-    let selected='members',visible=false;
-    const buttons=['profile','members'].map(key=>{const button=document.createElement('button');button.type='button';button.dataset.spaceSettings=key;button.onclick=()=>{selected=key;render(visible);};nav.append(button);return button;});
+    let selected=sharingEnabled?'members':'profile',visible=false;
+    const buttons=(sharingEnabled?['profile','members']:['profile']).map(key=>{const button=document.createElement('button');button.type='button';button.dataset.spaceSettings=key;button.onclick=()=>{selected=key;render(visible);};nav.append(button);return button;});
     members.before(nav);
     function render(enabled){
         visible=enabled;const en=getLocale()==='en',personal=root.dataset.spaceKind==='personal';nav.hidden=!enabled;

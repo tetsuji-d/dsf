@@ -1,5 +1,6 @@
 import {createPersonalSharingClient,mountPersonalSharingInbox} from './personal-sharing-ui.js';
 import {createAccountNotifications} from './account-notifications.js';
+import {studioRollout} from './studio-rollout.js';
 
 export function createStudioInbox({getUser,getLocale}) {
     const sharedRoot=document.getElementById('home-shared-inbox');
@@ -12,6 +13,7 @@ export function createStudioInbox({getUser,getLocale}) {
         if(view)render();
     }
     function render(){sharedUI?.destroy();sharedUI=null;sharedRoot.replaceChildren();noticesRoot.replaceChildren();
+        if(view==='shared'&&!studioRollout.personalSharing)return;
         if(view==='notifications'){const b=document.createElement('button');b.type='button';b.textContent=getLocale()==='en'?'Open notifications':'お知らせを開く';b.onclick=notifications.open;noticesRoot.append(b);return;}
         if(!getUser()){sharedRoot.textContent=getLocale()==='en'?'Sign in to continue.':'ログインしてください。';return;}
         const version=epoch;

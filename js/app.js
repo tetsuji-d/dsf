@@ -7,6 +7,7 @@ import {createRecentWorksUI} from './recent-works-ui.js';
 import {createRecentDirectory} from './recent-works.js';
 import '../css/project-trash.css';
 import {renderProjectTrash, confirmProjectTrash} from './project-trash-ui.js';
+import {studioRollout} from './studio-rollout.js';
 import {projectTrashError} from './project-trash-client.js';
 import {localRecentId} from './local-recent-store.js';
 import {showSafeResume} from './safe-resume-ui.js';
@@ -4353,6 +4354,7 @@ function syncStudioInbox() {
 function syncSpaceMembersSettings() {
     const root = document.getElementById('home-space-members');
     if (!root) return;
+    if (!studioRollout.invitations) { root.replaceChildren(); return; }
     if (!spaceMembersSettings) spaceMembersSettings = createSpaceMembersSettings({ root, getLocale:getUILang,
         execute:createInvitationsClient({getUser:()=>firebaseAuth.currentUser}),personalExecute:createPersonalSharingClient({getUser:()=>firebaseAuth.currentUser}),
         beforeLeave:prepareSharedSpaceLeave,onEnded:async({spaceId,self})=>{if(self){finishSharedSpaceLeave(spaceId);getPublishingSpaceUI().select('unassigned');await getPublishingSpaceUI().refreshJoined();}else await checkSharedStudioAccess().catch(()=>{});} });
@@ -4375,7 +4377,7 @@ function getPublishingSpaceUI() {
         switcherRoots: [document.getElementById('studio-space-switcher'), document.getElementById('mobile-space-switcher'), document.getElementById('home-space-launcher')],
         identityRoots: [document.getElementById('home-space-identity')],
         onSelect: () => { getHomeWorkspace().select('overview'); if (getCurrentRoom() !== 'home') window.switchRoom('home'); },
-        requestJoined:createInvitationsClient({getUser:()=>firebaseAuth.currentUser}),
+        requestJoined:studioRollout.invitations?createInvitationsClient({getUser:()=>firebaseAuth.currentUser}):null,
         request: requestPublishingSpaces, getUid: () => state.uid, getLocale: getUILang,
         onChange: () => { void renderHomeDashboard({ refreshSpaces: false }); },
     });
@@ -4823,7 +4825,7 @@ async function refreshRecentWorks({force=false,more=false,keepCloudRequest=false
     if(force&&!keepCloudRequest){homeCloudProjectsCache=null;homeCloudProjectsRequest=null;++homeCloudProjectsRequestToken;}
     if(!online||!uid||recentDirectoryUid!==uid||force||(!more&&Date.now()-recentDirectoryAt>30000)){
         recentDirectory=null;recentDirectoryUid=uid;recentDirectoryAt=Date.now();
-        if(uid&&online){const directoryUid=uid;recentDirectory=createRecentDirectory({execute:createInvitationsClient({getUser:()=>firebaseAuth.currentUser}),isCurrent:()=>state.uid===directoryUid&&navigator.onLine});}
+        if(uid&&online&&studioRollout.invitations){const directoryUid=uid;recentDirectory=createRecentDirectory({execute:createInvitationsClient({getUser:()=>firebaseAuth.currentUser}),isCurrent:()=>state.uid===directoryUid&&navigator.onLine});}
     }
     const directory=recentDirectory;
     let data={uid,online,owned:null,locals:[],catalogue:getPublishingSpaceUI().destinations(),directory:directory?.snapshot(),loading:true};
@@ -4900,7 +4902,7 @@ async function renderHomeDashboard({ refreshSpaces = true, forceRefresh = false 
     const spaceUI = getPublishingSpaceUI();
     if (refreshSpaces && navigator.onLine) void spaceUI.load({ notify: true });
     else spaceUI.render();
-    getHomeWorkspace().render({spaceKind:spaceUI.viewKind?.()||'all'});
+    getHomeWorkspace().render({spaceKind:spaceUI.viewKind?.()||'all',hasTrash:homeCloudProjectsCache?.uid===dashboardUid&&!!homeCloudProjectsCache.projects?.some(p=>p.projectTrash)});
     syncSpaceMembersSettings();
     syncStudioInbox();
     const joined=spaceUI.joinedSelection?.();
@@ -4949,6 +4951,7 @@ async function renderHomeDashboard({ refreshSpaces = true, forceRefresh = false 
     }
     const allCloudProjects = await cloudProjectsPromise;
     if (renderRevision !== homeDashboardRenderRevision || state.uid !== dashboardUid) return;
+    getHomeWorkspace().render({hasTrash:!!allCloudProjects?.some(p=>p.projectTrash)});
     const modifiedTime = project => {
         const value = project.lastUpdated || project.updatedAt;
         return Number(value?.toMillis?.() || (value?.seconds ? value.seconds * 1000 : 0) || (typeof value === 'number' ? value : Date.parse(value)) || 0);
@@ -5046,6 +5049,7 @@ async function renderHomeDashboard({ refreshSpaces = true, forceRefresh = false 
             catch(e){alert(e.message==='PREVIEW_OPEN_AND_SAVE'?(en?'Open this project and save it to refresh its thumbnail.':'このプロジェクトは編集画面で開いて保存すると一覧画像が更新されます。'):(en?'Could not update the thumbnail. Please retry.':'一覧画像を更新できませんでした。再試行してください。'));}return;
         }
         if(action==='delete'){
+            if(!studioRollout.trash)return;
             if(!await confirmProjectTrash(displayName,en))return;
             try{await deleteCloudProject(pid,dashboardUid);if(state.uid===dashboardUid)await renderHomeDashboard({forceRefresh:true});}
             catch(err){alert(projectTrashError(err,en));}return;
@@ -5053,7 +5057,7 @@ async function renderHomeDashboard({ refreshSpaces = true, forceRefresh = false 
         const destinations=spaceUI.destinations();
         if(!destinations){alert(en?'Publishing spaces could not be loaded. Refresh the list.':'出版スペースを取得できませんでした。一覧を更新してください。');return;}
         const owner=state.uid;
-        if(action==='share'){if(destinations.assignments[pid])return;openPersonalSharingDialog({projectId:pid,name:displayName,getLocale:getUILang,isCurrent:()=>state.uid===owner,execute:createPersonalSharingClient({getUser:()=>firebaseAuth.currentUser})});return;}
+        if(action==='share'){if(!studioRollout.personalSharing||destinations.assignments[pid])return;openPersonalSharingDialog({projectId:pid,name:displayName,getLocale:getUILang,isCurrent:()=>state.uid===owner,execute:createPersonalSharingClient({getUser:()=>firebaseAuth.currentUser})});return;}
         if(action==='copy')openProjectCopyDialog({name:displayName,spaces:destinations.spaces,defaultSpaceId:destinations.assignments[pid]||null,getLocale:getUILang,
             createJob:()=>{if(state.uid!==owner)throw new Error('AUTH_CHANGED');return newCloudProjectCopyJob(pid);},
             onCreated:async result=>{if(state.uid!==owner)return;await renderHomeDashboard({forceRefresh:true});spaceUI.select(result.spaceId||'unassigned');}});

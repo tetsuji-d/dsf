@@ -158,8 +158,8 @@ private authoring APIは新規発行の準備前と確定transaction内の両方
 
 ### 適用と検証
 
-VITE_PUBLISHING_SPACES_REQUIRED=true をstaging/developmentに設定。productionは未設定でUI制約を有効化しない。
-private authoring側は既存のPUBLISHING_SPACES_ENABLED=trueと連動。
+VITE_PUBLISHING_SPACES_REQUIRED=true をstaging/developmentに設定。productionはfalseを明示し、UI制約を有効化しない（2026-10-03、本番準備・未配備）。
+private authoring側は独立したPUBLISHING_SPACE_REQUIRED=trueで制御する。PUBLISHING_SPACES_ENABLEDだけでは発行条件を変更しない（2026-10-03に分離、未配備）。
 Rulesは別配備。**API/UI配備とstaging Rules配備を揃えて初めて、旧クライアントの直接書き込みまで制約が適用される。**
 productionのRulesには、出版スペースAPIを有効化しクライアントを配備する前にこの制約を先行配備しない。
 今回の作業はローカル実装・検証のみ。commit、staging、Rules、productionは配備していない。

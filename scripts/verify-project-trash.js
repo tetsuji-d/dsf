@@ -38,7 +38,7 @@ await test('private source stays immutable; trash and restore fence stale saves'
  const c=await f.service.access({uid:scope.uid},scope.projectId);const loaded=await f.service.load({uid:scope.uid},scope.projectId,c);assert.deepEqual(JSON.parse(new TextDecoder().decode(loaded.bytes)).blocks,f.source.blocks);
 });
 await test('lost response preserves exact request and restores once; HTTP auth/origin/size boundaries',async()=>{
- const f=fixture(),api=createProjectTrashApi({verifyToken:async t=>{assert.equal(t,'token');return {uid:scope.uid};},service:f.trash}),env={PUBLISHING_SPACES_ENABLED:'true'};
+ const f=fixture(),api=createProjectTrashApi({verifyToken:async t=>{assert.equal(t,'token');return {uid:scope.uid};},service:f.trash}),env={PROJECT_TRASH_ENABLED:'true'};
  let lost=true;const bodies=[];const user={uid:scope.uid,getIdToken:async()=> 'token'};
  const client=createProjectTrashClient({getUser:()=>user,fetchImpl:async(url,opts)=>{const body=JSON.parse(opts.body);bodies.push(body);const response=await api({env,request:new Request('https://studio.test'+url,opts)});if(body.kind==='trash'&&lost){lost=false;throw Error('response lost');}return response;}});
  await assert.rejects(client('trash',scope.projectId));const deadline=f.get(root).projectTrash.restoreUntilMs;f.advance(20000);await client('trash',scope.projectId);assert.equal(f.get(root).projectTrash.restoreUntilMs,deadline);assert.deepEqual(bodies[1],bodies[2]);

@@ -16,7 +16,7 @@ check('legacy missing counters start zero',()=>assert.deepEqual(reviewReactionCo
 check('negative old count rejected',()=>assert.throws(()=>reviewReactionCounts({goodCount:-1},'','good')));
 check('inconsistent count is not clamped',()=>assert.throws(()=>reviewReactionCounts({goodCount:0},'good',''),/repair/));
 check('fraction rejected',()=>assert.throws(()=>reviewReactionCounts({badCount:0.5},'','good')));
-const source=readFileSync(new URL('../js/viewer.js',import.meta.url),'utf8');
+const source=readFileSync(new URL('../js/viewer.js',import.meta.url),'utf8').replace(/\r\n/g,'\n');
 const section=source.slice(source.indexOf('function createReviewUiState()'),source.indexOf('function getMetricSessionId()'));
 const ctx=vm.createContext({state:{uid:'reader',user:{uid:'reader'}},viewerProjectMeta:{...meta,publication:{...publication,listedUntil:new Date(now+3600000)}},
  reviewGeneration:0,reviewUiState:{},reviewWorkIsPublic,renderViewerInfoPanel(){},vt:key=>key,console:{warn(){}},

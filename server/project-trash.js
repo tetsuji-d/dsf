@@ -1,4 +1,5 @@
 import {check, segment, AuthoringApiError, parseJson, readBounded} from './private-authoring/common.js';
+import {canMoveProjectToTrash} from './studio-rollout.js';
 import {createGoogleClient, createIdTokenVerifier} from './private-authoring/google-auth.js';
 import {createOwnerAuthoringStore, assertPersonalMutation} from './private-authoring/shared-boundary.js';
 export const PROJECT_TRASH_RETENTION_MS = 30 * 86400000;
@@ -75,7 +76,6 @@ const response = (data, status = 200) => Response.json(data, {status, headers: {
 export function createProjectTrashApi({verifyToken, service}) {
     return async ({request, env}) => {
         try {
-            check(env.PUBLISHING_SPACES_ENABLED === 'true', 'TRASH_UNAVAILABLE');
             check(request.method === 'POST', 'METHOD_NOT_ALLOWED', 405);
             const origin = request.headers.get('Origin');
             check((!origin || origin === new URL(request.url).origin)
@@ -86,13 +86,15 @@ export function createProjectTrashApi({verifyToken, service}) {
             check(identity?.uid, 'AUTH_INVALID', 401);
             check(/^application\/json(?:\s*;\s*charset=utf-8)?$/i.test(request.headers.get('Content-Type') || ''), 'CONTENT_TYPE_INVALID', 415);
             check(!request.headers.has('Content-Encoding') || request.headers.get('Content-Encoding') === 'identity', 'CONTENT_ENCODING_INVALID', 415);
-            return response(await service.execute(identity, parseJson(await readBounded(request.body, 4096))));
+            const command = parseJson(await readBounded(request.body, 4096));
+            // Suspending new moves must leave authenticated recovery available.
+            if (command?.kind === 'trash') check(canMoveProjectToTrash(env), 'TRASH_UNAVAILABLE', 503);
+            return response(await service.execute(identity, command));
         } catch (e) { return response({error: e instanceof AuthoringApiError ? e.code : 'TRASH_UNAVAILABLE'}, e instanceof AuthoringApiError ? e.status : 503); }
     };
 }
 const runtimes = new WeakMap();
 export async function handleProjectTrash(context) {
-    if (context.env?.PUBLISHING_SPACES_ENABLED !== 'true') return response({error: 'TRASH_UNAVAILABLE'}, 503);
     try {
         let handler = runtimes.get(context.env);
         if (!handler) {

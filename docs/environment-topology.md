@@ -117,6 +117,8 @@ Firebase Hosting の URL は通常確認先にしない。必要なときだけ 
 
 ## 本番デプロイ手順
 
+2026-10-03のStudio累積改修は、[本番反映の範囲・設定・権限ルール案](studio-production-rollout-plan.md)を先に確認する。ゴミ箱保護と新規発行条件では適用順が異なるため、今回の段階導入には以下の一括手順をそのまま使わない。計画の記載は本番反映の承認ではない。
+
 本番は `npm run deploy:prod:safe` を正とする。
 
 このコマンドは次を順番に実行する。
@@ -174,6 +176,6 @@ previewのみtrue、productionはfalse。設定変更は次回配備時に反映
 実クラウド接続の確認状況は[publishing-spaces.md](publishing-spaces.md)を参照。
 
 新規Horizon発行の所属必須化: staging/developmentでVITE_PUBLISHING_SPACES_REQUIRED=true。
-private authoring APIはPUBLISHING_SPACES_ENABLED=trueに連動して確定時にも所属を検証する。
+private authoring APIは独立したPUBLISHING_SPACE_REQUIRED=trueで確定時にも所属を検証する（2026-10-03にスペースAPI有効化から分離、未配備）。
 旧Firestore経路には別途Rules配備が必要。API/UI/Rulesをstagingで揃えてから検証する。
 productionは未有効化。スペースAPI無効の環境へこのRules制約だけ先行配備しない。

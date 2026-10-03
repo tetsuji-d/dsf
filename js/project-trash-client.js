@@ -26,6 +26,7 @@ export function createProjectTrashClient({getUser, fetchImpl = fetch, newId = ()
 }
 export function projectTrashError(error, en = false) {
     const code = error?.code || error?.message;
+    if (code === 'TRASH_UNAVAILABLE') return en ? 'Moving manuscripts to Trash is currently unavailable. Your manuscript has been kept.' : '現在、原稿をゴミ箱へ移す操作は利用できません。原稿は保持されています。';
     if (code === 'PROJECT_CHANGED') return en ? 'This manuscript changed. Refresh the list and try again.' : '原稿が更新されています。一覧を更新してから再試行してください。';
     if (code === 'TRASH_RESTORE_EXPIRED') return en ? 'The 30-day recovery period has ended.' : '30日間の復元期限を過ぎています。';
     if (code === 'SHARED_AUTHORING_REQUIRED') return en ? 'Trash for collaborative manuscripts is not available yet.' : '共同編集中の原稿は、現在このゴミ箱操作に対応していません。';

@@ -1,4 +1,5 @@
 import {createProjectTrashClient} from './project-trash-client.js';
+import {studioRollout} from './studio-rollout.js';
 import {confirmProjectTrash} from './project-trash-ui.js';
 import {readProjectList} from './project-list-reader.js';
 import {auth,firebaseConfig} from './firebase-core.js';
@@ -51,6 +52,7 @@ export async function fetchCloudProjects({includeTrash=false}={}) {
 
 const trashClient = createProjectTrashClient({getUser:()=>auth.currentUser});
 export async function deleteCloudProject(projectId, expectedUid = state.uid) {
+    if (!studioRollout.trash) throw new Error('TRASH_UNAVAILABLE');
     if (!expectedUid || state.uid !== expectedUid || auth.currentUser?.uid !== expectedUid) throw new Error('AUTH_CHANGED');
     const result = await trashClient('trash', projectId);
     window.dispatchEvent(new CustomEvent('project-trash-updated', {detail:{uid:expectedUid}}));
@@ -105,7 +107,7 @@ export async function openProjectModal(onLoadProject) {
                         <div class="project-card-title">${displayName}</div>
                         <div class="project-card-meta">${p.pageCount || '-'}ページ · ${dateStr}</div>
                     </div>
-                    <button class="project-card-delete" title="ゴミ箱へ移す" data-delete-id="${p.id}">✕</button>
+                    ${studioRollout.trash?`<button class="project-card-delete" title="ゴミ箱へ移す" data-delete-id="${p.id}">✕</button>`:''}
                 </div>
             `;
         }).join('');

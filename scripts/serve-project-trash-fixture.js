@@ -7,6 +7,6 @@ const api=createProjectTrashApi({verifyToken:async token=>{if(token!=='fixture')
 const server=await createServer({server:{host:'127.0.0.1',port:5274,strictPort:true},plugins:[{name:'trash-local-fixture',configureServer(vite){vite.middlewares.use(async(req,res,next)=>{
  if(req.url==='/api/test-trash-list'){res.setHeader('Content-Type','application/json');res.end(JSON.stringify({projects:[{id:scope.projectId,...f.get(root)}],published:!!f.get('public_projects/work_1'),sourceIntact:!!f.get(root+'/authoring/current')}));return;}
  if(req.url!=='/api/project-trash')return next();
- try {const chunks=[];for await(const c of req)chunks.push(c);const r=await api({env:{PUBLISHING_SPACES_ENABLED:'true'},request:new Request('http://127.0.0.1:5274/api/project-trash',{method:req.method,headers:req.headers,body:Buffer.concat(chunks)})});res.statusCode=r.status;r.headers.forEach((v,k)=>res.setHeader(k,v));res.end(await r.text());}catch(e){res.statusCode=500;res.end(JSON.stringify({error:'FIXTURE_FAILED'}));}
+ try {const chunks=[];for await(const c of req)chunks.push(c);const r=await api({env:{PROJECT_TRASH_ENABLED:'true'},request:new Request('http://127.0.0.1:5274/api/project-trash',{method:req.method,headers:req.headers,body:Buffer.concat(chunks)})});res.statusCode=r.status;r.headers.forEach((v,k)=>res.setHeader(k,v));res.end(await r.text());}catch(e){res.statusCode=500;res.end(JSON.stringify({error:'FIXTURE_FAILED'}));}
  });}}]});
 await server.listen();console.log('Trash fixture: http://127.0.0.1:5274/scripts/fixtures/project-trash.html');

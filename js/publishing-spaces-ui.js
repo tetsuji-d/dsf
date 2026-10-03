@@ -71,6 +71,8 @@ export function createPublishingSpaceUI({ root, request, getLocale, getUid, onCh
         if (next === uid) return;
         uid = next; generation++; joined=[];joinedPending=null;joinedFailed=false;joinedCursor=null; data = null; failed = false; failureCode = ''; loading = false; busy = false; pending = null; form = null; notice = ''; creation = null; imageCache.clear(); imageLoading.clear(); imageFailed.clear(); converting = false;
         try { selected = storage?.getItem(key()) || 'unassigned'; } catch { selected = 'unassigned'; }
+        // A remembered joined-space selection must not survive a disabled rollout.
+        if(!requestJoined&&isJoined())selected='all';
     }
     function apply(value) {
         if (value.uid !== uid) throw new Error('AUTH_CHANGED');

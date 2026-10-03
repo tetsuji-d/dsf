@@ -26,6 +26,12 @@ bucket_name = "dsf-authoring-production"
 
 [vars]
 PUBLISHING_SPACES_ENABLED = "false"
+PUBLISHING_SPACE_REQUIRED = "false"
+PROJECT_TRASH_ENABLED = "false"
+PERSONAL_SHARING_ENABLED = "false"
+PUBLISHING_INVITATIONS_ENABLED = "false"
+PUBLISHING_INVITATIONS_ACTIVATION = "false"
+SHARED_AUTHORING_ENABLED = "false"
 AUTHORING_CREATOR_UIDS = '["K53KsYUmTjOT0IhDEkPxPBWkUx72"]'
 AUTHORING_API_ENABLED = "true"
 AUTHORING_TEST_PROJECTS = '["K53KsYUmTjOT0IhDEkPxPBWkUx72/R2に移行","K53KsYUmTjOT0IhDEkPxPBWkUx72/テスト１"]'
@@ -46,6 +52,8 @@ binding     = "AUTHORING_BUCKET"
 bucket_name = "dsf-authoring-staging"
 
 [env.preview.vars]
+PUBLISHING_SPACE_REQUIRED = "true"
+PROJECT_TRASH_ENABLED = "true"
 # Personal sharing trial: only these two existing staging accounts.
 PERSONAL_SHARING_ENABLED = "true"
 PERSONAL_SHARING_ACTOR_UIDS = '["oweMVboBCNcr8FKMo6N7vAaGTvh2","aaGu1M3E5lQ5OD0Mwi7RLL7976i2"]'

@@ -1,4 +1,5 @@
 import {createPersonalSharingClient} from './personal-sharing-ui.js';
+import {studioRollout} from './studio-rollout.js';
 import {createInvitationsClient} from './publishing-invitations-transport.js';
 import '../css/account-notifications.css';
 
@@ -10,7 +11,12 @@ const disabledSources=new Set(['PERSONAL_SHARING_DISABLED','PERSONAL_SHARING_NOT
 // One account inbox on every surface. Reading a notice never accepts an invitation.
 export function createAccountNotifications({getUser,getLocale=()=>document.documentElement.lang,
     buttons=[...document.querySelectorAll('[data-account-notifications],[data-studio-notifications]')],
-    personal=createPersonalSharingClient({getUser,timeoutMs:15000}),spaces=createInvitationsClient({getUser}),pollMs=60000}) {
+    personal=createPersonalSharingClient({getUser,timeoutMs:15000}),spaces=createInvitationsClient({getUser}),pollMs=60000,features=studioRollout}) {
+    const sources=[...(features.personalSharing?['personal']:[]),...(features.invitations?['space']:[])];
+    if(!sources.length){
+        for(const b of buttons)b.hidden=true;
+        return {update(){},open(){},refresh:async()=>{},destroy(){}};
+    }
     let account=null,epoch=0,request=null,dialog=null,body=null,feedback=null,opener=null,detail=null,busy=false,destroyed=false;
     let actionVersion=0;
     let records=[],failures=[],unread=0,spaceCursor=null,loaded=false;
@@ -25,12 +31,12 @@ export function createAccountNotifications({getUser,getLocale=()=>document.docum
     const normalize=(kind,item)=>kind==='personal'?{kind,id:item.id,invitation:item,createdAt:item.createdAt,readAt:item.readAt!==undefined?item.readAt:(item.status==='pending'?null:item.updatedAt||item.createdAt)}:{...item,kind,id:item.invitation.id};
     async function refresh(){sync();if(!account)return;if(request)return request;
         const version=epoch,uid=account.uid;
-        const task=Promise.allSettled([personal({kind:'inbox'}),spaces({kind:'inbox'})]).then(results=>{
+        const task=Promise.allSettled(sources.map(kind=>clients[kind]({kind:'inbox'}))).then(results=>{
             if(!current(version,uid))return;const next=[];failures=[];unread=0;spaceCursor=null;
-            results.forEach((result,index)=>{const kind=index?'space':'personal';if(result.status==='fulfilled'){
+            results.forEach((result,index)=>{const kind=sources[index];if(result.status==='fulfilled'){
                 const items=result.value.items.map(item=>normalize(kind,item));next.push(...items);
                 unread+=result.value.unreadCount??items.filter(i=>i.readAt===null).length;
-                if(index)spaceCursor=result.value.nextCursor;
+                if(kind==='space')spaceCursor=result.value.nextCursor;
             }else if(!disabledSources.has(result.reason?.code||result.reason?.message))failures.push(kind);});
             records=next.sort((a,b)=>b.createdAt-a.createdAt);loaded=true;paintBadge();if(dialog&&!detail)renderList();
         }).finally(()=>{if(request===task)request=null;});request=task;return task;

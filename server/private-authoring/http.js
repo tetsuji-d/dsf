@@ -1,4 +1,5 @@
 import { isPrivateAuthoringId } from '../../js/private-authoring-ids.js';
+import { requiresPublishingSpace } from '../studio-rollout.js';
 import { createProjectActions } from './actions.js';
 import { createReleaseVerifier } from './release-verifier.js';
 import { createPrivateAuthoringSnapshot, PRIVATE_AUTHORING_MAX_BYTES, PrivateAuthoringError } from '../../js/private-authoring-storage.js';
@@ -162,7 +163,7 @@ export async function handlePrivateAuthoring(context) {
             const service = createAuthoringService({ db, bucket, assertLiveIdentity: google.assertLiveIdentity,
                 validateSnapshot:(tx,actor,project,write)=>ownerAssets(project.projectId).validateReferences(tx,actor,project,write) });
             const actions = createProjectActions({ db, bucket, service, assertLiveIdentity: google.assertLiveIdentity,
-                requirePublishingSpace: env.PUBLISHING_SPACES_ENABLED === 'true',
+                requirePublishingSpace: requiresPublishingSpace(env),
                 verifyRelease: createReleaseVerifier(env.R2_BUCKET, env.R2_PUBLIC_URL), publicBaseUrl: env.R2_PUBLIC_URL });
             handler = createAuthoringApi({ assets: ownerAssets, verifyToken: createIdTokenVerifier({ projectId: env.FIREBASE_PROJECT_ID }), service, actions, creation: createProjectCreation({ db, bucket, assertLiveIdentity: google.assertLiveIdentity }) });
             runtimes.set(env, handler);

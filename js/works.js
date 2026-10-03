@@ -1,3 +1,4 @@
+import {studioRollout} from './studio-rollout.js';
 import {confirmProjectTrash} from './project-trash-ui.js';
 import {projectTrashError} from './project-trash-client.js';
 import { ensurePublishingSpace } from './publishing-space-publish.js';
@@ -272,6 +273,7 @@ export async function openWorksRoom(roomMode = false, options = {}) {
                 const proj = projects.find(x => x.id === pid);
                 const row = btn.closest('.works-row');
                 if (state.uid !== ownerUid) return;
+                if (!studioRollout.trash) return;
                 if (!await confirmProjectTrash(_getWorksDisplayTitle(proj), getUILang()==='en')) return;
                 if (!_beginWorksProjectMutation(listEl, ownerUid, pid)) return;
                 try {
@@ -630,7 +632,7 @@ function _renderRow(p, account = {}) {
                 <button class="works-btn-press" ${p.projectTrash?'disabled':''}
                     onclick="window.loadAndRepress('${_esc(p.id)}')"
                     title="${_esc(t('works_republish_title'))}"><span class="material-icons" aria-hidden="true">autorenew</span><span>${_esc(t('works_republish'))}</span></button>
-                <button class="works-btn-delete" ${p.projectTrash?'disabled':''}
+                <button class="works-btn-delete" ${!studioRollout.trash?'hidden':''} ${p.projectTrash?'disabled':''}
                     data-delete-pid="${_esc(p.id)}"
                     title="${_esc(t('works_delete_title'))}"><span class="material-icons" aria-hidden="true">delete</span><span>${_esc(t('works_delete'))}</span></button>
             </div>

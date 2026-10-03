@@ -1,6 +1,8 @@
 /* Management shell only: editing and publication rooms keep their existing layout. */
 body[data-room="home"] #home-room { display:grid; grid-template-columns:216px minmax(0,1fr); }
 #home-room [data-home-views][hidden] { display:none!important; }
+#home-room [data-home-nav][hidden] { display:none!important; }
+.works-btn-delete[hidden] { display:none!important; }
 .home-workspace-main { display:flex; flex-direction:column; min-width:0; min-height:0; }
 .home-management-sidebar { padding:24px 12px; border-right:1px solid var(--studio-border,#dce3ed); background:var(--studio-surface,#fff); min-height:0; overflow:auto; }
 .home-space-identity { display:flex; gap:12px; align-items:center; padding:0 8px 28px; min-width:0; }
