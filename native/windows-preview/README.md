@@ -2,8 +2,9 @@
 
 ## 現在の状態
 
-2026-10-03。2段階の第1段階として、既存DSFの画像表紙を読み取るWindows x64用
-`IThumbnailProvider`の試作を追加した。**Explorerへの登録・一般配布はまだ行わない。**
+2026-10-03。2段階の第1段階として、DSFの画像表紙とDSPの検証済み表紙PNGを読み取る
+Windows x64用`IThumbnailProvider`を実装。**専用拡張子でのExplorer実表示と導入・解除を確認済み。**
+実際の`.dsp`／`.dsf`への常設登録は未実施。署名付きの一般配布版ではない。
 
 - DSF v1: 指定されたC1（なければ最初のページ）の原文言語画像。
 - DSF v2: 既定言語の最初のページが画像の場合のみ。manifest、meta、content、言語manifestと
@@ -11,9 +12,9 @@
 - 後続の画像を探して、本文の挿絵を表紙として代用しない。
 - DSP: `preview/cover.png`と`preview/cover.json`があり、原稿・PNGのhash、言語・寸法が一致した場合だけ表示する。
   元の背景画像だけを完成表紙と誤認させない。追加前のDSP／DSFの固定テキスト表紙は通常アイコン。
-- WIC経由でPNG／JPEG／WebPを縮小する。WebPはOSの対応decoderに依存する。
-  開発端末ではWebPも成功したが、新規端末でのcodec依存の解決・確認は配布前の必須項目。
-- Windows 10/11 x64を想定。ARM64、Mac、iOS、Android用の拡張ではない。
+- PNG／JPEGはWIC、WebPは同梱libwebpで縮小する。Storeや外部のWebP decoderには依存しない。
+- Windows 11 x64の開発端末で確認。Windows 10／新規PCは未検証。
+  ARM64、Mac、iOS、Android用の拡張ではない。
 
 ## ビルド
 
@@ -27,7 +28,7 @@ SHA-256: `3a0ed1e8799a2f8ce2a6e6290a9ff22e6906f8227865911fb7ddedc3cc14cb0c`
 node scripts/verify-windows-thumbnail.cjs
 ```
 
-miniz 3.1.2／nlohmann JSON 3.12.0は公式リリースを固定し、`dependencies.json`のSHA-256と
+miniz 3.1.2／nlohmann JSON 3.12.0／libwebp 1.6.0は公式リリースを固定し、`dependencies.json`のSHA-256と
 毎回照合する。ソースの取得は`-FetchDependencies`指定時のみ。成果物・依存ソース・ライセンスは
 既存の未追跡`outputs/windows-preview/`へ置く。ビルドや検証はWindowsへの登録を行わない。
 
@@ -43,41 +44,57 @@ miniz 3.1.2／nlohmann JSON 3.12.0は公式リリースを固定し、`dependenc
 
 ## 検証済み／未確認
 
-27件のnative executable検証: v1／v2のPNG・WebP、C1指定、DLLのCOM生成、
+30件のnative executable検証: v1／v2のPNG・WebP、C1指定、DLLのCOM生成、
 読み取り前後の原本hash一致、不正path、大小文字衝突、外部参照、重複JSON key、深いJSON、
 過大entry、欠落、言語違い、DSPの誤表示防止、fixedTextの誤表示防止、改ざん、切れたZIP。
 破損画像と未知のschemaも拒否する。
 DSP snapshotの直接／COM描画、原稿変更後の古い表紙、画像改ざん、言語不一致も確認した。
-COM経由と直接描画のPNGも一致。合成WebPの出力画像を目視確認した。
+COM経由と直接描画のPNGも一致。同梱WebP decoderでのCOM描画、アニメーションと切れたWebPの拒否も確認。
 
-これは開発用プロセスからの実COM呼び出しであり、Explorer／dllhostのプロセス分離や
-OS画面上の表示成功とは区別する。一般利用者のPCにはまだ導入しない。
+### Windows Shell連携の切り分けと解消
 
-追加で`verify-shell.ps1`を実行。検証専用のランダム拡張子とCLSIDをHKCUへ一時登録し、
-`CoCreateInstance`からの描画は成功したが、`IShellItemImageFactory`は`0x80040154`（クラス未登録）で
-失敗した。同じDLLの直接呼出とは結果が異なるため、登録位置・Shell別プロセス・実行環境の
-切り分けが必要。既存の`.dsp`／`.dsf`は変更せず、一時登録はfinallyで解除する。
-結果を`outputs/windows-preview/shell-verification.json`へ保存する。
-隔離を無効化して成功扱いにはしない。通常のExplorer確認は引き続き未完了。
+検証端末: Windows 11 x64、OS build 26300、ThumbnailExtractionHost 10.0.26100.9278。
+同じDLLを使った一時登録で次を確認した。この結果を他の全Windows環境へ一般化しない。
 
-追加切り分け（同日）:
-- 標準PNGは`IShellItemImageFactory`で成功する。DSFの拡張子からCLSIDの検索も成功する。
-- 関連付け変更通知、短い検証拡張子、明示した検証用ProgIDでも同じエラーが残る。
-- Windows標準Thumbnail Cacheの生成は成功、そこからの抽出は同じ`0x80040154`。
-- 現在の実行環境は64 bit・通常ユーザー・medium integrity・非restricted tokenで、HKCUは通常のuser Classes hive。
-  パッケージの仮想レジストリが原因とは確認されていない。
-- 一時登録中の実Explorerも、検証ファイルは白いアイコンのままで、隣のPNG／WebPは表示できた。
-- `-TestSurrogate`による独立したCOM別プロセス起動も未成功。登録は毎回解除済み。
+- HKCU登録: 登録COM生成、ShellのBindToHandler、低整合性の診断プロセスからの描画は成功。
+  `IShellItemImageFactory`／Thumbnail Cacheからの抽出は`0x80040154`で失敗。実Explorerでも白いアイコン。
+- HKLM登録: 通常ユーザーからのShell抽出と実Explorerの表紙表示が成功。
+  DSPとWebP表紙のDSFを表示し、原稿hashと不一致の古いDSP表紙は通常アイコンへ戻る。
+- Windows標準の隔離を維持。アクセス権／セキュリティポリシー／既定アプリは変更していない。
+- 管理者でも`Software\Classes`全体を書込用に開く操作は拒否された。
+  登録対象のサブキーだけを開く方式で解消。ACL変更は不要だった。
 
-`verify-shell.ps1 -InspectSeconds 120`は最大2分だけ検証登録を保持してExplorerで確認できる。
-既存の`.dsp`／`.dsf`、既定アプリ、Windowsの隔離設定、セキュリティ設定は変更しない。
-成功するまで一般配布や実ファイルへの登録へ進めない。
+`verify-shell.ps1 -Scope User|Machine -InspectSeconds 120`は専用拡張子を最大2分保持する。
+Machineは事前承認とWindows管理者確認が必要。`run-machine-diagnostic.ps1`は通常のUACを使い、
+実行ポリシーを変更しない。一時登録は所有印を確認してfinallyで解除する。
+`shell-verification-machine.json`で登録COM・Shell・解除の成功を記録した。
+
+### 導入パッケージ
+
+```powershell
+./native/windows-preview/package.ps1
+# 承認された一時検証のみ。Windowsの管理者確認は本人が操作する。
+./native/windows-preview/run-machine-diagnostic.ps1 -Lifecycle
+```
+
+出力先: `outputs/windows-preview/DSF-Windows-Preview-<DLL hash先頭12文字>.zip`。
+解凍後の`setup.ps1`はStatus／Install／Uninstallを持つ。使用方法は同梱README.txtを参照。
+
+- Program Filesへhash別にDLLとライセンスを置き、HKLMのthumbnail handlerだけ登録する。
+- 既存の別handlerは上書きせず停止。既定アプリ・種類別アイコン・原稿は変更しない。
+- package内のファイルhashを照合し、所有する登録・既知のファイルだけを解除する。
+- 同じ版の再実行は検証済み。異なる版への更新はhash別配置で実装したが、実機更新試験は未実施。
+- 検証用Install→再Install→Shell描画→Uninstallを実行。元原稿・実`.dsp`／`.dsf`の関連付け不変、
+  一時キー・Program Files内の検証フォルダーの消去を確認した。
+  記録は`outputs/windows-preview/install-verification.json`。
+- 同梱WebP版もExplorerで実表示を確認。新規PC、長期利用、署名付き一般配布は未検証。
+- 実拡張子への常設登録は一時検証の承認に含めず、完成したパッケージを示して別途確認する。
 
 ## 配布前の残作業
 
 1. DSPの任意表紙PNG同梱は承認・実装済み。Flow表紙など現時点で省略している構成への対応を検討する。
-2. Windows連携ソフトの登録・解除・更新を実装する。既定の「開く」アプリや既存の種類別アイコンは上書きしない。
-3. codec依存、署名・配布方法、隔離プロセス、Explorerの実表示、アンインストール復元を確認する。
+2. 実拡張子への常設導入、異なる版への更新、新規Windows端末での再現性を確認する。
+3. 署名・一般配布方法を整える。現在は開発用の未署名ZIP。
 4. 第2段階の本文プレビューへ進む。固定テキスト・言語・ページ順を既存Viewerと照合し、
    画像だけを抜き出して本文が欠けたプレビューを完成扱いしない。
 

@@ -66,6 +66,10 @@ function dsp() {
 (async()=>{
   await check('v1-png',base(),'ok');
   await check('v1-webp',base(webp,'assets/cover.webp'),'ok');
+  await check('v1-webp-com',base(webp,'assets/cover.webp'),'ok',true);
+  const animatedWebp=Buffer.from(webp); animatedWebp[20]|=2;
+  await check('animated-webp',base(animatedWebp,'assets/cover.webp'),'ANIMATED_IMAGE_UNSUPPORTED');
+  await check('truncated-webp',base(webp.subarray(0,webp.length-30),'assets/cover.webp'),'WEBP_INVALID');
   await check('v1-com',base(),'ok',true);
   await check('v2-png',v2(),'ok');
   await check('v2-webp',v2(webp),'ok');
@@ -103,6 +107,7 @@ function dsp() {
   await check('truncated',truncated,'ZIP_DIRECTORY_INVALID');
   const source=fs.readFileSync(path.join(run,'v1-png.png'));
   assert.equal(hash(source), hash(fs.readFileSync(path.join(run,'v1-com.png'))), 'Real COM provider should render identical pixels');
+  assert.equal(hash(fs.readFileSync(path.join(run,'v1-webp.png'))), hash(fs.readFileSync(path.join(run,'v1-webp-com.png'))), 'Built-in WebP direct and COM output must match');
   fs.writeFileSync(path.join(root,'verification.json'),JSON.stringify({run,tests:report},null,2));
   console.log(JSON.stringify({passed:report.length,run}));
 })().catch(error=>{console.error(error);process.exitCode=1;});
