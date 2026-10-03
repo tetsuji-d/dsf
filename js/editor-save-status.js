@@ -10,6 +10,13 @@ export function createEditorSaveStatus(readIdentity) {
         }
     }
     function dirty() { sync(); revision++; phase = 'pending'; errorCode = null; }
+    // Call synchronously after a validated cloud source replaces the session.
+    // Reading cloud data proves nothing about a browser backup or DSP file.
+    function cloudLoaded(sourceBackend) {
+        sync();
+        cloudRevision = revision;
+        phase = 'saved-cloud'; backend = sourceBackend; errorCode = null;
+    }
     function begin(cloudExpected) {
         sync(); phase = 'saving'; errorCode = null;
         if (!cloudExpected) backend = 'local';
@@ -33,5 +40,5 @@ export function createEditorSaveStatus(readIdentity) {
         sync();
         return { state: phase, backend, localCurrent: localRevision === revision, cloudCurrent: cloudRevision === revision, errorCode };
     }
-    return { dirty, begin, read };
+    return { dirty, cloudLoaded, begin, read };
 }
