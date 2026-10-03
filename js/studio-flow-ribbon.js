@@ -117,7 +117,11 @@ export function initFlowRibbon() {
     }
     const settings = root.querySelector('[onclick="openProjectSettings()"]');
     settings.id = 'ribbon-project-settings'; root.querySelector('.ribbon-top-left').prepend(labelButton(settings, 'description', 'btn_project_settings'));
-    root.querySelector('.ribbon-top-left').after(root.querySelector('.ribbon-work-title-group'));
+    // Keep the two manuscript names together, before the save controls.
+    const workTitle = root.querySelector('.ribbon-work-title-group');
+    const workBar = root.querySelector('#editor-work-bar');
+    if (workBar) workBar.before(workTitle);
+    else root.querySelector('.ribbon-top-left').after(workTitle);
     const full = button('fullscreen', 'ribbon_fullscreen', async () => {
         try { if (document.fullscreenElement) await document.exitFullscreen(); else await document.documentElement.requestFullscreen(); }
         catch { byId('ribbon-status').textContent = t('ribbon_fullscreen_unavailable'); }
