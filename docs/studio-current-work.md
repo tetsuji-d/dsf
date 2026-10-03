@@ -163,3 +163,5 @@ restored reload、Studio version、local PWA、safe resume integration、work st
 ビルド時にHTMLへアプリ版を埋め込み、workerのインストールでは版付きURLで取得したStudio/Viewer HTMLを照合する。異なる版のHTMLを新しいshellとして保存しない。起動後に別タブを強制再読込しない。原稿DB、画像DB、クラウド保存契約、DSP/DSF形式、権限ルールには変更しない。
 
 回帰検査は旧worker・旧controller・旧HTML・インストール失敗・不正な版情報・他アプリの登録を拒否し、版付きURLとno-store取得を確認。隔離ローカルサーバー`scripts/serve-studio-update-fixture.js`では旧版を開いたタブを残し、修正版の実worker・実資材を使って復旧ページから新Studioへ切り替えた。別の検証用IndexedDBの本文・画像Blob内容の保持と旧タブ非再読込を確認。利用者の原稿を使う検証とは区別する。
+
+修正コミット`ac63861`をstagingへ反映。版`v2026.10.03-124632`、固定URL`https://ca3044c7.dsf-studio.pages.dev`。常設stagingの旧版`115606`から復旧ページを操作し、`124632`へ切り替わって検証原稿`6B Flow staging確認`が復元されることを確認した。旧タブは`115606`のままで強制再読込なし。さらにローカル実Studioの通常更新ボタンでも`124251`から`124632`への更新を確認した。配信した版情報・worker・共通更新処理・復旧ページ・Studio JS/CSSの7資材はHTTP 200かつdistと一致。更新後のstagingブラウザーコンソールエラーなし。上記の旧版残留の未確認事項は、この検証環境では解消した。
