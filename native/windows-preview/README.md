@@ -98,7 +98,7 @@ Machineは事前承認とWindows管理者確認が必要。`run-machine-diagnost
   既定アプリ・種類別アイコンなど、thumbnail binding以外の拡張子設定が不変であることを照合した。
   記録は`outputs/windows-preview/permanent-install.json`と同ディレクトリの導入ログ。
 
-### 表紙上のDSF／DSP種類表示（実ユーザー側の登録待ち）
+### 表紙上のDSF／DSP種類表示（このPCで実表示確認済み）
 
 - 表紙PNGや原稿を加工せず、Windows標準の`TypeOverlay`で青のDSF／緑のDSPを表示する。
   DLLのICON resource 101／102へ既存の種類別アイコンと同じ文字・色を同梱する。
@@ -121,15 +121,18 @@ Machineは事前承認とWindows管理者確認が必要。`run-machine-diagnost
   一方、開発ツールから起動したPowerShellと診断EXEは`\REGISTRY\WC\Silo...user_classes`を読んでいた。
   管理者起動でもこのユーザー登録の隔離は残る。隔離領域でのAPI成功を実Windowsの反映成功としない。
   ExplorerのHKLM component参照は新DLL `4d023f2034bb...`に一致しており、部品の再導入は不要。
-- **ラベルは実ユーザー側で未登録。表示成功とは扱わない。**
-  解凍したパッケージの`APPLY-LABELS.cmd`を本人がExplorerから実行し、そのユーザーの登録を行う。
+- 2026-10-03 15:36、解凍したパッケージの`APPLY-LABELS.cmd`を本人がExplorerから実行した。
+  実ユーザーのChrome PWA専用ProgID 2件へ登録され、現在値と登録記録の一致をログで確認した。
+  15:38、Explorerの通常ローカルフォルダーでChromeマークが青いDSF／緑のDSPへ置き換わったことを
+  実画面で確認した。表紙なしの旧DSPは従来の種類別アイコンを維持した。登録後の再起動は不要だった。
   この入口は管理者昇格・実行ポリシー変更・隔離回避を行わず、既存`user-badges.ps1`だけを呼ぶ。
   `label-registration.log`に登録結果と、その実行環境での現在値を記録する。登録後はExplorerで実表示を確認する。
   `Status`は保存記録だけでなく現在の登録値も返すが、別環境からの検証を代替しない。
   一時的に試した`SystemFileAssociations`、空のTypeOverlay、ApplicationIcon設定は元へ戻した。
   全体キャッシュ削除・原稿変更・既定アプリ変更・隔離回避は行っていない。
 - 記録: `outputs/windows-preview/badge-update.json`、`user-badge-verification.json`。
-  新しいZIPはラベル実表示の確認が終わるまで一般配布しない。
+  新しいZIPはこのPCでラベル実表示まで確認した開発検証版。新規PC・署名付き一般配布は未検証。
+  実ユーザーの結果はパッケージフォルダーの`label-registration.log`。個別ログはZIPに含めない。
   切り分け記録: `outputs/windows-preview/overlay-compare-filtered.csv`。
 
 ### 実拡張子・OneDrive内の確認
