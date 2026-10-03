@@ -1,0 +1,4 @@
+LIBRARY DsfCoverPreview
+EXPORTS
+    DllGetClassObject
+    DllCanUnloadNow

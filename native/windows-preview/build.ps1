@@ -58,9 +58,13 @@ $libs = @('-lole32','-luuid','-lgdi32','-lshlwapi','-lshell32','-lwindowscodecs'
 if ($LASTEXITCODE) { throw 'Thumbnail provider build failed' }
 & $Zig c++ @common -std=c++17 @base (Join-Path $src 'check.cpp') @objects @libs -municode -static -o (Join-Path $out 'dsf-thumbnail-check.exe')
 if ($LASTEXITCODE) { throw 'Thumbnail checker build failed' }
+& $Zig c++ @common -std=c++17 @base (Join-Path $src 'preview.cpp') (Join-Path $src 'preview.def') @objects @libs -lcomctl32 -lmsimg32 -shared -o (Join-Path $out 'DsfCoverPreview.dll')
+if ($LASTEXITCODE) { throw 'Cover preview provider build failed' }
+& $Zig c++ @common -std=c++17 (Join-Path $src 'preview-check.cpp') @libs -municode -static -o (Join-Path $out 'dsf-preview-check.exe')
+if ($LASTEXITCODE) { throw 'Cover preview checker build failed' }
 Copy-Item -LiteralPath (Join-Path $deps 'LICENSE') -Destination (Join-Path $out 'miniz-LICENSE.txt')
 Copy-Item -LiteralPath (Join-Path $deps 'json-LICENSE.MIT') -Destination (Join-Path $out 'json-LICENSE.txt')
 foreach ($name in @('COPYING','PATENTS','AUTHORS')) {
     Copy-Item -LiteralPath (Join-Path $webp $name) -Destination (Join-Path $out ('webp-'+$name+'.txt'))
 }
-Write-Output 'Built Windows x64 thumbnail prototype. Nothing was registered with Windows.'
+Write-Output 'Built Windows x64 thumbnail and cover-pane components. Nothing was registered with Windows.'

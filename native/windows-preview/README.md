@@ -150,12 +150,49 @@ Machineは事前承認とWindows管理者確認が必要。`run-machine-diagnost
 - 古いDSPの`DSP_SNAPSHOT_REQUIRED`は期待する未対応状態。表紙PNGが必要なら新しいStudioで保存する。
   原本を自動変換せず、Flow表紙等の未対応構成は保存し直しても表紙PNGを省略する。
 
+## 右側の表紙プレビュー欄（第2段階A）
+
+2026-10-03、`IPreviewHandler`を実装した別部品`DsfCoverPreview.dll`を追加した。
+既存の表紙reader・画像decoderを共用し、DSFの画像表紙とDSPの確認用PNGを表示する。
+DSF／DSPの見出しと「表紙のみ」の説明を付け、縦横比を維持する。原寸以上には拡大しない。
+古いDSP、未対応の固定テキスト表紙、整合性を確認できないファイルには日本語の案内を表示する。
+本文ページ送りはまだ含まない。
+
+- 読取専用streamを使い、decode後に解放する。選択変更・閉じる操作でwindowとbitmapを解放する。
+- thumbnailとは異なるCLSID・Program Files配下・導入記録を使う。
+  登録は`.dsf`／`.dsp`のpreview handlerのみ。既定アプリ、TypeOverlay、原稿は変更しない。
+- Windows標準のpreview hostへ登録する。隔離無効化、セキュリティ設定変更、外部通信は行わない。
+- 13件のnative検証で表示案内、再利用、サイズ変更、読取handle解放、原本hash、DLL解放を確認した。
+  記録: `outputs/windows-preview/cover-pane-verification.json`。
+- 専用拡張子・専用CLSIDでInstall→同じ版の再Install→OSのpreview host→Uninstallを検証した。
+  一時登録の解除と原本hash不変を確認。記録: `cover-pane-install-verification.json`。
+- 同日16:18、Windowsの管理者確認を経てこのPCへ導入した。
+  DLL SHA-256: `b0ac5982a97f2dd87be3f9486334208cb6204870ca41fab207c51685a1dc0a26`。
+- 実Explorerでローカル生成のDSF／DSPの表紙、旧DSPの表紙なし案内、異常ファイルの案内を確認した。
+  選択を切り替えた後も対応する内容を表示した。APIだけの確認と区別する。
+- ダウンロード済みの実原稿では、Windowsがインターネット由来の印（MOTW）を検出して
+  preview handlerの前で表示を止めた。サムネイルとは別のWindows制限として扱う。
+  原稿の印やセキュリティ設定は変更していない。
+  [Microsoftの説明](https://support.microsoft.com/en-us/servicing/os/windows/docs/2025/10/file-explorer-automatically-disables-the-preview-feature-for-files-downloaded-from-the-internet)
+  にある、信頼できる個別ファイルに対する本人の判断を同梱READMEで案内する。
+- 異なる版への更新・中断回復、新規PC、同期フォルダー、署名付き一般配布は未検証。
+
+```powershell
+./native/windows-preview/package-cover-preview.ps1
+node ./scripts/verify-windows-cover-preview.cjs
+```
+
+出力先: `outputs/windows-preview/DSF-Cover-Pane-<DLL hash先頭12文字>.zip`。
+解凍後の`setup-cover-preview.ps1`がStatus／Install／Uninstallを提供する。
+ライセンスを含む9ファイルだけをZIPへ入れ、個別の導入ログ・原稿を含めない。
+この変更はWindows部品のみで、Webアプリの再デプロイは不要。
+
 ## 配布前の残作業
 
 1. DSPの任意表紙PNG同梱は承認・実装済み。Flow表紙など現時点で省略している構成への対応を検討する。
 2. OneDrive内の表紙取得待ちを調査する。新規Windows端末での再現性も確認する。
 3. 署名・一般配布方法を整える。現在は開発用の未署名ZIP。
-4. 第2段階の本文プレビューへ進む。固定テキスト・言語・ページ順を既存Viewerと照合し、
+4. 第2段階Bの本文プレビューへ進む。固定テキスト・言語・ページ順を既存Viewerと照合し、
    画像だけを抜き出して本文が欠けたプレビューを完成扱いしない。
 
 Microsoftの根拠:
