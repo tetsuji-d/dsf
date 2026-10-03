@@ -60,8 +60,12 @@ OneDrive内では同一DSFのShell抽出が`WTS_E_EXTRACTIONPENDING`で止まる
 表紙の原本ではなくWindows標準のTypeOverlayを使い、DLLに文字ラベルのICONを同梱した。
 拡張子と、このユーザーのDSF専用関連付けに復元可能な登録を行う。既定アプリ・DefaultIcon・原稿は保持する。
 新DLLへの実機更新、30件のnative検証、種類表示の解除・再登録、Shell APIによる参照を確認。
-Explorerには旧Chromeマークが残り、再起動後の実表示確認はユーザー確認待ち。
-現時点では「ラベル表示完了」とせず、一般配布も行わない。
+承認されたExplorer再起動でも旧Chromeマークが残った。
+同時刻のProcess Monitor記録で、開発ツールのユーザー登録はWindowsのSilo領域に隔離され、
+Explorerが読む実ユーザーのTypeOverlayは未登録だったと判明した。管理者起動でも同じ隔離が残る。
+HKLMの部品はExplorerから新DLLを参照しており、部品の再導入は不要。
+本人がExplorerから起動する`APPLY-LABELS.cmd`を用意した。管理者昇格・ポリシー変更・隔離回避は行わない。
+実ユーザーでの登録とExplorer表示の確認が済むまで「ラベル表示完了」とせず、一般配布も行わない。
 
 ### 合格条件
 

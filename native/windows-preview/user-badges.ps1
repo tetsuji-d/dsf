@@ -31,7 +31,19 @@ try {
             $seen[$entry.programId]=$true
         }
     }
-    if ($Action -eq 'Status') { $record | ConvertTo-Json -Depth 5; return }
+    if ($Action -eq 'Status') {
+        # The recovery record alone does not prove that this Windows user sees the registration.
+        $current=@(foreach ($entry in $record.entries) {
+            $key=$user.OpenSubKey('Software\Classes\'+$entry.programId)
+            try {
+                $value=Read-Overlay $key
+                [pscustomobject]@{programId=$entry.programId;exists=($null -ne $key);typeOverlay=$value;matchesRecord=($value -ceq $entry.written)}
+            } finally { if($key){$key.Dispose()} }
+        })
+        $record | Add-Member -NotePropertyName currentRegistrations -NotePropertyValue $current -Force
+        $record | ConvertTo-Json -Depth 5
+        return
+    }
     if ($Action -eq 'Uninstall') {
         foreach ($entry in $record.entries) {
             $key=$user.OpenSubKey(('Software\Classes\'+$entry.programId),$true)

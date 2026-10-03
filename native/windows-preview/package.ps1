@@ -12,8 +12,13 @@ foreach ($name in @('DsfThumbnail.dll','miniz-LICENSE.txt','json-LICENSE.txt','w
 @{schemaVersion=1;files=$files} | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath (Join-Path $folder 'package.json') -Encoding UTF8
 Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'setup.ps1') -Destination $folder
 Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'user-badges.ps1') -Destination $folder
+Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'apply-user-badges.ps1') -Destination $folder
+Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'APPLY-LABELS.cmd') -Destination $folder
 Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'PACKAGE-README.txt') -Destination (Join-Path $folder 'README.txt')
 $zip=$folder+'.zip'
-Compress-Archive -LiteralPath (Get-ChildItem -LiteralPath $folder -File).FullName -DestinationPath $zip -Force
+# User-run registration can leave a diagnostic log here; never include it in a package.
+$packageNames=@($files | ForEach-Object { $_.name })+@('package.json','setup.ps1','user-badges.ps1','apply-user-badges.ps1','APPLY-LABELS.cmd','README.txt')
+$packagePaths=@($packageNames | ForEach-Object { Join-Path $folder $_ })
+Compress-Archive -LiteralPath $packagePaths -DestinationPath $zip -Force
 Write-Output $folder
 Write-Output $zip
