@@ -155,3 +155,11 @@ alias `https://staging.dsf-studio.pages.dev` のStudio/ViewerはHTTP 200、版�
 restored reload、Studio version、local PWA、safe resume integration、work statusの回帰検査とstagingビルドが成功。staging aliasのStudio/ViewerはHTTP 200、版情報、Studio JS/CSS、Service Workerの配信内容がdistと一致した。固定URLの実画面でも配信版を確認した。
 
 ただし旧版のService Workerが残る検証用ブラウザーでは、`studio-repair.html`の更新操作後も`v2026.10.03-115606`が表示され、最新の`121902`への移行完了は確認できなかった。復元原稿は保持されている。旧タブやユーザーのChromeの原稿は強制再読込していない。配信完了と既存インストールの更新完了は区別し、この経路は継続調査対象とする。サイトデータ削除を回避策として案内しない。
+
+### 旧版が残る更新経路の修正
+
+復旧ページは従来、配信版・active worker・このタブを制御するworker・起動HTMLの一致を確認せずStudioへ遷移していた。通常更新と復旧ページの処理を`studio-update-core.js`へ共通化し、配信版ごとのworker URLと`updateViaCache: none`で取得、切替前後の版照合を必須にした。旧版混在や確認失敗は成功扱いにせず復旧画面に留めて再試行を案内する。
+
+ビルド時にHTMLへアプリ版を埋め込み、workerのインストールでは版付きURLで取得したStudio/Viewer HTMLを照合する。異なる版のHTMLを新しいshellとして保存しない。起動後に別タブを強制再読込しない。原稿DB、画像DB、クラウド保存契約、DSP/DSF形式、権限ルールには変更しない。
+
+回帰検査は旧worker・旧controller・旧HTML・インストール失敗・不正な版情報・他アプリの登録を拒否し、版付きURLとno-store取得を確認。隔離ローカルサーバー`scripts/serve-studio-update-fixture.js`では旧版を開いたタブを残し、修正版の実worker・実資材を使って復旧ページから新Studioへ切り替えた。別の検証用IndexedDBの本文・画像Blob内容の保持と旧タブ非再読込を確認。利用者の原稿を使う検証とは区別する。

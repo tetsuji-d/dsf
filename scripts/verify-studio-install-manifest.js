@@ -7,6 +7,9 @@ for(const mode of ['production','staging']){
  plugin.configResolved({mode});
  plugin.generateBundle.call({emitFile:a=>assets.set(a.fileName,a.source)}, {}, {'studio.html':{source:'studio'},'viewer.html':{source:'viewer'}});
  const manifest=JSON.parse(assets.get('studio.webmanifest'));
+ const build=JSON.parse(assets.get('studio-version.json'));
+ assert.ok(plugin.transformIndexHtml('<html><head></head></html>').includes('name="dsf-studio-build" content="'+build.id+'"'));
+ assert.ok(assets.get('studio-update-core.js').includes('prepareStudioUpdate'),'recovery page shares the updater');
  assert.equal(manifest.id,original.id,'updates retain installed identity');
  assert.equal(manifest.name,mode==='production'?'DSF Studio':'DSF Studio (staging)');
  assert.deepEqual(manifest.file_handlers,original.file_handlers);

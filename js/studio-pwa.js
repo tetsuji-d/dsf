@@ -37,6 +37,6 @@ export function installStudioPwa({getLocale,updateBlocked=()=>false,work,reload}
  window.addEventListener('online',()=>{render();void inspect();});window.addEventListener('offline',()=>{render();void inspect();});document.addEventListener('studio-ui-language-change',render);
  appOption.append(appTitle,appHelp,install,guide,fileGuide);offlineOption.append(offlineTitle,offlineHelp,prepare,status,help);options.append(appOption,offlineOption);
  panel.append(title,intro,options);(host.querySelector('.home-room-body')||host).append(panel);render();
- if('serviceWorker' in navigator)void navigator.serviceWorker.getRegistration('/').then(r=>{if(r?.active?.scriptURL.endsWith('/studio-sw.js')){registration=r;return inspect();}}).catch(()=>{});
+ if('serviceWorker' in navigator)void navigator.serviceWorker.getRegistration('/').then(r=>{if(r?.active&&new URL(r.active.scriptURL).pathname==='/studio-sw.js'){registration=r;return inspect();}}).catch(()=>{});
  else {prepare.disabled=true;status.textContent=en()?'Offline installation is unavailable in this browser':'このブラウザーではオフライン準備を利用できません';}
 }

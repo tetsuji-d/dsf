@@ -17,8 +17,10 @@ const known=new Set([...SHELL,...SDK,...FONT_CSS,...FONTS,SAMPLE].map(absolute))
 // but return a fresh response without the network redirect's URL metadata.
 function navigationResponse(response){return new Response(response.body,{status:response.status,statusText:response.statusText,headers:response.headers});}
 async function store(cache,url){
- const response=await fetch(url,{credentials:'omit',cache:'reload',signal:AbortSignal.timeout(45000)});
+ const entry=['/studio.html','/viewer.html'].includes(url);
+ const response=await fetch(entry?url+'?studioBuild='+encodeURIComponent(BUILD.id):url,{credentials:'omit',cache:'reload',signal:AbortSignal.timeout(45000)});
  if(!response.ok||response.type==='opaque')throw Error('OFFLINE_RESOURCE_UNAVAILABLE');
+ if(entry&&!(await response.clone().text()).includes('name="dsf-studio-build" content="'+BUILD.id+'"'))throw Error('SHELL_VERSION_MISMATCH');
  await cache.put(url,response.clone());return response;
 }
 async function eachLimit(items,fn){let i=0;const results=await Promise.allSettled(Array.from({length:6},async()=>{while(i<items.length)await fn(items[i++]);}));const failed=results.find(r=>r.status==='rejected');if(failed)throw failed.reason;}

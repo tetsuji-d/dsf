@@ -8,7 +8,14 @@ export function studioPwaPlugin(){
  return {name:'studio-offline-build',enforce:'post',
  configResolved:config=>{mode=config.mode;},
  config:()=>({define:{__STUDIO_BUILD__:JSON.stringify(build)}}),
+ configureServer:server=>server.middlewares.use((req,res,next)=>{
+  if(req.url?.split('?')[0]!=='/studio-update-core.js')return next();
+  res.setHeader('Content-Type','application/javascript');res.setHeader('Cache-Control','no-store');
+  res.end(readFileSync(new URL('../js/studio-update-core.js',import.meta.url),'utf8'));
+ }),
+ transformIndexHtml:html=>html.replace('<head>','<head><meta name="dsf-studio-build" content="'+build.id+'">'),
  generateBundle(options,bundle){
+ this.emitFile({type:'asset',fileName:'studio-update-core.js',source:readFileSync(new URL('../js/studio-update-core.js',import.meta.url),'utf8')});
  const manifest=JSON.parse(readFileSync(new URL('../public/studio.webmanifest',import.meta.url),'utf8'));
  // Keep the installed identity stable, but distinguish preview from production.
  if(mode!=='production')manifest.name=manifest.short_name='DSF Studio ('+mode+')';

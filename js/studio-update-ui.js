@@ -1,28 +1,7 @@
 import {createStudioVersionCheck,fetchStudioVersion} from './studio-version-check.js';
 import {studioWorkText} from './studio-work-status.js';
-export function waitForStudioWorker(worker,states,timeout=180000) {
- return new Promise((resolve,reject)=>{
-  const finish=error=>{clearTimeout(timer);worker.removeEventListener('statechange',changed);error?reject(error):resolve();};
-  const changed=()=>{if(states.includes(worker.state))finish();else if(worker.state==='redundant')finish(Error('INSTALL_FAILED'));};
-  const timer=setTimeout(()=>finish(Error('UPDATE_TIMEOUT')),timeout);worker.addEventListener('statechange',changed);changed();
- });
-}
-function workerBuild(worker) {
- return new Promise((resolve,reject)=>{const channel=new MessageChannel();const timer=setTimeout(()=>{channel.port1.close();reject(Error('VERSION_UNCONFIRMED'));},5000);
- channel.port1.onmessage=e=>{clearTimeout(timer);channel.port1.close();resolve(e.data);};worker.postMessage({type:'STUDIO_BUILD'},[channel.port2]);});
-}
-// Called only after the reader presses Update. Other tabs never reload automatically.
-export async function prepareStudioUpdate(target) {
- if(!('serviceWorker' in navigator))return;
- const registration=await navigator.serviceWorker.getRegistration('/');if(!registration)return;
- const existing=registration.active||registration.waiting||registration.installing;
- if(!existing||new URL(existing.scriptURL).origin!==location.origin||new URL(existing.scriptURL).pathname!=='/studio-sw.js')throw Error('UNEXPECTED_WORKER');
- await registration.update();
- if(registration.installing)await waitForStudioWorker(registration.installing,['installed','activated']);
- const worker=registration.waiting||registration.active;if(!worker)throw Error('UPDATE_UNAVAILABLE');
- const build=await workerBuild(worker);if(build.id!==target.id)throw Error('VERSION_CHANGED');
- if(registration.waiting===worker){const ready=waitForStudioWorker(worker,['activated']);worker.postMessage({type:'STUDIO_ACTIVATE'});await ready;}
-}
+import {prepareStudioUpdate} from './studio-update-core.js';
+export {prepareStudioUpdate,waitForStudioWorker} from './studio-update-core.js';
 export function installStudioVersionUI({current,getLocale,homeHost,helpHost,blocked=()=>false,work,fetchVersion=fetchStudioVersion,applyUpdate=prepareStudioUpdate,reload=()=>location.reload(),enabled=true}) {
  const en=()=>getLocale()==='en',views=[];let dialog=null,applying=false;
  const text=(ja,english)=>en()?english:ja;
