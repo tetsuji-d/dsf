@@ -229,7 +229,8 @@ export function getLoadedPrivateAuthoringHead(projectId = state.projectId) {
 export async function restorePreviousCloudAuthoring(refresh) {
     assertPersonalStudioOperation();
     const pid = state.projectId, epoch = getProjectSessionEpoch();
-    await flushSave();
+    // Do not append an identical revision before choosing the previous source.
+    await flushPendingSave();
     if (epoch !== getProjectSessionEpoch() || state.projectId !== pid) throw new AuthoringClientError('AUTHORING_SESSION_CHANGED');
     const context = await preparePrivateProjectAction(pid, { expectedHead: getLoadedPrivateAuthoringHead(pid) });
     if (!context?.previousRevisionId) throw new AuthoringClientError('RESTORE_REVISION_UNAVAILABLE');
@@ -2003,6 +2004,7 @@ export async function loadProject(pid, refresh) {
         epoch = getProjectSessionEpoch();
         privateAuthoringSession = privateClient ? { client: privateClient, projectId: pid, epoch, images, assets: images.refs } : null;
         committed = true;
+        editorSaveEvidence.cloudLoaded(privateClient ? 'r2-private' : 'firestore');
         cloudResumeGuard.loaded(resumeIdentity());
         void captureCloudResumeProof(resumeIdentity(),structuredClone(buildAuthoringProjectInput()),{...window.localImageMap});
         dispatch({ type: actionTypes.SET_ACTIVE_LANGUAGE, payload: defaultLang });
