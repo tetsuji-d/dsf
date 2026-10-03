@@ -1,6 +1,6 @@
 import {installStudioVersionUI} from './studio-update-ui.js';
 import {openStudioInstallGuide} from './studio-install-guide.js';
-export function installStudioPwa({getLocale,updateBlocked=()=>false,work}) {
+export function installStudioPwa({getLocale,updateBlocked=()=>false,work,reload}) {
  const en=()=>getLocale()==='en', host=document.querySelector('#home-room .home-workspace-main');if(!host)return;
  const panel=document.createElement('section');panel.className='studio-offline-panel';
  const title=document.createElement('h3'),intro=document.createElement('p'),options=document.createElement('div');options.className='studio-install-options';
@@ -22,7 +22,7 @@ export function installStudioPwa({getLocale,updateBlocked=()=>false,work}) {
  help.textContent=en()?'Offline editing works with manuscripts created here or opened from a DSP file. Cloud saving, publishing and shared editing need internet. Adding the app does not download your cloud manuscripts; save them as DSP files to use offline.':'ネットなしで編集できるのは、この端末で作成した原稿や、DSPファイルから開いた原稿です。クラウド保存・公開・共同編集には通信が必要です。アプリの追加だけではクラウド原稿は端末に保存されません。持ち出す原稿はDSPファイルで保存してください。';
  status.textContent=busy?(en()?'Downloading the app and fonts…':'アプリとフォントを保存しています…'):ready?(en()?'Ready. You can edit local manuscripts without internet.':'準備できました。ネットなしでも端末の原稿を編集できます。'):!('serviceWorker' in navigator)?(en()?'Offline editing is unavailable in this browser.':'このブラウザーではネットなし編集の準備を利用できません。'):navigator.onLine?(en()?'Set this up before going offline.':'ネットなしで使う前に、一度準備してください。'):(en()?'Connect to the internet to prepare offline editing.':'準備するにはインターネットに接続してください。');};
  const heading=host.querySelector('.home-room-header h2'),versionHost=document.createElement('div');versionHost.className='home-room-heading';heading.before(versionHost);versionHost.append(heading);
- installStudioVersionUI({current:__STUDIO_BUILD__,getLocale,homeHost:versionHost,helpHost:document.getElementById('studio-help-panel'),blocked:updateBlocked,work,enabled:import.meta.env.PROD});
+ installStudioVersionUI({current:__STUDIO_BUILD__,getLocale,homeHost:versionHost,helpHost:document.getElementById('studio-help-panel'),blocked:updateBlocked,work,reload,enabled:import.meta.env.PROD});
  const inspect=async()=>{const worker=registration?.active;if(!worker)return;const channel=new MessageChannel();const result=await new Promise(resolve=>{const timer=setTimeout(()=>resolve(null),15000);channel.port1.onmessage=e=>{clearTimeout(timer);resolve(e.data);};worker.postMessage({type:'STUDIO_STATUS'},[channel.port2]);});channel.port1.close();ready=!!result?.ready;render();};
  prepare.onclick=async()=>{if(busy)return;busy=true;render();try{
  registration=await navigator.serviceWorker.register('/studio-sw.js',{scope:'/',updateViaCache:'none'});

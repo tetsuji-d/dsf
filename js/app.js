@@ -56,7 +56,7 @@ import { createFlowManuscriptCompare } from './flow-manuscript-compare.js';
 import { renderFlowTranslationAutomationPanel } from './flow-authoring-view.js';
 import { getFlowEditorProjectionScope } from './flow-editor-session.js';
 import { createFlowTranslationCompare } from './flow-translation-compare.js';
-import { syncImageRibbonContext, initFlowRibbon, syncFlowRibbonContext, refreshFlowRibbon, syncRibbonDrawerButtons } from './studio-flow-ribbon.js';
+import { syncImageRibbonContext, syncObjectRibbonContext, initFlowRibbon, syncFlowRibbonContext, refreshFlowRibbon, syncRibbonDrawerButtons } from './studio-flow-ribbon.js';
 import { showFlowIndentRuler, hideFlowIndentRuler } from './flow-indent-ruler.js';
 import { canRemoveEmptyFlowTextBlock } from './flow-paragraph-merge.js';
 import { createProjectAssetPanel } from './project-asset-panel.js';
@@ -98,6 +98,7 @@ import { moveAuthoringUnitInSpine, moveFixedPageRangeInSpine } from './fixed-pag
 import {localDraftStatus,isLocalDraft,noteLocalDraftEdit,setLocalCloudTransitionPending} from './local-draft-runtime.js';
 import {chooseDspFilename,confirmDspDownload,showDspSaveError} from './dsp-save-dialog.js';
 import {installStudioPwa} from './studio-pwa.js';
+import {createRestoredReloadGuard} from './studio-restored-reload.js';
 import {describeStudioWork,installStudioWorkStatus} from './studio-work-status.js';
 import {installEditorWorkBar} from './editor-work-bar.js';
 import '../css/editor-work-bar.css';
@@ -235,6 +236,7 @@ const flowObjectToolbar=createFlowObjectToolbarAdapter({
 });
 const objectToolbar = createStudioObjectToolbar({
     flow:flowObjectToolbar,
+    onSelectionChange:syncObjectRibbonContext,
     state, refresh, prepareImage: prepareAuthoringImage, canEdit:canEditActiveFixedPage,
     activateAt: target => {
         const surface=target.closest('[data-testid="editor-fixed-page"],[data-testid="flow-editor-generated-page"]'),page=surface?._flowPageEntry;
@@ -11570,6 +11572,7 @@ async function bootstrapApp() {
                 dispatch({ type: actionTypes.LOAD_PROJECT, payload: restoredState });
                 if(restoredState.projectId){markRestoredCloudCopy();setLocalCloudTransitionPending(true);}
                 localDraftStatus.restore();
+                restoredReload.remember(backup);
                 console.log("[DSF] Auto-save restored successfully.");
                 }
                 } else { Object.keys(restoredMap).forEach(url=>URL.revokeObjectURL(url)); }
@@ -12214,8 +12217,18 @@ async function closeCurrentStudioWork() {
     window.dispatchEvent(new Event('home-start-refresh'));
 }
 const currentWorkActions={read:readCurrentStudioWork,onSave:saveCurrentStudioWork,
-    onExport:()=>saveDspFile({saveAs:true}),onResume:()=>window.switchRoom('editor')};
-installStudioPwa({getLocale:getUILang,updateBlocked:()=>readCurrentStudioWork().blocked,work:currentWorkActions});
+    onExport:()=>saveDspFile({saveAs:true}),onResume:()=>window.switchRoom('editor'),
+    onPrepareReload:async()=>{if(restoredReload.eligible())await restoredReload.verify();}};
+const restoredReload=createRestoredReloadGuard({read:()=>({...readCurrentStudioWork(),checkpoint:localDraftStatus.checkpoint()}),
+    readBackup:()=>idbGet('dsf_autosave'),readAsset:idbGet});
+installStudioPwa({getLocale:getUILang,updateBlocked:()=>readCurrentStudioWork().blocked&&!restoredReload.eligible(),work:currentWorkActions,
+    reload:()=>{
+        if(readCurrentStudioWork().blocked){
+            if(!restoredReload.permit()||!localDraftStatus.permitReload(localDraftStatus.checkpoint()))throw Error('RECOVERY_UNCONFIRMED');
+            setTimeout(()=>localDraftStatus.revokeReload(),1000);
+        }
+        location.reload();
+    }});
 installStudioWorkStatus({host:document.getElementById('home-current-work'),getLocale:getUILang,
     ...currentWorkActions,onClose:closeCurrentStudioWork});
 subscribeProjectSession(()=>queueMicrotask(()=>window.dispatchEvent(new Event('studio-work-status'))));

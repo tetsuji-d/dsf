@@ -48,7 +48,8 @@ export function installStudioVersionUI({current,getLocale,homeHost,helpHost,bloc
   const actions=document.createElement('div');actions.className='authoring-destination-actions';const later=document.createElement('button');later.textContent=text('後で','Later');const yes=document.createElement('button');yes.textContent=text('更新して再読み込み','Update and reload');
   const events=['local-draft-status','studio-work-status','online','offline'];
   const sync=()=>{const unsafe=blocked(),value=work?.read();message.textContent=unsafe?text('開いている原稿の保存を確認してから更新します。保存中は完了をお待ちください。','Confirm saving the open manuscript before updating. Wait for any current save to finish.'):text('アプリを更新して、この画面を再読み込みします。端末内の原稿・履歴は削除しません。ほかのタブは再読み込みしません。','Update the app and reload this tab. Local manuscripts and history are kept. Other tabs will not reload.');yes.disabled=applying||!!unsafe||!navigator.onLine;
-   manuscript.hidden=!value?.open;manuscript.textContent=value?.open?(value.title||text('無題の原稿','Untitled manuscript'))+' — '+studioWorkText(value,en()):'';
+   if(!unsafe&&value?.status==='restored')message.textContent=text('復元後の編集はありません。端末内の原稿と画像を確認できれば、追加保存なしで更新し、同じ原稿を復元できます。','No edits since recovery. If the local manuscript and images can be verified, we can update and restore the same manuscript without another save.');
+   manuscript.hidden=!value?.open;manuscript.textContent=value?.open?(value.title||text('無題の原稿','Untitled manuscript'))+' — '+(!unsafe&&value.status==='restored'?text('復元後の編集なし','No edits since recovery'):studioWorkText(value,en())):'';
    save.hidden=!value?.open||!unsafe;save.disabled=applying||!value?.canSave||!navigator.onLine;
    save.textContent=value?.local?text('DSPに保存して更新','Save DSP and update'):text('クラウドに保存して更新','Save to cloud and update');
    edit.hidden=!value?.open;edit.textContent=text('編集に戻る','Return to editor');edit.disabled=applying;
@@ -62,13 +63,16 @@ export function installStudioVersionUI({current,getLocale,homeHost,helpHost,bloc
    applying=true;later.disabled=true;sync();render();feedback.textContent=saveFirst?text('原稿を保存しています…','Saving manuscript…'):text('更新を準備しています…','Preparing the update…');
    try{
     if(saveFirst){await work.onSave();if(blocked()||work.read().identity!==identity)throw Error('SAVE_UNCONFIRMED');}
+    await work?.onPrepareReload?.();
     const result=await checker.check({force:true});if(result.phase!=='checked'||!result.available)throw Error('VERSION_UNCONFIRMED');
     if(blocked()||work&&work.read().identity!==identity)throw Error('UNSAVED_CHANGES');
     feedback.textContent=text('更新を準備しています…','Preparing the update…');await applyUpdate(result.latest);
+    await work?.onPrepareReload?.();
     // Edits made while assets were downloading must not be discarded.
     if(blocked()||work&&work.read().identity!==identity)throw Error('UNSAVED_CHANGES');reload();applying=false;later.disabled=false;close();render();
    }catch(error){applying=false;later.disabled=false;
-    feedback.textContent=error.message==='SAVE_UNCONFIRMED'?text('保存がキャンセルされたか、完了を確認できていません。DSPの保存確認を完了するか、もう一度保存してください。','Saving was cancelled or has not been confirmed. Confirm the DSP save or save again.'):
+    feedback.textContent=error.message==='RECOVERY_UNCONFIRMED'?text('端末内の復元用原稿または画像を確認できないため、更新を止めました。原稿はこの画面に保持しています。DSPに保存してから再試行してください。','The local recovery manuscript or images could not be verified. Updating was stopped and the manuscript is kept in this tab. Save a DSP file before retrying.'):
+     error.message==='SAVE_UNCONFIRMED'?text('保存がキャンセルされたか、完了を確認できていません。DSPの保存確認を完了するか、もう一度保存してください。','Saving was cancelled or has not been confirmed. Confirm the DSP save or save again.'):
      error.message==='UNSAVED_CHANGES'?text('更新の準備中に原稿または編集内容が変わったため、再読み込みを止めました。現在の原稿を確認してください。','The manuscript or its content changed during update preparation. Reload was stopped. Check the current manuscript.'):
      work?.read().status==='error'?text('原稿を保存できなかったため、更新を止めました。保存を再試行するか、編集に戻って確認してください。','The manuscript could not be saved, so updating was stopped. Retry saving or return to the editor.'):
      text('更新を完了できませんでした。原稿は保持しています。通信状態を確認して再試行してください。','Could not complete the update. Your manuscript is kept. Check the connection and retry.');sync();render();}};

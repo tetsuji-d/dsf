@@ -1,6 +1,6 @@
 import { helpTooltip } from './studio-help-registry.js';
 /** Desktop presentation adapter. Authoring, history, assets and persistence stay with their existing controllers. */
-import { t } from './i18n-studio.js';
+import { t, getUILang } from './i18n-studio.js';
 import '../css/studio-flow-ribbon.css';
 
 let initialized = false;
@@ -10,6 +10,7 @@ const byId = id => document.getElementById(id);
 const desktop = () => window.matchMedia('(min-width: 1024px)').matches;
 const mirrors = [];
 let imageContext = { active: false, adjusting: false, bubbleSelected: false, position: null };
+let objectContext = null;
 let noteHome, noteAnchor;
 function icon(name) {
     const span = document.createElement('span');
@@ -135,6 +136,9 @@ export function initFlowRibbon() {
     });
     collapse.id = 'ribbon-collapse'; collapse.setAttribute('aria-expanded', 'true');
     root.querySelector('.ribbon-panel-row').id = 'ribbon-commands';
+    const selectionNote=document.createElement('div');selectionNote.id='ribbon-selection-context';selectionNote.setAttribute('role','status');
+    selectionNote.innerHTML='<strong></strong><span></span>';
+    root.querySelector('.ribbon-panel-row').before(selectionNote);
     collapse.setAttribute('aria-controls', 'ribbon-commands'); quick.append(collapse);
 
     document.addEventListener('fullscreenchange', () => {
@@ -191,7 +195,7 @@ export function initFlowRibbon() {
     const imageActions = group(imageTools, 'ribbon_image_tools');
     const change = button('image', 'btn_change_image', () => {
         if (imageContext.active) byId('file-upload').click();
-    }); imageActions.append(change);
+    }); change.id='ribbon-image-change';imageActions.append(change);
     const adjust = button('crop_free', 'btn_adjust', () => {
         if (imageContext.active) byId('btn-adjust-img-panel').click();
     }); adjust.id = 'ribbon-image-adjust'; imageActions.append(adjust);
@@ -241,6 +245,7 @@ export function initFlowRibbon() {
         if (context.active && event.target.closest('.flow-ribbon-tools button')) event.preventDefault();
     });
     root.addEventListener('change', queueRefresh);
+    document.addEventListener('studio-ui-language-change',queueRefresh);
     document.addEventListener('dsf-flow-indent-ui-change', queueRefresh);
     tabs.addEventListener('keydown', event => {
         const all = [...tabs.querySelectorAll('.ribbon-tab')], index = all.indexOf(event.target);
@@ -340,4 +345,38 @@ function refreshImageRibbon() {
     byId('ribbon-image-delete').disabled = !active || byId('btn-delete-active').disabled;
     const rotation=byId('ribbon-image-rotation');
     if(document.activeElement!==rotation) rotation.value=String(imageContext.position?.rotation || 0);
+    refreshToolContext();
+}
+
+export function syncObjectRibbonContext(next) {
+    objectContext=next;
+    if(initialized)refreshToolContext();
+}
+function refreshToolContext(){
+    const en=getUILang()==='en',selected=!!objectContext;
+    document.body.classList.toggle('object-ribbon-context',selected);
+    document.body.classList.toggle('flow-source-ribbon-context',!!context.active && !!context.source);
+    const note=byId('ribbon-selection-context');if(!note)return;
+    let title,hint;
+    if(selected){
+        const kinds={text:en?'Text box':'テキストボックス',shape:en?'Shape':'図形',image:en?'Placed image':'配置した画像',legacy:en?'Speech bubble':'吹き出し'};
+        title=(en?'Selected: ':'選択中：')+(kinds[objectContext.kind] || (en?'Object':'オブジェクト'));
+        if(objectContext.name)title+=' · '+objectContext.name;
+        hint=objectContext.locked?(en?'This object is locked and cannot be edited.':'ロック中のため、この対象は編集できません。'):(en?'These controls affect the selected object. Deselect to return to manuscript or page tools.':'この対象だけを編集します。「選択解除」で本文・ページの操作に戻ります。');
+    }else if(context.active){
+        title=(context.source?(en?'Continuous manuscript':'本文原稿（連続編集）'):(en?'Manuscript':'本文'))+' · '+(context.language?.toUpperCase() || '');
+        hint=context.source?(en?'Edit headings and paragraphs below. Return to pages to adjust their layout.':'下の原稿で見出し・段落を編集します。配置を調整するには「ページへ戻る」を使います。'):(en?'Text formatting applies to the selected paragraph. Page alignment uses the chosen range.':'本文の書式は選択した段落に適用します。ページ配置は指定した範囲に適用します。');
+    }else if(imageContext.active){
+        title=en?'Page image (background)':'ページ画像（背景）';
+        hint=imageContext.adjusting?(en?'Adjust the background image position and size.':'背景画像の位置・大きさを調整しています。'):(en?'Change or adjust the page background. Select an object on the page to edit it.':'ページ全体の画像を変更・調整します。図形などはページ上で選ぶと編集できます。');
+    }else{title=en?'Page':'ページ';hint=en?'Select text, an image or a shape to show its tools.':'本文・画像・図形を選ぶと、その対象の操作を表示します。';}
+    if(note.firstElementChild.textContent!==title)note.firstElementChild.textContent=title;
+    if(note.lastElementChild.textContent!==hint)note.lastElementChild.textContent=hint;
+    for(const selector of ['#ribbon-image-change','#ribbon-image-adjust','[data-ribbon-original="flow-open-source"]','[data-ribbon-original="flow-direct-resume"]']){
+        const b=byId('ribbon-bar').querySelector(selector);if(!b)continue;
+        b.classList.add('studio-ribbon-labeled');let caption=b.querySelector('.ribbon-action-label');
+        if(!caption){caption=document.createElement('span');caption.className='ribbon-action-label';caption.setAttribute('aria-hidden','true');b.append(caption);}
+        const text=b.getAttribute('aria-label') || b.title;if(caption.textContent!==text)caption.textContent=text;
+    }
+    positionRibbonDrawer();
 }

@@ -129,6 +129,27 @@
 }
 
 #ribbon-collapse { display:none; }
+#ribbon-selection-context {display:none;}
+@media(min-width:1024px){
+  #ribbon-selection-context {display:flex;align-items:baseline;flex-wrap:wrap;gap:4px 14px;padding:7px 12px;border-top:1px solid var(--studio-border);background:var(--studio-surface-2);font-size:12px;color:var(--studio-text);}
+  #ribbon-selection-context strong {max-width:100%;overflow-wrap:anywhere;}
+  #ribbon-selection-context>span {color:var(--studio-subtext);font-size:11px;}
+  #editor-room #ribbon-bar.studio-compact-ribbon .studio-ribbon-labeled {width:auto;gap:5px;padding:4px 8px;min-height:32px;font-size:12px;}
+  body.object-ribbon-context #editor-room #ribbon-bar #image-ribbon-home,
+  body.object-ribbon-context #editor-room #ribbon-bar #flow-ribbon-home,
+  body.object-ribbon-context #editor-room #ribbon-bar #flow-ribbon-placement,
+  body.object-ribbon-context #editor-room #ribbon-bar #flow-ribbon-view,
+  body.object-ribbon-context #editor-room #ribbon-bar #btn-adjust-img,
+  body.object-ribbon-context #editor-room #ribbon-bar .flow-ribbon-status {display:none!important;}
+  body.flow-source-ribbon-context #editor-room #ribbon-bar #flow-ribbon-home>.flow-ribbon-group:not(:first-child),
+  body.flow-source-ribbon-context #editor-room #ribbon-bar #flow-ribbon-home [data-ribbon-original="flow-direct-resume"],
+  body.flow-source-ribbon-context #editor-room #ribbon-bar #flow-ribbon-home [data-ribbon-original="flow-direct-page-break"],
+  body.flow-source-ribbon-context #editor-room #ribbon-bar #flow-ribbon-home [data-flow-insert-image],
+  body.flow-source-ribbon-context #editor-room #ribbon-bar #flow-ribbon-placement>.flow-ribbon-group:not(#ribbon-source-direction),
+  body.flow-source-ribbon-context #editor-room #ribbon-bar #flow-ribbon-view {display:none!important;}
+  #editor-room #ribbon-bar.studio-compact-ribbon.ribbon-collapsed #ribbon-selection-context {display:none;}
+}
+@media(max-width:1023px){.ribbon-action-label{display:none;}}
 @media(min-width:1024px) {
   #editor-room #ribbon-bar.studio-compact-ribbon #canvas-zoom-select {
     box-sizing:border-box; height:28px; min-height:28px; max-height:28px;

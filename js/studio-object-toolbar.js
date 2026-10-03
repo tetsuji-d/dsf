@@ -11,7 +11,7 @@ const el = (tag, text, cls) => {
 };
 const icons = { rect: '<rect x="3" y="5" width="22" height="17"/>', roundRect: '<rect x="3" y="5" width="22" height="17" rx="5"/>', ellipse: '<ellipse cx="14" cy="14" rx="11" ry="9"/>', line: '<path d="M3 23L25 4"/>', arrow: '<path d="M3 23L25 4M14 4H25V15"/>', speech: '<path d="M3 4H25V20H12L5 25V20H3Z"/>' };
 const names = { rect: ["四角形", "Rectangle"], roundRect: ["角丸四角形", "Rounded rectangle"], ellipse: ["楕円", "Ellipse"], line: ["直線", "Line"], arrow: ["矢印", "Arrow"], speech: ["吹き出し", "Speech"] };
-function createStudioObjectToolbar({ state, commit, refresh, prepareImage, selectLegacy, canEdit, editText, finishText, commitBlocks, activateAt, flow }) {
+function createStudioObjectToolbar({ state, commit, refresh, prepareImage, selectLegacy, canEdit, editText, finishText, commitBlocks, activateAt, flow, onSelectionChange = () => {} }) {
   const fixedCommit=commit,fixedCanEdit=canEdit;
   commit=fn=>flow?.active()?flow.commit(fn):fixedCommit(fn);
   canEdit=()=>flow?.active()?flow.canEdit():fixedCanEdit();
@@ -548,6 +548,9 @@ function createStudioObjectToolbar({ state, commit, refresh, prepareImage, selec
   function controls() {
     root.replaceChildren();
     delete root.dataset.selected;
+    const o = object(), legacy = block()?.content?.bubbles?.[state.activeBubbleIdx];
+    onSelectionChange(o ? {kind:o.kind,name:o.name,locked:!!o.locked} : legacy ? {kind:'legacy',name:legacy.name || '',locked:!!legacy.locked} : null);
+    const insertLabel=el('span',label('追加','Add'),'graphic-insert-label');root.append(insertLabel);
     if(!flow?.active()) button(root, "text_fields", label("テキストボックスを追加", "Add text box"), () => add("text"));
     const shapes = button(root, "category", label("図形を追加", "Add shape"), () => {
       const p = pop(shapes), grid = el("div", null, "graphic-shape-gallery");
@@ -565,7 +568,12 @@ function createStudioObjectToolbar({ state, commit, refresh, prepareImage, selec
     const layer = !flow?.active() && button(root, "layers", label("重なり一覧", "Layers"), () => layers(layer));
     tools = el("div", null, "graphic-object-tools");
     root.append(tools);
-    const o = object();
+    if(o || legacy){
+      const back=button(tools,'deselect',label('選択解除','Deselect'),()=>{
+        selected=null;closePopup();selectLegacy(null);
+      });
+      back.classList.add('graphic-tool-labeled');back.append(el('span',label('選択解除','Deselect')));
+    }
     if(flow?.active())flow.controls(root,tools,selected,id=>{selected=id;render();},button,pop,numeric);
     if (!o) {
       legacyControls();
@@ -624,7 +632,7 @@ function createStudioObjectToolbar({ state, commit, refresh, prepareImage, selec
     button(tools, "delete", label("削除", "Delete"), () => {
       if (!o.locked) remove();
     });
-    if (o.locked) tools.querySelectorAll("button,input,select").forEach((n) => n.disabled = true);
+    if (o.locked) tools.querySelectorAll("button:not(.graphic-tool-labeled),input,select").forEach((n) => n.disabled = true);
   }
   function legacyControls() {
     const index = state.activeBubbleIdx, b = block()?.content?.bubbles?.[index];
@@ -786,7 +794,7 @@ function createStudioObjectToolbar({ state, commit, refresh, prepareImage, selec
     if (!object()) selected = null;
     document.body.classList.toggle("graphic-object-selected", !!selected || !!block()?.content?.bubbles?.[state.activeBubbleIdx]);
     flow?.render({selected,attachHandle});
-    if (!fixed) return;
+    if (!fixed) {onSelectionChange(null);return;}
     controls();
     if (!canEdit()) root.querySelectorAll("button,input,select").forEach((n) => n.disabled = true);
     if(flow?.active())return;
