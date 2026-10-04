@@ -71,3 +71,39 @@ staging deployment of this follow-up. Production promotion remains pending.
 - Soft-cover correction: removed the rounded spine caps; the binding ends flush
   with the covers. Local 390px and 1440px screenshots, geometry checks and build
   confirmed the correction before staging release.
+
+## Held page-turn gestures (2026-10-04)
+
+- Phone book reading follows the pointer while it is held, including cover
+  opening, camera movement within a spread, and the physical sheet turn across
+  spreads. Reversing the drag reverses progress. Release beyond 40% accepts the
+  turn; shorter, cancelled or interrupted gestures return to the original face.
+- Desktop horizontal wheel/trackpad input controls page-turn progress in book
+  and normal reading. Wheel events do not expose contact-up, so silence retains
+  the intermediate position. Continue to the end to accept, or reverse to the
+  start to cancel. Momentum after completion cannot start another turn.
+- Blur, resize, hidden-document transitions, pointer interaction and competing
+  vertical gestures cancel held wheel input. A second touch, lost capture and
+  manuscript changes cancel pointer progress. Cancelled drags suppress clicks.
+- Reduced-motion preference retains accept/cancel semantics without the held
+  visual movement. No manuscript, storage, file-format or permission changes.
+
+Verification for this local change:
+
+- Held-progress tests cover five seconds of silence, reversal, acceptance,
+  cancellation, reduced motion and cleanup. Wheel tests cover idle holding,
+  reversal, completion, momentum-tail suppression and interrupted ownership.
+- Responsive layout, peek geometry, pinch, edge taps, production-boundary
+  checks, JavaScript syntax checks and production build passed.
+- Local browser at 390x844: RTL cover open/cancel, within-spread move/cancel,
+  cross-spread cancel/complete using mouse drag; held wheel turn stays at 35.75%
+  between observations and reverses back. LTR cover and within-spread drag,
+  held cross-spread turn at 44.69% and reverse cancellation also checked.
+- At 1440x900: book wheel turn stayed at 52.8% between observations, then
+  completed with further input. Normal reading wheel progress also held at 52.8%.
+- The Chrome connection disconnected during setup. This change has not been
+  verified with physical touch, a physical trackpad, or an installed PWA.
+  Local browser mouse/wheel input is not hardware acceptance.
+- The user requested commit and staging deployment of this gesture increment.
+  Apply it to the staging release branch while preserving staging-only features.
+  Production promotion remains pending physical-device acceptance.
