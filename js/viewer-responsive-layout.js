@@ -1,3 +1,22 @@
+/** Stable, symmetric paper margins; independent of menu visibility. */
+export function readerPageInsets({width,height,safeTop=0,safeRight=0,safeBottom=0,safeLeft=0}) {
+    const phone=height>=width&&width-safeLeft-safeRight<700;
+    const vertical=phone?Math.max(safeTop+52,Math.max(2,safeBottom-12)+78):Math.max(safeTop,safeBottom);
+    return {safeTop:vertical,safeBottom:vertical,safeLeft,safeRight};
+}
+
+export function readerHeaderTop(viewport,pageTop,height=48) {
+    const top=viewport.top+viewport.safeTop;
+    return top+Math.max(0,(pageTop-top-height)/2);
+}
+
+/** Only exterior covers wrap; an outward gesture never skips a body page. */
+export function readerBoundaryTarget(items,at,delta,getLayout) {
+    if(at+delta>=0&&at+delta<items.length)return null;
+    const opposite=delta<0?items.length-1:0;
+    return getLayout(items[at]?.index)?.exterior&&getLayout(items[opposite]?.index)?.exterior?opposite:null;
+}
+
 /** Positions use the visible viewport, including browser bars and OS safe areas. */
 export function readerControlLayout(viewport, page) {
     const {left=0,top=0,width,height,safeTop=0,safeRight=0,safeBottom=0,safeLeft=0}=viewport;
@@ -57,4 +76,22 @@ export function adjacentReaderPage(items,at,delta,getPosition,single) {
         }
     }
     return null;
+}
+
+/** Place information beside full-size paper; optionally translate it into desktop left margin. */
+export function readerInfoPlacement(viewport,page,{allowShift=false}={}) {
+    const {left=0,top=0,width,height,safeTop=0,safeBottom=0,safeLeft=0,safeRight=0}=viewport;
+    const right=left+width-safeRight-12, gap=16;
+    let free=right-page.right-gap-60;
+    let pageShift=0;
+    const leftRoom=Math.max(0,page.left-(left+safeLeft+12));
+    if(allowShift&&width>=1024&&free<320&&free+leftRoom>=320){
+        pageShift=-(320-free);free=320;
+    }
+    const side=free>=320;
+    const x=side?page.right+pageShift+gap+60:Math.max(left+safeLeft,page.left);
+    const y=Math.max(top+safeTop+(side?64:0),page.top);
+    return {layout:side?'side':'overlay',pageShift,left:x,top:y,
+        width:side?Math.min(420,free):Math.max(1,Math.min(page.right,left+width-safeRight)-x),
+        height:Math.max(1,Math.min(page.top+page.height,top+height-safeBottom)-y)};
 }

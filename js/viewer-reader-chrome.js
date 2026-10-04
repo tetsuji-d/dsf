@@ -1,6 +1,6 @@
 import {createViewerPoseTransition} from './viewer-pose-transition.js';
 import {getBookSpinePresentation, renderBookSpine} from './book-spine-design.js';
-import {readerControlLayout} from './viewer-responsive-layout.js';
+import {readerControlLayout,readerHeaderTop} from './viewer-responsive-layout.js';
 
 const iconPaths = {
     info:'<circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 7v.5"/>',
@@ -173,6 +173,8 @@ export function initializeViewerReaderChrome({getSnapshot, onLayoutChange, befor
         const viewport=snapshot.viewport;
         const controlLayout=readerControlLayout(viewport,getPeek()?.bounds||rect);
         rail.dataset.dock=controlLayout.dock;
+        document.body.classList.toggle('viewer-phone-centered',controlLayout.dock==='bottom');
+        if(controlLayout.dock==='bottom')document.documentElement.style.setProperty('--reader-header-top',readerHeaderTop(viewport,rect.top)+'px');
         rail.dataset.displayMode=document.fullscreenElement||matchMedia('(display-mode: fullscreen)').matches?'fullscreen'
             :matchMedia('(display-mode: standalone)').matches?'standalone':'browser';
         const style = document.documentElement.style;

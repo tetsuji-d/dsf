@@ -1,5 +1,5 @@
 import {VIEWER_PEEK_OPEN_EXTENT} from './viewer-peek-layout.js';
-import {fitReaderBookFace,adjacentReaderPage} from './viewer-responsive-layout.js';
+import {fitReaderBookFace,adjacentReaderPage,readerBoundaryTarget,readerPageInsets} from './viewer-responsive-layout.js';
 import {peekPaperPoint as paperPoint, peekViewportFrame, peekPaperProfile, peekPaperSample} from './viewer-peek-geometry.js';
 import {createViewerPeekCover} from './viewer-peek-cover.js';
 import {createViewerPeekCoverMotion} from './viewer-peek-cover-motion.js';
@@ -165,7 +165,7 @@ export function createViewerEdgePeek({getItems, getLayout, renderSurface, format
         const points=[...(sheet?.children||[])].flatMap(strip=>strip.bookPoints||[]);
         const structure=[...pages.querySelectorAll('.edge-fan-cover .edge-fan-strip,.edge-fan-stack .edge-fan-strip,.edge-fan-top,.edge-fan-fore-edge,.edge-fan-binding')].flatMap(el=>el.bookPoints||[]);
         const v=snapshot.viewport;
-        return fitReaderBookFace(points,structure,v.width,v.height,{...v,side:sheet?.dataset.side==='left'?-1:1,hinge:Number(root.dataset.hinge),bindingWidth:Number(root.dataset.bindingWidth)});
+        return fitReaderBookFace(points,structure,v.width,v.height,{...readerPageInsets(v),side:sheet?.dataset.side==='left'?-1:1,hinge:Number(root.dataset.hinge),bindingWidth:Number(root.dataset.bindingWidth)});
     }
     function setReading(value){
         bookReading=Math.max(0,Math.min(1,value));root.dataset.reading=bookReading.toFixed(4);
@@ -425,6 +425,9 @@ export function createViewerEdgePeek({getItems, getLayout, renderSurface, format
     function adjacentIndex(at,delta){
         return adjacentReaderPage(items,at,delta,index=>getLayout(index)?.position,singleReading());
     }
+    function gestureTarget(at,delta){
+        return adjacentIndex(at,delta)??readerBoundaryTarget(items,at,delta,getLayout);
+    }
     function stepPage(delta,repeat=false){
         stopRiffle();holdHover();
         if(rendering&&getLayout(items[selected]?.index)?.exterior)return;
@@ -476,7 +479,7 @@ export function createViewerEdgePeek({getItems, getLayout, renderSurface, format
         const dx=e.clientX-drag.x,dy=e.clientY-drag.y;
         if(!drag.sign){
             if(Math.abs(dx)<24||Math.abs(dx)<Math.abs(dy)*1.35)return;
-            drag.sign=Math.sign(dx);drag.target=adjacentIndex(drag.index,drag.sign*(snapshot.rtl?1:-1));
+            drag.sign=Math.sign(dx);drag.target=gestureTarget(drag.index,drag.sign*(snapshot.rtl?1:-1));
         }
         drag.progress=Math.max(0,Math.min(1,dx*drag.sign/Math.max(80,Math.min(180,leaf.getBoundingClientRect().width*.35))));
         if(drag.target!==null&&!drag.started){drag.started=true;show(drag.target);}
@@ -540,7 +543,7 @@ export function createViewerEdgePeek({getItems, getLayout, renderSurface, format
     return {edgeTapSide,setReading,transitionReading,drawReading,finishReading,cancelReading,
     beginPageGesture(side){
         if(!ready||rendering||readingMotion||drag)return false;
-        const target=adjacentIndex(selected,(side==='right'?1:-1)*(snapshot.rtl?-1:1));
+        const target=gestureTarget(selected,(side==='right'?1:-1)*(snapshot.rtl?-1:1));
         if(target===null)return false;
         stopRiffle();holdHover();drag={input:'wheel',index:selected,target,progress:0,ended:null,started:true};
         show(target);return true;
@@ -575,7 +578,8 @@ export function createViewerEdgePeek({getItems, getLayout, renderSurface, format
         const scale=fit.scale,w=width,h=height;
         root.style.setProperty('--fan-offset-x',fit.offsetX+'px');
         root.style.setProperty('--fan-offset-y',fit.offsetY+'px');
-        root.style.setProperty('--cover-scale',Math.min((width-12)/(360+Math.min(64,data.thickness||8)*.8),(height-12)/660));
+        const coverInset=readerPageInsets(data.viewport).safeTop;
+        root.style.setProperty('--cover-scale',Math.min((width-12)/(360+Math.min(64,data.thickness||8)*.8),Math.max(80,height-coverInset*2)/660));
         root.style.setProperty('--peek-width',w+'px');root.style.setProperty('--peek-height',h+'px');
         root.style.setProperty('--fan-scale',scale);
         Object.assign(root.style,{left:((viewport?.offsetLeft||0)+width/2)+'px',top:((viewport?.offsetTop||0)+(height-h)/2)+'px'});

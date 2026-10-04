@@ -3266,6 +3266,8 @@ body.viewer-reader-chrome #viewer-header :is(.header-btn,.viewer-auth-trigger,#l
     background:rgb(24 30 35 / 65%)!important;color:#fff!important;border:1px solid #ffffff38;box-shadow:0 2px 8px #0002;backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);border-radius:12px;
 }
 body.viewer-reader-chrome #viewer-header .header-btn {min-width:40px;min-height:40px;}
+body.viewer-reader-chrome #viewer-header .viewer-auth-trigger {width:42px;height:42px;min-height:42px;border-radius:50%!important;flex-shrink:0;}
+@media(max-width:768px) {body.viewer-reader-chrome #viewer-header .viewer-auth-trigger {width:40px;height:40px;min-height:40px;}}
 
 .viewer-page-labels[data-cover=true] {color:#fff!important;text-shadow:0 1px 3px #000,0 0 2px #000;}
 
@@ -3392,3 +3394,45 @@ body:has(#viewer-reader-controls[data-dock=bottom]) .viewer-page-segments {min-h
 
 /* Follow visual-viewport and reader controls instead of the legacy fixed corners. */
 .viewer-minimap[data-positioned=true] {position:fixed;left:var(--minimap-left)!important;top:var(--minimap-top)!important;right:auto!important;bottom:auto!important;}
+
+/* Anchor the paper to the visible viewport, including installed-PWA offsets. */
+body.viewer-reader-chrome #viewer-layout {position:fixed;left:var(--viewer-viewport-left);top:var(--viewer-viewport-top);}
+body.viewer-reader-chrome.viewer-phone-centered #viewer-header {
+    position:fixed;left:var(--viewer-viewport-left);top:var(--reader-header-top);
+    width:var(--viewer-viewport-width);height:48px;min-height:48px;margin-top:0;
+    padding-top:4px;padding-bottom:4px;align-items:center;
+}
+
+/* Work information sits on the page, or in its available right margin. */
+#viewer-info-panel:is([data-layout=overlay],[data-layout=side]) {position:fixed;right:auto;bottom:auto;z-index:1040;pointer-events:auto;transition:opacity 150ms ease;}
+#viewer-info-panel[hidden] {display:none!important;}
+#viewer-info-panel:is([data-layout=overlay],[data-layout=side]) .viewer-info-panel-shell {
+    display:block;width:100%;height:100%;max-height:none;min-height:0;overflow:auto;overscroll-behavior:contain;
+    border:1px solid #ffffff30;border-radius:8px;background:rgb(0 0 0 / 70%);color:#f5f5f5;
+    backdrop-filter:none;-webkit-backdrop-filter:none;transform:none;box-shadow:0 8px 28px #0004;
+}
+#viewer-info-panel .viewer-info-panel-head {position:sticky;top:0;z-index:2;padding:8px 12px;background:#141414;}
+#viewer-info-panel .viewer-info-panel-body {overflow:visible;max-height:none;}
+#viewer-info-panel :is(.viewer-info-title,.viewer-info-meta-value,.viewer-info-description,.viewer-info-richtext,.viewer-info-section-title) {color:#f5f5f5;}
+#viewer-info-panel :is(.viewer-info-panel-kicker,.viewer-info-meta-label,.viewer-info-placeholder) {color:#c7cdd5;}
+#viewer-info-panel .viewer-info-action {width:40px;height:40px;background:#ffffff18;color:#fff;border-color:#ffffff38;}
+#viewer-info-panel :is(#viewer-info-handle,#viewer-info-peek-btn,#viewer-info-expand-btn) {display:none;}
+#viewer-info-panel #viewer-lang-picker {margin:16px 0;position:static;}
+#viewer-info-language-title {font-size:13px;margin:0 0 8px;}
+#viewer-info-panel #lang-picker-menu {position:static;display:flex;flex-wrap:wrap;gap:8px;width:auto;min-width:0;padding:0;background:none;border:0;box-shadow:none;max-height:none;}
+#viewer-info-panel .viewer-lang-option {display:flex;align-items:center;gap:10px;width:auto;min-height:44px;padding:8px 12px;border:1px solid #ffffff40;border-radius:8px;background:#ffffff0d;color:#fff;}
+#viewer-info-panel .viewer-lang-option[aria-pressed=true] {border-color:#82c5df;background:#27617b80;}
+#viewer-info-panel .viewer-lang-option :is(.viewer-lang-text,.viewer-lang-label,.viewer-lang-code,.viewer-lang-dir) {display:inline;color:inherit;}
+#viewer-info-panel .viewer-lang-option .viewer-lang-code {display:none;}
+#viewer-info-panel a {color:#9ad9ff;}
+
+#viewer-info-panel [hidden] {display:none!important;}
+#viewer-info-panel :is(.viewer-info-bookmark-card,.viewer-review-form,.viewer-review-item) {background:#ffffff0d;border-color:#ffffff26;}
+#viewer-info-panel :is(.viewer-info-bookmark-status,.viewer-review-item p,.viewer-review-field) {color:#f5f5f5;}
+#viewer-info-panel :is(.viewer-info-bookmark-progress,.viewer-review-note,.viewer-review-empty,.viewer-review-item-head) {color:#c7cdd5;}
+#viewer-info-panel .viewer-review-field textarea {background:#15191c;color:#fff;border-color:#ffffff40;}
+#viewer-info-panel .viewer-lang-dir {display:none!important;}
+
+/* Move the complete page only while a desktop information column fits beside it. */
+body.viewer-reader-chrome #viewer-canvas {left:var(--viewer-info-page-shift,0px);}
+#viewer-edge-peek {margin-left:var(--viewer-info-page-shift,0px);}

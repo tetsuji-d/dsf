@@ -63,7 +63,7 @@
             </div>
         </div>
         <div id="viewer-zoom-layer" aria-hidden="true"></div>
-        <aside id="viewer-info-panel" class="viewer-info-panel" data-state="closed" data-layout="sheet" hidden>
+        <aside id="viewer-info-panel" class="viewer-info-panel" data-state="closed" data-layout="overlay" role="dialog" aria-labelledby="viewer-info-title" hidden>
             <div class="viewer-info-panel-shell">
                 <button id="viewer-info-handle" class="viewer-info-handle" type="button" aria-label="作品情報を開く">
                     <span class="viewer-info-handle-bar"></span>
@@ -84,6 +84,10 @@
                 </div>
                 <div class="viewer-info-panel-summary">
                     <h2 id="viewer-info-title" class="viewer-info-title"></h2>
+                    <section id="viewer-lang-picker" class="viewer-lang-picker" aria-labelledby="viewer-info-language-title">
+                        <h3 id="viewer-info-language-title">作品の言語</h3>
+                        <div id="lang-picker-menu" class="viewer-lang-picker-menu"></div>
+                    </section>
                     <div id="viewer-info-series" class="viewer-info-series" hidden></div>
                     <div class="viewer-info-meta-list">
                         <div id="viewer-info-label-row" class="viewer-info-meta-row" hidden>
@@ -148,10 +152,7 @@
 
             <!-- Right: Controls -->
             <div class="ui-controls">
-                <div id="viewer-lang-picker" class="viewer-lang-picker" style="display:none;">
-                    <button id="lang-picker-button" class="viewer-lang-picker-button" type="button" onclick="toggleViewerLangMenu()"></button>
-                    <div id="lang-picker-menu" class="viewer-lang-picker-menu"></div>
-                </div>
+
                 <div id="viewer-auth-slot" class="viewer-auth-slot"></div>
                 <button id="viewer-info-btn" class="btn-icon header-btn" onclick="toggleViewerInfoPanel()" title="作品情報">
                     <span class="material-icons" aria-hidden="true">info</span>

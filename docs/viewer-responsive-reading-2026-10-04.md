@@ -180,3 +180,70 @@ Checks:
   by 8 px. Clicking inside the map retained its corner while moving the viewport.
 - Final compact segment hit area ends at the button row, without overlap.
   Build passed; actual installed-PWA safe-area acceptance remains outstanding.
+
+
+## Follow-up: centred phone paper and exterior swipe (2026-10-04, local)
+
+- Use symmetric, stable phone paper margins that clear the OS status area,
+  a 48 px header and the bottom segment/control rows. The paper stays centred
+  in the visual viewport; menu visibility never changes its fit. The header
+  occupies the gap between the status safe area and the paper. Curved single
+  faces and closed covers use the same stable margins.
+- Pointer and trackpad gestures now resolve outward exterior-cover targets
+  before starting the held transition. Previously single-face pointer release
+  returned before the exterior rollover fallback. C1/C4 rollover now uses the
+  existing cover animation, including held progress and cancellation. Body
+  pages keep their existing adjacent-page behavior.
+- Targeted layout, held-progress, peek geometry, minimap and production-boundary
+  checks passed; build passed (existing bundle-size warning only).
+- Local browser, 430x932, simulated top/bottom safe areas 59/34: flat page bounds
+  were identical before/after menu toggles (top 112.59, bottom 820.13), centred
+  at viewport y=466.36. Header was y=61.79..109.79; lower segments clear paper.
+  RTL/LTR phone-width pointer drags rolled C1 to C4 and back. A held RTL
+  transition stayed at progress 0.4651; reversing an opposite transition
+  cancelled to C4. Native touch injection is unsupported in this browser:
+  these were real mouse-pointer drags at phone width, not physical iOS tests.
+- Actual installed iOS/PWA touch and status-bar appearance remain device checks.
+  No manuscript/storage/schema changes. Not committed or deployed in this turn.
+
+## Follow-up: information window and work language (2026-10-04, local)
+
+- Replaced the mobile stepped sheet with one page-aligned black translucent
+  information window. Use a right-side panel only when the existing margin
+  fits 320px after the reader controls; do not resize or shift the paper.
+- Moved work-language choices into the information window, with language names
+  and a selected check. Account trigger is circular again (40px phone/42px PC).
+- Scroll the whole information body with a sticky close button. Close/i/Escape
+  and outside dismissal retain focus and avoid click-through. Panel wheel and
+  keyboard input no longer reaches page navigation. Menus stay visible while
+  information is open, including after an asynchronous language refresh.
+- Browser verification: 430x932 overlay matched the paper bounds; 1600x900 used
+  a 420px right panel at x1128.49/y63.99, clearing the existing controls. Paper
+  bounds were identical before and after opening. Long notes scrolled 520px
+  while the close button stayed visible; language switched JA/EN and its title,
+  selected check and direction updated. Escape returned focus to the i button;
+  outside dismissal did not navigate the page. Real installed iOS remains a
+  device acceptance check.
+- Responsive geometry, minimap, production-boundary checks and build passed.
+  No data, storage, permission, commit or deployment changes in this increment.
+
+## Follow-up: translucent information and desktop spread placement (2026-10-04, local)
+
+- Increased information background transparency from 18% to 30% (black alpha 0.70).
+- Desktop widths of at least 1024px may translate the full-size paper left only
+  when combined margins fit the 320px panel plus controls. Closing restores the
+  centred baseline. Narrow screens and spreads that cannot fit keep the overlay.
+- Actual browser at 1600x900: opening information moved a 1010px-wide spread
+  about 113px left, from x295 to x182; its height stayed 897.77px. Panel began
+  at x1268 with a 320px width. Closing restored x295 without resizing.
+- At 430x932 the panel stayed page-aligned with zero page shift; computed shell
+  background was rgba(0, 0, 0, 0.7). Physical iOS/PWA appearance remains a device check.
+- Targeted geometry checks, JS syntax and build passed. No storage or permission
+  changes; this increment is not committed or deployed.
+
+## Staging release approval (2026-10-04)
+
+The user approved committing and deploying the accumulated centred-paper,
+exterior-cover gesture, round-account and information-window changes. Apply the
+Viewer commit to release/studio-header-staging, retaining staging notifications,
+file launch and review behavior. Production promotion remains separate.

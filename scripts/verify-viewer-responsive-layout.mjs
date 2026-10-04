@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import {readerControlLayout,fitReaderSheet,fitReaderBookFace,adjacentReaderPage} from '../js/viewer-responsive-layout.js';
+import {readerInfoPlacement,readerPageInsets,readerHeaderTop,readerBoundaryTarget,readerControlLayout,fitReaderSheet,fitReaderBookFace,adjacentReaderPage} from '../js/viewer-responsive-layout.js';
 import {peekPaperPoint} from '../js/viewer-peek-geometry.js';
 
 for(const [width,height] of [[320,568],[390,844],[844,390],[667,320],[1440,900]]){
@@ -66,3 +66,53 @@ for(const thickness of [8,32,64])for(const side of [-1,1]){
     }
 }
 console.log('Responsive controls stay in safe viewport; curved single faces fit uniformly; page sequence has no skipped faces.');
+
+// PWA safe areas, viewport offsets and compact phones retain a centred paper
+// frame and enough room for the header and lower controls without menu state.
+for(const [width,height] of [[320,568],[390,844],[430,932]])for(const safeTop of [0,47,59]){
+ const v={left:0,top:13,width,height,safeTop,safeBottom:34,safeLeft:0,safeRight:0};
+ const safe=readerPageInsets(v),paperHeight=Math.min(height-safe.safeTop*2,(width-12)*16/9);
+ const top=v.top+(height-paperHeight)/2;
+ const header=readerHeaderTop(v,top);
+ assert.ok(header>=v.top+safeTop);
+ assert.ok(header+48<=top);
+ const page={top,width:width-12,height:paperHeight,right:width-6};
+ const controls=readerControlLayout(v,page);
+ assert.ok(top+paperHeight+6<=controls.progressTop);
+ const points=[{x:0,y:0},{x:360,y:640}];
+ const fit=fitReaderSheet(points,width,height,safe);
+ assert.ok(Math.abs((fit.minY+fit.maxY)*fit.scale/2+fit.offsetY-height/2)<1e-8);
+}
+const covers=i=>({exterior:i===0||i===7});
+assert.equal(readerBoundaryTarget(items,0,-1,covers),7);
+assert.equal(readerBoundaryTarget(items,7,1,covers),0);
+assert.equal(readerBoundaryTarget(items,1,-1,covers),null);
+assert.equal(readerBoundaryTarget(items,6,1,covers),null);
+assert.equal(readerBoundaryTarget(items,0,-1,()=>({exterior:false})),null);
+console.log('Stable centred phone paper clears both menus; exterior boundary targets wrap both ways.');
+
+for(const [width,height,page,layout] of [
+ [430,932,{left:16,top:112,width:398,height:708,right:414},'overlay'],
+ [1440,900,{left:480,top:60,width:480,height:780,right:960},'side'],
+ [1024,768,{left:90,top:60,width:844,height:648,right:934},'overlay']
+]){
+ const original=JSON.stringify(page),v={width,height,safeTop:0,safeBottom:0};
+ const panel=readerInfoPlacement(v,page);
+ assert.equal(panel.layout,layout);assert.equal(JSON.stringify(page),original);
+ assert.equal(panel.top,Math.max(page.top,layout==='side'?64:0));assert.equal(panel.top+panel.height,page.top+page.height);
+ if(layout==='overlay'){assert.equal(panel.left,page.left);assert.equal(panel.width,page.width);}
+ else {assert.ok(panel.left>page.right);assert.ok(panel.left+panel.width<=width-12);}
+}
+console.log('Info overlays match paper; side information uses existing margin without resizing it.');
+
+const desktopViewport={width:1600,height:900};
+const wideSpread={left:290,right:1310,top:30,width:1020,height:840};
+const shiftedInfo=readerInfoPlacement(desktopViewport,wideSpread,{allowShift:true});
+assert.equal(shiftedInfo.layout,'side');assert.ok(shiftedInfo.pageShift<0);
+assert.ok(wideSpread.left+shiftedInfo.pageShift>=12);
+assert.ok(shiftedInfo.left>=wideSpread.right+shiftedInfo.pageShift+76);
+assert.equal(readerInfoPlacement(desktopViewport,wideSpread).pageShift,0);
+const fullSpread={left:12,right:1588,top:30,width:1576,height:840};
+assert.equal(readerInfoPlacement(desktopViewport,fullSpread,{allowShift:true}).layout,'overlay');
+assert.equal(readerInfoPlacement({width:430,height:932},{left:6,right:424,top:95,width:418,height:742},{allowShift:true}).pageShift,0);
+console.log('Desktop spread shifts only enough to fit information; phones and oversized spreads retain overlay.');

@@ -1,3 +1,4 @@
+import {readerPageInsets,readerInfoPlacement} from './viewer-responsive-layout.js';
 import {initializeViewerPageSegments} from './viewer-page-segment-control.js';
 import {createViewerBookWheel} from './viewer-book-wheel.js';
 import {createViewerFlick} from './viewer-flick.js';
@@ -194,7 +195,7 @@ let viewerProjectMeta = {
 };
 const VIEWER_INFO_STATES = ['closed', 'peek', 'summary', 'full'];
 let viewerInfoPanelState = 'closed';
-let viewerInfoLayoutMode = 'sheet';
+let viewerInfoLayoutMode = 'overlay';
 let viewerUiAutoHideTimer = null;
 let viewerInfoHandleDrag = {
     active: false,
@@ -546,7 +547,7 @@ async function init() {
     applyViewerUiLanguage();
     updateViewerInfoPanelLayout();
     renderViewerInfoPanel();
-    bindViewerInfoHandle();
+
     bindViewerInfoPanelLayoutSync();
     bindViewerSliderPreview();
     pageSegments=initializeViewerPageSegments({host:document.getElementById("page-slider").parentElement,snapshot:getViewerSegmentSnapshot,preview:showViewerSegmentPreview,hidePreview:hideSliderPreview,navigate:seekViewerSegment,onHold:held=>{clearViewerUiAutoHide();if(!held)scheduleViewerUiAutoHide();}});
@@ -1959,22 +1960,29 @@ function trackReadCompleteIfNeeded() {
     enqueueMetricEvent('read_complete', 'last_page');
 }
 
-function getViewerInfoLayoutMode() {
-    return window.innerWidth >= 1024 ? 'drawer' : 'sheet';
+function getViewerInfoPlacement() {
+    const viewport=getViewerViewportMetrics();
+    const canvas=document.getElementById('viewer-canvas').getBoundingClientRect();
+    const page=edgePeek?.opened&&edgePeek.reading===1?edgePeek.bounds||canvas:canvas;
+    const shift=Number(document.body.dataset.infoPageShift||0);
+    const baseline={left:page.left-shift,right:page.right-shift,top:page.top,width:page.width,height:page.height};
+    return readerInfoPlacement(viewport,baseline,{allowShift:viewerInfoPanelState!=='closed'});
 }
-
-function normalizeViewerInfoPanelState(nextState, layout = viewerInfoLayoutMode) {
-    if (!VIEWER_INFO_STATES.includes(nextState)) return 'closed';
-    if (layout === 'drawer') return nextState === 'closed' ? 'closed' : 'full';
-    return nextState;
+function getViewerInfoLayoutMode() {return getViewerInfoPlacement().layout;}
+function normalizeViewerInfoPanelState(nextState) {
+    return VIEWER_INFO_STATES.includes(nextState)&&nextState!=='closed'?'full':'closed';
 }
-
 function updateViewerInfoPanelLayout() {
-    viewerInfoLayoutMode = getViewerInfoLayoutMode();
-    viewerInfoPanelState = normalizeViewerInfoPanelState(viewerInfoPanelState, viewerInfoLayoutMode);
-    const panel = document.getElementById('viewer-info-panel');
-    if (!panel) return;
-    panel.dataset.layout = viewerInfoLayoutMode;
+    const panel=document.getElementById('viewer-info-panel');if(!panel)return;
+    if(panel.parentElement!==document.body)document.body.append(panel);
+    const placement=getViewerInfoPlacement();viewerInfoLayoutMode=placement.layout;
+    const shifted=Number(document.body.dataset.infoPageShift||0)!==placement.pageShift;
+    document.body.dataset.infoPageShift=String(placement.pageShift);
+    document.documentElement.style.setProperty('--viewer-info-page-shift',placement.pageShift+'px');
+    viewerInfoPanelState=normalizeViewerInfoPanelState(viewerInfoPanelState);
+    panel.dataset.layout=placement.layout;
+    for(const name of ['left','top','width','height'])panel.style[name]=placement[name]+'px';
+    if(shifted)readerChrome?.update();
     syncViewerInfoChromeState();
 }
 
@@ -2045,7 +2053,8 @@ function renderViewerInfoPanel() {
     if (!panel) return;
     updateViewerInfoPanelLayout();
     panel.dataset.state = viewerInfoPanelState;
-    panel.hidden = viewerInfoLayoutMode === 'sheet' && viewerInfoPanelState === 'closed';
+    panel.hidden = viewerInfoPanelState === 'closed';
+    document.getElementById('viewer-info-btn')?.setAttribute('aria-expanded',String(!panel.hidden));
     syncViewerInfoChromeState();
     if (viewerInfoPanelState === 'closed') return;
 
@@ -2108,9 +2117,9 @@ function renderViewerInfoPanel() {
 
     if (reviewSection) reviewSection.hidden = !shouldShowViewerInfoBody();
     renderViewerReviewSection();
-    if (expandBtn) expandBtn.hidden = viewerInfoLayoutMode === 'drawer' || viewerInfoPanelState === 'full';
-    if (peekBtn) peekBtn.hidden = viewerInfoLayoutMode === 'drawer' || viewerInfoPanelState === 'peek';
-    if (handleBtn) handleBtn.hidden = viewerInfoLayoutMode === 'drawer';
+    if (expandBtn) expandBtn.hidden = true;
+    if (peekBtn) peekBtn.hidden = true;
+    if (handleBtn) handleBtn.hidden = true;
 }
 
 function applyViewerInfoPanelLabels() {
@@ -2139,23 +2148,10 @@ function applyViewerInfoPanelLabels() {
     if (reviewTitle) reviewTitle.textContent = vt('infoReviews');
 }
 
-function bindViewerInfoHandle() {
-    const shell = getViewerInfoPanelShell();
-    if (!shell || shell.dataset.dragBound === '1') return;
-    shell.dataset.dragBound = '1';
-    shell.addEventListener('pointerdown', onViewerInfoHandlePointerDown);
-    shell.addEventListener('pointermove', onViewerInfoHandlePointerMove);
-    shell.addEventListener('pointerup', onViewerInfoHandlePointerUp);
-    shell.addEventListener('pointercancel', onViewerInfoHandlePointerCancel);
-}
-
-function getViewerInfoPanelShell() {
-    return document.querySelector('#viewer-info-panel .viewer-info-panel-shell');
-}
-
 function syncViewerCanvasChromePlacement(canvas = document.getElementById('viewer-canvas'), canvasWidth = null) {
     if (!canvas) return;
     const width = Number.isFinite(canvasWidth) ? canvasWidth : canvas.getBoundingClientRect().width;
+    updateViewerInfoPanelLayout();
     updateViewerSliderPlacement(canvas, width);
     updateViewerSideNavPlacement(canvas, width);
 }
@@ -2186,205 +2182,39 @@ function bindViewerInfoPanelLayoutSync() {
     viewerInfoPanelResizeObserver.observe(panel);
 }
 
-function getViewerInfoSheetHeights() {
-    const isCompact = window.innerWidth <= 768;
-    const peek = isCompact ? 104 : 98;
-    const summary = isCompact ? 208 : 220;
-    const full = Math.min(
-        Math.round(window.innerHeight * 0.9),
-        Math.max(summary + 40, window.innerHeight - 72)
-    );
-    return { peek, summary, full };
-}
-
-function getViewerInfoCurrentSheetHeight() {
-    const shell = getViewerInfoPanelShell();
-    const measured = shell?.getBoundingClientRect?.().height || 0;
-    if (measured > 0) return measured;
-    const heights = getViewerInfoSheetHeights();
-    if (viewerInfoPanelState === 'full') return heights.full;
-    if (viewerInfoPanelState === 'summary') return heights.summary;
-    if (viewerInfoPanelState === 'peek') return heights.peek;
-    return 0;
-}
-
-function setViewerInfoSheetDragHeight(height) {
-    const shell = getViewerInfoPanelShell();
-    if (!shell) return;
-    shell.classList.add('is-dragging');
-    shell.style.height = `${Math.max(0, height)}px`;
-}
-
-function clearViewerInfoSheetDragHeight() {
-    const shell = getViewerInfoPanelShell();
-    if (!shell) return;
-    shell.classList.remove('is-dragging');
-    shell.style.removeProperty('height');
-}
-
-function getViewerInfoStateFromHeight(height) {
-    const { peek, summary, full } = getViewerInfoSheetHeights();
-    if (height <= peek * 0.48) return 'closed';
-    const candidates = [
-        { state: 'peek', height: peek },
-        { state: 'summary', height: summary },
-        { state: 'full', height: full }
-    ];
-    return candidates
-        .map((item) => ({ ...item, distance: Math.abs(item.height - height) }))
-        .sort((a, b) => a.distance - b.distance)[0]?.state || 'peek';
-}
-
-function onViewerInfoHandlePointerDown(event) {
-    if (viewerInfoLayoutMode !== 'sheet') return;
-    if (event.target.closest('a, button, input, textarea, select, label')) return;
-    viewerInfoHandleDrag.active = true;
-    viewerInfoHandleDrag.pointerId = event.pointerId;
-    viewerInfoHandleDrag.startY = event.clientY;
-    viewerInfoHandleDrag.startHeight = getViewerInfoCurrentSheetHeight();
-    viewerInfoHandleDrag.currentHeight = viewerInfoHandleDrag.startHeight;
-    const body = document.getElementById('viewer-info-body');
-    viewerInfoHandleDrag.startedInBody = !!event.target.closest('#viewer-info-body');
-    viewerInfoHandleDrag.bodyScrollTop = body?.scrollTop || 0;
-    try { event.currentTarget?.setPointerCapture?.(event.pointerId); } catch (_) { /* ignore */ }
-}
-
-function onViewerInfoHandlePointerMove(event) {
-    if (!viewerInfoHandleDrag.active || viewerInfoHandleDrag.pointerId !== event.pointerId) return;
-    const dy = event.clientY - viewerInfoHandleDrag.startY;
-    const body = document.getElementById('viewer-info-body');
-    const bodyScrollTop = body?.scrollTop || 0;
-    const draggingDown = dy > 0;
-    const draggingUp = dy < 0;
-    const fullState = viewerInfoPanelState === 'full';
-
-    if (viewerInfoHandleDrag.startedInBody && fullState) {
-        if (draggingUp) return;
-        if (draggingDown && bodyScrollTop > 0) return;
-    }
-
-    event.preventDefault();
-    const { full } = getViewerInfoSheetHeights();
-    const nextHeight = Math.max(
-        0,
-        Math.min(full, viewerInfoHandleDrag.startHeight - (dy * VIEWER_INFO_HANDLE_SENSITIVITY))
-    );
-    viewerInfoHandleDrag.currentHeight = nextHeight;
-    setViewerInfoSheetDragHeight(nextHeight);
-}
-
-function onViewerInfoHandlePointerUp(event) {
-    if (!viewerInfoHandleDrag.active || viewerInfoHandleDrag.pointerId !== event.pointerId) return;
-    const dy = event.clientY - viewerInfoHandleDrag.startY;
-    const magnitude = Math.abs(dy);
-    try { event.currentTarget?.releasePointerCapture?.(event.pointerId); } catch (_) { /* ignore */ }
-    viewerInfoHandleDrag.active = false;
-    viewerInfoHandleDrag.pointerId = null;
-    viewerInfoHandleDrag.startedInBody = false;
-    viewerInfoHandleDrag.bodyScrollTop = 0;
-    clearViewerInfoSheetDragHeight();
-    if (magnitude < 8) {
-        window.advanceViewerInfoPanel();
-        return;
-    }
-    const next = getViewerInfoStateFromHeight(viewerInfoHandleDrag.currentHeight);
-    window.setViewerInfoPanelState(next);
-}
-
-function onViewerInfoHandlePointerCancel(event) {
-    if (viewerInfoHandleDrag.pointerId !== event.pointerId) return;
-    try { event.currentTarget?.releasePointerCapture?.(event.pointerId); } catch (_) { /* ignore */ }
-    viewerInfoHandleDrag.active = false;
-    viewerInfoHandleDrag.pointerId = null;
-    viewerInfoHandleDrag.startedInBody = false;
-    viewerInfoHandleDrag.bodyScrollTop = 0;
-    clearViewerInfoSheetDragHeight();
-}
-
-function isViewerInfoSheetOpen() {
-    return viewerInfoLayoutMode === 'sheet' && viewerInfoPanelState !== 'closed';
-}
-
 function syncViewerInfoChromeState() {
-    const ui = document.getElementById('viewer-ui');
-    const layout = document.getElementById('viewer-layout');
-    if (!ui) return;
-    ui.classList.toggle('viewer-sheet-open', isViewerInfoSheetOpen());
-    layout?.classList.toggle('viewer-drawer-open', viewerInfoLayoutMode === 'drawer' && viewerInfoPanelState !== 'closed');
+    document.getElementById('viewer-ui')?.classList.remove('viewer-sheet-open');
+    document.getElementById('viewer-layout')?.classList.remove('viewer-drawer-open');
 }
-
-function isViewerBottomSwipeStart(clientX, clientY) {
-    if (viewerInfoLayoutMode !== 'sheet' || viewerInfoPanelState !== 'closed') return false;
-    const canvas = document.getElementById('viewer-canvas');
-    if (!canvas) return false;
-    const rect = canvas.getBoundingClientRect();
-    if (clientX < rect.left || clientX > rect.right || clientY < rect.top || clientY > rect.bottom) return false;
-    return clientY >= rect.bottom - Math.min(VIEWER_INFO_SWIPE_ZONE, rect.height * 0.18);
-}
+function isViewerBottomSwipeStart() {return false;}
 
 window.setViewerInfoPanelState = (nextState) => {
-    viewerInfoPanelState = normalizeViewerInfoPanelState(nextState, getViewerInfoLayoutMode());
+    const wasOpen=viewerInfoPanelState!=='closed';
+    viewerInfoPanelState=normalizeViewerInfoPanelState(nextState);
     renderViewerInfoPanel();
-    if (getViewerInfoLayoutMode() === 'drawer') requestAnimationFrame(() => resizeCanvas());
+    closeViewerLangMenu();
+    if(viewerInfoPanelState!=='closed'){
+        window.toggleUi(true);
+        if(!wasOpen){document.querySelector('.viewer-info-panel-shell').scrollTop=0;document.getElementById('viewer-info-close-btn')?.focus({preventScroll:true});}
+    }else if(wasOpen)document.getElementById('viewer-info-btn')?.focus({preventScroll:true});
 };
-
-window.toggleViewerInfoPanel = () => {
-    if (getViewerInfoLayoutMode() === 'drawer') {
-        window.setViewerInfoPanelState(viewerInfoPanelState === 'closed' ? 'full' : 'closed');
-        return;
-    }
-    if (viewerInfoPanelState === 'closed' || viewerInfoPanelState === 'peek') {
-        window.setViewerInfoPanelState('summary');
-        return;
-    }
-    window.setViewerInfoPanelState('closed');
-};
-
-window.stepUpViewerInfoPanel = () => {
-    if (viewerInfoLayoutMode === 'drawer') {
-        window.setViewerInfoPanelState('full');
-        return;
-    }
-    const from = viewerInfoPanelState === 'closed' ? 'peek' : viewerInfoPanelState;
-    window.setViewerInfoPanelState(stepViewerInfoState(from, 1));
-};
-
-window.stepDownViewerInfoPanel = () => {
-    if (viewerInfoLayoutMode === 'drawer') {
-        window.setViewerInfoPanelState('closed');
-        return;
-    }
-    const from = viewerInfoPanelState === 'closed' ? 'peek' : viewerInfoPanelState;
-    window.setViewerInfoPanelState(stepViewerInfoState(from, -1));
-};
-
-window.advanceViewerInfoPanel = () => {
-    if (viewerInfoLayoutMode === 'drawer') {
-        window.setViewerInfoPanelState(viewerInfoPanelState === 'closed' ? 'full' : 'closed');
-        return;
-    }
-    if (viewerInfoPanelState === 'closed') {
-        window.setViewerInfoPanelState('summary');
-        return;
-    }
-    if (viewerInfoPanelState === 'peek') {
-        window.setViewerInfoPanelState('summary');
-        return;
-    }
-    if (viewerInfoPanelState === 'summary') {
-        window.setViewerInfoPanelState('full');
-        return;
-    }
-    window.setViewerInfoPanelState('summary');
-};
-
-function collapseViewerInfoPanelForNavigation() {
-    if (viewerInfoLayoutMode === 'drawer') return;
-    if (viewerInfoPanelState === 'full') {
-        viewerInfoPanelState = 'summary';
-        renderViewerInfoPanel();
-    }
-}
+window.toggleViewerInfoPanel = () => window.setViewerInfoPanelState(viewerInfoPanelState==='closed'?'full':'closed');
+window.stepUpViewerInfoPanel = () => window.setViewerInfoPanelState('full');
+window.stepDownViewerInfoPanel = () => window.setViewerInfoPanelState('closed');
+window.advanceViewerInfoPanel = window.toggleViewerInfoPanel;
+function collapseViewerInfoPanelForNavigation() {updateViewerInfoPanelLayout();}
+// Dismiss the panel without also turning a page or activating underlying controls.
+let viewerInfoDismissUntil=0;
+document.addEventListener('pointerdown',event=>{
+    if(viewerInfoPanelState==='closed'||event.target.closest('#viewer-info-panel,#viewer-info-btn'))return;
+    viewerInfoDismissUntil=performance.now()+600;
+    event.preventDefault();event.stopImmediatePropagation();window.setViewerInfoPanelState('closed');
+},true);
+document.addEventListener('click',event=>{if(performance.now()<viewerInfoDismissUntil){event.preventDefault();event.stopImmediatePropagation();}},true);
+document.addEventListener('keydown',event=>{
+    if(event.key!=='Escape'||viewerInfoPanelState==='closed')return;
+    event.preventDefault();event.stopImmediatePropagation();window.setViewerInfoPanelState('closed');
+},true);
 
 function resolveViewerLanguages(raw, hasDsfPages) {
     if (hasDsfPages) {
@@ -2923,7 +2753,7 @@ function renderViewerLanguageOption(code) {
     return `
         ${renderViewerLanguageBadge(code)}
         <span class="viewer-lang-text">
-            <span class="viewer-lang-label">${esc(props.label)}</span>
+            <span class="viewer-lang-label">${esc(code==='en'?'English':props.label)}</span>
             <span class="viewer-lang-code">${esc(codeLabel)}</span>
             <span class="viewer-lang-dir">${dirArrow}</span>
         </span>
@@ -2931,33 +2761,17 @@ function renderViewerLanguageOption(code) {
 }
 
 function renderViewerLanguagePicker() {
-    const picker = document.getElementById('viewer-lang-picker');
-    const button = document.getElementById('lang-picker-button');
-    const menu = document.getElementById('lang-picker-menu');
-    if (!picker || !button || !menu) return;
-
-    const languages = state.languages?.length ? state.languages : [];
-    if (languages.length <= 1) {
-        picker.style.display = 'none';
-        picker.classList.remove('open');
-        menu.innerHTML = '';
-        button.innerHTML = '';
-        return;
-    }
-
-    picker.style.display = 'block';
-    button.innerHTML = renderViewerLanguageOption(state.activeLang);
-    menu.innerHTML = languages.map((code) => `
-        <button class="viewer-lang-option ${code === state.activeLang ? 'active' : ''}" type="button" data-viewer-lang="${code}">
-            ${renderViewerLanguageOption(code)}
-        </button>
-    `).join('');
-
-    menu.querySelectorAll('[data-viewer-lang]').forEach((item) => {
-        item.addEventListener('click', () => {
-            window.switchViewerLang(item.dataset.viewerLang);
-        });
-    });
+    const picker=document.getElementById('viewer-lang-picker'),menu=document.getElementById('lang-picker-menu');
+    if(!picker||!menu)return;
+    const languages=state.languages||[];
+    picker.hidden=!languages.length;
+    document.getElementById('viewer-info-language-title').textContent=viewerUiLang==='en'?'Work language':'作品の言語';
+    menu.innerHTML=languages.map(code=>`<button class="viewer-lang-option" type="button" data-viewer-lang="${esc(code)}" aria-pressed="${code===state.activeLang}">${renderViewerLanguageOption(code)}<span aria-hidden="true">${code===state.activeLang?'✓':''}</span></button>`).join('');
+    menu.querySelectorAll('[data-viewer-lang]').forEach(item=>item.addEventListener('click',()=>{
+        window.switchViewerLang(item.dataset.viewerLang);
+        window.toggleUi(true);
+        menu.querySelector(`[data-viewer-lang="${CSS.escape(state.activeLang)}"]`)?.focus({preventScroll:true});
+    }));
 }
 
 window.toggleViewerLangMenu = () => {
@@ -4480,7 +4294,7 @@ let isUiVisible = !usesMobileTapMenu();
 
 window.toggleUi = (force) => {
     clearViewerUiAutoHide();
-    isUiVisible = typeof force === 'boolean' ? force : !isUiVisible;
+    isUiVisible = viewerInfoPanelState!=='closed' || (typeof force === 'boolean' ? force : !isUiVisible);
     updateUiVisibility();
     if(isUiVisible) scheduleViewerUiAutoHide();
 };
@@ -4510,7 +4324,7 @@ function clearViewerUiAutoHide() {
 function scheduleViewerUiAutoHide() {
     if (!usesPointerHoverChrome()) return;
     clearViewerUiAutoHide();
-    if (readingGuides?.isAssisting() || coverTurn?.active || riffle?.active || readerChrome?.active || readerChrome?.settingsOpen) return;
+    if (viewerInfoPanelState!=='closed' || readingGuides?.isAssisting() || coverTurn?.active || riffle?.active || readerChrome?.active || readerChrome?.settingsOpen) return;
     viewerUiAutoHideTimer = setTimeout(() => {
         window.toggleUi(false);
     }, 5000);
@@ -4905,7 +4719,7 @@ function getViewerCanvasSpace(viewport = getViewerViewportMetrics()) {
     const readerDock = Number(document.body.dataset.readingAssistDock || 0);
     const W = Math.max(readerDock ? 120 : 280, viewport.width - readerDock - (drawerOpen ? VIEWER_DRAWER_WIDTH + VIEWER_DRAWER_GAP : 0) - (safeX * 2));
     if(readerChrome) {
-        const inset=safeY;
+        const inset=readerPageInsets(viewport).safeTop;
         return {W, H:Math.max(80,viewport.height-Number(document.body.dataset.readingAssistBottom||0)-inset*2)};
     }
     const menuInset=usesMobileTapMenu()&&isUiVisible?Math.max(
@@ -5684,6 +5498,7 @@ function stepViewerBookVertical(direction,manual=false){
 }
 
 function onWheel(e) {
+    if(e.target.closest?.('#viewer-info-panel'))return;
     if(bookPinch?.wheel(e))return;
     if (readerChrome && e.target.closest?.('#viewer-page-settings')) return;
     if (bookWheel?.handle(e)) return;
@@ -5712,6 +5527,7 @@ function onWheel(e) {
 }
 
 function onKeydown(e) {
+    if(e.target.closest?.('#viewer-info-panel'))return;
     if(e.key==='Escape') {bookWheel?.cancel();riffle?.stop();}
     if (readerChrome?.active && e.key==='Escape') {if(readerChrome.state==='book')readerChrome.openReading();else readerChrome.cancelPose();return;}
     if (readerChrome && e.target.closest?.('input,select,textarea,summary,[contenteditable="true"],#viewer-page-settings')) return;
