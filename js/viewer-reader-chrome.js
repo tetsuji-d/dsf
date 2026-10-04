@@ -1,5 +1,6 @@
 import {createViewerPoseTransition} from './viewer-pose-transition.js';
 import {getBookSpinePresentation, renderBookSpine} from './book-spine-design.js';
+import {readerControlLayout} from './viewer-responsive-layout.js';
 
 const iconPaths = {
     info:'<circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 7v.5"/>',
@@ -163,14 +164,20 @@ export function initializeViewerReaderChrome({getSnapshot, onLayoutChange, befor
         rail.hidden = false;
         if(!transition&&state()==='book'&&!canReadBook()){getPeek()?.confirm();return;}
         const {rect, pages, title, total, thickness, busy} = snapshot;
-        // Mobile controls overlay the actual page instead of reserving a side column.
+        onPoseChange?.(mode,snapshot);
+        const viewport=snapshot.viewport;
+        const controlLayout=readerControlLayout(viewport,getPeek()?.bounds||rect);
+        rail.dataset.dock=controlLayout.dock;
+        rail.dataset.displayMode=document.fullscreenElement||matchMedia('(display-mode: fullscreen)').matches?'fullscreen'
+            :matchMedia('(display-mode: standalone)').matches?'standalone':'browser';
         const style = document.documentElement.style;
-        style.setProperty('--reader-controls-left',`${rect.right-60}px`);
-        style.setProperty('--reader-controls-top',`${Math.max(rect.top+8,rect.bottom-316)}px`);
-        style.setProperty('--reader-progress-left',`${rect.left+14}px`);
-        const bottomLabels=(prefs.number&&prefs.numberEdge==='bottom')||((prefs.title||prefs.total)&&prefs.metaEdge==='bottom');
-        style.setProperty('--reader-progress-top',`${rect.bottom-(bottomLabels?60:34)}px`);
-        style.setProperty('--reader-progress-width',`${Math.max(40,rect.width-28)}px`);
+        style.setProperty('--reader-control-size',`${controlLayout.size}px`);
+        style.setProperty('--reader-control-gap',`${controlLayout.gap}px`);
+        style.setProperty('--reader-controls-left',`${controlLayout.left}px`);
+        style.setProperty('--reader-controls-top',`${controlLayout.top}px`);
+        style.setProperty('--reader-progress-left',`${controlLayout.progressLeft}px`);
+        style.setProperty('--reader-progress-top',`${controlLayout.progressTop}px`);
+        style.setProperty('--reader-progress-width',`${controlLayout.progressWidth}px`);
 
         for (const [index, page] of pages.entries()) {
             if (!page.label) continue;
@@ -187,7 +194,6 @@ export function initializeViewerReaderChrome({getSnapshot, onLayoutChange, befor
             if(prefs.title||prefs.total) box.append(meta);
             labels.append(box);
         }
-        onPoseChange?.(mode,snapshot);
         syncControls();
         if(mode) {
             if(!thickness||busy) {cancelPose();return;}
