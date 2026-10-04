@@ -247,3 +247,24 @@ The user approved committing and deploying the accumulated centred-paper,
 exterior-cover gesture, round-account and information-window changes. Apply the
 Viewer commit to release/studio-header-staging, retaining staging notifications,
 file launch and review behavior. Production promotion remains separate.
+
+## Follow-up: restore mobile paper size (local)
+
+- Device screenshots exposed a regression in the centred-paper change: reserving
+  the header and lower controls on both sides permanently reduced the page,
+  especially when Safari browser bars reduced the visual viewport height.
+- Paper fit now reserves only symmetric OS safe-area margins. Normal pages,
+  curved faces and exterior covers retain menu-independent sizing and centring.
+  Controls use available gaps and overlay when the full-size paper leaves too
+  little space; opening menus must not shrink the page.
+- Regression geometry includes browser heights 664/740 and PWA heights 844/932.
+- Browser UI verification: 430x740 with simulated top safe area 47px produced
+  a 361.99x643.55px flat page, identical before/after menu opening. Curved C2
+  stayed in the viewport at the same browser height. At 430x932 with simulated
+  safe areas 59/34, flat dimensions were 418.00x743.11px and curved reading
+  filled the width with the header in the upper gap. These are browser
+  emulations, not physical iOS tests. Layout/minimap checks and build passed.
+- Not committed or deployed in this increment.
+
+The user subsequently approved commit and deployment of this mobile sizing
+correction to the existing Cloudflare Pages staging environment.

@@ -67,18 +67,20 @@ for(const thickness of [8,32,64])for(const side of [-1,1]){
 }
 console.log('Responsive controls stay in safe viewport; curved single faces fit uniformly; page sequence has no skipped faces.');
 
-// PWA safe areas, viewport offsets and compact phones retain a centred paper
-// frame and enough room for the header and lower controls without menu state.
-for(const [width,height] of [[320,568],[390,844],[430,932]])for(const safeTop of [0,47,59]){
+// PWA and browser heights fit the safe viewport without reserving menu rows.
+for(const [width,height] of [[320,568],[390,664],[390,844],[430,740],[430,932]])for(const safeTop of [0,47,59]){
  const v={left:0,top:13,width,height,safeTop,safeBottom:34,safeLeft:0,safeRight:0};
  const safe=readerPageInsets(v),paperHeight=Math.min(height-safe.safeTop*2,(width-12)*16/9);
  const top=v.top+(height-paperHeight)/2;
  const header=readerHeaderTop(v,top);
  assert.ok(header>=v.top+safeTop);
- assert.ok(header+48<=top);
+ assert.ok(header+48<=v.top+height);
+ assert.equal(safe.safeTop,Math.max(safeTop,34));
+ assert.equal(paperHeight,Math.min(height-2*Math.max(safeTop,34),(width-12)*16/9));
  const page={top,width:width-12,height:paperHeight,right:width-6};
  const controls=readerControlLayout(v,page);
- assert.ok(top+paperHeight+6<=controls.progressTop);
+ assert.ok(controls.progressTop>=v.top+safeTop);
+ assert.ok(controls.top+controls.height<=v.top+height);
  const points=[{x:0,y:0},{x:360,y:640}];
  const fit=fitReaderSheet(points,width,height,safe);
  assert.ok(Math.abs((fit.minY+fit.maxY)*fit.scale/2+fit.offsetY-height/2)<1e-8);
@@ -89,7 +91,7 @@ assert.equal(readerBoundaryTarget(items,7,1,covers),0);
 assert.equal(readerBoundaryTarget(items,1,-1,covers),null);
 assert.equal(readerBoundaryTarget(items,6,1,covers),null);
 assert.equal(readerBoundaryTarget(items,0,-1,()=>({exterior:false})),null);
-console.log('Stable centred phone paper clears both menus; exterior boundary targets wrap both ways.');
+console.log('Phone paper uses the safe viewport without menu padding; exterior boundary targets wrap both ways.');
 
 for(const [width,height,page,layout] of [
  [430,932,{left:16,top:112,width:398,height:708,right:414},'overlay'],

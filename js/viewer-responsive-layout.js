@@ -1,7 +1,6 @@
-/** Stable, symmetric paper margins; independent of menu visibility. */
-export function readerPageInsets({width,height,safeTop=0,safeRight=0,safeBottom=0,safeLeft=0}) {
-    const phone=height>=width&&width-safeLeft-safeRight<700;
-    const vertical=phone?Math.max(safeTop+52,Math.max(2,safeBottom-12)+78):Math.max(safeTop,safeBottom);
+/** Fit paper to the safe viewport, never reserve menu rows in its scale. */
+export function readerPageInsets({safeTop=0,safeRight=0,safeBottom=0,safeLeft=0}) {
+    const vertical=Math.max(safeTop,safeBottom);
     return {safeTop:vertical,safeBottom:vertical,safeLeft,safeRight};
 }
 
