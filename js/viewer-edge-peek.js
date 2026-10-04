@@ -1,4 +1,5 @@
 import {VIEWER_PEEK_OPEN_EXTENT} from './viewer-peek-layout.js';
+import {fitReaderSheet,adjacentReaderPage} from './viewer-responsive-layout.js';
 import {peekPaperPoint as paperPoint, peekViewportFrame, peekPaperProfile, peekPaperSample} from './viewer-peek-geometry.js';
 import {createViewerPeekCover} from './viewer-peek-cover.js';
 import {createViewerPeekCoverMotion} from './viewer-peek-cover-motion.js';
@@ -135,26 +136,33 @@ export function createViewerEdgePeek({getItems, getLayout, renderSurface, format
     function holdHover(){hoverHeld=true;hoverAnchor=null;}
     const coverMotion=createViewerPeekCoverMotion();
     let inertia=null,readingMotion=null,readingFrame=0,peekFit=null,readingFit=null;
+    const singleReading=()=>!!snapshot?.singleBook&&bookReading===1;
     function setReading(value){
         bookReading=Math.max(0,Math.min(1,value));root.dataset.reading=bookReading.toFixed(4);
+        root.dataset.single=String(!!snapshot?.singleBook&&bookReading>0);
         root.setAttribute('aria-label',bookReading===1?'本の読書モード':'覗き見');
-        if(peekFit&&readingFit){
-            const mix=(a,b)=>a+(b-a)*bookReading;
-            root.style.setProperty('--fan-scale',mix(peekFit.scale,readingFit.scale));
-            // Interpolate the actual screen origin, then convert to scene units.
-            const scale=mix(peekFit.scale,readingFit.scale);
-            root.style.setProperty('--fan-offset-x',mix(peekFit.offsetX*peekFit.scale,readingFit.offsetX*readingFit.scale)/scale+'px');
-            root.style.setProperty('--fan-offset-y',mix(peekFit.offsetY,readingFit.offsetY)+'px');
-        }
         // Only paper meshes carry bending geometry; closed-cover side faces stay rigid.
         for(const sheet of content.querySelectorAll('.edge-fan-sheet[data-shape-spread][data-shape-depth]')){
             shapeSheet(sheet,Number(sheet.dataset.shapeSpread),Number(sheet.dataset.shapeDepth));
             // B/C settle beneath the readable A spread. Keep the covers/paper
             // block as a thin physical rim instead of showing neighbouring text.
-            const neighbour=sheet.dataset.active==='false';
+            const neighbour=sheet.dataset.active==='false'||(snapshot?.singleBook&&sheet.dataset.selected!=='true');
             sheet.style.opacity=neighbour?String(1-bookReading):'';
         }
-        for(const edge of content.querySelectorAll('.edge-fan-top,.edge-fan-fore-edge'))edge.style.opacity=String(1-bookReading);
+        for(const edge of content.querySelectorAll('.edge-fan-top,.edge-fan-fore-edge,.edge-fan-binding'))edge.style.opacity=String(1-bookReading);
+        if(snapshot?.singleBook&&bookReading>0){
+            const sheet=content.querySelector('.edge-fan-sheet[data-selected=true]');
+            const points=[...(sheet?.children||[])].flatMap(strip=>strip.bookPoints||[]);
+            const v=snapshot.viewport;
+            readingFit=fitReaderSheet(points,v.width,v.height,v)||readingFit;
+        }
+        if(peekFit&&readingFit){
+            const mix=(a,b)=>a+(b-a)*bookReading;
+            const scale=mix(peekFit.scale,readingFit.scale);
+            root.style.setProperty('--fan-scale',scale);
+            root.style.setProperty('--fan-offset-x',mix(peekFit.offsetX*peekFit.scale,readingFit.offsetX*readingFit.scale)/scale+'px');
+            root.style.setProperty('--fan-offset-y',mix(peekFit.offsetY,readingFit.offsetY)+'px');
+        }
     }
     function drawReading(progress){if(!readingMotion)return;readingMotion.progress=Math.max(0,Math.min(1,progress));const {from,to}=readingMotion;setReading(from+(to-from)*readingMotion.progress);}
     function finishReading(accept){
@@ -269,7 +277,7 @@ export function createViewerEdgePeek({getItems, getLayout, renderSurface, format
             cancelAnimationFrame(frame);ready=true;leaf.hidden=false;
             document.body.classList.add('viewer-edge-fan-active');root.dataset.ready='true';
             status.textContent=`${items[index].label} / ${snapshot.total??items.length}`;
-            if(previous>=0&&!layout.exterior&&!previousLayout?.exterior&&previousLayout?.position!==layout.position&&!matchMedia('(prefers-reduced-motion: reduce)').matches){
+            if(!singleReading()&&previous>=0&&!layout.exterior&&!previousLayout?.exterior&&previousLayout?.position!==layout.position&&!matchMedia('(prefers-reduced-motion: reduce)').matches){
                 const direction=(index>previous?1:-1)*(snapshot.rtl?1:-1);
                 const front=previousLayout.layers.find(layer=>layer.active&&layer.side===-direction);
                 const back=layout.layers.find(layer=>layer.active&&layer.side===direction);
@@ -361,15 +369,7 @@ export function createViewerEdgePeek({getItems, getLayout, renderSurface, format
         scrub(e,element);
     }
     function adjacentIndex(at,delta){
-        const position=getLayout(items[at]?.index)?.position;
-        for(let i=at+delta;i>=0&&i<items.length;i+=delta){
-            const other=getLayout(items[i].index)?.position;
-            if(other!==undefined&&other!==position){
-                while(i>0&&getLayout(items[i-1].index)?.position===other)i--;
-                return i;
-            }
-        }
-        return null;
+        return adjacentReaderPage(items,at,delta,index=>getLayout(index)?.position,singleReading());
     }
     function stepPage(delta,repeat=false){
         stopRiffle();holdHover();
@@ -417,13 +417,15 @@ export function createViewerEdgePeek({getItems, getLayout, renderSurface, format
             drag.sign=Math.sign(dx);drag.target=adjacentIndex(drag.index,drag.sign*(snapshot.rtl?1:-1));
         }
         drag.progress=Math.max(0,Math.min(1,dx*drag.sign/Math.max(80,Math.min(180,leaf.getBoundingClientRect().width*.35))));
-        if(drag.target!==null&&!getLayout(items[drag.target].index)?.exterior&&!getLayout(items[drag.index].index)?.exterior)show(drag.target);
+        if(!singleReading()&&drag.target!==null&&!getLayout(items[drag.target].index)?.exterior&&!getLayout(items[drag.index].index)?.exterior)show(drag.target);
     });
     function endPeekDrag(e,cancelled=false){
         const g=drag;drag=null;if(!g||g.id!==e.pointerId)return;
         const dx=e.clientX-g.x,dy=e.clientY-g.y;
         g.ended=!cancelled&&dx*g.sign>=24&&Math.abs(dx)>Math.abs(dy)*1.35;
         if(g.ended)suppressClickUntil=performance.now()+400;
+        // One completed swipe owns one page in the single-face reading view.
+        if(singleReading()){if(g.ended&&g.target!==null)show(g.target);return;}
         if(g.ended&&g.target!==null&&(getLayout(items[g.target].index)?.exterior||getLayout(items[g.index].index)?.exterior))show(g.target);
         if(g.ended&&g.target===null)stepPage(g.sign*(snapshot.rtl?1:-1));
         if(g.ended&&g.target!==null&&!getLayout(items[g.index].index)?.exterior&&!getLayout(items[g.target].index)?.exterior){
@@ -451,6 +453,14 @@ export function createViewerEdgePeek({getItems, getLayout, renderSurface, format
     });
     function edgeTapSide(x,y){
         if(!ready||rendering||navigationBusy()||readingMotion)return null;
+        if(singleReading()&&readingFit){
+            const r=leaf.getBoundingClientRect(),f=readingFit;
+            const left=r.left+(f.minX+f.offsetX)*f.scale,right=r.left+(f.maxX+f.offsetX)*f.scale;
+            const top=r.top+f.minY*f.scale+f.offsetY,bottom=r.top+f.maxY*f.scale+f.offsetY;
+            const edge=Math.min(56,(right-left)*.15);
+            if(y<top||y>bottom||x<left||x>right)return null;
+            return x<left+edge?'left':x>right-edge?'right':null;
+        }
         // Hit the actual fore-edge of A, not the viewport or the hidden B/C
         // sheets. Closed covers have one surface and accept either edge.
         for(const sheet of content.querySelectorAll('.edge-fan-sheet[data-active=true]')){
@@ -464,7 +474,13 @@ export function createViewerEdgePeek({getItems, getLayout, renderSurface, format
         }
         return null;
     }
-    return {edgeTapSide,setReading,transitionReading,drawReading,finishReading,cancelReading,get reading(){return bookReading;},get busy(){return rendering;},get element(){return root;},get ready(){return ready;},get sourceIndex(){return items[selected]?.index;},confirm,seek(index){
+    return {edgeTapSide,setReading,transitionReading,drawReading,finishReading,cancelReading,
+    get bounds(){
+        const f=bookReading===1?readingFit:peekFit;
+        if(!ready||!f)return null;
+        const r=leaf.getBoundingClientRect(),left=r.left+(f.minX+f.offsetX)*f.scale,top=r.top+f.minY*f.scale+f.offsetY;
+        return {left,top,width:(f.maxX-f.minX)*f.scale,height:(f.maxY-f.minY)*f.scale,right:r.left+(f.maxX+f.offsetX)*f.scale};
+    },get reading(){return bookReading;},get busy(){return rendering;},get element(){return root;},get ready(){return ready;},get sourceIndex(){return items[selected]?.index;},confirm,seek(index){
         stopRiffle();holdHover();
 
         const position=getLayout(index)?.position,exact=items.findIndex(item=>item.index===index);
@@ -494,7 +510,7 @@ export function createViewerEdgePeek({getItems, getLayout, renderSurface, format
         root.dataset.direction=data.rtl?'rtl':'ltr';
         if(bookReading)setReading(bookReading);
         if(reshape&&selected>=0&&!rendering)void renderSelection(selected,false,true);
-    },holdHover,stopRiffle,fling(side,count){return startRiffle((side==='right'?1:-1)*(snapshot?.rtl?-1:1),count);},endDrag(){stopRiffle();lastTap=null;clearTimeout(tapTimer);suppressClickUntil=performance.now()+800;if(drag)drag.ended=false;drag=null;},get opened(){return !root.hidden&&selected>=0;},handleKey(e){
+    },holdHover,stopRiffle,fling(side,count){return singleReading()?false:startRiffle((side==='right'?1:-1)*(snapshot?.rtl?-1:1),count);},endDrag(){stopRiffle();lastTap=null;clearTimeout(tapTimer);suppressClickUntil=performance.now()+800;if(drag)drag.ended=false;drag=null;},get opened(){return !root.hidden&&selected>=0;},handleKey(e){
         if(root.hidden||selected<0||!['ArrowLeft','ArrowRight'].includes(e.key))return false;
         e.preventDefault();stepPage((e.key==='ArrowRight'?1:-1)*(snapshot.rtl?-1:1),!!e.repeat);return true;
     },clear};

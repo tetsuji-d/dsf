@@ -442,7 +442,7 @@ async function init() {
         onSettingsChange: open => {clearViewerUiAutoHide(); if(!open) scheduleViewerUiAutoHide();},
         onPoseChange: (mode,data) => edgePeek?.update(mode,data),
         getPeek: () => edgePeek,
-        canReadBook:()=>{const {W}=getViewerCanvasSpace();return Math.min(W,document.documentElement.clientWidth)>=700;},
+        canReadBook:()=>getViewerBookThickness()!==undefined,
         renderPosePage:index=>{const surface=getViewerSurfaceForDisplayIndex(index);return surface?renderSurfaceContentHTML(surface,state.activeLang)+renderSurfaceBubblesHTML(surface,state.activeLang):'';},
         beforePose: () => {riffle?.stop();coverTurn?.cancel(); activePageCurl?.cancel(); clearViewerUiAutoHide();},
     });
@@ -457,7 +457,7 @@ async function init() {
             renderSurface:surface=>surface&&!surface.virtualBlank?renderSurfaceContentHTML(surface,state.activeLang)+renderSurfaceBubblesHTML(surface,state.activeLang):'',
             formatSurface:surface=>surface&&!surface.virtualBlank?formatViewerSurfaceSliderLabel(surface):'',
             getItems:()=>getViewerPeekItems({units:getBookUnits(),bodyPages:viewerBookModel?.bodyPages||[]}).map(s=>({index:s.sourcePageIndex,label:formatViewerSurfaceSliderLabel(s)})),
-            open:index=>{readerChrome.cancelPose();if(spreadMode&&hasBookModel())transitionToBookUnit(findBookUnitIndexForPage(index));else transitionToIndex(index,'jump');},
+            open:index=>{readerChrome.cancelPose();syncViewerAutoSpreadMode();if(spreadMode&&hasBookModel())transitionToBookUnit(findBookUnitIndexForPage(index));else transitionToIndex(index,'jump');},
         });
         const delta=side=>(side==='left'?1:-1)*(getPageDirection()==='rtl'?1:-1);
         riffle=createViewerRiffle({
@@ -530,6 +530,7 @@ async function init() {
     window.addEventListener('resize', scheduleViewerResize);
     window.visualViewport?.addEventListener('resize', scheduleViewerResize);
     window.visualViewport?.addEventListener('scroll', scheduleViewerResize);
+    for(const display of ['standalone','fullscreen'])matchMedia(`(display-mode: ${display})`).addEventListener('change',scheduleViewerResize);
     window.addEventListener('beforeunload', () => replaceViewerLocalPortableSession(null), { once: true });
     setupStandaloneFileDrop();
 
@@ -2777,6 +2778,7 @@ function getViewerReaderSnapshot(requestedIndex) {
     return {rect,openRatio:bodyPosition>=0?bodyPosition/Math.max(1,body.length-1):(readingIndex>(body.at(-1)?.sourcePageIndex??Infinity)?1:0),peekIndex:readingIndex,rtl:getPageDirection()==='rtl',peekKey:`${viewerDocumentRevision}:${state.activeLang}`,covers:{front:viewerBookModel?.covers?.c1?.sourcePageIndex,back:viewerBookModel?.covers?.c4?.sourcePageIndex},pages:pages.map(p=>({index:p.surface?.sourcePageIndex,side:p.side,label:formatViewerSurfaceSliderLabel(p.surface),cover:/^C[14]$/.test(String(p.surface?.bookRole||p.surface?.role||''))})),
         title:document.getElementById('ui-title')?.textContent || '',total:getViewerBodyPageTotal(hasBookModel()),
         thickness:getViewerBookThickness(),design:state.book?.spineDesign,
+        viewport:getViewerViewportMetrics(),singleBook:viewerSpreadPreference==='single'||Math.min(getViewerCanvasSpace().W,document.documentElement.clientWidth)<700,
         author:getViewerLocalizedMeta()?.author||'',publisher:viewerProjectMeta.labelName||'',
         busy:document.body.classList.contains('viewer-zoom-active') || !!readingGuides?.isAssisting()};
 }
@@ -4843,6 +4845,9 @@ function scheduleViewerResize() {
 
 function handleViewerResize() {
     syncViewerViewportMetrics();
+    // The fan owns its selected face. Changing the flat spread underneath it
+    // would cancel that pose and return to the page from before it was opened.
+    if(readerChrome?.active){resizeCanvas();return;}
     if (syncViewerAutoSpreadMode()) {
         refresh();
     } else {

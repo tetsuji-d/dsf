@@ -3314,6 +3314,23 @@ body.viewer-reader-chrome #viewer-header {min-height:56px;}
 #viewer-reader-controls button[data-book-direction] {position:relative;}
 #viewer-reader-controls .reader-direction-mark {position:absolute;right:2px;bottom:3px;width:13px;height:13px;border-radius:50%;background:#172021df;display:grid;place-items:center;}
 #viewer-reader-controls .reader-direction-mark svg {width:11px;height:11px;filter:none;}
+
+/* The same safe viewport governs browser tabs, standalone windows and fullscreen. */
+#viewer-reader-controls {
+    left:var(--reader-controls-left);top:var(--reader-controls-top);right:auto;bottom:auto;
+    gap:var(--reader-control-gap,6px);
+}
+#viewer-reader-controls[data-dock=bottom] {flex-direction:row;}
+#viewer-reader-controls button {
+    width:var(--reader-control-size,48px);height:var(--reader-control-size,48px);
+    min-height:var(--reader-control-size,48px);
+}
+#viewer-reader-controls #viewer-nav-left {margin-top:0;}
+body.viewer-reader-chrome :is(#viewer-bottom-navigation,#viewer-footer) .slider-wrapper {
+    position:fixed;left:var(--reader-progress-left);top:var(--reader-progress-top);
+    bottom:auto;width:var(--reader-progress-width);height:30px;transform:none;
+}
+#viewer-edge-peek[data-single=true] {overflow:hidden;}
 .pose-fan-ghost {position:fixed;z-index:0;transform:translateX(-50%);width:var(--peek-width);pointer-events:none;}
 .pose-morph-strip {z-index:1;}
 .pose-morph-strip::after {opacity:var(--pose-shade,0);}
