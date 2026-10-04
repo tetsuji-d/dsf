@@ -1,12 +1,14 @@
+import {animateViewerHeldProgress} from './viewer-held-progress.js';
 /** Close the fan about its binding, then rotate the rigid cover into view.
  * Animate two existing page groups on the compositor: rebuilding every curved
  * strip each frame stalls WebKit and multiplies mobile backing surfaces. */
 export function createViewerPeekCoverMotion() {
     let cancelCurrent=null;
     const mix=(a,b,t)=>a+(b-a)*t;
-    function play(scene,previous,next,{from,to,thickness=8,hinge=405,targetFit=null}={}) {
+    function play(scene,previous,next,{from,to,thickness=8,hinge=405,targetFit=null,gesture=null}={}) {
         cancelCurrent?.();
-        if(matchMedia('(prefers-reduced-motion:reduce)').matches){scene.replaceChildren(next);return Promise.resolve(true);}
+        const reduced=matchMedia('(prefers-reduced-motion:reduce)').matches;
+        if(reduced&&!gesture){scene.replaceChildren(next);return Promise.resolve(true);}
         const capture=(pages,container)=>{
             const r=container.getBoundingClientRect(),sx=r.width/800,sy=r.height/720;
             const exterior=!!pages.querySelector('.edge-fan-closed');
@@ -45,19 +47,19 @@ export function createViewerPeekCoverMotion() {
                 transform:`matrix(${width/depth},0,0,${(bottom-top)/640},${center-width/2},${top})`});
         }
         const animations=[scene,target,side].map((el,i)=>{const animation=el.animate(frames[i],{duration,easing:'linear',fill:'both'});animation.pause();animation.currentTime=0;return animation;});
-        let frame=0,done=false;
+        let driver=null,done=false;
         return new Promise(resolve=>{
             const finish=accept=>{
-                if(done)return;done=true;cancelAnimationFrame(frame);
+                if(done)return;done=true;driver?.cancel();
                 for(const animation of animations)animation.cancel();
                 scene.style.cssText=style;scene.replaceChildren(accept?next:previous);target.remove();root.remove();cancelCurrent=null;resolve(accept);
             };
             cancelCurrent=()=>finish(false);
-            function tick(){root.dataset.progress=(Math.min(1,(Number(animations[0].currentTime)||0)/duration)).toFixed(4);if(!done)frame=requestAnimationFrame(tick);}
-            // Begin after the initial surfaces have painted, not while Safari is
-            // still allocating them (which can otherwise skip the whole turn).
-            frame=requestAnimationFrame(()=>{frame=requestAnimationFrame(()=>{if(done)return;for(const animation of animations)animation.play();tick();});});
-            Promise.all(animations.map(a=>a.finished)).then(()=>finish(true),()=>{});
+            driver=animateViewerHeldProgress({gesture,duration,reduced,draw:p=>{
+                for(const animation of animations)animation.currentTime=p*duration;
+                root.dataset.progress=p.toFixed(4);
+            }});
+            driver.finished.then(finish);
         });
     }
     return {play,cancel:()=>cancelCurrent?.()};

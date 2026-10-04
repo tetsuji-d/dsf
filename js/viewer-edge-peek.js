@@ -3,6 +3,7 @@ import {fitReaderBookFace,adjacentReaderPage} from './viewer-responsive-layout.j
 import {peekPaperPoint as paperPoint, peekViewportFrame, peekPaperProfile, peekPaperSample} from './viewer-peek-geometry.js';
 import {createViewerPeekCover} from './viewer-peek-cover.js';
 import {createViewerPeekCoverMotion} from './viewer-peek-cover-motion.js';
+import {animateViewerHeldProgress} from './viewer-held-progress.js';
 /** A curved fan of neighbouring sheets sharing one binding. No reading state is
  * changed until confirmation; CSS strips also support fixed-text surfaces. */
 let needsAffineTriangles;
@@ -137,15 +138,25 @@ export function createViewerEdgePeek({getItems, getLayout, renderSurface, format
     let hoverHeld=false,hoverAnchor=null,pendingRapid=false,lastStepAt=0,lastStepDelta=0;
     function holdHover(){hoverHeld=true;hoverAnchor=null;}
     const coverMotion=createViewerPeekCoverMotion();
-    let inertia=null,readingMotion=null,readingFrame=0,peekFit=null,readingFit=null,cameraMotion=null;
-    function cancelCamera(){cameraMotion?.cancel();cameraMotion=null;delete root.dataset.cameraMotion;}
-    async function moveCamera(from,to,duration=320){
+    let inertia=null,readingMotion=null,readingFrame=0,peekFit=null,readingFit=null,cameraMotion=null,cameraDriver=null;
+    function cancelCamera(){cameraDriver?.cancel();cameraDriver=null;cameraMotion?.cancel();cameraMotion=null;delete root.dataset.cameraMotion;delete root.dataset.cameraProgress;}
+    function prepareCamera(from,to,duration=320){
         cancelCamera();
-        if(!from||!to||matchMedia('(prefers-reduced-motion: reduce)').matches)return;
+        if(!from||!to)return null;
         const pose=f=>({top:f.offsetY+'px',transform:`scale(${f.scale}) translate(${f.offsetX}px,0px)`});
-        const animation=content.animate([pose(from),pose(to)],{duration,easing:'ease-in-out'});
+        const animation=content.animate([pose(from),pose(to)],{duration,easing:'linear',fill:'both'});
+        animation.pause();animation.currentTime=0;
         cameraMotion=animation;root.dataset.cameraMotion='pan';
-        try{await animation.finished;}catch{}finally{if(cameraMotion===animation)cancelCamera();}
+        return animation;
+    }
+    async function moveCamera(from,to,duration=320,gesture=null){
+        const animation=prepareCamera(from,to,duration);
+        if(!animation)return true;
+        cameraDriver=animateViewerHeldProgress({gesture,duration,reduced:matchMedia('(prefers-reduced-motion: reduce)').matches,
+            draw:p=>{animation.currentTime=p*duration;root.dataset.cameraProgress=p.toFixed(4);}});
+        const accept=await cameraDriver.finished;
+        if(cameraMotion===animation)cancelCamera();
+        return accept;
     }
     const singleReading=()=>!!snapshot?.singleBook&&bookReading===1;
     function fitBookFace(pages){
@@ -207,7 +218,7 @@ export function createViewerEdgePeek({getItems, getLayout, renderSurface, format
         stopRiffle();holdHover();readingMotion={from:bookReading,to,progress:0,done:onFinish};
         if(!manual)finishReading(true);return true;
     }
-    function cancelReading(){cancelAnimationFrame(readingFrame);readingMotion=null;cancelCamera();}
+    function cancelReading(){cancelAnimationFrame(readingFrame);readingMotion=null;cancelCamera();cancelPageGesture();}
     window.addEventListener('blur',()=>{if(readingMotion)finishReading(false);});
     function stopRiffle(){inertia=null;delete root.dataset.riffling;}
     function continueRiffle(){
@@ -298,6 +309,17 @@ export function createViewerEdgePeek({getItems, getLayout, renderSurface, format
             await Promise.race([Promise.all([...next.querySelectorAll('[data-active=true] img,.edge-fan-cover img')].map(img=>img.complete&&img.naturalWidth?Promise.resolve():img.decode())),new Promise((_,reject)=>{timer=setTimeout(()=>reject(new Error('timeout')),4000);})]);
             if(id!==ticket)return;
             const previousPages=content.firstElementChild;
+            const restorePrevious=()=>{
+                content.replaceChildren(previousPages);selected=previous;Object.assign(root.dataset,previousData);
+                setReading(bookReading);onSelection();status.textContent=`${items[previous].label} / ${snapshot.total??items.length}`;
+            };
+            const reduced=matchMedia('(prefers-reduced-motion: reduce)').matches;
+            if(gesture&&reduced){
+                const wait=animateViewerHeldProgress({gesture,reduced:true,draw(){}});
+                const accept=await wait.finished;
+                if(id!==ticket)return;
+                if(!accept){restorePrevious();settle(id);return;}
+            }
             cancelAnimationFrame(frame);ready=true;leaf.hidden=false;
             document.body.classList.add('viewer-edge-fan-active');root.dataset.ready='true';
             status.textContent=`${items[index].label} / ${snapshot.total??items.length}`;
@@ -320,7 +342,7 @@ export function createViewerEdgePeek({getItems, getLayout, renderSurface, format
                 next.append(stationary,turn);content.replaceChildren(next);setReading(bookReading);stationary.style.opacity="1";turn.style.opacity="1";
                 const frontHtml=renderSurface(front?.surface),backHtml=renderSurface(back?.surface);
                 const turnTime=typeof rapid==='number'?rapid:rapid&&!gesture?160:280;
-                if(singleReading())void moveCamera(previousFit,readingFit,turnTime);
+                const camera=singleReading()?prepareCamera(previousFit,readingFit,turnTime):null;
                 let backShown=false,start=performance.now(),held=0,from=0,releasing=!gesture;
                 const initialHinge=Number(turn.dataset.hinge),initialBias=Number(turn.dataset.bias);
                 function animate(now){
@@ -338,6 +360,7 @@ export function createViewerEdgePeek({getItems, getLayout, renderSurface, format
                     if(heldGesture&&t===held){frame=requestAnimationFrame(animate);return;}
                     held=t;turn.dataset.progress=t;
                     const ease=t*t*(3-2*t),extent=(front?.extent??VIEWER_PEEK_OPEN_EXTENT)*(1-ease)+(back?.extent??VIEWER_PEEK_OPEN_EXTENT)*ease;
+                    if(camera){camera.currentTime=ease*turnTime;root.dataset.cameraProgress=t.toFixed(4);}
                     const spread=-extent*direction*Math.cos(ease*Math.PI);
                     if(backShown!==(ease>=.5)){
                         backShown=ease>=.5;
@@ -357,23 +380,25 @@ export function createViewerEdgePeek({getItems, getLayout, renderSurface, format
                         turn.dataset.hinge=initialHinge;turn.dataset.bias=initialBias;turn.dataset.stackDepth=previousData[direction>0?'leftThickness':'rightThickness'];
                         shapeSheet(turn,-direction*(front?.extent??VIEWER_PEEK_OPEN_EXTENT));numberSheet(turn,formatSurface(front?.surface));
                         if(pendingIndex===index)pendingIndex=null;
-                        content.replaceChildren(previousPages);selected=previous;Object.assign(root.dataset,previousData);onSelection();
-                        status.textContent=`${items[previous].label} / ${snapshot.total??items.length}`;
+                        restorePrevious();
                     }else{turn.remove();stationary.remove();for(const sheet of hidden)sheet.style.visibility='';}
+                    if(camera)cancelCamera();
                     settle(id);
                 }
                 frame=requestAnimationFrame(animate);
             }else{
                 if(previous>=0&&(layout.exterior||previousLayout?.exterior)){
                     ready=false;root.dataset.ready='false';
-                    await coverMotion.play(content,previousPages,next,{from:previousLayout?.role||'peek',to:layout.role||'peek',thickness:snapshot.thickness,hinge:Number(previousData.hinge)||405,targetFit:singleReading()?fitBookFace(next):null});
+                    const accept=await coverMotion.play(content,previousPages,next,{from:previousLayout?.role||'peek',to:layout.role||'peek',thickness:snapshot.thickness,hinge:Number(previousData.hinge)||405,targetFit:singleReading()?fitBookFace(next):null,gesture});
                     if(id!==ticket)return;
+                    if(!accept)restorePrevious();
                     ready=true;root.dataset.ready='true';
                 }else content.replaceChildren(next);
                 setReading(bookReading);
                 if(singleReading()&&previous>=0&&!reshape&&!layout.exterior&&!previousLayout?.exterior){
-                    await moveCamera(previousFit,readingFit);
+                    const accept=await moveCamera(previousFit,readingFit,320,gesture);
                     if(id!==ticket)return;
+                    if(!accept)restorePrevious();
                 }
                 settle(id);
             }
@@ -435,7 +460,15 @@ export function createViewerEdgePeek({getItems, getLayout, renderSurface, format
     }
 
     let drag=null;
-    leaf.addEventListener('pointerdown',e=>{stopRiffle();holdHover();if(rendering||navigationBusy()||readingMotion)return;drag={samples:[{x:e.clientX,t:e.timeStamp}],width:leaf.getBoundingClientRect().width,id:e.pointerId,x:e.clientX,y:e.clientY,index:pendingIndex??selected,progress:0,target:null,sign:0,ended:null};try{leaf.setPointerCapture(e.pointerId);}catch{}});
+    function cancelPageGesture(){if(drag)drag.ended=false;drag=null;}
+    window.addEventListener('blur',cancelPageGesture);
+    window.addEventListener('resize',cancelPageGesture);
+    document.addEventListener('visibilitychange',()=>{if(document.hidden)cancelPageGesture();});
+    leaf.addEventListener('pointerdown',e=>{
+        if(e.pointerType==='touch'&&e.isPrimary===false){cancelPageGesture();return;}
+        if(e.button!==0)return;
+        stopRiffle();holdHover();if(rendering||navigationBusy()||readingMotion)return;drag={samples:[{x:e.clientX,t:e.timeStamp}],width:leaf.getBoundingClientRect().width,id:e.pointerId,x:e.clientX,y:e.clientY,index:pendingIndex??selected,progress:0,target:null,sign:0,ended:null};try{leaf.setPointerCapture(e.pointerId);}catch{}
+    });
     leaf.addEventListener('pointermove',e=>{
         if(e.pointerType==='mouse'&&!e.buttons){hover(e,leaf);return;}
         if(drag?.id!==e.pointerId)return;
@@ -446,16 +479,16 @@ export function createViewerEdgePeek({getItems, getLayout, renderSurface, format
             drag.sign=Math.sign(dx);drag.target=adjacentIndex(drag.index,drag.sign*(snapshot.rtl?1:-1));
         }
         drag.progress=Math.max(0,Math.min(1,dx*drag.sign/Math.max(80,Math.min(180,leaf.getBoundingClientRect().width*.35))));
-        if(!singleReading()&&drag.target!==null&&!getLayout(items[drag.target].index)?.exterior&&!getLayout(items[drag.index].index)?.exterior)show(drag.target);
+        if(drag.target!==null&&!drag.started){drag.started=true;show(drag.target);}
     });
     function endPeekDrag(e,cancelled=false){
-        const g=drag;drag=null;if(!g||g.id!==e.pointerId)return;
+        const g=drag;if(!g||g.id!==e.pointerId)return;drag=null;
         const dx=e.clientX-g.x,dy=e.clientY-g.y;
-        g.ended=!cancelled&&dx*g.sign>=24&&Math.abs(dx)>Math.abs(dy)*1.35;
-        if(g.ended)suppressClickUntil=performance.now()+400;
+        g.ended=!cancelled&&g.progress>.4&&dx*g.sign>=24&&Math.abs(dx)>Math.abs(dy)*1.35;
+        if(g.started||g.ended)suppressClickUntil=performance.now()+400;
         // One completed swipe owns one page in the single-face reading view.
-        if(singleReading()){if(g.ended&&g.target!==null)show(g.target);return;}
-        if(g.ended&&g.target!==null&&(getLayout(items[g.target].index)?.exterior||getLayout(items[g.index].index)?.exterior))show(g.target);
+        if(singleReading()){if(g.ended&&g.target!==null&&!g.started)show(g.target);return;}
+        if(g.ended&&g.target!==null&&!g.started)show(g.target);
         if(g.ended&&g.target===null)stepPage(g.sign*(snapshot.rtl?1:-1));
         if(g.ended&&g.target!==null&&!getLayout(items[g.index].index)?.exterior&&!getLayout(items[g.target].index)?.exterior){
             const now=e.timeStamp,sample=g.samples.find(s=>now-s.t<=130);
@@ -467,6 +500,7 @@ export function createViewerEdgePeek({getItems, getLayout, renderSurface, format
         }
     }
     leaf.addEventListener('pointerup',e=>endPeekDrag(e));leaf.addEventListener('pointercancel',e=>endPeekDrag(e,true));
+    leaf.addEventListener('lostpointercapture',e=>{if(drag?.id===e.pointerId)endPeekDrag(e,true);});
     for(const el of [pose,leaf])el.addEventListener('click',e=>{
         e.stopPropagation();if(root.hidden||performance.now()<suppressClickUntil)return;
         if(bookReading===1&&e.pointerType!=='touch'&&readingFit){
@@ -504,6 +538,15 @@ export function createViewerEdgePeek({getItems, getLayout, renderSurface, format
         return null;
     }
     return {edgeTapSide,setReading,transitionReading,drawReading,finishReading,cancelReading,
+    beginPageGesture(side){
+        if(!ready||rendering||readingMotion||drag)return false;
+        const target=adjacentIndex(selected,(side==='right'?1:-1)*(snapshot.rtl?-1:1));
+        if(target===null)return false;
+        stopRiffle();holdHover();drag={input:'wheel',index:selected,target,progress:0,ended:null,started:true};
+        show(target);return true;
+    },
+    drawPageGesture(p){if(drag?.input==='wheel')drag.progress=Math.max(0,Math.min(1,p));},
+    finishPageGesture(accept){if(drag?.input==='wheel'){drag.ended=accept;drag=null;}},
     get bounds(){
         const f=bookReading===1?readingFit:peekFit;
         if(!ready||!f)return null;
@@ -521,7 +564,7 @@ export function createViewerEdgePeek({getItems, getLayout, renderSurface, format
         if(mode!=='edge'||!data){clear();return;}
         snapshot=data;root.hidden=false;onPhaseChange(selected>=0?'peek':'edge');
         for(const sheet of content.querySelectorAll('[data-page-label]'))numberSheet(sheet,sheet.dataset.pageLabel);
-        if(key!==data.peekKey){stopRiffle();coverMotion.cancel();rendering=false;pendingIndex=null;cancelAnimationFrame(frame);root.dataset.opened='false';document.body.classList.remove('viewer-edge-fan-active');onPhaseChange('edge');items=getItems();key=data.peekKey;selected=-1;ticket++;leaf.hidden=true;content.replaceChildren();ready=false;root.dataset.ready='false';status.textContent='左右になぞると中身が見えます';}
+        if(key!==data.peekKey){stopRiffle();cancelPageGesture();cancelCamera();coverMotion.cancel();rendering=false;pendingIndex=null;cancelAnimationFrame(frame);root.dataset.opened='false';document.body.classList.remove('viewer-edge-fan-active');onPhaseChange('edge');items=getItems();key=data.peekKey;selected=-1;ticket++;leaf.hidden=true;content.replaceChildren();ready=false;root.dataset.ready='false';status.textContent='左右になぞると中身が見えます';}
         if(!items.length){clear();return;}
         // No space is reserved for controls: fit the complete book to the viewport.
         const viewport=window.visualViewport, width=viewport?.width||innerWidth,height=viewport?.height||innerHeight;

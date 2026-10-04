@@ -1,5 +1,6 @@
 /** One trackpad stroke owns one axis, including its momentum tail. */
-export function createViewerBookWheel({enabled, begin, progress, finish, horizontal, busy, step, onClaim=()=>{},fling=()=>false}) {
+export function createViewerBookWheel({enabled, begin, progress, finish, horizontal, busy, step, onClaim=()=>{},fling=()=>false,
+    beginHorizontal=()=>false,progressHorizontal=()=>{},finishHorizontal=()=>{}}) {
     const threshold=32;
     let gesture=null,timer=0,queued=null,queueFrame=0;
     function cancelQueue(){queued=null;cancelAnimationFrame(queueFrame);}
@@ -18,7 +19,7 @@ export function createViewerBookWheel({enabled, begin, progress, finish, horizon
     function release(cancelled=false){
         clearTimeout(timer);const g=gesture;gesture=null;
         const accept=!!(!cancelled&&g&&g.distance*g.sign>=threshold);
-        if(g?.manual)finish(accept);
+        if(g?.manual)(g.axis==='x'?finishHorizontal:finish)(accept);
         else if(accept&&!g.done)dispatch(()=>g.axis==='y'?step(g.sign<0?'up':'down'):horizontal(g.sign>0?'right':'left'));
         if(cancelled)cancelQueue();
     }
@@ -29,11 +30,13 @@ export function createViewerBookWheel({enabled, begin, progress, finish, horizon
         if(e.ctrlKey||e.metaKey||!enabled()){release(true);return false;}
         const unit=e.deltaMode===1?16:e.deltaMode===2?innerHeight:1;
         const x=e.deltaX*unit,y=e.deltaY*unit,now=e.timeStamp;
+        // Changing axis abandons a held horizontal turn before starting a pose gesture.
+        if(gesture?.manual&&gesture.axis==='x'&&Math.abs(y)>Math.max(10,Math.abs(x)*1.5))release(true);
         // A renewed impulse after a decaying tail is a fresh stroke. Do not make
         // the user wait for every tiny momentum event to disappear first.
         if(gesture?.axis){
             const g=gesture,d=g.axis==='x'?x:y,amp=Math.abs(d),impulse=Math.max(3,Math.min(10,g.peak*.6));
-            const renewed=g.committedAt&&now-g.committedAt>180&&g.decayed&&amp>=impulse&&amp>g.lastAmplitude*2;
+            const renewed=!g.manual&&g.committedAt&&now-g.committedAt>180&&g.decayed&&amp>=impulse&&amp>g.lastAmplitude*2;
             const reversed=g.done&&Math.sign(d)!==g.sign&&amp>=impulse;
             if(renewed||reversed)release();
         }
@@ -66,14 +69,22 @@ export function createViewerBookWheel({enabled, begin, progress, finish, horizon
             if(g.axis==='y'){
                 if(!g.started&&!busy()){g.started=true;g.manual=begin(g.sign<0?'up':'down');}
                 if(g.manual)progress(Math.max(0,Math.min(1,g.distance*g.sign/160)));
-            }else if(g.distance*g.sign>=threshold&&!busy()){
-                g.done=true;horizontal(g.sign>0?'right':'left');
-                if(fast){g.flung=true;fling(g.sign>0?'right':'left',Math.min(6,2+Math.floor(Math.abs(g.x)/120)));}
+            }else{
+                if(!g.started&&!busy()){g.started=true;g.manual=beginHorizontal(g.sign>0?'right':'left');}
+                if(g.manual){
+                    const p=Math.max(0,Math.min(1,g.distance*g.sign/240));progressHorizontal(p);
+                    if(p===0||p===1){finishHorizontal(p===1);g.manual=false;g.done=true;g.flung=true;g.committedAt=now;g.decayed=false;}
+                }else if(g.distance*g.sign>=threshold&&!busy()){
+                    g.done=true;horizontal(g.sign>0?'right':'left');
+                    if(fast){g.flung=true;fling(g.sign>0?'right':'left',Math.min(6,2+Math.floor(Math.abs(g.x)/120)));}
+                }
             }
             return true;
         }finally{
             // Start the silence window after synchronous fan rendering finishes.
-            timer=setTimeout(()=>release(),180);
+            // Wheel events carry movement, not contact-up. Keep an unfinished
+            // horizontal turn where it is; resume to the end or reverse to cancel.
+            if(!(gesture?.manual&&gesture.axis==='x'))timer=setTimeout(()=>release(),180);
         }
     }};
 }

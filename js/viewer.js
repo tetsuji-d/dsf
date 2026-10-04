@@ -494,11 +494,18 @@ async function init() {
     });
     if(readerChrome) bookWheel=createViewerBookWheel({
         enabled:()=>getViewerBookThickness()!==undefined&&viewScale<=1.05&&!readingGuides?.isAssisting(),
-        busy:()=>readerChrome.transitioning||!!activePageCurl?.active||(!!coverTurn?.active&&!coverTurn.atSpine),
+        busy:()=>readerChrome.transitioning||!!edgePeek?.busy||!!activePageCurl?.active||(!!coverTurn?.active&&!coverTurn.atSpine),
         onClaim:()=>{edgePeek?.stopRiffle();edgePeek?.holdHover();},
         fling:(side,count)=>!readerChrome.transitioning&&!!edgePeek?.fling(side,count),
         step:direction=>stepViewerBookVertical(direction),
         begin:direction=>stepViewerBookVertical(direction,true),progress:p=>readerChrome.drawGesture(p),finish:accept=>readerChrome.finishGesture(accept),
+        beginHorizontal:side=>{
+            if(edgePeek?.opened)return edgePeek.beginPageGesture(side);
+            if(readerChrome.active)return false;
+            return startPageCurl((side==='left')===(getPageDirection()==='rtl')?1:-1,true);
+        },
+        progressHorizontal:p=>{if(edgePeek?.opened)edgePeek.drawPageGesture(p);else activePageCurl?.draw(p);},
+        finishHorizontal:accept=>{if(edgePeek?.opened)edgePeek.finishPageGesture(accept);else activePageCurl?.finish(accept);},
         horizontal:side=>{
             if(readerChrome.transitioning)return;
             if(edgePeek?.handleKey({key:side==='right'?'ArrowRight':'ArrowLeft',preventDefault(){}}))return;
@@ -5345,6 +5352,7 @@ window.addEventListener('resize',()=>edgeTap.reset());
 document.addEventListener('visibilitychange',()=>{if(document.hidden)edgeTap.reset();});
 let curlGesture=null;
 document.addEventListener('pointerdown',e=>{
+    bookWheel?.cancel();
     edgeTap.down(e,getViewerTouchEdge(e));
     if(bookPinch?.pointerDown(e))return;
     flick?.down(e);
