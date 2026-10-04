@@ -4,7 +4,7 @@
 export function createViewerPeekCoverMotion() {
     let cancelCurrent=null;
     const mix=(a,b,t)=>a+(b-a)*t;
-    function play(scene,previous,next,{from,to,thickness=8,hinge=405}={}) {
+    function play(scene,previous,next,{from,to,thickness=8,hinge=405,targetFit=null}={}) {
         cancelCurrent?.();
         if(matchMedia('(prefers-reduced-motion:reduce)').matches){scene.replaceChildren(next);return Promise.resolve(true);}
         const capture=(pages,container)=>{
@@ -17,6 +17,9 @@ export function createViewerPeekCoverMotion() {
         // Keep the currently painted scene attached, so Safari can reuse it.
         const style=scene.style.cssText,parent=scene.parentElement,parentRect=parent.getBoundingClientRect();
         const target=scene.cloneNode(false);target.append(next);parent.append(target);
+        // Opening a cover on a phone lands directly on the focused half-book;
+        // measuring the wide spread here would cause a second jump at the end.
+        if(targetFit)Object.assign(target.style,{top:targetFit.offsetY+'px',transform:`scale(${targetFit.scale}) translate(${targetFit.offsetX}px,0px)`});
         const a=capture(previous,scene),b=capture(next,target);
         const root=document.createElement('div');root.className='edge-peek-cover-motion';root.dataset.from=from;root.dataset.to=to;root.dataset.progress='0';root.setAttribute('aria-hidden','true');
         const side=document.createElement('div');side.className='edge-peek-motion-side';

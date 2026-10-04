@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import {readerControlLayout,fitReaderSheet,adjacentReaderPage} from '../js/viewer-responsive-layout.js';
+import {readerControlLayout,fitReaderSheet,fitReaderBookFace,adjacentReaderPage} from '../js/viewer-responsive-layout.js';
 import {peekPaperPoint} from '../js/viewer-peek-geometry.js';
 
 for(const [width,height] of [[320,568],[390,844],[844,390],[667,320],[1440,900]]){
@@ -35,4 +35,28 @@ for(let i=0;i<8;i++){
 assert.equal(adjacentReaderPage(items,1,1,position,false),3);
 assert.equal(adjacentReaderPage(items,4,-1,position,false),1);
 assert.equal(fitReaderSheet([],390,844),null);
+// Both halves share the full book's structure. The binding and selected half
+// fit, while the opposite fore-edge remains outside the phone crop.
+for(const thickness of [8,32,64])for(const side of [-1,1]){
+    const hinge=405,bindingWidth=thickness*1.25,points=[],structure=[];
+    for(const s of [-1,1])for(let i=0;i<=40;i++)for(const y of [0,1]){
+        structure.push(peekPaperPoint({side:s,cover:true,bindingWidth,reading:1},i/40,y));
+        if(s===side)points.push(peekPaperPoint({side:s,extent:.48,stackDepth:thickness/2,bindingWidth,reading:1},i/40,y));
+    }
+    const spine=[{x:405-bindingWidth/2,y:18},{x:405+bindingWidth/2,y:662}];
+    structure.push(...spine);
+    const fit=fitReaderBookFace(points,structure,390,844,{side,hinge,bindingWidth});
+    for(const p of [...points,...spine]){
+        assert.ok((p.x+fit.offsetX)*fit.scale>=0&&(p.x+fit.offsetX)*fit.scale<=390);
+        assert.ok(p.y*fit.scale+fit.offsetY>=0&&p.y*fit.scale+fit.offsetY<=844);
+    }
+    const opposite=peekPaperPoint({side:-side,reading:1},1,0);
+    const x=(opposite.x+fit.offsetX)*fit.scale;
+    assert.ok(side<0?x>390:x<0,'opposite page is cropped, not removed');
+    for(let i=0;i<=40;i++){
+        const geometry={side,stackDepth:thickness/2,bindingWidth,reading:1};
+        const a=peekPaperPoint({...geometry,extent:.48},i/40,0),b=peekPaperPoint({...geometry,extent:1},i/40,0);
+        assert.ok(Math.hypot(a.x-b.x,a.y-b.y)<1e-8,'paper block and readable page meet');
+    }
+}
 console.log('Responsive controls stay in safe viewport; curved single faces fit uniformly; page sequence has no skipped faces.');

@@ -31,7 +31,7 @@ export function peekPaperProfile(extent=1, tilt=0, lift=0, compact=0, reading=0)
     const run=Math.cos(angle),rise=Math.sin(angle);
     // Thickness raises the body of the sheet, not either desk contact. A turn
     // can lift the paper while keeping its attachment and arc length unchanged.
-    const bow=mix(mix(a.bow,b.bow,t),.085,reading)+run*(radians(tilt)*.35+lift*.06)*e;
+    const bow=mix(mix(a.bow,b.bow,t),.085,reading)+run*(radians(tilt)*.35+lift*.06)*mix(e,1,reading);
     const speed=u=>Math.hypot(run,rise+bow*bowSlope(u));
     const arcs=new Float64Array(PROFILE_STEPS+1);
     for(let i=1;i<=PROFILE_STEPS;i++){
