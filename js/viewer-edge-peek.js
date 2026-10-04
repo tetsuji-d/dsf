@@ -164,7 +164,7 @@ export function createViewerEdgePeek({getItems, getLayout, renderSurface, format
         const sheet=pages.querySelector('.edge-fan-sheet[data-selected=true]');
         const points=[...(sheet?.children||[])].flatMap(strip=>strip.bookPoints||[]);
         const structure=[...pages.querySelectorAll('.edge-fan-cover .edge-fan-strip,.edge-fan-stack .edge-fan-strip,.edge-fan-top,.edge-fan-fore-edge,.edge-fan-binding')].flatMap(el=>el.bookPoints||[]);
-        const v=snapshot.viewport;
+        const v={...snapshot.viewport};if(snapshot.controlInset){v.safeTop=Math.max(v.safeTop,snapshot.controlInset);v.safeBottom=Math.max(v.safeBottom,snapshot.controlInset);}
         return fitReaderBookFace(points,structure,v.width,v.height,{...v,side:sheet?.dataset.side==='left'?-1:1,hinge:Number(root.dataset.hinge),bindingWidth:Number(root.dataset.bindingWidth)});
     }
     function setReading(value){
@@ -341,7 +341,7 @@ export function createViewerEdgePeek({getItems, getLayout, renderSurface, format
                 // The incoming face becomes stationary only after the turn lands.
                 next.append(stationary,turn);content.replaceChildren(next);setReading(bookReading);stationary.style.opacity="1";turn.style.opacity="1";
                 const frontHtml=renderSurface(front?.surface),backHtml=renderSurface(back?.surface);
-                const turnTime=typeof rapid==='number'?rapid:rapid&&!gesture?160:280;
+                const turnTime=typeof rapid==='number'?rapid:rapid&&!gesture?220:520;
                 const camera=singleReading()?prepareCamera(previousFit,readingFit,turnTime):null;
                 let backShown=false,start=performance.now(),held=0,from=0,releasing=!gesture;
                 const initialHinge=Number(turn.dataset.hinge),initialBias=Number(turn.dataset.bias);
@@ -349,7 +349,7 @@ export function createViewerEdgePeek({getItems, getLayout, renderSurface, format
                     if(id!==ticket)return;
                     const heldGesture=gesture&&gesture.ended===null;
                     let t;
-                    const duration=gesture?Math.max(40,(gesture.flung?125:turnTime)*Math.abs((gesture.ended===false?0:1)-from)):turnTime;
+                    const duration=gesture?Math.max(200,(gesture.flung?125:turnTime)*Math.abs((gesture.ended===false?0:1)-from)):turnTime;
                     if(heldGesture){t=gesture.progress;releasing=false;}
                     else{
                         if(!releasing){from=held;start=now;releasing=true;}
@@ -566,16 +566,17 @@ export function createViewerEdgePeek({getItems, getLayout, renderSurface, format
         for(const sheet of content.querySelectorAll('[data-page-label]'))numberSheet(sheet,sheet.dataset.pageLabel);
         if(key!==data.peekKey){stopRiffle();cancelPageGesture();cancelCamera();coverMotion.cancel();rendering=false;pendingIndex=null;cancelAnimationFrame(frame);root.dataset.opened='false';document.body.classList.remove('viewer-edge-fan-active');onPhaseChange('edge');items=getItems();key=data.peekKey;selected=-1;ticket++;leaf.hidden=true;content.replaceChildren();ready=false;root.dataset.ready='false';status.textContent='左右になぞると中身が見えます';}
         if(!items.length){clear();return;}
-        // No space is reserved for controls: fit the complete book to the viewport.
+        // When phone controls are shown, leave the paper clear of the header and bottom rail.
         const viewport=window.visualViewport, width=viewport?.width||innerWidth,height=viewport?.height||innerHeight;
-        const fit=peekViewportFrame(width,height,data.thickness||8);
-        peekFit=fit;readingFit=peekViewportFrame(width,height,data.thickness||8,1);
+        const inset=data.controlInset||0,availableHeight=Math.max(80,height-inset*2);
+        const fit=peekViewportFrame(width,availableHeight,data.thickness||8);fit.offsetY+=inset;
+        peekFit=fit;readingFit=peekViewportFrame(width,availableHeight,data.thickness||8,1);readingFit.offsetY+=inset;
         const reshape=Math.abs(peekCompact-fit.compact)>.00001;
         peekCompact=fit.compact;
         const scale=fit.scale,w=width,h=height;
         root.style.setProperty('--fan-offset-x',fit.offsetX+'px');
         root.style.setProperty('--fan-offset-y',fit.offsetY+'px');
-        root.style.setProperty('--cover-scale',Math.min((width-12)/(360+Math.min(64,data.thickness||8)*.8),(height-12)/660));
+        root.style.setProperty('--cover-scale',Math.min((width-12)/(360+Math.min(64,data.thickness||8)*.8),(availableHeight-12)/660));
         root.style.setProperty('--peek-width',w+'px');root.style.setProperty('--peek-height',h+'px');
         root.style.setProperty('--fan-scale',scale);
         Object.assign(root.style,{left:((viewport?.offsetLeft||0)+width/2)+'px',top:((viewport?.offsetTop||0)+(height-h)/2)+'px'});

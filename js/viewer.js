@@ -1,3 +1,4 @@
+import {initializeViewerPageSegments} from './viewer-page-segment-control.js';
 import {createViewerBookWheel} from './viewer-book-wheel.js';
 import {createViewerFlick} from './viewer-flick.js';
 import {createViewerEdgePeek} from './viewer-edge-peek.js';
@@ -85,6 +86,7 @@ let bookSwipe = null, flick = null;
 let edgePeek = null, riffle = null;
 let viewerAllowsLegacyCoverLoop = false;
 let viewerFullscreen = null;
+let pageSegments = null;
 let viewerDocumentRevision = 0;
 let viewerResizeFrame = null;
 let viewerInfoPanelResizeObserver = null;
@@ -547,6 +549,7 @@ async function init() {
     bindViewerInfoHandle();
     bindViewerInfoPanelLayoutSync();
     bindViewerSliderPreview();
+    pageSegments=initializeViewerPageSegments({host:document.getElementById("page-slider").parentElement,snapshot:getViewerSegmentSnapshot,preview:showViewerSegmentPreview,hidePreview:hideSliderPreview,navigate:seekViewerSegment,onHold:held=>{clearViewerUiAutoHide();if(!held)scheduleViewerUiAutoHide();}});
     bindViewerHoverChrome();
     applyViewerDevSmoothingClass();
 
@@ -2785,7 +2788,7 @@ function getViewerReaderSnapshot(requestedIndex) {
     return {rect,openRatio:bodyPosition>=0?bodyPosition/Math.max(1,body.length-1):(readingIndex>(body.at(-1)?.sourcePageIndex??Infinity)?1:0),peekIndex:readingIndex,rtl:getPageDirection()==='rtl',peekKey:`${viewerDocumentRevision}:${state.activeLang}`,covers:{front:viewerBookModel?.covers?.c1?.sourcePageIndex,back:viewerBookModel?.covers?.c4?.sourcePageIndex},pages:pages.map(p=>({index:p.surface?.sourcePageIndex,side:p.side,label:formatViewerSurfaceSliderLabel(p.surface),cover:/^C[14]$/.test(String(p.surface?.bookRole||p.surface?.role||''))})),
         title:document.getElementById('ui-title')?.textContent || '',total:getViewerBodyPageTotal(hasBookModel()),
         thickness:getViewerBookThickness(),design:state.book?.spineDesign,
-        viewport:getViewerViewportMetrics(),singleBook:viewerSpreadPreference==='single'||Math.min(getViewerCanvasSpace().W,document.documentElement.clientWidth)<700,
+        viewport:getViewerViewportMetrics(),controlInset:getViewerControlInset(),singleBook:viewerSpreadPreference==='single'||Math.min(getViewerCanvasSpace().W,document.documentElement.clientWidth)<700,
         author:getViewerLocalizedMeta()?.author||'',publisher:viewerProjectMeta.labelName||'',
         busy:document.body.classList.contains('viewer-zoom-active') || !!readingGuides?.isAssisting()};
 }
@@ -4148,7 +4151,7 @@ function startPageCurl(delta,interactive=false){
     }
     const edgeFrom = getViewerBookEdgeState(before);
     const edgeTo = getViewerBookEdgeState(after, spreadMode ? bookSpreadIndex + delta : findBookUnitIndexForPage(after));
-    const turnDuration=riffle?.active?riffle.turnDuration:(!spreadMode&&matchMedia('(pointer:coarse)').matches?300:440);
+    const turnDuration=riffle?.active?riffle.turnDuration:520;
     activePageCurl=createViewerPageCurl({canvas:document.getElementById('viewer-canvas'),from,to,rtl:getPageDirection()==='rtl',forward:delta>0,spread:spreadMode,sameUnit,targetWidth,edgeFrom,edgeTo,turnDuration,width:CANONICAL_PAGE_WIDTH,height:CANONICAL_PAGE_HEIGHT,
         render:surface=>renderSurfaceContentHTML(surface,lang)+renderSurfaceBubblesHTML(surface,lang),
         commit:()=>{if(getIndex()!==before||state.activeLang!==lang)return;committingPageCurl=true;try{delta>0?goNext():goPrev();}finally{committingPageCurl=false;}}
@@ -4376,6 +4379,7 @@ function updateViewerSliderLabel(slider, labelEl, total, displayIndex, isBook) {
     const visualPercent = getPageDirection() === 'rtl' ? 1 - percent : percent;
     labelEl.style.left = `${Math.max(0, Math.min(1, visualPercent)) * 100}%`;
     updateViewerSliderProgress(visualPercent);
+    pageSegments?.update();
 }
 
 function setViewerSliderTrackToPhysicalPosition(track, physicalRatio) {
@@ -4565,6 +4569,33 @@ function syncViewerProgress(){
     updateViewerSliderLabel(slider,label,total,index,spreadMode&&hasBookModel());
 }
 
+function getViewerSegmentSnapshot(){
+ const total=getPages().length,current=edgePeek?.opened?edgePeek.sourceIndex:getIndex();
+ const groups=hasBookModel()?getBookUnits().map(u=>[u.center,u.left,u.right].filter(s=>s&&!s.virtualBlank&&Number.isInteger(s.sourcePageIndex)).map(s=>s.sourcePageIndex).sort((a,b)=>a-b)).filter(g=>g.length):Array.from({length:total},(_,i)=>[i]);
+ const grouped=groups.find(g=>g.includes(current))||[current];
+ const single=edgePeek?.opened?edgePeek.element.dataset.single==='true':!spreadMode;
+ return {total,groups,current:current??0,active:single?[current]:grouped,rtl:getPageDirection()==='rtl',epoch:viewerDocumentRevision+':'+state.activeLang,label:i=>formatViewerSurfaceSliderLabel(getViewerSurfaceForDisplayIndex(i))+' / '+getViewerBodyPageTotal()};
+}
+function seekViewerSegment(index){
+ bookWheel?.cancel();riffle?.stop();activePageCurl?.cancel();coverTurn?.cancel();
+ if(edgePeek?.opened){edgePeek.seek(index);return;}
+ readerChrome?.cancelPose();
+ if(spreadMode&&hasBookModel())transitionToBookUnit(findBookUnitIndexForPage(index));else transitionToIndex(index,'jump');
+}
+function showViewerSegmentPreview(index,ratio){
+ const preview=document.getElementById('page-slider-preview');if(!preview)return;
+ const previewKey=`${viewerDocumentRevision}:${state.activeLang}:${index}`;
+ if(preview.dataset.segmentKey!==previewKey){
+ preview.dataset.segmentKey=previewKey;
+ const surface=getViewerSurfaceForDisplayIndex(index);
+ setSliderPreviewSurface(preview.querySelector('.page-slider-preview-single'),surface,getSurfacePhysicalSpreadRole(surface,state.activeLang));
+ preview.querySelector('.page-slider-preview-label').textContent=formatViewerSurfaceSliderLabel(surface)+' / '+getViewerBodyPageTotal();
+ preview.dataset.spread='false';
+ }
+ const w=preview.parentElement.getBoundingClientRect().width,pad=Math.min(.5,76/Math.max(1,w));
+ preview.style.left=(Math.max(pad,Math.min(1-pad,ratio))*100)+'%';preview.hidden=false;
+}
+
 function getViewerPreviewSurfaces(isBook, displayIndex) {
     if (isBook) {
         const unit = getBookUnits()[displayIndex];
@@ -4688,7 +4719,7 @@ function setSliderPreviewSurface(surfaceEl, page, spreadRole = '') {
 
 function hideSliderPreview() {
     const preview = document.getElementById('page-slider-preview');
-    if (preview) preview.hidden = true;
+    if (preview) {preview.hidden = true;delete preview.dataset.segmentKey;}
     clearViewerSliderHoverProgress();
 }
 
@@ -4867,6 +4898,9 @@ function handleViewerResize() {
  * 論理ページ（CANONICAL_PAGE_*）へ等倍スケールでセンタリングする。
  * visual viewport と safe-area を基準に、単ページ／見開きを物理画面の中央へ収める。
  */
+function getViewerControlInset(viewport=getViewerViewportMetrics()) {
+ return usesMobileTapMenu()&&isUiVisible?Math.max(viewport.safeTop,viewport.safeBottom+80,document.getElementById('viewer-header')?.getBoundingClientRect().bottom-viewport.top||0):0;
+}
 function getViewerCanvasSpace(viewport = getViewerViewportMetrics()) {
     const drawerOpen = viewerInfoLayoutMode === 'drawer' && viewerInfoPanelState !== 'closed';
     const safeX = Math.max(viewport.safeLeft, viewport.safeRight);
@@ -4874,7 +4908,8 @@ function getViewerCanvasSpace(viewport = getViewerViewportMetrics()) {
     const readerDock = Number(document.body.dataset.readingAssistDock || 0);
     const W = Math.max(readerDock ? 120 : 280, viewport.width - readerDock - (drawerOpen ? VIEWER_DRAWER_WIDTH + VIEWER_DRAWER_GAP : 0) - (safeX * 2));
     if(readerChrome) {
-        return {W, H:Math.max(80,viewport.height-Number(document.body.dataset.readingAssistBottom||0)-safeY*2)};
+        const inset=Math.max(safeY,getViewerControlInset(viewport));
+        return {W, H:Math.max(80,viewport.height-Number(document.body.dataset.readingAssistBottom||0)-inset*2)};
     }
     const menuInset=usesMobileTapMenu()&&isUiVisible?Math.max(
         Number(document.body.dataset.viewerBottomHeight||0),

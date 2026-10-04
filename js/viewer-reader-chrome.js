@@ -55,6 +55,11 @@ export function initializeViewerReaderChrome({getSnapshot, onLayoutChange, befor
         <p>番号も中央に置く場合は、同じ行にまとめます。</p><button type="button" class="reader-settings-reset">初期設定に戻す</button>
         <button type="button" class="reader-settings-close">閉じる</button></div>`;
     document.querySelector('#viewer-header .ui-controls').prepend(settings);
+    const panel=settings.querySelector('.viewer-page-settings-panel');
+    const spread=document.getElementById('viewer-spread-btn'),guides=document.getElementById('viewer-reading-guide');
+    const layoutRow=document.createElement('div');layoutRow.className='reader-layout-setting';
+    const caption=document.createElement('strong');caption.textContent='ページの並べ方';layoutRow.append(caption,spread);panel.prepend(layoutRow);
+    const guideSummary=guides.querySelector('summary');guideSummary.textContent='読書補助';guideSummary.className='';panel.insertBefore(guides,panel.querySelector('.reader-settings-reset'));
     function syncInputs() {
         for (const el of settings.querySelectorAll('[name]')) {
             if (el.type === 'checkbox') el.checked = prefs[el.name]; else el.value = prefs[el.name];
@@ -171,6 +176,7 @@ export function initializeViewerReaderChrome({getSnapshot, onLayoutChange, befor
         rail.dataset.displayMode=document.fullscreenElement||matchMedia('(display-mode: fullscreen)').matches?'fullscreen'
             :matchMedia('(display-mode: standalone)').matches?'standalone':'browser';
         const style = document.documentElement.style;
+        style.setProperty('--reader-controls-width',controlLayout.width+'px');
         style.setProperty('--reader-control-size',`${controlLayout.size}px`);
         style.setProperty('--reader-control-gap',`${controlLayout.gap}px`);
         style.setProperty('--reader-controls-left',`${controlLayout.left}px`);

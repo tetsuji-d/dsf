@@ -107,3 +107,39 @@ Verification for this local change:
 - The user requested commit and staging deployment of this gesture increment.
   Apply it to the staging release branch while preserving staging-only features.
   Production promotion remains pending physical-device acceptance.
+
+## Compact progress and reader controls (2026-10-04, local)
+
+- Viewer progress now uses one 6x11 px mark per source page. The gutter inside
+  a spread is 1 px; spread groups are 3 px apart. Covers remain individual groups.
+  Both ends and the current spread survive compaction; ellipses omit whole spreads.
+- Hover/press previews a page thumbnail and its existing page label. Tracing
+  visible page marks navigates continuously; tracing an omission previews its
+  interpolated page and release selects it. The mark window stays fixed while
+  held and re-centres after release. Keyboard range control is retained.
+- Phone fullscreen control is hidden. Layout (Auto/Single/Spread), page furniture
+  and reading assistance are together under Display. Existing settings persist.
+- Portrait controls use the full safe width and sit 2 px above the bottom safe
+  area. The circular backgrounds are 20% smaller, with 44/48 px hit targets.
+  While phone controls are visible, normal and curved paper reserve menu space.
+- Ordinary automatic turns use 520 ms; release settling has a 180/200 ms floor.
+  Manual held progress, cancellation and reduced-motion behavior are retained.
+  These were timing changes, not evidence that physical-device frame rate improved.
+- No manuscript, storage, file-format, production or permissions changes.
+
+Checks:
+
+- Page grouping covers 1, 2, 18, 242 and 1002 pages at beginning/middle/end.
+  Safe-area layouts cover portrait, landscape and desktop with 0/34 px insets.
+- Local Chrome at 390x844: fullscreen hidden, all five lower buttons equally
+  spaced inside the viewport, paper above the controls. Display contained the
+  layout and reading-assistance settings. Emulated touch changed the thumbnail
+  from page 2 to 9 and selected source index 10 before release; release hid it.
+  Switching that selected page into curved book reading retained source index 10.
+- Desktop LTR marks and fullscreen availability confirmed. In-app browser
+  rendered a 240-body-page document with both covers and a whole-spread omission.
+- Browser resizing/screenshot automation repeatedly disconnected. Do not count
+  this as physical iOS/PWA or frame-rate acceptance. Curved-page scrubbing,
+  installed-PWA safe area and hardware animation smoothness remain acceptance checks.
+- The user approved commit and staging deployment of this increment. Preserve
+  staging-only notification/PWA/review features; production promotion is separate.

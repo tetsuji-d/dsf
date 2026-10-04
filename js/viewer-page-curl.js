@@ -62,7 +62,7 @@ export function createViewerPageCurl({canvas, from, to, rtl, forward, spread, sa
     function cleanup(){if(dead)return;dead=true;cancelAnimationFrame(frame);vp.remove();stage.style.visibility=oldVisibility;document.body.classList.remove('viewer-curl-active');window.removeEventListener('resize',cancel);}
     function cancel(){cleanup();}
     window.addEventListener('resize',cancel);
-    async function finish(accept,duration=turnDuration){if(dead||settling)return;settling=true;await loaded;if(dead)return;if(loadFailed){cleanup();if(accept)commit();return;}const initial=p,end=accept?1:0,time=matchMedia('(prefers-reduced-motion:reduce)').matches?0:Math.max(120,duration*Math.abs(end-initial));const started=performance.now();
+    async function finish(accept,duration=turnDuration){if(dead||settling)return;settling=true;await loaded;if(dead)return;if(loadFailed){cleanup();if(accept)commit();return;}const initial=p,end=accept?1:0,time=matchMedia('(prefers-reduced-motion:reduce)').matches?0:Math.max(200,duration*Math.abs(end-initial));const started=performance.now();
         await new Promise(resolve=>{function tick(now){if(dead){resolve();return;}const t=time?Math.min(1,(now-started)/time):1;draw(initial+(end-initial)*t*t*(3-2*t));if(t<1)frame=requestAnimationFrame(tick);else resolve();}tick(started);});
         if(dead)return;cleanup();if(accept)commit();
     }

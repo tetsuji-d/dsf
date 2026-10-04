@@ -2,11 +2,12 @@
 export function initializeViewerFullscreen({button, text, onChange}) {
     if (!button) return null;
     const supported = !!document.fullscreenEnabled && !!document.documentElement.requestFullscreen;
-    button.hidden = !supported;
+    const phone=matchMedia('(max-width: 650px), (pointer: coarse) and (max-height: 650px)');
     const status = document.createElement('span');
     status.className = 'viewer-fullscreen-status'; status.setAttribute('role', 'status');
     button.after(status);
     function refresh() {
+        button.hidden = !supported || phone.matches;
         const active = !!document.fullscreenElement;
         const label = text(active ? 'exitFullscreen' : 'fullscreen');
         button.title = label; button.setAttribute('aria-label', label);
@@ -22,6 +23,7 @@ export function initializeViewerFullscreen({button, text, onChange}) {
         finally { button.disabled = false; refresh(); }
     });
     document.addEventListener('fullscreenchange', () => {refresh(); onChange();});
+    phone.addEventListener('change',refresh);
     refresh();
     return {refresh};
 }

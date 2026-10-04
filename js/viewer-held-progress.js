@@ -11,7 +11,7 @@ export function animateViewerHeldProgress({gesture=null,duration=320,draw,reduce
         }else{
             if(!releasing){from=last;start=now;releasing=true;}
             const end=gesture?.ended===false?0:1;
-            const time=reduced?0:Math.max(80,duration*Math.abs(end-from));
+            const time=reduced?0:Math.max(180,duration*Math.abs(end-from));
             const p=time?Math.min(1,(now-start)/time):1;
             last=from+(end-from)*p*p*(3-2*p);draw(last);
             if(p===1){finish(end===1);return;}

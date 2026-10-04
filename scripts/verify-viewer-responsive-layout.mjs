@@ -12,6 +12,10 @@ for(const [width,height] of [[320,568],[390,844],[844,390],[667,320],[1440,900]]
         assert.ok(rail.top+rail.height<=v.top+height-safe);
         assert.equal(rail.dock,height>=width&&width-safe*2-24<700?'bottom':'side');
         assert.ok(rail.size>=44);
+        if(rail.dock==='bottom'){
+            assert.equal(rail.width,width-safe*2-24,'use the full safe width');
+            assert.equal(rail.top+rail.height,v.top+height-safe-2,'dock two pixels above the bottom safe area');
+        }
         for(const side of [-1,1]){
             const points=[];
             for(let i=0;i<=40;i++)for(const y of [0,1])points.push(peekPaperPoint({side,extent:.48,reading:1,compact:.8},i/40,y));
