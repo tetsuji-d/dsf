@@ -3,7 +3,7 @@ import {createViewerBookWheel} from '../js/viewer-book-wheel.js';
 globalThis.window=new EventTarget();globalThis.document=new EventTarget();document.body={};document.documentElement={};globalThis.innerHeight=900;
 globalThis.requestAnimationFrame=fn=>setTimeout(()=>fn(performance.now()),16);globalThis.cancelAnimationFrame=clearTimeout;
 const sleep=ms=>new Promise(r=>setTimeout(r,ms));
-function harness(){let blocked=false;const actions=[],target={closest:selector=>selector.includes('#viewer-layout')?target:null};const wheel=createViewerBookWheel({enabled:()=>true,busy:()=>blocked,begin:()=>false,progress(){},finish(){},step:direction=>actions.push(direction),horizontal:side=>actions.push(side)});return {actions,wheel,block:v=>blocked=v,send(x,y){assert.ok(wheel.handle({deltaMode:0,deltaX:x,deltaY:y,target,preventDefault(){}}));}};}
+function harness(){let blocked=false;const actions=[],target={closest:selector=>selector.includes('#viewer-layout')?target:null};const wheel=createViewerBookWheel({enabled:()=>true,busy:()=>blocked,begin:()=>false,progress(){},finish(){},step:direction=>actions.push(direction),horizontal:side=>actions.push(side)});return {actions,wheel,block:v=>blocked=v,send(x,y){assert.ok(wheel.handle({deltaMode:0,deltaX:x,deltaY:y,timeStamp:performance.now(),target,preventDefault(){}}));}};}
 {
  const h=harness();h.send(24,-36);await sleep(240);assert.deepEqual(h.actions,['up'],'short diagonal stroke');h.wheel.cancel();
 }
