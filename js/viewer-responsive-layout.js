@@ -35,6 +35,14 @@ export function fitReaderSheet(points,width,height,{safeTop=0,safeRight=0,safeBo
         offsetY:safeTop+8+(availableHeight-h*scale)/2-minY*scale};
 }
 
+/** Crop the complete book around one face, retaining its binding and block. */
+export function fitReaderBookFace(points,structure,width,height,{side,hinge=405,bindingWidth=0,...safe}={}) {
+    if(!points.length)return null;
+    const gutter=bindingWidth/2+12;
+    const half=structure.map(p=>({x:side<0?Math.min(p.x,hinge+gutter):Math.max(p.x,hinge-gutter),y:p.y}));
+    return fitReaderSheet([...points,...half],width,height,safe);
+}
+
 export function adjacentReaderPage(items,at,delta,getPosition,single) {
     if(single){const next=at+delta;return next>=0&&next<items.length?next:null;}
     const position=getPosition(items[at]?.index);
