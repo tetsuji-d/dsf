@@ -3385,3 +3385,10 @@ body.viewer-fan-preparing #viewer-book-pose,body.viewer-fan-preparing #viewer-ed
 }
 
 .viewer-page-segments[hidden] {display:none;}
+
+/* Keep the compact progress hit area above the bottom button row. */
+body:has(#viewer-reader-controls[data-dock=bottom]) :is(#viewer-bottom-navigation,#viewer-footer) .slider-wrapper {height:22px;}
+body:has(#viewer-reader-controls[data-dock=bottom]) .viewer-page-segments {min-height:22px;}
+
+/* Follow visual-viewport and reader controls instead of the legacy fixed corners. */
+.viewer-minimap[data-positioned=true] {position:fixed;left:var(--minimap-left)!important;top:var(--minimap-top)!important;right:auto!important;bottom:auto!important;}

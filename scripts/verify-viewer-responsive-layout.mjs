@@ -9,12 +9,14 @@ for(const [width,height] of [[320,568],[390,844],[844,390],[667,320],[1440,900]]
         const rail=readerControlLayout(v,page);
         assert.ok(rail.left>=v.left+safe&&rail.top>=v.top+safe);
         assert.ok(rail.left+rail.width<=v.left+width-safe);
-        assert.ok(rail.top+rail.height<=v.top+height-safe);
+        assert.ok(rail.top+rail.height<=v.top+height-(rail.dock==='bottom'?Math.max(2,safe-12):safe));
         assert.equal(rail.dock,height>=width&&width-safe*2-24<700?'bottom':'side');
         assert.ok(rail.size>=44);
         if(rail.dock==='bottom'){
-            assert.equal(rail.width,width-safe*2-24,'use the full safe width');
-            assert.equal(rail.top+rail.height,v.top+height-safe-2,'dock two pixels above the bottom safe area');
+            assert.ok(rail.width>=5*rail.size,'all hit targets fit');
+            assert.ok(rail.left>v.left+safe+12,'avoid rounded corners');
+            assert.equal(rail.left-v.left,(width-rail.width)/2,'keep the row centred');
+            assert.equal(rail.top+rail.height,v.top+height-Math.max(2,safe-12),'retain room for the home indicator');
         }
         for(const side of [-1,1]){
             const points=[];

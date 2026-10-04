@@ -106,3 +106,17 @@ for(const compact of [0,.5,1])for(const extent of [.018,.48,.74,1])for(const cou
     }
 }
 console.log('Desk contacts, equal 9:16 sheets, rounded bow, exposed neighbours, phone sampling and responsive fit passed');
+
+// Menu toggles and book/peek transitions repeatedly reuse the same cached frame.
+// A caller must not be able to accumulate a menu offset in that shared geometry.
+for(const [width,height] of [[390,844],[430,932],[1440,900]]){
+    const frame=peekViewportFrame(width,height,24),before={...frame};
+    assert.throws(()=>{frame.offsetY+=100;},TypeError);
+    for(let i=0;i<12;i++){
+        peekViewportFrame(width,height,24,1);
+        assert.deepEqual(peekViewportFrame(width,height,24),before);
+    }
+    assert.ok(frame.minY*frame.scale+frame.offsetY>=0);
+    assert.ok(frame.maxY*frame.scale+frame.offsetY<=height);
+}
+console.log('Repeated book/peek layouts cannot mutate cached frame offsets.');

@@ -143,3 +143,40 @@ Checks:
   installed-PWA safe area and hardware animation smoothness remain acceptance checks.
 - The user approved commit and staging deployment of this increment. Preserve
   staging-only notification/PWA/review features; production promotion is separate.
+
+
+## Follow-up: stable page size and peek position (2026-10-04)
+
+- Removed menu-dependent paper insets. Normal pages and curved book faces keep
+  exactly the same size/position when controls are shown or hidden.
+- Root cause of peek falling below the viewport: a caller incremented offsetY
+  directly on the cached peekViewportFrame object on each layout pass. Removed
+  those increments and froze cached frame objects to prevent repeat mutation.
+- Portrait buttons move 20 px inward on each side (less on very narrow displays
+  to preserve 44 px targets). The dock uses 12 px of the upper home-indicator
+  inset, retaining the lower area. Both controls and progress move lower; their
+  hit areas remain separate. Desktop side controls are unchanged.
+- Geometry tests repeat book/peek layout with immutable cached coordinates.
+  Layout tests check centred buttons, target fit and 0/34 px bottom insets.
+- Local browser at 430x932: normal and curved pages had identical bounds/style
+  before and after menu toggles; four book/peek round trips had identical peek
+  coordinates and stayed on screen. Safe-area emulation was unavailable; real
+  iOS/PWA corner and home-bar placement still needs device confirmation.
+- The user approved commit and staging deployment of these corrections. Production promotion remains separate.
+
+
+### Zoom minimap follow-up
+
+- Removed the interaction-wide corner lock that kept the map at its first corner
+  during continuous page panning. It now chooses the corner opposite the viewed
+  content, with a centre deadband. Only direct minimap dragging locks the corner;
+  its idle-hide timer also pauses during that drag.
+- Position comes from the current visual viewport and actual header, segment
+  row and side-control rectangles. It clears these controls rather than using
+  the old fixed 74 px bottom offset. Menu visibility changes refresh placement.
+- Minimap geometry/pan tests and new corner/placement tests passed. In the local
+  430 px browser, Ctrl-wheel zoom and page panning moved the map bottom-right to
+  top-left; the top map cleared the header and the bottom map cleared segments
+  by 8 px. Clicking inside the map retained its corner while moving the viewport.
+- Final compact segment hit area ends at the button row, without overlap.
+  Build passed; actual installed-PWA safe-area acceptance remains outstanding.

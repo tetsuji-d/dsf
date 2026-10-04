@@ -2,22 +2,25 @@
 export function readerControlLayout(viewport, page) {
     const {left=0,top=0,width,height,safeTop=0,safeRight=0,safeBottom=0,safeLeft=0}=viewport;
     const x=left+safeLeft+12,y=top+safeTop+12;
-    const right=left+width-safeRight-12,bottom=top+height-safeBottom-2;
+    const right=left+width-safeRight-12;
     const available=right-x,portrait=height>=width;
     const dock=portrait&&available<700?'bottom':'side';
-    const span=dock==='bottom'?available:bottom-y;
+    // On phones use the upper part of the home-indicator inset, retaining its lower area.
+    const bottom=top+height-(dock==='bottom'?Math.max(2,safeBottom-12):safeBottom+2);
+    const cornerInset=dock==='bottom'?Math.min(20,Math.max(0,(available-5*44)/2)):0;
+    const span=dock==='bottom'?available-cornerInset*2:bottom-y;
     const size=height<420||span<264?44:48,gap=Math.max(0,Math.min(6,(span-size*5)/4));
-    const railWidth=dock==='bottom'?available:size;
+    const railWidth=dock==='bottom'?span:size;
     const railHeight=dock==='bottom'?size:size*5+gap*4;
     // Stay beside the paper when the margin fits; otherwise overlay safely.
-    const railX=dock==='bottom'?x
+    const railX=dock==='bottom'?x+cornerInset
         :Math.min(right-railWidth,Math.max(x,page.right+12));
     const railY=dock==='bottom'?bottom-railHeight
         :Math.max(y,Math.min(bottom-railHeight,page.top+(page.height-railHeight)/2));
-    const progressWidth=Math.max(40,Math.min(page.width-28,available-(dock==='side'?size+20:0)));
+    const progressWidth=Math.max(40,Math.min(page.width-28,available-(dock==='side'?size+20:cornerInset*2)));
     return {dock,size,gap,left:railX,top:railY,width:railWidth,height:railHeight,
         progressLeft:x+(available-progressWidth)/2,progressWidth,
-        progressTop:dock==='bottom'?railY-26:bottom-30};
+        progressTop:dock==='bottom'?railY-22:bottom-30};
 }
 
 /** Uniformly fit one curved sheet without changing its authored proportions. */

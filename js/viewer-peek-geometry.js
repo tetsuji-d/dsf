@@ -91,7 +91,8 @@ export function peekViewportFrame(width,height,thickness=8,reading=0) {
     const scale=Math.min((width-8)/frame.width,(height-8)/frame.height);
     const fitted={...frame,compact,scale,offsetX:(width/scale-frame.width)/2-frame.minX,offsetY:(height-frame.height*scale)/2-frame.minY*scale};
     if(frameCache.size>=8)frameCache.delete(frameCache.keys().next().value);
-    frameCache.set(key,fitted);return fitted;
+    // Cached geometry is shared across layout updates and must remain immutable.
+    Object.freeze(fitted);frameCache.set(key,fitted);return fitted;
 }
 
 // Distribute the existing strip budget by the projected curve's deviation

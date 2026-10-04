@@ -3,6 +3,8 @@ import { runInNewContext } from 'node:vm';
 import { readFile } from 'node:fs/promises';
 import {
     calculateViewerAnchoredZoom,
+    calculateViewerMinimapCorner,
+    calculateViewerMinimapPlacement,
     calculateViewerMinimapGeometry,
     calculateViewerMinimapPagePreviewGeometry,
     calculateViewerPanFromMinimapPoint,
@@ -252,3 +254,18 @@ assert.match(
 assert.match(css, /\.viewer-minimap-viewport\s*\{[\s\S]*?border:\s*2px solid #3b82f6/, 'Current viewport frame must remain visible');
 
 console.log('Viewer minimap verification passed.');
+
+// Content panning updates the opposite corner; centre jitter does not flip it.
+assert.equal(calculateViewerMinimapCorner(.2,.2),'bottom-right');
+assert.equal(calculateViewerMinimapCorner(.8,.8,'bottom-right'),'top-left');
+assert.equal(calculateViewerMinimapCorner(.51,.49,'top-left'),'top-left');
+for(const safe of [0,34])for(const corner of ['top-left','top-right','bottom-left','bottom-right']){
+    const viewport={left:7,top:13,width:430,height:932,safeTop:47,safeBottom:safe,safeLeft:0,safeRight:0};
+    const chrome={header:{bottom:120},progress:{top:825-safe}};
+    const p=calculateViewerMinimapPlacement({viewport,width:90,height:150,corner,chrome});
+    assert.ok(p.left>=19&&p.left+90<=425);
+    assert.ok(p.top>=128&&p.top+150<=817-safe,'map clears header and progress');
+}
+const sideMap=calculateViewerMinimapPlacement({viewport:{left:0,top:0,width:900,height:500},width:120,height:140,corner:'bottom-right',chrome:{rail:{dock:'side',left:820,right:868,top:100,bottom:480}}});
+assert.ok(sideMap.left+120<=812,'map clears desktop side buttons');
+console.log('Minimap follows focus and clears responsive reader controls.');

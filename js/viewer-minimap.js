@@ -9,6 +9,28 @@ function clamp(value, min, max) {
     return Math.max(min, Math.min(max, value));
 }
 
+/** Choose the corner opposite the viewed content, with a small centre deadband. */
+export function calculateViewerMinimapCorner(x,y,previous='bottom-right') {
+    const horizontal=x<.42?'right':x>.58?'left':previous.split('-')[1];
+    const vertical=y<.42?'bottom':y>.58?'top':previous.split('-')[0];
+    return vertical+'-'+horizontal;
+}
+
+/** Place the map inside the visible viewport and outside visible reader controls. */
+export function calculateViewerMinimapPlacement({viewport,width,height,corner,chrome={}}) {
+    const {left=0,top=0,safeLeft=0,safeRight=0,safeTop=0,safeBottom=0}=viewport;
+    const x0=left+safeLeft+12,x1=Math.max(x0,left+viewport.width-safeRight-12-width);
+    const y0=top+safeTop+8,y1=Math.max(y0,top+viewport.height-safeBottom-8-height);
+    const minY=clamp(Math.max(y0,(chrome.header?.bottom??y0-8)+8),y0,y1);
+    const maxY=clamp(Math.min(y1,(chrome.progress?.top??y1+height+8)-height-8),minY,y1);
+    let x=corner.endsWith('left')?x0:x1;
+    const y=corner.startsWith('top')?minY:maxY,r=chrome.rail;
+    if(r?.dock==='side'&&y<r.bottom+8&&y+height>r.top-8&&x<r.right+8&&x+width>r.left-8){
+        x=clamp(r.left>left+viewport.width/2?r.left-width-8:r.right+8,x0,x1);
+    }
+    return {left:x,top:y};
+}
+
 /**
  * Clamp one axis of an internally zoomed page to the current visual viewport.
  * `viewportStart` matters on iOS when the visual viewport is offset from the
@@ -280,17 +302,11 @@ export function createViewerMinimapController({
     idleHideMs = DEFAULT_IDLE_HIDE_MS
 } = {}) {
     let dragging = false;
-    let cornerLocked = false;
     let hideTimer = null;
     let thumbnailKey = '';
 
     function setOppositeCorner(minimap, centerRatioX, centerRatioY) {
-        const focusHorizontal = centerRatioX <= 0.5 ? 'left' : 'right';
-        const focusVertical = centerRatioY <= 0.5 ? 'top' : 'bottom';
-        const cornerHorizontal = focusHorizontal === 'left' ? 'right' : 'left';
-        const cornerVertical = focusVertical === 'top' ? 'bottom' : 'top';
-        minimap.dataset.focusQuadrant = `${focusVertical}-${focusHorizontal}`;
-        minimap.dataset.corner = `${cornerVertical}-${cornerHorizontal}`;
+        minimap.dataset.corner = calculateViewerMinimapCorner(centerRatioX,centerRatioY,minimap.dataset.corner||'bottom-right');
     }
 
     function clearHideTimer() {
@@ -300,18 +316,16 @@ export function createViewerMinimapController({
 
     function hide() {
         clearHideTimer();
-        cornerLocked = false;
         const { minimap } = getMinimapElements();
         if (minimap) minimap.hidden = true;
     }
 
     function keepVisible(minimap) {
         minimap.hidden = false;
-        cornerLocked = true;
         clearHideTimer();
+        if(dragging)return;
         hideTimer = window.setTimeout(() => {
             hideTimer = null;
-            cornerLocked = false;
             minimap.hidden = true;
         }, idleHideMs);
     }
@@ -395,10 +409,17 @@ export function createViewerMinimapController({
         viewport.style.top = `${geometry.viewportTop}px`;
         viewport.style.width = `${geometry.viewportWidth}px`;
         viewport.style.height = `${geometry.viewportHeight}px`;
-        if (!cornerLocked) {
+        if (!dragging) {
             setOppositeCorner(minimap, geometry.focusRatioX, geometry.focusRatioY);
         }
         if (fromInteraction) keepVisible(minimap);
+        if(!minimap.hidden){
+            const rect=minimap.getBoundingClientRect();
+            const position=calculateViewerMinimapPlacement({viewport:snapshot.viewport||canvas.getBoundingClientRect(),width:rect.width,height:rect.height,corner:minimap.dataset.corner,chrome:snapshot.chrome});
+            minimap.dataset.positioned='true';
+            minimap.style.setProperty('--minimap-left',position.left+'px');
+            minimap.style.setProperty('--minimap-top',position.top+'px');
+        }
     }
 
     function moveFromMinimap(event) {
@@ -423,6 +444,7 @@ export function createViewerMinimapController({
         const { minimap, surface } = getMinimapElements();
         if (!minimap || !surface || surface.dataset.bound === 'true') return;
         surface.dataset.bound = 'true';
+        document.addEventListener('viewer-chrome-change',()=>update());
 
         const stopEvent = (event) => {
             event.preventDefault();
@@ -444,6 +466,7 @@ export function createViewerMinimapController({
         const finish = (event) => {
             if (!dragging) return;
             dragging = false;
+            keepVisible(minimap);
             event.stopPropagation();
             try { surface.releasePointerCapture(event.pointerId); } catch (_) { /* ignore */ }
         };

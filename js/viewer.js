@@ -2788,7 +2788,7 @@ function getViewerReaderSnapshot(requestedIndex) {
     return {rect,openRatio:bodyPosition>=0?bodyPosition/Math.max(1,body.length-1):(readingIndex>(body.at(-1)?.sourcePageIndex??Infinity)?1:0),peekIndex:readingIndex,rtl:getPageDirection()==='rtl',peekKey:`${viewerDocumentRevision}:${state.activeLang}`,covers:{front:viewerBookModel?.covers?.c1?.sourcePageIndex,back:viewerBookModel?.covers?.c4?.sourcePageIndex},pages:pages.map(p=>({index:p.surface?.sourcePageIndex,side:p.side,label:formatViewerSurfaceSliderLabel(p.surface),cover:/^C[14]$/.test(String(p.surface?.bookRole||p.surface?.role||''))})),
         title:document.getElementById('ui-title')?.textContent || '',total:getViewerBodyPageTotal(hasBookModel()),
         thickness:getViewerBookThickness(),design:state.book?.spineDesign,
-        viewport:getViewerViewportMetrics(),controlInset:getViewerControlInset(),singleBook:viewerSpreadPreference==='single'||Math.min(getViewerCanvasSpace().W,document.documentElement.clientWidth)<700,
+        viewport:getViewerViewportMetrics(),singleBook:viewerSpreadPreference==='single'||Math.min(getViewerCanvasSpace().W,document.documentElement.clientWidth)<700,
         author:getViewerLocalizedMeta()?.author||'',publisher:viewerProjectMeta.labelName||'',
         busy:document.body.classList.contains('viewer-zoom-active') || !!readingGuides?.isAssisting()};
 }
@@ -4898,9 +4898,6 @@ function handleViewerResize() {
  * 論理ページ（CANONICAL_PAGE_*）へ等倍スケールでセンタリングする。
  * visual viewport と safe-area を基準に、単ページ／見開きを物理画面の中央へ収める。
  */
-function getViewerControlInset(viewport=getViewerViewportMetrics()) {
- return usesMobileTapMenu()&&isUiVisible?Math.max(viewport.safeTop,viewport.safeBottom+80,document.getElementById('viewer-header')?.getBoundingClientRect().bottom-viewport.top||0):0;
-}
 function getViewerCanvasSpace(viewport = getViewerViewportMetrics()) {
     const drawerOpen = viewerInfoLayoutMode === 'drawer' && viewerInfoPanelState !== 'closed';
     const safeX = Math.max(viewport.safeLeft, viewport.safeRight);
@@ -4908,7 +4905,7 @@ function getViewerCanvasSpace(viewport = getViewerViewportMetrics()) {
     const readerDock = Number(document.body.dataset.readingAssistDock || 0);
     const W = Math.max(readerDock ? 120 : 280, viewport.width - readerDock - (drawerOpen ? VIEWER_DRAWER_WIDTH + VIEWER_DRAWER_GAP : 0) - (safeX * 2));
     if(readerChrome) {
-        const inset=Math.max(safeY,getViewerControlInset(viewport));
+        const inset=safeY;
         return {W, H:Math.max(80,viewport.height-Number(document.body.dataset.readingAssistBottom||0)-inset*2)};
     }
     const menuInset=usesMobileTapMenu()&&isUiVisible?Math.max(
@@ -5129,6 +5126,14 @@ function getViewerMinimapSurfaces() {
     )).filter(Boolean);
 }
 
+function getViewerMinimapChrome() {
+    if(!isUiVisible)return {};
+    const rect=id=>document.getElementById(id)?.getBoundingClientRect();
+    const rail=document.getElementById('viewer-reader-controls');
+    const progress=document.querySelector('.viewer-page-segments');
+    const r=rail?.getBoundingClientRect();
+    return {header:rect('viewer-header'),progress:progress?.getBoundingClientRect(),rail:r?{left:r.left,right:r.right,top:r.top,bottom:r.bottom,dock:rail.dataset.dock}:null};
+}
 function getViewerMinimapSnapshot() {
     const lang = state.activeLang;
     const surfaces = getViewerMinimapSurfaces().map((surface) => ({
@@ -5149,6 +5154,7 @@ function getViewerMinimapSnapshot() {
         viewY,
         lang,
         viewport: getViewerViewportMetrics(),
+        chrome:getViewerMinimapChrome(),
         surfaceMode: surfaces.length > 1 ? 'spread' : 'single',
         surfaces
     };
