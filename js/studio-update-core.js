@@ -30,7 +30,7 @@ export async function prepareStudioUpdate(target,{
  if(!serviceWorker)return;
  let registration=await serviceWorker.getRegistration('/');if(!registration)return;
  const existing=registration.active||registration.waiting||registration.installing;
- if(!existing||new URL(existing.scriptURL).origin!==origin||new URL(existing.scriptURL).pathname!=='/studio-sw.js')throw Error('UNEXPECTED_WORKER');
+ if(!existing||new URL(existing.scriptURL).origin!==origin||!['/studio-sw.js','/viewer-sw.js','/platform-sw.js'].includes(new URL(existing.scriptURL).pathname))throw Error('UNEXPECTED_WORKER');
  onProgress('downloading',target);
  // A build-specific URL also escapes an older cached response for the worker script.
  // Keep scope and registration identity; do not unregister or clear any databases.

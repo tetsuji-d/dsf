@@ -10,10 +10,10 @@ export function installStudioVersionUI({current,getLocale,homeHost,helpHost,bloc
   const update=document.createElement('button');update.type='button';update.className='studio-version-update';update.hidden=true;update.onclick=()=>openUpdate();row.append(label,update);
   let check,status,repair;
   if(tools){check=document.createElement('button');check.type='button';check.onclick=()=>void checker.check({force:true});repair=document.createElement('a');repair.href='/studio-repair.html';repair.target='_blank';repair.rel='noopener';status=document.createElement('span');status.className='studio-version-status';status.setAttribute('role','status');row.append(check,repair,status);}
-  host.append(row);views.push({label,update,check,status,repair});
+  host.append(row);views.push({label,update,check,status,repair,tools});
  }
- function render(){const value=checker.read();const status=!enabled?text('開発環境','Development environment'):({unknown:text('更新未確認','Not checked'),checking:text('更新を確認中…','Checking for updates…'),offline:text('オフラインのため確認できません','Offline; could not check'),failed:text('更新を確認できませんでした','Could not check for updates'),checked:value.available?text('新しいバージョンがあります','A new version is available'):text('更新はありません','No update available')})[value.phase];
-  for(const v of views){v.label.title=text('使用中のバージョン：','Current version: ')+current.label+' · '+status;v.update.textContent=text('更新','Update');v.update.hidden=!value.available;v.update.disabled=applying||!navigator.onLine;
+ function render(){const value=checker.read();const status=!enabled?text('開発環境','Development environment'):({unknown:text('更新未確認','Not checked'),checking:text('更新を確認中…','Checking for updates…'),offline:text('オフラインのため確認できません','Offline; could not check'),failed:text('更新を確認できませんでした','Could not check for updates'),checked:value.available?text('新しいバージョンを自動で準備します','The new version will be prepared automatically'):text('更新はありません','No update available')})[value.phase];
+  for(const v of views){v.label.title=text('使用中のバージョン：','Current version: ')+current.label+' · '+status;v.update.textContent=text('更新','Update');v.update.hidden=!v.tools||!value.available;v.update.disabled=applying||!navigator.onLine;
    if(v.check){v.check.textContent=text('更新を確認','Check for updates');v.check.disabled=!enabled||value.phase==='checking';v.repair.textContent=text('アプリの更新・復旧','App update / recovery');v.status.textContent=status;}}
  }
  const checker=createStudioVersionCheck({current,fetchVersion,onChange:render});

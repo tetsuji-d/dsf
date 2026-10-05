@@ -19,3 +19,30 @@
 
 /studio-version.json
   Cache-Control: public, max-age=0, must-revalidate
+
+/viewer-sw.js
+  Cache-Control: no-cache
+  Service-Worker-Allowed: /
+/platform-sw.js
+  Cache-Control: no-cache
+  Service-Worker-Allowed: /
+/platform-update-entry.js
+  Cache-Control: no-cache
+/platform-update-core.js
+  Cache-Control: no-cache
+/
+  Cache-Control: no-cache
+/index.html
+  Cache-Control: no-cache
+/studio
+  Cache-Control: no-cache
+/studio.html
+  Cache-Control: no-cache
+/viewer
+  Cache-Control: no-cache
+/viewer.html
+  Cache-Control: no-cache
+/mypage
+  Cache-Control: no-cache
+/admin/
+  Cache-Control: no-cache
