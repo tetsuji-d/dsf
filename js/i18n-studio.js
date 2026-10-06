@@ -171,7 +171,7 @@ export const STRINGS = {
         home_pages_count:     '{count}ページ',
         home_work_title:      '作品タイトル: {title}',
         home_work_title_unset:'作品タイトル: 未設定',
-        home_works_empty:     '発行済み作品はまだありません。Press Room から作品を発行してください。',
+        home_works_empty:     '発行済み作品はまだありません。プレスで作品を発行してください。',
         home_stat_works:      '発行済み作品',
         home_stat_works_hint: '公開/限定公開 {count}',
         home_stat_public:     '公開中',

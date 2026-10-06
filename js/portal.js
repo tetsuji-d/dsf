@@ -24,7 +24,7 @@ const STRINGS = {
         horizonBrand:    "DSF Horizon",
         libraryName:     "Horizon",
         libraryHomeTitle:"情報の広がりは、地平線を超えていく。",
-        libraryHomeDesc: "公開作品を探し、気になる作品をすぐ開ける Reader 向けホームです。",
+        libraryHomeDesc: "公開作品を探し、気になる作品をすぐ開ける読者向けのホームです。",
         createMenu:      "作成",
         drawerHome:      "ホーム",
         drawerHistory:   "履歴",

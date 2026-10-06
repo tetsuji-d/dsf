@@ -5,8 +5,7 @@ const SHELL=__STUDIO_PRECACHE__;
 const BUILD=__STUDIO_BUILD_INFO__;
 const SDK=['app','auth','firestore','storage'].map(name=>'https://www.gstatic.com/firebasejs/10.7.1/firebase-'+name+'.js');
 const FONT_CSS=[
- 'https://fonts.googleapis.com/css2?family=Noto+Sans:wght@400;700&family=Noto+Sans+JP:wght@400;700&family=Noto+Serif:wght@400;700&family=Noto+Serif+JP:wght@400;700&display=swap',
- 'https://fonts.googleapis.com/icon?family=Material+Icons'];
+ 'https://fonts.googleapis.com/css2?family=Noto+Sans:wght@400;700&family=Noto+Sans+JP:wght@400;700&family=Noto+Serif:wght@400;700&family=Noto+Serif+JP:wght@400;700&display=swap'];
 const FONTS=[
  'https://media.dsf.ink/fonts/noto-sans-jp-2.004-h2-6fd94964d1990baa.woff2',
  'https://media.dsf.ink/fonts/noto-serif-jp-2.003-h1-075dddc7c1db881e.woff2'];
