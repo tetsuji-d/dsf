@@ -37,6 +37,11 @@
       },
       "icons": [
         {
+          "src": "/file-icons/dsp-256.png",
+          "sizes": "256x256",
+          "type": "image/png"
+        },
+        {
           "src": "/file-icons/dsp.svg",
           "sizes": "any",
           "type": "image/svg+xml"
@@ -52,6 +57,11 @@
         ]
       },
       "icons": [
+        {
+          "src": "/file-icons/dsf-256.png",
+          "sizes": "256x256",
+          "type": "image/png"
+        },
         {
           "src": "/file-icons/dsf.svg",
           "sizes": "any",
