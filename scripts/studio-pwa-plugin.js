@@ -23,7 +23,8 @@ export function studioPwaPlugin(){
  const fileIcons=[...new Set((manifest.file_handlers||[]).flatMap(h=>(h.icons||[]).map(icon=>icon.src)).concat(['/file-icons/dsp.svg','/file-icons/dsf.svg']))];
  const files=Object.keys(bundle).filter(p=>p.startsWith('assets/')||['index.html','mypage.html','admin/index.html','studio.html','viewer.html'].includes(p)).sort();
  let source=readFileSync(new URL('../js/studio-service-worker.js',import.meta.url),'utf8');
- const version=createHash('sha256').update(source+JSON.stringify(manifest)+fileIcons.map(p=>createHash('sha256').update(readFileSync(new URL('../public'+p,import.meta.url))).digest('hex')).join('')+files.map(p=>p+String(bundle[p].code||bundle[p].source)).join('')).digest('hex').slice(0,20);
+ const appIcons=['/studio-icon.svg','/studio-icon-192.png','/studio-icon-512.png'];
+ const version=createHash('sha256').update(source+JSON.stringify(manifest)+[...fileIcons,...appIcons].map(p=>createHash('sha256').update(readFileSync(new URL('../public'+p,import.meta.url))).digest('hex')).join('')+files.map(p=>p+String(bundle[p].code||bundle[p].source)).join('')).digest('hex').slice(0,20);
  source=source.replace('__STUDIO_BUILD_INFO__',JSON.stringify(build)).replace('__STUDIO_PRECACHE__',JSON.stringify(files.map(p=>'/'+p).concat(['platform-update-entry.js','platform-update-core.js','studio-update-core.js'].map(p=>'/'+p+'?build='+build.id),['/studio.webmanifest','/studio-icon.svg','/studio-icon-192.png','/studio-icon-512.png'],fileIcons))).replace('__STUDIO_VERSION__',JSON.stringify(version));
  this.emitFile({type:'asset',fileName:'studio-sw.js',source:source.replace('__STUDIO_FULL_OFFLINE__','true')});
  for(const name of ['platform-sw.js','viewer-sw.js'])this.emitFile({type:'asset',fileName:name,source:source.replace('__STUDIO_FULL_OFFLINE__','false')});
