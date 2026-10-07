@@ -65,7 +65,7 @@ export function installEditorWorkBar({host,read,getLocale,onSave,onSaveAs,onDown
             const work=read(),en=getLocale()==='en',view=editorWorkView(work,en);
             heading.textContent=en?'Save details':'保存の詳細';target.textContent=view.destination;state.textContent=error||view.status;backup.textContent=view.backup;
             explanation.textContent=en?'Recovery copies help after an interruption. They do not confirm saving to the cloud or a DSP file.':'復元用コピーは、作業が中断したときの備えです。クラウドやDSPファイルへの保存完了を意味しません。';
-            names.textContent=en?'Project name organizes your manuscripts. Work title is the title shown to readers for each language.':'プロジェクト名は原稿を管理するための名前です。作品タイトルは、読者に表示する言語ごとのタイトルです。';
+            names.textContent=en?'Project name organizes your manuscripts. Work title is the title shown to readers for each language.':'プロジェクト名は原稿を管理するための名前です。リードタイトルは、読者に表示する言語ごとのタイトルです。';
             saveAs.textContent=work.local?(en?'Save DSP as…':'DSPに名前を付けて保存'):(en?'Export a DSP copy':'DSPファイルを書き出す');
             download.textContent=en?'Download DSP':'DSPをダウンロード';cloud.textContent=work.cloudDestinationPending?(en?'Retry cloud destination saving':'クラウド保存先への保存を再試行'):(en?'Choose a cloud destination':'クラウド保存先を選ぶ');recovery.textContent=en?'View recovery copies':'復元用コピーを確認';close.textContent=en?'Close':'閉じる';
             saveAs.hidden=download.hidden=work.shared;saveAs.disabled=download.disabled=pending||!work.canExport;

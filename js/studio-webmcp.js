@@ -52,7 +52,7 @@ export function createStudioWebMCP({ readSaveStatus = unknownSaveStatus, readSta
                     execute: async (args, options = {}) => {
                         if (active.signal.aborted || controller !== active || status !== 'on') throw Error('DSF_DISABLED');
                         if (options.signal?.aborted) throw Error('DSF_CANCELLED');
-                        if (!canReadSharedStudio() || (!canEditSharedStudio() && !readNames.has(tool.name))) return {error:{code:'EDIT_FORBIDDEN',message:'Shared manuscript access changed. Reopen the work.'}};
+                        if (!canReadSharedStudio() || (!canEditSharedStudio() && !readNames.has(tool.name))) return {error:{code:'EDIT_FORBIDDEN',message:'Shared manuscript access changed. Reopen the Read.'}};
                         let result = await tool.execute(args, options);
                         if (result.changed === true || result.created === true) result = { ...result, persistence: readSaveStatus(),
                             saveCheck: 'changed/created confirms the editor update only. Read dsf_get_editor_context.persistence after autosave. Report cloud saved only when cloudCurrent is true; localCurrent is a device backup, not cloud publication.' };
@@ -77,13 +77,13 @@ export function createStudioWebMCP({ readSaveStatus = unknownSaveStatus, readSta
 
 const labels = {
     ja: { title: 'AI連携', access: 'AIに許可する操作', read: '閲覧のみ', edit: '閲覧・編集',
-        notice: 'AIが本文・素材・ページ構成を読み取り、検索や相談に使えます。作品は変更できません。',
-        editNotice: 'AIが読み取りに加え、新規作品の作成、本文編集、ページの選択・並べ替え、画像ページの追加・差し替えを行えます。変更は元に戻せます。発行は含みません。',
-        remembered: 'このブラウザーに保存します。作品の切り替えや再読み込み後も有効です。',
+        notice: 'AIが本文・素材・ページ構成を読み取り、検索や相談に使えます。リードは変更できません。',
+        editNotice: 'AIが読み取りに加え、新規リードの作成、本文編集、ページの選択・並べ替え、画像ページの追加・差し替えを行えます。変更は元に戻せます。発行は含みません。',
+        remembered: 'このブラウザーに保存します。リードの切り替えや再読み込み後も有効です。',
         temporary: 'ブラウザーに設定を保存できないため、このタブを開いている間だけ有効です。',
         unsupported: 'このブラウザーでは非対応', off: 'オフ', on: '利用可能', registering: '接続準備中…', error: '接続できませんでした', room: 'エディターに戻ると自動で再開します', retry: '再接続', details: '接続の詳細' },
     en: { title: 'AI connection', access: 'AI access', read: 'Read only', edit: 'Read and edit',
-        notice: 'AI can read text, assets and page composition for search and advice. It cannot change your work.',
+        notice: 'AI can read text, assets and page composition for search and advice. It cannot change your Read.',
         editNotice: 'AI can also create projects, edit text, select or reorder pages, and add or replace page images. Changes support Undo. Publishing is not included.',
         remembered: 'Saved in this browser. Stays enabled across project changes and reloads.',
         temporary: 'Browser storage is unavailable. This setting lasts only while this tab is open.',
@@ -125,8 +125,8 @@ export function initStudioWebMCP({ readSaveStatus, readState, readComposition, g
                 ? (ja ? `登録済み ${connection.getToolCount()}ツール · document.modelContext` : `${connection.getToolCount()} tools registered · document.modelContext`) : '';
             root.querySelector('[data-ai-activity]').textContent = !last ? (ja ? 'この接続では呼び出し未確認' : 'No calls observed in this connection')
                 : `${last.tool}: ${last.code ? `${last.code} — ${editorToolErrorMessage(last.code, ja ? 'ja' : 'en')}`
-                    : (ja ? (last.created ? '新規作品を作成' : last.replayed ? '再送受付（再適用なし）' : last.changed ? '作品の更新を実行' : '成功（変更なし）')
-                        : (last.created ? 'Project created' : last.replayed ? 'Replayed without applying again' : last.changed ? 'Work updated' : 'Success (no change)'))}`;
+                    : (ja ? (last.created ? '新規リードを作成' : last.replayed ? '再送受付（再適用なし）' : last.changed ? 'リードの更新を実行' : '成功（変更なし）')
+                        : (last.created ? 'Project created' : last.replayed ? 'Replayed without applying again' : last.changed ? 'Read updated' : 'Success (no change)'))}`;
         });
     }
     const connection = createStudioWebMCP({ readSaveStatus, readState, readComposition, getModelContext, history, selectPage, applyPageChange, applyEdit, createProject, applyImagePage, prepareImage, discardImage, onChange: sync });

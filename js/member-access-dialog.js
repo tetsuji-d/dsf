@@ -27,7 +27,7 @@ export function openMemberAccessDialog({root,execute,spaceId,memberUid,getLocale
         }else{
             dialog.append(node('h3',t('変更前','Before')),...original.grants.map(g=>node('p',describe(g))),node('h3',t('変更後','After')),...grants.map(g=>node('p',describe(g))));
         }
-        dialog.append(node('p',t('スペース・レーベル全体の権限は、今後共有される作品にも適用されます。','Space and label access also applies to works shared there in the future.')));
+        dialog.append(node('p',t('スペース・レーベル全体の権限は、今後共有されるリードにも適用されます。','Space and label access also applies to Reads shared there in the future.')));
         status.textContent='';dialog.append(status);const actions=node('div');actions.className='invitation-actions';actions.append(button(t('キャンセル','Cancel'),close));
         if(confirm)actions.append(button(t('戻る','Back'),()=>{command=null;paint();}));
         const submit=button(confirm?t('変更を保存','Save changes'):t('変更内容を確認','Review changes'),async()=>{

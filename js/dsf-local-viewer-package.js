@@ -113,7 +113,7 @@ async function readEntryBytes(entry, path, maximumBytes) {
     if (!entry || entry.dir) fail('LOCAL_DSF_ENTRY_MISSING', path, 'Required archive entry is missing.');
     const declaredSize = getDeclaredUncompressedSize(entry);
     if (declaredSize !== null && declaredSize > maximumBytes) {
-        fail('LOCAL_DSF_ENTRY_LIMIT_EXCEEDED', path, 'Archive entry exceeds the local Viewer size limit.', {
+        fail('LOCAL_DSF_ENTRY_LIMIT_EXCEEDED', path, 'Archive entry exceeds the local Reader size limit.', {
             byteLength: declaredSize,
             maximumBytes,
         });
@@ -127,7 +127,7 @@ async function readEntryBytes(entry, path, maximumBytes) {
         });
     }
     if (bytes.byteLength > maximumBytes) {
-        fail('LOCAL_DSF_ENTRY_LIMIT_EXCEEDED', path, 'Archive entry exceeds the local Viewer size limit.', {
+        fail('LOCAL_DSF_ENTRY_LIMIT_EXCEEDED', path, 'Archive entry exceeds the local Reader size limit.', {
             byteLength: bytes.byteLength,
             maximumBytes,
         });
@@ -243,7 +243,7 @@ function validateArchiveManifest(manifest) {
         }
         payloadByteLength += descriptor.byteLength;
         if (!Number.isSafeInteger(payloadByteLength) || payloadByteLength > MAX_ARCHIVE_PAYLOAD_BYTES) {
-            fail('LOCAL_DSF_PAYLOAD_LIMIT_EXCEEDED', 'manifest.json.payloadByteLength', 'Archive payload exceeds the local Viewer limit.');
+            fail('LOCAL_DSF_PAYLOAD_LIMIT_EXCEEDED', 'manifest.json.payloadByteLength', 'Archive payload exceeds the local Reader limit.');
         }
         descriptors.set(descriptor.path, descriptor);
     }
@@ -286,7 +286,7 @@ function validateMimetype(bytes) {
 function validateMeta(meta, index) {
     const languages = Object.keys(index.languages || {});
     if (meta.schemaVersion !== 2 || meta.format !== 'dsf') {
-        fail('LOCAL_DSF_META_VERSION_UNSUPPORTED', 'meta.json', 'Portable Viewer requires DSF delivery schema v2 metadata.');
+        fail('LOCAL_DSF_META_VERSION_UNSUPPORTED', 'meta.json', 'Portable Reader requires DSF delivery schema v2 metadata.');
     }
     if (!Array.isArray(meta.languages)
         || meta.languages.length !== languages.length
@@ -671,7 +671,7 @@ export async function loadDsfLocalViewerPackage(input = {}) {
     } catch (error) {
         disposeRuntime();
         if (error instanceof DsfLocalViewerPackageError) throw error;
-        fail('LOCAL_DSF_PREPARATION_FAILED', '', 'Portable DSF Viewer preparation failed.', {
+        fail('LOCAL_DSF_PREPARATION_FAILED', '', 'Portable DSF Reader preparation failed.', {
             causeCode: error?.code || null,
             cause: error?.message || String(error),
             validationIssues: error?.issues || [],

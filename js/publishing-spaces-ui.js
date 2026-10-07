@@ -2,7 +2,7 @@ import { openPublishingSpaceCreation } from './publishing-space-create-dialog.js
 import { prepareSpaceImage } from './publishing-space-image.js';
 const escape = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const copy = {
-    ja: { title:'スペース', hint:'マイスペースで個人の原稿を作成し、出版スペースで作品を管理・発行できます。表示を切り替えても作品の保存先は変わりません。',
+    ja: { title:'スペース', hint:'マイスペースで個人の原稿を作成し、出版スペースでリードを管理・発行できます。表示を切り替えてもリードの保存先は変わりません。',
         settings:'基本情報を設定', description:'概要', website:'Webサイト', icon:'アイコン', banner:'背景画像', remove:'画像を削除', preview:'保存後の表示プレビュー', imageHint:'PNG・JPEG・WebP（20MBまで）。中央を切り抜き、アイコンは正方形、背景は3:1のWebPで保存します。', imageError:'画像を読み込めませんでした。別の画像を選択してください。', readImageError:'画像を取得できませんでした。再読み込みしてください。', blankDescription:'概要はまだありません。',
         all:'すべてのクラウド原稿', unassigned:'マイスペース', select:'表示するスペース', create:'出版スペースを開設', name:'スペース名',
         submit:'開設', cancel:'キャンセル', rename:'名前を変更', save:'変更を保存', login:'ログインすると出版スペースを開設・管理できます。',
@@ -13,7 +13,7 @@ const copy = {
         error:'保存できませんでした。接続を確認して再試行してください。', saved:'保存しました。', working:'保存中…',
         count:'原稿', owner:'所有者', space:'出版スペース', destination:'保存先：クラウド', noProjects:'この表示範囲に原稿はありません。',
     },
-    en: { title:'Spaces', hint:'Create personal manuscripts in My space. Use publishing spaces to manage and publish works. Switching views does not move your works.',
+    en: { title:'Spaces', hint:'Create personal manuscripts in My space. Use publishing spaces to manage and publish Reads. Switching views does not move your Reads.',
         settings:'Edit space profile', description:'About', website:'Website', icon:'Icon', banner:'Background image', remove:'Remove image', preview:'Preview after saving', imageHint:'PNG, JPEG or WebP, up to 20 MB. Center-cropped to a square icon and a 3:1 background, then saved as WebP.', imageError:'Could not process this image. Choose another image.', readImageError:'Could not load the image. Please reload.', blankDescription:'No description yet.',
         all:'All cloud manuscripts', unassigned:'My space', select:'Space to display', create:'Create a publishing space', name:'Space name',
         submit:'Create', cancel:'Cancel', rename:'Rename', save:'Save changes', login:'Sign in to create and manage publishing spaces.',

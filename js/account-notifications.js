@@ -55,7 +55,7 @@ export function createAccountNotifications({getUser,getLocale=()=>document.docum
         if(failures.length)body.append(el('p',t('一部のお知らせを取得できませんでした。「更新」で再試行してください。','Some notifications could not be loaded. Select Refresh to try again.')));
         if(loaded&&!records.length&&!failures.length)body.append(el('p',t('お知らせはありません。','No notifications.')));
         for(const record of records){const i=record.invitation,row=button('',()=>void read(record));row.className='account-notification-row';row.classList.toggle('unread',record.readAt===null);
-            row.append(el('small',(record.kind==='personal'?t('作品への招待','Project invitation'):t('出版スペースへの招待','Publishing space invitation'))+(record.readAt===null?' · '+t('未読','Unread'):'')),el('strong',i.title||i.spaceName),el('span',i.inviterName+' · '+status(i.status)),el('small',new Date(record.createdAt).toLocaleDateString(getLocale()==='en'?'en-GB':'ja-JP')));body.append(row);}
+            row.append(el('small',(record.kind==='personal'?t('リードへの招待','Project invitation'):t('出版スペースへの招待','Publishing space invitation'))+(record.readAt===null?' · '+t('未読','Unread'):'')),el('strong',i.title||i.spaceName),el('span',i.inviterName+' · '+status(i.status)),el('small',new Date(record.createdAt).toLocaleDateString(getLocale()==='en'?'en-GB':'ja-JP')));body.append(row);}
         if(spaceCursor)body.append(button(t('さらに表示','Show more'),()=>void more()));
     }
     async function run(action){if(busy||!account)return;busy=true;const version=epoch,uid=account.uid,operation=++actionVersion;
@@ -64,10 +64,10 @@ export function createAccountNotifications({getUser,getLocale=()=>document.docum
         finally{if(current(version,uid)&&operation===actionVersion){busy=false;dialog?.removeAttribute('aria-busy');}}}
     async function read(record){await run(async valid=>{const result=await clients[record.kind]({kind:'read',id:record.id});if(!valid()||!dialog)return;
         detail={...record,invitation:result.invitation,canAccept:result.canAccept};renderDetail();await request;if(valid())await refresh();});}
-    function workLink(work,spaceId){const link=el('a',t('作品を開く','Open project')+' · '+(work.title||work.workId));link.href='/studio?room=editor&sharedSpace='+encodeURIComponent(spaceId)+'&sharedWork='+encodeURIComponent(work.workId);link.target='_blank';link.rel='noopener';link.className='account-notification-link';return link;}
+    function workLink(work,spaceId){const link=el('a',t('リードを開く','Open project')+' · '+(work.title||work.workId));link.href='/studio?room=editor&sharedSpace='+encodeURIComponent(spaceId)+'&sharedWork='+encodeURIComponent(work.workId);link.target='_blank';link.rel='noopener';link.className='account-notification-link';return link;}
     function renderDetail(){if(!body||!detail)return;body.replaceChildren();feedback.textContent='';const record=detail,i=record.invitation;
         body.append(button(t('一覧へ戻る','Back to notifications'),()=>{detail=null;renderList();}),el('h3',i.title||i.spaceName),el('p',t('招待者：','Invited by: ')+i.inviterName),el('p',status(i.status)));
-        if(record.kind==='personal')body.append(el('p',t('この作品の最新の保存内容を閲覧できます。編集は許可されません。','View the latest saved version of this project. Editing is not permitted.')));
+        if(record.kind==='personal')body.append(el('p',t('このリードの最新の保存内容を閲覧できます。編集は許可されません。','View the latest saved version of this project. Editing is not permitted.')));
         else{const list=el('ul');if(i.role==='admin')list.append(el('li',t('管理者','Administrator')));for(const [index,grant]of (i.grants||[]).entries())list.append(el('li',(grant.role==='editor'?t('編集可','Can edit'):t('閲覧のみ','View only'))+' · '+(i.scopeLabels?.[index]||t('指定範囲','Assigned scope'))));body.append(list);}
         body.append(el('p',t('承諾期限：','Accept by: ')+(i.expiresAt===null?t('無期限','No expiration'):new Date(i.expiresAt).toLocaleString(getLocale()==='en'?'en-GB':'ja-JP'))));
         if(i.status==='pending'){const actions=el('div');actions.className='account-notifications-actions';
@@ -75,7 +75,7 @@ export function createAccountNotifications({getUser,getLocale=()=>document.docum
             if(record.canAccept===false)body.append(el('p',t('共有の準備が完了すると承諾できます。','You can accept once sharing is ready.')));
         }else if(i.status==='accepted'){
             if(record.kind==='personal')body.append(workLink(i,'personal'));
-            else body.append(button(t('共有作品を見る','View shared projects'),()=>void showWorks(record)));
+            else body.append(button(t('共有リーズを見る','View shared projects'),()=>void showWorks(record)));
         }
     }
     async function respond(record,kind){await run(async valid=>{const result=await clients[record.kind]({kind,id:record.id});if(!valid()||!dialog)return;
@@ -83,8 +83,8 @@ export function createAccountNotifications({getUser,getLocale=()=>document.docum
     async function more(){await run(async valid=>{const result=await spaces({kind:'inbox',cursor:spaceCursor});if(!valid()||!dialog)return;
         const seen=new Set(records.filter(i=>i.kind==='space').map(i=>i.id));records.push(...result.items.map(i=>normalize('space',i)).filter(i=>!seen.has(i.id)));records.sort((a,b)=>b.createdAt-a.createdAt);spaceCursor=result.nextCursor;renderList();});}
     async function showWorks(record){await run(async valid=>{const result=await spaces({kind:'listSpaceWorks',spaceId:record.invitation.spaceId});if(!valid()||!dialog||detail?.id!==record.id)return;
-        renderDetail();const list=el('section');list.append(el('h4',t('共有された作品','Shared projects')));body.append(list);const append=items=>{for(const work of items)list.append(workLink(work,record.invitation.spaceId));};append(result.items);
-        if(!result.items.length)list.append(el('p',t('閲覧できる作品はまだありません。','No shared projects available yet.')));
+        renderDetail();const list=el('section');list.append(el('h4',t('共有されたリーズ','Shared projects')));body.append(list);const append=items=>{for(const work of items)list.append(workLink(work,record.invitation.spaceId));};append(result.items);
+        if(!result.items.length)list.append(el('p',t('閲覧できるリードはまだありません。','No shared projects available yet.')));
         let afterId=result.nextCursor;if(afterId){const next=button(t('さらに表示','Show more'),()=>void run(async validMore=>{const page=await spaces({kind:'listSpaceWorks',spaceId:record.invitation.spaceId,afterId});if(!validMore()||!list.isConnected)return;append(page.items);afterId=page.nextCursor;next.hidden=!afterId;}));list.append(next);}
     });}
     const focus=()=>{sync();if(!document.hidden)void refresh();};const language=()=>{paintBadge();if(dialog){dialog.querySelector('h2').textContent=t('お知らせ','Notifications');dialog.querySelector('header button').textContent=t('閉じる','Close');detail?renderDetail():renderList();}};

@@ -3262,7 +3262,7 @@ body.viewer-edge-fan-active #viewer-book-pose[data-mode=edge] {visibility:hidden
 .edge-peek-content {position:absolute;top:0;width:360px;height:640px;pointer-events:none;}
 .edge-peek-sr {position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);}
 body.viewer-book-pose-active:not(.viewer-edge-fan-active) .slider-wrapper {visibility:hidden;pointer-events:none!important;}
-body.viewer-reader-chrome #viewer-header :is(.header-btn,.viewer-auth-trigger,#lang-picker-button,[data-account-notifications],#viewer-page-settings>summary,.viewer-horizon-link) {
+body.viewer-reader-chrome #viewer-header :is(.header-btn,.viewer-auth-trigger,#lang-picker-button,[data-account-notifications],#viewer-page-settings>summary) {
     background:rgb(24 30 35 / 65%)!important;color:#fff!important;border:1px solid #ffffff38;box-shadow:0 2px 8px #0002;backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);border-radius:12px;
 }
 body.viewer-reader-chrome #viewer-header .header-btn {min-width:40px;min-height:40px;}
@@ -3436,3 +3436,10 @@ body.viewer-reader-chrome.viewer-phone-centered #viewer-header {
 /* Move the complete page only while a desktop information column fits beside it. */
 body.viewer-reader-chrome #viewer-canvas {left:var(--viewer-info-page-shift,0px);}
 #viewer-edge-peek {margin-left:var(--viewer-info-page-shift,0px);}
+
+/* App navigation overlays the book without changing page geometry. */
+.viewer-brand-navigation {display:flex;align-items:center;gap:8px;flex:0 0 auto;pointer-events:auto;}
+#viewer-app-menu-button {display:grid;place-items:center;width:40px;height:40px;cursor:pointer;}
+body.viewer-empty #viewer-header {opacity:1;visibility:visible;pointer-events:auto;}
+body.viewer-empty #viewer-page-settings,body.viewer-empty #viewer-fullscreen-btn {display:none!important;}
+@media(max-width:768px) {.viewer-brand-navigation {gap:6px;}#viewer-app-menu-button {min-width:40px;}}

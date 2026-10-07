@@ -6,11 +6,11 @@ export function createPersonalSharingClient({getUser,fetchImpl=fetch,timeoutMs=1
 }
 const node=(tag,text)=>{const n=document.createElement(tag);if(text!==undefined)n.textContent=text;return n;};
 const button=(text,action)=>{const b=node('button',text);b.type='button';b.onclick=action;return b;};
-const message=(error,en)=>({PERSONAL_SHARING_DISABLED:en?'Personal sharing is being prepared.':'作品の個別共有は準備中です。',
+const message=(error,en)=>({PERSONAL_SHARING_DISABLED:en?'Personal sharing is being prepared.':'リードの個別共有は準備中です。',
     PERSONAL_SHARING_NOT_ENABLED:en?'Sharing is currently limited to test accounts.':'現在は指定アカウントで検証中です。',
     PROJECT_NOT_MIGRATED:en?'This project needs private cloud storage before it can be shared.':'この原稿は個別共有に対応した非公開クラウド保存への移行が必要です。',
     PRIVATE_IMAGES_REQUIRED:en?'Images need private storage before this project can be shared.':'画像を非公開の共有用保存先へ移行してから共有できます。',
-    WORK_SHARING_LIMIT:en?'This project has reached its active sharing limit. Revoke an invitation or access first.':'この作品の招待・共有人数が上限に達しています。不要な共有を解除してください。',
+    WORK_SHARING_LIMIT:en?'This project has reached its active sharing limit. Revoke an invitation or access first.':'このリードの招待・共有人数が上限に達しています。不要な共有を解除してください。',
     RECIPIENT_SHARING_LIMIT:en?'The recipient has reached their active sharing limit.':'相手が受け取れる招待・共有の上限に達しています。',
     DAILY_INVITATION_LIMIT:en?'Today’s invitation limit has been reached. Try again tomorrow.':'本日の招待送信上限に達しました。日を改めてお試しください。',
     LOOKUP_LIMIT:en?'Too many account searches. Try again in a minute.':'検索が続いています。少し待ってから再度お試しください。',
@@ -32,7 +32,7 @@ function historySection(items,en,archive){
 }
 export function openPersonalSharingDialog({projectId,name,execute,getLocale=()=> 'ja',isCurrent=()=>true}){
     const en=getLocale()==='en',d=node('dialog');d.className='project-copy-dialog personal-sharing-dialog';
-    d.append(node('h2',en?'Share project':'プロジェクトを共有'),node('p',name),node('p',en?'Invite someone to view the latest saved manuscript. Only this project is shared; editing is not allowed.':'最新の保存済み原稿を閲覧できる相手を招待します。この作品だけを共有し、編集は許可しません。'));
+    d.append(node('h2',en?'Share project':'プロジェクトを共有'),node('p',name),node('p',en?'Invite someone to view the latest saved manuscript. Only this project is shared; editing is not allowed.':'最新の保存済み原稿を閲覧できる相手を招待します。このリードだけを共有し、編集は許可しません。'));
     const status=node('p');status.setAttribute('role','status');const content=node('div');d.append(status,content);
     let alive=true,busy=false,prepared=null,recipient=null,requestId=null;
     const close=()=>{if(busy)return;alive=false;d.close();d.remove();};d.append(button(en?'Close':'閉じる',close));d.addEventListener('cancel',e=>{e.preventDefault();close();});
@@ -64,7 +64,7 @@ export function openPersonalSharingDialog({projectId,name,execute,getLocale=()=>
                 }
                 if(valid())await load();
             })));
-            content.append(node('p',en?'Close other editor tabs before continuing. A verified source backup is kept; existing public images and published editions are retained.':'編集中の別タブを閉じてから実行してください。原稿のバックアップを保持し、既存の公開画像や発行済み作品は削除しません。'));
+            content.append(node('p',en?'Close other editor tabs before continuing. A verified source backup is kept; existing public images and published editions are retained.':'編集中の別タブを閉じてから実行してください。原稿のバックアップを保持し、既存の公開画像や発行済みリードは削除しません。'));
         }
         if(prepared.generationId){
         const label=node('label',en?'Horizon ID':'招待先のHorizon ID'),input=node('input');input.placeholder='@horizon_id';label.append(input);content.append(label);
@@ -100,19 +100,19 @@ export function openPersonalSharingDialog({projectId,name,execute,getLocale=()=>
 }
 export function mountPersonalSharingInbox({root,execute,getLocale=()=> 'ja',isCurrent=()=>true,onOpen=null,mode='all',onChange=()=>{}}){
     const en=getLocale()==='en',section=node('section');section.className='personal-sharing-inbox';root.append(section);
-    const title=node('h3',en?'Shared with me':'共有された作品'),status=node('p'),list=node('div');status.setAttribute('role','status');
+    const title=node('h3',en?'Shared with me':'共有されたリーズ'),status=node('p'),list=node('div');status.setAttribute('role','status');
     let alive=true,revision=0;
     const open=i=>{if(onOpen)return onOpen(i);location.href='/studio?room=editor&sharedSpace=personal&sharedWork='+encodeURIComponent(i.workId);};
-    const refresh=button(en?'Notifications / refresh':'🔔 招待を確認・更新',load);if(mode==='notifications')title.textContent=en?'Project invitations':'作品への招待';section.append(title,refresh,status,list);
+    const refresh=button(en?'Notifications / refresh':'🔔 招待を確認・更新',load);if(mode==='notifications')title.textContent=en?'Project invitations':'リードへの招待';section.append(title,refresh,status,list);
     async function load(){const version=++revision;refresh.disabled=true;status.textContent=en?'Loading…':'読み込み中…';
         try{const result=await execute({kind:'inbox'});if(!alive||!isCurrent()||version!==revision)return;
             refresh.textContent=en?'Refresh':'更新';status.textContent='';list.replaceChildren();
             onChange(result);
             const items=result.items.filter(i=>mode==='works'?i.status==='accepted':mode==='notifications'?i.status==='pending':['pending','accepted'].includes(i.status));
-            if(!items.length)list.append(node('p',mode==='works'?(en?'No shared works yet. Accept invitations from the header bell.':'共有された作品はまだありません。ヘッダーのベルから招待を承諾できます。'):(en?'No pending invitations.':'承諾待ちの招待はありません。')));
+            if(!items.length)list.append(node('p',mode==='works'?(en?'No shared Reads yet. Accept invitations from the header bell.':'共有されたリーズはまだありません。ヘッダーのベルから招待を承諾できます。'):(en?'No pending invitations.':'承諾待ちの招待はありません。')));
             for(const i of items){const row=node('article');row.append(node('strong',i.title),node('p',i.inviterName+' · '+(en?'View only':'閲覧のみ')));
                 if(i.status==='accepted')row.append(button(en?'Open':'開く',()=>open(i)));
-                else {row.append(node('p',en?'Only this project is shared. You will not join a publishing space.':'この作品だけを閲覧します。出版スペースには所属しません。'));
+                else {row.append(node('p',en?'Only this project is shared. You will not join a publishing space.':'このリードだけを閲覧します。出版スペースには所属しません。'));
                     for(const [kind,label]of [['accept',en?'Accept invitation':'招待を承諾'],['decline',en?'Decline':'辞退']])row.append(button(label,async()=>{
                         row.querySelectorAll('button').forEach(b=>b.disabled=true);try{if(!isCurrent())return;await execute({kind,id:i.id});await load();}catch(e){if(alive)status.textContent=message(e,en);row.querySelectorAll('button').forEach(b=>b.disabled=false);}
                     }));}list.append(row);}

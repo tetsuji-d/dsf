@@ -16,7 +16,7 @@ export function initHistoryPanel({getUILang,undo,redo,canStep=()=>true}) {
         const data=listHistoryEntries(),guard=getHistoryGuard();panel.replaceChildren();
         const head=el('header',undefined,panel);el('h2',words('編集履歴','Edit history'),head);
         const close=el('button',words('閉じる','Close'),head);close.onclick=()=>{panel.hidden=true;lastTrigger?.focus();};
-        el('p',words('この作品を開いてから最大50操作。再読み込み・作品切替で消えます。','Up to 50 operations since opening this work. Cleared on reload or project change.'),panel);
+        el('p',words('このリードを開いてから最大50操作。再読み込み・リード切替で消えます。','Up to 50 operations since opening this Read. Cleared on reload or project change.'),panel);
         const controls=el('div',undefined,panel);controls.className='history-controls';
         for(const [direction,id,run] of [['undo',data.nextUndoId,undo],['redo',data.nextRedoId,redo]]) {
             const entry=data.entries.find(e=>e.id===id);

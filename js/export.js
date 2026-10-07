@@ -154,7 +154,7 @@ export async function buildDSP(options = {}) {
     let publicationThumbnailUrl = initialProject.publicationThumbnailUrl || '';
 
     if (shouldEmbedAsset(publicationThumbnailUrl)) {
-        const blob = await fetchAssetBlob(publicationThumbnailUrl, '作品サムネイル');
+        const blob = await fetchAssetBlob(publicationThumbnailUrl, 'リードサムネイル');
         const ext = guessAssetExtension(publicationThumbnailUrl);
         const filename = `publication-thumbnail.${ext}`;
         assetsFolder.file(filename, blob);

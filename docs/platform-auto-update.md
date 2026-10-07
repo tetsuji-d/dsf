@@ -12,7 +12,7 @@ Status: implementation verified; staging release authorized on 2026-10-05. Produ
   page. Studio unsaved content, Viewer local files and reading state stay in
   the existing document. Internal SPA room/work changes do not replace its JS;
   a subsequent document navigation/new launch uses the latest version.
-- Viewer information has a collapsed App version and updates section. Studio's
+- The Viewer Horizon menu has a collapsed App version and updates section. Studio's
   normal dashboard no longer offers an update action; manual update and guarded
   reload remain in Help as a recovery tool.
 - Failures keep the current screen. Retry is rate limited; offline continues
@@ -49,7 +49,7 @@ Status: implementation verified; staging release authorized on 2026-10-05. Produ
   across a failed B download and successful retry. Another document opened B;
   A stayed unchanged. A legacy Viewer worker registration upgraded successfully.
 - Actual built Viewer opens a synthetic local manuscript and reports its version
-  in the information panel. No production data was edited.
+  in the common Horizon menu. No production data was edited.
 
 ## Release and acceptance
 

@@ -42,7 +42,7 @@ async function loadCertifiedFont(fontId, declaration, certificate, manifest, fon
     if (!certificateMatches(declaration, certificate)) {
         throw createViewerError(
             'FONT_CERTIFICATE_MISMATCH',
-            `Font "${fontId}" does not match the Viewer certificate.`,
+            `Font "${fontId}" does not match the Reader certificate.`,
             { fontId },
         );
     }
@@ -95,7 +95,7 @@ export async function prepareDsfViewerFixedTextContext({
         throw createViewerError('LANGUAGE_MANIFEST_MISSING', `Language manifest "${language}" is missing.`, { language });
     }
     if (!isRecord(certifiedFonts)) {
-        throw createViewerError('FONT_CERTIFICATES_MISSING', 'Viewer font certificates are required.');
+        throw createViewerError('FONT_CERTIFICATES_MISSING', 'Reader font certificates are required.');
     }
 
     const certifiedFontRefs = [];
@@ -103,7 +103,7 @@ export async function prepareDsfViewerFixedTextContext({
         const declaration = normalizedBundle.index.fonts?.[fontId];
         const certificate = certifiedFonts[fontId];
         if (!certificate) {
-            throw createViewerError('FONT_NOT_CERTIFIED', `Font "${fontId}" is not certified by this Viewer.`, { fontId });
+            throw createViewerError('FONT_NOT_CERTIFIED', `Font "${fontId}" is not certified by this Reader.`, { fontId });
         }
         await loadCertifiedFont(fontId, declaration, certificate, manifest, fontFaceSet);
         certifiedFontRefs.push(fontId);
@@ -127,7 +127,7 @@ function assertPreparedContext(context) {
         || !isRecord(context.manifest)
         || !isRecord(context.index)
     ) {
-        throw createViewerError('FIXED_TEXT_CONTEXT_INVALID', 'A prepared fixed-text Viewer context is required.');
+        throw createViewerError('FIXED_TEXT_CONTEXT_INVALID', 'A prepared fixed-text Reader context is required.');
     }
 }
 

@@ -1,0 +1,20 @@
+.platform-menu { box-sizing:border-box; position:fixed; inset: max(12px, env(safe-area-inset-top)) auto auto max(12px, env(safe-area-inset-left)); margin:0; width:min(360px,calc(100vw - 24px)); max-height:calc(100dvh - 24px - env(safe-area-inset-top) - env(safe-area-inset-bottom)); padding:16px; border:1px solid #8090a050; border-radius:16px; background:#fff; color:#172033; box-shadow:0 16px 50px #0005; overflow:auto; font:14px/1.5 system-ui,sans-serif; z-index:20000; }
+.platform-menu::backdrop { background:#0005; }
+body[data-theme="dark"] .platform-menu { background:#171e28; color:#f1f4fa; }
+.platform-menu header { position:sticky; top:-16px; padding:12px 0; display:flex; align-items:center; justify-content:space-between; gap:16px; background:inherit; z-index:1; }
+.platform-menu h2 { font-size:18px; margin:0; }
+.platform-menu nav { display:grid; gap:6px; }
+.platform-menu a,.platform-menu button { font:inherit; color:inherit; }
+.platform-menu nav a,.platform-menu nav button,.platform-menu-file { display:flex; align-items:center; gap:10px; text-decoration:none; padding:10px; border:1px solid transparent; border-radius:8px; background:transparent; text-align:left; min-height:44px; cursor:pointer; }
+.platform-menu nav [aria-current="page"] { background:#4285f425; }
+.platform-menu a:hover,.platform-menu button:hover { background:#8090a025; }
+.platform-menu :focus-visible { outline:2px solid #4285f4; outline-offset:2px; }
+.platform-menu header button { border:0; border-radius:8px; min-width:44px; min-height:44px; background:transparent; cursor:pointer; }
+.platform-menu details { margin-top:16px; padding-top:12px; border-top:1px solid #8090a050; }
+.platform-menu summary { cursor:pointer; min-height:32px; font-weight:600; }
+.platform-menu label { display:grid; gap:6px; margin:10px 0; }
+.platform-menu select { width:100%; min-height:40px; color:inherit; background:inherit; border:1px solid #8090a080; border-radius:6px; padding:8px; font:inherit; }
+.platform-menu p { font-size:12px; opacity:.85; margin:10px 0; }
+.platform-menu [data-platform-version] { margin:16px 0!important; }
+.platform-menu-launch { display:inline-flex; align-items:center; justify-content:center; min-width:36px; min-height:36px; border:1px solid #8090a050; border-radius:8px; background:transparent; color:inherit; cursor:pointer; }
+.platform-menu [hidden] { display:none!important; }

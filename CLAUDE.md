@@ -95,13 +95,13 @@ AI エージェント、人間の開発者ともに、まずこの文書を読�
 
 | 名称 | 実装上の主たる入口 | 役割 |
 |------|-------------------|------|
-| **DSF Library（ポータル）** | `index.html` | 読者・利用者向けの配信ポータル（広告なしの前提）。ログイン・プロジェクト一覧など |
+| **DSF Horizon（ポータル）** | `index.html` | 読者・利用者向けの配信ポータル（広告なしの前提）。ログイン・プロジェクト一覧など |
 | **DSF Studio** | `studio.html` | 制作・管理ツール（ルーム切り替えで Project / Editor / Press / Works を包含） |
 | **Project（Home）** | Studio 内 Home Room | 新規作成・既存プロジェクト一覧、`.dsp` 読み込み |
 | **Editor** | Studio 内 Editor Room | 編集・プレビュー |
 | **Press Room** | Studio 内 Press Room | DSP → DSF レンダリング・公開 URL 発行・審査パイプライン（仕様は `docs/pressroom-spec.md`） |
 | **Works** | Studio 内 Works Room | 発行済み DSF のステータス（draft / unlisted / public / private 等） |
-| **Viewer** | `viewer.html` | ブラウザベースの閲覧（モバイル最適化） |
+| **DSF Reader** | `viewer.html` | ブラウザベースの閲覧（モバイル最適化） |
 
 DSP（`.dsp`）は直接公開せず、**Press Room で DSF 化 → Works で公開状態を管理**する運用です。
 
@@ -113,7 +113,7 @@ DSP（`.dsp`）は直接公開せず、**Press Room で DSF 化 → Works で公
 
 3 つのエントリーポイント:
 
-- `index.html` — ポータル（DSF Library）
+- `index.html` — ポータル（DSF Horizon）
 - `studio.html` — DSF Studio（エディター / PC 向けリボン UI）
 - `viewer.html` — ビューアー（モバイル最適化）
 

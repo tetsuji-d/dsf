@@ -23,13 +23,13 @@ const LANGS = {
         placeholders: {
             title:       '例: 我が家のヒーロー',
             author:      '例: 山田 太郎',
-            description: '作品の概要...',
+            description: 'リードの概要...',
             linerNotes:  '制作背景や関連リンク... {{公式サイト|https://example.com}}',
             copyright:   '© 2025 山田 太郎'
         }
     },
     en: {
-        label: 'English (Legacy)',
+        label: 'English',
         align: 'center',
         sectionAlign: 'left',
         wordBreak: 'normal',

@@ -1,8 +1,10 @@
-# DSF Studio & DSF Library
+# DSF Studio / Reader / Horizon
 
 **DSF（Digital Spread Format）** は、スマートフォン向けの**固定レイアウト型**デジタル出版のためのオープンな ZIP ベース仕様です。リフロー型の EPUB とは異なり、「レイアウトはコンテンツである」という前提で、9:16 比率の **WebP** ページなどをマスターとして配信します。
 
-このリポジトリは **DSF Studio**（制作）、**DSF Library（ポータル）**（配信・一覧）、**Viewer**（閲覧）をひとつのクライアント SPA として実装しています。
+このリポジトリは **DSF Studio**（制作）、**DSF Horizon**（探す・公開する・集める）、**DSF Reader**（標準閲覧環境）をひとつのクライアント SPA として実装しています。
+
+公開する1件を **リード（Read）**、その一覧・複数形を **リーズ（Reads）** と呼びます。書籍だけでなく、パンフレット、漫画、ノートなども含みます。詳しくは [ユーザー向け用語体系](docs/product-terminology.md) を参照してください。
 
 ## ドキュメント
 
@@ -17,7 +19,7 @@
 - **[docs/billing-plan-architecture.md](docs/billing-plan-architecture.md)** — プラン・課金状態、決済連携、掲載/公開期限への影響
 - **[docs/admin-role-model.md](docs/admin-role-model.md)** — admin / operator / moderator の権限モデルと運営管理画面の前提
 - **[docs/admin-console-spec.md](docs/admin-console-spec.md)** — 運営管理画面の最小仕様
-- **[docs/viewer-info-panel-spec.md](docs/viewer-info-panel-spec.md)** — Viewer のハーフモーダル / 右ドロワー仕様
+- **[docs/viewer-info-panel-spec.md](docs/viewer-info-panel-spec.md)** — Reader の情報パネル仕様
 
 ### 読む順番
 
@@ -32,7 +34,7 @@
 - **[AGENTS.md](AGENTS.md)** — 開発運用ルール
 - **[docs/data-model.md](docs/data-model.md)** — ランタイム canonical / compatibility 関係
 - **[docs/file-format-spec.md](docs/file-format-spec.md)** — 配信フォーマット仕様
-- **[docs/pressroom-spec.md](docs/pressroom-spec.md)** — 公開境界と Press / Works の責務
+- **[docs/pressroom-spec.md](docs/pressroom-spec.md)** — 公開境界と Press / Reads の責務
 
 ### Historical / planning docs
 

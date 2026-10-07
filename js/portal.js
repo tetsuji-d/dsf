@@ -1,3 +1,5 @@
+import {getPlatformLanguage,setPlatformLanguage,subscribePlatformLanguage} from './ui-language.js';
+import {initializePlatformMenu} from './platform-menu.js';
 /**
  * portal.js — DSF Portal (index.html) のロジック
  * i18n対応: UI言語 + コンテンツ言語の切り替え
@@ -14,27 +16,21 @@ import { resolveProjectDisplayTitle } from './project-display-title.js';
 const DEFAULT_THUMB_URL = "https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?q=80&w=400&auto=format&fit=crop";
 const FETCH_LIMIT = 20;
 const SEARCH_DEBOUNCE_MS = 120;
-const LANG_STORAGE_KEY = "dsf_portal_lang";
 const SUPPORTED_LANGS = ["ja", "en"];
 
 // ---- i18n ----------------------------------------------------------------
 
 const STRINGS = {
     ja: {
-        horizonBrand:    "DSF Horizon",
-        libraryName:     "Horizon",
-        libraryHomeTitle:"情報の広がりは、地平線を超えていく。",
-        libraryHomeDesc: "公開作品を探し、気になる作品をすぐ開ける読者向けのホームです。",
-        createMenu:      "作成",
+        horizonBrand:    "Horizon",
+        libraryName:     "Horizon",        createMenu:      "作成",
         drawerHome:      "ホーム",
         drawerHistory:   "履歴",
-        drawerCategories:"コンテンツカテゴリ",
+        drawerCategories:"リーズのカテゴリ",
         drawerOffline:   "オフライン",
-        sectionTitle:    "最新・注目作品",
-        searchLabel:     "作品を検索",
-        searchPlaceholder: "作品タイトル・作者名で検索",
-        studioBtn:       "Studioを起動",
-        navProjects:     "プロジェクト",
+        sectionTitle:    "新着・注目リーズ",
+        searchLabel:     "リードを検索",
+        searchPlaceholder: "リードタイトル・作者名で検索",        navProjects:     "原稿を選ぶ・つくる",
         navEditor:       "エディター",
         navPress:        "プレスルーム",
         navWorks:        "ワークス",
@@ -52,12 +48,12 @@ const STRINGS = {
         settings:        "設定",
         help:            "ヘルプ",
         feedback:        "フィードバック",
-        loading:         "作品を読み込み中...",
-        loadError:       "作品リストの読み込みに失敗しました。",
+        loading:         "リーズを読み込み中...",
+        loadError:       "リーズ一覧の読み込みに失敗しました。",
         loadErrorDesc:   "時間をおいて再試行してください。",
         retry:           "再試行",
-        noProjects:      "公開作品はまだありません",
-        noProjectsDesc:  "最初の作品を公開してギャラリーを始めましょう。",
+        noProjects:      "公開リーズはまだありません",
+        noProjectsDesc:  "最初のリードを公開してギャラリーを始めましょう。",
         launchStudio:    "Studioを起動",
         noResults:       "検索結果が見つかりません",
         noResultsDesc:   "キーワードを変えて再検索してください。",
@@ -68,23 +64,18 @@ const STRINGS = {
         unavailableNote: (base, n) => `${base}（${n}件は公開準備中）`,
     },
     en: {
-        horizonBrand:    "DSF Horizon",
-        libraryName:     "Horizon",
-        libraryHomeTitle:"Where the information spreads beyond the line.",
-        libraryHomeDesc: "Browse public works and open them in moments—a reader-first home.",
-        createMenu:      "Create",
+        horizonBrand:    "Horizon",
+        libraryName:     "Horizon",        createMenu:      "Create",
         drawerHome:      "Home",
         drawerHistory:   "History",
         drawerCategories:"Categories",
         drawerOffline:   "Offline",
-        sectionTitle:    "Latest & Featured",
-        searchLabel:     "Search works",
-        searchPlaceholder: "Search by title or author",
-        studioBtn:       "Launch Studio",
-        navProjects:     "Projects",
+        sectionTitle:    "New & Featured Reads",
+        searchLabel:     "Search Reads",
+        searchPlaceholder: "Search by title or author",        navProjects:     "Choose or create a manuscript",
         navEditor:       "Editor",
         navPress:        "Press",
-        navWorks:        "Works",
+        navWorks:        "Reads",
         signinBtn:       "Sign in",
         signoutBtn:      "Sign out",
         myPage:          "My Page",
@@ -99,29 +90,24 @@ const STRINGS = {
         settings:        "Settings",
         help:            "Help",
         feedback:        "Feedback",
-        loading:         "Loading works...",
-        loadError:       "Failed to load works.",
+        loading:         "Loading Reads...",
+        loadError:       "Failed to load Reads.",
         loadErrorDesc:   "Please try again later.",
         retry:           "Retry",
-        noProjects:      "No public works yet",
-        noProjectsDesc:  "Publish your first work to start the gallery.",
+        noProjects:      "No public Reads yet",
+        noProjectsDesc:  "Publish your first Read to start the gallery.",
         launchStudio:    "Launch Studio",
         noResults:       "No results found",
         noResultsDesc:   "Try searching with different keywords.",
         unavailableBadge: "Coming soon",
-        untitled:        "Untitled Project",
+        untitled:        "Untitled Read",
         anonymous:       "Anonymous",
-        showingCount:    (n) => `Showing ${n} work${n !== 1 ? "s" : ""}`,
+        showingCount:    (n) => `Showing ${n} Read${n !== 1 ? "s" : ""}`,
         unavailableNote: (base, n) => `${base} (${n} unavailable)`,
     },
 };
 
-let currentLang = (() => {
-    const saved = localStorage.getItem(LANG_STORAGE_KEY);
-    if (saved && SUPPORTED_LANGS.includes(saved)) return saved;
-    const browser = navigator.language?.slice(0, 2).toLowerCase();
-    return SUPPORTED_LANGS.includes(browser) ? browser : "ja";
-})();
+let currentLang = getPlatformLanguage('portal');
 
 function t(key) {
     return STRINGS[currentLang]?.[key] ?? STRINGS.ja[key] ?? key;
@@ -150,6 +136,7 @@ function applyI18n() {
     });
     // html[lang]
     document.documentElement.lang = currentLang;
+    document.getElementById('portal-search')?.setAttribute('aria-label', t('searchLabel'));
 }
 
 function updateLangSwitcher() {
@@ -432,21 +419,8 @@ function renderAuthArea(user) {
                         <span class="auth-dropdown-display-name">${displayName}</span>
                         <span class="auth-dropdown-plan">${planName}</span>
                     </div>
-                    <div class="auth-panel-section">
-                        <div class="auth-panel-label">${escapeHtml(t("themeLabel"))}</div>
-                        <div class="theme-mode-switcher js-theme-switcher" role="group" aria-label="${escapeHtml(t("themeLabel"))}">
-                            <button type="button" class="theme-mode-btn ${currentThemeMode === 'device' ? 'active' : ''}" data-theme-mode="device">${escapeHtml(t("modeDevice"))}</button>
-                            <button type="button" class="theme-mode-btn ${currentThemeMode === 'light' ? 'active' : ''}" data-theme-mode="light">${escapeHtml(t("modeLight"))}</button>
-                            <button type="button" class="theme-mode-btn ${currentThemeMode === 'dark' ? 'active' : ''}" data-theme-mode="dark">${escapeHtml(t("modeDark"))}</button>
-                        </div>
-                    </div>
                     <div class="auth-panel-links">
                         <a href="/mypage.html" class="auth-panel-link"><span class="material-icons">manage_accounts</span><span>${escapeHtml(t("myPage"))}</span></a>
-                        <button type="button" class="auth-panel-link"><span class="material-icons">visibility_off</span><span>${escapeHtml(t("restrictedMode"))}</span></button>
-                        <button type="button" class="auth-panel-link"><span class="material-icons">public</span><span>${escapeHtml(t("location"))}</span></button>
-                        <button type="button" class="auth-panel-link"><span class="material-icons">settings</span><span>${escapeHtml(t("settings"))}</span></button>
-                        <button type="button" class="auth-panel-link"><span class="material-icons">help_outline</span><span>${escapeHtml(t("help"))}</span></button>
-                        <button type="button" class="auth-panel-link"><span class="material-icons">feedback</span><span>${escapeHtml(t("feedback"))}</span></button>
                     </div>
                     <button type="button" class="btn-signout" id="btn-signout">${escapeHtml(t("signoutBtn"))}</button>
                 </div>
@@ -478,14 +452,6 @@ function renderAuthArea(user) {
                 <div class="auth-dropdown auth-panel" id="auth-dropdown">
                     <div class="auth-dropdown-name">${escapeHtml(t('signinBtn'))}</div>
                     <div class="auth-panel-section">
-                        <div class="auth-panel-label">${escapeHtml(t("themeLabel"))}</div>
-                        <div class="theme-mode-switcher js-theme-switcher" role="group" aria-label="${escapeHtml(t("themeLabel"))}">
-                            <button type="button" class="theme-mode-btn ${currentThemeMode === 'device' ? 'active' : ''}" data-theme-mode="device">${escapeHtml(t("modeDevice"))}</button>
-                            <button type="button" class="theme-mode-btn ${currentThemeMode === 'light' ? 'active' : ''}" data-theme-mode="light">${escapeHtml(t("modeLight"))}</button>
-                            <button type="button" class="theme-mode-btn ${currentThemeMode === 'dark' ? 'active' : ''}" data-theme-mode="dark">${escapeHtml(t("modeDark"))}</button>
-                        </div>
-                    </div>
-                    <div class="auth-panel-section">
                         <div id="gis-btn-portal"></div>
                         <button type="button" class="btn-signin-fallback" id="btn-signin-fallback" aria-label="${escapeHtml(t('signinBtn'))}">
                             <svg width="18" height="18" viewBox="0 0 18 18" aria-hidden="true"><path fill="#4285F4" d="M17.64 9.2c0-.637-.057-1.251-.164-1.84H9v3.481h4.844c-.209 1.125-.843 2.078-1.796 2.717v2.258h2.908c1.702-1.567 2.684-3.874 2.684-6.615z"/><path fill="#34A853" d="M9 18c2.43 0 4.467-.806 5.956-2.18l-2.908-2.259c-.806.54-1.837.86-3.048.86-2.344 0-4.328-1.584-5.036-3.711H.957v2.332A8.997 8.997 0 0 0 9 18z"/><path fill="#FBBC05" d="M3.964 10.71A5.41 5.41 0 0 1 3.682 9c0-.593.102-1.17.282-1.71V4.958H.957A8.996 8.996 0 0 0 0 9c0 1.452.348 2.827.957 4.042l3.007-2.332z"/><path fill="#EA4335" d="M9 3.58c1.321 0 2.508.454 3.44 1.345l2.582-2.58C13.463.891 11.426 0 9 0A8.997 8.997 0 0 0 .957 4.958L3.964 6.29C4.672 4.163 6.656 3.58 9 3.58z"/></svg>
@@ -493,11 +459,6 @@ function renderAuthArea(user) {
                         </button>
                     </div>
                     <div class="auth-panel-links">
-                        <button type="button" class="auth-panel-link"><span class="material-icons">visibility_off</span><span>${escapeHtml(t("restrictedMode"))}</span></button>
-                        <button type="button" class="auth-panel-link"><span class="material-icons">public</span><span>${escapeHtml(t("location"))}</span></button>
-                        <button type="button" class="auth-panel-link"><span class="material-icons">settings</span><span>${escapeHtml(t("settings"))}</span></button>
-                        <button type="button" class="auth-panel-link"><span class="material-icons">help_outline</span><span>${escapeHtml(t("help"))}</span></button>
-                        <button type="button" class="auth-panel-link"><span class="material-icons">feedback</span><span>${escapeHtml(t("feedback"))}</span></button>
                     </div>
                 </div>
             </div>
@@ -532,7 +493,7 @@ function renderAuthArea(user) {
 function setLang(lang) {
     if (!SUPPORTED_LANGS.includes(lang) || lang === currentLang) return;
     currentLang = lang;
-    localStorage.setItem(LANG_STORAGE_KEY, lang);
+    setPlatformLanguage(lang);
     applyI18n();
     updateLangSwitcher();
     renderAuthArea(auth.currentUser); // サインインボタン文言更新
@@ -643,6 +604,10 @@ document.addEventListener("DOMContentLoaded", () => {
         bindLangSwitcher();
         updateThemeSwitcher();
         bindEvents();
+        document.getElementById('library-drawer')?.remove();
+        document.getElementById('portal-scrim')?.remove();
+        initializePlatformMenu({surface:'portal',triggers:[document.getElementById('btn-library-menu')],beforeOpen:()=>{document.getElementById('auth-dropdown')?.classList.remove('open');document.getElementById('create-menu-popover')?.classList.remove('open');}});
+        subscribePlatformLanguage(lang=>{if(lang!==currentLang)setLang(lang);});
 
         // The public feed does not require authentication. Start it before the
         // redirect/bootstrap/GIS sequence so readers can see works immediately.

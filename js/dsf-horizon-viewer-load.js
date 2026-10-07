@@ -86,7 +86,7 @@ function selectV2Transport(metadata, identity, allowedContentOrigins, path) {
         });
     }
     if (transport.transportKind !== 'horizon-v2') {
-        fail('HORIZON_VIEWER_V2_TRANSPORT_REQUIRED', path, 'Public Viewer requires the DSF v2 Horizon transport.');
+        fail('HORIZON_VIEWER_V2_TRANSPORT_REQUIRED', path, 'Public Reader requires the DSF v2 Horizon transport.');
     }
     return transport;
 }
@@ -176,7 +176,7 @@ async function fetchVerifiedJson({ fetchImpl, url, expectedSha256, path, hashByt
     }
     const bytes = new Uint8Array(await response.arrayBuffer());
     if (bytes.byteLength < 1 || bytes.byteLength > MAX_JSON_BYTES) {
-        fail('HORIZON_VIEWER_JSON_SIZE_INVALID', path, 'Remote DSF JSON exceeds the Viewer size limit.', {
+        fail('HORIZON_VIEWER_JSON_SIZE_INVALID', path, 'Remote DSF JSON exceeds the Reader size limit.', {
             byteLength: bytes.byteLength,
         });
     }
@@ -534,7 +534,7 @@ export async function loadDsfHorizonViewerRelease(input = {}) {
             try { runtimeLeases.pop().dispose(); } catch (_) { /* noop */ }
         }
         if (error instanceof DsfHorizonViewerLoadError || error?.name === 'AbortError') throw error;
-        fail('HORIZON_VIEWER_PREPARATION_FAILED', '', 'Public DSF v2 Viewer preparation failed.', {
+        fail('HORIZON_VIEWER_PREPARATION_FAILED', '', 'Public DSF v2 Reader preparation failed.', {
             causeCode: error?.code || null,
             cause: error?.message || String(error),
             validationIssues: error?.issues || [],

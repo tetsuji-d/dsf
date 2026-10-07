@@ -18,11 +18,16 @@ if(id&&/^\d{17}$/.test(id)){
   details.querySelector('a').textContent=en?'Update / recovery help':'更新できない場合の復旧';
  }
  function mount(){
-  const host=document.querySelector('#viewer-info-panel .viewer-info-panel-shell');if(!host||details)return;
+  const host=document.getElementById('platform-app-version');if(!host||details)return;
   details=document.createElement('details');details.dataset.platformVersion='';details.style.cssText='margin:16px 12px;padding-top:12px;border-top:1px solid #ffffff30;font-size:12px;line-height:1.7';
   details.innerHTML='<summary></summary><p data-build></p><p role="status"></p><p data-help></p><button type="button"></button> <a href="/studio-repair.html" target="_blank" rel="noopener"></a>';
-  details.querySelector('button').onclick=()=>void updater.check({force:true});host.append(details);render();
+  details.querySelector('button').onclick=()=>void updater.check({force:true});host.replaceChildren(details);render();
  }
+ document.addEventListener('viewer-ui-language-change',()=>render());
+ document.addEventListener('studio-ui-language-change',()=>render());
+ window.addEventListener('dsf-ui-language-change',()=>queueMicrotask(()=>render()));
+ window.addEventListener('storage',event=>{if(event.key==='dsf_ui_language')queueMicrotask(()=>render());});
+ document.addEventListener('dsf-platform-menu-ready',mount);
  mount();if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',mount,{once:true});
  const check=()=>{if(!document.hidden)void updater.check();};
  window.addEventListener('online',check);window.addEventListener('focus',check);document.addEventListener('visibilitychange',check);

@@ -1,0 +1,12 @@
+/* Approved Horizon mark: 9:16 book in perspective, gentle corners, ink navy. */
+.horizon-mark {display:inline-block;flex:0 0 auto;width:14px;height:34px;background:currentColor;mask:url('../assets/brand/horizon-mark.svg') center / contain no-repeat;-webkit-mask:url('../assets/brand/horizon-mark.svg') center / contain no-repeat;}
+.logo-area.horizon-brand {align-items:center;gap:10px;color:#fff;}
+.logo-area.horizon-brand .logo-text {color:inherit;background:none;-webkit-text-fill-color:currentColor;font-family:'Segoe UI','Inter',sans-serif;font-weight:700;letter-spacing:-.8px;}
+body[data-theme="light"] .logo-area.horizon-brand {color:#263c56;}
+.viewer-horizon-link .horizon-mark {color:inherit;width:14px;height:34px;border-radius:0;box-shadow:none;background:currentColor;}
+#viewer-header .viewer-horizon-link {gap:9px;padding:4px 10px;min-height:42px;color:#263c56;background:rgb(248 250 252 / 88%);box-shadow:none;border:0;border-radius:8px;}
+#viewer-header .viewer-horizon-link:hover {background:#f8fafc;color:#263c56;}
+body[data-theme="dark"] #viewer-header .viewer-horizon-link {color:#fff;background:rgb(38 60 86 / 85%);}
+body[data-theme="dark"] #viewer-header .viewer-horizon-link:hover {background:#263c56;}
+.viewer-horizon-link .viewer-horizon-name {font-family:'Segoe UI','Inter',sans-serif;font-size:19px;font-weight:700;letter-spacing:-.65px;}
+@media(max-width:768px){.logo-area.horizon-brand {gap:8px;}.logo-area.horizon-brand .horizon-mark {height:30px;width:12px;}#viewer-header .viewer-horizon-link {padding:3px 8px;min-height:40px;}.viewer-horizon-link .horizon-mark {width:12px;height:30px;}}

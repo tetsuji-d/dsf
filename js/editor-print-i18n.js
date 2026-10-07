@@ -1,6 +1,6 @@
 /** Localize the static print surface before it is installed in its isolated frame. */
 export function localizePrintTemplate(html, en) {
-    if (!en) return html;
+    if (!en) return html.replaceAll('作品', 'リード');
     const labels = {
         '印刷のヒント':'Printing tips',
         '白紙の挿入位置':'Insert blanks','C3の前に白紙':'Blanks before C3: ','C4の前に白紙':'Blanks before C4: ','C3の前':'Before C3','C4の前':'Before C4','選択ページの末尾':'After selected pages','印刷時に追加する白紙':'Blank added for printing','表示中':'In preview','谷折り（この面から見て）':'Valley fold (viewed from this side)','山折り（この面から見て）':'Mountain fold (viewed from this side)',

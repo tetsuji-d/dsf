@@ -378,7 +378,7 @@ async function _createPublicationThumbnailBlob(file) {
         return encodeCanvasToWebP(
             canvas,
             PUBLICATION_THUMBNAIL_WEBP_QUALITY,
-            '作品サムネイル',
+            'リードサムネイル',
         );
     } finally {
         URL.revokeObjectURL(sourceUrl);
@@ -386,7 +386,7 @@ async function _createPublicationThumbnailBlob(file) {
 }
 
 async function _storePublicationThumbnailBlob(blob, {cloudSave=false}={}) {
-    if (!(await isWebPBlob(blob))) throw new Error('作品サムネイルのWebP変換に失敗しました。');
+    if (!(await isWebPBlob(blob))) throw new Error('リードサムネイルのWebP変換に失敗しました。');
     const digest = await _sha256Hex(blob);
     if (!cloudSave && !readSharedStudioAccess() && (useLocalAuthoringAssets(state,navigator.onLine)||isCloudResumeBlocked())) {
         const localKey = `local_publication_thumbnail_${digest}`;
@@ -420,7 +420,7 @@ export async function ensurePublicationThumbnailCloudUrl(value) {
             firebaseStorageBucket: firebaseConfig.storageBucket,
         });
         if (!isManaged) {
-            throw new Error('作品サムネイルは所有者用ストレージの画像である必要があります。プロジェクト設定で画像を選び直してください。');
+            throw new Error('リードサムネイルは所有者用ストレージの画像である必要があります。プロジェクト設定で画像を選び直してください。');
         }
         return candidate;
     }
@@ -428,7 +428,7 @@ export async function ensurePublicationThumbnailCloudUrl(value) {
     const localKey = window.localImageMap?.[candidate];
     const blob = localKey
         ? await idbGet(localKey)
-        : await fetchAssetBlob(candidate, '作品サムネイル');
+        : await fetchAssetBlob(candidate, 'リードサムネイル');
     if (!blob) return '';
     const publicUrl = await _storePublicationThumbnailBlob(blob, {cloudSave:true});
     if (publicUrl && localKey) {

@@ -1130,7 +1130,7 @@ function _renderPressFlowWorkIdRepair(issue) {
     if (!_isUnsafePressFlowWorkIdIssue(issue)) return '';
     return `
         <span class="press-flow-identity-repair">
-            <span>この作品は旧形式の配信用IDを使用しています。</span>
+            <span>このリードは旧形式の配信用IDを使用しています。</span>
             <button type="button" onclick="repairFlowHorizonWorkId()" data-testid="press-flow-repair-work-id">配信用IDを修復</button>
         </span>
     `;
@@ -1249,7 +1249,7 @@ function _getPressFlowHorizonIdentity({ createReleaseId = false } = {}) {
     if (stateUid && stateUid !== authUid) {
         throw _createPressFlowHorizonIdentityError(
             'FLOW_HORIZON_HANDOFF_UID_MISMATCH',
-            'Studioの作品所有者と現在のログインユーザーが一致しません。',
+            'Studioのリード所有者と現在のログインユーザーが一致しません。',
         );
     }
     const projectId = String(state.projectId || '').trim();
@@ -1257,7 +1257,7 @@ function _getPressFlowHorizonIdentity({ createReleaseId = false } = {}) {
     if (!projectId || !workId) {
         throw _createPressFlowHorizonIdentityError(
             'FLOW_HORIZON_HANDOFF_CLOUD_PROJECT_REQUIRED',
-            '作品をクラウド保存するとHorizon配信先をdry-runできます。',
+            'リードをクラウド保存するとHorizon配信先をdry-runできます。',
         );
     }
     const publicBaseUrl = String(import.meta.env.VITE_R2_PUBLIC_URL || '').trim();
@@ -1478,13 +1478,13 @@ window.repairFlowHorizonWorkId = async () => {
     const issue = _getPressFlowHorizonDisplayIssue(_pressFlowHorizonHandoffError);
     if (!_isUnsafePressFlowWorkIdIssue(issue)) return;
     if (!state.projectId) {
-        alert('配信用IDを修復する前に、作品をクラウドへ保存してください。');
+        alert('配信用IDを修復する前に、リードをクラウドへ保存してください。');
         return;
     }
     const confirmed = confirm([
-        'この作品の配信用IDを現在の安全な形式へ更新します。',
+        'このリードの配信用IDを現在の安全な形式へ更新します。',
         '原稿やページ内容は変更されません。',
-        '過去に同じ作品を公開している場合、以前の共有URLとは別の作品として扱われます。',
+        '過去に同じリードを公開している場合、以前の共有URLとは別のリードとして扱われます。',
         '',
         '続行しますか？',
     ].join('\n'));
@@ -2282,7 +2282,7 @@ async function _resolveConfiguredPublicationThumbnail() {
     if (!publicUrl) {
         throw _createPublicationThumbnailError(
             'PUBLICATION_THUMBNAIL_UPLOAD_REQUIRED',
-            '設定した作品サムネイルをHorizon配信用URLへ保存できませんでした。プロジェクト設定で画像を選び直してください。',
+            '設定したリードサムネイルをHorizon配信用URLへ保存できませんでした。プロジェクト設定で画像を選び直してください。',
         );
     }
     if (resolved !== configured) {
@@ -2300,7 +2300,7 @@ function _getPublicationCoverPageIndex(pageCount) {
     if (!Number.isSafeInteger(count) || count < 1) {
         throw _createPublicationThumbnailError(
             'PUBLICATION_THUMBNAIL_PAGE_COUNT_INVALID',
-            '作品サムネイルに使用する表紙ページ数が不正です。',
+            'リードサムネイルに使用する表紙ページ数が不正です。',
         );
     }
     const configured = getPressBookConfigForExport(count).book?.covers?.c1?.pageIndex;
@@ -3347,7 +3347,7 @@ window.publishToCloud = async () => {
         isCurrent:() => state.projectId === spaceProjectId && getProjectSessionEpoch() === spaceEpoch})) return;
     if (hasFlowGroups(state)) {
         if (!_isPressFlowHorizonHandoffReady()) {
-            alert('Flow作品のHorizon配信準備が完了していません。発行言語、翻訳、フォント、クラウド保存状態を確認してください。');
+            alert('FlowリードのHorizon配信準備が完了していません。発行言語、翻訳、フォント、クラウド保存状態を確認してください。');
             return;
         }
         let account;
@@ -3654,7 +3654,7 @@ window.publishToCloud = async () => {
                 dsfLangs: langs, dsfResolution: resStr, dsfQuality: Math.round(qualityProfile.image * 100) });
             publication = result.projectPatch.publication;
             if (state.uid !== uid || state.projectId !== publishingProjectId || getProjectSessionEpoch() !== publishingEpoch) {
-                throw new Error('下書きは保存されましたが、編集中の作品が変わりました。Works画面で確認してください。');
+                throw new Error('下書きは保存されましたが、編集中のリードが変わりました。リーズ画面で確認してください。');
             }
         } else {
         const projectBatch = writeBatch(db);

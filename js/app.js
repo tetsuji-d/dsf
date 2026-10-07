@@ -1,3 +1,6 @@
+import {subscribePlatformLanguage} from './ui-language.js';
+import {initializePlatformMenu} from './platform-menu.js';
+import {workLanguageOptionLabel} from './work-languages.js';
 import {dspOpenErrorMessage} from './dsp-open-status.js';
 import {installFileLaunch} from './file-launch-ui.js';
 import {createDspFileSession,fingerprintDspFile,DSP_FILE_TYPES,dspFilename} from './dsp-file-session.js';
@@ -4688,7 +4691,7 @@ function renderHomeWorkCard(work, reviewSummary) {
                 </div>
                 <div class="home-work-review-note">${escapeStudioHtml(reviewText)}</div>
                 <div class="home-work-actions">
-                    ${viewerUrl?`<a class="home-work-action" href="${escapeStudioHtml(viewerUrl)}" target="_blank" rel="noopener noreferrer"><span class="material-icons" aria-hidden="true">auto_stories</span>${getUILang()==='en'?'Read publication':'作品を読む'}</a>`:''}
+                    ${viewerUrl?`<a class="home-work-action" href="${escapeStudioHtml(viewerUrl)}" target="_blank" rel="noopener noreferrer"><span class="material-icons" aria-hidden="true">auto_stories</span>${getUILang()==='en'?'Read publication':'リードを読む'}</a>`:''}
                     <button type="button" class="home-work-action" data-home-open-project="${escapeStudioHtml(work.id)}">
                         <span class="material-icons">edit</span>${escapeStudioHtml(t('home_open_project'))}
                     </button>
@@ -4932,16 +4935,16 @@ async function renderHomeDashboard({ refreshSpaces = true, forceRefresh = false 
         if(statsEl)statsEl.replaceChildren();
         if(cloudCount)cloudCount.textContent='—';
         if(workCount)workCount.textContent='—';
-        const message=getUILang()==='en'?'Cloud works and publishing spaces are available when connected. Open a saved DSP or a working copy on this device.':'クラウド作品・出版スペースは接続後に利用できます。保存したDSPや、この端末の作業コピーから制作を続けられます。';
+        const message=getUILang()==='en'?'Cloud Reads and publishing spaces are available when connected. Open a saved DSP or a working copy on this device.':'クラウドリード・出版スペースは接続後に利用できます。保存したDSPや、この端末の作業コピーから制作を続けられます。';
         for(const grid of [cloudGrid,workGrid]){if(!grid)continue;grid.replaceChildren();const p=document.createElement('p');p.className='home-empty-state';p.textContent=message;grid.append(p);}
         return;
     }
     if(joined){
         if(trashRoot)trashRoot.textContent=getUILang()==='en'?'The owner manages these manuscripts.':'このスペースの原稿は所有者が管理します。';
         const en=getUILang()==='en';
-        const scope=document.getElementById('home-cloud-scope');if(scope)scope.textContent=(en?'Shared works / ':'共有作品 / ')+spaceUI.label();
-        const heading=document.querySelector('[data-home-cloud-heading]');if(heading)heading.textContent=en?'Shared works':'共有作品';
-        const hint=document.querySelector('.home-overview-hint');if(hint)hint.textContent=en?'Only works you have access to are shown.':'あなたに共有されている作品だけを表示します。';
+        const scope=document.getElementById('home-cloud-scope');if(scope)scope.textContent=(en?'Shared Reads / ':'共有リーズ / ')+spaceUI.label();
+        const heading=document.querySelector('[data-home-cloud-heading]');if(heading)heading.textContent=en?'Shared Reads':'共有リーズ';
+        const hint=document.querySelector('.home-overview-hint');if(hint)hint.textContent=en?'Only Reads you have access to are shown.':'あなたに共有されているリードだけを表示します。';
         if(statsEl)statsEl.replaceChildren();if(workCount)workCount.textContent='—';
         if(workGrid)workGrid.textContent=en?'Publication management is handled by the owner.':'公開状況の管理は所有者が行います。';
         await renderJoinedSpaceWorks({root:cloudGrid,count:cloudCount,spaceId:joined.id,
@@ -4998,7 +5001,7 @@ async function renderHomeDashboard({ refreshSpaces = true, forceRefresh = false 
                 <div class="home-empty-state">
                     <span class="material-icons">rocket_launch</span>
                     <p>${t('home_works_empty')}</p>
-                    <button class="home-action-btn" data-home-nav="projects"><span class="material-icons">library_books</span>${getUILang() === 'en' ? 'Choose a work' : '作品を選ぶ'}</button>
+                    <button class="home-action-btn" data-home-nav="projects"><span class="material-icons">library_books</span>${getUILang() === 'en' ? 'Choose a Read' : 'リードを選ぶ'}</button>
                 </div>`;
         } else {
             workGrid.innerHTML = works.slice(0, 6).map((work) => renderHomeWorkCard(work, pendingReviewSummaries.get(work.workId || work.id))).join('');
@@ -5012,7 +5015,7 @@ async function renderHomeDashboard({ refreshSpaces = true, forceRefresh = false 
         cloudGrid.innerHTML = `<div class="home-empty-state"><span class="material-icons">lock</span><p>${t('home_cloud_login')}</p></div>`;
         if (cloudCount) cloudCount.textContent = '0';
     } else if (cloudProjects.length === 0) {
-        cloudGrid.innerHTML = `<div class="home-empty-state"><span class="material-icons">cloud_done</span><p>${spaceUI.selection() ? (getUILang() === 'en' ? 'No manuscripts in this publishing space yet.' : 'この出版スペースにはまだ原稿がありません。') : t('home_cloud_empty')}</p><button class="home-action-btn primary" onclick="newSpaceProject()">${getUILang() === 'en' ? 'Create your first work' : '最初の作品を作成'}</button></div>`;
+        cloudGrid.innerHTML = `<div class="home-empty-state"><span class="material-icons">cloud_done</span><p>${spaceUI.selection() ? (getUILang() === 'en' ? 'No manuscripts in this publishing space yet.' : 'この出版スペースにはまだ原稿がありません。') : t('home_cloud_empty')}</p><button class="home-action-btn primary" onclick="newSpaceProject()">${getUILang() === 'en' ? 'Create your first Read' : '最初のリードを作成'}</button></div>`;
         if (cloudCount) cloudCount.textContent = '0';
     } else {
         cloudGrid.innerHTML = cloudProjects.map((project) => renderHomeCard(project, 'cloud')).join('');
@@ -5020,7 +5023,7 @@ async function renderHomeDashboard({ refreshSpaces = true, forceRefresh = false 
     }
 
     if(spaceUnavailable){
-        cloudGrid.innerHTML='<div class="home-empty-state"><p>'+(getUILang()==='en'?'Your save locations could not be confirmed yet. Retry to load this space.':'保存先をまだ確認できていません。再試行して、このスペースの作品を読み込んでください。')+'</p></div>';
+        cloudGrid.innerHTML='<div class="home-empty-state"><p>'+(getUILang()==='en'?'Your save locations could not be confirmed yet. Retry to load this space.':'保存先をまだ確認できていません。再試行して、このスペースのリードを読み込んでください。')+'</p></div>';
     }
     if (cloudProjects === null) for (const grid of [cloudGrid, workGrid]) {
         const retry = document.createElement('button');
@@ -5253,11 +5256,7 @@ function getStudioAccountLinksMarkup(user) {
     return `
         <div class="auth-panel-links">
             ${user ? `<a href="/mypage.html" class="auth-panel-link"><span class="material-icons">manage_accounts</span><span>${escapeStudioHtml(t('myPage'))}</span></a>` : ''}
-            <button type="button" class="auth-panel-link"><span class="material-icons">visibility_off</span><span>${escapeStudioHtml(t('restrictedMode'))}</span></button>
-            <button type="button" class="auth-panel-link"><span class="material-icons">public</span><span>${escapeStudioHtml(t('location'))}</span></button>
-            <button type="button" class="auth-panel-link"><span class="material-icons">settings</span><span>${escapeStudioHtml(t('settings'))}</span></button>
             <button type="button" class="auth-panel-link" data-open-studio-help><span class="material-icons">help_outline</span><span>${escapeStudioHtml(t('help'))}</span></button>
-            <button type="button" class="auth-panel-link"><span class="material-icons">feedback</span><span>${escapeStudioHtml(t('feedback'))}</span></button>
         </div>
     `;
 }
@@ -5292,8 +5291,7 @@ function getStudioAuthMarkup(user, { mobile = false, slotName = 'nav' } = {}) {
                     <span class="auth-dropdown-display-name">${displayName}</span>
                     ${user ? `<span class="auth-dropdown-plan">${planName}</span>` : ''}
                 </div>
-                <div class="auth-panel-section"><div class="auth-panel-label">${getUILang()==='en'?'Language':'表示言語'}</div><div class="ui-lang-switcher" role="group" aria-label="${getUILang()==='en'?'Language':'表示言語'}">${['ja','en'].map(key=>`<button type="button" class="ui-lang-btn ${getUILang()===key?'active':''}" data-lang="${key}" data-ui-language="${key}" aria-pressed="${getUILang()===key}">${key==='ja'?'日本語':'English'}</button>`).join('')}</div></div>
-                ${getStudioThemeButtonsMarkup()}
+
                 ${studioWebMCPMarkup()}
                 ${signedOutSection}
                 ${getStudioAccountLinksMarkup(user)}
@@ -6084,12 +6082,12 @@ function renderLangSettings() {
             const currentDir = configs?.[code]?.pageDirection || props.directions[0].value;
             const options = props.directions.map(d => {
                 const sel = d.value === currentDir ? ' selected' : '';
-                return `<option value="${d.value}"${sel}>${d.label}</option>`;
+                return `<option value="${d.value}"${sel}>${escapeStudioHtml(t(d.value==='rtl'?'language_vertical':'language_horizontal'))}</option>`;
             }).join('');
             dirSelect = `<select class="lang-dir-select" onchange="changeLangDirection('${code}', this.value)">${options}</select>`;
         }
 
-        return `<div class="lang-item"><span class="lang-item-label">${props.label}</span>${dirSelect}${removeBtn}</div>`;
+        return `<div class="lang-item"><span class="lang-item-label">${escapeStudioHtml(workLanguageOptionLabel(code,getUILang()))}</span>${dirSelect}${removeBtn}</div>`;
     }).join('');
 }
 
@@ -10140,7 +10138,7 @@ window.shareProject = async () => {
         return;
     }
     if (!state.workId) {
-        alert("作品IDがまだありません。保存してからもう一度共有してください。");
+        alert("リードIDがまだありません。保存してからもう一度共有してください。");
         return;
     }
     if (!state.uid) {
@@ -10152,7 +10150,7 @@ window.shareProject = async () => {
 
     const visibility = state.visibility || 'private';
     if (visibility === 'private') {
-        alert('現在の状態は「非公開」です。\nこのままでは作品を共有できません。上部メニューから「限定公開」か「公開」に変更してください。');
+        alert('現在の状態は「非公開」です。\nこのままではリードを共有できません。上部メニューから「限定公開」か「公開」に変更してください。');
         return;
     }
     let url = '';
@@ -10160,7 +10158,7 @@ window.shareProject = async () => {
         url = buildPublicViewerUrl(window.location.origin, state.workId, state.releaseId || '');
     } catch (error) {
         console.warn('[Studio] Viewer URL could not be created:', error?.code || error?.name || 'unknown');
-        alert('ビューワーURLを作成できませんでした。作品を保存し直してから再試行してください。');
+        alert('ReaderのURLを作成できませんでした。リードを保存し直してから再試行してください。');
         return;
     }
 
@@ -10168,7 +10166,7 @@ window.shareProject = async () => {
         await navigator.clipboard.writeText(url);
         alert(`スマホ用URLをコピーしました！\n\n${url}`);
     } catch (e) {
-        prompt("ビューワー用URL (コピーしてください):", url);
+        prompt("Reader用URL (コピーしてください):", url);
     }
 };
 
@@ -10225,9 +10223,9 @@ function renderLangAddSelect() {
     allLangs.forEach(({ code, label, directions }) => {
         if (added.has(code)) return; // 既追加はスキップ
         directions.forEach(({ value: dir, label: dirLabel }) => {
-            const suffix = dirLabel ? ` — ${dirLabel}` : '';
+            const suffix = dirLabel ? ` — ${escapeStudioHtml(t(dir==='rtl'?'language_vertical':'language_horizontal'))}` : '';
             const dirStr = dir.toUpperCase();
-            options.push(`<option value="${code}:${dir}">${label}${suffix} (${dirStr})</option>`);
+            options.push(`<option value="${code}:${dir}">${escapeStudioHtml(workLanguageOptionLabel(code,getUILang()))}${suffix} (${dirStr})</option>`);
         });
     });
     select.innerHTML = options.length
@@ -10306,7 +10304,7 @@ window.copyViewerUrl = async (pid) => {
         await navigator.clipboard.writeText(url);
         alert('URLをコピーしました:\n' + url);
     } catch {
-        prompt('ビューワーURL:', url);
+        prompt('ReaderのURL:', url);
     }
 };
 window.openDraftViewer = (pid) => {
@@ -10970,7 +10968,7 @@ window.saveProjectSettings = async () => {
         .map((block) => String(block.flow?.document?.sourceLanguage || ''))
         .filter((languageKey) => languageKey && !nextLanguages.includes(languageKey)))];
     if (missingFlowSourceLanguages.length) {
-        alert(`Flow原稿の原稿言語 ${missingFlowSourceLanguages.map((code) => code.toUpperCase()).join(', ')} は作品言語から削除できません。`);
+        alert(`Flow原稿の原稿言語 ${missingFlowSourceLanguages.map((code) => code.toUpperCase()).join(', ')} はリード言語から削除できません。`);
         return;
     }
     const nextDefaultLang = nextLanguages.includes(draft.defaultLang) ? draft.defaultLang : nextLanguages[0];
@@ -12090,6 +12088,12 @@ window.deleteSelectedBubble = function (bubbleIndex) {
 };
 
 initStudioHelp();
+const platformStudioTriggers=['studio-logo-menu-btn','mobile-studio-logo-btn'].map(id=>document.getElementById(id)).filter(Boolean);
+for(const trigger of platformStudioTriggers){const icon=document.createElement('span');icon.className='material-icons';icon.setAttribute('aria-hidden','true');icon.textContent='menu';trigger.append(icon);}
+initializePlatformMenu({surface:'studio',triggers:platformStudioTriggers,beforeOpen:closeAllStudioAuthDropdowns,
+    onStudioHome:()=>window.switchRoom('home'),onHelp:()=>document.getElementById('studio-help-open')?.click(),
+    roomActions:['home','editor','press','works'].map(room=>({room,run:()=>window.switchRoom(room)}))});
+subscribePlatformLanguage(lang=>{if(lang!==getUILang())window.setStudioUILang(lang);});
 initHistoryPanel({ getUILang, undo: performProjectUndo, redo: performProjectRedo, canStep: () => getCurrentRoom() === 'editor' && !readStudioAIState().busy });
 studioAI = initStudioWebMCP({ readSaveStatus: getEditorSaveStatus, getUILang, subscribeProjectSession, readState: readStudioAIState,
     history: { list: listHistoryEntries, read: readHistoryEntry, guard: getHistoryGuard,

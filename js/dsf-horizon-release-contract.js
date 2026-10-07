@@ -629,7 +629,7 @@ export function selectDsfPublicReleaseTransport(metadata, options = {}) {
         return normalizePublicV2Locator(metadata, options);
     }
     if (metadata.dsfSchemaVersion !== undefined && metadata.dsfSchemaVersion !== 1) {
-        fail('HORIZON_PUBLIC_SCHEMA_UNSUPPORTED', 'metadata.dsfSchemaVersion', 'Public Viewer cannot open this DSF delivery schema.');
+        fail('HORIZON_PUBLIC_SCHEMA_UNSUPPORTED', 'metadata.dsfSchemaVersion', 'Public Reader cannot open this DSF delivery schema.');
     }
     if (hasV2Locator) {
         fail('HORIZON_PUBLIC_V2_LOCATOR_PARTIAL', 'metadata', 'Partial DSF v2 metadata cannot fall back to v1 pages.');

@@ -32,14 +32,14 @@
                         <div class="mobile-menu-logo"><span>DSF</span><small>Studio</small></div>
                         <p data-i18n="mobile_nav_rooms">ルーム一覧</p>
                     </div>
-                    <a href="/" target="_blank" rel="noopener" class="studio-logo-menu-link" role="menuitem" data-i18n-title="logo_title" title="DSF Horizon を開く" onclick="closeStudioLogoMenu()">
+                    <a href="/" target="_blank" rel="noopener" class="studio-logo-menu-link" role="menuitem" data-i18n-title="logo_title" title="Horizon を開く" onclick="closeStudioLogoMenu()">
                         <span class="material-icons" aria-hidden="true">public</span>
                         <span data-i18n="nav_horizon">Horizon</span>
                     </a>
                     <button class="studio-logo-menu-link" role="menuitem" data-studio-room-nav="home" onclick="closeStudioLogoMenu(); switchRoom('home')"><span class="material-icons" aria-hidden="true">dashboard</span><span data-i18n="nav_dashboard">ダッシュボード</span></button>
                     <button class="studio-logo-menu-link" role="menuitem" data-studio-room-nav="editor" onclick="closeStudioLogoMenu(); switchRoom('editor')"><span class="material-icons" aria-hidden="true">edit</span><span data-i18n="nav_editor">エディター</span></button>
                     <button class="studio-logo-menu-link" role="menuitem" data-studio-room-nav="press" onclick="closeStudioLogoMenu(); switchRoom('press')"><span class="material-icons" aria-hidden="true">publish</span><span data-i18n="nav_press">プレス</span></button>
-                    <button class="studio-logo-menu-link" role="menuitem" data-studio-room-nav="works" onclick="closeStudioLogoMenu(); switchRoom('works')" data-auth-required><span class="material-icons" aria-hidden="true">library_books</span><span data-i18n="nav_works">作品</span></button>
+                    <button class="studio-logo-menu-link" role="menuitem" data-studio-room-nav="works" onclick="closeStudioLogoMenu(); switchRoom('works')" data-auth-required><span class="material-icons" aria-hidden="true">library_books</span><span data-i18n="nav_works">リーズ</span></button>
                 </div>
             </div>
             <div id="studio-space-switcher"></div>
@@ -54,7 +54,7 @@
                     <span class="material-icons">publish</span> <span data-i18n="nav_press">プレス</span>
                 </button>
                 <button class="room-tab" data-room="works" onclick="switchRoom('works')">
-                    <span class="material-icons">library_books</span> <span data-i18n="nav_works">作品</span>
+                    <span class="material-icons">library_books</span> <span data-i18n="nav_works">リーズ</span>
                 </button>
             </div>
             <div class="room-nav-right">
@@ -73,8 +73,8 @@
                 <div id="home-space-identity" class="home-space-identity"></div>
                 <nav data-home-navigation>
                     <button type="button" data-home-nav="overview"><span class="material-icons" aria-hidden="true">dashboard</span><span data-home-label="overview">ダッシュボード</span></button>
-                    <button type="button" data-home-nav="projects"><span class="material-icons" aria-hidden="true">library_books</span><span data-home-label="projects">作品</span></button>
-                    <button type="button" data-home-nav="shared"><span class="material-icons" aria-hidden="true">people</span><span data-home-label="shared">共有された作品</span></button>
+                    <button type="button" data-home-nav="projects"><span class="material-icons" aria-hidden="true">library_books</span><span data-home-label="projects">リーズ</span></button>
+                    <button type="button" data-home-nav="shared"><span class="material-icons" aria-hidden="true">people</span><span data-home-label="shared">共有されたリーズ</span></button>
                     <button type="button" data-home-nav="activity"><span class="material-icons" aria-hidden="true">insights</span><span data-home-label="activity">公開状況・反応</span></button>
                     <button type="button" data-home-nav="settings"><span class="material-icons" aria-hidden="true">tune</span><span data-home-label="settings">スペースの設定</span></button>
                     <button type="button" data-home-nav="trash"><span class="material-icons" aria-hidden="true">delete_outline</span><span data-home-label="trash">ゴミ箱</span></button>
@@ -86,20 +86,20 @@
             <div class="home-room-header">
                 <h2 data-home-title tabindex="-1">ダッシュボード</h2>
                 <div class="home-room-actions">
-                    <button type="button" class="home-action-btn" data-home-resume hidden disabled><span class="material-icons" aria-hidden="true">edit</span><span data-start-label="resume">編集中の作品に戻る</span></button>
+                    <button type="button" class="home-action-btn" data-home-resume hidden disabled><span class="material-icons" aria-hidden="true">edit</span><span data-start-label="resume">編集中のリードに戻る</span></button>
                     <button class="home-action-btn" onclick="openDSP()"><span class="material-icons" aria-hidden="true">file_upload</span><span data-home-label="import">DSPを取り込む</span></button>
-                    <button class="home-action-btn primary" onclick="newSpaceProject()"><span class="material-icons" aria-hidden="true">add</span><span data-home-label="create">作品を作成</span></button>
+                    <button class="home-action-btn primary" onclick="newSpaceProject()"><span class="material-icons" aria-hidden="true">add</span><span data-home-label="create">新しいリードを作成</span></button>
                 </div>
             </div>
             <div class="home-room-body">
                 <div id="home-current-work"></div>
                 <section class="home-start-tools" data-home-views="projects local">
-                    <label class="home-start-search"><span class="material-icons" aria-hidden="true">search</span><span class="sr-only" data-start-label="search">一覧の原稿を検索</span><input type="search" data-home-search placeholder="作品名・プロジェクト名で検索" aria-label="一覧の原稿を検索"></label>
+                    <label class="home-start-search"><span class="material-icons" aria-hidden="true">search</span><span class="sr-only" data-start-label="search">一覧の原稿を検索</span><input type="search" data-home-search placeholder="リード名・プロジェクト名で検索" aria-label="一覧の原稿を検索"></label>
                     <p class="home-search-empty" data-home-search-empty hidden role="status"></p>
-                    <div class="home-space-entry"><span data-start-label="spaces">スペースを開く</span><div id="home-space-launcher"></div><button type="button" class="home-action-btn" data-home-nav="shared" data-start-label="shared">共有された作品</button></div>
+                    <div class="home-space-entry"><span data-start-label="spaces">スペースを開く</span><div id="home-space-launcher"></div><button type="button" class="home-action-btn" data-home-nav="shared" data-start-label="shared">共有されたリーズ</button></div>
                     <p data-start-label="scope" class="home-overview-hint">スペースを切り替えても原稿の保存先は変わりません。</p>
                 </section>
-                <p class="home-overview-hint" data-home-views="overview" data-home-label="hint">作品を選んで、続きから編集できます。</p>
+                <p class="home-overview-hint" data-home-views="overview" data-home-label="hint">リードを選んで、続きから編集できます。</p>
                 <section id="home-project-trash" data-home-views="trash" class="space-members-settings" aria-live="polite"></section>
                 <section id="home-shared-inbox" data-home-views="shared" class="space-members-settings"></section>
                 <section id="home-notifications" data-home-views="notifications" class="space-members-settings"></section>
@@ -113,10 +113,10 @@
                 <section class="home-project-section" data-home-views="projects">
                     <div class="home-section-head">
                         <div class="home-section-title-wrap">
-                            <h3 data-home-cloud-heading>最近の作品</h3>
+                            <h3 data-home-cloud-heading>最近のリーズ</h3>
                             <span id="home-cloud-count" class="home-section-count">0</span>
                         </div>
-                        <button type="button" class="home-action-btn" data-home-nav="projects" data-home-views="overview" data-home-label="all">作品をすべて見る</button>
+                        <button type="button" class="home-action-btn" data-home-nav="projects" data-home-views="overview" data-home-label="all">すべてのリーズを見る</button>
                     </div>
                     <p id="home-cloud-scope" class="home-save-scope"></p>
                     <p class="home-storage-note" data-home-views="projects" data-i18n="home_cloud_storage_note"></p>
@@ -125,7 +125,7 @@
                 <section class="home-work-section" data-home-views="overview activity">
                     <div class="home-section-head">
                         <div class="home-section-title-wrap">
-                            <h3 data-home-label="published">発行した作品</h3>
+                            <h3 data-home-label="published">発行したリーズ</h3>
                             <span id="home-work-count" class="home-section-count">0</span>
                         </div>
                         <div class="home-section-actions">
@@ -200,8 +200,8 @@
                     </div>
                     <div class="ribbon-group">
                         <button id="btn-flow-search" type="button" class="btn-tool btn-tool-icon" aria-expanded="false" aria-controls="flow-search-bar" title="Flow原稿を検索 (Ctrl+F)"><span class="material-icons" aria-hidden="true">search</span></button>
-                        <button id="btn-editor-preview" class="btn-tool btn-tool-icon" onclick="previewEditorInViewer()" data-i18n-title="editor_viewer_preview" data-i18n-aria="editor_viewer_preview" title="Viewerでプレビュー"><span class="material-icons">visibility</span></button>
-                        <button id="btn-share" class="btn-tool btn-tool-icon" onclick="shareProject()" title="ビューワーURLをコピー" data-auth-required>
+                        <button id="btn-editor-preview" class="btn-tool btn-tool-icon" onclick="previewEditorInViewer()" data-i18n-title="editor_viewer_preview" data-i18n-aria="editor_viewer_preview" title="Readerでプレビュー"><span class="material-icons">visibility</span></button>
+                        <button id="btn-share" class="btn-tool btn-tool-icon" onclick="shareProject()" title="ReaderのURLをコピー" data-auth-required>
                             <span class="material-icons" aria-hidden="true">share</span><span data-i18n="btn_share">共有</span>
                         </button>
                     </div>
@@ -219,12 +219,12 @@
                     <div class="ribbon-group ribbon-work-title-group">
                         <label class="ribbon-work-title-field" for="prop-title">
                             <span class="ribbon-work-title-heading">
-                                <span data-i18n="label_work_title">作品タイトル</span>
+                                <span data-i18n="label_work_title">リードタイトル</span>
                                 <span id="prop-title-lang-badge" class="ribbon-work-title-lang">日本語 JA</span>
                             </span>
                             <input type="text" id="prop-title" class="ribbon-title-input"
-                                data-i18n-placeholder="placeholder_work_title" placeholder="作品タイトル"
-                                oninput="updateTitle(this.value)" aria-label="作品タイトル" title="作品のタイトル">
+                                data-i18n-placeholder="placeholder_work_title" placeholder="リードタイトル"
+                                oninput="updateTitle(this.value)" aria-label="リードタイトル" title="リードのタイトル">
                         </label>
                     </div>
                 </div>
@@ -351,7 +351,7 @@
                     <!-- 作品言語切替 -->
                     <div class="sidebar-pages-toolbar">
                         <div class="sidebar-pages-lang-row">
-                            <span class="sidebar-pages-lang-label" data-i18n="label_content_lang">作品言語</span>
+                            <span class="sidebar-pages-lang-label" data-i18n="label_content_lang">リード言語</span>
                             <div id="lang-tabs-pages-panel" class="lang-tabs lang-tabs-compact"></div>
                         </div>
                         <div class="sidebar-pages-controls">
@@ -689,14 +689,14 @@
                     <div class="mobile-menu-logo"><span>DSF</span><small>Studio</small></div>
                     <p data-i18n="mobile_nav_rooms">ルーム一覧</p>
                 </div>
-                <a href="/" target="_blank" rel="noopener" class="mobile-studio-nav-link" role="menuitem" data-i18n-title="logo_title" title="DSF Horizon を開く" onclick="closeMobileStudioNavMenu()">
+                <a href="/" target="_blank" rel="noopener" class="mobile-studio-nav-link" role="menuitem" data-i18n-title="logo_title" title="Horizon を開く" onclick="closeMobileStudioNavMenu()">
                     <span class="material-icons" aria-hidden="true">public</span>
                     <span data-i18n="nav_horizon">Horizon</span>
                 </a>
                 <button class="mobile-studio-nav-link" role="menuitem" data-mobile-room-nav="home" onclick="closeMobileStudioNavMenu(); switchRoom('home')"><span class="material-icons" aria-hidden="true">dashboard</span><span data-i18n="nav_dashboard">ダッシュボード</span></button>
                 <button class="mobile-studio-nav-link" role="menuitem" data-mobile-room-nav="editor" onclick="closeMobileStudioNavMenu(); switchRoom('editor')"><span class="material-icons" aria-hidden="true">edit</span><span data-i18n="nav_editor">エディター</span></button>
                 <button class="mobile-studio-nav-link" role="menuitem" data-mobile-room-nav="press" onclick="closeMobileStudioNavMenu(); switchRoom('press')"><span class="material-icons" aria-hidden="true">publish</span><span data-i18n="nav_press">プレス</span></button>
-                <button class="mobile-studio-nav-link" role="menuitem" data-mobile-room-nav="works" onclick="closeMobileStudioNavMenu(); switchRoom('works')" data-auth-required><span class="material-icons" aria-hidden="true">library_books</span><span data-i18n="nav_works">作品</span></button>
+                <button class="mobile-studio-nav-link" role="menuitem" data-mobile-room-nav="works" onclick="closeMobileStudioNavMenu(); switchRoom('works')" data-auth-required><span class="material-icons" aria-hidden="true">library_books</span><span data-i18n="nav_works">リーズ</span></button>
             </div>
             <div id="mobile-space-switcher"></div>
             <button id="mobile-header-nav" class="mobile-header-nav-btn" type="button" onclick="handleMobileHeaderNav()" hidden>
@@ -716,7 +716,7 @@
 
         <div id="mobile-action-sheet">
             <div id="mobile-sheet-menu" class="mobile-sheet-content mobile-sheet-menu">
-                <button class="btn-tool btn-tool-icon" onclick="openMobileSheet('lang')"><span class="material-icons" aria-hidden="true">translate</span><span data-i18n="bottom_lang">作品言語</span></button>
+                <button class="btn-tool btn-tool-icon" onclick="openMobileSheet('lang')"><span class="material-icons" aria-hidden="true">translate</span><span data-i18n="bottom_lang">リード言語</span></button>
                 <button class="btn-tool btn-tool-icon" onclick="saveProject()" data-authoring-save data-mobile-room-only="editor"><span class="material-icons" aria-hidden="true">save</span><span data-i18n="btn_save">保存</span></button>
                 <button class="btn-tool btn-tool-icon" onclick="shareProject()" data-auth-required data-mobile-room-only="editor"><span class="material-icons" aria-hidden="true">share</span><span data-i18n="btn_share">共有</span></button>
                 <button class="btn-tool btn-tool-icon" onclick="performUndo()" data-mobile-room-only="editor"><span class="material-icons" aria-hidden="true">undo</span><span data-i18n="btn_undo">元に戻す</span></button>
@@ -834,7 +834,7 @@
                                 </button>
                                 <button class="press-publish-btn" onclick="switchRoom('works')" data-auth-required>
                                     <span class="material-icons">library_books</span>
-                                    <span><span data-i18n="btn_goto_works">Works Room へ</span><small data-i18n="btn_goto_works_sub">発行済み作品のステータス管理</small></span>
+                                    <span><span data-i18n="btn_goto_works">リーズ へ</span><small data-i18n="btn_goto_works_sub">発行済みリーズのステータス管理</small></span>
                                 </button>
                             </div>
                         </aside>
@@ -848,8 +848,8 @@
             <div class="works-room-header">
                 <div class="works-room-title">
                     <span class="material-icons">library_books</span>
-                    <h2>Works Room</h2>
-                    <span class="works-room-subtitle" data-i18n="btn_goto_works_sub">発行済み作品のステータス管理</span>
+                    <h2 data-i18n="nav_works">リーズ</h2>
+                    <span class="works-room-subtitle" data-i18n="btn_goto_works_sub">発行済みリーズのステータス管理</span>
                 </div>
                 <button class="btn-sm" onclick="switchRoom('home')" data-i18n="btn_back_home">← Home</button>
             </div>
@@ -870,7 +870,7 @@
                     <span class="material-icons press-publish-modal-draft-icon" aria-hidden="true">edit_note</span>
                     <div>
                         <strong data-i18n="press_draft_notice_title">初回の公開ステータスは「下書き」</strong>
-                        <p data-i18n="press_draft_notice_body">Horizon にアップロードした時点では、まだ読者向けには公開されません。公開や掲載は Works Room などから別途行ってください。</p>
+                        <p data-i18n="press_draft_notice_body">Horizon にアップロードした時点では、まだ読者向けには公開されません。公開や掲載は リーズ などから別途行ってください。</p>
                     </div>
                 </div>
                 <p class="press-publish-modal-hint" data-i18n="press_render_cancel_hint">レンダリング中はこの画面の「キャンセル」または Esc キーで中断できます。</p>
@@ -1036,7 +1036,7 @@
         <div class="modal-overlay" onclick="closeWorksRoom()"></div>
         <div class="modal-content modal-content--wide">
             <div class="modal-header">
-                <h2 data-i18n="modal_works_title">📚 Works Room</h2>
+                <h2 data-i18n="modal_works_title">📚 リーズ</h2>
                 <div class="modal-header-actions">
                     <button class="btn-modal" onclick="closeWorksRoom()" data-i18n="btn_modal_close">閉じる</button>
                 </div>

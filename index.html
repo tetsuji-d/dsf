@@ -5,7 +5,10 @@
     <meta charset="UTF-8">
     <meta name="viewport"
         content="width=device-width, initial-scale=1.0, maximum-scale=5.0, viewport-fit=cover">
-    <title>DSF Horizon</title>
+    <title>Horizon</title>
+    <meta name="description" content="リードを探して、公開して、集める。Horizonで新着リーズを見つけましょう。">
+    <meta property="og:title" content="Horizon">
+    <meta property="og:description" content="リードを探して、公開して、集める。Horizonで新着リーズを見つけましょう。">
     <!-- Google Fonts -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -16,6 +19,7 @@
     <link rel="stylesheet" href="css/variables.css">
     <link rel="stylesheet" href="css/portal.css">
     <script src="https://accounts.google.com/gsi/client" async defer></script>
+    <link rel="stylesheet" href="css/horizon-brand.css">
 </head>
 
 <body>
@@ -25,23 +29,19 @@
                 <span class="material-icons" aria-hidden="true">menu</span>
             </button>
             <div class="logo-group">
-                <a href="/" class="logo-area" title="DSF Horizon">
-                    <span class="logo-text">DSF</span>
-                    <span class="logo-subtext" data-i18n="libraryName">Horizon</span>
+                <a href="/" class="logo-area horizon-brand" title="Horizon">
+                    <span class="horizon-mark" aria-hidden="true"></span>
+                    <span class="logo-text" data-i18n="libraryName">Horizon</span>
                 </a>
-                <div id="lang-switcher-brand" class="lang-switcher js-lang-switcher" role="group" aria-label="言語切り替え / Language">
-                    <button class="lang-btn active" data-lang="ja">JA</button>
-                    <button class="lang-btn" data-lang="en">EN</button>
-                </div>
             </div>
         </div>
 
         <div class="search-container" role="search">
-            <label for="portal-search" class="visually-hidden" data-i18n="searchLabel">作品を検索</label>
+            <label for="portal-search" class="visually-hidden" data-i18n="searchLabel">リーズを検索</label>
             <input type="text" id="portal-search" class="search-input"
                 data-i18n-placeholder="searchPlaceholder"
-                placeholder="作品タイトル・作者名で検索"
-                aria-label="作品を検索" autocomplete="off">
+                placeholder="リードタイトル・作者名で検索"
+                aria-label="リーズを検索" autocomplete="off">
             <span class="search-icon material-icons" aria-hidden="true">search</span>
         </div>
 
@@ -53,9 +53,6 @@
                 </button>
                 <div class="header-popover create-menu-popover" id="create-menu-popover" role="menu">
                     <a href="/studio.html?room=home" class="popover-link" data-i18n="navProjects">Projects</a>
-                    <a href="/studio.html?room=editor" class="popover-link" data-i18n="navEditor">Editor</a>
-                    <a href="/studio.html?room=press" class="popover-link" data-i18n="navPress">Press</a>
-                    <a href="/studio.html?room=works" class="popover-link" data-i18n="navWorks">Works</a>
                 </div>
             </div>
 
@@ -70,7 +67,7 @@
     <aside id="library-drawer" aria-label="Horizon drawer" aria-hidden="true">
         <div class="drawer-head">
             <div>
-                <div class="drawer-kicker" data-i18n="horizonBrand">DSF Horizon</div>
+                <div class="drawer-kicker" data-i18n="horizonBrand">Horizon</div>
                 <strong data-i18n="libraryName">Horizon</strong>
             </div>
             <button type="button" class="header-icon-btn" id="btn-library-menu-close" aria-label="Close Horizon menu">
@@ -99,20 +96,7 @@
     <div id="portal-scrim" hidden></div>
 
     <main>
-        <section class="library-hero">
-            <div class="library-hero-copy">
-                <p class="library-eyebrow" data-i18n="horizonBrand">DSF Horizon</p>
-                <h1 class="library-title" data-i18n="libraryHomeTitle">情報の広がりは、地平線を超えていく。</h1>
-                <p class="library-desc" data-i18n="libraryHomeDesc">公開作品を探して、気になる作品をすぐ開ける読者向けのホームです。</p>
-            </div>
-            <div class="library-hero-actions">
-                <a href="/studio.html?room=editor" class="btn-studio" aria-label="Create in Studio">
-                    <span class="material-icons" aria-hidden="true">draw</span>
-                    <span data-i18n="studioBtn">Studioを起動</span>
-                </a>
-            </div>
-        </section>
-        <h2 class="section-title" data-i18n="sectionTitle">最新・注目作品</h2>
+        <h1 class="section-title" data-i18n="sectionTitle">新着・注目リーズ</h1>
         <p id="feed-status" class="feed-status" aria-live="polite"></p>
         <div id="portal-feedback" class="portal-feedback" aria-live="polite"></div>
         <div class="project-grid" id="public-feed" aria-live="polite"></div>

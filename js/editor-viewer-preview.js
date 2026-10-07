@@ -52,7 +52,7 @@ export async function openEditorViewerPreview() {
   const dialog = document.createElement("dialog");
   dialog.className = "editor-preview-progress";
   const text = document.createElement("p");
-  text.textContent = en ? `Preparing Viewer preview (${languages[0]})…` : `Viewerプレビューを準備中（${languages[0]}）…`;
+  text.textContent = en ? `Preparing Reader preview (${languages[0]})…` : `Readerプレビューを準備中（${languages[0]}）…`;
   const cancel = document.createElement("button");
   cancel.textContent = en ? "Cancel" : "キャンセル";
   const abort = () => {

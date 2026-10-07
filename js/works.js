@@ -59,7 +59,7 @@ function _isCurrentWorksLoad(uid, generation) {
 
 function _assertCurrentWorksOwner(uid) {
     if (!uid || state.uid !== uid) {
-        throw new Error('Works owner session changed. Reopen Works and try again.');
+        throw new Error('Reads owner session changed. Reopen Reads and try again.');
     }
 }
 
@@ -824,7 +824,7 @@ async function _commitWorksPublicationTransition(pid, status, publication, accou
         const currentStatus = project.dsfStatus || 'draft';
         if (expectedStatus && currentStatus !== expectedStatus) {
             throw Object.assign(
-                new Error('作品の公開状態が別の操作で変更されました。Worksを開き直して再試行してください。'),
+                new Error('リードの公開状態が別の操作で変更されました。リーズを開き直して再試行してください。'),
                 { code: 'WORKS_PUBLICATION_STATE_STALE' },
             );
         }

@@ -12,7 +12,7 @@ export function createFlowCanvasView({ container, getPinnedPageIndex, onPageCrea
     viewport.className = 'flow-canvas-viewport';
     viewport.dataset.testid = 'flow-canvas-viewport';
     viewport.setAttribute('role', 'region');
-    viewport.setAttribute('aria-label', document.documentElement.lang==='en'?'Work pages, horizontal scrolling':'作品ページ・横スクロール');
+    viewport.setAttribute('aria-label', document.documentElement.lang==='en'?'Read pages, horizontal scrolling':'リードのページ・横スクロール');
     viewport.tabIndex = 0;
     viewport.hidden = true;
     viewport.dataset.flowPageGuideMode = 'off';
@@ -249,7 +249,7 @@ export function createFlowCanvasView({ container, getPinnedPageIndex, onPageCrea
         },
         refreshLabels() {
             const en = document.documentElement.lang === 'en';
-            viewport.setAttribute('aria-label', en ? 'Work pages, horizontal scrolling' : '作品ページ・横スクロール');
+            viewport.setAttribute('aria-label', en ? 'Read pages, horizontal scrolling' : 'リードのページ・横スクロール');
             for (const { slot, page } of mounted.values()) {
                 slot.querySelector('.flow-canvas-page-label').textContent = getPageLabel(page);
                 const grip = slot.querySelector('.editor-canvas-frame-grip');

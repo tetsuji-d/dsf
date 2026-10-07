@@ -1,13 +1,11 @@
+import {workLanguageName} from './work-languages.js';
 import { getAllLangs, getLangProps } from './lang.js';
 import { getUILang, t } from './i18n-studio.js';
 import { isFlowWritingModeSupported } from './flow-typography.js';
 import { deriveFlowTranslationStatus } from './flow-translation-state.js';
 import '../css/studio-language-settings.css';
 
-export function languageName(key) {
-    try { return new Intl.DisplayNames([getUILang()], {type:'language'}).of(key) || key; }
-    catch { return key; }
-}
+export function languageName(key) { return workLanguageName(key,getUILang()); }
 export function languageDirections(key) {
     const registered = getAllLangs().find(item => item.code.toLowerCase() === key.toLowerCase());
     return (registered?.directions || getLangProps(key).directions).filter(item =>

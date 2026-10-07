@@ -2,7 +2,7 @@
 export function chooseAuthoringDestination({allowLocal=false,purpose='save',uid='',defaultSpaceId=null,loadCatalogue,isCurrent=()=>true,en=false,onLogin=()=>{}}){
  const d=document.createElement('dialog');d.className='authoring-destination-dialog';
  const h=document.createElement('h2');h.id='authoring-destination-title';h.textContent=allowLocal?(en?'Where will you create?':'制作場所を選ぶ'):(en?'Save manuscript to cloud':'原稿をクラウドに保存');d.setAttribute('aria-labelledby',h.id);
- const note=document.createElement('p');note.textContent=purpose==='horizon'?(en?'Horizon requires a cloud-saved manuscript. Save first, then continue publication preparation.':'Horizonへの発行にはクラウドへの原稿保存が必要です。保存先を選んで、発行準備へ進みます。'):(en?'Device drafts stay local even after signing in. Cloud saving does not publish or share your work.':'この端末の原稿はログイン後もローカルのままです。クラウドへの保存だけでは公開・共有されません。');
+ const note=document.createElement('p');note.textContent=purpose==='horizon'?(en?'Horizon requires a cloud-saved manuscript. Save first, then continue publication preparation.':'Horizonへの発行にはクラウドへの原稿保存が必要です。保存先を選んで、発行準備へ進みます。'):(en?'Device drafts stay local even after signing in. Cloud saving does not publish or share your Read.':'この端末の原稿はログイン後もローカルのままです。クラウドへの保存だけでは公開・共有されません。');
  const status=document.createElement('p');status.setAttribute('role','status');
  const label=document.createElement('label');label.textContent=en?'Cloud space':'クラウドの保存先';const select=document.createElement('select');select.setAttribute('aria-label',label.textContent);label.append(select);
  const actions=document.createElement('div');actions.className='authoring-destination-actions';

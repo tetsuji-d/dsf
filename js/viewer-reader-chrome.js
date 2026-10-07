@@ -19,6 +19,42 @@ export function setViewerReaderIcon(button, icon, label) {
     }
     button.setAttribute('aria-label',label);
 }
+const readerEnglish = {
+    "表示": "Display",
+    "ページの表示設定": "Page display settings",
+    "ページの表示": "Page display",
+    "設定はこの端末に保存されます。": "Settings are saved on this device.",
+    "ページ番号": "Page numbers",
+    "番号の上下": "Number edge",
+    "上部": "Top",
+    "下部": "Bottom",
+    "番号の位置": "Number alignment",
+    "小口側": "Outer edge",
+    "中央": "Center",
+    "ノド側": "Inner edge",
+    "タイトル": "Title",
+    "総ページ数": "Total pages",
+    "タイトル・総数": "Title and total",
+    "上部中央": "Top center",
+    "下部中央": "Bottom center",
+    "番号も中央に置く場合は、同じ行にまとめます。": "Centered numbers share a line with the title and total.",
+    "初期設定に戻す": "Reset to defaults",
+    "閉じる": "Close",
+    "ページの並べ方": "Page layout",
+    "読書補助": "Reading assistance",
+    "本の表示とページ操作": "Book view and page controls",
+    "リード情報": "Read information",
+    "半回転して背表紙を表示": "Turn to show the spine",
+    "閉じて小口を表示": "Close to show the page edges",
+    "ページを少し開いて覗く": "Open slightly to peek",
+    "紙のしなりを残して読む": "Read with curved pages",
+    "このページを開く": "Open this page",
+    "半回転して小口を表示": "Turn to show the page edges",
+    "ページを少し閉じて覗く": "Close slightly to peek",
+    "背表紙を表示中": "Showing the spine",
+    "ページを開いています": "Showing the open page"
+};
+const readerText = text => document.documentElement.lang === 'en' ? (readerEnglish[text] || text) : text;
 const KEY = 'dsf.viewer.reader-chrome.v1';
 const defaults = {number:true, title:true, total:true, numberEdge:'top', numberAlign:'outer', metaEdge:'top'};
 export function initializeViewerReaderChrome({getSnapshot, onLayoutChange, beforePose, onSettingsChange, onPoseChange, getPeek, renderPosePage, canReadBook=()=>false}) {
@@ -39,7 +75,7 @@ export function initializeViewerReaderChrome({getSnapshot, onLayoutChange, befor
         button.setAttribute('aria-keyshortcuts',direction==='up'?'ArrowUp':'ArrowDown');
         button.onclick=()=>step(direction);
     }
-    const info=document.getElementById('viewer-info-btn');setViewerReaderIcon(info,'info','作品情報');
+    const info=document.getElementById('viewer-info-btn');setViewerReaderIcon(info,'info','リード情報');
     rail.append(info, up, down, document.getElementById('viewer-nav-left'), document.getElementById('viewer-nav-right'));
     rail.hidden = true;
     document.body.append(labels, rail, pose);
@@ -54,12 +90,22 @@ export function initializeViewerReaderChrome({getSnapshot, onLayoutChange, befor
         <label>タイトル・総数 <select name="metaEdge"><option value="top">上部中央</option><option value="bottom">下部中央</option></select></label>
         <p>番号も中央に置く場合は、同じ行にまとめます。</p><button type="button" class="reader-settings-reset">初期設定に戻す</button>
         <button type="button" class="reader-settings-close">閉じる</button></div>`;
+    // Keep the existing inputs and selections while translating only label nodes.
+    const textNodes=[];const walker=document.createTreeWalker(settings,NodeFilter.SHOW_TEXT);
+    while(walker.nextNode()){const node=walker.currentNode;if(node.textContent.trim())textNodes.push([node,node.textContent]);}
     document.querySelector('#viewer-header .ui-controls').prepend(settings);
     const panel=settings.querySelector('.viewer-page-settings-panel');
     const spread=document.getElementById('viewer-spread-btn'),guides=document.getElementById('viewer-reading-guide');
     const layoutRow=document.createElement('div');layoutRow.className='reader-layout-setting';
     const caption=document.createElement('strong');caption.textContent='ページの並べ方';layoutRow.append(caption,spread);panel.prepend(layoutRow);
     const guideSummary=guides.querySelector('summary');guideSummary.textContent='読書補助';guideSummary.className='';panel.insertBefore(guides,panel.querySelector('.reader-settings-reset'));
+    function refreshLabels() {
+        for(const [node,original] of textNodes)node.textContent=original.replace(original.trim(),readerText(original.trim()));
+        settings.querySelector('summary').title=readerText('ページの表示設定');
+        caption.textContent=readerText('ページの並べ方');guideSummary.textContent=readerText('読書補助');
+        rail.setAttribute('aria-label',readerText('本の表示とページ操作'));
+        info.setAttribute('aria-label',readerText('リード情報'));syncControls();
+    }
     function syncInputs() {
         for (const el of settings.querySelectorAll('[name]')) {
             if (el.type === 'checkbox') el.checked = prefs[el.name]; else el.value = prefs[el.name];
@@ -87,7 +133,7 @@ export function initializeViewerReaderChrome({getSnapshot, onLayoutChange, befor
         const current=state(),at=states().indexOf(current),snapshot=getSnapshot();rail.dataset.bookState=current;
         for(const [button,offset] of [[up,-1],[down,1]]){
             const target=states()[at+offset],icon=target||current;
-            const label=target?(current==='spine'&&target==='edge'?'半回転して小口を表示':current==='reading'&&target==='peek'?'ページを少し閉じて覗く':actionLabels[target]):(current==='spine'?'背表紙を表示中':'ページを開いています');
+            const label=readerText(target?(current==='spine'&&target==='edge'?'半回転して小口を表示':current==='reading'&&target==='peek'?'ページを少し閉じて覗く':actionLabels[target]):(current==='spine'?'背表紙を表示中':'ページを開いています'));
             setViewerReaderIcon(button,icon==='reading'?'open':icon,label);
             if(!button.querySelector('.reader-direction-mark')){
                 const mark=document.createElement('span');mark.className='reader-direction-mark';mark.setAttribute('aria-hidden','true');
@@ -218,5 +264,6 @@ export function initializeViewerReaderChrome({getSnapshot, onLayoutChange, befor
         }
     }
     syncControls();
-    return {update,cancelPose,changeTo,canReadBook,adoptSpine(){beforePose();mode='spine';phase='edge';update();},step,setEdgePhase,openReading,beginGesture,drawGesture,finishGesture,get state(){return state();},get transitioning(){return !!transition;},get mode(){return mode;},get pageNumberSettings(){return {...prefs};},get active(){return !!mode||!!transition||motion.active;},get settingsOpen(){return settings.open;}};
+    refreshLabels();
+    return {refreshLabels,update,cancelPose,changeTo,canReadBook,adoptSpine(){beforePose();mode='spine';phase='edge';update();},step,setEdgePhase,openReading,beginGesture,drawGesture,finishGesture,get state(){return state();},get transitioning(){return !!transition;},get mode(){return mode;},get pageNumberSettings(){return {...prefs};},get active(){return !!mode||!!transition||motion.active;},get settingsOpen(){return settings.open;}};
 }

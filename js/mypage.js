@@ -1,3 +1,4 @@
+import {getPlatformLanguage,setPlatformLanguage} from './ui-language.js';
 import { preparePrivateProjectAction, runPrivateProjectAction } from './private-project-actions.js';
 import { addDoc, collection, doc, getDocs, limit, orderBy, query, runTransaction, serverTimestamp, setDoc, where } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
 import { onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js";
@@ -12,7 +13,7 @@ const SUPPORTED_LANGS = ['ja', 'en'];
 
 const STRINGS = {
     ja: {
-        documentTitle: 'マイページ | DSF Horizon',
+        documentTitle: 'マイページ | Horizon',
         studioLink: 'Studio',
         heroTitle: 'マイページ',
         heroDesc: 'アカウント状態、現在のプラン、プラン変更リクエストを管理します。',
@@ -36,7 +37,7 @@ const STRINGS = {
         publicHandleHelp: '4〜20文字の半角英小文字・数字・_。初回設定後は変更できません。',
         publicHandleLocked: '設定済みのハンドルは変更できません。',
         publicBio: '紹介文',
-        publicBioPlaceholder: '作品や活動について短く紹介してください。',
+        publicBioPlaceholder: 'リードや活動について短く紹介してください。',
         avatarImage: 'プロフィール画像',
         backgroundImage: '背景画像',
         editAvatarImage: 'プロフィール画像を変更',
@@ -71,7 +72,7 @@ const STRINGS = {
         planRequestSavedTitle: 'リクエストを保存しました',
         planRequestSavedDesc: '運営または決済連携後にプランへ反映されます。',
         billingNote: '決済連携前のため、ここでの操作はプラン変更リクエストとして保存されます。運営または決済システムの処理後に実際のプランへ反映されます。',
-        downgradeNote: '解約・ダウングレード後は作品の掲載可能期間が再評価され、FREEでは発行から14日を超えた公開/限定公開作品は下書き扱いになります。',
+        downgradeNote: '解約・ダウングレード後はリードの掲載可能期間が再評価され、FREEでは発行から14日を超えた公開/限定公開リードは下書き扱いになります。',
         noRequests: 'まだリクエストはありません。',
         statusActive: '有効',
         statusDisabled: '停止中',
@@ -100,7 +101,7 @@ const STRINGS = {
         requestStatusRequested: 'リクエスト済み',
     },
     en: {
-        documentTitle: 'My Page | DSF Horizon',
+        documentTitle: 'My Page | Horizon',
         studioLink: 'Studio',
         heroTitle: 'My Page',
         heroDesc: 'Manage your account status, current plan, and plan change requests.',
@@ -124,7 +125,7 @@ const STRINGS = {
         publicHandleHelp: '4-20 lowercase letters, numbers, or underscores. It cannot be changed after first setup.',
         publicHandleLocked: 'Your handle is locked after setup.',
         publicBio: 'Bio',
-        publicBioPlaceholder: 'Briefly introduce your work or activity.',
+        publicBioPlaceholder: 'Briefly introduce your Reads or activities.',
         avatarImage: 'Profile image',
         backgroundImage: 'Background image',
         editAvatarImage: 'Change profile image',
@@ -159,7 +160,7 @@ const STRINGS = {
         planRequestSavedTitle: 'Request saved',
         planRequestSavedDesc: 'The plan will be updated after operations or billing processing.',
         billingNote: 'Billing integration is not connected yet, so actions here are saved as plan change requests. The actual plan is updated after operations or billing processing.',
-        downgradeNote: 'After cancellation or downgrade, listing limits are re-evaluated. On FREE, public or unlisted works older than 14 days from publication are treated as drafts.',
+        downgradeNote: 'After cancellation or downgrade, listing limits are re-evaluated. On FREE, public or unlisted Reads older than 14 days from publication are treated as drafts.',
         noRequests: 'No requests yet.',
         statusActive: 'Active',
         statusDisabled: 'Disabled',
@@ -189,12 +190,7 @@ const STRINGS = {
     },
 };
 
-let currentLang = (() => {
-    const saved = localStorage.getItem(LANG_STORAGE_KEY);
-    if (saved && SUPPORTED_LANGS.includes(saved)) return saved;
-    const browser = navigator.language?.slice(0, 2).toLowerCase();
-    return SUPPORTED_LANGS.includes(browser) ? browser : 'ja';
-})();
+let currentLang = getPlatformLanguage('portal');
 
 let currentUser = null;
 let currentAccount = null;
@@ -264,7 +260,7 @@ function bindLangSwitcher() {
             const lang = button.dataset.lang;
             if (!SUPPORTED_LANGS.includes(lang) || lang === currentLang) return;
             currentLang = lang;
-            localStorage.setItem(LANG_STORAGE_KEY, lang);
+            setPlatformLanguage(lang);
             renderCurrentView();
         });
     });

@@ -12,7 +12,7 @@ export function openMemberExitDialog({root,execute,spaceId,memberUid,self=false,
     void (async()=>{try{
         const data=await execute({kind:'getMemberExit',spaceId,memberUid});if(!current())return;
         dialog.insertBefore(node('p',data.space.name+' / '+data.member.displayName),status);
-        dialog.insertBefore(node('p',t('このスペースで担当している共有原稿を閲覧・編集できなくなります。原稿・画像・公開済み作品は削除されません。再参加には新しい招待と承諾が必要です。','Access to shared manuscripts in this space will end. Manuscripts, images and published works remain. Rejoining requires a new invitation and acceptance.')),status);
+        dialog.insertBefore(node('p',t('このスペースで担当している共有原稿を閲覧・編集できなくなります。原稿・画像・公開済みリードは削除されません。再参加には新しい招待と承諾が必要です。','Access to shared manuscripts in this space will end. Manuscripts, images and published Reads remain. Rejoining requires a new invitation and acceptance.')),status);
         if(self)dialog.insertBefore(node('p',t('このタブの未保存変更は先に保存します。別のタブや端末で編集中の内容も、脱退前に保存してください。','Unsaved changes in this tab will be saved first. Save work in other tabs and devices before leaving.')),status);
         status.textContent='';
         const submit=button(self?t('保存して脱退','Save and leave'):t('参加を解除','Remove member'),async()=>{

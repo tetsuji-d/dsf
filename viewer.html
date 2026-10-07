@@ -4,7 +4,10 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, viewport-fit=cover">
-    <title>DSF Image Viewer</title>
+    <title>DSF Reader</title>
+    <meta name="description" content="リードを読むためのDSF標準閲覧環境。ページ送り、拡大、言語切り替えで読書を楽しめます。">
+    <meta property="og:title" content="DSF Reader">
+    <meta property="og:description" content="リードを読むためのDSF標準閲覧環境。ページ送り、拡大、言語切り替えで読書を楽しめます。">
     <link rel="stylesheet" href="css/variables.css">
     <link rel="stylesheet" href="css/viewer.css">
     <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -14,6 +17,7 @@
         rel="stylesheet">
     <link href="/css/material-icons.css" rel="stylesheet">
     <script src="https://accounts.google.com/gsi/client" async defer></script>
+    <link rel="stylesheet" href="css/horizon-brand.css">
 </head>
 
 <body>
@@ -65,7 +69,7 @@
         <div id="viewer-zoom-layer" aria-hidden="true"></div>
         <aside id="viewer-info-panel" class="viewer-info-panel" data-state="closed" data-layout="overlay" role="dialog" aria-labelledby="viewer-info-title" hidden>
             <div class="viewer-info-panel-shell">
-                <button id="viewer-info-handle" class="viewer-info-handle" type="button" aria-label="作品情報を開く">
+                <button id="viewer-info-handle" class="viewer-info-handle" type="button" aria-label="リード情報を開く">
                     <span class="viewer-info-handle-bar"></span>
                 </button>
                 <div class="viewer-info-panel-head">
@@ -85,7 +89,7 @@
                 <div class="viewer-info-panel-summary">
                     <h2 id="viewer-info-title" class="viewer-info-title"></h2>
                     <section id="viewer-lang-picker" class="viewer-lang-picker" aria-labelledby="viewer-info-language-title">
-                        <h3 id="viewer-info-language-title">作品の言語</h3>
+                        <h3 id="viewer-info-language-title">リードの言語</h3>
                         <div id="lang-picker-menu" class="viewer-lang-picker-menu"></div>
                     </section>
                     <div id="viewer-info-series" class="viewer-info-series" hidden></div>
@@ -125,7 +129,7 @@
 
     <div id="viewer-empty-state" class="viewer-empty-state" hidden>
         <div class="viewer-empty-panel">
-            <div class="viewer-empty-brand">DSF Viewer</div>
+            <div class="viewer-empty-brand">DSF Reader</div>
             <h1 id="viewer-empty-title"></h1>
             <p id="viewer-empty-body"></p>
             <button id="viewer-empty-open" class="viewer-empty-open-btn" type="button"
@@ -139,14 +143,16 @@
 
     <div id="viewer-ui">
         <div id="viewer-header" class="ui-bar">
-            <!-- Left: Horizon home link (YouTube-style brand navigation) -->
+            <div class="viewer-brand-navigation">
             <a id="viewer-horizon-link" class="viewer-horizon-link" href="/" title="Horizonへ戻る" aria-label="Horizonへ戻る">
-                <span class="viewer-horizon-mark" aria-hidden="true">
-                    <span class="material-icons">play_arrow</span>
-                </span>
+                <span class="viewer-horizon-mark horizon-mark" aria-hidden="true"></span>
                 <span class="viewer-horizon-name">Horizon</span>
             </a>
 
+                <button id="viewer-app-menu-button" class="btn-icon header-btn" type="button" aria-label="Horizonメニュー" aria-haspopup="dialog" aria-controls="platform-app-menu" aria-expanded="false">
+                    <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16"/></svg>
+                </button>
+            </div>
             <!-- Center: Title -->
             <div class="ui-title" id="ui-title"></div>
 
@@ -154,7 +160,7 @@
             <div class="ui-controls">
 
                 <div id="viewer-auth-slot" class="viewer-auth-slot"></div>
-                <button id="viewer-info-btn" class="btn-icon header-btn" onclick="toggleViewerInfoPanel()" title="作品情報">
+                <button id="viewer-info-btn" class="btn-icon header-btn" onclick="toggleViewerInfoPanel()" title="リード情報">
                     <span class="material-icons" aria-hidden="true">info</span>
                 </button>
                 <details id="viewer-reading-guide">

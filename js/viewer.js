@@ -1,3 +1,6 @@
+import {getPlatformLanguage,setPlatformLanguage,subscribePlatformLanguage} from './ui-language.js';
+import {workLanguageOptionLabel} from './work-languages.js';
+import {initializeViewerAppMenu} from './viewer-app-menu.js';
 import {readerPageInsets,readerInfoPlacement} from './viewer-responsive-layout.js';
 import {initializeViewerPageSegments} from './viewer-page-segment-control.js';
 import {createViewerBookWheel} from './viewer-book-wheel.js';
@@ -29,7 +32,7 @@ import { getLangProps } from './lang.js';
 import { db, auth as firebaseAuth, ensureUserBootstrap } from './firebase.js';
 import { initGIS, renderGISButton, signInWithGoogle, signOutUser, onAuthChanged, handleRedirectResult } from './gis-auth.js';
 import { getOptimizedImageUrl } from './sections.js';
-import { applyTheme, bindThemePreferenceListener, getThemeMode, setThemeMode } from './theme.js';
+import { applyTheme, bindThemePreferenceListener } from './theme.js';
 import { doc, getDoc, getDocs, setDoc, deleteDoc, addDoc, collection, query, where, limit, serverTimestamp, runTransaction } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
 import { parseAndLoadDSF } from './export.js';
 import { CANONICAL_PAGE_WIDTH, CANONICAL_PAGE_HEIGHT, CANONICAL_PAGE_ASPECT } from './page-geometry.js';
@@ -82,6 +85,7 @@ let viewerMinimap = null;
 let readingGuides = null;
 let coverTurn = null;
 let readerChrome = null;
+let appMenu = null;
 let bookWheel = null;
 let bookSwipe = null, flick = null;
 let edgePeek = null, riffle = null;
@@ -155,7 +159,6 @@ let singleSpreadCurrentOffset = 0;
 const VIEWER_PRELOAD_PAGE_RADIUS = 3;
 const VIEWER_PRELOAD_BOOK_UNIT_RADIUS = 2;
 const viewerPreloadedImageUrls = new Set();
-const VIEWER_UI_LANG_KEY = 'dsf_viewer_ui_lang';
 const VIEWER_DEV_MODE_KEY = 'dsf_viewer_dev_mode';
 const VIEWER_DEV_SMOOTHING_KEY = 'dsf_viewer_dev_smoothing';
 const VIEWER_DEV_MORPH_KEY = 'dsf_viewer_dev_morph';
@@ -171,8 +174,7 @@ const VIEWER_AUTO_SPREAD_MIN_WIDTH = 600;
 const VIEWER_DEV_MORPH_LUM_THRESHOLD = 168;
 const METRIC_EVENT_SCHEMA_VERSION = 1;
 const METRIC_SESSION_KEY = 'dsf_viewer_metric_session_id';
-let viewerUiLang = localStorage.getItem(VIEWER_UI_LANG_KEY)
-    || (navigator.language?.toLowerCase().startsWith('ja') ? 'ja' : 'en');
+let viewerUiLang = getPlatformLanguage('viewer');
 let viewerDevMode = localStorage.getItem(VIEWER_DEV_MODE_KEY) === '1';
 let viewerDevSmoothing = localStorage.getItem(VIEWER_DEV_SMOOTHING_KEY) === '1';
 let viewerDevMorph = localStorage.getItem(VIEWER_DEV_MORPH_KEY) === '1';
@@ -239,24 +241,24 @@ const VIEWER_UI = {
         authError: '認証エラー: {message}',
         uidRequired: 'URLにuidが必要です。',
         projectNotFound: 'プロジェクトが見つかりません: {pid}',
-        privateTitle: 'この作品は非公開です',
+        privateTitle: 'このリードは非公開です',
         privateBody: '作者の方は Google でサインインすると閲覧できます。',
         privateCancel: 'キャンセル',
-        privateProject: 'この作品は非公開です。',
+        privateProject: 'このリードは非公開です。',
         unpublishedProject: 'このURLには発行済みの DSF データがありません。',
         ownerDraftUnavailable: '選択したReleaseを表示できません。ログイン状態とReleaseを確認してください。',
-        publicationExpired: 'この作品の公開期間は終了しました。',
-        publicationScheduled: 'この作品は公開開始前です。',
+        publicationExpired: 'このリードの公開期間は終了しました。',
+        publicationScheduled: 'このリードは公開開始前です。',
         developerModeOn: 'Developer mode: ON',
         developerModeOff: 'Developer mode: OFF',
         loadError: '読み込みエラー: {message}',
         standaloneTitle: 'DSFファイルを開く',
-        standaloneBody: 'ローカルの .dsf / .dsp / .zip / .json をこのビューワーで表示できます。',
+        standaloneBody: 'DSF Readerはリードを読むための標準環境です。公開リードのリンクや、この端末の .dsf / .dsp / .zip / .json を開けます。',
         standaloneOpen: 'ファイルを選択',
         standaloneHint: 'ファイルをここへドラッグして開くこともできます。',
-        infoPanel: '作品情報',
-        infoPanelOpen: '作品情報を開く',
-        infoPanelClose: '作品情報を閉じる',
+        infoPanel: 'リード情報',
+        infoPanelOpen: 'リード情報を開く',
+        infoPanelClose: 'リード情報を閉じる',
         infoPanelExpand: '情報を広げる',
         infoPanelCollapse: '情報を縮小する',
         infoLabel: 'レーベル',
@@ -268,12 +270,12 @@ const VIEWER_UI = {
         infoLinerNotes: 'ライナーノーツ',
         infoReviews: 'レビュー',
         reviewSignedOut: 'ログインするとレビューを投稿できます。',
-        reviewNotShared: '共有作品でのみレビューできます。',
+        reviewNotShared: '共有されたリードでのみレビューできます。',
         reviewLoading: 'レビューを読み込んでいます…',
         reviewEmpty: 'まだレビューはありません。',
         reviewError: 'レビューの処理に失敗しました: {message}',
         reviewBodyLabel: 'レビュー本文',
-        reviewBodyPlaceholder: 'この作品の感想を書く',
+        reviewBodyPlaceholder: 'このリードの感想を書く',
         reviewSubmit: 'レビューを投稿',
         reviewSubmitting: '投稿中…',
         reviewPosted: 'レビューを投稿しました。',
@@ -283,8 +285,8 @@ const VIEWER_UI = {
         reviewGood: '高評価',
         reviewBad: '低評価',
         bookmarkTitle: 'しおり',
-        bookmarkSignedOut: 'ログインすると、この作品の続きから読めます。',
-        bookmarkNotShared: '共有作品でのみしおりを保存できます。',
+        bookmarkSignedOut: 'ログインすると、このリードの続きから読めます。',
+        bookmarkNotShared: '共有リーズでのみしおりを保存できます。',
         bookmarkLoading: 'しおりを確認しています…',
         bookmarkSaving: 'しおりを保存しています…',
         bookmarkSaved: '{page}/{total}ページ目を保存中',
@@ -304,7 +306,7 @@ const VIEWER_UI = {
         devMorphStatusPending: 'Morph: 処理中…',
         devMorphStatusOff: 'Morph: —（オフ）',
         devMorphStatusResult: 'Morph: 置換 {replaced} / スキップ {skipped}',
-        devMorphStatusHint: 'スキップ時: メディアの CORS（AllowedOrigins にこのビューワのオリジン）を確認。'
+        devMorphStatusHint: 'スキップ時: メディアの CORS（AllowedOrigins にこのReaderのオリジン）を確認。'
     },
     en: {
         close: 'Close',
@@ -332,24 +334,24 @@ const VIEWER_UI = {
         authError: 'Authentication error: {message}',
         uidRequired: 'The URL requires a uid parameter.',
         projectNotFound: 'Project not found: {pid}',
-        privateTitle: 'This work is private',
+        privateTitle: 'This Read is private',
         privateBody: 'If you are the author, sign in with Google to view it.',
         privateCancel: 'Cancel',
-        privateProject: 'This work is private.',
+        privateProject: 'This Read is private.',
         unpublishedProject: 'This URL does not have published DSF data yet.',
         ownerDraftUnavailable: 'The selected release is unavailable. Check your sign-in and the release.',
-        publicationExpired: 'This work is no longer available.',
-        publicationScheduled: 'This work is not available yet.',
+        publicationExpired: 'This Read is no longer available.',
+        publicationScheduled: 'This Read is not available yet.',
         developerModeOn: 'Developer mode: ON',
         developerModeOff: 'Developer mode: OFF',
         loadError: 'Load error: {message}',
         standaloneTitle: 'Open a DSF file',
-        standaloneBody: 'View a local .dsf, .dsp, .zip, or .json file in this viewer.',
+        standaloneBody: 'DSF Reader is the standard environment for reading Reads. Open a published Read link or a local .dsf, .dsp, .zip, or .json file.',
         standaloneOpen: 'Choose file',
         standaloneHint: 'You can also drag a file here.',
-        infoPanel: 'Work info',
-        infoPanelOpen: 'Open work info',
-        infoPanelClose: 'Close work info',
+        infoPanel: 'Read info',
+        infoPanelOpen: 'Open Read info',
+        infoPanelClose: 'Close Read info',
         infoPanelExpand: 'Expand info',
         infoPanelCollapse: 'Collapse info',
         infoLabel: 'Label',
@@ -361,7 +363,7 @@ const VIEWER_UI = {
         infoLinerNotes: 'Liner Notes',
         infoReviews: 'Reviews',
         reviewSignedOut: 'Sign in to post a review.',
-        reviewNotShared: 'Reviews are available for shared works only.',
+        reviewNotShared: 'Reviews are available for shared Reads only.',
         reviewLoading: 'Loading reviews…',
         reviewEmpty: 'No reviews yet.',
         reviewError: 'Review failed: {message}',
@@ -376,8 +378,8 @@ const VIEWER_UI = {
         reviewGood: 'Like',
         reviewBad: 'Dislike',
         bookmarkTitle: 'Bookmark',
-        bookmarkSignedOut: 'Sign in to keep reading this work from where you left off.',
-        bookmarkNotShared: 'Bookmarks are available for shared works only.',
+        bookmarkSignedOut: 'Sign in to keep reading this Read from where you left off.',
+        bookmarkNotShared: 'Bookmarks are available for shared Reads only.',
         bookmarkLoading: 'Checking bookmark…',
         bookmarkSaving: 'Saving bookmark…',
         bookmarkSaved: 'Saved page {page}/{total}',
@@ -397,7 +399,7 @@ const VIEWER_UI = {
         devMorphStatusPending: 'Morph: running…',
         devMorphStatusOff: 'Morph: — (off)',
         devMorphStatusResult: 'Morph: replaced {replaced} / skipped {skipped}',
-        devMorphStatusHint: 'If skipped: check media CORS (AllowedOrigins must include this viewer origin).'
+        devMorphStatusHint: 'If skipped: check media CORS (AllowedOrigins must include this Reader origin).'
     }
 };
 
@@ -535,6 +537,7 @@ async function init() {
         if (!active) scheduleViewerUiAutoHide();
     }});
 
+    appMenu=initializeViewerAppMenu({beforeOpen:()=>{window.setViewerInfoPanelState('closed');closeViewerAuthDropdown();const settings=document.getElementById('viewer-page-settings');if(settings)settings.open=false;window.toggleUi(true);clearViewerUiAutoHide();},onClose:scheduleViewerUiAutoHide});
     document.addEventListener('keydown', onKeydown);
     document.addEventListener('wheel', onWheel, { passive: false });
     window.addEventListener('resize', scheduleViewerResize);
@@ -587,7 +590,7 @@ async function init() {
     requestedBookMode = String(params.get('bookMode') || params.get('book') || '').toLowerCase();
     if (fixtureId) {
         if (!import.meta.env.DEV) {
-            showLocalFixtureError(new Error('Local Viewer fixtures are available only on the development server.'));
+            showLocalFixtureError(new Error('Local Reader fixtures are available only on the development server.'));
         } else {
             try {
                 await loadLocalViewerFixture(fixtureId);
@@ -632,7 +635,7 @@ function showLocalFixtureError(error) {
 async function loadLocalViewerFixture(fixtureId) {
     const fixtureModule = await import('./fixtures/dsf-delivery-v2-viewer-fixture.js');
     if (fixtureId !== fixtureModule.DSF_DELIVERY_V2_VIEWER_FIXTURE_ID) {
-        throw new Error(`Unknown local Viewer fixture: ${fixtureId}`);
+        throw new Error(`Unknown local Reader fixture: ${fixtureId}`);
     }
     const bundle = fixtureModule.createDsfDeliveryV2ViewerFixture();
     const language = bundle.index.defaultLang;
@@ -655,7 +658,7 @@ async function loadLocalViewerFixture(fixtureId) {
         },
     }));
     loadProjectData({
-        title: 'DSF v2 Viewer local fixture',
+        title: 'DSF v2 Reader local fixture',
         pages,
         languages: [language],
         defaultLang: language,
@@ -1030,10 +1033,10 @@ function getViewerDsfContentOrigin() {
     try {
         url = new URL(configured);
     } catch {
-        throw new Error('Viewer DSF content origin is not configured.');
+        throw new Error('Reader DSF content origin is not configured.');
     }
     if (url.protocol !== 'https:' || url.origin !== configured || url.pathname !== '/' || url.search || url.hash) {
-        throw new Error('Viewer DSF content origin must be an exact HTTPS origin.');
+        throw new Error('Reader DSF content origin must be an exact HTTPS origin.');
     }
     return url.origin;
 }
@@ -1080,7 +1083,7 @@ function showStandaloneEmpty() {
     const empty = document.getElementById('viewer-empty-state');
     if (empty) empty.hidden = false;
     const titleEl = document.getElementById('ui-title');
-    if (titleEl) titleEl.textContent = 'DSF Viewer';
+    if (titleEl) titleEl.textContent = 'DSF Reader';
 }
 
 function hideStandaloneEmpty() {
@@ -2747,17 +2750,7 @@ function getViewerDirectionArrow(code) {
 }
 
 function renderViewerLanguageOption(code) {
-    const props = getLangProps(code);
-    const dirArrow = getViewerDirectionArrow(code);
-    const codeLabel = String(code).toUpperCase();
-    return `
-        ${renderViewerLanguageBadge(code)}
-        <span class="viewer-lang-text">
-            <span class="viewer-lang-label">${esc(code==='en'?'English':props.label)}</span>
-            <span class="viewer-lang-code">${esc(codeLabel)}</span>
-            <span class="viewer-lang-dir">${dirArrow}</span>
-        </span>
-    `;
+    return `<span class="viewer-lang-text"><span class="viewer-lang-label">${esc(workLanguageOptionLabel(code,viewerUiLang))}</span></span>`;
 }
 
 function renderViewerLanguagePicker() {
@@ -2765,7 +2758,7 @@ function renderViewerLanguagePicker() {
     if(!picker||!menu)return;
     const languages=state.languages||[];
     picker.hidden=!languages.length;
-    document.getElementById('viewer-info-language-title').textContent=viewerUiLang==='en'?'Work language':'作品の言語';
+    document.getElementById('viewer-info-language-title').textContent=viewerUiLang==='en'?'Read language':'リードの言語';
     menu.innerHTML=languages.map(code=>`<button class="viewer-lang-option" type="button" data-viewer-lang="${esc(code)}" aria-pressed="${code===state.activeLang}">${renderViewerLanguageOption(code)}<span aria-hidden="true">${code===state.activeLang?'✓':''}</span></button>`).join('');
     menu.querySelectorAll('[data-viewer-lang]').forEach(item=>item.addEventListener('click',()=>{
         window.switchViewerLang(item.dataset.viewerLang);
@@ -2814,7 +2807,6 @@ function renderViewerAuthSlot(user = state.user || null) {
     const slot = document.getElementById('viewer-auth-slot');
     if (!slot) return;
 
-    const themeMode = getThemeMode();
     const nameRaw = user?.displayName || user?.email || vt('guest');
     const initial = ((nameRaw || 'U').trim()[0] || 'U').toUpperCase();
 
@@ -2838,20 +2830,11 @@ function renderViewerAuthSlot(user = state.user || null) {
                     ? `<img src="${esc(user.photoURL)}" alt="${esc(nameRaw)}" referrerpolicy="no-referrer">`
                     : user
                         ? `<span class="viewer-auth-initials">${esc(initial)}</span>`
-                        : `<span class="material-icons" aria-hidden="true">account_circle</span>`}
+                        : `<svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="9" r="3"/><path d="M5.5 18c1-5 12-5 13 0"/></svg>`}
             </button>
             <div class="viewer-auth-dropdown">
                 <div class="viewer-auth-name">${esc(nameRaw)}</div>
-                <div class="viewer-auth-section-label">${viewerUiLang === 'en' ? 'Language' : '表示言語'}</div>
-                <div class="viewer-ui-lang-switcher" role="group" aria-label="Language / 表示言語">
-                    ${['ja', 'en'].map(lang => `<button type="button" class="viewer-ui-lang-btn ${viewerUiLang === lang ? 'active' : ''}" data-ui-lang="${lang}" aria-pressed="${viewerUiLang === lang}" lang="${lang}">${lang === 'ja' ? '日本語' : 'English'}</button>`).join('')}
-                </div>
-                <div class="viewer-auth-section-label">${esc(vt('themeLabel'))}</div>
-                <div class="viewer-theme-switcher">
-                    <button type="button" class="viewer-theme-btn ${themeMode === 'device' ? 'active' : ''}" data-theme-mode="device">${esc(vt('modeDevice'))}</button>
-                    <button type="button" class="viewer-theme-btn ${themeMode === 'light' ? 'active' : ''}" data-theme-mode="light">${esc(vt('modeLight'))}</button>
-                    <button type="button" class="viewer-theme-btn ${themeMode === 'dark' ? 'active' : ''}" data-theme-mode="dark">${esc(vt('modeDark'))}</button>
-                </div>
+                ${user ? `<a class="viewer-auth-action" href="/mypage" target="_blank" rel="noopener">${viewerUiLang === 'en' ? 'My Page' : 'マイページ'}</a>` : ''}
                 ${signInOutBlock}
                 <button type="button" class="viewer-dev-hotspot" aria-hidden="true" tabindex="-1"></button>
             </div>
@@ -2875,27 +2858,9 @@ function renderViewerAuthSlot(user = state.user || null) {
         }
     });
 
-    slot.querySelectorAll('[data-ui-lang]').forEach(btn => {
-        btn.addEventListener('click', event => {
-            event.stopPropagation();
-            const lang = btn.dataset.uiLang;
-            window.setViewerUiLang(lang);
-            slot.querySelector('.viewer-auth')?.classList.add('open');
-            slot.querySelector('.viewer-auth-trigger')?.setAttribute('aria-expanded', 'true');
-            slot.querySelector(`[data-ui-lang="${lang}"]`)?.focus();
-        });
-    });
     slot.querySelector('.viewer-auth-dropdown')?.addEventListener('keydown', event => {
         event.stopPropagation();
         if (event.key === 'Escape') { closeViewerAuthDropdown(); trigger?.focus(); }
-    });
-
-    slot.querySelectorAll('[data-theme-mode]').forEach((btn) => {
-        btn.addEventListener('click', () => {
-            setThemeMode(btn.dataset.themeMode);
-            applyTheme();
-            renderViewerAuthSlot(state.user || null);
-        });
     });
 
     slot.querySelector('[data-auth-toggle]')?.addEventListener('click', async () => {
@@ -2974,17 +2939,22 @@ function showViewerDevToast(message) {
 window.setViewerUiLang = (lang) => {
     if (!VIEWER_UI[lang]) return;
     viewerUiLang = lang;
-    localStorage.setItem(VIEWER_UI_LANG_KEY, lang);
+    setPlatformLanguage(lang);
     applyViewerUiLanguage();
     renderViewerLanguagePicker();
     refresh();
 };
 
+subscribePlatformLanguage(lang=>{if(lang!==viewerUiLang)window.setViewerUiLang(lang);});
+
 function applyViewerUiLanguage() {
     updateViewerSpreadButton();
     viewerFullscreen?.refresh();
     document.documentElement.lang = viewerUiLang === 'en' ? 'en' : 'ja';
+    appMenu?.refresh();
+    document.dispatchEvent(new Event('viewer-ui-language-change'));
     readingGuides?.refreshLabels();
+    readerChrome?.refreshLabels();
     document.querySelectorAll('.viewer-ui-lang-btn').forEach((btn) => {
         btn.classList.toggle('active', btn.dataset.uiLang === viewerUiLang);
     });
@@ -4324,7 +4294,7 @@ function clearViewerUiAutoHide() {
 function scheduleViewerUiAutoHide() {
     if (!usesPointerHoverChrome()) return;
     clearViewerUiAutoHide();
-    if (viewerInfoPanelState!=='closed' || readingGuides?.isAssisting() || coverTurn?.active || riffle?.active || readerChrome?.active || readerChrome?.settingsOpen) return;
+    if (appMenu?.open || viewerInfoPanelState!=='closed' || readingGuides?.isAssisting() || coverTurn?.active || riffle?.active || readerChrome?.active || readerChrome?.settingsOpen) return;
     viewerUiAutoHideTimer = setTimeout(() => {
         window.toggleUi(false);
     }, 5000);
@@ -5498,7 +5468,7 @@ function stepViewerBookVertical(direction,manual=false){
 }
 
 function onWheel(e) {
-    if(e.target.closest?.('#viewer-info-panel'))return;
+    if(appMenu?.open || e.target.closest?.('#viewer-info-panel'))return;
     if(bookPinch?.wheel(e))return;
     if (readerChrome && e.target.closest?.('#viewer-page-settings')) return;
     if (bookWheel?.handle(e)) return;
@@ -5527,6 +5497,7 @@ function onWheel(e) {
 }
 
 function onKeydown(e) {
+    if(appMenu?.open)return;
     if(e.target.closest?.('#viewer-info-panel'))return;
     if(e.key==='Escape') {bookWheel?.cancel();riffle?.stop();}
     if (readerChrome?.active && e.key==='Escape') {if(readerChrome.state==='book')readerChrome.openReading();else readerChrome.cancelPose();return;}

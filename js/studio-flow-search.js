@@ -23,7 +23,7 @@ export function createStudioFlowSearch({ state, reveal, canNavigate, canReplace,
         button().setAttribute('aria-label', button().title);
         input.placeholder = text('Flow原稿を検索', 'Find in Flow manuscripts'); input.setAttribute('aria-label', input.placeholder);
         scope.setAttribute('aria-label', text('検索範囲', 'Search scope'));
-        scope.options[0].text = text('現在のFlow', 'Current Flow'); scope.options[1].text = text('作品内の全Flow', 'All Flow manuscripts');
+        scope.options[0].text = text('現在のFlow', 'Current Flow'); scope.options[1].text = text('リード内の全Flow', 'All Flow manuscripts');
         language.setAttribute('aria-label', text('検索言語', 'Search language'));
         for (const [el, ja, en] of [[previous,'前の一致','Previous match'],[next,'次の一致','Next match'],[close,'検索を閉じる','Close search'],[casing,'大文字・小文字を区別','Match case']]) { el.title = text(ja,en); el.setAttribute('aria-label', el.title); }
         replaceToggle.title=text('置換を表示 (Ctrl+H)','Show replace (Ctrl+H)');replaceToggle.setAttribute('aria-label',replaceToggle.title);
