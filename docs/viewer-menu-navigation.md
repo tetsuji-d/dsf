@@ -56,3 +56,11 @@ Browser link capture preferences still determine whether an external link launch
 
 Reference: https://developer.chrome.com/docs/capabilities/pwa-navigation-management
 Regression: node scripts/verify-platform-navigation.mjs.
+
+
+## 2026-10-07: untouched restored drafts and navigation
+
+- Studio menu and incoming PWA URL navigation now await the existing exact-backup recovery verification for an untouched startup-restored local draft. A successful check permits the pending departure without claiming cloud or DSP saving.
+- Edits, busy operations, a changed recovery snapshot, missing image blobs, or session changes retain the leave protection. The temporary beforeunload permission expires after one second and is invalidated by a new edit.
+- Verified: platform-navigation and studio-restored-reload scripts, staging build, and local Studio -> Horizon -> Studio UI round trip with an untouched restored draft.
+- Separate open issue: staging shows PRIVATE_IMAGE_CORRUPT for 潮騒の図書館（コピー）. The error can originate in stored R2 metadata/bytes or client response MIME/hash verification. Authenticated browser inspection was interrupted repeatedly by a debugger disconnection, so no failing asset response was captured. No image integrity checks, stored images, or cloud records were changed. Next diagnostic: capture the failing asset request status and response error versus client-side MIME/hash failure before choosing a repair.

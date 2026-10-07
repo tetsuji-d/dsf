@@ -22,3 +22,14 @@ assert.ok(!read('js/platform-menu.js').includes("el.target='_blank'"));
 assert.ok(read('studio.html').includes('studio-home-logo'));
 assert.ok(read('js/app.js').includes('if(!work.blocked&&!work.busy)return true'));
 console.log('PASS: same-window links, menu order, safe PWA URL routing and queued file launch coexistence.');
+
+// Async guards must finish before navigation, and failed checks must fail closed.
+const {createPlatformNavigator}=await import('../js/platform-navigation.js');
+let resolveGuard;const destinations=[],failures=[];
+const go=createPlatformNavigator({beforeNavigate:()=>new Promise(resolve=>{resolveGuard=resolve;}),assign:href=>destinations.push(href),onError:e=>failures.push(e)});
+const pending=go('/');assert.deepEqual(destinations,[]);
+assert.equal(await go('/viewer'),false);resolveGuard(false);assert.equal(await pending,false);
+const allowed=go('/');resolveGuard(true);assert.equal(await allowed,true);assert.deepEqual(destinations,['/']);
+const rejected=createPlatformNavigator({beforeNavigate:async()=>{throw Error('missing backup');},assign:()=>assert.fail('must not leave'),onError:e=>failures.push(e)});
+assert.equal(await rejected('/'),false);assert.equal(failures.length,1);
+console.log('PASS: async navigation waits, blocks duplicate clicks, and fails closed.');

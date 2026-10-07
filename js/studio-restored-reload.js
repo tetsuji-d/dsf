@@ -1,4 +1,4 @@
-// Update-only permission to replay the exact startup backup. Never evidence of cloud/DSP saving.
+// Navigation/update permission to replay the exact startup backup. Never evidence of cloud/DSP saving.
 export function createRestoredReloadGuard({read,readBackup,readAsset}) {
     let restored=null,verified=null;
     function hasAssetMappings(value,map){

@@ -1,3 +1,4 @@
+import {createPlatformNavigator} from './platform-navigation.js';
 import {getPlatformLanguage,setPlatformLanguage,subscribePlatformLanguage,UI_LANGUAGES} from './ui-language.js';
 import {installPlatformLaunchNotice} from './platform-launch-ui.js';
 import {getThemeMode,setThemeMode} from './theme.js';
@@ -6,10 +7,11 @@ const copy={ja:{title:'Horizonメニュー',close:'閉じる',portal:'リード�
 export function initializePlatformMenu({surface,triggers=[],beforeOpen=()=>{},onClose=()=>{},onStudioHome,onFile,fileButton,onHelp,beforeNavigate=()=>true,roomActions=[]}) {
     const dialog=document.createElement('dialog');dialog.className='platform-menu';dialog.id='platform-app-menu';dialog.setAttribute('aria-labelledby','platform-menu-heading');
     dialog.innerHTML='<header><h2 id="platform-menu-heading"></h2><button type="button" data-close>×</button></header><nav aria-label="DSF"></nav><p data-navigation-note></p><details open><summary data-copy="settings"></summary><label for="platform-menu-language"><span data-copy="language"></span></label><select id="platform-menu-language" data-language></select><p data-copy="languageHelp"></p><label for="platform-menu-theme"><span data-copy="theme"></span></label><select id="platform-menu-theme" data-theme></select></details><details><summary data-copy="help"></summary><p data-surface-help></p><h3 data-copy="glossary"></h3><p data-copy="glossaryHelp"></p></details><div id="platform-app-version"><p data-copy="development"></p></div>';
+    const navigate=createPlatformNavigator({beforeNavigate});
     const nav=dialog.querySelector('nav');
     for(const [area,href,icon] of [['portal','/','explore'],['studio','/studio?room=home','edit'],['viewer','/viewer','auto_stories']]){
         const local=area===surface,el=document.createElement(local||area==='studio'&&onStudioHome?'button':'a');
-        if(el.tagName==='A'){el.href=href;el.addEventListener('click',event=>{if(event.button!==0||event.ctrlKey||event.metaKey||event.shiftKey||event.altKey)return;if(!beforeNavigate(href)){event.preventDefault();dialog.close();}});}
+        if(el.tagName==='A'){el.href=href;el.addEventListener('click',event=>{if(event.button!==0||event.ctrlKey||event.metaKey||event.shiftKey||event.altKey)return;event.preventDefault();dialog.close();void navigate(href);});}
         else{el.type='button';el.onclick=()=>{dialog.close();if(area==='studio')onStudioHome?.();};}
         if(local)el.setAttribute('aria-current','page');el.innerHTML=`<span class="material-icons" aria-hidden="true">${icon}</span><span data-copy="${area}"></span>`;nav.append(el);
     }
