@@ -1,6 +1,6 @@
 # Common navigation and Read languages
 
-Updated: 2026-10-06. Local implementation; not committed or deployed.
+Updated: 2026-10-07. Committed and deployed to staging through c853070; production promotion pending.
 
 ## Current boundary
 
@@ -11,8 +11,7 @@ Display retains reading layout controls; Read information (i) retains work
 language, metadata, bookmarks and eligible reviews. Placeholder account actions
 without handlers (restricted mode, location, feedback and settings) are removed.
 
-Studio menu navigation uses the existing room switcher. Switching to another app
-from an open editor/reader opens a new tab, preserving the current document.
+Studio menu navigation uses the existing room switcher. Switching to another app uses the current window with an awaited Studio leave guard; deliberate editor previews remain separate.
 Opening the modal changes neither page geometry nor the manuscript. Focus returns
 to the trigger; Escape/backdrop close it. Icons use the bundled font.
 

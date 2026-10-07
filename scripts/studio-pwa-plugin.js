@@ -1,5 +1,10 @@
 import {createHash} from 'node:crypto';
 import {readFileSync} from 'node:fs';
+export function platformManifest(mode,source){
+ const manifest=structuredClone(source);
+ manifest.name=manifest.short_name=mode==='production'?'Horizon':mode==='staging'?'Horizon（検証版）':'Horizon（ローカル開発）';
+ return manifest;
+}
 // Exact app resources only. No authoring, authentication or publication API data.
 export function studioPwaPlugin(){
  let mode='production';
@@ -8,17 +13,21 @@ export function studioPwaPlugin(){
  return {name:'studio-offline-build',enforce:'post',
  configResolved:config=>{mode=config.mode;},
  config:()=>({define:{__STUDIO_BUILD__:JSON.stringify(build)}}),
- configureServer:server=>server.middlewares.use((req,res,next)=>{
+ configureServer:server=>{server.middlewares.use((req,res,next)=>{
+  if(req.url?.split('?')[0]==='/studio.webmanifest'){
+   res.setHeader('Content-Type','application/manifest+json');res.setHeader('Cache-Control','no-store');
+   res.end(JSON.stringify(platformManifest('development',JSON.parse(readFileSync(new URL('../public/studio.webmanifest',import.meta.url),'utf8')))));return;
+  }
   if(req.url?.split('?')[0]!=='/studio-update-core.js')return next();
   res.setHeader('Content-Type','application/javascript');res.setHeader('Cache-Control','no-store');
   res.end(readFileSync(new URL('../js/studio-update-core.js',import.meta.url),'utf8'));
- }),
+ });},
  transformIndexHtml:html=>html.replace('<head>','<head><meta name="dsf-studio-build" content="'+build.id+'">').replace('</body>',mode==='development'?'</body>':'<script type="module" src="/platform-update-entry.js?build='+build.id+'"></script></body>'),
  generateBundle(options,bundle){
  this.emitFile({type:'asset',fileName:'studio-update-core.js',source:readFileSync(new URL('../js/studio-update-core.js',import.meta.url),'utf8')});
- const manifest=JSON.parse(readFileSync(new URL('../public/studio.webmanifest',import.meta.url),'utf8'));
+ const manifest=platformManifest(mode,JSON.parse(readFileSync(new URL('../public/studio.webmanifest',import.meta.url),'utf8')));
  // Keep the installed identity stable, but distinguish preview from production.
- if(mode!=='production')manifest.name=manifest.short_name='DSF Studio ('+mode+')';
+
  this.emitFile({type:'asset',fileName:'studio.webmanifest',source:JSON.stringify(manifest,null,2)+'\n'});
  const fileIcons=[...new Set((manifest.file_handlers||[]).flatMap(h=>(h.icons||[]).map(icon=>icon.src)).concat(['/file-icons/dsp.svg','/file-icons/dsf.svg']))];
  const files=Object.keys(bundle).filter(p=>p.startsWith('assets/')||['index.html','mypage.html','admin/index.html','studio.html','viewer.html'].includes(p)).sort();

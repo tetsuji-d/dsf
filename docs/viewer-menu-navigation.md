@@ -1,7 +1,7 @@
 # Reader menu navigation
 
-Updated: 2026-10-06
-Status: local implementation; not committed or deployed.
+Updated: 2026-10-07
+Status: committed and deployed to staging through c853070; production promotion pending. See release-readiness-2026-10-07.md.
 
 ## Boundaries
 
@@ -22,7 +22,7 @@ respected; the close button stays accessible while scrolling.
 | App version / updates | Moved from Read information to the Horizon menu; uses the existing shared updater. |
 | Open a local file | Moved from an unlabeled header icon into the menu; reuses the existing input and loader. |
 | Menu language / appearance | Moved out of account settings; uses the shared ja/en preference; see shared-menu-language-policy.md. |
-| Horizon / Studio / Reader | Shared navigation; another app opens in a new tab from the reader/editor to preserve the current file. My Page remains an account action. |
+| Horizon / Studio / Reader | Shared same-window navigation with an awaited Studio leave guard; deliberate editor previews remain separate. My Page remains an account action. |
 | Display / reading assistance | Remain in Display. Assistance works on fixed text, not raster images; this limitation is explained in the guide. |
 | Book pose up/down | Disabled at the ends of the supported sequence or while busy; not a missing implementation. |
 | Fullscreen | Existing capability-based behavior retained; hidden on phones. |
@@ -63,7 +63,7 @@ Regression: node scripts/verify-platform-navigation.mjs.
 - Studio menu and incoming PWA URL navigation now await the existing exact-backup recovery verification for an untouched startup-restored local draft. A successful check permits the pending departure without claiming cloud or DSP saving.
 - Edits, busy operations, a changed recovery snapshot, missing image blobs, or session changes retain the leave protection. The temporary beforeunload permission expires after one second and is invalidated by a new edit.
 - Verified: platform-navigation and studio-restored-reload scripts, staging build, and local Studio -> Horizon -> Studio UI round trip with an untouched restored draft.
-- Separate open issue: staging shows PRIVATE_IMAGE_CORRUPT for 潮騒の図書館（コピー）. The error can originate in stored R2 metadata/bytes or client response MIME/hash verification. Authenticated browser inspection was interrupted repeatedly by a debugger disconnection, so no failing asset response was captured. No image integrity checks, stored images, or cloud records were changed. Next diagnostic: capture the failing asset request status and response error versus client-side MIME/hash failure before choosing a repair.
+- Historical diagnosis: PRIVATE_IMAGE_CORRUPT was unresolved at this checkpoint. The later route fix and authenticated staging verification below resolve this incident.
 
 
 ## 2026-10-07: private image loading follow-up
@@ -71,4 +71,43 @@ Regression: node scripts/verify-platform-navigation.mjs.
 - Confirmed on staging: the failing copy requested GET /api/projects/{projectId}/assets/{hash}, which returned HTTP 200 text/html (the application document). The owner image handlers existed on the server, but their Pages route entry files were absent. This was not evidence of damaged stored WebP bytes.
 - Added GET and POST route entries into the existing authenticated authoring handler, preserving rollout, owner, generation, size and hash checks.
 - Recent-work cards recover expired local blob thumbnail references from the existing IndexedDB image map, producing a small display-only thumbnail without changing stored manuscripts/indexes. Missing cloud covers are loaded only when a card becomes visible, through the authenticated source/image clients; only the selected cover is fetched and its temporary URL is revoked after thumbnail rendering. Account changes and detached cards cancel results.
-- Verified: private authoring API regression tests, owner image route/thumbnail tests, real local Pages routing returns API JSON instead of HTML, browser fixture renders missing/expired cover cases and retains the cover after searching. Staging build passes. Live reading of the affected private project requires deployment and remains unverified.
+- Verified: private authoring API regression tests, owner image route/thumbnail tests, real local Pages routing returns API JSON instead of HTML, browser fixture renders missing/expired cover cases and retains the cover after searching. Staging build passes. Deployed as c853070 / 802f3cc5 (v2026.10.07-133326). Authenticated staging verification opened 潮騒の図書館（コピー） with its text and images and cloud-saved status; both cloud/local card thumbnails decoded at width 180. No manuscript edit or cloud repair was required.
+
+## 2026-10-08: shared installed identity (local, not deployed)
+
+Horizon/Studio/Reader/My Page reference one manifest. Names: Horizon (production),
+Horizon（検証版） (staging), Horizon（ローカル開発） (development server).
+The id remains /studio, scope remains /, and the manifest URL remains unchanged.
+New shortcut startup opens /?source=pwa. Existing windows ignore that plain
+shortcut URL and retain their current screen; explicit deep links keep the guarded notice.
+
+Audit limitation: this checkout has no manifest file_handlers and Reader has no
+installFileLaunch consumer. Studio has a guarded DSP inbox. Do not claim OS DSF/DSP
+association is complete or enable handlers until cross-surface file delivery and
+unsaved-document protection are connected and tested. Native Windows icons/preview
+registration is separate. Installed browser identity/name refresh remains a device check.
+Regression: scripts/verify-platform-identity.mjs and verify-platform-navigation.mjs.
+
+## 2026-10-08: file routing connected (local, not deployed)
+
+The preceding missing-handler audit is now addressed in local code. The shared
+manifest declares DSP -> Studio and DSF -> Reader with existing file-icon assets.
+All app surfaces accept a transient received-file list; no file is read on receipt.
+Opening in Studio retains boot/save/busy guards; Reader waits for initialization
+and retains failed files for retry. Mismatched returned filenames are rejected.
+
+With focus-existing, a file may arrive on a different surface. Explicit Open
+hands it to a new same-origin window, retaining current work. A random token,
+exact opener/window identity and origin validate ready/delivery/ack messages.
+The receiving window presents its own Open action. A blocked popup/timeout keeps
+the source list for retry; handles are never stored in IndexedDB or uploaded.
+Ordinary menu navigation remains same-window.
+
+Checks: verify-platform-files.mjs, verify-platform-navigation.mjs,
+verify-platform-identity.mjs, staging build. Browser fixture verified no automatic
+open, unsaved rejection, Later/reopen, and successful retry after removing the
+fixture's unsaved condition. This is not a real document save test or Windows OS
+file-association acceptance. Installed PWA file launch, actual cross-window native
+handle delivery, icon display, and existing-app manifest update remain device checks.
+Reference: https://developer.chrome.com/docs/capabilities/web-apis/file-handling
+Reference: https://developer.chrome.com/docs/web-platform/launch-handler/

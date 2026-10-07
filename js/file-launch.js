@@ -1,5 +1,6 @@
 // File handles live only in this window. Receiving a file never opens or uploads it.
 export function createFileLaunchInbox({extension,openFile,beforeOpen=()=>{},onChange=()=>{}}) {
+    const accepts=name=>(Array.isArray(extension)?extension:[extension]).some(ext=>String(name||'').toLowerCase().endsWith(ext));
     let nextId=0,busy=false;
     const items=[];
     const read=()=>({busy,items:items.map(({id,name,error})=>({id,name,error}))});
@@ -10,7 +11,7 @@ export function createFileLaunchInbox({extension,openFile,beforeOpen=()=>{},onCh
             for(const handle of params?.files || []) {
                 if(handle?.kind!=='file'||typeof handle.getFile!=='function')continue;
                 const name=String(handle.name||'');
-                items.push({id:++nextId,name,handle,error:name.toLowerCase().endsWith(extension)?'':'type'});
+                items.push({id:++nextId,name,handle,error:accepts(name)?'':'type'});
             }
             changed();
         },
@@ -22,13 +23,13 @@ export function createFileLaunchInbox({extension,openFile,beforeOpen=()=>{},onCh
         },
         async open(id) {
             const item=items.find(item=>item.id===id);
-            if(busy||!item||!item.name.toLowerCase().endsWith(extension))return false;
+            if(busy||!item||!accepts(item.name))return false;
             busy=true;item.error='';changed();
             try {
                 // Check manuscript safety before accessing the incoming file.
-                await beforeOpen();
+                await beforeOpen(item.name);
                 const file=await item.handle.getFile();
-                if(!String(file?.name||'').toLowerCase().endsWith(extension))throw Error('type');
+                if(!accepts(file?.name)||file.name.toLowerCase()!==item.name.toLowerCase())throw Error('type');
                 if(await openFile(file,item.handle)===false)throw Error('open');
                 items.splice(items.indexOf(item),1);
                 return true;

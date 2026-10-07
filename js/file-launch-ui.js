@@ -1,9 +1,10 @@
+import {transferFileLaunch,receiveFileTransfer} from './file-launch-transfer.js';
 import {registerPlatformLaunch} from './platform-launch.js';
 import {createFileLaunchInbox} from './file-launch.js';
 import '../css/file-launch.css';
 
 export function installFileLaunch({extension,openFile,beforeOpen,getLocale=()=> 'ja',target=window}) {
-    if(typeof target.launchQueue?.setConsumer!=='function')return null;
+
     const en=()=>getLocale()==='en';
     const dialog=document.createElement('dialog');dialog.className='file-launch-dialog';
     const heading=document.createElement('h2');heading.id='file-launch-title';dialog.setAttribute('aria-labelledby',heading.id);
@@ -20,7 +21,7 @@ export function installFileLaunch({extension,openFile,beforeOpen,getLocale=()=> 
     let inbox;
     function render({items,busy}) {
         heading.textContent=en()?'Open received files':'受け取ったファイルを開く';
-        note.textContent=en()?'Choose a file to open. DSP opens as a local manuscript; DSF opens for reading. Files are not uploaded. Later keeps this list until this window closes.':'開くファイルを選んでください。DSPは端末の原稿、DSFは閲覧用として開きます。クラウドへの送信は行いません。「あとで」の一覧は、タブまたはアプリのウィンドウを閉じるまで保持します。';
+        note.textContent=en()?'Choose a file to open. DSP opens as a local manuscript; DSF opens for reading. A different screen opens in a separate window so your current work is kept. Files are not uploaded. Later keeps this list until this window closes.':'開くファイルを選んでください。DSPは端末の原稿、DSFは閲覧用として開きます。別の画面が必要な場合は、現在の作業を残して専用ウィンドウへ渡します。クラウドへの送信は行いません。「あとで」の一覧は、タブまたはアプリのウィンドウを閉じるまで保持します。';
         close.textContent=en()?'Later':'あとで';close.disabled=busy;
         reopen.textContent=(en()?'Received files':'受け取ったファイル')+' ('+items.length+')';reopen.hidden=!items.length;
         list.replaceChildren();
@@ -42,11 +43,12 @@ export function installFileLaunch({extension,openFile,beforeOpen,getLocale=()=> 
         if(!items.length&&dialog.open)dialog.close();
         else if(dialog.open&&!busy)close.focus();
     }
-    inbox=createFileLaunchInbox({extension,openFile,beforeOpen,onChange:render});
+    inbox=createFileLaunchInbox({extension:['.dsp','.dsf'],beforeOpen:name=>name.toLowerCase().endsWith(extension)?beforeOpen?.():undefined,openFile:(file,handle)=>file.name.toLowerCase().endsWith(extension)?openFile(file,handle):transferFileLaunch(handle,target),onChange:render});
     const show=()=>{if(inbox.read().items.length&&!dialog.open){dialog.showModal();close.focus();}};
     close.onclick=()=>dialog.close();reopen.onclick=show;
     dialog.addEventListener('cancel',event=>{if(inbox.read().busy)event.preventDefault();});
     dialog.append(heading,note,list,close);document.body.append(dialog,reopen);
     registerPlatformLaunch('file',params=>{inbox.receive(params);show();},target);
+    receiveFileTransfer(params=>{inbox.receive(params);show();},extension,target);
     return inbox;
 }

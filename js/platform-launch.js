@@ -20,3 +20,8 @@ export function launchDestination(raw,current){
   return key(url)===key(base)?null:url.href;
  }catch{return null;}
 }
+
+// The shared shortcut only focuses an existing window, never replaces its work.
+export function isPlatformShortcut(raw,current){
+ try{const url=new URL(raw,current);return url.origin===new URL(current).origin&&['/','/index.html'].includes(url.pathname)&&url.searchParams.get('source')==='pwa'&&[...url.searchParams.keys()].every(k=>k==='source')&&!url.hash;}catch{return false;}
+}

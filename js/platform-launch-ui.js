@@ -1,12 +1,14 @@
+import {installFileLaunch} from './file-launch-ui.js';
 import {createPlatformNavigator} from './platform-navigation.js';
-import {registerPlatformLaunch,launchDestination} from './platform-launch.js';
+import {registerPlatformLaunch,launchDestination,isPlatformShortcut} from './platform-launch.js';
 import {getPlatformLanguage} from './ui-language.js';
 import '../css/platform-menu.css';
 export function installPlatformLaunchNotice({surface,beforeNavigate=()=>true}){
+    if(surface==='portal')installFileLaunch({extension:'.none',getLocale:()=>getPlatformLanguage(surface)});
     const navigate=createPlatformNavigator({beforeNavigate});
     let launchNotice;
     registerPlatformLaunch('url',params=>{
-        if(!params?.targetURL)return;
+        if(!params?.targetURL||isPlatformShortcut(params.targetURL,location.href))return;
         const href=launchDestination(params.targetURL,location.href);if(!href)return;
         // Relaunching Studio's shortcut focuses the current manuscript, without resetting its room.
         const destination=new URL(href);

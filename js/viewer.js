@@ -1,3 +1,4 @@
+import {installFileLaunch} from './file-launch-ui.js';
 import {getPlatformLanguage,setPlatformLanguage,subscribePlatformLanguage} from './ui-language.js';
 import {workLanguageOptionLabel} from './work-languages.js';
 import {initializeViewerAppMenu} from './viewer-app-menu.js';
@@ -5520,4 +5521,6 @@ function esc(s) {
 }
 
 // ── Boot ──────────────────────────────────────────────────────
-void init().catch((e) => console.warn('[Viewer] init failed:', e));
+const fileLaunchReady=init();
+void fileLaunchReady.catch((e) => console.warn('[Viewer] init failed:', e));
+installFileLaunch({extension:'.dsf',getLocale:()=>viewerUiLang,beforeOpen:async()=>{await fileLaunchReady;},openFile:file=>loadViewerFile(file,{preview:true})});

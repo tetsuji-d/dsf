@@ -1,8 +1,8 @@
 {
   "id": "/studio",
-  "name": "DSF Studio",
-  "short_name": "DSF Studio",
-  "start_url": "/studio.html?room=home&source=pwa",
+  "name": "Horizon",
+  "short_name": "Horizon",
+  "start_url": "/?source=pwa",
   "scope": "/",
   "display": "standalone",
   "background_color": "#ffffff",
@@ -26,5 +26,39 @@
   ],
   "launch_handler": {
     "client_mode": "focus-existing"
-  }
+  },
+  "file_handlers": [
+    {
+      "action": "/studio.html?fileLaunch=dsp",
+      "accept": {
+        "application/octet-stream": [
+          ".dsp"
+        ]
+      },
+      "icons": [
+        {
+          "src": "/file-icons/dsp.svg",
+          "sizes": "any",
+          "type": "image/svg+xml"
+        }
+      ],
+      "launch_type": "single-client"
+    },
+    {
+      "action": "/viewer.html?fileLaunch=dsf",
+      "accept": {
+        "application/octet-stream": [
+          ".dsf"
+        ]
+      },
+      "icons": [
+        {
+          "src": "/file-icons/dsf.svg",
+          "sizes": "any",
+          "type": "image/svg+xml"
+        }
+      ],
+      "launch_type": "single-client"
+    }
+  ]
 }
