@@ -1,3 +1,4 @@
+import {readRecentCloudThumbnail} from './firebase.js';
 import {subscribePlatformLanguage} from './ui-language.js';
 import {initializePlatformMenu} from './platform-menu.js';
 import {workLanguageOptionLabel} from './work-languages.js';
@@ -4823,6 +4824,7 @@ async function refreshRecentWorks({force=false,more=false,keepCloudRequest=false
     const current=()=>epoch===recentWorksEpoch&&uid===(state.uid||'')&&online===navigator.onLine;
     if(!recentWorksUI)recentWorksUI=createRecentWorksUI({root,getLocale:getUILang,
         onCloud:async row=>{if(state.uid!==row.ownerUid)return;if(await onLoadProject(row.projectId))window.switchRoom('editor');},
+        resolveThumbnail:(row,current)=>row.cloud?readRecentCloudThumbnail(row.projectId,()=>state.uid===row.ownerUid&&current()):Promise.resolve(''),
         onLocal:openRecentLocalCopy,onRecovery:()=>getHomeWorkspace().select('local'),
         onRefresh:()=>void refreshRecentWorks({force:true}),onMore:()=>void refreshRecentWorks({more:true})});
     if(force&&!keepCloudRequest){homeCloudProjectsCache=null;homeCloudProjectsRequest=null;++homeCloudProjectsRequestToken;}

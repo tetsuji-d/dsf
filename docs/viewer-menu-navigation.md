@@ -64,3 +64,11 @@ Regression: node scripts/verify-platform-navigation.mjs.
 - Edits, busy operations, a changed recovery snapshot, missing image blobs, or session changes retain the leave protection. The temporary beforeunload permission expires after one second and is invalidated by a new edit.
 - Verified: platform-navigation and studio-restored-reload scripts, staging build, and local Studio -> Horizon -> Studio UI round trip with an untouched restored draft.
 - Separate open issue: staging shows PRIVATE_IMAGE_CORRUPT for 潮騒の図書館（コピー）. The error can originate in stored R2 metadata/bytes or client response MIME/hash verification. Authenticated browser inspection was interrupted repeatedly by a debugger disconnection, so no failing asset response was captured. No image integrity checks, stored images, or cloud records were changed. Next diagnostic: capture the failing asset request status and response error versus client-side MIME/hash failure before choosing a repair.
+
+
+## 2026-10-07: private image loading follow-up
+
+- Confirmed on staging: the failing copy requested GET /api/projects/{projectId}/assets/{hash}, which returned HTTP 200 text/html (the application document). The owner image handlers existed on the server, but their Pages route entry files were absent. This was not evidence of damaged stored WebP bytes.
+- Added GET and POST route entries into the existing authenticated authoring handler, preserving rollout, owner, generation, size and hash checks.
+- Recent-work cards recover expired local blob thumbnail references from the existing IndexedDB image map, producing a small display-only thumbnail without changing stored manuscripts/indexes. Missing cloud covers are loaded only when a card becomes visible, through the authenticated source/image clients; only the selected cover is fetched and its temporary URL is revoked after thumbnail rendering. Account changes and detached cards cancel results.
+- Verified: private authoring API regression tests, owner image route/thumbnail tests, real local Pages routing returns API JSON instead of HTML, browser fixture renders missing/expired cover cases and retains the cover after searching. Staging build passes. Live reading of the affected private project requires deployment and remains unverified.

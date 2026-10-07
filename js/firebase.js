@@ -1,3 +1,5 @@
+import {restoreRecentThumbnail} from './recent-thumbnail.js';
+import {selectProjectAuthoringCoverThumbnail} from './project-listing-thumbnail.js';
 import {createSafeResumeService,createCloudResumeGuard} from './safe-resume-service.js';
 import {fingerprintProject} from './safe-resume-model.js';
 import {createLocalRecentStore,localRecentId,LOCAL_RECENT_INDEX_KEY,LOCAL_RECENT_PREFIX} from './local-recent-store.js';
@@ -933,14 +935,15 @@ export async function listLocalRecentProjects() {
     const sorted = index.filter((item) => item && item.id)
         .sort((a, b) => Number(b.updatedAt || 0) - Number(a.updatedAt || 0));
     return Promise.all(sorted.map(async item => {
-        if (!item.projectId) return item;
+        // Local thumbnails may refer to an object URL from a previous browser session.
         // Read existing snapshot identity only; do not migrate the index or authoring data.
         try {
             const record = await idbGet(LOCAL_RECENT_PREFIX + item.id);
             const snapshot = record?.state;
-            const owner = snapshot?.projectId === item.projectId ? (snapshot.ownerUid || snapshot.uid) : '';
-            return { ...item, localOwnerUid: typeof owner === 'string' ? owner : '' };
-        } catch { return { ...item, localOwnerUid: '' }; }
+            const owner = item.projectId && snapshot?.projectId === item.projectId ? (snapshot.ownerUid || snapshot.uid) : '';
+            const thumbnail=await restoreRecentThumbnail(item,record,idbGet,blobToRecentDataUrl);
+            return { ...item, thumbnail, listThumbnail:thumbnail, localOwnerUid: typeof owner === 'string' ? owner : '' };
+        } catch { return { ...item, thumbnail:'', listThumbnail:'', localOwnerUid: '' }; }
     }));
 }
 
@@ -2154,4 +2157,24 @@ export async function flushBeforeSafeResume(){
   if(!current())throw new AuthoringClientError('AUTHORING_SESSION_CHANGED');
  }
  return true;
+}
+
+async function blobToRecentDataUrl(blob){const url=URL.createObjectURL(blob);try{return await buildProjectListThumbnail({sections:[{background:url}]});}finally{URL.revokeObjectURL(url);}}
+// Authenticated, read-only fallback for migrated projects whose public summary has no cover.
+export async function readRecentCloudThumbnail(projectId,isVisible=()=>true){
+    const user=auth.currentUser;if(!user)return '';
+    const uid=user.uid,current=()=>auth.currentUser===user&&isVisible();
+    const root=await getDocFromServer(projectDocRef(projectId,uid));
+    if(!current()||!root.exists()||!usesPrivateAuthoring(root.data()))return '';
+    assertPrivateAuthoringRoot(root.data(),uid,projectId);
+    const client=createPrivateAuthoringClient({uid,projectId,user,isCurrent:current});
+    const project=await client.load();
+    const ref=selectProjectAuthoringCoverThumbnail(project,{allowPrivate:true});
+    if(!ref||!current())return '';
+    const images=createOwnerImageSession({projectId,user,isCurrent:current});
+    try{
+        const hydrated=await images.hydrate({thumbnail:ref});
+        const result=await buildProjectListThumbnail({sections:[{background:hydrated.thumbnail}]});
+        return current()?result:'';
+    }finally{images.dispose();}
 }

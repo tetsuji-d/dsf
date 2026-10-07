@@ -1,9 +1,10 @@
 import {resolveProjectName,resolveProjectDisplayTitle} from './project-display-title.js';
 import {buildRecentWorks,filterRecentWorks,separateRecentRecovery} from './recent-works.js';
 const el=(tag,text,cls)=>{const n=document.createElement(tag);if(text)n.textContent=text;if(cls)n.className=cls;return n;};
-export function createRecentWorksUI({root,getLocale=()=> 'ja',onCloud,onLocal,onRecovery,onMore,onRefresh}){
- let data={},query='',scope='all',limit=24;
- function render(next=data){data=next;if(!root)return;const focused=root.contains(document.activeElement)&&document.activeElement.type==='search';const selection=focused?document.activeElement.selectionStart:null;const en=getLocale()==='en',t=(ja,english)=>en?english:ja;root.replaceChildren();
+export function createRecentWorksUI({root,getLocale=()=> 'ja',onCloud,onLocal,onRecovery,onMore,onRefresh,resolveThumbnail}){
+ let data={},query='',scope='all',limit=24,observer;
+ const thumbnails=new Map(); let thumbnailUid;
+ function render(next=data){observer?.disconnect();if(thumbnailUid!==next.uid){thumbnails.clear();thumbnailUid=next.uid;}data=next;if(!root)return;const focused=root.contains(document.activeElement)&&document.activeElement.type==='search';const selection=focused?document.activeElement.selectionStart:null;const en=getLocale()==='en',t=(ja,english)=>en?english:ja;root.replaceChildren();
   const title=el('h3',t('最近の作業','Recent work'));root.append(title);
   const toolbar=el('div',null,'recent-works-toolbar'),search=el('input');search.type='search';search.value=query;search.placeholder=t('リード名・プロジェクト名・スペース名で検索','Search Reads, projects or spaces');search.setAttribute('aria-label',t('スペース横断で検索','Search across spaces'));
   const select=el('select');select.setAttribute('aria-label',t('最近の作業の表示範囲','Recent work scope'));
@@ -34,9 +35,18 @@ export function createRecentWorksUI({root,getLocale=()=> 'ja',onCloud,onLocal,on
    if(data.history)notices.push(t('最近開いた順（履歴のないリードは更新順）','Recently opened first, then other Reads by update time'));
    if(!data.history)notices.push(t('更新日時の新しい順','Newest update first'));
    status.textContent=notices.join(' · ');
+   observer?.disconnect();
+   observer=new IntersectionObserver(entries=>{for(const entry of entries)if(entry.isIntersecting){observer.unobserve(entry.target);entry.target.loadThumbnail?.();}});
    for(const row of filtered.slice(0,limit)){
     const p=row.cloud||row.shared||row.locals[0],card=el('article',null,'recent-work-card');card.dataset.recentKey=row.key;
-    const thumb=p.listThumbnail||p.thumbnail;if(thumb&&/^(https:|data:image\/|blob:)/.test(thumb)){const img=el('img');img.src=thumb;img.alt='';img.loading='lazy';card.append(img);}
+    const cacheKey=row.key+':'+row.updatedAt;
+    const img=el('img');img.alt='';img.loading='lazy';
+    const fallback=()=>{if(!row.cloud||!resolveThumbnail)return;
+        card.loadThumbnail=async()=>{const uid=data.uid;try{const value=await resolveThumbnail(row,()=>card.isConnected&&data.uid===uid);if(value&&card.isConnected&&data.uid===uid){thumbnails.set(cacheKey,value);img.onerror=()=>img.remove();img.src=value;card.prepend(img);}}catch{/* An unavailable private cover must not block the shelf. */}};
+        observer.observe(card);
+    };
+    const thumb=thumbnails.get(cacheKey)||p.listThumbnail||p.thumbnail;
+    if(thumb&&/^(https:|data:image\/|blob:)/.test(thumb)){img.src=thumb;img.onerror=()=>{img.remove();fallback();};card.append(img);}else fallback();
     card.append(el('h4',resolveProjectName(p)||resolveProjectDisplayTitle(p,{locale:getLocale()})||t('無題の原稿','Untitled manuscript')));
     const label=row.spaceName||(row.spaceId===null?t('マイスペース（クラウド）','My Space (cloud)'):row.spaceId==='device'?t('この端末のみ・スペース未所属','This device only; no space'):row.otherAccount?t('別アカウントのコピー','Copy from another account'):t('所属未確認','Space unconfirmed'));
     card.append(el('p',label,'recent-work-space'));

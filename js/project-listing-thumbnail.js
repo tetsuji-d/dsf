@@ -217,13 +217,18 @@ export function selectProjectPublicationThumbnailOverride(project) {
     return normalizeHttpsUrl(project.publicationThumbnailUrl);
 }
 
-function selectAuthoringPreviewBackground(candidate, language, { allowLocal = false } = {}) {
+function selectAuthoringPreviewBackground(candidate, language, { allowLocal = false, allowPrivate = false } = {}) {
     if (!isRecord(candidate)) return '';
     const containers = [candidate.content, candidate].filter(isRecord);
     const publicUrl = containers
         .map((container) => selectBackground(container, language))
         .find(Boolean) || '';
-    if (publicUrl || !allowLocal) return publicUrl;
+    if (publicUrl) return publicUrl;
+    if (allowPrivate) for (const container of containers) {
+        const localized = Object.entries(container.backgrounds || {}).find(([key]) => normalizeLanguage(key) === language)?.[1];
+        for (const ref of [localized, container.background]) if (typeof ref === 'string' && /^assets\/private\/[a-f0-9]{64}\.webp$/.test(ref)) return ref;
+    }
+    if (!allowLocal) return '';
 
     for (const container of containers) {
         const localized = isRecord(container.backgrounds)
