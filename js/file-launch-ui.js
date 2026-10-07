@@ -1,3 +1,4 @@
+import {registerPlatformLaunch} from './platform-launch.js';
 import {createFileLaunchInbox} from './file-launch.js';
 import '../css/file-launch.css';
 
@@ -46,6 +47,6 @@ export function installFileLaunch({extension,openFile,beforeOpen,getLocale=()=> 
     close.onclick=()=>dialog.close();reopen.onclick=show;
     dialog.addEventListener('cancel',event=>{if(inbox.read().busy)event.preventDefault();});
     dialog.append(heading,note,list,close);document.body.append(dialog,reopen);
-    target.launchQueue.setConsumer(params=>{inbox.receive(params);show();});
+    registerPlatformLaunch('file',params=>{inbox.receive(params);show();},target);
     return inbox;
 }

@@ -993,3 +993,6 @@ init().catch((e) => {
     console.warn('[MyPage] bootstrap failed:', e);
     setFeedback('error', t('initFailed'), e?.message || String(e));
 });
+
+import {installPlatformLaunchNotice} from './platform-launch-ui.js';
+installPlatformLaunchNotice({surface:'portal'});

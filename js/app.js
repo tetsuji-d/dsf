@@ -12089,8 +12089,8 @@ window.deleteSelectedBubble = function (bubbleIndex) {
 
 initStudioHelp();
 const platformStudioTriggers=['studio-logo-menu-btn','mobile-studio-logo-btn'].map(id=>document.getElementById(id)).filter(Boolean);
-for(const trigger of platformStudioTriggers){const icon=document.createElement('span');icon.className='material-icons';icon.setAttribute('aria-hidden','true');icon.textContent='menu';trigger.append(icon);}
 initializePlatformMenu({surface:'studio',triggers:platformStudioTriggers,beforeOpen:closeAllStudioAuthDropdowns,
+    beforeNavigate:()=>{const work=readCurrentStudioWork();if(!work.blocked&&!work.busy)return true;window.switchRoom('home');alert(getUILang()==='en'?'Save the open manuscript or wait for the current operation to finish before leaving Studio.':'開いている原稿を保存するか、現在の処理が完了してから移動してください。');return false;},
     onStudioHome:()=>window.switchRoom('home'),onHelp:()=>document.getElementById('studio-help-open')?.click(),
     roomActions:['home','editor','press','works'].map(room=>({room,run:()=>window.switchRoom(room)}))});
 subscribePlatformLanguage(lang=>{if(lang!==getUILang())window.setStudioUILang(lang);});

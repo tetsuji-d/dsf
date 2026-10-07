@@ -25,14 +25,15 @@
         <nav id="room-nav">
             <div class="room-nav-brand">
                 <button id="studio-logo-menu-btn" class="room-nav-brand-link room-nav-brand-btn" type="button" onclick="toggleStudioLogoMenu(event)" data-i18n-title="mobile_nav_open" title="メニューを開く" aria-haspopup="menu" aria-expanded="false">
-                    <span class="room-logo-dsf">DSF</span><span class="room-logo-studio">Studio</span>
+                    <span class="material-icons" aria-hidden="true">menu</span>
                 </button>
+                <button class="room-nav-brand-link room-nav-brand-btn studio-home-logo" type="button" onclick="switchRoom('home')" data-i18n-title="nav_dashboard" title="ダッシュボード"><span class="room-logo-dsf">DSF</span><span class="room-logo-studio">Studio</span></button>
                 <div id="studio-logo-menu" class="studio-logo-menu" role="menu" hidden>
                     <div class="studio-logo-menu-head">
                         <div class="mobile-menu-logo"><span>DSF</span><small>Studio</small></div>
                         <p data-i18n="mobile_nav_rooms">ルーム一覧</p>
                     </div>
-                    <a href="/" target="_blank" rel="noopener" class="studio-logo-menu-link" role="menuitem" data-i18n-title="logo_title" title="Horizon を開く" onclick="closeStudioLogoMenu()">
+                    <a href="/" class="studio-logo-menu-link" role="menuitem" data-i18n-title="logo_title" title="Horizon を開く" onclick="closeStudioLogoMenu()">
                         <span class="material-icons" aria-hidden="true">public</span>
                         <span data-i18n="nav_horizon">Horizon</span>
                     </a>
@@ -681,15 +682,14 @@
 
         <div id="mobile-header">
             <button id="mobile-studio-logo-btn" class="mobile-studio-logo-btn" type="button" onclick="toggleMobileStudioNavMenu(event)" data-i18n-title="mobile_nav_open" title="メニューを開く" aria-haspopup="menu" aria-expanded="false">
-                <span class="mobile-studio-logo-dsf">DSF</span>
-                <span class="mobile-studio-logo-sub">Studio</span>
-            </button>
+                <span class="material-icons" aria-hidden="true">menu</span></button>
+            <button class="mobile-studio-logo-btn studio-home-logo" type="button" onclick="switchRoom('home')" data-i18n-title="nav_dashboard" title="ダッシュボード"><span class="mobile-studio-logo-dsf">DSF</span><span class="mobile-studio-logo-sub">Studio</span></button>
             <div id="mobile-studio-nav-menu" class="mobile-studio-nav-menu" role="menu" hidden>
                 <div class="mobile-studio-nav-head">
                     <div class="mobile-menu-logo"><span>DSF</span><small>Studio</small></div>
                     <p data-i18n="mobile_nav_rooms">ルーム一覧</p>
                 </div>
-                <a href="/" target="_blank" rel="noopener" class="mobile-studio-nav-link" role="menuitem" data-i18n-title="logo_title" title="Horizon を開く" onclick="closeMobileStudioNavMenu()">
+                <a href="/" class="mobile-studio-nav-link" role="menuitem" data-i18n-title="logo_title" title="Horizon を開く" onclick="closeMobileStudioNavMenu()">
                     <span class="material-icons" aria-hidden="true">public</span>
                     <span data-i18n="nav_horizon">Horizon</span>
                 </a>

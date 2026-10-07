@@ -10508,3 +10508,10 @@ dialog.personal-sharing-dialog details { margin-block: 16px; }
 .press-recovery-actions button { padding: 8px 12px; min-height: 40px; border: 1px solid currentColor; border-radius: 6px; background: transparent; color: inherit; cursor: pointer; }
 
 .studio-file-types{display:grid;gap:10px;margin:16px 0}.studio-file-types>div{display:flex;align-items:center;gap:14px;border:1px solid #d4dbe5;border-radius:10px;padding:12px;background:#f7f9fc}.studio-file-types img{flex:none;width:64px;height:64px}.studio-file-types strong,.studio-file-types span{display:block}.studio-file-types span{font-size:13px;margin-top:4px}.studio-file-icon-note{font-size:12px;color:#526178}
+
+/* Consistent app navigation: menu first, brand opens the dashboard in-place. */
+.room-nav-brand {align-items:center;gap:8px;}
+#studio-logo-menu-btn,#mobile-studio-logo-btn {display:inline-flex;align-items:center;justify-content:center;flex:0 0 auto;width:32px;min-width:32px;height:32px;padding:0;border:0;border-radius:8px;background:transparent;color:inherit;}
+#studio-logo-menu-btn {color:#e2e8f0;}
+#studio-logo-menu-btn:hover,#mobile-studio-logo-btn:hover {background:rgba(128,128,128,.15);}
+@media(max-width:768px){#mobile-header {gap:6px;}#mobile-header .studio-home-logo {min-width:48px;padding:0 2px;}#mobile-studio-logo-btn {width:36px;min-width:36px;height:36px;}}

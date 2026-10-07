@@ -25,6 +25,6 @@
     }
   ],
   "launch_handler": {
-    "client_mode": "navigate-new"
+    "client_mode": "focus-existing"
   }
 }

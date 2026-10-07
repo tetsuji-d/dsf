@@ -45,3 +45,14 @@ reproduction; this audit does not assert all existing functions are bug-free.
 - Existing manuscript, file format, saving and security contracts are unchanged.
 
 User-facing names follow [product terminology](product-terminology.md). Internal names and language keys remain unchanged.
+
+## 2026-10-07: shared navigation and PWA launch policy
+
+Horizon, Studio and Reader put the hamburger first and the brand immediately to its right. Studio's separate brand button switches to the dashboard in-place; it never reloads the editor. Common-menu navigation uses the current window. Studio refuses to leave while the shared work status is blocked or busy and directs the user to the existing save status on the dashboard. Deliberate editor previews remain separate so editing and inspection can coexist.
+
+The installed app retains its existing id and root scope. launch_handler now requests focus-existing rather than navigate-new. A shortcut relaunch preserves the current Studio room. A different same-origin app URL is offered with an explicit Open / Keep current screen notice, never silently replacing an editor or local Reader file. URL and file launches share one consumer; early file deliveries are queued until the existing guarded file inbox subscribes. No file is opened or uploaded merely by receiving it.
+
+Browser link capture preferences still determine whether an external link launches the installed PWA. The app cannot override that OS/browser choice. Manifest refresh timing and unsupported launch_handler fallbacks vary; native installed-PWA verification remains necessary. Keep this change on staging until the installed Windows app is checked for repeat launch, deep link, saved/unsaved Studio navigation, and file delivery. My Page and admin also receive URL launches within the existing root scope. iOS launch_handler support is not assumed.
+
+Reference: https://developer.chrome.com/docs/capabilities/pwa-navigation-management
+Regression: node scripts/verify-platform-navigation.mjs.

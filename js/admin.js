@@ -1470,3 +1470,6 @@ async function init() {
 }
 
 init();
+
+import {installPlatformLaunchNotice} from './platform-launch-ui.js';
+installPlatformLaunchNotice({surface:'portal'});
