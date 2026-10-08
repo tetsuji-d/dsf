@@ -1,0 +1,7 @@
+<!doctype html><html lang="ja"><meta charset="utf-8"><title>DSF 複数タブ認証検証</title>
+<style>body{font:16px system-ui;margin:32px;max-width:1100px}button,a{margin:6px;padding:10px}pre{background:#f3f5f7;padding:16px;white-space:pre-wrap}#result{font-weight:bold}h1{font-size:26px}</style>
+<h1>DSF 複数タブ認証検証</h1><p>Firebase SDK 10.7.1 + ローカルAuth Emulator。本番アカウント・原稿は使いません。</p>
+<p id="mode"></p><button id="owner-a">試験ユーザーA</button><button id="owner-b">試験ユーザーB</button><button id="signout">ログアウト</button>
+<button id="prepare">保存済みセッションを準備</button><button id="assert">保持状態を検査</button><button id="delayed">遅延した保存応答を検査</button>
+<p id="result"></p><pre id="summary"></pre><h2>状態変化（認証情報は記録しません）</h2><pre id="events"></pre>
+<script type="module" src="/bundle.js?mode=MODE"></script></html>

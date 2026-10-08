@@ -33,6 +33,41 @@ YouTube のように「別サブドメインでも一本化」するには、**F
 2. **承認済みドメイン** — 本番・ステージング・プレビュー用の `*.pages.dev` やカスタムドメインを Firebase に登録。
 3. **Google Cloud OAuth** — クライアント ID の「承認済みの JavaScript 生成元」に、上記と同じオリジンを列挙。
 
+## 複数タブでの保存状態維持
+
+`firebase-core.js` は `initializeAuth` の初期設定で `browserLocalPersistence` を指定する。
+`getAuth()` の後で `setPersistence()` を呼ぶ方式に戻さないこと。Firebase SDK 10.7.1 では、
+既存の localStorage の認証情報が既定の IndexedDB へ移され、再び localStorage へ戻る。
+その間の認証情報削除を既存タブが検知すると、一時的に未ログインになり、Studio の保存証拠と
+private authoring session が失効する。起動時から保存先を固定してこの移動を避ける。
+
+`authReady` は `auth.authStateReady()`。既存の Google 認証経路を維持するため、
+`browserPopupRedirectResolver` も明示する。実際のログアウト・アカウント変更による失効と、
+古いセッションの保存応答を拒否する処理は維持する。
+[Firebase: Auth dependencies](https://firebase.google.com/docs/auth/web/custom-dependencies)
+
+### ローカル回帰検証
+
+リポジトリ直下から別々のターミナルで実行する。実アカウント・原稿は使用しない。
+
+```sh
+npx firebase emulators:start --only auth --project demo-dsf-auth --config scripts/fixtures/auth-persistence-emulator.json
+node scripts/serve-auth-persistence-fixture.mjs
+```
+
+1. `http://127.0.0.1:8798/?mode=fixed` を開き、「試験ユーザーA」「保存済みセッションを準備」を押す。
+2. 同じ URL を別タブで開く。元タブの「保持状態を検査」が PASS になることを確認する。
+3. 別タブを再読込し、元タブで再び PASS を確認する。認証保存先の削除・epoch 変更がないこと。
+4. 元タブの「遅延した保存応答を検査」を押し、5 秒以内に別タブで「試験ユーザーB」を押す。
+   古いセッションの保存応答が拒否され、保存済みにならないことを確認する。
+5. B の保存済みセッションを準備し、同じ手順で別タブの「ログアウト」を検証する。
+6. 全検証タブを閉じて `?mode=legacy` で 1〜2 を行う。旧初期化では `storage-removed` が記録され、
+   保持検査が FAIL になる。環境やタイミングによって未ログイン通知まで発生するかは異なる。
+
+この fixture は実 SDK と DSF の認証・保存証拠処理を使うが、クラウド保存応答はローカルの模擬応答。
+ステージング反映後は Studio の実保存、同一オリジンの Portal 別タブ起動・再読込、再保存まで別途確認する。
+古い版のタブが残ると旧初期化が実行されるため、反映後は DSF の各タブを新しい版へ再読込する。
+
 ## 関連
 
 - Studio 内の room / 認証の地図: [studio-app-room-boundaries.md](./studio-app-room-boundaries.md)
