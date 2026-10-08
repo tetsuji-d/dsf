@@ -22,7 +22,7 @@ assert.equal(buildOwnerDraftViewerUrl('https://dsf.ink','project_1','release-1')
 assert.match(read('js/editor-viewer-preview.js'),/window\.open\("\/viewer\.html\?editorPreview="/);
 assert.match(read('js/portal.js'),/\/viewer\.html\?work=/);
 const manifest=JSON.parse(read('public/studio.webmanifest'));
-assert.equal(manifest.id,'/studio');assert.equal(manifest.name,'DSF Studio');assert.match(manifest.start_url,/studio/);
+assert.equal(manifest.id,'/studio','Keep the installed app identity stable');assert.equal(manifest.name,'Horizon');assert.equal(manifest.start_url,'/?source=pwa');
 assert.match(read('viewer.html'),/<title>DSF Reader<\/title>/);
 assert.match(read('js/platform-menu.js'),/リード（Read）/);assert.match(read('js/platform-menu.js'),/A Read is one item/);
 assert.match(read('js/platform-menu.js'),/\['viewer','\/viewer','auto_stories'\]/);
