@@ -5145,7 +5145,8 @@ function updateAuthUI() {
     if (authSlotNav) renderStudioAuthSlot(authSlotNav, effectiveUser, { mobile: false, slotName: 'nav' });
     if (authSlotMobile) renderStudioAuthSlot(authSlotMobile, effectiveUser, { mobile: true, slotName: 'mobile' });
 
-    syncAuthSaveStatus(saveStatus, {uid: effectiveUser?.uid || state.uid || '', local:!state.projectId, en: getUILang() === 'en'});
+    syncAuthSaveStatus(saveStatus, {uid: effectiveUser?.uid || state.uid || '', local:!state.projectId,
+        en:getUILang()==='en',save:getEditorSaveStatus(),online:navigator.onLine});
     document.body.classList.toggle('auth-guest', !signedIn);
     document.querySelectorAll('[data-auth-required]').forEach((el) => {
         if(el.id==='press-publish-cloud-btn'&&(!state.projectId||!signedIn)){el.disabled=false;el.title=getUILang()==='en'?'Choose a cloud space to continue':'クラウド保存先を選んで進む';return;}
@@ -5186,6 +5187,7 @@ function applyStudioAuthUser(user) {
     }
     syncStudioInbox();
     updateAuthUI();
+    window.dispatchEvent(new Event('studio-work-status'));
     if (document.body?.dataset?.room === 'press' && hasFlowGroups(state)) {
         void refreshFlowHorizonDryRunReadiness();
     }

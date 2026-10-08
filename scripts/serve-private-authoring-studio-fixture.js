@@ -6,13 +6,14 @@ const stubs = {
     core: `export const db={},storage={},firebaseConfig={},authReady=Promise.resolve(); export const auth={currentUser:{uid:'owner_1',email:'fixture@example.invalid',getIdToken:async()=> 'valid'}};`,
     firestore: `export const doc=(db,...parts)=>parts.join('/'); export const serverTimestamp=()=>new Date();
 export async function getDoc(path){const r=await fetch('/fixture/doc?path='+encodeURIComponent(path));const data=await r.json();return {exists:()=>data!==null,data:()=>data};}
+export const getDocFromServer=getDoc;
 export async function setDoc(path,data){const r=await fetch('/fixture/write',{method:'POST',body:JSON.stringify({path,data})});if(!r.ok)throw Error('Unexpected direct project write');}
 export const deleteDoc=()=>{throw Error('Unexpected delete')}; export const writeBatch=()=>({set(){throw Error('Unexpected Firestore batch')},commit(){throw Error('Unexpected Firestore batch')}});`,
     auth: `export const onAuthStateChanged=()=>()=>{};export const getIdToken=user=>user.getIdToken();`,
     storage: `export const ref=()=>{};export const uploadBytes=()=>{throw Error('Unexpected upload')};export const getDownloadURL=()=>{throw Error('Unexpected upload')};`,
 };
 const bundle = await build({ entryPoints: ['scripts/fixtures/private-authoring-studio-browser.js'], bundle: true, write: false,
-    format: 'esm', platform: 'browser', define: { 'import.meta.env.VITE_STORAGE_BACKEND': '"r2"', 'import.meta.env.VITE_R2_PUBLIC_URL': '"https://media.test"' },
+    format: 'esm', platform: 'browser', define: { 'import.meta.env': JSON.stringify({VITE_STORAGE_BACKEND:'r2',VITE_R2_PUBLIC_URL:'https://media.test',VITE_PRIVATE_AUTHORING_NEW_PROJECTS:'false',MODE:'test'}) },
     plugins: [{ name: 'local-fixture-only', setup(b) {
         b.onResolve({ filter: /firebase-core\.js$/ }, () => ({ path: 'core', namespace: 'fixture' }));
         b.onResolve({ filter: /^https:\/\/www\.gstatic\.com\/firebasejs\// }, args => ({ path: /firebase-firestore/.test(args.path) ? 'firestore' : /firebase-auth/.test(args.path) ? 'auth' : 'storage', namespace: 'fixture' }));

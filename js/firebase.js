@@ -13,6 +13,7 @@ import { openSharedAuthoringSession } from './shared-authoring-session.js';
 import { readSharedStudioAccess, setSharedStudioAccess, subscribeSharedStudioAccess, canEditSharedStudio, assertSharedStudioEdit, assertPersonalStudioOperation } from './shared-studio-access.js';
 import { subscribeProjectSession } from './state.js';
 import { createEditorSaveStatus } from './editor-save-status.js';
+import { syncAuthSaveStatus } from './studio-auth-save-status.js';
 import { preparePrivateProjectAction, runPrivateProjectAction } from './private-project-actions.js';
 import { getUILang } from './i18n-studio.js';
 import { ASSET_MAX_LONG_EDGE, ASSET_MAX_BYTES, mapProjectAssetUrls, appendPreparedProjectAsset } from './project-assets.js';
@@ -30,7 +31,7 @@ import {
 } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js";
 import { state, dispatch, actionTypes, getProjectSessionEpoch, getProjectSessionIdentity } from './state.js';
 import { createPrivateAuthoringClient, usesPrivateAuthoring, assertPrivateAuthoringRoot,
-    resolvePrivateAuthoringAssets, authoringSaveMessage, AuthoringClientError } from './private-authoring-client.js';
+    resolvePrivateAuthoringAssets, AuthoringClientError } from './private-authoring-client.js';
 import { pushState, endHistoryGroup } from './history.js';
 import { getBlockIndexFromPageIndex } from './blocks.js';
 import { PAGE_SCHEMA_VERSION } from './pages.js';
@@ -304,7 +305,6 @@ export async function uploadPressPage(blob, path) {
 let autoSaveTimer = null;
 const editorSaveEvidence = createEditorSaveStatus(() => JSON.stringify([getProjectSessionEpoch(), state.projectId || '', state.uid || '']));
 export const getEditorSaveStatus = () => editorSaveEvidence.read();
-let saveStatus = 'idle'; // 'idle' | 'saving' | 'saved' | 'error'
 let isSaving = false;
 let saveRequested = false;
 let activeSavePromise = null;
@@ -975,25 +975,17 @@ export function onAuthChanged(callback) {
 /**
  * 保存ステータスを更新してUIに反映する
  */
-let lastSaveIndicatorMessage = '';
-document.addEventListener('studio-ui-language-change',()=>{if(lastSaveIndicatorMessage&&!document.getElementById('save-status')?.dataset.authNotice)updateSaveIndicator(saveStatus,lastSaveIndicatorMessage);});
-function updateSaveIndicator(status, message) {
+function renderSaveIndicator() {
+    syncAuthSaveStatus(document.getElementById('save-status'), {
+        uid:state.uid||'',local:!state.projectId,en:getUILang()==='en',
+        save:getEditorSaveStatus(),online:navigator.onLine,
+    });
+}
+document.addEventListener('studio-ui-language-change',renderSaveIndicator);
+for(const name of ['studio-work-status','online','offline'])window.addEventListener(name,renderSaveIndicator);
+function updateSaveIndicator() {
+    renderSaveIndicator();
     queueMicrotask(()=>window.dispatchEvent(new Event('studio-work-status')));
-    lastSaveIndicatorMessage=message||'';
-    saveStatus = status;
-    const el = document.getElementById('save-status');
-    if (!el) return;
-
-    delete el.dataset.authNotice;
-    const icons = { idle: '', saving: '●', saved: '✓', error: '!' };
-    const colors = { idle: '#999', saving: '#f0ad4e', saved: '#34c759', error: '#ff3b30' };
-
-    const target=message?.includes('(Cloud)')?'Cloud':message?.includes('(Local)')?'Local':'';
-    el.dataset.saveStatus=status;el.dataset.saveTarget=target;
-    const en={idle:'Unsaved',saving:'Saving…',saved:'Saved',error:'Save failed'};
-    const display=target==='Local'&&status==='saved'?(getUILang()==='en'?'Recovery copy retained in this browser':'ブラウザの復元用コピーを保持'):getUILang()==='en'?(en[status]||message)+(target?' ('+target+')':''):message||'';
-    el.textContent = `${icons[status]} ${display}`;
-    el.style.color = colors[status];
 }
 
 /**
@@ -1008,7 +1000,7 @@ export function triggerAutoSave() {
     captureSharedDraft();
     if (autoSaveTimer) clearTimeout(autoSaveTimer);
 
-    updateSaveIndicator('idle', '未保存');
+    updateSaveIndicator();
 
     // An edit made while a save is in flight must be included in the same
     // serialized save loop; waiting for the debounce timer can otherwise let
@@ -1265,8 +1257,7 @@ async function performSaveOnce() {
             cloudResumeGuard.loaded(savedResumeIdentity);
             void captureCloudResumeProof(savedResumeIdentity,structuredClone(authoringProject),savedImageMap);
         }
-        if (saveIsCurrent()) updateSaveIndicator(editorRevision === saveIdentity.editorRevision ? 'saved' : 'idle',
-            editorRevision === saveIdentity.editorRevision ? '保存済み (Cloud)' : '変更あり・保存待ち');
+        if (saveIsCurrent()) updateSaveIndicator();
     };
     // レイアウト確定: テキストセクションの layout[lang] を計算して state.sections に書き込む（意図的な mutation）
     composeCanonicalLayoutsForSections(state.sections, state.languages, state.languageConfigs);
@@ -1287,7 +1278,7 @@ async function performSaveOnce() {
     state.bookMode = bookToSave.mode;
     state.book = bookToSave;
 
-    updateSaveIndicator('saving', '保存中...');
+    updateSaveIndicator();
 
     // Shared sources stay in their owner's private storage. Never fall through to
     // personal Firestore, public assets, or the participant's local recent list.
@@ -1302,7 +1293,7 @@ async function performSaveOnce() {
             if (!saveIsCurrent() || sharedStudioSession !== active) throw new AuthoringClientError('AUTHORING_SESSION_CHANGED');
             if(editorRevision===saveIdentity.editorRevision){active.dirty=false;void sharedDraftRecovery.saved(active.recoveryId,saveIdentity.editorRevision);}
             cloudSaved();
-        } catch(error) { sharedDraftRecovery.retain(active.recoveryId);active.recoveryRetained=true;if(saveIsCurrent()){updateSaveIndicator('error',authoringSaveMessage(error));if(error.code==='EDIT_LOCK_LOST')await checkSharedStudioAccess().catch(()=>{});}throw error; }
+        } catch(error) { sharedDraftRecovery.retain(active.recoveryId);active.recoveryRetained=true;if(saveIsCurrent()){saveEvidence.failed('cloud',error);updateSaveIndicator();if(error.code==='EDIT_LOCK_LOST')await checkSharedStudioAccess().catch(()=>{});}throw error; }
         return;
     }
     // 1. ローカルバックアップ (常に実行)
@@ -1324,7 +1315,7 @@ async function performSaveOnce() {
         });
         await cacheLocalRecentProject(localSnapshot, window.localImageMap);
         saveEvidence.localSaved();
-        if (saveIsCurrent()) updateSaveIndicator('saved', '保存済み (Local)');
+        if (saveIsCurrent()) updateSaveIndicator();
     } catch (e) {
         saveEvidence.failed('local', e);
         console.warn("[DSF] Local auto-save to IndexedDB failed:", e);
@@ -1518,7 +1509,6 @@ async function performSaveOnce() {
             console.log(`[DSF] Auto-saved project to cloud: ${saveIdentity.projectId}`);
         } catch (e) {
             console.error('[DSF] Cloud auto-save failed:', privateSave ? e.code || 'AUTHORING_UNAVAILABLE' : e);
-            if (saveIsCurrent()) updateSaveIndicator('error', privateSave ? authoringSaveMessage(e) : '保存失敗 (Cloud)');
             // flushSave callers (including publication) must observe cloud failure.
             throw e;
         }
@@ -1526,8 +1516,8 @@ async function performSaveOnce() {
     } catch (error) {
         saveEvidence.failed('cloud', error);
         console.error('[DSF] Project save failed before persistence:', error);
-        if (!privateSave && startedEpoch === getProjectSessionEpoch() && startedProjectId === state.projectId) {
-            updateSaveIndicator('error', error.code==='AUTHORING_RELOAD_REQUIRED'?'端末版を保持・比較して再開してください':'保存失敗');
+        if (startedEpoch === getProjectSessionEpoch() && startedProjectId === state.projectId) {
+            updateSaveIndicator();
         }
         throw error;
     }
@@ -2008,6 +1998,7 @@ export async function loadProject(pid, refresh) {
         privateAuthoringSession = privateClient ? { client: privateClient, projectId: pid, epoch, images, assets: images.refs } : null;
         committed = true;
         editorSaveEvidence.cloudLoaded(privateClient ? 'r2-private' : 'firestore');
+        updateSaveIndicator();
         cloudResumeGuard.loaded(resumeIdentity());
         void captureCloudResumeProof(resumeIdentity(),structuredClone(buildAuthoringProjectInput()),{...window.localImageMap});
         dispatch({ type: actionTypes.SET_ACTIVE_LANGUAGE, payload: defaultLang });
