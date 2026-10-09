@@ -31,6 +31,8 @@ AI エージェント、人間の開発者ともに、まずこの文書を読�
 - **[docs/flow-remaining-implementation-plan.md](docs/flow-remaining-implementation-plan.md)** — Flow／DSF delivery v2の現在地、残作業、安全な実装単位、初期公開の完了条件
 - **[docs/environment-topology.md](docs/environment-topology.md)**  
   Cloudflare Pages / Firebase / R2 の役割分担
+- **[docs/cloud-save-contract.md](docs/cloud-save-contract.md)**
+  Studio のクラウド保存契約。private R2 と既存 Firestore 保存の境界、ローカルバックアップとクラウド保存成功の区別、セッション変更時の保存結果の扱い
 - **[docs/user-account-audit.md](docs/user-account-audit.md)**  
   ユーザーアカウント、Google-only 認証、今後のブートストラップ方針
 - **[docs/billing-plan-architecture.md](docs/billing-plan-architecture.md)**  
@@ -385,5 +387,6 @@ CSS はエントリーポイントごとに分離: `css/studio.css`, `css/viewer
 - `data-model.md` — Firestore スキーマとセキュリティルール
 - `pressroom-spec.md` — Press Room / Works / Viewer の公開境界
 - `environment-topology.md` — Pages / Firebase / R2 の構成
+- `cloud-save-contract.md` — Studio のクラウド保存契約と検証手順
 - `user-account-audit.md` — アカウント周りの棚卸し
 - `viewer-info-panel-spec.md` — Viewer 情報パネル仕様

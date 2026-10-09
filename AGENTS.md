@@ -46,6 +46,7 @@ Claude はスコープ制限なく全ファイルを編集可。
 2. [AGENTS.md](AGENTS.md)
 3. 必要に応じて:
    - [docs/data-model.md](docs/data-model.md)
+   - [docs/cloud-save-contract.md](docs/cloud-save-contract.md)（Studio のクラウド保存を触る場合）
    - [docs/file-format-spec.md](docs/file-format-spec.md)
    - [docs/flow-remaining-implementation-plan.md](docs/flow-remaining-implementation-plan.md)（Flow／DSF delivery v2の残作業を触る場合）
    - [docs/environment-topology.md](docs/environment-topology.md)
