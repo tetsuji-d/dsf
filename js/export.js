@@ -71,7 +71,7 @@ function buildMetadata(formatStr, options = {}) {
     const linerNotes = pickLocalizedMetaMap('linerNotes');
     return {
         version: "1.0.0",
-        schemaVersion: formatStr === 'dsp' && options.projectVersion === 6
+        schemaVersion: formatStr === 'dsp' && [6,7].includes(options.projectVersion)
             ? DSP_FLOW_META_SCHEMA_VERSION
             : 1,
         projectVersion: formatStr === 'dsp' ? (options.projectVersion || 5) : undefined,
@@ -105,6 +105,7 @@ function buildMetadata(formatStr, options = {}) {
 function captureDspProject() {
     return prepareProjectForSave({
         version: state.version || 5,
+        ...(state.pageNavigation?{pageNavigation:state.pageNavigation}:{}),
         projectAssets: state.projectAssets || [],
         projectId: state.projectId,
         workId: state.workId || '',
@@ -244,7 +245,7 @@ export async function buildDSP(options = {}) {
 
 // --- Build .dsf (Content/Publish Archive) ---
 export async function buildDSF(options = {}) {
-    if (hasFlowGroups(state)) {
+    if (hasFlowGroups(state) || state.pageNavigation) {
         const artifact = getFlowPortableDsfDownloadArtifact();
         const currentArtifact = getFlowPortableDsfDownloadArtifact();
         if (currentArtifact.packageSignature !== artifact.packageSignature

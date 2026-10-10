@@ -311,8 +311,8 @@ assert.match(firestoreRules, /function projectV6AuthoringExistsAfter\(uid, pid\)
 assert.match(firestoreRules, /getAfter\([^\n]+authoring\/current/);
 assert.match(firestoreRules, /authoring\/current/);
 assert.match(firestoreRules, /match \/authoring\/\{authoringId\}/);
-assert.match(firestoreRules, /!existsAfter\([^\n]+authoring\/current\)/);
-assert.match(firestoreRules, /!existsAfter\([^\n]+projects\/\$\(pid\)\)/);
+assert.match(firestoreRules, /allow delete: if false; \/\/ Source is retained/);
+assert.match(firestoreRules, /allow delete: if false; \/\/ Manuscript deletion uses/);
 assert.match(firestoreRules, /!request\.resource\.data\.keys\(\)\.hasAny\(\['authoringRef', 'authoringSchemaVersion'\]\)/);
 
 const exportSource = readFileSync(new URL('../js/export.js', import.meta.url), 'utf8');
@@ -324,7 +324,7 @@ assert.match(exportSource, /saveAs\(currentArtifact\.blob, currentArtifact\.file
 assert.match(pressSource, /hasFlowGroups\(state\)/);
 assert.match(sectionsSource, /data-testid="flow-generated-thumb"/);
 assert.match(sectionsSource, /changeFlowGeneratedPage/);
-assert.match(firebaseSource, /rootData\.version === 6/);
+assert.match(firebaseSource, /\[6,7\]\.includes\(rootData\.version\)/);
 assert.match(firebaseSource, /prepareFirestoreProjectIngress\(persistedData\)/);
 
 const stateBeforeHistoryTest = clone(state);

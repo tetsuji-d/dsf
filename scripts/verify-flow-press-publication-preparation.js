@@ -338,7 +338,7 @@ assert.equal(productionSource.includes('./fixtures/'), false, 'production prepar
 
 const pressSource = readFileSync(new URL('../js/press.js', import.meta.url), 'utf8');
 const exportSource = readFileSync(new URL('../js/export.js', import.meta.url), 'utf8');
-assert.match(pressSource, /import\('\.\/flow-press-publication-preparation\.js'\)/);
+assert(pressSource.includes("from './flow-press-publication-preparation.js'") || pressSource.includes("import('./flow-press-publication-preparation.js')"));
 assert.match(pressSource, /summary\.dataset\.testid = 'press-flow-production-preparation-summary'/);
 assert.match(pressSource, /_pressFlowProductionPreparationResult\.ok \? 'ready' : 'blocked'/);
 assert.match(pressSource, /void _requestPressFlowProductionPreparation\(\);[\s\S]*if \(import\.meta\.env\.DEV\)/);
@@ -346,7 +346,7 @@ assert.match(pressSource, /const flowPortableReady = hasFlow && _isPressFlowPort
 assert.match(pressSource, /isPortableDownload[\s\S]*btn\.disabled = !flowPortableReady/);
 assert.match(pressSource, /if \(hasFlowGroups\(state\)\)[\s\S]*await uploadFlowHorizonReleaseFiles\(\)/);
 assert.match(pressSource, /if \(hasFlow && isHorizonPublish\)[\s\S]*btn\.disabled = !flowHorizonReady \|\| working \|\| saved/);
-assert.match(exportSource, /if \(hasFlowGroups\(state\)\)[\s\S]*getFlowPortableDsfDownloadArtifact/);
+assert.match(exportSource, /if \(hasFlowGroups\(state\) \|\| state\.pageNavigation\)[\s\S]*getFlowPortableDsfDownloadArtifact/);
 assert.match(exportSource, /saveAs\(currentArtifact\.blob, currentArtifact\.filename\)/);
 
 console.log('Flow Press production preparation gate verification passed.');

@@ -3,6 +3,7 @@
   "version": "1.0.0",
   "type": "module",
   "scripts": {
+    "verify:page-navigation": "node scripts/verify-page-link-draft.js && node scripts/verify-page-navigation.js",
     "dev": "vite",
     "dev:local": "vite",
     "build": "vite build",

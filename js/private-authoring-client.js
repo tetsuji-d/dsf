@@ -18,7 +18,7 @@ export function usesPrivateAuthoring(root) {
         || root.authoringRef === 'authoringHeads/current';
 }
 export function assertPrivateAuthoringRoot(root, uid, projectId) {
-    check([5, 6].includes(root.version) && root.ownerUid === uid && root.projectId === projectId
+    check([5, 6, 7].includes(root.version) && root.ownerUid === uid && root.projectId === projectId
         && root.authoringBackend === 'r2-private' && root.authoringStorageVersion === 1
         && root.authoringRef === 'authoringHeads/current'
         && !['blocks', 'pages', 'sections'].some(key => Object.hasOwn(root, key)), 'AUTHORING_ROOT_INVALID');

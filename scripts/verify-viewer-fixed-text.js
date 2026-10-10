@@ -339,7 +339,7 @@ assert.equal(rendererSource.includes('insertAdjacentHTML'), false);
 assert.equal(rendererSource.includes('eval('), false);
 assert.equal(rendererSource.includes('./press'), false);
 assert.equal(rendererSource.includes('./firebase'), false);
-assert.match(rendererSource, /renderFixedTextRunText\(runElement, run\.text, lineStyle\.whiteSpaceMode, documentRef\)/);
+assert.match(rendererSource, /renderLinkedRun\(runElement,run\.text,lineStyle\.whiteSpaceMode,documentRef,persistedPage\.pageLinks,lineIndex,runIndex\)/);
 const whitespaceSource = readFileSync(new URL('../js/fixed-text-whitespace.js', import.meta.url), 'utf8');
 assert.match(whitespaceSource, /element\.textContent = text/);
 assert.equal(whitespaceSource.includes('.innerHTML'), false);

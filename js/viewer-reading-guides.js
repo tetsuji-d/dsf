@@ -3,12 +3,16 @@ import {initializeViewerBottomNavigation} from './viewer-bottom-navigation.js';
 import {paintViewerReadingGuides} from './viewer-reading-guide-geometry.js';
 import {collectReadingLineGroups} from './viewer-reading-assist-lines.js';
 /** Reader-local paint/zoom preferences; no authoring or delivery mutations. */
-export function initializeViewerReadingGuides({onLayoutChange = () => {}, onAssistanceChange = () => {}} = {}) {
+export function initializeViewerReadingGuides({available = true, onLayoutChange = () => {}, onAssistanceChange = () => {}} = {}) {
     const $ = id => document.getElementById(id);
     const menu=$('viewer-reading-guide'), toggle=$('reading-guide-enabled'), strength=$('reading-guide-strength'), mode=$('reading-guide-mode');
     const zoom=$('reading-guide-zoom'), blur=$('reading-guide-blur'), stage=$('viewer-stage');
     let saved={}; try {saved=JSON.parse(localStorage.getItem('dsf-reader-line-guides')||'{}')||{};} catch {}
-    toggle.checked=saved.enabled===true;
+    // Keep shared mobile page controls initialized while assistance is suspended.
+    // Old preferences are retained, but cannot reactivate a hidden feature.
+    menu.hidden=!available;
+    toggle.disabled=!available;
+    toggle.checked=available&&saved.enabled===true;
     strength.value=Number.isFinite(saved.strength)?Math.max(10,Math.min(70,saved.strength)):25;
     mode.value=['all','focus','lens'].includes(saved.mode)?saved.mode:'active';
     zoom.value=[1.5,2,3].includes(saved.zoom)?String(saved.zoom):'2';
@@ -109,6 +113,7 @@ export function initializeViewerReadingGuides({onLayoutChange = () => {}, onAssi
         updateStatus();renderLens();
     }
     function paint(){
+        if(!available)toggle.checked=false;
         document.body.dataset.readingGuides=toggle.checked?'on':'off';document.body.dataset.readingGuideMode=mode.value;
         document.body.style.setProperty('--reading-guide-alpha',Number(strength.value)/100);document.body.style.setProperty('--reader-blur',blur.value+'px');
         strength.disabled=!toggle.checked;mode.disabled=!toggle.checked;zoom.disabled=!toggle.checked;blur.disabled=!toggle.checked;
@@ -116,7 +121,7 @@ export function initializeViewerReadingGuides({onLayoutChange = () => {}, onAssi
         clone=null;drag=null;lensDrag=null;windowPosition=null;point=null;draw();labels();
         if(lastAssisting!==assisting()){lastAssisting=assisting();onAssistanceChange(lastAssisting);}
     }
-    function save(){paint();try{localStorage.setItem('dsf-reader-line-guides',JSON.stringify({enabled:toggle.checked,strength:Number(strength.value),mode:mode.value,zoom:Number(zoom.value),blur:Number(blur.value)}));}catch{}}
+    function save(){if(!available)return;paint();try{localStorage.setItem('dsf-reader-line-guides',JSON.stringify({enabled:toggle.checked,strength:Number(strength.value),mode:mode.value,zoom:Number(zoom.value),blur:Number(blur.value)}));}catch{}}
     function findAt(x,y){
         let best=null,distance=Infinity;
         for(const line of stage.querySelectorAll('.viewer-fixed-text-line[data-reading-line]')){

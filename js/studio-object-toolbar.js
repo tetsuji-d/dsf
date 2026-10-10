@@ -841,7 +841,15 @@ function createStudioObjectToolbar({ state, commit, refresh, prepareImage, selec
     closePopup();
     render();
   }
-  return { render, clearSelection, placeAsset, upload, addText: () => add("text") };
+  return { render, clearSelection, placeAsset, upload, addText: () => add("text"),
+    getPageLinkSelection() {
+      const o=object(); if(!o || o.locked || !o.visible || !canEdit())return null;
+      const input=document.activeElement;
+      return {objectId:o.id,kind:o.kind,object:o,
+        start:input?.matches('.graphic-hit textarea')?input.selectionStart:0,
+        end:input?.matches('.graphic-hit textarea')?input.selectionEnd:0};
+    }
+  };
 }
 export {
   createStudioObjectToolbar

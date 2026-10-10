@@ -1,3 +1,4 @@
+import { validatePageNavigation, reconcilePageNavigation } from './page-navigation.js';
 import { validateGraphicObjects } from './graphic-object-model.js';
 import { validateProjectAssets } from './project-assets.js';
 /**
@@ -227,6 +228,12 @@ export function deriveFixedCompatibility(blocks) {
  * Legacy Fixed projects remain v5. Project v6 is strict and never falls back.
  */
 export function hydrateProjectFromPersistence(input) {
+    if(input?.pageNavigation != null || input?.version === 7) {
+        assertProjectJsonSafe(input);validatePageNavigation(input.pageNavigation);
+        if(!input.pageNavigation || (input.version != null && input.version > 7))throw persistenceError('UNSUPPORTED_PROJECT_VERSION','Invalid navigation project.');
+        const navigation=deepClone(input.pageNavigation),base={...input,version:6};delete base.pageNavigation;
+        return {...hydrateProjectFromPersistence(base),version:7,pageNavigation:navigation};
+    }
     if (!isRecord(input)) throw new TypeError('Persisted project must be an object.');
     assertProjectJsonSafe(input);
     assertNoProjectRuntimeData(input);
@@ -281,6 +288,13 @@ export function hydrateProjectFromPersistence(input) {
 
 /** Build the canonical snapshot used by local, DSP, and cloud persistence. */
 export function prepareProjectForSave(input) {
+    if(input?.pageNavigation != null || input?.version === 7) {
+        input=deepClone(input);reconcilePageNavigation(input);
+        assertProjectJsonSafe(input);validatePageNavigation(input.pageNavigation);
+        if(!input.pageNavigation || (input.version != null && input.version > 7))throw persistenceError('UNSUPPORTED_PROJECT_VERSION','Invalid navigation project.');
+        const navigation=deepClone(input.pageNavigation),base={...input,version:6};delete base.pageNavigation;
+        return {...prepareProjectForSave(base),version:7,pageNavigation:navigation};
+    }
     if (!isRecord(input)) throw new TypeError('Project snapshot input must be an object.');
     assertProjectJsonSafe(input);
     assertNoProjectRuntimeData(input);
@@ -410,10 +424,10 @@ export function assertSupportedDspEnvelope(meta, projectVersion) {
             { schemaVersion },
         );
     }
-    if (projectVersion === PROJECT_SCHEMA_VERSION && schemaVersion !== DSP_FLOW_META_SCHEMA_VERSION) {
+    if ([6,7].includes(projectVersion) && schemaVersion !== DSP_FLOW_META_SCHEMA_VERSION) {
         throw persistenceError('DSP_V2_REQUIRED', 'Project v6 requires DSP meta schemaVersion 2.');
     }
-    if (schemaVersion === DSP_FLOW_META_SCHEMA_VERSION && projectVersion !== PROJECT_SCHEMA_VERSION) {
+    if (schemaVersion === DSP_FLOW_META_SCHEMA_VERSION && ![6,7].includes(projectVersion)) {
         throw persistenceError('DSP_PROJECT_VERSION_MISMATCH', 'DSP meta schemaVersion 2 requires Project v6.');
     }
     if (schemaVersion === DSP_FLOW_META_SCHEMA_VERSION && meta.projectVersion !== projectVersion) {
@@ -429,7 +443,7 @@ export function assertSupportedDspEnvelope(meta, projectVersion) {
 /** Remove private Flow source from the publicly readable project root. */
 export function createPublicProjectProjection(project) {
     const snapshot = prepareProjectForSave(project);
-    if (snapshot.version !== PROJECT_SCHEMA_VERSION) return snapshot;
+    if (![6,7].includes(snapshot.version)) return snapshot;
     const publicKeys = [
         'version',
         'projectId',
@@ -460,7 +474,7 @@ export function createPublicProjectProjection(project) {
             .filter((block) => block?.kind !== 'flow')
             .map((block) => deepClone(block)),
         authoringRef: 'authoring/current',
-        authoringSchemaVersion: PROJECT_SCHEMA_VERSION,
+        authoringSchemaVersion: snapshot.version,
     };
 }
 

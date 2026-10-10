@@ -1,3 +1,4 @@
+import {attachDeliveryPageLinks} from './page-navigation-delivery.js';
 /**
  * Pure DSF delivery v2 release assembly.
  *
@@ -27,7 +28,7 @@ const SHA256_PATTERN = /^(?:[a-f0-9]{64}|sha256-[A-Za-z0-9_-]{43,86})$/i;
 const PAGE_DIRECTIONS = new Set(['ltr', 'rtl']);
 const FORBIDDEN_KEYS = new Set(['__proto__', 'prototype', 'constructor']);
 const INPUT_KEYS = new Set(['defaultLang', 'hashBytes', 'languages']);
-const LANGUAGE_INPUT_KEYS = new Set(['language', 'pageDirection', 'preflight', 'imageAssets', 'backgroundAssets']);
+const LANGUAGE_INPUT_KEYS = new Set(['language', 'pageDirection', 'preflight', 'imageAssets', 'backgroundAssets', 'navigationProject']);
 const IMAGE_ASSET_KEYS = new Set([
     'sha256',
     'byteLength',
@@ -448,6 +449,7 @@ function assembleLanguage(entry, languageIndex, fonts) {
     const styles = {};
     const pages = [];
     const assets = [];
+    const navigationBackgrounds=new Map();
     entry.preflight.decisions.forEach((decision, decisionIndex) => {
         const deliveryPageIndex = getDecisionDeliveryPageIndex(decision);
         if (pages.length !== deliveryPageIndex) {
@@ -497,6 +499,7 @@ function assembleLanguage(entry, languageIndex, fonts) {
                 }
                 const background=decision.projection.backgrounds?.find(bg=>bg.pageIndex===projectionPageIndex);
                 if(background){
+                    navigationBackgrounds.set(page.id,background.object);
                     const asset=entry.backgroundAssets[JSON.stringify([decision.blockId,projectionPageIndex])];
                     const index=pages.length;
                     const assetPath=`assets/images/language-${String(languageIndex+1).padStart(4,'0')}/page-${String(index+1).padStart(5,'0')}.webp`;
@@ -529,6 +532,7 @@ function assembleLanguage(entry, languageIndex, fonts) {
             decisionCode: decision.decisionCode,
         });
     });
+    attachDeliveryPageLinks(pages,entry.navigationProject,entry.language,navigationBackgrounds);
     return {
         manifest: {
             schemaVersion: DSF_LANGUAGE_MANIFEST_SCHEMA_VERSION,

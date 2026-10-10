@@ -211,8 +211,8 @@ assert.equal(flowOnly.blocks[0].kind, 'flow');
 assert.equal(Object.prototype.hasOwnProperty.call(flowOnly, 'sections'), false);
 assert.equal(Object.prototype.hasOwnProperty.call(flowOnly, 'pages'), false);
 
-const futureVersion = normalizeFlowProjectData({ version: 7, blocks: [] });
-assert.equal(futureVersion.version, 7);
+const futureVersion = normalizeFlowProjectData({ version: 8, blocks: [] });
+assert.equal(futureVersion.version, 8);
 assert.equal(hasIssue(validateFlowProjectData(futureVersion), 'unsupported_project_schema_version', 'version'), true);
 const invalidVersion = normalizeFlowProjectData({ version: 0, blocks: [] });
 assert.equal(invalidVersion.version, 0);
@@ -334,11 +334,11 @@ const futureDocumentVersion = normalizeFlowProjectData({
         id: 'future_document_group',
         flow: {
             ...factoryGroup.flow,
-            document: { ...factoryGroup.flow.document, id: 'future_document', schemaVersion: 3 },
+            document: { ...factoryGroup.flow.document, id: 'future_document', schemaVersion: 99 },
         },
     }],
 });
-assert.equal(futureDocumentVersion.blocks[0].flow.document.schemaVersion, 3);
+assert.equal(futureDocumentVersion.blocks[0].flow.document.schemaVersion, 99);
 assert.equal(hasIssue(
     validateFlowProjectData(futureDocumentVersion),
     'unsupported_schema_version',

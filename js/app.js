@@ -1,3 +1,4 @@
+import {addPageAnchor,addPageLink,removePageLink,reconcilePageNavigation,trackPageNavigationStructure,numberedNavigationPages,resolveNavigationTarget,resolveNavigationLink,syncNavigationReferences,readPageNavigationText,findPageNavigationObject} from './page-navigation.js';
 import {readRecentCloudThumbnail} from './firebase.js';
 import {subscribePlatformLanguage} from './ui-language.js';
 import {initializePlatformMenu} from './platform-menu.js';
@@ -81,6 +82,7 @@ import { createProjectAssetPanel } from './project-asset-panel.js';
  */
 import '../css/flow-annotations.css';
 import { openAnnotationDialog } from './flow-annotation-ui.js';
+import { installStudioPageLinks } from './studio-page-links.js';
 import { refreshFlowRichInput } from './flow-source-rich-input.js';
 import { state, dispatch, actionTypes } from './state.js';
 import { installSharedRecoveryUI } from './shared-recovery-ui.js';
@@ -233,7 +235,7 @@ const flowObjectToolbar=createFlowObjectToolbarAdapter({
     },
     save:(group,assets)=>{
         clearFlowDirectEditRuntime();endHistoryGroup();pushState();
-        state.projectAssets=assets;state.version=6;
+        state.projectAssets=assets;state.version=state.pageNavigation?7:6;
         dispatch({type:actionTypes.SET_STATE_FIELD,payload:{key:'blocks',value:state.blocks.map(b=>b.id===group.id?group:b)}});
         _flowAuthoringSourceRevision+=1;
         scheduleFlowAuthoringReflow(group.id,{immediate:true});refresh();updateHistoryButtons();triggerAutoSave();
@@ -255,7 +257,7 @@ const objectToolbar = createStudioObjectToolbar({
         if(!canEditActiveFixedPage())return false;
         const blocks=structuredClone(state.blocks);
         try{mutate(blocks);validateGraphicObjects({...state,blocks});}catch{return false;}
-        endHistoryGroup();pushState();state.blocks=blocks;state.version=6;
+        endHistoryGroup();pushState();state.blocks=blocks;state.version=state.pageNavigation?7:6;
         state.sections=extractSectionsFromBlocks(blocks);state.pages=blocksToPages(blocks);
         refresh();updateHistoryButtons();triggerAutoSave();return true;
     },
@@ -277,7 +279,7 @@ const objectToolbar = createStudioObjectToolbar({
         catch { state.projectAssets=oldAssets;state.version=oldVersion;alert('変更できませんでした。入力値を確認してください。 / Check object values.');return; }
         const assets=state.projectAssets;
         state.projectAssets=oldAssets;state.version=oldVersion;
-        endHistoryGroup();pushState();target.content=content;state.projectAssets=assets;state.version=6;
+        endHistoryGroup();pushState();target.content=content;state.projectAssets=assets;state.version=state.pageNavigation?7:6;
         state.sections=extractSectionsFromBlocks(state.blocks);state.pages=blocksToPages(state.blocks);
         refresh();updateHistoryButtons();triggerAutoSave();
     }
@@ -357,7 +359,7 @@ const projectAssetPanel = createProjectAssetPanel({
         const assets = appendPreparedProjectAsset(state.projectAssets, { mainUrl, thumbUrl, width, height, byteLength }, name, createId('asset'));
         if (assets === state.projectAssets) return;
         endHistoryGroup(); pushState();
-        state.version = 6;
+        state.version = state.pageNavigation ? 7 : 6;
         state.projectAssets = assets;
         refresh(); updateHistoryButtons(); triggerAutoSave();
     },
@@ -617,7 +619,7 @@ function resetFlowRuntimeAfterGroupRemoval(groupId) {
 }
 
 function getEditorPageProjection() {
-    if (state.version !== 6 || !hasFlowGroups(state)) return null;
+    if (![6,7].includes(state.version) || !hasFlowGroups(state)) return null;
     const languageKey = getEditorFlowProjectionLanguage(getActiveBlock());
     return getCachedFlowRuntimePageProjection(
         state,
@@ -1420,7 +1422,7 @@ function chooseFlowImageAtCaret() {
             endHistoryGroup();
             pushState({ editorFocus });
             state.projectAssets = assets;
-            state.version = 6;
+            state.version = state.pageNavigation ? 7 : 6;
             committed = true;
             clearFlowDirectEditRuntime();
             dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'blocks', value: plan.blocks } });
@@ -3379,7 +3381,9 @@ function applyFlowAuthoringEdit(operation, options = {}) {
         });
         updateHistoryButtons();
     }
+    trackPageNavigationStructure(state.pageNavigation,authoringBlocks,nextBlocks);
     dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'blocks', value: nextBlocks } });
+    reconcilePageNavigation(state);
     _flowAuthoringSourceRevision += 1;
     if (options.rerender === true) {
         const activeGroup = getFlowGroupById(operation.groupId);
@@ -3515,6 +3519,76 @@ function restoreFlowAuthoringFocusSnapshot(snapshot) {
             );
         }
     });
+}
+
+// Navigation edits share the canonical blocks and history transaction.
+function studioNavigationProject(){return {version:state.version,blocks:state.blocks,pageNavigation:state.pageNavigation,book:state.book,bookMode:state.bookMode};}
+function commitStudioNavigation(next,{history=true}={}){
+    if(!canEditSharedStudio())return;
+    if(history){endHistoryGroup();pushState({editorFocus:captureFlowEditorFocusSnapshot()});}
+    clearFlowDirectEditRuntime();state.version=7;state.pageNavigation=next.pageNavigation;state.blocks=next.blocks;
+    state.sections=extractSectionsFromBlocks(next.blocks);state.pages=blocksToPages(next.blocks);
+    _flowAuthoringSourceRevision++;invalidateFlowRuntimeAuthoring();refresh();updateHistoryButtons();triggerAutoSave();
+}
+function createStudioNavigationModel(){return {
+    anchors:()=>{reconcilePageNavigation(state);return (state.pageNavigation?.anchors || []).map(a=>({...a,page:resolveNavigationTarget(state,a.target,studioPageLinkPages())}));},
+    links:()=>{reconcilePageNavigation(state);return (state.pageNavigation?.links || []).map(l=>({...l,unresolved:!resolveNavigationLink(state,l,studioPageLinkPages())}));},
+    register:(target,name)=>commitStudioNavigation(addPageAnchor(studioNavigationProject(),target,name)),
+    preview:(target,destination,format)=>{
+        const next=addPageLink(studioNavigationProject(),target,destination,format,studioPageLinkPages());
+        const link=next.pageNavigation.links.at(-1),page=resolveNavigationLink(next,link,studioPageLinkPages());
+        return {page,reference:link.reference.text.trim(),text:target.kind==='text'?target.text.slice(target.start,target.end):readPageNavigationText(state,target)};
+    },
+    setLink:(target,destination,format)=>commitStudioNavigation(addPageLink(studioNavigationProject(),target,destination,format,studioPageLinkPages())),
+    remove:linkId=>commitStudioNavigation(removePageLink(studioNavigationProject(),linkId)),
+    removeAnchor:id=>{const next=structuredClone(studioNavigationProject());next.pageNavigation.anchors=next.pageNavigation.anchors.filter(a=>a.id!==id);commitStudioNavigation(next);},
+};}
+let pageNavigationSyncRunning=false, pageNavigationSyncCount=0, pageNavigationSyncRevision=-1;
+function synchronizeStudioNavigation(){
+    if(!state.pageNavigation || pageNavigationSyncRunning || _flowAuthoringComposing || _flowDirectEditApplying || _editorFlowProjectionController || _flowAuthoringReflowTimer)return;
+    pageNavigationSyncRunning=true;
+    try{
+        reconcilePageNavigation(state);
+        const pages=studioPageLinkPages();if(!pages.length || pages.some(p=>p.isSourceFallback))return;
+        if(pageNavigationSyncRevision!==_flowAuthoringSourceRevision)pageNavigationSyncCount=0;
+        if(pageNavigationSyncCount>=8)return;
+        const next=structuredClone(studioNavigationProject());
+        if(syncNavigationReferences(next,pages,state.activeLang)){commitStudioNavigation(next,{history:false});pageNavigationSyncCount++;pageNavigationSyncRevision=_flowAuthoringSourceRevision;}
+    }finally{pageNavigationSyncRunning=false;}
+}
+setInterval(()=>{if(document.body.dataset.room==='editor'&&!document.hidden)synchronizeStudioNavigation();},400);
+function studioPageLinkPages(){
+    const pages=getEditorCanvasProjection()?.pages || [];
+    return pages.map((p,index)=>({...p,number:/^[1-9][0-9]*$/.test(getPageDisplayLabel(index,pages.length,state.book,state.bookMode))
+        ?Number(getPageDisplayLabel(index,pages.length,state.book,state.bookMode)):null}));
+}
+function readStudioPageLinkTarget(target){
+    const owner=state.blocks.find(b=>b.id===target.ownerId);if(!owner)return null;
+    if(target.scope==='flow-text'){
+        const b=owner.flow?.document.sections.find(s=>s.id===target.sectionId)?.blocks.find(b=>b.id===target.objectId);
+        return typeof b?.texts?.[target.language]==='string'?{text:b.texts[target.language]}:null;
+    }
+    const o=owner.kind==='flow'?owner.flow.layout.anchoredObjects?.find(e=>e.graphic.id===target.objectId)?.graphic:owner.content?.graphicObjects?.find(o=>o.id===target.objectId);
+    if(!o || o.locked)return null;
+    return {text:o.texts?.[target.language] || '',visible:o.visible,caption:o.caption?.texts?.[target.language] || ''};
+}
+function resolveStudioPageLinkPage(target){
+    return studioPageLinkPages().find(p=>p.blockId===target.ownerId && !p.isSourceFallback && (p.kind==='fixed'
+        || (target.scope==='flow-text'?p.languageKey===target.language && p.page.fragments.some(f=>f.blockId===target.objectId && f.sourceRange.start<=target.start && target.start<f.sourceRange.end)
+        :p.page.anchoredObject && (p.page.anchoredObject.graphic.members || [p.page.anchoredObject.graphic]).some(o=>o.id===target.objectId)))) || null;
+}
+function captureStudioPageLinkTarget(){
+    if(!canEditSharedStudio() || _flowAuthoringComposing || _flowDirectEditApplying || _editorFlowProjectionController)return null;
+    const selection=getFlowAnnotationTarget(document.activeElement);
+    if(selection){
+        const target={kind:'text',scope:'flow-text',ownerId:selection.groupId,sectionId:selection.sectionId,objectId:selection.blockId,language:selection.languageKey,start:selection.start,end:selection.end};
+        const value=readStudioPageLinkTarget(target);if(value)return {...target,text:value.text};
+    }
+    const graphic=objectToolbar.getPageLinkSelection();
+    if(!graphic || !['image','text'].includes(graphic.kind))return null;
+    const o=graphic.object;
+    return {kind:graphic.kind,scope:'graphic',ownerId:getActiveBlock().id,objectId:o.id,language:state.activeLang,name:o.name,
+        text:o.texts[state.activeLang] || '',caption:o.caption?.texts[state.activeLang] || '',start:graphic.start,end:graphic.end};
 }
 
 function getFlowAnnotationTarget(element) {
@@ -4271,7 +4345,7 @@ function syncBlocksFromState() {
     if (!canEditSharedStudio()) return;
     dispatch({ type: actionTypes.SET_STATE_FIELD, payload: {
         key: 'blocks',
-        value: syncBlocksWithSections(state.blocks, state.sections, state.languages, { strictSpine: state.version === 6 }),
+        value: syncBlocksWithSections(state.blocks, state.sections, state.languages, { strictSpine: [6,7].includes(state.version) }),
     } });
     dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'pages', value: blocksToPages(state.blocks) } });
     const activeBlock = getActiveBlock();
@@ -5607,7 +5681,7 @@ function refresh(options = {}) {
     const lang = state.activeLang;
     const langProps = getLangProps(lang);
     const isFlowReadOnly = activeBlock?.kind === 'flow'
-        || (!s && state.version === 6 && (state.blocks || []).some((block) => block?.kind === 'flow'));
+        || (!s && [6,7].includes(state.version) && (state.blocks || []).some((block) => block?.kind === 'flow'));
     const isFlowAuthoring = activeBlock?.kind === 'flow' && isFlowSourceSelected(activeBlock.id);
     const nextFlowContext = `${activeBlock?.id}:${getEditorFlowProjectionLanguage(activeBlock)}`;
     if (_flowCanvasContextKey && _flowCanvasContextKey !== nextFlowContext) {
@@ -6352,7 +6426,7 @@ function getDropPositionByPoint(el, clientX, clientY) {
 }
 
 function moveSectionWithHistory(fromIndex, targetIndex, position) {
-    if (state.version === 6) {
+    if ([6,7].includes(state.version)) {
         const sourcePageIndex = Number(fromIndex);
         const targetPageIndex = position === 'before'
             ? getSpreadPairStart(targetIndex)
@@ -6387,7 +6461,7 @@ function moveSectionWithHistory(fromIndex, targetIndex, position) {
 }
 
 function moveSectionToInsertIndexWithHistory(fromIndex, insertIndex) {
-    if (state.version === 6) return false;
+    if ([6,7].includes(state.version)) return false;
     const from = Number(fromIndex);
     const pair = getSpreadPairIndices(from);
     if (pair.length > 1) {
@@ -7740,7 +7814,7 @@ function updateTextSectionAlign(value) {
 
     const blocks = touchedBlock
         ? newBlocks
-        : syncBlocksWithSections(state.blocks, newSections, state.languages, { strictSpine: state.version === 6 });
+        : syncBlocksWithSections(state.blocks, newSections, state.languages, { strictSpine: [6,7].includes(state.version) });
 
     dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'sections', value: newSections } });
     dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'blocks', value: blocks } });
@@ -8147,7 +8221,7 @@ function updateTextSectionBody(v) {
     // blocks/pages を同期
     dispatch({ type: actionTypes.SET_STATE_FIELD, payload: {
         key: 'blocks',
-        value: syncBlocksWithSections(state.blocks, state.sections, state.languages, { strictSpine: state.version === 6 }),
+        value: syncBlocksWithSections(state.blocks, state.sections, state.languages, { strictSpine: [6,7].includes(state.version) }),
     } });
     dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'pages', value: blocksToPages(state.blocks) } });
 
@@ -8404,7 +8478,7 @@ function showContextMenuAt(x, y, html) {
     contextMenu.style.top = `${Math.max(8, menuY)}px`;
 }
 function insertSectionBeforeActiveByType(sectionType = 'image') {
-    if (state.version === 6) {
+    if ([6,7].includes(state.version)) {
         const blockIdx = Number.isInteger(state.activeBlockIdx)
             ? state.activeBlockIdx
             : Math.max(0, (state.blocks || []).length - 1);
@@ -8458,7 +8532,7 @@ function validateSpreadImageCompositionForSections(sections) {
 }
 
 function insertSpreadImageBeforeActive() {
-    if (state.version === 6) {
+    if ([6,7].includes(state.version)) {
         alert('Project v6での見開きページ追加は、混在スパイン対応後に利用できます。');
         return;
     }
@@ -8474,7 +8548,7 @@ function insertSpreadImageBeforeActive() {
     triggerAutoSave();
 }
 function addProjectPageAtTail(sectionType) {
-    if (state.version !== 6) return false;
+    if (![6,7].includes(state.version)) return false;
     const blocks = state.blocks || [];
     pushState();
     insertPageNearBlock(blocks.length ? blocks.length - 1 : -1, 'after', refresh, sectionType);
@@ -9400,7 +9474,7 @@ window.insertSectionAtIndex = (idx, e) => {
         e.preventDefault();
         e.stopPropagation();
     }
-    if (state.version === 6) {
+    if ([6,7].includes(state.version)) {
         alert('Project v6ではページ上の＋ボタンを使って挿入位置を指定してください。');
         return;
     }
@@ -9417,7 +9491,7 @@ window.duplicateSectionByIndex = (idx, e) => {
         e.preventDefault();
         e.stopPropagation();
     }
-    if (state.version === 6) return;
+    if ([6,7].includes(state.version)) return;
     pushState();
     duplicateSectionAt(idx, refresh);
     triggerAutoSave();
@@ -9463,8 +9537,10 @@ function applyEditorSpineChange(result, options = {}) {
     endHistoryGroup();
     pushState({ editorFocus, ...options.history });
     clearFlowDirectEditRuntime();
-    if (result.projectAssets) { state.version = 6; state.projectAssets = result.projectAssets; }
+    if (result.projectAssets) { state.version = state.pageNavigation ? 7 : 6; state.projectAssets = result.projectAssets; }
+    trackPageNavigationStructure(state.pageNavigation,state.blocks,result.blocks);
     dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'blocks', value: result.blocks } });
+    reconcilePageNavigation(state);
     dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'sections', value: result.blocks.some(block=>block.kind==='page') ? extractSectionsFromBlocks(result.blocks) : [] } });
     dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'pages', value: blocksToPages(result.blocks) } });
     dispatch({ type: actionTypes.SET_ACTIVE_BLOCK_INDEX, payload: result.activeBlockIndex });
@@ -9483,7 +9559,7 @@ function applyEditorSpineChange(result, options = {}) {
 }
 
 function editorDragBlocked(requireV6 = true) {
-    return (requireV6 && state.version !== 6) || _flowAuthoringComposing || _flowImageInsertionBusy
+    return (requireV6 && ![6,7].includes(state.version)) || _flowAuthoringComposing || _flowImageInsertionBusy
         || _flowDirectEditApplying || _flowTranslationJob?.state === 'running';
 }
 
@@ -9605,7 +9681,7 @@ bindEditorThumbnailDrag({
 });
 
 window.startThumbDrag = (e, idx) => {
-    if (state.version === 6 && !isPersistedFixedPageIndex(idx)) return;
+    if ([6,7].includes(state.version) && !isPersistedFixedPageIndex(idx)) return;
     thumbDragSourceIdx = idx;
     addThumbClassToSpreadPair(idx, 'drag-source');
     if (e.dataTransfer) {
@@ -9615,7 +9691,7 @@ window.startThumbDrag = (e, idx) => {
 };
 window.onThumbDragOver = (e, idx) => {
     if (!Number.isInteger(thumbDragSourceIdx)) return;
-    if (state.version === 6 && !isPersistedFixedPageIndex(idx)) return;
+    if ([6,7].includes(state.version) && !isPersistedFixedPageIndex(idx)) return;
     e.preventDefault();
     const el = getThumbElement(idx);
     if (!el) return;
@@ -9627,7 +9703,7 @@ window.onThumbDragLeave = () => {
 };
 window.onThumbDrop = (e, idx) => {
     if (!Number.isInteger(thumbDragSourceIdx)) return;
-    if (state.version === 6 && !isPersistedFixedPageIndex(idx)) return;
+    if ([6,7].includes(state.version) && !isPersistedFixedPageIndex(idx)) return;
     e.preventDefault();
     const el = getThumbElement(idx);
     if (!el) return;
@@ -9702,7 +9778,7 @@ window.deleteActive = () => {
     pushState();
     const changed = deleteActive(refresh);
     if (changed) {
-        if (state.version === 6) invalidateFlowRuntimePages({ preserveSelection: true });
+        if ([6,7].includes(state.version)) invalidateFlowRuntimePages({ preserveSelection: true });
         triggerAutoSave();
     }
 };
@@ -10334,6 +10410,7 @@ window.newProject = async () => {
 function initializeNewProject(choice, draft = null, {autosave=true} = {}) {
     assertPersonalStudioOperation();
     resetFlowRuntimeForProjectChange();
+    state.pageNavigation = null;
     state.projectAssets = [];
     state.localProjectId = null;
     clearCloudMetadata(state);
@@ -11033,7 +11110,7 @@ window.saveProjectSettings = async () => {
             state.blocks,
             nextSections,
             nextLanguages,
-            { strictSpine: state.version === 6 },
+            { strictSpine: [6,7].includes(state.version) },
         );
         const nextBlocks = _applyTextPaperStyleToBlocks(syncedBlocks, nextTextPaperPreset);
         dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'blocks', value: nextBlocks } });
@@ -11332,6 +11409,14 @@ window.openMobileSheet = (sheetName) => {
 
 function initUIChrome() {
     initFlowRibbon();
+    {
+        installStudioPageLinks({
+            root:document.querySelector('[data-ribbon-panel="home"]'),
+            identity:()=>[state.uid,state.projectId,state.localProjectId,state.workId,state.activeLang].join('|'),
+            capture:captureStudioPageLinkTarget,readTarget:readStudioPageLinkTarget,
+            resolvePage:resolveStudioPageLinkPage,pages:studioPageLinkPages,modelFactory:createStudioNavigationModel,
+        });
+    }
     _flowCompare = createFlowTranslationCompare({
         container: document.getElementById('canvas-view'), createView: createEditorFlowCanvas,
         model: () => ({state, group:getActiveBlock()}),
@@ -11733,6 +11818,17 @@ if (import.meta.env.MODE !== 'production') {
 }
 
 const studioBootReady = bootstrapApp();
+if(import.meta.env.DEV && new URLSearchParams(location.search).get('pageLinksFixture')==='1') {
+    void studioBootReady.then(async()=>{
+        if(firebaseAuth.currentUser || new URLSearchParams(location.search).has('id') || new URLSearchParams(location.search).has('sharedWork'))return;
+        const {pageLinksEditorFixture}=await import('../scripts/fixtures/page-links-editor.js');
+        const fixture=await pageLinksEditorFixture();
+        initializeNewProject({languageKey:'ja',pageDirection:'ltr'},{...fixture,blocks:[fixture.blocks[0]]},{autosave:false});
+        state.blocks=fixture.blocks;state.sections=extractSectionsFromBlocks(fixture.blocks);state.pages=blocksToPages(fixture.blocks);
+        state.projectAssets=fixture.assets;state.book={mode:'none',covers:{}};state.bookMode='none';
+        selectFlowGeneratedPage(fixture.blocks[0].id);refresh();window.switchRoom('editor');
+    }).catch(error=>console.warn('[Page link fixture]',error));
+}
 // File launches wait for recovery/auth startup to finish before switching documents.
 void studioBootReady.catch(error => console.warn('[Studio] Startup failed:', error));
 

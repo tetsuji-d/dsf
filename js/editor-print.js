@@ -31,7 +31,7 @@ export async function openEditorPrint() {
     for(const language of languages){const o=doc.createElement('option');o.value=language;o.textContent=language.toUpperCase();$('lang').append(o)}
     $('lang').value=languages.includes(state.activeLang)?state.activeLang:languages[0];
     // This session is a read-only snapshot. Rebuilding never updates editor or publication metadata.
-    const fields=()=>({version:state.version,blocks:state.blocks,sections:state.sections,projectAssets:state.projectAssets,languages:state.languages,defaultLang:state.defaultLang,languageConfigs:state.languageConfigs,book:state.book,bookMode:state.bookMode,title:state.title,meta:state.meta,projectId:state.projectId,localProjectId:state.localProjectId});
+    const fields=()=>({version:state.version,pageNavigation:state.pageNavigation,blocks:state.blocks,sections:state.sections,projectAssets:state.projectAssets,languages:state.languages,defaultLang:state.defaultLang,languageConfigs:state.languageConfigs,book:state.book,bookMode:state.bookMode,title:state.title,meta:state.meta,projectId:state.projectId,localProjectId:state.localProjectId});
     const svgElement=(name,attrs)=>{const el=doc.createElementNS(ns,name);for(const [k,v]of Object.entries(attrs))el.setAttribute(k,String(v));return el;};
     function mount(container){
         for(const slot of container.querySelectorAll('[data-print-page]')){
@@ -80,7 +80,7 @@ export async function openEditorPrint() {
         try{
             const project=prepareProjectForSave(JSON.parse(initial));
             // Selection and booklet padding define print composition, independently of cover publication parity.
-            project.book={mode:'none'};project.bookMode='none';
+            if(!project.pageNavigation){project.book={mode:'none'};project.bookMode='none';}
             const omitPaperColor=!$('paperColor').checked;
             if(omitPaperColor)for(const block of project.blocks||[])if(block.kind==='flow'){
                 block.flow.layout.typographyByLanguage ||= {};

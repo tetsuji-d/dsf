@@ -126,7 +126,7 @@ function prepareSnapshot(input, { allowOperationalFields }) {
     }
     // Bound and detach before the existing normalizer clones/traverses the envelope.
     const detached = JSON.parse(stableJson(Object.fromEntries(entries)).json);
-    requireValue([5, 6].includes(detached.version), 'UNSUPPORTED_AUTHORING_PROJECT', 'Private authoring requires explicit Project v5 or v6.');
+    requireValue([5, 6, 7].includes(detached.version), 'UNSUPPORTED_AUTHORING_PROJECT', 'Private authoring requires explicit Project v5, v6 or v7.');
     assertSegment(detached.projectId);
     const prepared = prepareProjectForSave(detached);
     // v5 fills a default page first, then derives its sections on normalization.
@@ -162,7 +162,7 @@ export function privateAuthoringObjectKey(scope, revisionId) {
     return `users/${scope.uid}/projects/${scope.projectId}/generations/${scope.generationId}/revisions/${revisionId}.json`;
 }
 function assertDigestFields(value) {
-    requireValue(value.storageVersion === PRIVATE_AUTHORING_STORAGE_VERSION && [5, 6].includes(value.projectSchemaVersion),
+    requireValue(value.storageVersion === PRIVATE_AUTHORING_STORAGE_VERSION && [5, 6, 7].includes(value.projectSchemaVersion),
         'UNSUPPORTED_AUTHORING_STORAGE', 'Unsupported authoring storage or project version.');
     requireValue(typeof value.sha256 === 'string' && /^[a-f0-9]{64}$/.test(value.sha256),
         'INVALID_AUTHORING_HASH', 'Expected lowercase SHA-256 hex.');

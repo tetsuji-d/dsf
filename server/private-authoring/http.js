@@ -139,7 +139,8 @@ export function createAuthoringApi({ verifyToken, service, actions, creation, as
                 const status = /CONFLICT|REQUEST_REUSED|NOT_ACTIVE/.test(error.code) ? 409 : /TOO_LARGE|COMPLEXITY_LIMIT/.test(error.code) ? 413 : 422;
                 return json({ error: error.code }, status);
             }
-            if (['FLOW_PROJECT_INVALID', 'PROJECT_NOT_JSON_SAFE', 'PERSISTED_PROJECT_RUNTIME_DATA', 'MIXED_SPINE_FIXED_PAGE_COUNT_MISMATCH'].includes(error?.code)) {
+            if (/^PAGE_(NAVIGATION|TARGET|REFERENCE|DESTINATION)|^ANCHOR_NAME_INVALID$/.test(error?.code || '')) return json({error:'PAGE_NAVIGATION_INVALID'},422);
+            if (['UNSUPPORTED_PROJECT_VERSION', 'FLOW_PROJECT_INVALID', 'PROJECT_NOT_JSON_SAFE', 'PERSISTED_PROJECT_RUNTIME_DATA', 'MIXED_SPINE_FIXED_PAGE_COUNT_MISMATCH'].includes(error?.code)) {
                 return json({ error: 'AUTHORING_SCHEMA_INVALID' }, 422);
             }
             if (/^(FLOW_HORIZON|WORKS_PUBLICATION|HORIZON_|DSF_)/.test(error?.code || error?.issues?.[0]?.code || '')) return json({ error: 'RELEASE_METADATA_INVALID' }, 422);

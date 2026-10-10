@@ -24,7 +24,8 @@ import {
     doc, getDoc, serverTimestamp, writeBatch, runTransaction
 } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
 import { state, dispatch, actionTypes, getProjectSessionEpoch } from './state.js';
-import { hasFlowGroups } from './flow-project-model.js';
+import { hasFlowGroups as actualFlowGroups } from './flow-project-model.js';
+const hasFlowGroups=project=>actualFlowGroups(project)||!!project.pageNavigation;
 import { extractSectionsFromBlocks } from './blocks.js';
 import {
     assertAccountCanPublish,
@@ -969,6 +970,7 @@ function _createPressFlowPreflightPreviewSignature() {
         state.languageConfigs || {},
         _getSelectedPressLangs(),
         state.blocks || [],
+        state.pageNavigation || null,
         state.projectAssets || [],
     ]);
 }

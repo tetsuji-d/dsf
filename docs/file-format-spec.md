@@ -451,3 +451,8 @@ Excel（`.xlsx`）が Ooxml ベースで新機能（新しいグラフ、新し�
 1.  **未知データの扱い**: 表示に影響しない未知metadataは無視できる。一方、配信の未知style／必須描画capabilityは数値schemaVersionが既知でも拒否し、誤描画を避ける。authoring内容や順序に影響する未知Blockはround-tripのため保持し、対応できないEditorは編集保存を停止する。未知のFlow semantic Blockも保持したうえでvalidation／paginationを停止し、本文を黙って欠落させない。
 2.  **`fallback` プロパティの推奨**: 新しい機能（例：動画背景 `type: "video"`）を追加した場合、ビューアが非対応なら代替表示ができるよう、`fallback_image` のようなプロパティを標準化する。
 3.  **`schemaVersion` によるマイグレーション**: スキーマが根本的に変わる場合（例：旧来は配列だったものがオブジェクトのMapになる等）は、`schemaVersion` をインクリメントし、アプリ側で旧データを新データ構造にオンザフライで変換するマイグレーション関数を通してから読み込む (`syncModelsFromLegacy` 関数などの拡張)。
+
+
+## ページリンク拡張（2026-10-10、ローカル実装）
+
+Architect承認済み。リンク使用原稿はProject v7 / DSP meta schemaVersion 2。privateなpageNavigationに対象ID・範囲・参照先を保持する。生成番号は本文・キャプション内のキャッシュとして描画し、正本は参照先ID／絶対本文番号。DSF v2には解決済みpageLinksを付与する。詳細と実環境での未検証範囲は[ページリンク統合記録](page-links-editor-integration.md)を参照。未使用原稿の形式は維持する。

@@ -1,3 +1,4 @@
+import {layoutGraphicText} from './graphic-text-layout.js';
 import {placedFlowObject} from './flow-page-placement.js';
 // Fixed-page authoring objects. Public delivery uses flattened WebP pages.
 import { getShape } from "./shapes.js";
@@ -82,50 +83,11 @@ async function drawGraphicObject(ctx, o, assets, language, defaultLanguage) {
     ctx.beginPath();
     ctx.rect(pad, pad, Math.max(0, w - pad * 2), Math.max(0, h - pad * 2));
     ctx.clip();
-    if (s.writingMode === "vertical-rl") {
-      const count = Math.max(1, Math.floor((h - pad * 2) / s.fontSize));
-      const columns = [];
-      for (const paragraph of text.split("\n")) {
-        let chars = Array.from(paragraph);
-        if (!chars.length) columns.push([]);
-        while (chars.length) columns.push(chars.splice(0, count));
-      }
-      const used = columns.length * lineHeight;
-      let x = s.valign === "center" ? (w + used) / 2 - lineHeight : s.valign === "bottom" ? pad + used - lineHeight : w - pad - lineHeight;
-      columns.forEach((chars) => {
-        const space = h - pad * 2 - chars.length * s.fontSize;
-        const y = pad + (s.align === "center" ? space / 2 : s.align === "right" ? space : 0);
-        chars.forEach((ch, i) => ctx.fillText(ch, x, y + i * s.fontSize));
-        x -= lineHeight;
-      });
-    } else {
-      const lines = [];
-      for (const paragraph of text.split("\n")) {
-        let line = "";
-        for (const token of paragraph.split(/(\s+)/)) {
-          if (line && ctx.measureText(line + token).width > w - 2 * pad) {
-            lines.push(line);
-            line = "";
-          }
-          for (const ch of token) {
-            if (line && ctx.measureText(line + ch).width > w - 2 * pad) {
-              lines.push(line);
-              line = "";
-            }
-            line += ch;
-          }
-        }
-        lines.push(line);
-      }
-      const total = lines.length * lineHeight;
-      let y = s.valign === "center" ? (h - total) / 2 : s.valign === "bottom" ? h - pad - total : pad;
-      for (const line of lines) {
-        const width = ctx.measureText(line).width, x = s.align === "center" ? (w - width) / 2 : s.align === "right" ? w - pad - width : pad;
-        ctx.fillText(line, x, y);
-        if (s.underline) {
-          ctx.fillRect(x, y + s.fontSize + 1, width, 1);
-        }
-        y += lineHeight;
+    for(const line of layoutGraphicText(ctx,text,s,f)) {
+      if(line.vertical)Array.from(line.text).forEach((ch,i)=>ctx.fillText(ch,line.x,line.y+i*s.fontSize));
+      else {
+        ctx.fillText(line.text,line.x,line.y);
+        if(s.underline)ctx.fillRect(line.x,line.y+s.fontSize+1,ctx.measureText(line.text).width,1);
       }
     }
   } finally {

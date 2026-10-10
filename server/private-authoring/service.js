@@ -62,7 +62,7 @@ export async function readContext(tx, identity, projectId, requestId, generation
     check(account?.uid === identity.uid && account.status?.disabled === false, 'ACCOUNT_NOT_EDITABLE', 403);
     check(root && root.ownerUid === identity.uid && root.projectId === projectId, 'PROJECT_NOT_FOUND', 404);
     check(allowTrashed || !root.projectTrash, 'PROJECT_TRASHED', 409);
-    check([5, 6].includes(root.version) && root.authoringBackend === 'r2-private' && root.authoringStorageVersion === 1
+    check([5, 6, 7].includes(root.version) && root.authoringBackend === 'r2-private' && root.authoringStorageVersion === 1
         && root.authoringRef === 'authoringHeads/current', 'PROJECT_NOT_MIGRATED', 409);
     check(!['blocks', 'sections', 'pages'].some(key => Object.hasOwn(root, key)), 'ROOT_CONTAINS_AUTHORING');
     check(control?.storageVersion === 1 && typeof control.initialized === 'boolean', 'AUTHORING_CONTROL_MISSING');
@@ -83,7 +83,7 @@ function receipt(operation, currentHead) {
 export function metadataPatch(project, root, time) {
     check(project.workId === undefined || project.workId === (root.workId || ''), 'WORK_ID_CONFLICT', 409);
     // projectBytes includes image bytes in Studio; do not replace it with JSON-only size.
-    check([5, 6].includes(project.version) && project.version >= root.version, 'AUTHORING_VERSION_REGRESSION', 409);
+    check([5, 6, 7].includes(project.version) && project.version >= root.version, 'AUTHORING_VERSION_REGRESSION', 409);
     const patch = { version: project.version, lastUpdated: new Date(time) };
     for (const key of ['projectName', 'title', 'labelName', 'rating', 'license', 'textPaperPreset', 'defaultLang']) {
         if (!Object.hasOwn(project, key)) continue;

@@ -430,7 +430,7 @@ function canInsertNearBlock(block, position) {
 function syncModelsFromLegacy() {
     dispatch({ type: actionTypes.SET_STATE_FIELD, payload: {
         key: 'blocks',
-        value: syncBlocksWithSections(state.blocks, state.sections, state.languages, { strictSpine: state.version === 6 }),
+        value: syncBlocksWithSections(state.blocks, state.sections, state.languages, { strictSpine: [6,7].includes(state.version) }),
     } });
     dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'pages', value: blocksToPages(state.blocks) } });
     if (!Number.isInteger(state.activePageIdx)) {
@@ -551,7 +551,7 @@ export function deleteSectionAt(sectionIndex, refresh) {
     const idx = Number(sectionIndex);
     if (!Number.isInteger(idx) || idx < 0 || idx >= state.sections.length) return;
     if (state.sections.length <= 1) return;
-    if (state.version === 6) return applyFixedPageRemoval(idx, refresh);
+    if ([6,7].includes(state.version)) return applyFixedPageRemoval(idx, refresh);
 
     const nextSections = [...state.sections];
     nextSections.splice(idx, 1);
@@ -696,14 +696,14 @@ export function insertStructureBlock(kind, refresh) {
 export function insertPageNearBlock(blockIndex, position, refresh, sectionType = 'image') {
     const idx = Number(blockIndex);
     const list = [...(state.blocks || [])];
-    const emptyV6Spine = state.version === 6 && list.length === 0;
+    const emptyV6Spine = [6,7].includes(state.version) && list.length === 0;
     if (!emptyV6Spine && (!Number.isInteger(idx) || idx < 0 || idx >= list.length)) return;
     const pos = position === 'before' ? 'before' : 'after';
     const target = emptyV6Spine ? null : list[idx];
     if (!emptyV6Spine && !canInsertNearBlock(target, pos)) return;
 
     let insertAt = emptyV6Spine ? 0 : (pos === 'before' ? idx : idx + 1);
-    insertAt = state.version === 6
+    insertAt = [6,7].includes(state.version)
         ? Math.max(0, Math.min(insertAt, list.length))
         : Math.max(1, Math.min(insertAt, Math.max(1, list.length - 1)));
 
@@ -759,7 +759,7 @@ export function moveBlockAt(blockIndex, direction, refresh) {
     const list = state.blocks || [];
     if (!Number.isInteger(idx) || idx < 0 || idx >= list.length) return false;
     const block = list[idx];
-    if (state.version === 6 && block?.kind === 'flow') {
+    if ([6,7].includes(state.version) && block?.kind === 'flow') {
         const moved = moveFlowGroupInSpine(list, { blockIndex: idx, direction });
         if (!moved.changed) return false;
         dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'blocks', value: moved.blocks } });
@@ -805,7 +805,7 @@ export function renderThumbs() {
     container.dataset.dir = pageDir;
 
     const blocks = state.blocks || [];
-    const strictAuthoring = state.version === 6;
+    const strictAuthoring = [6,7].includes(state.version);
     const pageBlockIndices = getPageBlockIndices(blocks);
     const pageIndexByBlock = new Map(pageBlockIndices.map((bi, pageIdx) => [bi, pageIdx]));
     const runtimeProjection = strictAuthoring
@@ -1112,7 +1112,7 @@ export function canDeleteActive() {
         return !!state.sections?.[state.activeIdx]?.bubbles?.[state.activeBubbleIdx];
     }
     if (activeBlock?.kind === 'flow' || isLockedBlock(activeBlock)) return false;
-    if (state.version === 6 && activeBlock?.kind === 'page') {
+    if ([6,7].includes(state.version) && activeBlock?.kind === 'page') {
         const pageIndex = getPageIndexFromBlockIndex(state.blocks || [], state.activeBlockIdx);
         if (state.sections?.[pageIndex]?.spreadImage?.groupId) return false;
         return removeFixedPageRangeFromSpine(state.blocks || [], {
@@ -1145,7 +1145,7 @@ export function deleteActive(refresh) {
         return false;
     }
 
-    if (state.version === 6 && activeBlock?.kind === 'page') {
+    if ([6,7].includes(state.version) && activeBlock?.kind === 'page') {
         const pageIndex = getPageIndexFromBlockIndex(state.blocks || [], state.activeBlockIdx);
         return applyFixedPageRemoval(pageIndex, refresh);
     }

@@ -9,6 +9,7 @@ export const state = {
     // Project authoring envelope. Existing Fixed projects remain v5 until they
     // intentionally adopt a Project v6 Flow spine.
     version: 5,
+    pageNavigation: null,
     user: null,
     uid: null,
     projectId: null,
@@ -149,6 +150,7 @@ export function dispatch(action) {
             delete projectPayload.uid;
             delete projectPayload.user;
             clearCloudMetadata(state);
+            state.pageNavigation=null;
             Object.assign(state, projectPayload);
             setSharedStudioAccess(null);
             break;

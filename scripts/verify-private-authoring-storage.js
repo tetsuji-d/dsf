@@ -136,7 +136,7 @@ await test('malformed JSON values and excessive depth/node count fail closed', a
 });
 
 await test('legacy/future schemas, invalid Flow, runtime pages and credentials are rejected', async () => {
-    for (const version of [undefined, 4, 7]) {
+    for (const version of [undefined, 4, 8]) {
         const input = simple(); if (version === undefined) delete input.version; else input.version = version;
         await assert.rejects(createPrivateAuthoringSnapshot(input), code('UNSUPPORTED_AUTHORING_PROJECT'));
     }
@@ -168,7 +168,7 @@ await test('descriptor path is derived from scope, never a caller URL or arbitra
 });
 
 await test('descriptor/head versions, hashes, sizes, exact keys and revision integers are strict', () => {
-    for (const change of [{ storageVersion: 2 }, { projectSchemaVersion: 7 }, { sha256: 'etag' },
+    for (const change of [{ storageVersion: 2 }, { projectSchemaVersion: 8 }, { sha256: 'etag' },
         { sha256: descriptor.sha256.toUpperCase() }, { byteLength: 0 }, { byteLength: 1.5 },
         { byteLength: PRIVATE_AUTHORING_MAX_BYTES + 1 }, { unexpected: true }]) {
         assert.throws(() => assertPrivateAuthoringDescriptor({ ...descriptor, ...change }, scope));
@@ -189,7 +189,7 @@ await test('read rejects missing, truncated, corrupted, malformed and future-sch
     for (const [bytes, expectedCode] of [
         [Buffer.from('{'), 'AUTHORING_INVALID_JSON'],
         [Buffer.from([0xff]), 'AUTHORING_INVALID_JSON'],
-        [Buffer.from(JSON.stringify({ ...snapshot.project, version: 7 })), 'UNSUPPORTED_AUTHORING_PROJECT'],
+        [Buffer.from(JSON.stringify({ ...snapshot.project, version: 8 })), 'UNSUPPORTED_AUTHORING_PROJECT'],
         [Buffer.from(JSON.stringify({ ...snapshot.project, authoringRef: 'server-only' })), 'AUTHORING_OPERATIONAL_DATA'],
         [Buffer.from(' ' + snapshot.json), 'AUTHORING_NONCANONICAL_JSON'],
         [Buffer.from(snapshot.json.replace('project_1', 'project_2')), 'AUTHORING_SCOPE_MISMATCH'],

@@ -1,3 +1,4 @@
+import {validatePageNavigation} from './page-navigation.js';
 import {validateFlowPagePlacements} from './flow-page-placement.js';
 import {validateFlowAnchoredObjects} from './flow-anchored-objects.js';
 /**
@@ -449,7 +450,11 @@ export function validateFlowProjectData(project) {
         addIssue(issues, 'invalid_project', '', 'Project must be an object.');
         return { valid: false, issues };
     }
-    if (project.version !== PROJECT_SCHEMA_VERSION) {
+    if (project.version === 7) {
+        try { if(!project.pageNavigation)throw Error('Missing navigation');validatePageNavigation(project.pageNavigation); }
+        catch(error){addIssue(issues,'invalid_page_navigation','pageNavigation',error.message);}
+    }
+    if (![PROJECT_SCHEMA_VERSION,7].includes(project.version)) {
         addIssue(issues, 'unsupported_project_schema_version', 'version', 'Unsupported Project schema version.', {
             supportedVersion: PROJECT_SCHEMA_VERSION,
         });

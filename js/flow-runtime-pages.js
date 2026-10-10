@@ -412,6 +412,7 @@ export async function createFlowRuntimePageProjection(project, options = {}) {
     const fixedPages = deepClone(Array.isArray(options.fixedPages) ? options.fixedPages : []);
     const projectSnapshot = Object.freeze({
         version: project.version,
+        ...(project.pageNavigation?{pageNavigation:deepClone(project.pageNavigation)}:{}),
         defaultLang: project.defaultLang,
         languageConfigs: deepClone(project.languageConfigs || {}),
         blocks,

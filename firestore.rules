@@ -70,8 +70,8 @@ service cloud.firestore {
       return control.get('status', '') == 'rolledBack'
         && control.get('generationId', '') is string && control.get('generationId', '').size() > 0
         && data.get('ownerUid', '') == uid && data.get('projectId', '') == pid
-        && ((data.get('version', 0) == 6 && data.get('authoringRef', '') == 'authoring/current'
-              && data.get('authoringSchemaVersion', 0) == 6)
+        && ((data.get('version', 0) in [6, 7] && data.get('authoringRef', '') == 'authoring/current'
+              && data.get('authoringSchemaVersion', 0) == data.get('version', 0))
           || (data.get('version', 0) == 5 && !data.keys().hasAny(['authoringRef', 'authoringSchemaVersion'])))
         && data.get('authoringRollbackGeneration', '') == control.get('generationId', 'invalid')
         && !hasPrivateAuthoringMarker(data);
@@ -123,7 +123,7 @@ service cloud.firestore {
       return !request.resource.data.keys().hasAny(['version'])
         || (request.resource.data.version is int
           && request.resource.data.version >= 1
-          && request.resource.data.version <= 6);
+          && request.resource.data.version <= 7);
     }
 
     function projectVersionDoesNotRegress() {
@@ -135,33 +135,35 @@ service cloud.firestore {
 
     function projectV6AuthoringExistsAfter(uid, pid) {
       return existsAfter(/databases/$(database)/documents/users/$(uid)/projects/$(pid)/authoring/current)
-        && getAfter(/databases/$(database)/documents/users/$(uid)/projects/$(pid)/authoring/current).data.version == 6
+        && getAfter(/databases/$(database)/documents/users/$(uid)/projects/$(pid)/authoring/current).data.version in [6, 7]
         && getAfter(/databases/$(database)/documents/users/$(uid)/projects/$(pid)/authoring/current).data.projectId == pid
         && getAfter(/databases/$(database)/documents/users/$(uid)/projects/$(pid)/authoring/current).data.blocks is list;
     }
 
     function projectV6RootIsSafe(uid, pid) {
       return (request.resource.data.keys().hasAny(['version'])
-          && request.resource.data.version == 6
+          && request.resource.data.version in [6, 7]
           && request.resource.data.projectId == pid
           && request.resource.data.authoringRef == 'authoring/current'
-          && request.resource.data.authoringSchemaVersion == 6
-          && projectV6AuthoringExistsAfter(uid, pid))
+          && request.resource.data.authoringSchemaVersion == request.resource.data.version
+          && projectV6AuthoringExistsAfter(uid, pid)
+          && getAfter(/databases/$(database)/documents/users/$(uid)/projects/$(pid)/authoring/current).data.version == request.resource.data.version)
         || ((!request.resource.data.keys().hasAny(['version'])
-            || request.resource.data.version != 6)
+            || !(request.resource.data.version in [6, 7]))
           && !request.resource.data.keys().hasAny(['authoringRef', 'authoringSchemaVersion']));
     }
 
     function projectAuthoringWriteIsValid(uid, pid, authoringId) {
       return authoringId == 'current'
-        && request.resource.data.version == 6
+        && request.resource.data.version in [6, 7]
         && request.resource.data.projectId == pid
         && request.resource.data.blocks is list
+        && (request.resource.data.version != 7 || request.resource.data.pageNavigation.version == 1)
         && existsAfter(/databases/$(database)/documents/users/$(uid)/projects/$(pid))
-        && getAfter(/databases/$(database)/documents/users/$(uid)/projects/$(pid)).data.version == 6
+        && getAfter(/databases/$(database)/documents/users/$(uid)/projects/$(pid)).data.version in [6, 7]
         && getAfter(/databases/$(database)/documents/users/$(uid)/projects/$(pid)).data.projectId == pid
         && getAfter(/databases/$(database)/documents/users/$(uid)/projects/$(pid)).data.authoringRef == 'authoring/current'
-        && getAfter(/databases/$(database)/documents/users/$(uid)/projects/$(pid)).data.authoringSchemaVersion == 6;
+        && getAfter(/databases/$(database)/documents/users/$(uid)/projects/$(pid)).data.authoringSchemaVersion == request.resource.data.version;
     }
 
     function projectSummaryHasValidShape() {
@@ -253,7 +255,7 @@ service cloud.firestore {
       return request.resource.data.schemaVersion == 1
         && request.resource.data.sourceProjectVersion is int
         && request.resource.data.sourceProjectVersion >= 0
-        && request.resource.data.sourceProjectVersion <= 6
+        && request.resource.data.sourceProjectVersion <= 7
         && request.resource.data.projectId == pid
         && request.resource.data.projectId is string
         && request.resource.data.projectId.size() > 0

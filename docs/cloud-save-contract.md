@@ -10,13 +10,16 @@ Published DSF data and Viewer delivery remain separate from the editable source.
 - Legacy Fixed-only projects remain Project v5. Loading or saving them does not
   implicitly upgrade them to v6.
 - A project containing a top-level `kind: "flow"` group must explicitly be
-  Project v6.
-- Project v6, FlowDocument v1–v4, and FlowLayout v1/v2 are validated before any
+  Project v6 or v7. Using page navigation upgrades a project to v7; undoing the
+  first anchor/link does not downgrade an already-upgraded project.
+- Project v7 additionally stores private `pageNavigation` version 1. This field
+  is excluded from the public root and remains in the owner-only authoring source.
+- Project v6/v7, FlowDocument v1–v4, and FlowLayout v1/v2 are validated before any
   state mutation or persistence write. Unsupported future versions fail closed.
 
 ## Private R2 authoring (scoped rollout)
 
-Existing unmarked v5/v6 projects keep their Firestore contract. New projects use
+Existing unmarked v5/v6/v7 projects keep their Firestore contract. New projects use
 private R2 when the build flag and authenticated owner rollout are enabled; see
 [New project creation](private-authoring-new-projects.md).
  A root explicitly
@@ -47,10 +50,12 @@ remain pending until the serialized save loop handles their snapshot.
 
 Production migration also supports Fixed-only Project v5 without converting its version.
 Legacy Japanese project/work IDs remain unchanged; path separators and URL escapes are rejected.
-A v5 rollback restores the source to the root, while v6 restores `authoring/current`.
+A v5 rollback restores the source to the root, while v6/v7 restores `authoring/current`.
+For v7 this includes the current page navigation and visible reference numbers;
+rollback must not discard the child source or restore an older schema version.
 
 The limit for migrated JSON is 16 MiB; the old 850 KiB limit still applies to
-Firestore v6. Asset blob URLs must resolve successfully before uploading private
+Firestore v6/v7. Asset blob URLs must resolve successfully before uploading private
 JSON. Missing image data stops the cloud save instead of erasing references.
 The original local image mapping remains available for recovery; successful URL
 resolution is reused within that editor session.
@@ -105,17 +110,17 @@ API activation, real migration and Rules deployment remain separate rollout work
 `users/{uid}/projects/{pid}` can be publicly readable after publication, so it
 must not contain Flow semantic source.
 
-For Project v6 using the legacy Firestore backend:
+For Project v6/v7 using the legacy Firestore backend (versions must match):
 
 ```text
 users/{uid}/projects/{pid}
   explicit public-field allowlist + Fixed compatibility projection
-  version: 6
+  version: 6 or 7
   authoringRef: "authoring/current"
-  authoringSchemaVersion: 6
+  authoringSchemaVersion: 6 or 7
 
 users/{uid}/projects/{pid}/authoring/current
-  owner-only complete Project v6 authoring envelope
+  owner-only complete Project v6/v7 authoring envelope
   blocks[] contains the ordered Fixed/Flow spine
 ```
 
@@ -133,6 +138,7 @@ semantics so Press fields are not dropped by a fragile client-side allowlist.
 - Flow Group `flow.layout`
 - optional Flow Group `flow.translationState` v1 source fingerprints and review/lock metadata
 - ordered mixed `blocks[]`
+- Project v7 `pageNavigation` (anchors, links and generated reference ranges)
 - Fixed compatibility `sections[]` and Page v5 `pages[]`
 - project metadata, exact saved language keys, and UI preferences
 

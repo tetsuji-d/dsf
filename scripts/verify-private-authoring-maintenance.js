@@ -89,6 +89,25 @@ await test('rollback refuses an oversized current manuscript instead of truncati
     await assert.rejects(f.maintenance.inspectRollback(scope, 'rollback_large'), matches('FIRESTORE_AUTHORING_TOO_LARGE'));
     assert.equal(f.get(control).status, 'active'); assert.equal(f.get(child), null); assert.equal(f.rawBucket.puts, before);
 });
+await test('v7 navigation survives migration, latest R2 save, rollback and a second migration', async () => {
+    const f = maintenanceFixture({ projectVersion: 7 });
+    await migrate(f);
+    const latest = structuredClone(f.source);
+    latest.pageNavigation.anchors[0].name = '更新した移動先';
+    await save(f, latest);
+    const plan = await f.maintenance.inspectRollback(scope, 'navigation_restore');
+    await f.maintenance.rollback(scope, 'navigation_restore', plan.planHash);
+    assert.equal(f.get(root).version, 7);
+    assert.equal(f.get(root).authoringSchemaVersion, 7);
+    assert.equal(f.get(root).pageNavigation, undefined);
+    assert.deepEqual(f.get(child).pageNavigation, latest.pageNavigation);
+    assert.deepEqual(f.get(child).blocks, latest.blocks);
+    await migrate(f, { ...scope, generationId: 'generation_2' });
+    const { revision, ...descriptor } = f.get(head);
+    const loaded = await f.bucket.read(descriptor, { ...scope, generationId: 'generation_2' });
+    assert.deepEqual(loaded.project.pageNavigation, latest.pageNavigation);
+    assert.equal(f.get(child), null);
+});
 await test('saving or deleting during rollback backup cannot restore stale source or resurrect a project', async () => {
     for (const kind of ['save', 'delete']) {
         const f = maintenanceFixture(); await migrate(f); const plan = await f.maintenance.inspectRollback(scope, 'rollback_race');

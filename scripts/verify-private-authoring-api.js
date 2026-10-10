@@ -199,7 +199,7 @@ await test('bounded raw body, schema, metadata, asset and identity validation pr
         const f = fixture(); await responseError(await f.request('PUT', options), status, error); assert.equal(f.r2.puts, 0);
     }
     for (const [change, error] of [
-        [{ version: 7 }, 'UNSUPPORTED_AUTHORING_PROJECT'], [{ projectId: 'other' }, 'AUTHORING_SCOPE_MISMATCH'],
+        [{ version: 8 }, 'UNSUPPORTED_AUTHORING_PROJECT'], [{ projectId: 'other' }, 'AUTHORING_SCOPE_MISMATCH'],
         [{ title: 'x'.repeat(513) }, 'METADATA_INVALID'], [{ workId: 'other' }, 'WORK_ID_CONFLICT'],
         [{ publicationThumbnailUrl: 'blob:local-only' }, 'ASSETS_NOT_RESOLVED'],
     ]) {
@@ -375,4 +375,12 @@ await test('corrupt operation receipts cannot masquerade as committed content', 
     f.db.docs.get(opPath('request_1')).committedHead.sha256 = 'f'.repeat(64);
     await responseError(await f.request('GET', { operation: 'request_1' }), 503, 'INVALID_OPERATION_RECORD');
     assert.equal(f.db.docs.get(headPath).revision, 1); assert.equal(f.r2.puts, 1);
+});
+
+await test('v7 navigation remains private through actual API save/read',async()=>{
+ const f=fixture();const project={...f.project,version:7,pageNavigation:{version:1,anchors:[],links:[]}};
+ assert.equal((await f.request('PUT',{project})).status,200);
+ assert.equal(f.db.docs.get(rootPath).version,7);assert.equal(f.db.docs.get(rootPath).pageNavigation,undefined);
+ const response=await f.request('GET');assert.equal(response.status,200);
+ const body=await response.json();assert(JSON.stringify(body).includes('pageNavigation'));
 });

@@ -2941,6 +2941,7 @@ body[data-theme="dark"] .viewer-empty-open-btn {
 
 /* Reader-local guides do not affect composed geometry. */
 #viewer-reading-guide {position:relative;}
+#viewer-reading-guide[hidden] {display:none!important;}
 #viewer-reading-guide summary {list-style:none;cursor:pointer;}
 #viewer-reading-guide summary::-webkit-details-marker {display:none;}
 .reading-guide-popover {position:absolute;right:0;top:40px;width:250px;max-width:80vw;padding:14px;background:#fff;color:#243144;border:1px solid #64748b;border-radius:8px;box-shadow:0 5px 20px #0005;}

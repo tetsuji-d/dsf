@@ -1,3 +1,6 @@
+import {installReaderPageLinks} from './reader-page-links.js';
+import '../css/reader-page-links.css';
+let pageLinkJourney=false,pageLinkJourneyToken=0;
 import {installFileLaunch} from './file-launch-ui.js';
 import {getPlatformLanguage,setPlatformLanguage,subscribePlatformLanguage} from './ui-language.js';
 import {workLanguageOptionLabel} from './work-languages.js';
@@ -532,7 +535,7 @@ async function init() {
         },
         consume:()=>{suppressZoneClickUntil=Date.now()+900;},
     });
-    readingGuides = initializeViewerReadingGuides({onLayoutChange: scheduleViewerResize, onAssistanceChange: active => {
+    readingGuides = initializeViewerReadingGuides({available: false, onLayoutChange: scheduleViewerResize, onAssistanceChange: active => {
         if (active) coverTurn?.cancel();
         clearViewerUiAutoHide();
         if (!active) scheduleViewerUiAutoHide();
@@ -1451,6 +1454,7 @@ async function restoreBookmarkIfAvailable() {
 }
 
 function queueBookmarkSave() {
+    if(pageLinkJourney)return;
     if (!state.uid || !viewerProjectMeta.workId || viewerProjectMeta.source !== 'shared') return;
     clearTimeout(bookmarkSaveTimer);
     bookmarkSaveTimer = setTimeout(() => {
@@ -1947,6 +1951,7 @@ function trackViewStart() {
 }
 
 function trackPageView(reason = 'navigation') {
+    if(pageLinkJourney)return;
     if (!shouldTrackMetrics()) return;
     const pageIndex = getIndex();
     const key = `${viewerProjectMeta.workId}:${viewerProjectMeta.releaseId || ''}:${state.activeLang}:${pageIndex}`;
@@ -5524,3 +5529,19 @@ function esc(s) {
 const fileLaunchReady=init();
 void fileLaunchReady.catch((e) => console.warn('[Viewer] init failed:', e));
 installFileLaunch({extension:'.dsf',getLocale:()=>viewerUiLang,beforeOpen:async()=>{await fileLaunchReady;},openFile:file=>loadViewerFile(file,{preview:true})});
+
+installReaderPageLinks({pages:getPages,renderThumbnail:page=>renderPageContentHTML(page,state.activeLang),navigate:id=>{
+    const token=++pageLinkJourneyToken;let cancelled=false;const language=state.activeLang,revision=viewerDocumentRevision,spread=spreadMode;
+    const finish=()=>{if(token===pageLinkJourneyToken&&pageLinkJourney){pageLinkJourney=false;queueBookmarkSave();trackPageView('page_link');}};
+    (async()=>{pageLinkJourney=true;try{
+      const destination=getPages().findIndex(p=>p.id===id);if(destination<0)return;
+      const target=spreadMode&&hasBookModel()?findBookUnitIndexForPage(destination):destination;
+      const current=()=>spreadMode&&hasBookModel()?bookSpreadIndex:getIndex();
+      const move=n=>{if(spreadMode&&hasBookModel())transitionToBookUnit(n);else transitionToIndex(n,n>getIndex()?'next':'prev');};
+      if(matchMedia('(prefers-reduced-motion:reduce)').matches){move(target);return;}
+      while(current()!==target&&!cancelled&&language===state.activeLang&&revision===viewerDocumentRevision&&spread===spreadMode){
+        const before=current();move(before+Math.sign(target-before));if(current()===before)break;
+        await new Promise(resolve=>setTimeout(resolve,320));
+      }
+    }finally{finish();}})();return()=>{cancelled=true;finish();};
+}});

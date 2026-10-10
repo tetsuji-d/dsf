@@ -100,6 +100,7 @@ export async function prepareFlowPressPublication(options = {}) {
     });
     return Object.freeze({
         ...result,
+        ...(options.project?.pageNavigation?{navigationProject:structuredClone({version:options.project.version,blocks:options.project.blocks,pageNavigation:options.project.pageNavigation,book:options.project.book,bookMode:options.project.bookMode})}:{}),
         publicationPreparationVersion: FLOW_PRESS_PUBLICATION_PREPARATION_VERSION,
         productionFontCount: Object.keys(fontRegistry.fonts || {}).length,
     });

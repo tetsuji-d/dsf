@@ -6,22 +6,31 @@ import { createMaintenanceBackupStore } from '../../server/private-authoring/mai
 import { createAuthoringBucket } from '../../server/private-authoring/r2.js';
 import { createAuthoringService } from '../../server/private-authoring/service.js';
 import { createFlowGroupBlock } from '../../js/flow-project-model.js';
+import { addPageAnchor, addPageLink } from '../../js/page-navigation.js';
 import { createPublicProjectProjection } from '../../js/project-persistence.js';
 import { AuthoringApiError } from '../../server/private-authoring/common.js';
 import { MemoryR2 } from './private-authoring-api-fixture.js';
 export const scope = { uid: 'owner_1', projectId: 'project_1', generationId: 'generation_1' };
 export const root = 'users/owner_1/projects/project_1', child = `${root}/authoring/current`, control = `${root}/authoringControl/current`, head = `${root}/authoringHeads/current`;
 const clone = structuredClone;
-export function maintenanceFixture({onRequest=()=>{}}={}) {
+export function maintenanceFixture({onRequest=()=>{}, projectVersion=6}={}) {
     let clock = 1_800_000_000_000, serial = 0, txSerial = 0, revoked = false, committedWrites = 0;
     const docs = new Map(), transactions = new Map();
     const typed = value => encodeFirestoreValue(value).mapValue.fields;
     const setFields = (path, fields) => docs.set(path, { fields: clone(fields), updateTime: new Date(1_700_000_000_000 + ++serial).toISOString(), createTime: docs.get(path)?.createTime || new Date(1_700_000_000_000).toISOString() });
     const set = (path, value) => setFields(path, typed(value));
     const get = path => docs.has(path) ? decodeFirestoreValue({ mapValue: { fields: docs.get(path).fields } }) : null;
-    const source = { version: 6, projectId: scope.projectId, workId: 'work_1', title: '原稿', projectName: '移行試験', languages: ['ja', 'en'], defaultLang: 'ja',
+    let source = { version: 6, projectId: scope.projectId, workId: 'work_1', title: '原稿', projectName: '移行試験', languages: ['ja', 'en'], defaultLang: 'ja',
         futurePrivate: { value: 'PRIVATE_SOURCE_SENTINEL', '10': 'ten', '2': 'two', src: 'prose: not an asset' }, blocks: [createFlowGroupBlock({ id: 'flow_1', sourceLanguage: 'ja',
             document: { schemaVersion: 2, id: 'doc_1', sections: [{ id: 'chapter_1', blocks: [{ id: 'p_1', type: 'paragraph', texts: { ja: '小説\r\n本文\n  😀 e\u0301  ', en: '  Exact\ntext  ' } }] }] } })] };
+    if (projectVersion === 7) {
+        const target = { scope: 'flow-text', kind: 'text', ownerId: 'flow_1', sectionId: 'chapter_1', objectId: 'p_1', language: 'ja',
+            text: source.blocks[0].flow.document.sections[0].blocks[0].texts.ja, start: 0, end: 2 };
+        source = addPageAnchor(source, target, '小説', 'anchor_1');
+        source = addPageLink(source, target, { kind: 'anchor', anchorId: 'anchor_1' }, 'paren',
+            [{ id: 'page_1', kind: 'flow', blockId: 'flow_1', languageKey: 'ja', number: 1,
+                page: { fragments: [{ blockId: 'p_1', sourceRange: { start: 0, end: 100 } }] } }], 'link_1');
+    }
     set('users/owner_1', { uid: 'owner_1', status: { disabled: false, moderationHold: false } });
     set(root, { ...createPublicProjectProjection(source), ownerUid: scope.uid, releaseId: 'release_1', dsfStatus: 'public', visibility: 'public',
         publication: { publicFrom: new Date(clock - 100000), listedFrom: new Date(clock - 100000) }, unknownRoot: 'old private value' });

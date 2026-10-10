@@ -1111,3 +1111,8 @@ Flowを含む作品のDSF／Horizon発行はhybrid delivery v2の検証済みpro
 | 2026-05-05 | プラン別期限仕様を FREE/PLUS/PRO/BUSINESS に更新し、`planChangeRequests` とマイページ土台を追加 |
 | 2026-05-06 | 課金スキーマを正規化。`plan.effectiveTier`、`billing`、`entitlements.canUseUnlimitedListing` / `canSchedulePublicExpiry`、`billing_events` を追加 |
 | 2026-05-10 | 公開プロフィール `users/{uid}.publicProfile` と handle 予約 `handles/{handle}` を追加 |
+
+
+## ページリンク拡張（2026-10-10、ローカル実装）
+
+Architect承認済み。リンク使用原稿はProject v7 / DSP meta schemaVersion 2。privateなpageNavigationに対象ID・範囲・参照先を保持する。生成番号は本文・キャプション内のキャッシュとして描画し、正本は参照先ID／絶対本文番号。DSF v2には解決済みpageLinksを付与する。詳細と実環境での未検証範囲は[ページリンク統合記録](page-links-editor-integration.md)を参照。未使用原稿の形式は維持する。

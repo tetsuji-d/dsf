@@ -44,15 +44,11 @@ const readerEnglish = {
     "読書補助": "Reading assistance",
     "本の表示とページ操作": "Book view and page controls",
     "リード情報": "Read information",
-    "半回転して背表紙を表示": "Turn to show the spine",
-    "閉じて小口を表示": "Close to show the page edges",
-    "ページを少し開いて覗く": "Open slightly to peek",
-    "紙のしなりを残して読む": "Read with curved pages",
-    "このページを開く": "Open this page",
-    "半回転して小口を表示": "Turn to show the page edges",
-    "ページを少し閉じて覗く": "Close slightly to peek",
-    "背表紙を表示中": "Showing the spine",
-    "ページを開いています": "Showing the open page"
+    "通常表示": "Flat view",
+    "ブック表示": "Book view",
+    "覗き見表示": "Peek view",
+    "小口表示": "Page-edge view",
+    "背表紙表示": "Spine view"
 };
 const readerText = text => document.documentElement.lang === 'en' ? (readerEnglish[text] || text) : text;
 const KEY = 'dsf.viewer.reader-chrome.v1';
@@ -127,13 +123,13 @@ export function initializeViewerReaderChrome({getSnapshot, onLayoutChange, befor
     document.addEventListener('pointerdown', e => {if(!settings.contains(e.target)) settings.open = false;});
     document.addEventListener('viewer-chrome-change', () => {if(!document.body.classList.contains('viewer-ui-visible')) settings.open=false;});
     const states=()=>canReadBook()?['spine','edge','peek','book','reading']:['spine','edge','peek','reading'];
-    const actionLabels={spine:'半回転して背表紙を表示',edge:'閉じて小口を表示',peek:'ページを少し開いて覗く',book:'紙のしなりを残して読む',reading:'このページを開く'};
+    const viewLabels={spine:'背表紙表示',edge:'小口表示',peek:'覗き見表示',book:'ブック表示',reading:'通常表示'};
     function state(){return transition?.from || (mode==='edge'&&phase==='peek'?(getPeek()?.reading===1?'book':'peek'):mode||'reading');}
     function syncControls(){
         const current=state(),at=states().indexOf(current),snapshot=getSnapshot();rail.dataset.bookState=current;
         for(const [button,offset] of [[up,-1],[down,1]]){
             const target=states()[at+offset],icon=target||current;
-            const label=readerText(target?(current==='spine'&&target==='edge'?'半回転して小口を表示':current==='reading'&&target==='peek'?'ページを少し閉じて覗く':actionLabels[target]):(current==='spine'?'背表紙を表示中':'ページを開いています'));
+            const label=readerText(viewLabels[target||current]);
             setViewerReaderIcon(button,icon==='reading'?'open':icon,label);
             if(!button.querySelector('.reader-direction-mark')){
                 const mark=document.createElement('span');mark.className='reader-direction-mark';mark.setAttribute('aria-hidden','true');

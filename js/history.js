@@ -1,3 +1,4 @@
+import {reconcilePageNavigation} from './page-navigation.js';
 /**
  * history.js — Undo/Redo 履歴管理
  * sections/blocks の deep copy スナップショットをスタックで管理する
@@ -27,8 +28,10 @@ function clone(value, fallback) {
 }
 
 export function createHistorySnapshot(source = state, options = {}) {
+    reconcilePageNavigation(source);
     return {
         version: source.version,
+        pageNavigation: clone(source.pageNavigation,null),
         projectAssets: clone(source.projectAssets, []),
         blocks: clone(source.blocks, []),
         sections: clone(source.sections, []),
@@ -43,7 +46,11 @@ export function createHistorySnapshot(source = state, options = {}) {
 }
 
 function restoreHistorySnapshot(snapshot) {
-    if (Number.isInteger(snapshot.version)) state.version = snapshot.version;
+    // Once a project uses v7, undo removes the feature data without regressing
+    // the storage version (a saved cloud head must never be downgraded).
+    const navigationVersion=state.version===7||snapshot.version===7;
+    state.pageNavigation=clone(snapshot.pageNavigation,navigationVersion?{version:1,anchors:[],links:[]}:null);
+    if (Number.isInteger(snapshot.version)) state.version = navigationVersion?7:snapshot.version;
     state.projectAssets = snapshot.projectAssets || [];
     state.blocks = snapshot.blocks || state.blocks || [];
     state.sections = snapshot.sections || [];
@@ -183,7 +190,7 @@ export function readHistoryEntry(id, { includeImages = false } = {}) {
 // Includes present data, not just stack size: catches grouped typing and edits without pushState.
 export function getHistoryGuard() {
     return JSON.stringify([revision, undoStack.at(-1)?.historyEntry.id, redoStack.at(-1)?.historyEntry.id,
-        state.version, state.blocks, state.sections, state.projectAssets]);
+        state.version, state.blocks, state.sections, state.projectAssets, state.pageNavigation]);
 }
 
 // A history snapshot must never cross a project boundary.

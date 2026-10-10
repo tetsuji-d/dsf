@@ -20,7 +20,7 @@ export function maintenancePaths(scope, kind, requestId) {
         initialOperation: `${p.root}/authoringRevisions/initial`, backupKey: `users/${scope.uid}/projects/${scope.projectId}/migrations/${scope.generationId}/${kind}-${requestId}.json` };
 }
 function legacyState(root, control, head) {
-    return ((root?.version === 6 && root.authoringRef === 'authoring/current' && root.authoringSchemaVersion === 6)
+    return (([6, 7].includes(root?.version) && root.authoringRef === 'authoring/current' && root.authoringSchemaVersion === root.version)
         || (root?.version === 5 && !Object.hasOwn(root, 'authoringRef') && !Object.hasOwn(root, 'authoringSchemaVersion')))
         && !Object.hasOwn(root, 'authoringBackend') && !Object.hasOwn(root, 'authoringStorageVersion')
         && ((!control && !head) || (control?.status === 'rolledBack' && root.authoringRollbackGeneration === control.generationId
@@ -181,7 +181,7 @@ export function createAuthoringMaintenance({ db, bucket, backups, authorize, now
                 tx.delete(p.legacy);
             } else {
                 nextHead = c.head;
-                if (plan.snapshot.project.version === 6) tx.set(p.legacy, { ...plan.snapshot.project, lastUpdated: new Date(time) });
+                if ([6, 7].includes(plan.snapshot.project.version)) tx.set(p.legacy, { ...plan.snapshot.project, lastUpdated: new Date(time) });
                 else tx.delete(p.legacy);
                 tx.set(p.control, { ...c.control, status: 'rolledBack', rolledBackAtMs: time, mutationRevision: (c.control.mutationRevision || 0) + 1 });
                 for (const path of c.publicPaths) {

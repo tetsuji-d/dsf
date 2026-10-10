@@ -1,3 +1,4 @@
+import {renderLinkedRun,appendPageLinkRegions} from './reader-page-links.js';
 import {
     DsfDeliveryValidationError,
     normalizeDsfDeliveryBundle,
@@ -201,7 +202,7 @@ export function createDsfFixedTextPageElement({
         root.append(createBackgroundImage(documentRef, persistedPage.background.imageHref, resolveAssetHref));
     }
 
-    persistedPage.lines.forEach((line) => {
+    persistedPage.lines.forEach((line,lineIndex) => {
         const lineElement = documentRef.createElement('div');
         lineElement.className = 'viewer-fixed-text-line';
         const annotation = /-(ruby|emphasis)$/.exec(line.styleRef || '');
@@ -218,15 +219,16 @@ export function createDsfFixedTextPageElement({
         applyTextStyle(lineElement, lineStyle, context);
         applyFixedTextWhiteSpaceStyle(lineElement, lineStyle.whiteSpaceMode);
 
-        line.runs.forEach((run) => {
+        line.runs.forEach((run,runIndex) => {
             const runElement = documentRef.createElement('span');
             runElement.className = 'viewer-fixed-text-run';
             if (run.styleRef) applyTextStyle(runElement, getStyle(context, run.styleRef), context);
-            renderFixedTextRunText(runElement, run.text, lineStyle.whiteSpaceMode, documentRef);
+            renderLinkedRun(runElement,run.text,lineStyle.whiteSpaceMode,documentRef,persistedPage.pageLinks,lineIndex,runIndex);
             lineElement.append(runElement);
         });
         root.append(lineElement);
     });
+    appendPageLinkRegions(root,persistedPage.pageLinks,documentRef);
     return root;
 }
 
@@ -264,6 +266,7 @@ export function createDsfViewerPageContentElement({
         image.src = imageUrl;
         image.loading = 'eager';
         image.alt = '';
+        if(page.deliveryV2?.pageLinks?.length){const wrapper=documentRef.createElement('div');wrapper.className='reader-linked-image';wrapper.append(image);appendPageLinkRegions(wrapper,page.deliveryV2.pageLinks,documentRef);return wrapper;}
         return image;
     }
     throw createViewerError('UNSUPPORTED_VIEWER_RENDER_KIND', 'The delivery page render kind is unsupported.');

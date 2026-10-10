@@ -1,3 +1,4 @@
+import {validDeliveryPageLinks} from './page-link-delivery-validation.js';
 /**
  * Pure DSF delivery v2 model.
  *
@@ -635,6 +636,7 @@ export function validateDsfLanguageManifest(manifest, options = {}) {
             return;
         }
         validatePageBase(page, path, issues, seenPageIds);
+        if(!validDeliveryPageLinks(page,manifest.pages))addIssue(issues,'invalid_page_links',path+'.pageLinks','Invalid page navigation extension.');
         if (page.renderKind === 'image') {
             validateImagePage(page, path, issues);
             if (hasOwn(page, 'lines')) {

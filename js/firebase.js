@@ -1409,7 +1409,7 @@ async function performSaveOnce() {
             // Obvious text-heavy over-limit projects stop before any asset
             // upload. The resolved payload is checked again immediately before
             // the Firestore batch because URL replacement can change its size.
-            if (authoringProject.version === 6) {
+            if ([6,7].includes(authoringProject.version)) {
                 assertFirestoreAuthoringSize({
                     ...authoringProject,
                     projectId: saveIdentity.projectId,
@@ -1464,7 +1464,7 @@ async function performSaveOnce() {
             };
 
             const batch = writeBatch(db);
-            if (persistedProject.version === 6) {
+            if ([6,7].includes(persistedProject.version)) {
                 const authoringDocument = {
                     ...persistedProject,
                     projectId: saveIdentity.projectId,
@@ -1932,9 +1932,9 @@ export async function loadProject(pid, refresh) {
                 throw error;
             }
         } else if (
-            rootData.version === 6
+            [6,7].includes(rootData.version)
             || rootData.authoringRef === 'authoring/current'
-            || rootData.authoringSchemaVersion === 6
+            || [6,7].includes(rootData.authoringSchemaVersion)
         ) {
             const authoringSnap = await getDocFromServer(projectAuthoringDocRef(pid, uid));
             if (!authoringSnap.exists()) {

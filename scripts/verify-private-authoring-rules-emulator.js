@@ -27,6 +27,23 @@ const root = 'users/owner/projects/migrated';
 try {
     const owner = client('owner', 'owner'), other = client('other', 'other'), anon = client('anon');
     await admin.doc('users/owner').set({ uid: 'owner', status: { disabled: false, moderationHold: false } });
+    const navPath='users/owner/projects/navigation';
+    const navRoot={version:7,projectId:'navigation',ownerUid:'owner',authoringRef:'authoring/current',authoringSchemaVersion:7,blocks:[]};
+    const navSource={version:7,projectId:'navigation',blocks:[],pageNavigation:{version:1,anchors:[],links:[]}};
+    const navBatch=writeBatch(owner);navBatch.set(doc(owner,navPath),navRoot);navBatch.set(doc(owner,navPath+'/authoring/current'),navSource);await navBatch.commit();checks++;
+    assert((await getDoc(doc(owner,navPath+'/authoring/current'))).exists());checks++;
+    await denied(()=>getDoc(doc(other,navPath+'/authoring/current')));await denied(()=>getDoc(doc(anon,navPath+'/authoring/current')));
+    await denied(()=>setDoc(doc(owner,navPath),{...navRoot,version:6,authoringSchemaVersion:6}));
+    await denied(()=>setDoc(doc(owner,navPath+'/authoring/current'),{...navSource,version:6}));
+    await denied(()=>setDoc(doc(other,navPath+'/authoring/current'),navSource));
+    await denied(()=>setDoc(doc(owner,navPath+'/authoring/current'),{...navSource,pageNavigation:{version:2,anchors:[],links:[]}}));
+    const { pageNavigation, ...missingNavigation } = navSource;
+    await denied(()=>setDoc(doc(owner,navPath+'/authoring/current'),missingNavigation));
+    const downgrade = writeBatch(owner);
+    downgrade.set(doc(owner,navPath),{...navRoot,version:6,authoringSchemaVersion:6});
+    downgrade.set(doc(owner,navPath+'/authoring/current'),{...navSource,version:6});
+    await denied(()=>downgrade.commit());
+    await setDoc(doc(owner,'users/owner/project_summaries/navigation'),createProjectSummary({...navRoot,projectName:'navigation'})); checks++;
     const migrated = { version: 6, projectId: 'migrated', ownerUid: 'owner', workId: 'work',
         authoringBackend: 'r2-private', authoringStorageVersion: 1, authoringRef: 'authoringHeads/current', dsfStatus: 'private' };
     await admin.doc(root).set(migrated);
@@ -74,7 +91,7 @@ try {
     // A missing root with a retained control document remains protected.
     await admin.doc(root).delete();
     await denied(() => setDoc(doc(owner, root), { version: 5, projectId: 'migrated' }));
-    // Legacy v5 and atomic v6 saving/deletion retain their existing contract.
+    // Legacy v5/v6 saves remain allowed; deletion must use the Trash API.
     const legacy = 'users/owner/projects/legacy';
     await setDoc(doc(owner, legacy), { version: 5, projectId: 'legacy', blocks: [] }); checks++;
     const batch = writeBatch(owner);
@@ -82,9 +99,9 @@ try {
     batch.set(doc(owner, legacy), { version: 6, projectId: 'legacy', authoringRef: 'authoring/current', authoringSchemaVersion: 6 });
     await batch.commit(); checks++;
     await denied(() => getDoc(doc(other, `${legacy}/authoring/current`)));
-    const deletion = writeBatch(owner); deletion.delete(doc(owner, legacy)); deletion.delete(doc(owner, `${legacy}/authoring/current`)); await deletion.commit(); checks++;
+    const deletion = writeBatch(owner); deletion.delete(doc(owner, legacy)); deletion.delete(doc(owner, `${legacy}/authoring/current`)); await denied(() => deletion.commit());
     // Real emulator REST transactions exercise typed exports and atomic migration/rollback.
-    const f = maintenanceFixture(), target = maintenanceScope, r = `users/${target.uid}/projects/${target.projectId}`;
+    const f = maintenanceFixture({ projectVersion: 7 }), target = maintenanceScope, r = `users/${target.uid}/projects/${target.projectId}`;
     for (const [path, raw] of f.docs) await admin.doc(path).set(decodeFirestoreValue({ mapValue: { fields: raw.fields } }));
     const realStore = createFirestoreStore({ projectId, post: async (url, body) => {
         assert(url.startsWith(`https://firestore.googleapis.com/v1/projects/${projectId}/`));
@@ -103,6 +120,7 @@ try {
     await maintenance.rollback(target, 'restore', rollback.planHash); checks++;
     const restored = (await getDoc(doc(own, `${r}/authoring/current`))).data();
     assert.deepEqual(restored.futurePrivate, f.source.futurePrivate); checks++;
+    assert.equal(restored.version, 7); assert.deepEqual(restored.pageNavigation, f.source.pageNavigation); checks++;
     await denied(() => getDoc(doc(other, `${r}/authoring/current`)));
     const rootData = (await getDoc(doc(own, r))).data();
     const save = writeBatch(own);
@@ -115,7 +133,9 @@ try {
     await denied(() => setDoc(doc(own, r), { ...rootData, authoringRollbackGeneration: 'forged' }));
     await denied(() => setDoc(doc(own, `${r}/authoringControl/current`), { status: 'rolledBack', generationId: 'forged' }));
     await denied(() => setDoc(doc(own, r), { ...rootData, authoringBackend: 'r2-private' }));
-    const remove = writeBatch(own); remove.delete(doc(own, `${r}/authoring/current`)); remove.delete(doc(own, r)); await remove.commit(); checks++;
+    const remove = writeBatch(own); remove.delete(doc(own, `${r}/authoring/current`)); remove.delete(doc(own, r)); await denied(() => remove.commit());
+    // Simulate server-owned removal, leaving the rollback control marker intact.
+    await admin.doc(`${r}/authoring/current`).delete(); await admin.doc(r).delete();
     await denied(() => setDoc(doc(own, r), rootData));
     const v5Path = 'users/owner/projects/R2に移行';
     const v5Restored = {version:5, projectId:'R2に移行', ownerUid:'owner', blocks:[], authoringRollbackGeneration:'legacy_5'};

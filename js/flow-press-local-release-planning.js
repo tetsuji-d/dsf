@@ -136,6 +136,7 @@ export async function createFlowPressLocalReleasePlanning(input = {}) {
             language,
             pageDirection,
             preflight: result.preflight,
+            ...(preparation.navigationProject?{navigationProject:preparation.navigationProject}:{}),
             imageAssets: input.imageAssets[language],
             ...(input.backgroundAssets ? {backgroundAssets:input.backgroundAssets[language]} : {}),
         };

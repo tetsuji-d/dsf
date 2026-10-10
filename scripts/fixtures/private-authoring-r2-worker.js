@@ -3,6 +3,8 @@ import { createPrivateAuthoringSnapshot, createPrivateAuthoringDescriptor } from
 import { createMaintenanceBackupStore, canonicalJson, hashBytes } from '../../server/private-authoring/maintenance-common.js';
 import { fetchJson } from '../../server/private-authoring/common.js';
 import { createAuthoringBucket } from '../../server/private-authoring/r2.js';
+import { createFlowGroupBlock } from '../../js/flow-project-model.js';
+import { addPageAnchor, addPageLink } from '../../js/page-navigation.js';
 function assert(condition, message) { if (!condition) throw new Error(message); }
 async function expectError(operation, code) {
     try { await operation(); } catch (error) { assert(error.code === code, `Expected ${code}, got ${error.code}`); return; }
@@ -28,6 +30,19 @@ export default {
         const restored = await adapter.read(descriptor, scope);
         assert(new TextDecoder().decode(restored.bytes) === snapshot.json, 'snapshot changed');
         await expectError(() => adapter.read(descriptor, { ...scope, uid: 'other' }), 'AUTHORING_SCOPE_MISMATCH');
+        const target = { scope: 'flow-text', kind: 'text', ownerId: 'flow', sectionId: 'section', objectId: 'paragraph', language: 'ja', text: '参照先', start: 0, end: 3 };
+        let navigationProject = addPageAnchor({ version: 6, projectId: scope.projectId, languages: ['ja'], defaultLang: 'ja',
+            blocks: [createFlowGroupBlock({ id: 'flow', sourceLanguage: 'ja', document: { id: 'document', schemaVersion: 2,
+                sections: [{ id: 'section', blocks: [{ id: 'paragraph', type: 'paragraph', texts: { ja: '参照先' } }] }] } })] }, target, '参照先', 'anchor');
+        navigationProject = addPageLink(navigationProject, target, { kind: 'anchor', anchorId: 'anchor' }, 'kanji',
+            [{ id: 'page', kind: 'flow', blockId: 'flow', languageKey: 'ja', number: 1, page: { fragments: [{ blockId: 'paragraph', sourceRange: { start: 0, end: 100 } }] } }], 'link');
+        const navigationSnapshot = await createPrivateAuthoringSnapshot(navigationProject);
+        const navigationDescriptor = createPrivateAuthoringDescriptor(navigationSnapshot, scope, 'navigation');
+        await adapter.put(navigationSnapshot, navigationDescriptor, scope);
+        const navigationRestored = await adapter.read(navigationDescriptor, scope);
+        assert(navigationRestored.project.version === 7, 'navigation version changed');
+        assert(canonicalJson(navigationRestored.project.pageNavigation) === canonicalJson(navigationProject.pageNavigation), 'navigation changed in R2');
+        assert(canonicalJson(navigationRestored.project.blocks) === canonicalJson(navigationSnapshot.project.blocks), 'numbered text changed in R2');
         await env.AUTHORING_BUCKET.put(descriptor.objectKey, 'damaged', {
             httpMetadata: { contentType: 'application/json' }, customMetadata: { sha256: descriptor.sha256, storageVersion: '1' },
         });

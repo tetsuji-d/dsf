@@ -12,7 +12,7 @@ export async function openEditorViewerPreview() {
     alert(en ? "Allow pop-ups to open the preview." : "プレビューを開くためポップアップを許可してください。");
     return;
   }
-  const fields = () => ({ version: state.version, blocks: state.blocks, sections: state.sections, projectAssets: state.projectAssets, languages: state.languages, defaultLang: state.defaultLang, languageConfigs: state.languageConfigs, book: state.book, bookMode: state.bookMode, title: state.title, meta: state.meta, projectId: state.projectId, localProjectId: state.localProjectId });
+  const fields = () => ({ version: state.version, pageNavigation: state.pageNavigation, blocks: state.blocks, sections: state.sections, projectAssets: state.projectAssets, languages: state.languages, defaultLang: state.defaultLang, languageConfigs: state.languageConfigs, book: state.book, bookMode: state.bookMode, title: state.title, meta: state.meta, projectId: state.projectId, localProjectId: state.localProjectId });
   const initial = JSON.stringify(fields()), languages = selectEditorPreviewLanguages(state);
   const check = () => {
     if (controller.signal.aborted || JSON.stringify(fields()) !== initial) throw new Error(controller.signal.aborted ? "PREVIEW_CANCELLED" : "PREVIEW_CHANGED");
@@ -67,7 +67,7 @@ export async function openEditorViewerPreview() {
   dialog.showModal();
   try {
     const project = prepareProjectForSave(structuredClone(fields()));
-    if (hasFlowGroups(project)) {
+    if (hasFlowGroups(project) || project.pageNavigation) {
       const { createEditorFlowPreview } = await import("./press.js");
       blob = await createEditorFlowPreview({ project, languages, signal: controller.signal, check, onProgress: () => check() });
     } else {
