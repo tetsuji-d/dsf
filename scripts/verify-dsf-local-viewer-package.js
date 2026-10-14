@@ -385,6 +385,9 @@ assert.match(viewerSource, /import\('\.\/dsf-local-viewer-package\.js'\)/);
 assert.match(viewerSource, /source: 'local-portable-v2'/);
 assert.match(viewerSource, /mapDsfLanguagePage\(sourceManifest, targetManifest, getIndex\(\)\)/);
 assert.match(viewerSource, /replaceViewerLocalPortableSession\(options\.localPortableSession \|\| null\)/);
-assert.match(viewerHtml, /accept="\.dsf,\.dsp,\.zip,\.json,application\/vnd\.dsf\.content\+zip"/);
+const readerFileInput = viewerHtml.match(/<input\b[^>]*\bid="file-input"[^>]*>/)?.[0];
+assert.ok(readerFileInput, 'Reader file picker must exist.');
+assert.doesNotMatch(readerFileInput, /\baccept\s*=/i,
+    'Keep the picker unfiltered so iOS can select custom DSF/DSP extensions.');
 
 console.log('DSF portable v2 local Viewer package verification passed.');

@@ -227,7 +227,9 @@
     </div>
 
     <!-- Hidden File Input -->
-    <input type="file" id="file-input" accept=".dsf,.dsp,.zip,.json,application/vnd.dsf.content+zip" onchange="loadDsf(this)">
+    <!-- Leave the native picker unfiltered: iOS may disable custom .dsf/.dsp extensions.
+         The loader still parses and validates the selected file. -->
+    <input type="file" id="file-input" onchange="loadDsf(this)">
 
     <script type="module" src="js/viewer.js"></script>
 </body>

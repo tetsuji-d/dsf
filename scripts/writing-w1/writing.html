@@ -2,7 +2,8 @@
 <html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>DSF Reader · Writing</title><link rel="stylesheet" href="/writing.css"></head><body>
 <header><div class="brand">DSF <span>Reader / Writing</span><small>開発プレビュー</small></div><div class="file-actions">
-<label class="button">DSFを開く<input id="file" type="file" accept=".dsf" aria-label="DSFを開く"></label>
+<!-- No accept filter: iOS can gray out custom .dsf files. Validate on import. -->
+<label class="button">DSFを開く<input id="file" type="file" aria-label="DSFを開く"></label>
 <button id="sample">サンプルを開く</button><button id="prepare">オフライン準備</button></div></header>
 <main><aside class="tools"><h1>Writing</h1><p class="subtle">原本の上に、あなたの書き込みを。</p>
 <fieldset id="style-field"><legend id="style-title">ボールペンの設定</legend><input id="color" type="hidden" value="#20272b">
