@@ -1,3 +1,5 @@
+import {installWritingLocale,writingUiText} from './reader-writing-i18n.js';
+import {getPlatformLanguage,subscribePlatformLanguage} from './ui-language.js';
 /** Prevent browser viewport gestures only on the active Writing surface, not Reader or dialogs. */
 export function installWritingViewportGuards(document,isActive){
     const inDialog=e=>e.composedPath().some(node=>node.matches?.('dialog,[role=dialog]'));
@@ -8,7 +10,10 @@ export function installWritingViewportGuards(document,isActive){
 }
 /** Native Reader overlay. The existing Reader remains responsible for page rendering and navigation. */
 export function createReaderWritingBridge({button,read,onReturn,view,turn,goTo,onMode,resetView}) {
-    let container,editor,opening=false,finishing=false,frame,menu,source,syncing=false;
+    let container,editor,opening=false,finishing=false,frame,menu,menuLocale,source,syncing=false;
+    const t=source=>writingUiText(source,getPlatformLanguage('viewer'));
+    const updateButtonLabel=()=>{button.title=t(editor?'書き込みを終了してReaderに戻る':read()?.locked?'共有用DSFは書き込みロックされています':'書き込み / Writing');button.setAttribute('aria-label',button.title);};
+    subscribePlatformLanguage(updateButtonLabel);
     installWritingViewportGuards(document,()=>!!editor);
     function updateLayers(){
         if(!editor)return;
@@ -25,9 +30,9 @@ export function createReaderWritingBridge({button,read,onReturn,view,turn,goTo,o
         if(editor)frame=requestAnimationFrame(tick);
     }
     function cleanup(){
-        cancelAnimationFrame(frame);editor?.dispose();editor=null;container?.remove();container=null;menu?.remove();menu=null;source=null;
+        cancelAnimationFrame(frame);editor?.dispose();editor=null;container?.remove();container=null;menuLocale?.dispose();menu?.remove();menu=null;source=null;
         document.body.classList.remove('reader-writing-active','reader-writing-turning');onMode(false);
-        button.removeAttribute('aria-pressed');button.title='書き込み / Writing';button.setAttribute('aria-label','書き込み / Writing');button.focus();
+        button.removeAttribute('aria-pressed');button.title=t('書き込み / Writing');button.setAttribute('aria-label',button.title);button.focus();
     }
     async function finish(){
         if(!editor||opening||finishing)return false;
@@ -44,6 +49,7 @@ export function createReaderWritingBridge({button,read,onReturn,view,turn,goTo,o
             b.onclick=()=>{appMenu.close();if(panel==='exit')void finish();else editor.panel(panel);};menu.append(b);
         }
         appMenu.querySelector('header').after(menu);
+        menuLocale=installWritingLocale(menu);
     }
     async function open(){
         if(editor){await finish();return;}
@@ -66,9 +72,9 @@ export function createReaderWritingBridge({button,read,onReturn,view,turn,goTo,o
             editor=await module.mountReaderWriting(root,{turn,goTo,view,changed:updateLayers,resetView});
             await editor.open(source);
             document.body.classList.add('reader-writing-active');onMode(true);addMenu();updateLayers();
-            button.setAttribute('aria-pressed','true');button.setAttribute('aria-label','書き込みを終了してReaderに戻る');
+            button.setAttribute('aria-pressed','true');button.setAttribute('aria-label',t('書き込みを終了してReaderに戻る'));
             await tick();container.style.visibility='';
-        }catch(error){cleanup();window.alert(error.message||'Writingを開始できませんでした。');}
+        }catch(error){cleanup();window.alert(t(error.message||'Writingを開始できませんでした。'));}
         finally{opening=false;button.disabled=false;}
     }
     button.addEventListener('click',()=>void open());
@@ -76,6 +82,6 @@ export function createReaderWritingBridge({button,read,onReturn,view,turn,goTo,o
         get active(){return !!editor||opening;},
         layer(pageId,lang){return editor?.layer(pageId,lang);},
         async beforeFile(){if(opening)return false;return !editor||finishing||await finish();},
-        sync(){const current=read();button.hidden=!current?.file;button.disabled=opening||finishing||!!current?.locked;button.title=editor?'書き込みを終了してReaderに戻る':current?.locked?'共有用DSFは書き込みロックされています':'書き込み / Writing';}
+        sync(){const current=read();button.hidden=!current?.file;button.disabled=opening||finishing||!!current?.locked;updateButtonLabel();}
     };
 }

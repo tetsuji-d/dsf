@@ -75,7 +75,8 @@ export function validateWritingPages(pages, pageKeys, fonts) {
             ensure(seenObjects.size <= WRITING_LIMITS.objects, 'WRITING_LIMIT');
             if(Object.hasOwn(o,'locked'))ensure(typeof o.locked==='boolean','WRITING_OBJECT_LOCK');
             if (o.type === 'text') {
-                exact(o, [...(Object.hasOwn(o,'locked')?['locked']:[]),'id', 'type', 'text', 'rect', 'writingMode', 'align', 'runs', 'layout']); rect(o.rect);
+                exact(o, [...(Object.hasOwn(o,'locked')?['locked']:[]),...(Object.hasOwn(o,'boxStyle')?['boxStyle']:[]),'id', 'type', 'text', 'rect', 'writingMode', 'align', 'runs', 'layout']); rect(o.rect);
+                if(Object.hasOwn(o,'boxStyle')){exact(o.boxStyle,['stroke','fill','width']);if(o.boxStyle.stroke!==null)color(o.boxStyle.stroke);if(o.boxStyle.fill!==null)color(o.boxStyle.fill);finite(o.boxStyle.width,.01,360);}
                 ensure(typeof o.text === 'string' && o.text.isWellFormed(), 'WRITING_TEXT'); textUnits += o.text.length;
                 ensure(['horizontal-tb', 'vertical-rl'].includes(o.writingMode) && ['start', 'center', 'end'].includes(o.align), 'WRITING_TEXT_STYLE');
                 const boundaries = new Set([o.text.length, ...[...new Intl.Segmenter('ja', { granularity: 'grapheme' }).segment(o.text)].map(s => s.index)]);
@@ -106,14 +107,15 @@ export function validateWritingPages(pages, pageKeys, fonts) {
                 for (const p of o.points) { exact(p, ['x', 'y', 'pressure', 'width',...(o.geometryVersion===4?['dryness']:[])]); point([p.x, p.y]); finite(p.pressure, 0, 1); finite(p.width, 0.01, 360);if(o.geometryVersion===4)finite(p.dryness,0,1); }
                 points += o.points.length;
             } else if (o.type === 'line') {
-                exact(o, [...(Object.hasOwn(o,'locked')?['locked']:[]),...(Object.hasOwn(o,'arrowHead')?['arrowHead']:[]),'id', 'type', 'from', 'to', 'color', 'width', 'arrow']); point(o.from); point(o.to); color(o.color); finite(o.width, 0.01, 360);
+                exact(o, [...(Object.hasOwn(o,'locked')?['locked']:[]),...(Object.hasOwn(o,'arrowHead')?['arrowHead']:[]),...(Object.hasOwn(o,'lineStyle')?['lineStyle']:[]),'id', 'type', 'from', 'to', 'color', 'width', 'arrow']); point(o.from); point(o.to); color(o.color); finite(o.width, 0.01, 360);
                 ensure(['none', 'start', 'end', 'both'].includes(o.arrow), 'WRITING_ARROW');
                 if(Object.hasOwn(o,'arrowHead'))ensure(['open','triangle','circle','diamond'].includes(o.arrowHead),'WRITING_ARROW_HEAD');
             } else if (o.type === 'shape') {
-                exact(o, [...(Object.hasOwn(o,'locked')?['locked']:[]),'id', 'type', 'shape', 'rect', 'color', 'fill', 'width', 'opacity']); rect(o.rect); color(o.color);
+                exact(o, [...(Object.hasOwn(o,'locked')?['locked']:[]),...(Object.hasOwn(o,'lineStyle')?['lineStyle']:[]),'id', 'type', 'shape', 'rect', 'color', 'fill', 'width', 'opacity']); rect(o.rect); color(o.color);
                 ensure(['rect', 'ellipse'].includes(o.shape), 'WRITING_SHAPE'); if (o.fill !== null) color(o.fill);
                 finite(o.width, 0.01, 360); finite(o.opacity, 0, 1);
             } else ensure(false, 'WRITING_OBJECT_TYPE');
+            if(Object.hasOwn(o,'lineStyle'))ensure(['solid','dashed','dotted','dash-dot'].includes(o.lineStyle),'WRITING_LINE_STYLE');
         }
     }
     ensure(points <= WRITING_LIMITS.points && textUnits <= WRITING_LIMITS.textUnits, 'WRITING_LIMIT');

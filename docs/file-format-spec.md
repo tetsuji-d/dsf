@@ -473,6 +473,8 @@ Writing object共通の任意フィールド locked:boolean（省略=false）を
 
 Writing確認版のlineには任意の `arrowHead: 'open' | 'triangle' | 'circle' | 'diamond'` を追加（2026-10-13、先端パターン指定の要望に対応）。省略時は従来の開いた矢印。既存の `arrow: 'none' | 'start' | 'end' | 'both'` で各端の有無を指定し、有効な両端に同じ形を使う。未知値は拒否。編集用履歴と共有用にも形状を保持する。元の原稿entryは変更しない。これは試作Writing形式内の拡張で、本番反映は別途。
 
+2026-10-14の設定拡張：Writingのline/shapeには任意の `lineStyle: 'solid' | 'dashed' | 'dotted' | 'dash-dot'`（省略はsolid）、textには任意の `boxStyle:{stroke:null|HEX,fill:null|HEX,width:number}`（省略は枠なし・透明）を追加。widthは既存のページ座標単位で0.01〜360。HEXは既存color検証に従う。不明な線種や不正な色・太さは読込／変更／保存時に拒否し、履歴と共有用にも保持する。formatVersion 3、Writing document schemaVersion 1を維持した試作内の任意拡張。古いReaderは未知キーを拒否するため、この拡張を使ったファイルの閲覧には対応版が必要。詳細は[設定・英語UIと変換検討](dsf-writing-style-settings-20261014.md)。
+
 ### Writing history schemaVersion 2（2026-10-14）
 
 Writing編集用の履歴を本全体で直近30操作に限定する。formatVersion 3とdocumentのページ配列は維持し、`writing/history.json`だけschemaVersion 2とする。revisionは`id,parentId,operation,createdAt,changes`、changeは`language,pageId,beforeOrder,afterOrder,objects`、object差分は`id,before,after`を持つ。nullは不在を表す。基準1件 + 最大30操作の線形配列で、先頭のparentはnull、changesは空。documentの現在状態とheadをチェックポイントとして双方向に再構築する。全到達状態の整合性を読込・書出し時に検証する。詳細は`dsf-writing-spec.md` §8。

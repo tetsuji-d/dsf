@@ -24,6 +24,9 @@ main,.reading{display:contents!important}#viewport{display:contents}#page-wrap{p
 #tools button[aria-pressed=true]::after{background:#cce3dd;box-shadow:inset 0 -2px #276f63}
 #tools svg,#native-history svg{width:22px;height:22px;flex:none}#tools span{display:block;font-size:10px;line-height:12px;letter-spacing:.01em}
 #tools button[data-tool=select] span{font-size:0}#tools button[data-tool=select] span::after{content:'選択';font-size:10px}
+:host([lang=en]) #tools span{font-size:9px;letter-spacing:0}
+:host([lang=en]) #tools button[data-tool=select] span{font-size:0}
+:host([lang=en]) #tools button[data-tool=select] span::after{content:'Select';font-size:9px}
 #tools button[data-tool=text]::before,#tools button[data-tool=arrow]::before{content:'';position:absolute;right:0;top:16px;height:20px;border-right:1px solid #29474020}
 #active-tool-label{position:absolute;display:flex;align-items:center;justify-content:center;gap:7px;min-height:44px;padding:0 5px;border:0;border-radius:12px;background:transparent;color:#24473e;pointer-events:auto;white-space:nowrap;font-size:12px;box-shadow:none;isolation:isolate}
 #active-tool-label::before{content:'';position:absolute;inset:5px 3px;border-radius:12px;background:#f9fcfbe6;z-index:-1}
@@ -72,6 +75,25 @@ main,.reading{display:contents!important}#viewport{display:contents}#page-wrap{p
 #sheet-body #style-field{margin:0}#sheet-body #color-name{font-size:13px;color:#314f47;margin:0 0 10px}
 #sheet-body #palette{grid-template-columns:repeat(5,44px);gap:8px}#sheet-body .color-swatch{width:44px;height:44px}
 #sheet-body .color-swatch[aria-pressed=true]::after{line-height:36px}
+/* Compact the inspector contents, not the touch targets or the paper. */
+#mobile-sheet[data-panel=settings] .sheet-heading{padding:6px 12px}
+#mobile-sheet[data-panel=settings] #sheet-body aside{padding:10px 12px}
+#mobile-sheet[data-panel=settings] #style-parameters>label{margin:3px 0;min-height:32px;display:flex;align-items:center;gap:4px;flex-wrap:wrap}
+#mobile-sheet[data-panel=settings] #ink-control small{flex-basis:100%}
+#mobile-sheet[data-panel=settings] .style-choices{grid-template-columns:repeat(4,minmax(0,1fr));gap:6px}
+#mobile-sheet[data-panel=settings] .style-choices button{min-height:48px;padding:3px 2px;font-size:11px;line-height:14px;justify-content:center}
+#mobile-sheet[data-panel=settings] .style-choice-icon{height:20px}
+#mobile-sheet[data-panel=settings] #arrow-control>p,#mobile-sheet[data-panel=settings] #line-style-control>p{margin:6px 0 4px}
+#mobile-sheet[data-panel=settings] .arrow-ends{display:flex;gap:12px;flex-wrap:wrap}
+#mobile-sheet[data-panel=settings] .arrow-ends label{display:inline-flex;align-items:center;min-height:36px;margin:0}
+#mobile-sheet[data-panel=settings] #line-style-control{margin-bottom:8px}
+#mobile-sheet[data-panel=settings] #sheet-body #palette{grid-template-columns:repeat(6,44px);gap:6px}
+#mobile-sheet[data-panel=settings] #sheet-body #color-name{margin:0 0 6px}
+#mobile-sheet[data-panel=settings] #selection-hint{margin:6px 0 0}
+#mobile-sheet[data-panel=settings] #sheet-actions{padding:6px 12px max(6px,env(safe-area-inset-bottom))}
+#mobile-sheet[data-panel=settings] #sheet-action-hint{margin-bottom:4px}
+@media(pointer:coarse){#mobile-sheet[data-panel=settings] #style-parameters>label,#mobile-sheet[data-panel=settings] .arrow-ends label{min-height:44px}}
+@media(max-width:340px){#mobile-sheet[data-panel=settings] #sheet-body #palette{grid-template-columns:repeat(5,44px)}}
 #ink-control small{display:block;color:#526c67;font-size:12px}
 #sheet-actions{flex:none;padding:10px 16px max(10px,env(safe-area-inset-bottom));background:#f9fdfae8;border-top:1px solid var(--line)}
 #sheet-action-hint:empty{display:none}#sheet-action-hint{font-size:12px;margin:0 0 8px}

@@ -46,6 +46,8 @@ export async function writingStagingAssets(){
     }
     for(const name of ['dsf-writing-package.js','viewer-fixed-text.js','reader-writing-model.js','reader-writing-renderer.js','reader-writing-storage.js','reader-writing-tools.js','reader-writing-spread.js','reader-writing-page-gestures.js','reader-writing-layout.js','reader-writing-hit.js'])await moduleTree(resolve(root,'js',name));
     await moduleTree(resolve(root,'js','reader-writing-page-cache.js'));
+    await moduleTree(resolve(root,'js','reader-writing-style-controls.js'));
+    await moduleTree(resolve(root,'js','reader-writing-i18n.js'));
     const sample=await read('outputs/writing-w1/preview-sample.dsf');
     if(hash(sample)!=='5fdf726363255acdc0cfaa8cbcf5369252d50c84343771b2d99173f224acbfd8')throw Error('Only the reviewed synthetic eight-page sample may be published');
     put('sample.dsf',sample);

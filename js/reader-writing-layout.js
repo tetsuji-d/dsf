@@ -40,13 +40,18 @@ export function writingChromeLayout({width,height,paper,controls=[],header,safe=
 /** Keep an inspector close to the control that opened it, clamped to the visible viewport. */
 export function writingInspectorPlacement({width,height,anchor,offsetLeft=0,offsetTop=0,panel='settings'}){
     const edge=8,leftEdge=offsetLeft+edge,topEdge=offsetTop+edge,right=offsetLeft+width-edge,bottom=offsetTop+height-edge;
-    const listPanel=['layers','history'].includes(panel),w=Math.min(listPanel?420:360,width-2*edge),below=anchor.bottom+8,above=anchor.top-8-topEdge;
+    const listPanel=['layers','history'].includes(panel),w=Math.min(listPanel||width>=640?420:360,width-2*edge),below=anchor.bottom+8,above=anchor.top-8-topEdge;
     let top,left=anchor.left+anchor.width/2-w/2;
     if(listPanel){const h=Math.min(720,height-2*edge);top=Math.max(topEdge,Math.min(below,bottom-h));return {left:Math.max(leftEdge,Math.min(left,right-w)),top,width:w,height:h};}
-    if(bottom-below>=180)top=below;
-    else if(width>=640&&right-anchor.right>=w+8){left=anchor.right+8;top=Math.max(topEdge,Math.min(anchor.top,bottom-240));}
-    else if(width>=640&&anchor.left-leftEdge>=w+8){left=anchor.left-w-8;top=Math.max(topEdge,Math.min(anchor.top,bottom-240));}
-    else if(above>=180)top=Math.max(topEdge,anchor.top-8-Math.min(520,above));
-    else top=topEdge;
-    return {left:Math.max(leftEdge,Math.min(left,right-w)),top,width:w,height:Math.max(80,Math.min(620,bottom-top))};
+    // The heading and Apply/Cancel footer need about 160px themselves. Do not
+    // accept a small gap near the trigger that leaves only a sliver for settings.
+    const maxHeight=Math.min(680,height-2*edge),usefulHeight=Math.min(560,maxHeight);
+    let h=maxHeight;
+    if(bottom-below>=usefulHeight){top=below;h=Math.min(maxHeight,bottom-below);}
+    else if(width>=640&&right-anchor.right>=w+8){left=anchor.right+8;top=anchor.top;}
+    else if(width>=640&&anchor.left-leftEdge>=w+8){left=anchor.left-w-8;top=anchor.top;}
+    else if(above>=usefulHeight){h=Math.min(maxHeight,above);top=anchor.top-8-h;}
+    else top=below;
+    top=Math.max(topEdge,Math.min(top,bottom-h));
+    return {left:Math.max(leftEdge,Math.min(left,right-w)),top,width:w,height:h};
 }

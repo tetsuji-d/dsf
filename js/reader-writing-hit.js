@@ -1,5 +1,5 @@
 import {highlighterPolygons} from './reader-writing-tools.js';
-import {arrowHeadGeometry} from './reader-writing-format.js';
+import {arrowHeadGeometry,arrowShaftGeometry} from './reader-writing-format.js';
 
 const distance=(p,a,b)=>{const dx=b.x-a.x,dy=b.y-a.y,t=Math.max(0,Math.min(1,((p.x-a.x)*dx+(p.y-a.y)*dy)/(dx*dx+dy*dy||1)));return Math.hypot(p.x-a.x-t*dx,p.y-a.y-t*dy);};
 const polygonHit=(p,points,tolerance)=>{
@@ -18,7 +18,7 @@ export function writingHitTest(o,p,tolerance=6){
         return o.points.some((b,i)=>{const a=o.points[Math.max(0,i-1)];return distance(p,a,b)<=tolerance+Math.max(a.width,b.width)/2;});
     }
     if(o.type==='line'){
-        const [x,y]=o.from,[a,b]=o.to,segments=[[{x,y},{x:a,y:b}]];
+        const shaft=arrowShaftGeometry(o),segments=shaft?[[{x:shaft.from[0],y:shaft.from[1]},{x:shaft.to[0],y:shaft.to[1]}]]:[];
         for(const h of arrowHeadGeometry(o)){
             if(h.kind==='circle'){if(Math.hypot(p.x-h.center[0],p.y-h.center[1])<=h.radius+tolerance)return true;}
             else if(h.kind!=='open'){if(polygonHit(p,h.points,tolerance+o.width/2))return true;}

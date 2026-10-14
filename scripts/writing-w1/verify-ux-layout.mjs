@@ -29,6 +29,17 @@ for(const [width,height,x,y,w,h,mode] of fixtures){
  }
 }
 const ellipse={type:'shape',shape:'ellipse',rect:[40,50,240,180],width:2,fill:null};
+// Split-pane resizing can move a former top history trigger to the bottom.
+// Settings must keep a useful scroll area after their heading and action footer.
+for(const [width,height,offsetLeft,offsetTop] of [[673,833,0,0],[740,920,0,0],[390,844,0,0],[844,390,0,0],[390,360,0,220],[740,920,20,30]]){
+ for(const y of [64,height-260,height-120]){
+  const anchor={left:offsetLeft+100,top:offsetTop+y,right:offsetLeft+144,bottom:offsetTop+y+44,width:44};
+  const r=writingInspectorPlacement({width,height,offsetLeft,offsetTop,anchor});
+  assert.ok(r.height>=Math.min(560,height-16),`Settings squeezed at ${width}x${height}, trigger y=${y}`);
+  assert.ok(r.top>=offsetTop+8&&r.top+r.height<=offsetTop+height-8,'Settings fit the visible viewport vertically');
+  assert.ok(r.left>=offsetLeft+8&&r.left+r.width<=offsetLeft+width-8,'Settings fit the visible viewport horizontally');
+ }
+}
 const low=writingChromeLayout({width:844,height:390,paper:{left:313,right:531,top:0,bottom:388},controls:[{left:313,right:531,top:354,bottom:388,width:218,height:34}]});
 assert.ok(low.history.top+low.history.height<354,'History must not overlap the Reader page-segment scrubber');
 assert.equal(writingHitTest(ellipse,{x:160,y:140}),false,'A hollow ellipse cannot intercept an object inside');

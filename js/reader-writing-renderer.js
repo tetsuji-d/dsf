@@ -1,5 +1,5 @@
 import {writingBounds} from './reader-writing-model.js';
-import {arrowHeadGeometry} from './reader-writing-format.js';
+import {arrowHeadGeometry,arrowShaftGeometry,lineStrokeAttributes} from './reader-writing-format.js';
 import {writingControlPoints,strokeOutline,highlighterPolygons,brushInkPaths,naturalBrushInkPaths} from './reader-writing-tools.js';
 const NS = 'http://www.w3.org/2000/svg';
 let selectionSerial=0;
@@ -17,6 +17,8 @@ export function renderWritingLayer(layer, objects, families, selected) {
         item.style.visibility='';
         if(!reusable){
         if (o.type === 'text') {
+            if(o.boxStyle){const [x,y,width,height]=o.rect,frame=svg('svg',{viewBox:'0 0 360 640','aria-hidden':'true'});
+                frame.append(svg('rect',{x,y,width,height,fill:o.boxStyle.fill||'none',stroke:o.boxStyle.stroke||'none','stroke-width':o.boxStyle.width}));item.append(frame);}
             for (const p of o.layout) {
                 const run = o.runs.find(r => r.start <= p.start && r.end >= p.end), span = document.createElement('span');
                 span.textContent = o.text.slice(p.start, p.end); span.className = 'rw-text';
@@ -37,14 +39,15 @@ export function renderWritingLayer(layer, objects, families, selected) {
                     group.append(svg('circle', {cx:p.x, cy:p.y, r:p.width/2, fill:o.color}));
                 }); root.append(group);
             } else if (o.type === 'line') {
-                root.append(svg('line', {x1:o.from[0], y1:o.from[1], x2:o.to[0], y2:o.to[1], stroke:o.color, 'stroke-width':o.width, 'stroke-linecap':'round'}));
+                const shaft=arrowShaftGeometry(o);
+                if(shaft)root.append(svg('line', {x1:shaft.from[0], y1:shaft.from[1], x2:shaft.to[0], y2:shaft.to[1], stroke:o.color, 'stroke-width':o.width,...lineStrokeAttributes(o.lineStyle,o.width)}));
                 for(const head of arrowHeadGeometry(o))root.append(head.kind==='circle'
                     ?svg('circle',{cx:head.center[0],cy:head.center[1],r:head.radius,fill:o.color})
                     :svg(head.kind==='open'?'polyline':'polygon',{points:head.points.map(p=>p.join(',')).join(' '),fill:head.kind==='open'?'none':o.color,stroke:o.color,'stroke-width':o.width,'stroke-linejoin':'round'}));
             } else {
                 const [x,y,w,h] = o.rect;
                 root.append(svg(o.shape === 'ellipse' ? 'ellipse' : 'rect', {...(o.shape === 'ellipse' ? {cx:x+w/2,cy:y+h/2,rx:w/2,ry:h/2} : {x,y,width:w,height:h}),
-                    stroke:o.color, fill:o.fill||'none', 'stroke-width':o.width, opacity:o.opacity}));
+                    stroke:o.color, fill:o.fill||'none', 'stroke-width':o.width, opacity:o.opacity,...lineStrokeAttributes(o.lineStyle,o.width)}));
             }
             item.append(root);
         }

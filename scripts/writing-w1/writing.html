@@ -8,12 +8,13 @@
 <main><aside class="tools"><h1>Writing</h1><p class="subtle">原本の上に、あなたの書き込みを。</p>
 <fieldset id="style-field"><legend id="style-title">ボールペンの設定</legend><input id="color" type="hidden" value="#20272b">
 <div id="style-parameters">
+<div id="style-preview" role="img" aria-label="現在の設定による見本"></div>
 <div id="pen-sizes" role="group" aria-label="ボールペンの太さ"></div>
 <label id="width-control">線の太さ <input id="width" type="range" min="0.1" max="8" step="0.1" value="1"><output id="width-label">1</output> mm</label>
 <label id="ink-control" hidden>墨の量 <input id="ink-amount" type="range" min="0" max="100" step="5" value="65"><output id="ink-label">65%</output><small>少ない：カスレ ／ 多い：滲み（疑似表現）</small></label>
-<div id="brush-preview" hidden role="img" aria-label="現在の設定による筆ペンの見本"></div>
 <label><input id="square" type="checkbox"> 正方形・正円（Ctrl）</label><label><input id="snap" type="checkbox" checked> 端点をスナップ</label>
-<div id="arrow-control" hidden><label>先端の形<select id="arrow-head"></select></label><div class="arrow-ends"><label><input id="arrow-start" type="checkbox"> 始点につける</label><label><input id="arrow-end" type="checkbox" checked> 終点につける</label></div></div>
+<div id="arrow-control" hidden><p>先端の形</p><select id="arrow-head" hidden aria-label="先端の形"></select><div id="arrow-head-choices" class="style-choices" role="group" aria-label="先端の形"></div><div class="arrow-ends"><label><input id="arrow-start" type="checkbox"> 始点につける</label><label><input id="arrow-end" type="checkbox" checked> 終点につける</label></div></div>
+<div id="line-style-control" hidden><p>線の種類</p><div id="line-style-choices" class="style-choices" role="group" aria-label="線の種類"></div></div>
 <label>書体 <select id="font"></select></label><label>文字サイズ <select id="size"><option>14</option><option selected>20</option><option>28</option><option>36</option></select></label>
 <label>文字の太さ <select id="weight"><option value="400">標準</option><option value="700">太字</option></select></label>
 <label><input id="vertical" type="checkbox"> 縦書き</label>
@@ -28,7 +29,7 @@
 <div class="writing-mode" role="group" aria-label="表示モード"><button id="mode-read" type="button">閲覧</button><button id="mode-write" type="button" aria-pressed="true">書き込み</button><span>原本を保ったまま重ねて書く</span><small id="zoom-hint" hidden>移動は「閲覧」で</small><button id="page-zoom" type="button" aria-label="ページを幅いっぱいに拡大" aria-pressed="false">拡大</button></div>
 <div id="pen-tray" role="group" aria-label="ペンを選ぶ"></div>
 <fieldset id="tool-field"><legend class="sr-only">道具</legend><div id="tools" class="tool-grid"></div></fieldset>
-<label class="quick-tool">道具 <select id="quick-tool" aria-label="ページ上の道具"></select></label><p id="hint" class="hint">サンプルを開くと、2ページの原本に自由に書き込めます。</p>
+<label class="quick-tool">道具 <select id="quick-tool" aria-label="ページ上の道具"></select></label><p id="hint" class="hint">サンプルを開くと、8ページの原本に自由に書き込めます。</p>
 <div id="viewport"><div id="page-wrap"><div id="surface"><div id="original"></div><div id="layer"></div><div id="input" tabindex="0" role="application" aria-label="Writingページ。ペンはドラッグ、文字はクリックで追加"></div></div></div></div>
 <p id="page-summary" class="subtle"></p></section>
 <aside class="save-panel"><h2>保存</h2><p id="draft-status" role="status">端末内の下書きは自動保存されます。</p>

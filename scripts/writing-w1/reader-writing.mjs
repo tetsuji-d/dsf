@@ -12,10 +12,14 @@ import {writingChromeLayout,writingInspectorPlacement} from '/js/reader-writing-
 import {writingHitTest} from '/js/reader-writing-hit.js';
 import {TEXT_SIZES,TEXT_COLORS,ARROW_HEADS,textSize,stepTextSize} from '/js/reader-writing-format.js';
 import {createWritingPageCache,writingPageWindow} from '/js/reader-writing-page-cache.js';
+import {installStyleChoices,syncStyleChoices,renderStyleSample} from '/js/reader-writing-style-controls.js';
+import {installWritingLocale} from '/js/reader-writing-i18n.js';
 
 export async function mountReaderWriting(root=document,host=null) {
 const $ = id => root.querySelector('#'+id), runtime = await createReaderWritingRuntime();
 const body=root.host||document.body,lifetime=new AbortController();
+const locale=installWritingLocale(root,{signal:lifetime.signal,onChange:()=>{if(model)updatePanels();if(host&&$('text-dialog').open)positionInlineText();}});
+const t=source=>locale.t(source);
 const listenWindow=(name,fn)=>window.addEventListener(name,fn,{signal:lifetime.signal});
 let noticeTimer,hostView,lastHostLayout,lastChromeLayout,disposed=false;
 let queueToolsHide=()=>{};
@@ -37,7 +41,8 @@ const otherOriginal=document.createElement('div'),otherLayer=document.createElem
 const textBoxPreview=document.createElement('div');textBoxPreview.id='text-box-preview';textBoxPreview.hidden=true;$('surface').append(textBoxPreview);
 const activeColumn=()=>Math.max(0,visiblePages.indexOf(pageIndex));
 const settings=toolDefaults();
-settings.geometry.arrow='end';settings.geometry.arrowHead='open';
+settings.geometry.arrow='end';settings.geometry.arrowHead='open';settings.geometry.lineStyle='solid';
+settings.text.boxStyle={stroke:null,fill:null,width:penPixels(.3)};
 const inputFamilies = {};
 const toolIcons={select:'<path d="m5 3 14 10-7 1-3 7Z"/>',text:'<path d="M5 5h14M12 5v15M8 20h8M5 5v3M19 5v3"/>',line:'<path d="m5 19 14-14"/><circle cx="5" cy="19" r="2"/><circle cx="19" cy="5" r="2"/>',arrow:'<path d="m4 20 16-16M10 4h10v10"/>',rect:'<rect x="4" y="5" width="16" height="14" rx="1"/>',ellipse:'<ellipse cx="12" cy="12" rx="9" ry="7"/>'};
 for (const [id,name] of Object.entries(toolNames)) {
@@ -144,9 +149,24 @@ for(const entry of TEXT_COLORS){const b=document.createElement('button');b.type=
 const customTextColor=$('text-color').closest('label');customTextColor.firstChild.textContent='その他の色';textColors.append(customTextColor);root.querySelector('#text-dialog .dialog-options').after(textColors);
 function syncTextColors(){for(const b of textColors.querySelectorAll('button'))b.setAttribute('aria-pressed',b.style.getPropertyValue('--swatch').toLowerCase()===$('text-color').value.toLowerCase());}
 $('text-color').addEventListener('input',()=>{syncTextColors();if(host)void refreshInlineFont();});
+const textBoxStyle=document.createElement('fieldset');textBoxStyle.id='text-box-style';
+textBoxStyle.innerHTML='<legend>テキストボックス</legend><label><input id="text-border-enabled" type="checkbox">枠線</label><label>枠線の色<input id="text-border-color" type="color" value="#20272b"></label><label>枠線の太さ <span><input id="text-border-width" type="number" min="0.1" max="8" step="0.1" value="0.3"> mm</span></label><label><input id="text-fill-enabled" type="checkbox">塗りつぶし</label><label>塗りつぶしの色<input id="text-fill-color" type="color" value="#ffffff"></label>';
+textColors.after(textBoxStyle);
+function textFrame(){return {stroke:$('text-border-enabled').checked?$('text-border-color').value:null,fill:$('text-fill-enabled').checked?$('text-fill-color').value:null,width:penPixels(Number($('text-border-width').value))};}
+function syncTextFrame(){
+    $('text-border-color').disabled=$('text-border-width').disabled=!$('text-border-enabled').checked;$('text-fill-color').disabled=!$('text-fill-enabled').checked;
+    if(host)positionInlineText();
+}
+for(const field of textBoxStyle.querySelectorAll('input'))field.addEventListener('input',()=>{
+    if(field.id==='text-border-color')$('text-border-enabled').checked=true;
+    if(field.id==='text-fill-color')$('text-fill-enabled').checked=true;
+    syncTextFrame();
+});
 for(const [value,label] of ARROW_HEADS)$('arrow-head').add(new Option(label,value));
+installStyleChoices(root,value=>{settings.geometry.arrowHead=value;syncStyle();},value=>{settings.geometry.lineStyle=value;syncStyle();});
 for(const id of ['arrow-start','arrow-end','arrow-head'])$(id).onchange=()=>{
     settings.geometry.arrow=$('arrow-start').checked?($('arrow-end').checked?'both':'start'):($('arrow-end').checked?'end':'none');settings.geometry.arrowHead=$('arrow-head').value;
+    syncStyle();
 };
 const page = () => context?.manifest.pages[pageIndex];
 const objects = () => model?.objects(language,page()?.id)||[];
@@ -157,7 +177,8 @@ function syncStyle(fromSelection=false){
     if(fromSelection&&o&&o.type!=='text'){config.color=o.color;config.width=o.type==='stroke'?o.baseWidth:o.width;}
     if(fromSelection&&o?.tool==='brush')config.inkAmount=o.inkAmount??.65;
     if(fromSelection&&o?.type==='line'){config.arrow=o.arrow;config.arrowHead=o.arrowHead||'open';}
-    $('ink-control').hidden=key!=='brush';$('brush-preview').hidden=key!=='brush';$('ink-amount').value=Math.round((config.inkAmount??.65)*100);$('ink-label').textContent=`${$('ink-amount').value}%`;
+    if(fromSelection&&['line','shape'].includes(o?.type))config.lineStyle=o.lineStyle||'solid';
+    $('ink-control').hidden=key!=='brush';$('ink-amount').value=Math.round((config.inkAmount??.65)*100);$('ink-label').textContent=`${$('ink-amount').value}%`;
     $('style-title').textContent=`${key==='geometry'?'線・図形':toolNames[key]}の設定`;
     $('color').value=config.color;$('width').value=penMillimeters(config.width);$('width-label').textContent=penWidthLabel(config.width);
     $('pen-sizes').hidden=key!=='pen';$('width-control').hidden=key==='pen';$('palette').hidden=key==='correction';
@@ -183,8 +204,10 @@ function syncStyle(fromSelection=false){
     }
     if($('tools-reveal')){$('tools-reveal').setAttribute('aria-label',`${toolNames[tool]}を使用中。道具を表示`);$('reveal-icon').innerHTML=toolIcons[tool]||'<path d="M8 3h8v10l-4 8-4-8ZM8 13h8M12 16v5"/>';}
     $('arrow-control').hidden=!lineStyle;$('arrow-start').checked=['start','both'].includes(config.arrow);$('arrow-end').checked=['end','both'].includes(config.arrow);$('arrow-head').value=config.arrowHead||'open';
+    $('line-style-control').hidden=!shapeStyle&&!lineStyle;syncStyleChoices(root,config);
     $('selection-hint').textContent=o?.type==='line'?'両端の点をドラッグして再編集。近くの端点にスナップします。':o?.type==='shape'?'8個のハンドルで再編集。Ctrlで正方形・正円。':key==='brush'?'動きの速さと向きで起筆・送筆・収筆を疑似表現します。':'';
-    if(key==='brush'){const points=brushGeometry(Array.from({length:90},(_,i)=>({x:20+i*3.6,y:57+Math.sin(i/14)*23,time:i<30?i*18:i<60?540+(i-30)*3:630+(i-60)*18,pressure:.5,pen:false})),config.width,true,true);renderWritingLayer($('brush-preview'),[{id:'preview',type:'stroke',tool:'brush',geometryVersion:4,inkAmount:config.inkAmount,color:config.color,baseWidth:config.width,opacity:1,points}],{});$('brush-preview').querySelector('svg').setAttribute('viewBox','0 0 360 110');}
+    $('style-preview').hidden=key==='text';
+    if(key!=='text')renderStyleSample($('style-preview'),{key,tool,object:o,config});
     controls();
 }
 function setReadingMode(value){if(!model||busy||model.locked&&!value)return;cancelGesture();readingMode=value;selected=null;render();if(model)updatePanels();syncStyle();updateHint();}
@@ -259,6 +282,9 @@ function persist() {
 }
 function openObjectSettings(){
     const o=selectedObject();if(!o||o.locked)return;closeSheet();syncStyle(true);
+    // A settings sheet opened from Layers must not retain its bottom history
+    // button as the anchor when the window switches to a narrow layout.
+    if(host)sheetAnchor=$('active-tool-label');
     if(o.type==='text')textDialog({x:o.layout[0].x,y:o.layout[0].y},o);
     else root.querySelector('[data-panel="settings"]').click();
 }
@@ -299,18 +325,18 @@ function updateLayersPanel(){
     for(const [i,o] of [...all].reverse().entries()){
         const row=document.createElement('div');row.className='layer-row';row.dataset.object=o.id;
         const b=document.createElement('button');b.type='button';b.className='layer-select';b.dataset.object=o.id;b.setAttribute('aria-pressed',o.id===selected);
-        const title=`${i+1}. ${o.type==='text'?o.text.slice(0,24):toolNames[o.tool]||({rect:'四角',ellipse:'楕円'}[o.shape])||labels[o.type]}`;b.setAttribute('aria-label',title);
+        const title=`${i+1}. ${o.type==='text'?o.text.slice(0,24):t(toolNames[o.tool]||({rect:'四角',ellipse:'楕円'}[o.shape])||labels[o.type])}`;b.setAttribute('aria-label',title);
         const thumb=document.createElement('span');thumb.className='layer-thumb';thumb.setAttribute('aria-hidden','true');
         const stage=document.createElement('span');stage.className='layer-thumb-stage';renderWritingLayer(stage,[o],{...families,...inputFamilies});
         const [x,y,w,h]=writingBounds(o),zoom=Math.min(58/Math.max(1,w+8),46/Math.max(1,h+8));stage.style.transform=`matrix(${zoom},0,0,${zoom},${(66-w*zoom)/2-x*zoom},${(54-h*zoom)/2-y*zoom})`;thumb.append(stage);
         const label=document.createElement('span');label.textContent=title;b.append(thumb,label);
         b.onclick=()=>{if(busy)return;cancelGesture();selected=o.id;tool='select';readingMode=model.locked;render();updatePanels();syncStyle(true);};
-        const grip=document.createElement('button');grip.type='button';grip.className='layer-grip';grip.textContent='⠿';grip.title='ドラッグして重ね順を変更。上下キーでも移動できます。';grip.setAttribute('aria-label',`${title}の重ね順をドラッグ`);grip.disabled=busy||model.locked||o.locked===true;
+        const grip=document.createElement('button');grip.type='button';grip.className='layer-grip';grip.textContent='⠿';grip.dataset.writingUserLabel='true';grip.title=t('ドラッグして重ね順を変更。上下キーでも移動できます。');grip.setAttribute('aria-label',locale.language==='en'?`Drag to reorder ${title}`:`${title}の重ね順をドラッグ`);grip.disabled=busy||model.locked||o.locked===true;
         grip.onkeydown=e=>{if(!['ArrowUp','ArrowDown'].includes(e.key)||busy||model.locked||o.locked)return;e.preventDefault();selected=o.id;mutate('重ね順を変更',items=>reorderWritingObject(items,o.id,e.key==='ArrowUp'?'up':'down'));$('layer-list').querySelector(`[data-object="${o.id}"] .layer-grip`)?.focus();};
         grip.onpointerdown=e=>startLayerDrag(e,row,grip,o.id);const rowActions=document.createElement('span');rowActions.className='layer-row-actions';
         for(const action of ['lock','delete']){
             const control=document.createElement('button');control.type='button';control.className=`layer-${action}`;
-            const label=action==='lock'?(o.locked?'ロック解除':'ロック'):'削除';control.title=label;control.setAttribute('aria-label',`${title}を${label}`);
+            const label=t(action==='lock'?(o.locked?'ロック解除':'ロック'):'削除');control.dataset.writingUserLabel='true';control.title=label;control.setAttribute('aria-label',locale.language==='en'?`${label} ${title}`:`${title}を${label}`);
             if(action==='lock')control.setAttribute('aria-pressed',!!o.locked);
             control.innerHTML=`<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true">${actionIcons[action]}</svg>`;
             control.disabled=busy||model.locked||(action==='delete'&&!!o.locked);
@@ -323,13 +349,13 @@ function updateLayersPanel(){
 }
 function updatePanels() {
     updateLayersPanel();
-    const all=objects(),current=model.head;$('objects').replaceChildren(new Option('— 選択なし —',''));
-    for(const [i,o] of all.entries())$('objects').add(new Option(`${i+1}. ${o.type==='text'?o.text.slice(0,18):toolNames[o.tool]||labels[o.type]}`,o.id));
+    const all=objects(),current=model.head;$('objects').replaceChildren(new Option(t('— 選択なし —'),''));
+    for(const [i,o] of all.entries())$('objects').add(new Option(`${i+1}. ${o.type==='text'?o.text.slice(0,18):t(toolNames[o.tool]||labels[o.type])}`,o.id));
     $('objects').value=selected||'';$('history').replaceChildren();
     const revisions=model.revisions;
     for(const [i,r] of revisions.entries()){
         const pages=r.pages.map(p=>p.language===language?context.manifest.pages.findIndex(page=>page.id===p.pageId)+1:`${p.language}:${p.pageId}`).join('・');
-        $('history').add(new Option(`${i?`${i}. ${r.operation}`:'開始時点'}${pages?`（${pages}ページ）`:''}${r.id===current?' — 現在':''}`,r.id));
+        $('history').add(new Option(`${i?`${i}. ${t(r.operation)}`:t('開始時点')}${pages?(locale.language==='en'?` (p. ${pages})`:`（${pages}ページ）`):''}${r.id===current?' — '+t('現在'):''}`,r.id));
     }
     $('history').value=current||'';$('history-count').textContent=model.locked?'共有用：履歴なし・編集ロック':`本全体で直近 ${Math.max(0,revisions.length-1)} / 30 操作。戻った後に編集すると、やり直しの履歴は消えます。古い履歴を整理しても書き込みは残ります。`;
     $('page-summary').textContent=`${page()?.pageLabel||pageIndex+1} ページ · 書き込み ${all.length} 件`;
@@ -427,6 +453,7 @@ $('objects').onchange=()=>{selected=$('objects').value||null;tool='select';readi
 function applyStyle(){const o=selectedObject();if(!o||o.locked||o.type==='text')return false;const config=settings[styleKey()],next=structuredClone(o);next.color=config.color;
     if(o.type==='stroke'){const factor=config.width/o.baseWidth;next.baseWidth=config.width;next.points.forEach(p=>p.width*=factor);}
     else next.width=config.width;if(o.type==='line'){next.arrow=config.arrow;next.arrowHead=config.arrowHead;}
+    if(['line','shape'].includes(o.type))next.lineStyle=config.lineStyle||'solid';
     if(o.tool==='brush'){next.geometryVersion=4;next.inkAmount=config.inkAmount;let distance=0;next.points.forEach((p,i)=>{if(i)distance+=Math.hypot(p.x-next.points[i-1].x,p.y-next.points[i-1].y);p.dryness??=brushDryness(distance);});}
     return mutate('道具の設定を変更',all=>all.map(item=>item.id===o.id?next:item));}
 $('apply-style').onclick=applyStyle;
@@ -492,8 +519,8 @@ $('input').onpointerdown=e=>{
     else {const {width,color}=settings[styleKey()];let object;
         if(PEN_TOOLS.includes(tool)){
             object={id:writingId(),type:'stroke',tool,color,opacity:tool==='highlighter'?.48:1,baseWidth:width,geometryVersion:tool==='brush'?4:1,...(tool==='brush'?{inkAmount:settings.brush.inkAmount}:{}),points:[{...penPoint(p,e,width),...(tool==='brush'?{dryness:0}:{})}]};}
-        else if(['line','arrow'].includes(tool)){p=snapped(p);object={id:writingId(),type:'line',from:[p.x,p.y],to:[p.x,p.y],color,width,arrow:settings.geometry.arrow,arrowHead:settings.geometry.arrowHead};}
-        else object={id:writingId(),type:'shape',shape:tool,rect:[p.x,p.y,1,1],color,fill:null,width,opacity:1};
+        else if(['line','arrow'].includes(tool)){p=snapped(p);object={id:writingId(),type:'line',from:[p.x,p.y],to:[p.x,p.y],color,width,arrow:settings.geometry.arrow,arrowHead:settings.geometry.arrowHead,lineStyle:settings.geometry.lineStyle};}
+        else object={id:writingId(),type:'shape',shape:tool,rect:[p.x,p.y,1,1],color,fill:null,width,opacity:1,lineStyle:settings.geometry.lineStyle};
         gesture={pointerId:e.pointerId,mode:'draw',start:p,object,cross,...(tool==='brush'?{raw:[rawBrushPoint(p,e)]}:{})};if(cross)renderSpreadStroke(object);else render([...objects(),object]);}
     if(gesture)$('input').setPointerCapture(e.pointerId);
 };
@@ -514,6 +541,8 @@ function textDialog(p,existing,box) {
     textPlacement={...p,existing};$('text').value=existing?.text||'';$('text-title').textContent=existing?'文字を編集':'文字を追加';$('text-error').textContent='';
     if(existing){const r=existing.runs[0];$('font').value=r.fontId;$('size').value=String(r.size);$('weight').value=String(r.weight);$('color').value=r.color;$('vertical').checked=existing.writingMode==='vertical-rl';}
     for(const id of ['font','size','weight','color'])$(`text-${id}`).value=$(id).value;$('text-vertical').checked=$('vertical').checked;
+    const frame=existing?(existing.boxStyle||{stroke:null,fill:null,width:penPixels(.3)}):settings.text.boxStyle;
+    $('text-border-enabled').checked=!!frame.stroke;$('text-fill-enabled').checked=!!frame.fill;$('text-border-color').value=frame.stroke||'#20272b';$('text-fill-color').value=frame.fill||'#ffffff';$('text-border-width').value=penWidthLabel(frame.width);syncTextFrame();
     if(textSize($('text-size').value)===null){say('文字サイズを1〜360の数値で入力してください。',true);textPlacement=null;return;}syncTextColors();
     if(host){
         const size=Number($('text-size').value),min=Math.max(32,size*1.4),x=Math.max(8,Math.min(existing?.rect[0]??box?.[0]??p.x,352-min)),y=Math.max(8,Math.min(existing?.rect[1]??box?.[1]??p.y,632-min));
@@ -524,12 +553,13 @@ function textDialog(p,existing,box) {
     $('text').focus({preventScroll:true});
 }
 function cancelText(){if(!busy){textSerial++;$('text-dialog').close();textPlacement=null;render();}}
-function inlineTextSignature(){return JSON.stringify([$('text').value,...['font','size','weight','color'].map(id=>$(`text-${id}`).value),$('text-vertical').checked,textPlacement?.box]);}
+function inlineTextSignature(){return JSON.stringify([$('text').value,...['font','size','weight','color'].map(id=>$(`text-${id}`).value),$('text-vertical').checked,textPlacement?.box,textFrame()]);}
 $('text-cancel').onclick=cancelText;
 $('text-dialog').oncancel=e=>{if(busy)e.preventDefault();};
 async function commitText(){
     if(busy||!textPlacement)return false;
     if(textSize($('text-size').value)===null){$('text-error').textContent='文字サイズを1〜360の数値で入力してください。';return false;}
+    if(!Number.isFinite(textFrame().width)||Number($('text-border-width').value)<.1||Number($('text-border-width').value)>8){$('text-error').textContent='枠線の太さを0.1〜8 mmで入力してください。';return false;}
     if(host&&!$('text').value.trim()){cancelText();return true;}
     if(host&&textPlacement.existing&&textPlacement.initial===inlineTextSignature()){cancelText();return true;}
     busy=true;controls();$('text-apply').disabled=true;$('text-error').textContent='書体と文字を確認中…';
@@ -538,11 +568,13 @@ async function commitText(){
         await runtime.verifyInput(fontId,text);inputFamilies[fontId]=await runtime.inputFamily(fontId);
         const canvas=document.createElement('canvas'),ctx=canvas.getContext('2d');ctx.font=`${weight} ${size}px "${inputFamilies[fontId]}"`;
         const old=textPlacement.existing,o=createWritingText({id:old?.id,text,x:textPlacement.x,y:textPlacement.y,fontId,size,weight,color:$('text-color').value,vertical:$('text-vertical').checked,measure:s=>ctx.measureText(s).width,box:host?textPlacement.box:undefined});
+        o.boxStyle=textFrame();
         model.change(textPlacement.language||language,textPlacement.pageId||page().id,old?'文字を編集':'文字を追加',all=>old?all.map(item=>item.id===old.id?o:item):[...all,o]);
         for(const id of ['font','size','weight','color'])$(id).value=$(`text-${id}`).value;settings.text.color=$('text-color').value;$('vertical').checked=$('text-vertical').checked;
+        settings.text.boxStyle=structuredClone(o.boxStyle);
         selected=o.id;$('text-dialog').close();textPlacement=null;textSerial++;if(host)tool='select';changed('文字を配置しました。');return true;
     }catch(e){$('text-error').textContent=explain(e);return false;}
-    finally{runtime.dispose();busy=false;for(const field of $('text-form').querySelectorAll('input,select,textarea,button'))field.disabled=false;controls();if(host&&$('text-dialog').open)positionInlineText();}
+    finally{runtime.dispose();busy=false;for(const field of $('text-form').querySelectorAll('input,select,textarea,button'))field.disabled=false;controls();syncTextFrame();}
 }
 $('text-form').onsubmit=e=>{e.preventDefault();void commitText();};
 function inlinePageRect(){return hostView?.pages.find(p=>p.index===textPlacement?.pageIndex);}
@@ -552,6 +584,8 @@ function positionInlineText(){
     Object.assign($('text-dialog').style,{left:`${left}px`,top:`${top}px`,width:`${w*s}px`,height:`${h*s}px`});
     const size=textSize($('text-size').value)||20,base=Math.max(16,size),factor=base/size;
     Object.assign($('text').style,{width:`${w*factor}px`,height:`${h*factor}px`,fontSize:`${base}px`,transform:`scale(${s/factor})`,fontWeight:$('text-weight').value,color:$('text-color').value,writingMode:$('text-vertical').checked?'vertical-rl':'horizontal-tb'});
+    const frame=textFrame(),half=Number.isFinite(frame.width)?Math.max(0,frame.width*s/2):0;
+    Object.assign($('text-dialog').style,{backgroundColor:frame.fill||'transparent',borderWidth:'0',outline:frame.stroke?'none':'1px dashed #247d83',boxShadow:frame.stroke?`inset 0 0 0 ${half}px ${frame.stroke},0 0 0 ${half}px ${frame.stroke}`:'0 0 0 1px #fff9'});
     const bar=$('inline-text-toolbar'),v=visualViewport,leftEdge=(v?.offsetLeft||0)+8,topEdge=(v?.offsetTop||0)+8,right=leftEdge+(v?.width||innerWidth)-16,bottom=topEdge+(v?.height||innerHeight)-16;
     const barWidth=Math.min(490,right-leftEdge,pageRect.width>=340?pageRect.width-16:Infinity);bar.style.width=`${barWidth}px`;const bh=bar.getBoundingClientRect().height;
     const barTop=top-bh-10>=topEdge?top-bh-10:top+h*s+10+bh<=bottom?top+h*s+10:topEdge;
@@ -567,7 +601,7 @@ if(host){
     const dialog=$('text-dialog');dialog.dataset.inline='true';$('text').required=false;$('text').placeholder='ここに文字を入力';$('text').setAttribute('aria-label','ページ上のテキストボックス');
     $('input').setAttribute('aria-label','Writingページ。文字はクリックまたはドラッグで枠を作り、直接入力。再編集はダブルクリックまたは設定から。');
     const bar=document.createElement('div');bar.id='inline-text-toolbar';bar.setAttribute('role','group');bar.setAttribute('aria-label','文字の書式と確定');
-    bar.append(root.querySelector('.dialog-options'),textColors,$('text-error'),root.querySelector('.dialog-actions'));$('text-form').append(bar);
+    bar.append(root.querySelector('.dialog-options'),textColors,textBoxStyle,$('text-error'),root.querySelector('.dialog-actions'));$('text-form').append(bar);
     $('text-apply').textContent='確定';$('text-cancel').textContent='キャンセル';
     const label=$('text').closest('label');label.className='inline-text-label';for(const n of [...label.childNodes])if(n.nodeType===3)n.textContent='';
     for(const [id,label,icon] of [['text-move','テキストボックスを移動','✥'],['text-resize','テキストボックスの大きさを変更','◢']]){
