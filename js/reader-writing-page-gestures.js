@@ -23,3 +23,39 @@ export function installWritingPageGestures(input,{isReading,cancelStroke,turn,is
     };
     input.addEventListener('pointerup',e=>end(e,false),true);input.addEventListener('pointercancel',e=>end(e,true),true);
 }
+
+/** Vertical drawer drags coexist with the shelf's native horizontal scrolling. */
+export function installWritingToolDrawer(target,{enabled,isOpen,settle,drag,finish,signal,captureStart=false}){
+    let gesture=null,suppressClick=false;const pointers=new Set();
+    const consume=e=>{e.preventDefault();e.stopImmediatePropagation();};
+    const reset=()=>{if(gesture?.vertical){settle(gesture.open);finish();}gesture=null;};
+    target.addEventListener('pointerdown',e=>{
+        if(!enabled()||e.pointerType==='pen'||e.button>0)return;
+        pointers.add(e.pointerId);suppressClick=false;
+        if(pointers.size>1){reset();return;}
+        gesture={id:e.pointerId,x:e.clientX,y:e.clientY,dy:0,open:isOpen(),vertical:false};
+        if(captureStart)target.setPointerCapture(e.pointerId);
+    },{capture:true,signal});
+    target.addEventListener('pointermove',e=>{
+        if(!gesture||gesture.id!==e.pointerId)return;
+        if(!enabled()){reset();return;}
+        const dx=e.clientX-gesture.x,dy=e.clientY-gesture.y;
+        if(!gesture.vertical){
+            if(Math.max(Math.abs(dx),Math.abs(dy))<9)return;
+            if(Math.abs(dx)>Math.abs(dy)*1.2){gesture=null;return;}
+            if(Math.abs(dy)<=Math.abs(dx)*1.2)return;
+            gesture.vertical=true;suppressClick=true;target.setPointerCapture(e.pointerId);
+        }
+        gesture.dy=dy;consume(e);drag(dy,gesture.open);
+    },{capture:true,signal});
+    const end=(e,cancel)=>{
+        pointers.delete(e.pointerId);if(gesture?.id!==e.pointerId)return;
+        const g=gesture;gesture=null;
+        if(g.vertical){consume(e);settle(cancel?g.open:g.open?g.dy>-28:g.dy>=28);finish();}
+        if(target.hasPointerCapture?.(e.pointerId))target.releasePointerCapture(e.pointerId);
+    };
+    target.addEventListener('pointerup',e=>end(e,false),{capture:true,signal});
+    target.addEventListener('pointercancel',e=>end(e,true),{capture:true,signal});
+    target.addEventListener('click',e=>{if(suppressClick){consume(e);suppressClick=false;}},{capture:true,signal});
+    signal?.addEventListener('abort',reset,{once:true});
+}

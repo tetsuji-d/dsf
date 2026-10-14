@@ -1,0 +1,15 @@
+import assert from 'node:assert/strict';
+import {installWritingToolDrawer} from '../../js/reader-writing-page-gestures.js';
+const handlers={},capture=new Set(),moves=[];let enabled=true,open=false,ends=0;
+const target={addEventListener:(type,fn)=>(handlers[type]??=[]).push(fn),setPointerCapture:id=>capture.add(id),hasPointerCapture:id=>capture.has(id),releasePointerCapture:id=>capture.delete(id)};
+installWritingToolDrawer(target,{enabled:()=>enabled,isOpen:()=>open,settle:value=>open=value,drag:(dy,wasOpen)=>moves.push([dy,wasOpen]),finish:()=>ends++});
+const send=(type,x,y,id=1,pointerType='touch')=>{const e={pointerId:id,pointerType,button:0,clientX:x,clientY:y,preventDefault(){this.prevented=true;},stopImmediatePropagation(){this.stopped=true;}};for(const f of handlers[type]||[])f(e);return e;};
+send('pointerdown',100,30);assert.equal(send('pointermove',103,95).prevented,true);send('pointerup',103,95);assert.equal(open,true);assert.deepEqual(moves.at(-1),[65,false]);assert.equal(capture.size,0);assert.equal(send('click',103,95).prevented,true,'Dragging must not trigger the tap fallback');
+send('pointerdown',150,110);assert.equal(send('pointermove',50,115).prevented,undefined,'Horizontal shelf scrolling stays native');send('pointerup',50,115);assert.equal(open,true);
+send('pointerdown',100,110);send('pointermove',101,90);send('pointerup',101,90);assert.equal(open,true,'A short drag snaps back');
+send('pointerdown',100,110);send('pointermove',101,30);send('pointerup',101,30);assert.equal(open,false);
+send('pointerdown',100,30);send('pointermove',100,110);send('pointercancel',100,110);assert.equal(open,false,'OS cancellation restores the previous state');
+send('pointerdown',100,30);send('pointermove',100,110);send('pointerdown',130,110,2);send('pointerup',100,110);send('pointerup',130,110,2);assert.equal(open,false,'A second finger cancels the drawer gesture');
+const before=ends;enabled=false;send('pointerdown',100,30);send('pointermove',100,110);send('pointerup',100,110);assert.equal(ends,before,'Desktop and open dialogs retain their own gestures');
+enabled=true;send('pointerdown',100,30,1,'pen');send('pointermove',100,110,1,'pen');send('pointerup',100,110,1,'pen');assert.equal(ends,before,'Pen input must not drag the drawer');
+console.log('Drawer: down/up, drag feedback, short-drag snapback, native horizontal scroll, click suppression, cancellation, multitouch and desktop/pen exclusions passed.');
