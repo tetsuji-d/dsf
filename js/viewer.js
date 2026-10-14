@@ -103,6 +103,13 @@ let viewerResizeFrame = null;
 let viewerInfoPanelResizeObserver = null;
 let viewerChromePlacementFrame = null;
 let viewerWritingFile=null;
+let writingTextCanvas=null;
+function setWritingTextView(value){
+    const canvas=document.getElementById('viewer-canvas');if(!canvas)return;
+    if(value?.active&&!writingTextCanvas&&innerWidth<900){writingTextCanvas={width:parseFloat(canvas.style.width),height:parseFloat(canvas.style.height),viewportWidth:innerWidth};document.body.classList.add('reader-writing-text-editing');}
+    if(value?.offset&&writingTextCanvas)canvas.style.translate=`${value.offset.x}px ${value.offset.y}px`;
+    if(!value){writingTextCanvas=null;canvas.style.removeProperty('translate');document.body.classList.remove('reader-writing-text-editing');scheduleViewerResize();}
+}
 const writingEnabled=__WRITING_ENABLED__;
 const writingBridge=createReaderWritingBridge({button:document.getElementById('viewer-writing-btn'),
     read:()=>writingEnabled&&viewerWritingFile?{file:viewerWritingFile,language:state.activeLang,pageIndex:getIndex(),spread:spreadMode,
@@ -116,6 +123,7 @@ const writingBridge=createReaderWritingBridge({button:document.getElementById('v
         bookSpreadIndex=findBookUnitIndexForPage(getIndex());refresh();
     },
     resetView:()=>{resetZoom();readerChrome?.openReading();},
+    textView:setWritingTextView,
     onMode:active=>{if(active){bookPinch?.cancel();pointerCache=[];lastTapTime=0;resetZoom();readerChrome?.openReading();window.toggleUi(true);clearViewerUiAutoHide();}else scheduleViewerUiAutoHide();},
     onReturn:async data=>{
         const preference=viewerSpreadPreference;
@@ -4701,6 +4709,7 @@ function scheduleViewerResize() {
 
 function handleViewerResize() {
     syncViewerViewportMetrics();
+    if(writingTextCanvas){resizeCanvas();return;}
     // The fan owns its selected face. Changing the flat spread underneath it
     // would cancel that pose and return to the page from before it was opened.
     if(readerChrome?.active){resizeCanvas();return;}
@@ -4760,6 +4769,7 @@ function resizeCanvas() {
         const pageWidth = Math.floor(fitBookPageWidth(W, H, showSpread ? 2 : 1, thickness));
         w = pageWidth * (showSpread ? 2 : 1); h = pageWidth / aspect;
     }
+    if(writingTextCanvas){const ratio=window.innerWidth/writingTextCanvas.viewportWidth;w=writingTextCanvas.width*ratio;h=writingTextCanvas.height*ratio;}
     canvas.style.width = w + 'px';
     canvas.style.height = h + 'px';
     const mobileCount=document.getElementById('viewer-mobile-page-count');

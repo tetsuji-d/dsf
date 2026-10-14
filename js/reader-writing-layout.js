@@ -1,5 +1,15 @@
 /** Place Writing chrome around the Reader's actual paper and navigation rectangles. */
 export function writingChromeLayout({width,height,paper,controls=[],header,safe={left:0,right:0,top:0,bottom:0}}){
+    if(width<900){
+        const top=Math.max(safe.top+4,header?.bottom+6||60),edge=Math.max(8,safe.left),size=48,gap=2;
+        const end=Math.min(width-Math.max(8,safe.right),...controls.filter(r=>r.height>r.width&&r.left>300&&r.top<top+164).map(r=>r.left-12));
+        return {mode:'scroll',short:height<520,size,gap,top,
+            rail:{left:edge,top,width:end-edge,height:112},
+            pens:{left:492,top:0,width:size*5+gap*4,height:108},
+            tools:{left:204,top:24,width:264,height:52,columns:6},
+            history:{left:4,top:28,width:176,height:44},
+            context:{left:edge,top:top+112,width:Math.min(280,end-edge),height:44}};
+    }
     const left=Math.max(50,safe.left+8),right=width-Math.max(50,safe.right+8);
     const short=height<520,availableLeft=paper.left-left-16;
     const historyWidth=220,historyGap=24;
@@ -35,6 +45,14 @@ export function writingChromeLayout({width,height,paper,controls=[],header,safe=
         history=topHistory?{left:groupLeft,top:tools.top+4,width:historyWidth,height:44}:{left:Math.max(10,Math.min(paper.left+12,width-historyWidth-10)),top:Math.max(180,bottom-52),width:historyWidth,height:44};
     }
     return {mode,short,size,gap,pens,tools,history,context,top};
+}
+
+/** Pan, never shrink, a page-aligned text box into the area above the keyboard. */
+export function writingTextPan({box,viewport,toolbarBottom}){
+    const left=viewport.left+20,right=viewport.left+viewport.width-20;
+    const top=Math.max(viewport.top+20,toolbarBottom+24),bottom=viewport.top+viewport.height-24;
+    const fit=(start,size,min,max)=>size>max-min?min-start:Math.max(min-start,Math.min(0,max-start-size));
+    return {x:fit(box.left,box.width,left,right),y:fit(box.top,box.height,top,Math.max(top+44,bottom))};
 }
 
 /** Keep an inspector close to the control that opened it, clamped to the visible viewport. */

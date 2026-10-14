@@ -41,6 +41,9 @@ const EN={
 };
 export function writingUiText(source,language='en'){
     if(language!=='en')return source;
+    if(source==='文字の書式')return 'Text format';
+    if(source==='道具を非表示')return 'Hide tools';
+    if(source==='左右にスワイプして道具を選択')return 'Swipe horizontally to choose a tool';
     const s=source.trim(),pad=value=>source.slice(0,source.indexOf(s))+value+source.slice(source.indexOf(s)+s.length);
     if(Object.hasOwn(EN,s))return pad(EN[s]);
     let m;

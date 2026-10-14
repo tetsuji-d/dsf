@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import {writingChromeLayout,writingInspectorPlacement} from '../../js/reader-writing-layout.js';
+import {writingChromeLayout,writingInspectorPlacement,writingTextPan} from '../../js/reader-writing-layout.js';
 import {writingHitTest} from '../../js/reader-writing-hit.js';
 
 const fixtures=[
@@ -10,12 +10,14 @@ const fixtures=[
 for(const [width,height,x,y,w,h,mode] of fixtures){
  const paper={left:x,top:y,right:x+w,bottom:y+h,width:w,height:h};
  const controls=width<600?[{left:30,top:height-54,right:width-30,bottom:height-10,width:width-60,height:44}]:[{left:paper.right+12,top:height/2-147,right:paper.right+56,bottom:height/2+147,width:44,height:294}];
- const a=writingChromeLayout({width,height,paper,controls});assert.equal(a.mode,mode,`${width}x${height}`);assert.ok(a.size>=44);
- for(const r of [a.pens,a.tools,a.context]){assert.ok(r.left>=0&&r.top>=0&&r.left+r.width<=width+.1&&r.top+r.height<=height,JSON.stringify(r));
+ const a=writingChromeLayout({width,height,paper,controls});assert.equal(a.mode,width<900?'scroll':mode,`${width}x${height}`);assert.ok(a.size>=44);
+ const visible=a.rail?[a.rail,a.context]:[a.pens,a.tools,a.context];
+ for(const r of visible){assert.ok(r.left>=0&&r.top>=0&&r.left+r.width<=width+.1&&r.top+r.height<=height,JSON.stringify(r));
   for(const c of controls)assert.ok(r.left+r.width<=c.left||r.left>=c.right||r.top+r.height<=c.top||r.top>=c.bottom,`Writing/Reader collision ${width}x${height}`);}
  assert.ok(a.history.left>=0&&a.history.left+a.history.width<=width&&a.history.top+a.history.height<=height);
  assert.equal(a.tools.columns,6,'The drawing-tool order must not wrap when the viewport changes');
- assert.ok(a.pens.left>=50,'Top-edge pens must leave the Reader menu clear');
+ if(!a.rail)assert.ok(a.pens.left>=50,'Top-edge pens must leave the Reader menu clear');
+ else{assert.ok(a.history.left+a.history.width<a.tools.left);assert.equal(a.history.top+22,a.tools.top+26);assert.ok(a.tools.left+a.tools.width<a.pens.left);assert.ok(a.rail.top+a.rail.height<=a.context.top);}
  if(a.mode==='side')for(const r of [a.pens,a.tools,a.context]){
   assert.ok(r.left+r.width<paper.left,'Side tools must leave the paper clear');
   assert.equal(r.left+r.width/2,a.pens.left+a.pens.width/2,'One center axis for all dock groups');
@@ -24,11 +26,17 @@ for(const [width,height,x,y,w,h,mode] of fixtures){
  for(const panel of ['layers','history']){const r=writingInspectorPlacement({width,height,anchor:{...a.history,right:a.history.left+a.history.width,bottom:a.history.top+a.history.height},panel});assert.ok(r.height>=Math.min(600,height-16),'Lists need usable height even from a bottom trigger');assert.ok(r.top>=8&&r.top+r.height<=height-8);assert.ok(r.left>=8&&r.left+r.width<=width-8);}
  const header={left:width-(width<600?108:162),top:15,right:width-12,bottom:57,width:width<600?96:150,height:42};
  const withHeader=writingChromeLayout({width,height,paper,controls,header});
- for(const r of [withHeader.pens,withHeader.tools,withHeader.context]){
+ for(const r of withHeader.rail?[withHeader.rail,withHeader.context]:[withHeader.pens,withHeader.tools,withHeader.context]){
   assert.ok(r.left+r.width<=header.left||r.left>=header.right||r.top+r.height<=header.top||r.top>=header.bottom,`Reader header collision ${width}x${height}`);
  }
 }
 const ellipse={type:'shape',shape:'ellipse',rect:[40,50,240,180],width:2,fill:null};
+for(const width of [320,390,844])for(const height of [340,480,844])for(const y of [20,240,600]){
+ const box={left:width/2-80,top:y,width:160,height:100},viewport={left:0,top:0,width,height};
+ const pan=writingTextPan({box,viewport,toolbarBottom:116});
+ assert.ok(box.left+pan.x>=20&&box.left+pan.x+box.width<=width-20);
+ assert.ok(box.top+pan.y>=140&&box.top+pan.y+box.height<=height-24,'Text box must stay between the compact bar and keyboard');
+}
 // Split-pane resizing can move a former top history trigger to the bottom.
 // Settings must keep a useful scroll area after their heading and action footer.
 for(const [width,height,offsetLeft,offsetTop] of [[673,833,0,0],[740,920,0,0],[390,844,0,0],[844,390,0,0],[390,360,0,220],[740,920,20,30]]){

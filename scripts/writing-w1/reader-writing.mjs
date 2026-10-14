@@ -8,7 +8,7 @@ import {prepareDsfViewerFixedTextContext,createDsfFixedTextPageElement} from '/j
 import {createReaderWritingRuntime} from '/reader-runtime.mjs';
 import {writingSpreadPages,writingTurnTarget,spreadStrokeParts} from '/js/reader-writing-spread.js';
 import {installWritingPageGestures} from '/js/reader-writing-page-gestures.js';
-import {writingChromeLayout,writingInspectorPlacement} from '/js/reader-writing-layout.js';
+import {writingChromeLayout,writingInspectorPlacement,writingTextPan} from '/js/reader-writing-layout.js';
 import {writingHitTest} from '/js/reader-writing-hit.js';
 import {TEXT_SIZES,TEXT_COLORS,ARROW_HEADS,textSize,stepTextSize} from '/js/reader-writing-format.js';
 import {createWritingPageCache,writingPageWindow} from '/js/reader-writing-page-cache.js';
@@ -23,6 +23,7 @@ const t=source=>locale.t(source);
 const listenWindow=(name,fn)=>window.addEventListener(name,fn,{signal:lifetime.signal});
 let noticeTimer,hostView,lastHostLayout,lastChromeLayout,disposed=false;
 let queueToolsHide=()=>{};
+let textPan={x:0,y:0};
 const toolNames = {select:'選択・移動',pen:'ボールペン',brush:'筆ペン',marker:'サインペン',highlighter:'蛍光マーカー',correction:'修正液',text:'文字',line:'線',arrow:'矢印',rect:'四角',ellipse:'楕円'};
 const labels = {text:'文字',stroke:'筆跡',line:'線',shape:'図形'};
 let handle,model,baseBytes,language,pageIndex=0,context,busy=false,tool='pen',selected=null,gesture=null,textPlacement,textSerial=0;
@@ -548,11 +549,14 @@ function textDialog(p,existing,box) {
         const size=Number($('text-size').value),min=Math.max(32,size*1.4),x=Math.max(8,Math.min(existing?.rect[0]??box?.[0]??p.x,352-min)),y=Math.max(8,Math.min(existing?.rect[1]??box?.[1]??p.y,632-min));
         textPlacement={...textPlacement,language,pageId:page().id,pageIndex,box:[x,y,Math.max(min,Math.min(existing?.rect[2]??box?.[2]??200,352-x)),Math.max(min,Math.min(existing?.rect[3]??box?.[3]??100,632-y))]};
         textPlacement.initial=inlineTextSignature();
+        body.dataset.textEditing='true';textPan={x:0,y:0};host.textView?.({active:true});
+        $('text-format-toggle').setAttribute('aria-expanded','false');
         $('text-dialog').show();positionInlineText();void refreshInlineFont();render();
     }else $('text-dialog').showModal();
     $('text').focus({preventScroll:true});
 }
-function cancelText(){if(!busy){textSerial++;$('text-dialog').close();textPlacement=null;render();}}
+function endTextView(){delete body.dataset.textEditing;textPan={x:0,y:0};host?.textView?.(null);queueToolsHide();}
+function cancelText(){if(!busy){textSerial++;$('text-dialog').close();textPlacement=null;endTextView();render();}}
 function inlineTextSignature(){return JSON.stringify([$('text').value,...['font','size','weight','color'].map(id=>$(`text-${id}`).value),$('text-vertical').checked,textPlacement?.box,textFrame()]);}
 $('text-cancel').onclick=cancelText;
 $('text-dialog').oncancel=e=>{if(busy)e.preventDefault();};
@@ -572,21 +576,34 @@ async function commitText(){
         model.change(textPlacement.language||language,textPlacement.pageId||page().id,old?'文字を編集':'文字を追加',all=>old?all.map(item=>item.id===old.id?o:item):[...all,o]);
         for(const id of ['font','size','weight','color'])$(id).value=$(`text-${id}`).value;settings.text.color=$('text-color').value;$('vertical').checked=$('text-vertical').checked;
         settings.text.boxStyle=structuredClone(o.boxStyle);
-        selected=o.id;$('text-dialog').close();textPlacement=null;textSerial++;if(host)tool='select';changed('文字を配置しました。');return true;
+        selected=o.id;$('text-dialog').close();textPlacement=null;textSerial++;endTextView();if(host)tool='select';changed('文字を配置しました。');return true;
     }catch(e){$('text-error').textContent=explain(e);return false;}
     finally{runtime.dispose();busy=false;for(const field of $('text-form').querySelectorAll('input,select,textarea,button'))field.disabled=false;controls();syncTextFrame();}
 }
 $('text-form').onsubmit=e=>{e.preventDefault();void commitText();};
 function inlinePageRect(){return hostView?.pages.find(p=>p.index===textPlacement?.pageIndex);}
 function positionInlineText(){
-    const pageRect=inlinePageRect();if(!textPlacement?.box||!pageRect)return;
-    const [x,y,w,h]=textPlacement.box,s=pageRect.width/360,left=pageRect.left+x*s,top=pageRect.top+y*s;
+    let pageRect=host?.view?.().pages.find(p=>p.index===textPlacement?.pageIndex)||inlinePageRect();if(!textPlacement?.box||!pageRect)return;
+    const [x,y,w,h]=textPlacement.box,s=pageRect.width/360;
+    const bar=$('inline-text-toolbar'),v=window.visualViewport,mobile=innerWidth<900;
+    bar.dataset.mobile=String(mobile);
+    if(mobile){
+        const vp={left:v?.offsetLeft||0,top:v?.offsetTop||0,width:v?.width||innerWidth,height:v?.height||innerHeight};
+        const headerBottom=document.querySelector('#viewer-header')?.getBoundingClientRect().bottom||vp.top+52;
+        Object.assign(bar.style,{left:`${vp.left+8}px`,top:`${Math.max(vp.top+8,headerBottom+4)}px`,width:`${vp.width-16}px`,maxHeight:`${Math.max(100,Math.min(300,vp.height*.48))}px`});
+        const raw={left:pageRect.left-textPan.x+x*s,top:pageRect.top-textPan.y+y*s,width:w*s,height:h*s};
+        const next=writingTextPan({box:raw,viewport:vp,toolbarBottom:bar.getBoundingClientRect().bottom});
+        host.textView?.({offset:next});textPan=next;
+        pageRect=host.view().pages.find(p=>p.index===textPlacement.pageIndex)||pageRect;
+    }else{bar.style.maxHeight='';if(textPan.x||textPan.y){host.textView?.({offset:{x:0,y:0}});textPan={x:0,y:0};}}
+    const left=pageRect.left+x*s,top=pageRect.top+y*s;
     Object.assign($('text-dialog').style,{left:`${left}px`,top:`${top}px`,width:`${w*s}px`,height:`${h*s}px`});
     const size=textSize($('text-size').value)||20,base=Math.max(16,size),factor=base/size;
     Object.assign($('text').style,{width:`${w*factor}px`,height:`${h*factor}px`,fontSize:`${base}px`,transform:`scale(${s/factor})`,fontWeight:$('text-weight').value,color:$('text-color').value,writingMode:$('text-vertical').checked?'vertical-rl':'horizontal-tb'});
     const frame=textFrame(),half=Number.isFinite(frame.width)?Math.max(0,frame.width*s/2):0;
     Object.assign($('text-dialog').style,{backgroundColor:frame.fill||'transparent',borderWidth:'0',outline:frame.stroke?'none':'1px dashed #247d83',boxShadow:frame.stroke?`inset 0 0 0 ${half}px ${frame.stroke},0 0 0 ${half}px ${frame.stroke}`:'0 0 0 1px #fff9'});
-    const bar=$('inline-text-toolbar'),v=visualViewport,leftEdge=(v?.offsetLeft||0)+8,topEdge=(v?.offsetTop||0)+8,right=leftEdge+(v?.width||innerWidth)-16,bottom=topEdge+(v?.height||innerHeight)-16;
+    if(mobile)return;
+    const leftEdge=(v?.offsetLeft||0)+8,topEdge=(v?.offsetTop||0)+8,right=leftEdge+(v?.width||innerWidth)-16,bottom=topEdge+(v?.height||innerHeight)-16;
     const barWidth=Math.min(490,right-leftEdge,pageRect.width>=340?pageRect.width-16:Infinity);bar.style.width=`${barWidth}px`;const bh=bar.getBoundingClientRect().height;
     const barTop=top-bh-10>=topEdge?top-bh-10:top+h*s+10+bh<=bottom?top+h*s+10:topEdge;
     const pageLeft=Math.max(leftEdge,pageRect.left+8),pageRight=Math.min(right,pageRect.left+pageRect.width-8),fitsPage=pageRight-pageLeft>=barWidth;
@@ -602,6 +619,9 @@ if(host){
     $('input').setAttribute('aria-label','Writingページ。文字はクリックまたはドラッグで枠を作り、直接入力。再編集はダブルクリックまたは設定から。');
     const bar=document.createElement('div');bar.id='inline-text-toolbar';bar.setAttribute('role','group');bar.setAttribute('aria-label','文字の書式と確定');
     bar.append(root.querySelector('.dialog-options'),textColors,textBoxStyle,$('text-error'),root.querySelector('.dialog-actions'));$('text-form').append(bar);
+    const format=document.createElement('button');format.id='text-format-toggle';format.type='button';format.textContent='Aa';format.title='文字の書式';format.setAttribute('aria-label','文字の書式');format.setAttribute('aria-expanded','false');bar.prepend(format);
+    format.onclick=()=>{format.setAttribute('aria-expanded',format.getAttribute('aria-expanded')!=='true');positionInlineText();};
+    const quick=document.createElement('div');quick.id='text-quick-size';quick.append($('text-size').closest('.text-size-controls'));bar.insertBefore(quick,format.nextSibling);
     $('text-apply').textContent='確定';$('text-cancel').textContent='キャンセル';
     const label=$('text').closest('label');label.className='inline-text-label';for(const n of [...label.childNodes])if(n.nodeType===3)n.textContent='';
     for(const [id,label,icon] of [['text-move','テキストボックスを移動','✥'],['text-resize','テキストボックスの大きさを変更','◢']]){
@@ -699,8 +719,9 @@ function layoutChrome(paper){
     const layout=writingChromeLayout({width:innerWidth,height:innerHeight,paper,controls,header,safe});body.dataset.toolsLayout=layout.mode;body.dataset.short=layout.short;
     const rect=(el,r)=>Object.assign(el.style,{left:`${r.left}px`,top:`${r.top}px`,width:r.width?`${r.width}px`:'',height:r.height?`${r.height}px`:''});
     rect($('pen-tray'),layout.pens);rect($('tool-field'),layout.tools);rect($('native-history'),layout.history);
+    const rail=$('tool-scroll');if(layout.rail)rect(rail,layout.rail);else rail.removeAttribute('style');
     body.style.setProperty('--pen-size',`${layout.size}px`);body.style.setProperty('--pen-gap',`${layout.gap}px`);body.style.setProperty('--tool-columns',layout.tools.columns);
-    body.style.setProperty('--dock-bottom',`${Math.max(layout.context.top+44,layout.tools.top+layout.tools.height+50,layout.mode==='side'?layout.history.top+44:0)+8}px`);
+    body.style.setProperty('--dock-bottom',`${Math.max(layout.context.top+44,layout.rail?layout.rail.top+layout.rail.height:layout.tools.top+layout.tools.height+50,layout.mode==='side'?layout.history.top+44:0)+8}px`);
     rect($('active-tool-label'),layout.context);
     body.style.setProperty('--context-tools-top',`${layout.tools.top+layout.tools.height+6}px`);
     body.style.setProperty('--context-tools-left',`${layout.tools.left}px`);
@@ -734,7 +755,15 @@ if(host){
     $('writing-test-intro')?.remove();
     const prepare=$('prepare');prepare.textContent='入力用書体の準備';root.querySelector('.save-panel').append(prepare);
     $('offline-status').textContent='準備した入力用書体は通信なしでも使えます。Reader画面のオフライン起動は引き続き検証中です。';
-    const toolbar=document.createElement('div');toolbar.className='native-tools';toolbar.append($('tool-field'),$('pen-tray'));root.append(toolbar);
+    const toolbar=document.createElement('div');toolbar.className='native-tools';
+    const rail=document.createElement('div');rail.id='tool-scroll';rail.setAttribute('role','region');rail.setAttribute('aria-label','左右にスワイプして道具を選択');rail.tabIndex=0;
+    const track=document.createElement('div');track.id='tool-scroll-track';track.append($('tool-field'),$('pen-tray'));rail.append(track);toolbar.append(rail);root.append(toolbar);
+    rail.addEventListener('scroll',()=>{queueToolsHide();},{passive:true});
+    rail.addEventListener('keydown',e=>{if(e.target===rail&&['ArrowLeft','ArrowRight'].includes(e.key)){e.preventDefault();e.stopPropagation();rail.scrollBy({left:e.key==='ArrowRight'?160:-160,behavior:'smooth'});}});
+    let railStart,railMoved=false;
+    rail.addEventListener('pointerdown',e=>{railStart=[e.clientX,e.clientY];railMoved=false;},{capture:true});
+    rail.addEventListener('pointermove',e=>{if(railStart&&Math.hypot(e.clientX-railStart[0],e.clientY-railStart[1])>9)railMoved=true;},{capture:true});
+    rail.addEventListener('click',e=>{if(railMoved){e.preventDefault();e.stopImmediatePropagation();}railStart=null;},{capture:true});
     const safe=document.createElement('span');safe.id='chrome-safe';root.append(safe);
     const activeTool=document.createElement('button');activeTool.id='active-tool-label';activeTool.type='button';
     activeTool.innerHTML='<span class="active-tool-swatch" aria-hidden="true"></span><span id="active-tool-name"></span><span id="active-tool-detail"></span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="m9 5 7 7-7 7"/></svg>';
@@ -745,17 +774,21 @@ if(host){
         if(id==='layers')b.innerHTML='<svg viewBox="0 0 24 24" width="25" height="25" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="m3 7 9-5 9 5-9 5ZM3 12l9 5 9-5M3 17l9 5 9-5"/></svg>';
         if(id!=='layers')b.innerHTML=`<svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${{undo:'<path d="m8 5-5 5 5 5M3 10h11a6 6 0 0 1 6 6v2"/>',redo:'<path d="m16 5 5 5-5 5m5-5H10a6 6 0 0 0-6 6v2"/>',fit:'<path d="M8 3H3v5m13-5h5v5M3 16v5h5m13-5v5h-5"/>',timeline:'<path d="M4 8a9 9 0 1 1 0 8M4 3v5h5M12 7v6l4 2"/>'}[id]}</svg>`;
         b.onclick=()=>{cancelGesture();if(id==='fit')host.resetView?.();else if(['layers','timeline'].includes(id)){sheetAnchor=b;root.querySelector(`[data-panel="${id==='timeline'?'history':'layers'}"]`).click();}else $(id).click();};historyBar.append(b);
-    }root.append(historyBar);
+    }track.prepend(historyBar);
+    const hideTools=document.createElement('button');hideTools.id='tools-hide';hideTools.type='button';hideTools.setAttribute('aria-label','道具を非表示');hideTools.title='道具を非表示';
+    hideTools.innerHTML='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="m3 3 18 18M3 12s3-6 9-6 9 6 9 6-3 6-9 6-9-6-9-6Z"/></svg><span>非表示</span>';track.append(hideTools);
     const cycle=document.createElement('button');cycle.id='tool-cycle';cycle.type='button';cycle.title='ペン → 道具 → 非表示';
     const cycleIcons={pens:'<path d="M8 3h8v10l-4 8-4-8ZM8 13h8M12 16v5"/>',tools:'<path d="m3 3 8 5-5 1-1 5Z"/><rect x="13" y="3" width="8" height="8"/><circle cx="16" cy="18" r="4"/>',hidden:'<path d="m3 3 18 18M3 12s3-6 9-6 9 6 9 6-3 6-9 6-9-6-9-6Z"/>'};
     function cycleLabel(){const state=body.dataset.tools;cycle.innerHTML=`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" aria-hidden="true">${cycleIcons[{pens:'tools',tools:'hidden',hidden:'pens'}[state]]}</svg>`;cycle.setAttribute('aria-label',`道具の表示：${{pens:'ペン',tools:'道具',hidden:'非表示'}[state]}。押すと${{pens:'道具',tools:'非表示',hidden:'ペン'}[state]}`);cycle.title=cycle.getAttribute('aria-label');}
     cycle.onclick=()=>{body.dataset.tools={pens:'tools',tools:'hidden',hidden:'pens'}[body.dataset.tools];cycleLabel();};cycleLabel();root.append(cycle);
     const edge=document.createElement('button');edge.id='tools-reveal';edge.type='button';edge.setAttribute('aria-label','道具を表示');edge.title='上端に触れて道具を表示';edge.innerHTML='<span><svg id="reveal-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"></svg><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="m8 9 4 4 4-4"/></svg></span>';root.append(edge);
     let hideTimer,hovered=false;
+    const stow=()=>{clearTimeout(hideTimer);hideTip();body.dataset.toolsStowed='true';toolbar.inert=true;cycle.inert=true;historyBar.inert=true;edge.tabIndex=0;edge.setAttribute('aria-expanded','false');};
+    hideTools.onclick=()=>{stow();edge.focus({preventScroll:true});};
     queueToolsHide=()=>{clearTimeout(hideTimer);hideTimer=setTimeout(()=>{
         const focused=root.activeElement,keyboardFocus=focused?.matches(':focus-visible')&&(toolbar.contains(focused)||historyBar.contains(focused));
         if(sheet.open||$('text-dialog').open||hovered||keyboardFocus){queueToolsHide();return;}
-        body.dataset.toolsStowed='true';toolbar.inert=true;cycle.inert=true;historyBar.inert=true;edge.tabIndex=0;edge.setAttribute('aria-expanded','false');
+        stow();
     },3500);};
     const reveal=()=>{body.dataset.toolsStowed='false';toolbar.inert=false;cycle.inert=false;historyBar.inert=false;if(body.dataset.tools==='hidden'){body.dataset.tools='pens';cycleLabel();}edge.tabIndex=-1;edge.setAttribute('aria-expanded','true');queueToolsHide();};
     // Keep the hover target until the pointer leaves: the following click must not become an ink dot.
@@ -764,11 +797,17 @@ if(host){
     toolbar.onpointerleave=()=>{hovered=false;queueToolsHide();};
     toolbar.addEventListener('pointerdown',()=>clearTimeout(hideTimer));toolbar.addEventListener('pointerup',queueToolsHide);toolbar.addEventListener('pointercancel',queueToolsHide);
     toolbar.addEventListener('focusin',reveal);cycle.addEventListener('click',queueToolsHide);
-    historyBar.onpointerenter=e=>{if(e.pointerType==='mouse'){hovered=true;clearTimeout(hideTimer);}};
-    historyBar.onpointerleave=()=>{hovered=false;queueToolsHide();};
-    historyBar.addEventListener('pointerdown',()=>clearTimeout(hideTimer));historyBar.addEventListener('pointerup',queueToolsHide);historyBar.addEventListener('pointercancel',queueToolsHide);historyBar.addEventListener('focusin',reveal);
     lifetime.signal.addEventListener('abort',()=>clearTimeout(hideTimer),{once:true});reveal();
     const showPanel=(name,anchor=activeTool)=>{closeSheet();sheetAnchor=anchor;root.querySelector(`[data-panel="${name}"]`).click();};
+    const tooltip=document.createElement('div');tooltip.id='writing-tool-tip';tooltip.setAttribute('role','tooltip');tooltip.hidden=true;root.append(tooltip);
+    let tooltipTarget,tooltipTitle;
+    const hideTip=()=>{tooltip.hidden=true;if(tooltipTarget){tooltipTarget.removeAttribute('aria-describedby');if(tooltipTitle)tooltipTarget.title=tooltipTitle;}tooltipTarget=null;};
+    for(const b of [...root.querySelectorAll('[data-tool]'),...historyBar.children,hideTools]){
+        const showTip=()=>{if(body.dataset.toolsStowed==='true')return;hideTip();tooltipTarget=b;tooltipTitle=b.title;b.removeAttribute('title');tooltip.textContent=t(tooltipTitle||b.getAttribute('aria-label'));tooltip.hidden=false;b.setAttribute('aria-describedby',tooltip.id);const r=b.getBoundingClientRect(),w=tooltip.getBoundingClientRect().width;tooltip.style.left=`${Math.max(8,Math.min(innerWidth-w-8,r.left+r.width/2-w/2))}px`;tooltip.style.top=`${r.bottom+6}px`;};
+        b.addEventListener('pointerenter',e=>{if(e.pointerType==='mouse')showTip();});b.addEventListener('pointerleave',hideTip);b.addEventListener('focus',()=>{if(b.matches(':focus-visible'))showTip();});b.addEventListener('blur',hideTip);b.addEventListener('pointerdown',hideTip);
+    }
+    rail.addEventListener('scroll',hideTip,{passive:true});
+    listenWindow('resize',hideTip);
     activeTool.onclick=()=>{sheetAnchor=activeTool;if(selectedObject())openObjectSettings();else if(tool!=='select')showPanel('settings');};
     for(const b of root.querySelectorAll('[data-tool]')){
         // The selected tool opens its inspector on a second tap, just as a long press does.
@@ -792,7 +831,7 @@ if(host){
             busy=true;controls();try{const output=await resaveDsfV3(handle,{copyKind:'writing-editable',envelope:model.envelope});return {bytes:output.bytes,language,pageIndex};}finally{busy=false;runtime.dispose();controls();}},
         layer(pageId,lang){const layer=document.createElement('div');layer.className='reader-writing-saved-layer';renderWritingLayer(layer,model?.objects(lang,pageId)||[],{...families,...inputFamilies});return layer.outerHTML;},
         notice:message=>say(message,true),
-        dispose(){disposed=true;lifetime.abort();clearTimeout(noticeTimer);resizeObserver.disconnect();mobileMedia.removeEventListener('change',mediaChanged);closeSheet();runtime.destroy();originalFaces.forEach(f=>document.fonts.delete(f));pageCache.clear();if(downloadUrl)URL.revokeObjectURL(downloadUrl);}
+        dispose(){disposed=true;host.textView?.(null);lifetime.abort();clearTimeout(noticeTimer);resizeObserver.disconnect();mobileMedia.removeEventListener('change',mediaChanged);closeSheet();runtime.destroy();originalFaces.forEach(f=>document.fonts.delete(f));pageCache.clear();if(downloadUrl)URL.revokeObjectURL(downloadUrl);}
     };
 }
 }

@@ -3444,3 +3444,4 @@ body.viewer-reader-chrome #viewer-canvas {left:var(--viewer-info-page-shift,0px)
 body.viewer-empty #viewer-header {opacity:1;visibility:visible;pointer-events:auto;}
 body.viewer-empty #viewer-page-settings,body.viewer-empty #viewer-fullscreen-btn {display:none!important;}
 @media(max-width:768px) {.viewer-brand-navigation {gap:6px;}#viewer-app-menu-button {min-width:40px;}}
+body.reader-writing-text-editing #viewer-reader-controls,body.reader-writing-text-editing .viewer-page-segments{visibility:hidden;pointer-events:none;}
