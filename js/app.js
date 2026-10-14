@@ -107,6 +107,9 @@ import {chooseDspFilename,confirmDspDownload,showDspSaveError} from './dsp-save-
 import {installStudioPwa} from './studio-pwa.js';
 import {createRestoredReloadGuard} from './studio-restored-reload.js';
 import {describeStudioWork,installStudioWorkStatus} from './studio-work-status.js';
+import {createStudioLeaveGuard,showStudioLeaveDialog} from './studio-leave-dialog.js';
+import {cancelQueuedSaveForLeave} from './firebase.js';
+import '../css/studio-leave-dialog.css';
 import {installEditorWorkBar} from './editor-work-bar.js';
 import '../css/editor-work-bar.css';
 import {showStudioProjectLoading} from './studio-project-loading.js';
@@ -12189,18 +12192,12 @@ window.deleteSelectedBubble = function (bubbleIndex) {
 
 initStudioHelp();
 const platformStudioTriggers=['studio-logo-menu-btn','mobile-studio-logo-btn'].map(id=>document.getElementById(id)).filter(Boolean);
+const confirmStudioLeave=createStudioLeaveGuard({read:readCurrentStudioWork,save:saveCurrentStudioWork,
+    choose:options=>showStudioLeaveDialog({...options,locale:getUILang()}),
+    discard:()=>{cancelQueuedSaveForLeave();localDraftStatus.permitLeave(localDraftStatus.checkpoint());setTimeout(()=>localDraftStatus.revokeReload(),1000);}});
 initializePlatformMenu({surface:'studio',triggers:platformStudioTriggers,beforeOpen:closeAllStudioAuthDropdowns,
     beforeNavigate:async()=>{const work=readCurrentStudioWork();if(!work.blocked&&!work.busy)return true;
-        if(restoredReload.eligible()){
-            try{
-                await restoredReload.verify();
-                if(restoredReload.permit()&&localDraftStatus.permitReload(localDraftStatus.checkpoint())){
-                    setTimeout(()=>localDraftStatus.revokeReload(),1000);
-                    return true;
-                }
-            }catch{/* Keep the manuscript open when recovery cannot be verified. */}
-        }
-        window.switchRoom('home');alert(getUILang()==='en'?'Save the open manuscript or wait for the current operation to finish before leaving Studio.':'開いている原稿を保存するか、現在の処理が完了してから移動してください。');return false;},
+        return confirmStudioLeave();},
     onStudioHome:()=>window.switchRoom('home'),onHelp:()=>document.getElementById('studio-help-open')?.click(),
     roomActions:['home','editor','press','works'].map(room=>({room,run:()=>window.switchRoom(room)}))});
 subscribePlatformLanguage(lang=>{if(lang!==getUILang())window.setStudioUILang(lang);});

@@ -1050,6 +1050,11 @@ export async function flushPendingSave() {
     return true;
 }
 
+/** Explicit leave-without-saving only. Does not undo writes already in flight. */
+export function cancelQueuedSaveForLeave() {
+    clearTimeout(autoSaveTimer);autoSaveTimer=null;saveRequested=false;
+}
+
 // ─── Blob URL 解決ヘルパー ─────────────────────────────────────────────────────
 
 /**

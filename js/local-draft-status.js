@@ -7,6 +7,7 @@ export function createLocalDraftStatus(onChange=()=>{}) {
   dirty(){revision++;restored=false;onChange(read());}, checkpoint:()=>({session,revision}),
   confirm(token){if(token.session!==session||token.revision!==revision)return false;savedRevision=revision;fileSaved=true;restored=false;onChange(read());return true;},
   permitReload(token){if(!restored||token.session!==session||token.revision!==revision)return false;reloadPermit={...token};onChange(read());return true;},
+  permitLeave(token){if(token.session!==session||token.revision!==revision)return false;reloadPermit={...token};onChange(read());return true;},
   revokeReload(){reloadPermit=null;onChange(read());}};
 }
 export function installLocalLeaveWarning({target,tracker,isLocal}) {

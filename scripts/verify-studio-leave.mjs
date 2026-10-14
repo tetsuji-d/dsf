@@ -1,0 +1,18 @@
+import assert from 'node:assert/strict';
+import {createStudioLeaveGuard} from '../js/studio-leave-dialog.js';
+import {createLocalDraftStatus,installLocalLeaveWarning} from '../js/local-draft-status.js';
+let work={identity:'a',blocked:true,busy:'',canSave:true},saved=0,discarded=0;
+const make=choose=>createStudioLeaveGuard({read:()=>work,choose,save:async()=>{saved++;work={...work,blocked:false};},discard:()=>discarded++});
+assert.equal(await make(async()=> 'cancel')(),false);assert.equal(discarded,0);
+assert.equal(await make(async()=> 'discard')(),true);assert.equal(saved,0);assert.equal(discarded,1);
+work={...work,busy:'saving'};assert.equal(await make(async()=> 'discard')(),true);
+work={...work,busy:'',blocked:true};assert.equal(await make(async({save})=>(await save())?'saved':'cancel')(),true);assert.equal(saved,1);
+assert.equal(await make(()=>assert.fail('Already saved does not prompt'))(),true);
+work={...work,blocked:true};assert.equal(await make(async()=>{work.identity='b';return 'discard';})(),false);assert.equal(discarded,2);
+let resolve;const guarded=make(()=>new Promise(r=>resolve=r));const first=guarded();assert.equal(await guarded(),false);resolve('cancel');assert.equal(await first,false);
+const pendingSave=()=>new Promise(()=>{});const escape=createStudioLeaveGuard({read:()=>work,choose:async({save})=>{void save();return 'discard';},save:pendingSave,discard:()=>discarded++});assert.equal(await escape(),true);
+const tracker=createLocalDraftStatus(),handlers=new Map(),target={addEventListener:(n,f)=>handlers.set(n,f),removeEventListener:n=>handlers.delete(n)};
+const warning=installLocalLeaveWarning({target,tracker,isLocal:()=>true});tracker.dirty();warning.sync();assert.ok(handlers.has('beforeunload'));
+const token=tracker.checkpoint();assert.equal(tracker.permitLeave(token),true);warning.sync();assert.ok(!handlers.has('beforeunload'));assert.equal(tracker.read().needsSave,true);assert.equal(tracker.read().fileSaved,false);
+tracker.dirty();warning.sync();assert.ok(handlers.has('beforeunload'));assert.equal(tracker.permitLeave(token),false);tracker.reset();assert.equal(tracker.permitLeave(token),false);
+console.log('PASS: cancel, discard, busy escape, save, saved fast path, identity change, concurrent clicks, stuck-save escape, revision-bound unload permission without saved evidence.');
