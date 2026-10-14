@@ -1,0 +1,30 @@
+import assert from 'node:assert/strict';
+import {readFile,writeFile} from 'node:fs/promises';
+import {TEXT_SIZES,TEXT_COLORS,textSize,stepTextSize,arrowHeadGeometry} from '../../js/reader-writing-format.js';
+import {writingHitTest} from '../../js/reader-writing-hit.js';
+import {writingBounds,createReaderWritingModel,createWritingText} from '../../js/reader-writing-model.js';
+import {loadDsfV3,resaveDsfV3} from '../../js/dsf-writing-package.js';
+import {nodeRuntime} from './node-runtime.mjs';
+assert.ok(TEXT_SIZES.includes(12)&&TEXT_SIZES.includes(24)&&TEXT_SIZES.includes(72));
+assert.equal(TEXT_COLORS.length,8);assert.equal(textSize('17.5'),17.5);
+for(const value of ['',0,-1,361,Infinity,'abc'])assert.equal(textSize(value),null);
+assert.equal(stepTextSize(17.5,1),18.5);assert.equal(stepTextSize(1,-1),1);assert.equal(stepTextSize(360,1),360);
+const runtime=await nodeRuntime(),base=await loadDsfV3(new Uint8Array(await readFile(new URL('../../outputs/writing-w1/preview-sample.dsf',import.meta.url))),runtime);
+const model=createReaderWritingModel(base,runtime.catalog.map(f=>f.id));
+const line={id:'arrow',type:'line',from:[40,160],to:[260,200],color:'#2363bc',width:4,arrow:'both'};
+for(const kind of ['open','triangle','circle','diamond']){
+ const o={...line,id:kind,arrowHead:kind},heads=arrowHeadGeometry(o);assert.equal(heads.length,2);
+ const b=writingBounds(o);for(const p of heads.flatMap(h=>h.points||[[h.center[0]-h.radius,h.center[1]-h.radius],[h.center[0]+h.radius,h.center[1]+h.radius]]))assert.ok(p[0]>=b[0]-.001&&p[0]<=b[0]+b[2]+.001&&p[1]>=b[1]-.001&&p[1]<=b[1]+b[3]+.001);
+ assert.equal(writingHitTest(o,{x:260,y:200}),true);assert.equal(writingHitTest(o,{x:40,y:260}),false);
+ model.change('ja','page1',kind,all=>[...all,o]);
+}
+assert.equal(arrowHeadGeometry({...line,arrow:'none'}).length,0);
+for(const arrow of ['start','end'])assert.equal(arrowHeadGeometry({...line,arrow}).length,1);
+const before=model.envelope;assert.throws(()=>model.change('ja','page1','invalid',all=>[...all,{...line,arrowHead:'invalid'}]),/WRITING_ARROW_HEAD/);assert.deepEqual(model.envelope,before);
+model.change('ja','page1','fractional text size',all=>[...all,createWritingText({text:'サイズ 17.5',fontId:runtime.catalog[0].id,size:17.5,weight:400,color:'#2363bc',box:[30,300,300,100],measure:s=>s.length*17.5})]);
+const saved=await resaveDsfV3(base,{copyKind:'writing-editable',envelope:model.envelope}),loaded=await loadDsfV3(saved.bytes,runtime);
+assert.deepEqual(loaded.envelope,model.envelope);
+for(const entry of base.inventory.filter(e=>!['format.json','manifest.json'].includes(e.path)))assert.deepEqual(loaded.readBytes(entry.path),base.readBytes(entry.path));
+const shared=await resaveDsfV3(loaded,{copyKind:'writing-shared'});assert.deepEqual(shared.handle.envelope.document.pages,model.envelope.document.pages);assert.equal(shared.handle.envelope.history,null);
+await writeFile(new URL('../../outputs/writing-w1/format-panels-20261013/format-roundtrip.dsf',import.meta.url),saved.bytes);
+console.log('Text sizes, eight colors, all arrowhead patterns/ends, bounds/hits, atomic rejection, editable/shared ZIP roundtrip and unchanged original bytes passed.');

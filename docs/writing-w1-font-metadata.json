@@ -1,0 +1,60 @@
+[
+  {
+    "id": "noto-sans-jp-2.004-h2",
+    "sourceNames": [
+      {
+        "id": 0,
+        "value": "(c) 2014-2021 Adobe (http://www.adobe.com/), with Reserved Font Name 'Source'."
+      },
+      {
+        "id": 1,
+        "value": "Noto Sans JP Thin"
+      },
+      {
+        "id": 6,
+        "value": "NotoSansJP-Thin"
+      },
+      {
+        "id": 13,
+        "value": "This Font Software is licensed under the SIL Open Font License, Version 1.1. This license is available with a FAQ at: https://scripts.sil.org/OFL"
+      },
+      {
+        "id": 14,
+        "value": "http://scripts.sil.org/OFL"
+      },
+      {
+        "id": 16,
+        "value": "Noto Sans JP"
+      }
+    ]
+  },
+  {
+    "id": "noto-serif-jp-2.003-h1",
+    "sourceNames": [
+      {
+        "id": 0,
+        "value": "(c) 2017-2024 Adobe (http://www.adobe.com/)."
+      },
+      {
+        "id": 1,
+        "value": "Noto Serif JP ExtraLight"
+      },
+      {
+        "id": 6,
+        "value": "NotoSerifJP-ExtraLight"
+      },
+      {
+        "id": 13,
+        "value": "This Font Software is licensed under the SIL Open Font License, Version 1.1. This license is available with a FAQ at: https://openfontlicense.org"
+      },
+      {
+        "id": 14,
+        "value": "https://openfontlicense.org"
+      },
+      {
+        "id": 16,
+        "value": "Noto Serif JP"
+      }
+    ]
+  }
+]

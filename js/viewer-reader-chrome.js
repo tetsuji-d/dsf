@@ -4,6 +4,7 @@ import {readerControlLayout,readerHeaderTop} from './viewer-responsive-layout.js
 
 const iconPaths = {
     info:'<circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 7v.5"/>',
+    writing:'<path d="m4 16 12-12 4 4-12 12-5 1Z M13 7l4 4"/>',
     spine:'<rect x="8" y="3" width="8" height="18" rx="2"/><path d="M10.5 7h3M10.5 17h3"/>',
     edge:'<path d="M6 3.5h12v17H6zM9 5v14M12 5v14M15 5v14"/>',
     peek:'<path d="M5 4l7 5 7-5v14l-7 4-7-4zM12 9v13M8 3l4 6 4-6"/>',
@@ -72,7 +73,8 @@ export function initializeViewerReaderChrome({getSnapshot, onLayoutChange, befor
         button.onclick=()=>step(direction);
     }
     const info=document.getElementById('viewer-info-btn');setViewerReaderIcon(info,'info','リード情報');
-    rail.append(info, up, down, document.getElementById('viewer-nav-left'), document.getElementById('viewer-nav-right'));
+    const writing=document.getElementById('viewer-writing-btn');if(writing)setViewerReaderIcon(writing,'writing','書き込み / Writing');
+    rail.append(info, ...(writing?[writing]:[]), up, down, document.getElementById('viewer-nav-left'), document.getElementById('viewer-nav-right'));
     rail.hidden = true;
     document.body.append(labels, rail, pose);
     const settings = document.createElement('details'); settings.id = 'viewer-page-settings';
@@ -213,7 +215,7 @@ export function initializeViewerReaderChrome({getSnapshot, onLayoutChange, befor
         const {rect, pages, title, total, thickness, busy} = snapshot;
         onPoseChange?.(mode,snapshot);
         const viewport=snapshot.viewport;
-        const controlLayout=readerControlLayout(viewport,getPeek()?.bounds||rect);
+        const controlLayout=readerControlLayout(viewport,getPeek()?.bounds||rect,writing&&!writing.hidden?6:5);
         rail.dataset.dock=controlLayout.dock;
         document.body.classList.toggle('viewer-phone-centered',controlLayout.dock==='bottom');
         if(controlLayout.dock==='bottom')document.documentElement.style.setProperty('--reader-header-top',readerHeaderTop(viewport,rect.top)+'px');

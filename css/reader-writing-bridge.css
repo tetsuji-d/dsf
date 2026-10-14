@@ -1,0 +1,18 @@
+#viewer-writing-btn[hidden]{display:none!important}
+.reader-writing-saved-layer{position:absolute;inset:0;overflow:hidden;pointer-events:none}.reader-writing-saved-layer .rw-object{position:absolute;inset:0}.reader-writing-saved-layer svg{position:absolute;inset:0;width:100%;height:100%}.reader-writing-saved-layer .rw-text{position:absolute;white-space:pre;line-height:1;text-orientation:mixed}
+
+/* Reader chrome remains above the native Writing input surface. */
+body.reader-writing-active:not(.reader-writing-turning) #viewer-content > .reader-writing-saved-layer,
+body.reader-writing-active:not(.reader-writing-turning) #viewer-spread-content > .reader-writing-saved-layer{visibility:hidden}
+body.reader-writing-active #viewer-writing-btn{color:#97e7d2;background:#216b6988;border-radius:50%}
+body.reader-writing-active #viewer-header .viewer-brand-navigation{position:fixed;top:max(6px,env(safe-area-inset-top));left:max(6px,env(safe-area-inset-left));z-index:1100}
+body.reader-writing-active #viewer-header #viewer-horizon-link{display:none}
+body.reader-writing-active #viewer-header .ui-controls{visibility:visible;pointer-events:auto;margin-left:auto;flex:0 0 auto}
+.reader-writing-menu{border-bottom:1px solid #ffffff30;margin-bottom:12px;padding-bottom:12px}
+body.reader-writing-active #viewer-ui #viewer-header{pointer-events:none}
+body.reader-writing-active #viewer-header .viewer-brand-navigation{pointer-events:auto}
+.reader-writing-menu #viewer-page-settings{display:block;width:100%;margin:8px 0}
+.reader-writing-menu .viewer-page-settings-panel{position:static;width:100%;max-height:none;box-shadow:none;border:0}
+/* Writing owns paper gestures; Safari must not magnify the surrounding Reader UI. */
+body.reader-writing-active #viewer-layout{touch-action:none}
+body.reader-writing-active button,body.reader-writing-active select{touch-action:manipulation}

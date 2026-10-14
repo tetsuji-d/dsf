@@ -1,0 +1,15 @@
+import assert from 'node:assert/strict';
+import {writeFile} from 'node:fs/promises';
+import {createHash} from 'node:crypto';
+import {writingStagingAssets} from './staging-assets.mjs';
+const origin='https://staging.dsf-studio.pages.dev',files=await writingStagingAssets();
+const list=JSON.parse(files.get('writing/cache-list.json')),results=[];
+let next=0;
+await Promise.all(Array.from({length:5},async()=>{while(next<list.length){const a=list[next++],r=await fetch(origin+a.url,{cache:'no-store'});assert.equal(r.status,200,a.url);
+    const bytes=new Uint8Array(await r.arrayBuffer());assert.equal(createHash('sha256').update(bytes).digest('hex'),a.sha256,a.url);
+    const type=r.headers.get('content-type');if(/\.m?js$/.test(a.url))assert.match(type,/javascript/);if(a.url.endsWith('.wasm'))assert.match(type,/application\/wasm/);
+    assert.match(r.headers.get('x-robots-tag')||'',/noindex/);results.push({url:a.url,byteLength:bytes.length,mime:type});
+}}));
+const r=await fetch(origin+'/writing/build.json'),build=await r.json();assert.deepEqual(build,JSON.parse(files.get('writing/build.json')));
+const result={ok:true,origin,build,verifiedFiles:results.length,results:results.sort((a,b)=>a.url.localeCompare(b.url))};
+await writeFile(new URL('../../outputs/writing-w1/staging-remote-verification.json',import.meta.url),JSON.stringify(result,null,2));console.log({ok:true,origin,build,verifiedFiles:results.length});

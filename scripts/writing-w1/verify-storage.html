@@ -1,0 +1,31 @@
+<!doctype html><meta charset="utf-8"><title>Writing ページ保存検証</title>
+<h1>Writing ページ保存検証</h1><p>専用の検証DBを使います。原稿の下書きDBには触れません。</p><button id="run">検証を実行</button><pre id="result"></pre>
+<script type="module">
+import {createWritingDraftStorage} from '/js/reader-writing-storage.js';
+import {createReaderWritingModel} from '/js/reader-writing-model.js';
+import {makeFormat} from '/js/dsf-writing-contract.js';
+const output=document.querySelector('#result');
+const assert=(test,message)=>{if(!test)throw Error(message);};
+document.querySelector('#run').onclick=async()=>{
+ const put=IDBObjectStore.prototype.put,log=[];document.querySelector('#run').disabled=true;
+ IDBObjectStore.prototype.put=function(...args){log.push({store:this.name,key:args[1]});return put.apply(this,args);};
+ try{
+  const storage=createWritingDraftStorage(`writing-storage-test-${crypto.randomUUID()}`),hash='a'.repeat(64);
+  const handle={baseHash:hash,copyKind:'original',bundle:{manifests:{ja:{pages:[{id:'p1'},{id:'p2'}]}}},envelope:{format:makeFormat('original',hash),document:null,history:null}};
+  const m=createReaderWritingModel(handle,[]),line=id=>({id,type:'line',from:[20,40],to:[240,180],width:2,color:'#224466',arrow:'both'});
+  m.change('ja','p1','線',()=>[line('one')]);m.change('ja','p2','線',()=>[line('two')]);
+  const first={id:'synthetic',title:'専用DB検証',bytes:new Uint8Array([1,2,3]),...m.takeDraftUpdate(true)};
+  let version=await storage.saveWritingDraft(first,0);assert(version===1,'first save');
+  log.length=0;m.change('ja','p2','色',all=>all.map(o=>({...o,color:'#ffffff'})));
+  const patch=m.takeDraftUpdate();version=await storage.saveWritingDraft({id:first.id,title:first.title,...patch},version);
+  assert(log.filter(x=>x.store==='pages').length===1,'only changed page saved');assert(!log.some(x=>x.store==='bases'),'base not rewritten');
+  let read=await storage.readWritingDraft(first.id);assert(read.envelope.document.pages.length===2,'untouched page survives');assert(read.bytes.join()==='1,2,3','immutable base survives');
+  const resumed=createReaderWritingModel(handle,[],read.envelope);assert(resumed.objects('ja','p2')[0].color==='#ffffff','resume current state');resumed.restore(resumed.parent);assert(resumed.objects('ja','p2')[0].color==='#224466','resume history');
+  m.change('ja','p1','削除',()=>[]);version=await storage.saveWritingDraft({id:first.id,title:first.title,...m.takeDraftUpdate()},version);
+  read=await storage.readWritingDraft(first.id);assert(read.envelope.document.pages.length===1&&read.envelope.document.pages[0].pageId==='p2','deleted page removed atomically');
+  const concurrent={id:first.id,title:first.title,...m.takeDraftUpdate()},out=await Promise.allSettled([storage.saveWritingDraft(concurrent,version),storage.saveWritingDraft(concurrent,version)]);
+  assert(out.filter(r=>r.status==='fulfilled').length===1,'CAS winner');assert(out.find(r=>r.status==='rejected').reason.message==='DRAFT_CONFLICT','CAS conflict');
+  output.textContent=JSON.stringify({ok:true,onlyChangedPageWritten:true,baseNotRewritten:true,untouchedPagePreserved:true,reloadAndUndo:true,emptyPageRemoved:true,concurrentConflictPreserved:true},null,2);
+ }catch(error){output.textContent=error.stack;}finally{IDBObjectStore.prototype.put=put;}
+};
+</script>

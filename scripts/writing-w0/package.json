@@ -1,0 +1,16 @@
+{
+  "name": "dsf-writing-w0-spike",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "prepare": "node prepare.mjs",
+    "serve": "node serve.mjs",
+    "verify": "node verify.mjs"
+  },
+  "dependencies": {
+    "hb-subset-wasm": "0.4.0",
+    "woff2-encode-wasm": "0.1.1",
+    "wawoff2": "2.0.1",
+    "harfbuzzjs": "1.6.3"
+  }
+}

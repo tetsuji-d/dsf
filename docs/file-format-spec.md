@@ -2,6 +2,10 @@
 
 ## 概要
 
+> 2026-10-11 Writing形式3: [W1ファイル処理](dsf-writing-w1-report.md) の通常版／編集用／共有用ZIP APIをローカル実装した。形式3では原本とWriting・履歴・派生font／noticeを分離し、原本bytesを再保存で保持する。製品Press／Readerの既定経路は未切替であり、以下の既存形式を一括置換した状態ではない。形式3の現行entry契約・対応ZIP方式・検証制限は同記録を参照。
+
+> Writing確認版では現行Pressのportable v2を検証後、形式3の新しいコピーとして取り込める。入力ZIPの元ファイルは上書きしない。ページmanifestの配置・文字・順序を維持し、WebP bytesは保持、画像pathを内容hashへ正規化する。同一元書体と照合して原本fontをサブセット化し、必要noticeを収録するため、変換前後の原本entry全bytesが同じという意味ではない。変換後の形式3原本をWritingの不可侵対象とする。旧v1／DSP／未認定fontの互換変換は対象外。詳細は[UI検証記録](dsf-writing-ui-report.md)。
+
 **DSF（Digital Spread Format）** は、スマートフォン向け固定レイアウト出版のためのフォーマット総称です。リフロー型の EPUB とは対照的に、ZIP コンテナ内の **`manifest.json` / `meta.json` / `content.json`** とアセットにより、ページ構成・多言語・表示メタ（アスペクト比・綴じ方向など）を管理します。
 
 本書は DSF Studio における 2 つの主要アーカイブ（**`.dsf`（配信）** および **`.dsp`（編集用プロジェクト）**）の構造とデータモデルを定義します。どちらも **ZIP アーカイブ** をコンテナとし、Excel（`.xlsx`）や EPUB と同様に、将来の拡張に対して上位/下位互換を保ちやすい設計を目指します。
@@ -456,3 +460,21 @@ Excel（`.xlsx`）が Ooxml ベースで新機能（新しいグラフ、新し�
 ## ページリンク拡張（2026-10-10、ローカル実装）
 
 Architect承認済み。リンク使用原稿はProject v7 / DSP meta schemaVersion 2。privateなpageNavigationに対象ID・範囲・参照先を保持する。生成番号は本文・キャプション内のキャッシュとして描画し、正本は参照先ID／絶対本文番号。DSF v2には解決済みpageLinksを付与する。詳細と実環境での未検証範囲は[ページリンク統合記録](page-links-editor-integration.md)を参照。未使用原稿の形式は維持する。
+
+### Writing確認版の筆ペン墨量（2026-10-12）
+
+stroke の brush / geometryVersion:2 は inkAmount（有限数0〜1）を必須とする。他の道具では許可しない。従来の geometryVersion:1 は変更しない。保存済み点列と墨量から決定的なカスレ・滲みを描画し、元の原本entryは変更しない。具体的な描画契約は docs/dsf-writing-spec.md と reader-writing-tools.js の brushInkPaths を参照。
+
+筆ペンの geometryVersion:3 も inkAmount（有限数0〜1）を必須とし、不規則な筆筋と淡い縁を点列から決定的に生成する。geometryVersion:1/2 の再現方式は変更しない。レイヤー操作は既存の objects 配列順を変更し、追加の保存フィールドを設けない。
+
+筆ペン geometryVersion:4 は各 points 要素に dryness（有限数0〜1、必須）を追加する。入力時に距離・速度から確定したカスレ情報で、再描画では保存値を使う。方式1〜3にはdrynessを混在させない。
+
+Writing object共通の任意フィールド locked:boolean（省略=false）を追加。履歴と再保存に保持し、Readerの操作保護に使用する。共有用DSF全体の編集ロックとは独立する。
+
+Writing確認版のlineには任意の `arrowHead: 'open' | 'triangle' | 'circle' | 'diamond'` を追加（2026-10-13、先端パターン指定の要望に対応）。省略時は従来の開いた矢印。既存の `arrow: 'none' | 'start' | 'end' | 'both'` で各端の有無を指定し、有効な両端に同じ形を使う。未知値は拒否。編集用履歴と共有用にも形状を保持する。元の原稿entryは変更しない。これは試作Writing形式内の拡張で、本番反映は別途。
+
+### Writing history schemaVersion 2（2026-10-14）
+
+Writing編集用の履歴を本全体で直近30操作に限定する。formatVersion 3とdocumentのページ配列は維持し、`writing/history.json`だけschemaVersion 2とする。revisionは`id,parentId,operation,createdAt,changes`、changeは`language,pageId,beforeOrder,afterOrder,objects`、object差分は`id,before,after`を持つ。nullは不在を表す。基準1件 + 最大30操作の線形配列で、先頭のparentはnull、changesは空。documentの現在状態とheadをチェックポイントとして双方向に再構築する。全到達状態の整合性を読込・書出し時に検証する。詳細は`dsf-writing-spec.md` §8。
+
+元の本のbytesを変えず、古い履歴を削除しても現在の筆跡を保持する。保持中のUndo／Redoに必要な削除済み文字もfont subsetへ収録する。共有用は現在の書き込みだけから再構築し、履歴を収録しない。

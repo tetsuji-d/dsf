@@ -1,0 +1,17 @@
+import assert from 'node:assert/strict';
+import {readFile,writeFile} from 'node:fs/promises';
+import {loadDsfV3} from '../../js/dsf-writing-package.js';
+import {nodeRuntime} from './node-runtime.mjs';
+const runtime=await nodeRuntime();
+const base=await loadDsfV3(await readFile(new URL('../../outputs/writing-w1/preview-sample.dsf',import.meta.url)),runtime);
+const bytes=await readFile(process.argv[2]),saved=await loadDsfV3(bytes,runtime);
+assert.equal(saved.baseHash,base.baseHash);
+for(const e of base.inventory.filter(e=>!['format.json','manifest.json'].includes(e.path)))assert.deepEqual(saved.readBytes(e.path),base.readBytes(e.path));
+const objects=saved.envelope.document.pages.flatMap(p=>p.objects),text=objects.find(o=>o.type==='text'),lines=objects.filter(o=>o.type==='line');
+assert.equal(text.runs[0].size,17.5);assert.equal(text.runs[0].color,'#2363bc');
+assert.ok(lines.some(o=>o.arrow==='both'&&o.arrowHead==='diamond'));assert.ok(lines.some(o=>o.arrow==='start'&&o.arrowHead==='circle'));
+assert.equal(saved.envelope.history.revisions.length,5);
+const out=new URL('../../outputs/writing-w1/format-panels-20261013/',import.meta.url);
+await writeFile(new URL('browser-downloaded.dsf',out),bytes);
+await writeFile(new URL('browser-file-proof.json',out),JSON.stringify({ok:true,baseHash:saved.baseHash,originalBytesUnchanged:true,textSize:text.runs[0].size,textColor:text.runs[0].color,arrows:lines.map(({arrow,arrowHead})=>({arrow,arrowHead})),revisions:5},null,2));
+console.log('Real browser download: text size/color, arrowhead patterns/ends, history and unchanged original bytes passed.');

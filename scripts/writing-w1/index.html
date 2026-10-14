@@ -1,0 +1,13 @@
+<!doctype html><html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>DSF Writing W1 ファイル検証</title>
+<style>
+body{font:16px system-ui;color:#223345;background:#f5f4ef;margin:24px auto;padding:0 20px;max-width:1080px}h1{font-size:26px}button,input{font:inherit}button{padding:10px 14px;margin:4px;border:1px solid #bac4c9;border-radius:6px;background:#fff;cursor:pointer}button:disabled{opacity:.4;cursor:default}label{display:block;margin:16px 0}#status{padding:12px;border-left:4px solid #318079;background:#eaf5ef}pre{white-space:pre-wrap;overflow-wrap:anywhere;background:#fff;padding:12px;max-height:220px;overflow:auto}#pages{display:flex;gap:24px;flex-wrap:wrap}article{margin:12px 0}.surface{position:relative;width:360px;height:640px;box-shadow:0 4px 20px #20302020;background:#fffdf8;overflow:hidden}.viewer-fixed-text-page{position:absolute;inset:0;overflow:hidden}.viewer-fixed-text-line{position:absolute;white-space:pre}.viewer-fixed-text-background{position:absolute;inset:0;width:100%;height:100%}.writing{position:absolute;inset:0;pointer-events:none}.writing-text{position:absolute;white-space:pre;line-height:1}small{color:#526371}#events{font-size:13px}
+</style></head><body>
+<h1>Writing W1 · DSFファイルの往復</h1><p><a href="/writing.html">Reader Writingで実際に書き込む →</a></p><p>架空原稿を使い、原本と書き込みを別々に保存します。</p>
+<button id="prepare">オフライン起動を準備</button><button id="create">検証用の通常版を生成</button>
+<label>DSFファイルを開く <input id="file" type="file" accept=".dsf"></label>
+<button id="edit" disabled>検証用Writingを追加</button><button id="restore" disabled>削除前の履歴へ戻す</button><button id="share" disabled>共有用コピーを作成</button><button id="save" disabled>DSFを再保存・ダウンロード</button>
+<p><a id="download" hidden>生成したDSFをダウンロード</a></p>
+<button id="record-file" disabled>生成したDSFを検証フォルダーへ保存</button>
+<p id="status" role="status">準備中</p><pre id="summary"></pre><details><summary>操作・照合記録</summary><pre id="events"></pre></details><div id="pages"></div>
+<script type="module" src="/app.mjs"></script></body></html>

@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>DSF Reader · Writing</title><link rel="stylesheet" href="/writing.css"></head><body>
+<header><div class="brand">DSF <span>Reader / Writing</span><small>開発プレビュー</small></div><div class="file-actions">
+<label class="button">DSFを開く<input id="file" type="file" accept=".dsf" aria-label="DSFを開く"></label>
+<button id="sample">サンプルを開く</button><button id="prepare">オフライン準備</button></div></header>
+<main><aside class="tools"><h1>Writing</h1><p class="subtle">原本の上に、あなたの書き込みを。</p>
+<fieldset id="style-field"><legend id="style-title">ボールペンの設定</legend><input id="color" type="hidden" value="#20272b">
+<div id="style-parameters">
+<div id="pen-sizes" role="group" aria-label="ボールペンの太さ"></div>
+<label id="width-control">線の太さ <input id="width" type="range" min="0.1" max="8" step="0.1" value="1"><output id="width-label">1</output> mm</label>
+<label id="ink-control" hidden>墨の量 <input id="ink-amount" type="range" min="0" max="100" step="5" value="65"><output id="ink-label">65%</output><small>少ない：カスレ ／ 多い：滲み（疑似表現）</small></label>
+<div id="brush-preview" hidden role="img" aria-label="現在の設定による筆ペンの見本"></div>
+<label><input id="square" type="checkbox"> 正方形・正円（Ctrl）</label><label><input id="snap" type="checkbox" checked> 端点をスナップ</label>
+<div id="arrow-control" hidden><label>先端の形<select id="arrow-head"></select></label><div class="arrow-ends"><label><input id="arrow-start" type="checkbox"> 始点につける</label><label><input id="arrow-end" type="checkbox" checked> 終点につける</label></div></div>
+<label>書体 <select id="font"></select></label><label>文字サイズ <select id="size"><option>14</option><option selected>20</option><option>28</option><option>36</option></select></label>
+<label>文字の太さ <select id="weight"><option value="400">標準</option><option value="700">太字</option></select></label>
+<label><input id="vertical" type="checkbox"> 縦書き</label>
+</div><div id="style-colors"><p id="color-name" class="subtle" aria-live="polite"></p><div id="palette" aria-label="色のパレット"></div></div>
+<button id="apply-style" type="button" disabled>選択に設定を適用</button><p id="selection-hint" class="subtle"></p></fieldset>
+<div class="edit-actions"><button id="undo">元に戻す</button><button id="redo">やり直す</button><button id="delete">選択を削除</button><button id="edit-text">文字を編集</button></div>
+<label id="history-section">書き込み一覧 <select id="objects" size="4" aria-label="書き込み一覧"></select></label>
+<label>履歴 <select id="history" size="8" aria-label="履歴"></select></label><button id="restore">この履歴に戻る</button>
+<p id="history-count" class="subtle"></p></aside>
+<section class="reading"><div class="book-heading"><div><h2 id="title">DSFを開いて始める</h2><span id="kind" class="badge">Writing</span></div>
+<nav aria-label="ページ"><button id="prev" aria-label="前のページ">←</button><span id="page-label">—</span><button id="next" aria-label="次のページ">→</button><select id="language" aria-label="言語"></select><button id="spread" type="button" aria-pressed="false">見開き</button></nav></div>
+<div class="writing-mode" role="group" aria-label="表示モード"><button id="mode-read" type="button">閲覧</button><button id="mode-write" type="button" aria-pressed="true">書き込み</button><span>原本を保ったまま重ねて書く</span><small id="zoom-hint" hidden>移動は「閲覧」で</small><button id="page-zoom" type="button" aria-label="ページを幅いっぱいに拡大" aria-pressed="false">拡大</button></div>
+<div id="pen-tray" role="group" aria-label="ペンを選ぶ"></div>
+<fieldset id="tool-field"><legend class="sr-only">道具</legend><div id="tools" class="tool-grid"></div></fieldset>
+<label class="quick-tool">道具 <select id="quick-tool" aria-label="ページ上の道具"></select></label><p id="hint" class="hint">サンプルを開くと、2ページの原本に自由に書き込めます。</p>
+<div id="viewport"><div id="page-wrap"><div id="surface"><div id="original"></div><div id="layer"></div><div id="input" tabindex="0" role="application" aria-label="Writingページ。ペンはドラッグ、文字はクリックで追加"></div></div></div></div>
+<p id="page-summary" class="subtle"></p></section>
+<aside class="save-panel"><h2>保存</h2><p id="draft-status" role="status">端末内の下書きは自動保存されます。</p>
+<p id="import-status" class="subtle" hidden></p>
+<button id="save" class="primary">編集用DSFを作成</button><button id="share">共有用DSFを作成</button>
+<p class="subtle">編集用は履歴つき。共有用は現在の書き込みをロックし、履歴を含めません。</p>
+<a id="download" class="button download" hidden>DSFをダウンロード</a><button id="reopen" hidden>作成したDSFを開き直す</button><p id="file-status" class="subtle"></p>
+<hr><label>端末内の下書き <select id="drafts" aria-label="端末内の下書き"></select></label><button id="resume">下書きを開く</button>
+<p id="offline-status" class="subtle">オフライン準備では、画面と入力用の2書体をこの端末に保存します。</p>
+<details><summary>検証情報</summary><pre id="evidence"></pre><button id="record" disabled>作成ファイルを検証フォルダーへ保存</button><p id="receipt"></p></details>
+</aside></main><footer id="status" role="status">準備中…</footer>
+<nav class="mobile-dock" aria-label="Writing操作"><button id="mobile-undo" aria-label="元に戻す" title="元に戻す">↶</button><button id="mobile-redo" aria-label="やり直す" title="やり直す">↷</button><button data-panel="settings" aria-haspopup="dialog">色・設定</button><button data-panel="history" aria-haspopup="dialog">履歴</button><button data-panel="save" aria-haspopup="dialog">保存</button></nav>
+<dialog id="mobile-sheet" aria-labelledby="sheet-title"><div class="sheet-heading"><h2 id="sheet-title">設定</h2><button id="sheet-close" type="button" aria-label="パネルを閉じる">閉じる</button></div><div id="sheet-body"></div></dialog>
+<dialog id="text-dialog"><form id="text-form"><h2 id="text-title">文字を追加</h2><div class="dialog-options"><label>書体<select id="text-font"></select></label><label>サイズ<select id="text-size"><option>14</option><option>20</option><option>28</option><option>36</option></select></label><label>太さ<select id="text-weight"><option value="400">標準</option><option value="700">太字</option></select></label><label>色<input id="text-color" type="color"></label><label><input id="text-vertical" type="checkbox">縦書き</label></div><label>書き込む文字<textarea id="text" maxlength="2000" rows="5" required></textarea></label><p id="text-error" role="alert"></p><div class="dialog-actions"><button id="text-cancel" type="button">キャンセル</button><button id="text-apply" class="primary">配置する</button></div></form></dialog>
+<script type="module" src="/reader-writing.mjs"></script></body></html>

@@ -1,0 +1,102 @@
+[
+  {
+    "id": "noto-sans-jp-2.004-h2",
+    "family": "Noto Sans JP",
+    "version": "2.004-H2",
+    "source": {
+      "distributor": "Google Fonts",
+      "repositoryHref": "https://github.com/google/fonts",
+      "commit": "295d98a7a0c17c68f1341eaeea354e7960ea70d3",
+      "path": "ofl/notosansjp/NotoSansJP[wght].ttf",
+      "upstreamRepositoryHref": "https://github.com/notofonts/noto-cjk",
+      "upstreamCommit": "523d033d6cb47f4a80c58a35753646f5c3608a78",
+      "byteLength": 9589900,
+      "sha256": "c2f3b4d463500a2ddcd3849cded1fceeb9fd6d1c32e6cbecd568453ba50fc68f"
+    },
+    "asset": {
+      "fileName": "noto-sans-jp-2.004-h2-6fd94964d1990baa.woff2",
+      "format": "woff2",
+      "mimeType": "font/woff2",
+      "byteLength": 4350080,
+      "sha256": "6fd94964d1990baa2a392cea7a036683d2b80b9dfd590cb3918e8dab98d8e188",
+      "url": "https://media.dsf.ink/fonts/noto-sans-jp-2.004-h2-6fd94964d1990baa.woff2"
+    },
+    "license": {
+      "spdxId": "OFL-1.1",
+      "reviewedAt": "2026-10-11",
+      "scope": "W0 prototype: OFL terms checked; production activation remains separate",
+      "sourceNoticeUrl": "https://raw.githubusercontent.com/google/fonts/295d98a7a0c17c68f1341eaeea354e7960ea70d3/ofl/notosansjp/OFL.txt",
+      "sourceNoticeSha256": "1c05c68c34f9708415aada51f17e1b0092d2cea709bf4a94cd38114f9e73d7d9",
+      "assetNoticeUrl": "https://media.dsf.ink/fonts/licenses/noto-sans-jp-2.004-h2-ofl-1c05c68c34f97084.txt",
+      "assetNoticeSha256": "1c05c68c34f9708415aada51f17e1b0092d2cea709bf4a94cd38114f9e73d7d9",
+      "sourceCopyright": "Copyright 2014-2021 Adobe (http://www.adobe.com/), with Reserved Font Name 'Source'",
+      "assetCopyright": "Copyright 2014-2021 Adobe (http://www.adobe.com/), with Reserved Font Name 'Source'",
+      "reservedFontNames": [
+        "Source"
+      ],
+      "permissions": {
+        "webDistribution": true,
+        "offlineCache": true,
+        "newTextInput": true,
+        "subsetting": true,
+        "portableRedistribution": true
+      },
+      "conditions": [
+        "retain copyright and OFL",
+        "derivatives remain OFL",
+        "respect reserved names",
+        "do not sell font alone",
+        "no endorsement implication"
+      ]
+    }
+  },
+  {
+    "id": "noto-serif-jp-2.003-h1",
+    "family": "Noto Serif JP",
+    "version": "2.003-H1",
+    "source": {
+      "distributor": "Google Fonts",
+      "repositoryHref": "https://github.com/google/fonts",
+      "commit": "8a7c74854f766ae441c7584925cc0ec626fc5aa6",
+      "path": "ofl/notoserifjp/NotoSerifJP[wght].ttf",
+      "upstreamRepositoryHref": "https://github.com/notofonts/noto-cjk",
+      "upstreamCommit": "985fa52c81c1d6692ccdd82bc3656e8fb932fd89",
+      "byteLength": 13574352,
+      "sha256": "2fd527ba12b6a44ec30d796d633360da0aeba6c5d4af1304ce12bb4dc15a7dfc"
+    },
+    "asset": {
+      "fileName": "noto-serif-jp-2.003-h1-075dddc7c1db881e.woff2",
+      "format": "woff2",
+      "mimeType": "font/woff2",
+      "byteLength": 5965452,
+      "sha256": "075dddc7c1db881edb70818c6c1131085009f74086616fddb4ca805cc6b52888",
+      "url": "https://media.dsf.ink/fonts/noto-serif-jp-2.003-h1-075dddc7c1db881e.woff2"
+    },
+    "license": {
+      "spdxId": "OFL-1.1",
+      "reviewedAt": "2026-10-11",
+      "scope": "W0 prototype: OFL terms checked; production activation remains separate",
+      "sourceNoticeUrl": "https://raw.githubusercontent.com/google/fonts/8a7c74854f766ae441c7584925cc0ec626fc5aa6/ofl/notoserifjp/OFL.txt",
+      "sourceNoticeSha256": "5e0da210fb04058a8c0087985d2d456b931c2579811a49655721d3cf0c36b6d6",
+      "assetNoticeUrl": "https://media.dsf.ink/fonts/licenses/noto-serif-jp-2.003-h1-ofl-5e0da210fb04058a.txt",
+      "assetNoticeSha256": "5e0da210fb04058a8c0087985d2d456b931c2579811a49655721d3cf0c36b6d6",
+      "sourceCopyright": "Copyright 2012 Google Inc. All Rights Reserved.",
+      "assetCopyright": "Copyright 2012 Google Inc. All Rights Reserved.",
+      "reservedFontNames": [],
+      "permissions": {
+        "webDistribution": true,
+        "offlineCache": true,
+        "newTextInput": true,
+        "subsetting": true,
+        "portableRedistribution": true
+      },
+      "conditions": [
+        "retain copyright and OFL",
+        "derivatives remain OFL",
+        "respect reserved names",
+        "do not sell font alone",
+        "no endorsement implication"
+      ]
+    }
+  }
+]

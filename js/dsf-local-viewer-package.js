@@ -567,6 +567,10 @@ export async function loadDsfLocalViewerPackage(input = {}) {
             cause: error?.message || String(error),
         });
     }
+    if (zip.file('format.json') && input.allowWriting) {
+        const {loadWritingReaderSession}=await import('./reader-writing-session.js');
+        return loadWritingReaderSession(file);
+    }
     const detectedIndex = await readContentIndexForDetection(zip);
     if (detectedIndex?.schemaVersion !== 2) return null;
 

@@ -1,0 +1,2 @@
+# License notices are verified byte-for-byte against their published SHA-256.
+docs/writing-w0-licenses/*.txt -text -whitespace

@@ -1,0 +1,28 @@
+import assert from 'node:assert/strict';
+import {readFile,writeFile} from 'node:fs/promises';
+import {nodeRuntime} from './node-runtime.mjs';
+import {loadDsfV3,resaveDsfV3} from '../../js/dsf-writing-package.js';
+import {sha256} from '../../js/dsf-writing-contract.js';
+const file=process.argv[2];assert.ok(file,'Pass the browser-created UI .dsf file path');
+const bytes=new Uint8Array(await readFile(file)),runtime=await nodeRuntime();
+runtime.getFont=runtime.getNotice=()=>{throw new Error('EXTERNAL_RESOURCE_FORBIDDEN');};
+const h=await loadDsfV3(bytes,runtime),original=await loadDsfV3(new Uint8Array(await readFile(new URL('../../outputs/writing-w1/original.dsf',import.meta.url))),runtime);
+const entries=JSON.parse(new TextDecoder().decode(original.readBytes('base.json'))).entries;
+for(const d of entries)assert.deepEqual(h.readBytes(d.path),original.readBytes(d.path));
+const objects=h.envelope.document.pages.flatMap(p=>p.objects),types=new Set(objects.map(o=>o.type));
+assert.deepEqual(types,new Set(['stroke','text','line','shape']));
+assert.deepEqual(new Set(objects.filter(o=>o.type==='stroke').map(o=>o.tool)),new Set(['pen','brush','highlighter','marker']));
+assert.deepEqual(new Set(objects.filter(o=>o.type==='shape').map(o=>o.shape)),new Set(['rect','ellipse']));
+assert.deepEqual(new Set(objects.filter(o=>o.type==='line').map(o=>o.arrow)),new Set(['none','end']));
+assert.equal(h.envelope.history.revisions.length,15);assert.equal(objects.length,11);
+assert.ok(objects.some(o=>o.text==='通信なしで新しい文字を追記'));
+assert.ok(objects.some(o=>o.text==='縦書きの追記\n後から編集もできる'&&o.writingMode==='vertical-rl'));
+assert.ok(h.envelope.history.revisions.some(r=>r.pages.some(p=>p.objects.some(o=>o.text==='縦書きの追記\n筆ペンも使える'))));
+const parents=h.envelope.history.revisions.map(r=>r.parentId);assert.ok(parents.some((p,i)=>p&&parents.indexOf(p)!==i));
+const restored=h.envelope,old=restored.history.revisions.find(r=>r.operation==='書き込みを削除');
+restored.document.headRevisionId=old.id;restored.document.pages=structuredClone(old.pages);
+const saved=await resaveDsfV3(h,{envelope:restored});assert.equal(saved.handle.baseHash,h.baseHash);
+const unchanged=await resaveDsfV3(h);assert.deepEqual(unchanged.bytes,bytes);
+const result={ok:true,file,sha256:await sha256(bytes),byteLength:bytes.length,baseHash:h.baseHash,originalEntriesIdentical:entries.length,objects:objects.length,history:h.envelope.history.revisions.length,
+    allTools:true,twoFonts:h.resources.writing.fonts.length===2,offlineText:true,priorTextRestorable:true,historyBranch:true,noChangeBytesIdentical:true,historyRestoreWithoutExternalFont:true};
+await writeFile(new URL('../../outputs/writing-w1/ui-file-verification.json',import.meta.url),JSON.stringify(result,null,2));console.log(JSON.stringify(result,null,2));

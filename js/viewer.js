@@ -1,4 +1,6 @@
 import {installReaderPageLinks} from './reader-page-links.js';
+import {createReaderWritingBridge} from './reader-writing-bridge.js';
+import '../css/reader-writing-bridge.css';
 import '../css/reader-page-links.css';
 let pageLinkJourney=false,pageLinkJourneyToken=0;
 import {installFileLaunch} from './file-launch-ui.js';
@@ -100,6 +102,29 @@ let viewerDocumentRevision = 0;
 let viewerResizeFrame = null;
 let viewerInfoPanelResizeObserver = null;
 let viewerChromePlacementFrame = null;
+let viewerWritingFile=null;
+const writingEnabled=__WRITING_ENABLED__;
+const writingBridge=createReaderWritingBridge({button:document.getElementById('viewer-writing-btn'),
+    read:()=>writingEnabled&&viewerWritingFile?{file:viewerWritingFile,language:state.activeLang,pageIndex:getIndex(),spread:spreadMode,
+        locked:viewerLocalPortableSession?.writingLocked===true,
+        units:hasBookModel()?getBookUnits().map(u=>[u.left?.sourcePageIndex,u.right?.sourcePageIndex,u.center?.sourcePageIndex].filter(Number.isInteger)):null}:null,
+    view:getWritingReaderView,
+    turn:delta=>delta>0?goNext():goPrev(),
+    goTo:(index,language)=>{
+        if(state.activeLang!==language&&state.languages.includes(language))window.switchViewerLang(language);
+        resetZoom();dispatch({type:actionTypes.SET_ACTIVE_INDEX,payload:Math.max(0,Math.min(getTotal()-1,index))});
+        bookSpreadIndex=findBookUnitIndexForPage(getIndex());refresh();
+    },
+    resetView:()=>{resetZoom();readerChrome?.openReading();},
+    onMode:active=>{if(active){bookPinch?.cancel();pointerCache=[];lastTapTime=0;resetZoom();readerChrome?.openReading();window.toggleUi(true);clearViewerUiAutoHide();}else scheduleViewerUiAutoHide();},
+    onReturn:async data=>{
+        const preference=viewerSpreadPreference;
+        await loadViewerFile(new File([data.bytes],viewerWritingFile?.name||'writing.dsf',{type:'application/vnd.dsf.content+zip'}),{preview:true});
+        if(state.languages.includes(data.language))window.switchViewerLang(data.language);
+        viewerSpreadPreference=preference;
+        dispatch({type:actionTypes.SET_ACTIVE_INDEX,payload:Math.max(0,Math.min(getTotal()-1,data.pageIndex))});
+        bookSpreadIndex=findBookUnitIndexForPage(getIndex());refresh();
+    }});
 
 function replaceViewerLocalPortableSession(nextSession = null) {
     if (viewerLocalPortableSession && viewerLocalPortableSession !== nextSession) {
@@ -513,7 +538,7 @@ async function init() {
         },
     });
     if(readerChrome) bookPinch=createViewerBookPinch({
-        enabled:()=>getViewerBookThickness()!==undefined&&!readingGuides?.isAssisting(),
+        enabled:()=>!writingBridge.active&&getViewerBookThickness()!==undefined&&!readingGuides?.isAssisting(),
         state:()=>readerChrome.state,scale:()=>viewScale,wide:()=>readerChrome.canReadBook(),
         busy:()=>readerChrome.transitioning||!!edgePeek?.busy||!!activePageCurl?.active,
         claim:point=>{
@@ -1108,12 +1133,13 @@ function updateStandaloneEmptyText() {
 }
 
 async function loadViewerFile(file, {preview = false} = {}) {
+    if(!await writingBridge.beforeFile())return;
     if (!file) return;
     document.body.style.cursor = 'wait';
     try {
         if (/\.(dsf|zip)$/i.test(file.name)) {
             const { loadDsfLocalViewerPackage } = await import('./dsf-local-viewer-package.js');
-            const portableSession = await loadDsfLocalViewerPackage({ file });
+            const portableSession = await loadDsfLocalViewerPackage({ file,allowWriting:writingEnabled });
             if (portableSession) {
                 try {
                     loadProjectData(portableSession.project, {
@@ -1122,6 +1148,7 @@ async function loadViewerFile(file, {preview = false} = {}) {
                         assetUrls: portableSession.assetUrls,
                         localPortableSession: portableSession,
                     });
+                    viewerWritingFile=file;writingBridge.sync();readerChrome?.update();
                 } catch (error) {
                     portableSession.dispose();
                     if (viewerLocalPortableSession === portableSession) viewerLocalPortableSession = null;
@@ -1152,10 +1179,7 @@ async function loadRemoteDsf(src) {
         const blob = await res.blob();
         const name = decodeURIComponent(new URL(src, window.location.href).pathname.split('/').pop() || 'remote.dsf');
         if (/\.(dsf|dsp|zip)$/i.test(name) || /zip|octet-stream/i.test(blob.type || '')) {
-            loadProjectData(
-                await parseAndLoadDSF(new File([blob], name, { type: blob.type || 'application/zip' })),
-                { source: 'file' }
-            );
+            await loadViewerFile(new File([blob],name,{type:blob.type||'application/zip'}),{preview:true});
         } else {
             loadProjectData(JSON.parse(await blob.text()), { source: 'file' });
         }
@@ -1198,6 +1222,7 @@ window.loadDsf = async (input) => {
 
 // ── Project Data ──────────────────────────────────────────────
 function loadProjectData(raw, options = {}) {
+    viewerWritingFile=null;writingBridge.sync();
     riffle?.stop();readerChrome?.cancelPose();
     coverTurn?.cancel();
     const source = options.source || 'file';
@@ -3257,7 +3282,9 @@ function renderPageContentHTML(page, lang) {
         if (spreadRole) element.dataset.spreadRole = spreadRole;
         // DSF text enters the generated element through textContent in viewer-fixed-text.js.
         // outerHTML is used only to fit the existing transition/single-spread HTML pipeline.
-        return element.outerHTML;
+        const writingPageId=page.deliveryV2?.id||page.id;
+        if(writingPageId)element.dataset.writingPage=writingPageId;
+        return element.outerHTML+(writingBridge.layer(writingPageId,lang)??viewerLocalPortableSession?.layer?.(writingPageId,lang)??'');
     } catch (error) {
         console.warn('[Viewer] page renderer failed closed:', error);
         return `<div class="viewer-fixed-text-error" role="alert">${esc(error?.code || 'UNSUPPORTED_PAGE')}: ${esc(error?.message || String(error))}</div>`;
@@ -4270,7 +4297,7 @@ let isUiVisible = !usesMobileTapMenu();
 
 window.toggleUi = (force) => {
     clearViewerUiAutoHide();
-    isUiVisible = viewerInfoPanelState!=='closed' || (typeof force === 'boolean' ? force : !isUiVisible);
+    isUiVisible = writingBridge.active || viewerInfoPanelState!=='closed' || (typeof force === 'boolean' ? force : !isUiVisible);
     updateUiVisibility();
     if(isUiVisible) scheduleViewerUiAutoHide();
 };
@@ -4298,6 +4325,7 @@ function clearViewerUiAutoHide() {
 }
 
 function scheduleViewerUiAutoHide() {
+    if(writingBridge.active)return;
     if (!usesPointerHoverChrome()) return;
     clearViewerUiAutoHide();
     if (appMenu?.open || viewerInfoPanelState!=='closed' || readingGuides?.isAssisting() || coverTurn?.active || riffle?.active || readerChrome?.active || readerChrome?.settingsOpen) return;
@@ -5236,6 +5264,7 @@ window.addEventListener('resize',()=>edgeTap.reset());
 document.addEventListener('visibilitychange',()=>{if(document.hidden)edgeTap.reset();});
 let curlGesture=null;
 document.addEventListener('pointerdown',e=>{
+    if(e.target.closest?.('#reader-writing-overlay'))return;
     bookWheel?.cancel();
     edgeTap.down(e,getViewerTouchEdge(e));
     if(bookPinch?.pointerDown(e))return;
@@ -5250,6 +5279,7 @@ document.addEventListener('pointerdown',e=>{
     curlGesture={id:e.pointerId,x:e.clientX,y:e.clientY,width:r.width,started:false};
 },true);
 document.addEventListener('pointermove',e=>{
+    if(e.target.closest?.('#reader-writing-overlay'))return;
     edgeTap.move(e);
     if(bookPinch?.pointerMove(e))return;
     flick?.move(e);
@@ -5267,6 +5297,7 @@ document.addEventListener('pointermove',e=>{
     e.stopPropagation();e.preventDefault();activePageCurl.draw(dx*curlGesture.sign/(curlGesture.width*.8));
 }, {capture:true,passive:false});
 document.addEventListener('pointerup',e=>{
+    if(e.target.closest?.('#reader-writing-overlay'))return;
     const tap=edgeTap.up(e);
     if(bookPinch?.pointerEnd(e))return;
     const impulse=flick?.up(e);
@@ -5292,6 +5323,7 @@ document.addEventListener('pointerup',e=>{
 document.addEventListener('pointercancel',e=>{edgeTap.up(e,true);if(bookPinch?.pointerEnd(e,true))return;flick?.up(e,true);if(bookSwipe?.pointerCancel(e))return;if(coverTurn?.pointerCancel(e))return;if(curlGesture?.started)activePageCurl?.cancel();curlGesture=null;},true);
 
 function onPointerDown(e) {
+    if(writingBridge.active)return;
     if (readerChrome?.active) return;
     if (!pointerCache.some(p => p.pointerId === e.pointerId)) {
         pointerCache.push(e);
@@ -5327,6 +5359,7 @@ function onPointerDown(e) {
 }
 
 function onPointerMove(e) {
+    if(writingBridge.active)return;
     const idx = pointerCache.findIndex(p => p.pointerId === e.pointerId);
     if (idx !== -1) pointerCache[idx] = e;
 
@@ -5364,6 +5397,7 @@ function onPointerMove(e) {
 }
 
 function onPointerUp(e) {
+    if(writingBridge.active)return;
     const idx = pointerCache.findIndex(p => p.pointerId === e.pointerId);
     const knownPointer = idx !== -1 || e.pointerId === activeGesturePointerId;
     if (!knownPointer) return;
@@ -5503,6 +5537,8 @@ function onWheel(e) {
 }
 
 function onKeydown(e) {
+    if(writingBridge.active&&e.key==='Escape')return;
+    if(e.composedPath().some(n=>n.matches?.('dsf-writing-overlay'))&&e.composedPath().some(n=>n.matches?.('input,select,textarea,dialog')))return;
     if(appMenu?.open)return;
     if(e.target.closest?.('#viewer-info-panel'))return;
     if(e.key==='Escape') {bookWheel?.cancel();riffle?.stop();}
@@ -5545,3 +5581,11 @@ installReaderPageLinks({pages:getPages,renderThumbnail:page=>renderPageContentHT
       }
     }finally{finish();}})();return()=>{cancelled=true;finish();};
 }});
+
+// Read geometry from the actual rendered sheets, including Reader zoom and RTL order.
+function getWritingReaderView(){
+    const pages=getPages(),surfaces=[...document.querySelectorAll('#viewer-content [data-writing-page],#viewer-spread-content [data-writing-page]')];
+    const visible=surfaces.map(element=>{const r=element.getBoundingClientRect();return {index:pages.findIndex(p=>(p.deliveryV2?.id||p.id)===element.dataset.writingPage),left:r.left,right:r.right,top:r.top,height:r.height,width:r.width};})
+        .filter(p=>p.index>=0&&p.width>0&&p.height>0).sort((a,b)=>a.left-b.left);
+    return {pages:visible,language:state.activeLang,pageIndex:getIndex(),suspended:!!activePageCurl?.active||!!coverTurn?.active||!!readerChrome?.active||readerChrome?.transitioning||visible.length===0};
+}

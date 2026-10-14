@@ -1,0 +1,14 @@
+import {readFile,writeFile} from 'node:fs/promises';
+import assert from 'node:assert/strict';
+import {nodeRuntime} from './node-runtime.mjs';
+import {loadDsfV3} from '../../js/dsf-writing-package.js';
+const options=await nodeRuntime();
+const original=await loadDsfV3(await readFile(new URL('../../outputs/writing-w1/reader-spread-writing.dsf',import.meta.url)),options);
+const saved=await loadDsfV3(await readFile(process.argv[2]||new URL('../../outputs/writing-w1/native-reader-downloaded.dsf',import.meta.url)),options);
+assert.equal(saved.baseHash,original.baseHash);
+for(const e of original.inventory.filter(e=>!['format.json','manifest.json'].includes(e.path)&&!e.path.startsWith('writing/')))assert.deepEqual(saved.readBytes(e.path),original.readBytes(e.path));
+const pages=saved.envelope.document.pages;
+assert.ok(pages.some(p=>p.objects.some(o=>o.color==='#d33544')));
+const result={baseHash:saved.baseHash,originalBytesUnchanged:true,pages:pages.map(p=>({pageId:p.pageId,objects:p.objects.map(o=>({type:o.type,tool:o.tool,color:o.color,width:o.baseWidth}))}))};
+await writeFile(new URL('../../outputs/writing-w1/native-reader-file-proof.json',import.meta.url),JSON.stringify(result,null,2));
+console.log(JSON.stringify(result,null,2));
