@@ -989,19 +989,26 @@ function capturePage(page, context, surface) {
         });
     }
     const pageRect = surface.pageElement.getBoundingClientRect();
-    const lines = elements.flatMap((element, fragmentIndex) => captureFragmentLines(
-        element,
-        page.fragments[fragmentIndex],
-        context,
-        pageRect,
-        surface,
-    ));
+    const captureFragment = (element, index, phase, capture) => {
+        const fragment = page.fragments[index];
+        try {
+            return capture(element, fragment, context, pageRect, surface);
+        } catch (error) {
+            if (error instanceof FlowPublicationCompositionCaptureError) {
+                error.context = { ...error.context, phase, pageIndex: page.index,
+                    blockId: fragment.blockId, writingMode: context.writingMode };
+            }
+            throw error;
+        }
+    };
+    const lines = elements.flatMap((element, index) =>
+        captureFragment(element, index, 'body', captureFragmentLines));
     return {
         index: page.index,
         manualBreakBefore: cloneManualBreak(page.manualBreakBefore),
         lines,
         ...(page.anchoredObject ? {wrapLayout: structuredClone({object:page.anchoredObject,regions:page.wrapRegions})} : {}),
-        ...(page.fragments.some(f=>f.annotations?.length)?{annotations:elements.flatMap((element,index)=>captureFragmentAnnotations(element,page.fragments[index],context,pageRect,surface))}:{}),
+        ...(page.fragments.some(f=>f.annotations?.length)?{annotations:elements.flatMap((element,index)=>captureFragment(element,index,'annotation',captureFragmentAnnotations))}:{}),
     };
 }
 

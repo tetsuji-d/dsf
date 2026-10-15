@@ -1087,6 +1087,7 @@ function _renderPressFlowProductionPreparationSummary() {
         return;
     }
     const blockingReasons = [];
+    const captureDiagnostics = [];
     const rows = languageResults.map((result) => {
         const firstIssue = [...(result.preparationIssues || []), ...(result.preflight?.issues || [])]
             .find(issue => issue.severity !== 'warning' && issue.severity !== 'info') || null;
@@ -1097,6 +1098,10 @@ function _renderPressFlowProductionPreparationSummary() {
             : '';
         if (result.state !== 'ready') {
             blockingReasons.push(`${String(result.language).toUpperCase()}: ${issueMessage || t('press_flow_production_not_ready')}${firstIssue?.code ? ` (${firstIssue.code})` : ''}${firstIssue?.path ? ` — ${firstIssue.path}` : ''}`);
+            for (const issue of result.preparationIssues || []) {
+                const diagnostic = _pressFlowProductionPreparationModule.getFlowPressCaptureDiagnostic(issue, state.blocks.filter(block => block.kind === 'flow'));
+                if (diagnostic) captureDiagnostics.push(diagnostic);
+            }
         }
         const flowPages = result.preflight?.summary?.flowPageCount ?? 0;
         const stateLabel = result.state === 'ready'
@@ -1109,6 +1114,31 @@ function _renderPressFlowProductionPreparationSummary() {
         </li>`;
     }).join('');
     _setPressPublishBlocker(blockingReasons);
+    if (captureDiagnostics.length) {
+        const hint = document.getElementById('press-publish-blocker');
+        const details = document.createElement('details');
+        const label = document.createElement('summary');
+        label.textContent = getUILang() === 'en' ? 'Diagnostic details (no manuscript text)' : '診断情報（原稿本文は含みません）';
+        const output = document.createElement('textarea');
+        output.readOnly = true;
+        output.rows = 8;
+        output.setAttribute('aria-label', label.textContent);
+        output.style.cssText = 'display:block;width:100%;box-sizing:border-box;font-size:16px;margin-top:8px;';
+        output.value = JSON.stringify({ browser: navigator.userAgent, issues: captureDiagnostics }, null, 2);
+        const copy = document.createElement('button');
+        copy.type = 'button';
+        copy.textContent = getUILang() === 'en' ? 'Copy diagnostics' : '診断情報をコピー';
+        copy.addEventListener('click', async () => {
+            try {
+                await navigator.clipboard.writeText(output.value);
+                copy.textContent = getUILang() === 'en' ? 'Copied' : 'コピーしました';
+            } catch {
+                output.focus(); output.select();
+            }
+        });
+        details.append(label, output, copy);
+        hint?.append(details);
+    }
     const fontCount = _pressFlowProductionPreparationResult.productionFontCount ?? 0;
     summary.innerHTML = `
         <strong>${_esc(t('press_flow_production_title'))}</strong>

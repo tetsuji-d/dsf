@@ -56,6 +56,25 @@ export function getFlowPressPublicationPreparationIssueMessage(issue) {
     return ISSUE_MESSAGES[issue?.code] || issue?.message || 'Flow配信の本番準備を完了できませんでした。';
 }
 
+/** Diagnostic allowlist: never copy manuscript text, account data or asset URLs. */
+export function getFlowPressCaptureDiagnostic(issue, groups = []) {
+    if (!String(issue?.code || '').startsWith('FLOW_PUBLICATION_CAPTURE_')) return null;
+    const details = issue.details || {};
+    const diagnostic = { code: issue.code, language: issue.language };
+    const groupIndex = groups.findIndex(group => group.id === issue.groupId);
+    if (groupIndex >= 0) diagnostic.flow = groupIndex + 1;
+    for (const key of ['phase', 'pageIndex', 'blockId', 'writingMode', 'index', 'startGrapheme', 'fontSize', 'parent']) {
+        if (typeof details[key] === 'string' || Number.isFinite(details[key])) diagnostic[key] = details[key];
+    }
+    for (const key of ['sourceRect', 'expected', 'source', 'measured', 'probeRect', 'lineBox']) {
+        if (!details[key]) continue;
+        diagnostic[key] = Object.fromEntries(['x', 'y', 'width', 'height']
+            .filter(axis => Number.isFinite(details[key][axis]))
+            .map(axis => [axis, Math.round(details[key][axis] * 1000) / 1000]));
+    }
+    return diagnostic;
+}
+
 export async function prepareFlowPressPublication(options = {}) {
     const fontRegistry = options.fontRegistry || DSF_PRODUCTION_FONT_REGISTRY;
     const dependencies = options.dependencies || {};

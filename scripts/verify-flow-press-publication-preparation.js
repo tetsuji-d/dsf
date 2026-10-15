@@ -8,8 +8,30 @@ import {
 } from '../js/dsf-font-registry.js';
 import {
     getFlowPressPublicationPreparationIssueMessage,
+    getFlowPressCaptureDiagnostic,
     prepareFlowPressPublication,
 } from '../js/flow-press-publication-preparation.js';
+
+const diagnosticIssue = {
+    code: 'FLOW_PUBLICATION_CAPTURE_GLYPH_MISMATCH', language: 'ja', groupId: 'g2',
+    message: 'private manuscript',
+    details: { phase: 'body', pageIndex: 0, blockId: 'p1', writingMode: 'vertical-rl',
+        index: 0, startGrapheme: 22, text: 'private manuscript',
+        sourceRect: {x: 10.123456, y: 12, width: 16, height: 18, text: 'private manuscript'},
+        expected: {x: 10, y: 11, width: 16, height: 18},
+        user: {email: 'private@example.test'}, url: 'https://private.example.test' },
+};
+const diagnosticBefore = JSON.stringify(diagnosticIssue);
+const captureDiagnostic = getFlowPressCaptureDiagnostic(diagnosticIssue, [{id:'g1'}, {id:'g2'}]);
+assert.equal(captureDiagnostic.flow, 2);
+assert.equal(captureDiagnostic.pageIndex, 0);
+assert.equal(captureDiagnostic.index, 0);
+assert.equal(captureDiagnostic.sourceRect.x, 10.123);
+assert.equal(captureDiagnostic.phase, 'body');
+assert.equal(JSON.stringify(captureDiagnostic).includes('private'), false);
+assert.equal(JSON.stringify(diagnosticIssue), diagnosticBefore);
+assert.equal(getFlowPressCaptureDiagnostic({code:'FONT_NOT_CERTIFIED'}), null);
+assert.equal(getFlowPressCaptureDiagnostic(null), null);
 
 function createSyntheticRegistry() {
     return {
