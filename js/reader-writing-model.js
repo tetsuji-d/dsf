@@ -131,6 +131,20 @@ export function duplicateWritingObject(object, dx=12, dy=12) {
     next.id=writingId();return next;
 }
 
+/** Rectangle selection includes fully enclosed, unlocked objects on the active page. */
+export function writingMarqueeObjects(objects,rect){
+    const [x,y,w,h]=rect;
+    return objects.filter(o=>{const [a,b,c,d]=writingBounds(o);return !o.locked&&a>=x&&b>=y&&a+c<=x+w&&b+d<=y+h;});
+}
+
+/** Clamp one shared displacement, preserving the spacing of a multiple selection. */
+export function moveWritingSelection(objects,dx,dy){
+    if(!objects.length)return [];
+    const bounds=objects.map(writingBounds),left=Math.min(...bounds.map(b=>b[0])),top=Math.min(...bounds.map(b=>b[1])),right=Math.max(...bounds.map(b=>b[0]+b[2])),bottom=Math.max(...bounds.map(b=>b[1]+b[3]));
+    dx=Math.max(Math.min(0,-left),Math.min(Math.max(0,360-right),dx));dy=Math.max(Math.min(0,-top),Math.min(Math.max(0,640-bottom),dy));
+    return objects.map(o=>moveWritingObject(o,dx,dy));
+}
+
 /** Prototype fixed layout: horizontal wrapping by measured advances, vertical grapheme cells. */
 export function createWritingText({id = writingId(), text, x, y, fontId, size, weight, color, vertical, measure,box}) {
     text = text.replace(/\r\n?/g, '\n');

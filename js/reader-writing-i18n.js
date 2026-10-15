@@ -11,7 +11,7 @@ const EN={
     '共有用':'Shared','編集用':'Editable','サンプルを開くと、8ページの原本に自由に書き込めます。':'Open the sample to write on eight practice pages.',
     'この確認ページでは、ファイルと書き込みを端末内で扱います。まず「サンプルを開く」で試せます。':'This preview stores files and Writing on your device. Choose Open sample to try it.',
     '試し方・書体ライセンス':'Instructions / font licenses','使用書体とライブラリのライセンス':'Font and library licenses',
-    '選択・移動':'Select / move','選択':'Select','ボールペン':'Ballpoint','筆ペン':'Brush pen','サインペン':'Felt-tip','蛍光マーカー':'Highlighter','修正液':'Whiteout','文字':'Text','線':'Line','矢印':'Arrow','四角':'Rectangle','楕円':'Ellipse','筆跡':'Stroke','図形':'Shape','線・図形':'Lines / shapes',
+    '矩形選択':'Rectangle selection','囲んだ書き込みをまとめて選択。選択した筆跡をドラッグして移動できます。':'Enclose objects to select them together. Drag selected ink to move the group.','選択・移動':'Select / move','選択':'Select','ボールペン':'Ballpoint','筆ペン':'Brush pen','サインペン':'Felt-tip','蛍光マーカー':'Highlighter','修正液':'Whiteout','文字':'Text','線':'Line','矢印':'Arrow','四角':'Rectangle','楕円':'Ellipse','筆跡':'Stroke','図形':'Shape','線・図形':'Lines / shapes',
     '設定':'Settings','キャンセル':'Cancel','閉じる':'Close','適用':'Apply','確定':'Done','保存':'Save','コピー':'Copy','切り取り':'Cut','貼り付け':'Paste','複製':'Duplicate','削除':'Delete','ロック':'Lock','ロック解除':'Unlock','元に戻す':'Undo','やり直す':'Redo','↶ 元に戻す':'↶ Undo','↷ やり直す':'↷ Redo',
     '線の太さ':'Line width','墨の量':'Ink amount','少ない：カスレ ／ 多い：滲み（疑似表現）':'Less: dry strokes / more: simulated ink bleed',
     '正方形・正円（Ctrl）':'Square / circle (Ctrl)','端点をスナップ':'Snap endpoints','先端の形':'Endpoint shape','開いた矢印':'Open arrow','三角':'Triangle','丸':'Circle','ひし形':'Diamond','始点につける':'Start','終点につける':'End','線の種類':'Line style','実線':'Solid','破線':'Dashed','点線':'Dotted','一点鎖線':'Dash-dot',

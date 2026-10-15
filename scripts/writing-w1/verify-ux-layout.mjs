@@ -15,7 +15,7 @@ for(const [width,height,x,y,w,h,mode] of fixtures){
  for(const r of visible){assert.ok(r.left>=0&&r.top>=0&&r.left+r.width<=width+.1&&r.top+r.height<=height,JSON.stringify(r));
   for(const c of controls)assert.ok(r.left+r.width<=c.left||r.left>=c.right||r.top+r.height<=c.top||r.top>=c.bottom,`Writing/Reader collision ${width}x${height}`);}
  assert.ok(a.history.left>=0&&a.history.left+a.history.width<=width&&a.history.top+a.history.height<=height);
- assert.equal(a.tools.columns,6,'The drawing-tool order must not wrap when the viewport changes');
+ assert.equal(a.tools.columns,7,'The drawing-tool order must not wrap when the viewport changes');
  if(!a.rail)assert.ok(a.pens.left>=50,'Top-edge pens must leave the Reader menu clear');
  else{assert.ok(a.history.left+a.history.width<a.tools.left);assert.equal(a.history.top+22,a.tools.top+26);assert.ok(a.tools.left+a.tools.width<a.pens.left);assert.ok(a.rail.top+a.rail.height<=a.context.top);}
  if(a.mode==='side')for(const r of [a.pens,a.tools,a.context]){

@@ -1,9 +1,9 @@
-:host{position:fixed;inset:0;z-index:950;pointer-events:none;font:14px/1.5 system-ui,sans-serif;color:#233e43;--accent:#216b69;--line:#d8e1dc;--pen-size:54px;--pen-gap:4px;--tool-columns:6;--dock-bottom:180px}
+:host{position:fixed;inset:0;z-index:950;pointer-events:none;font:14px/1.5 system-ui,sans-serif;color:#233e43;--accent:#216b69;--line:#d8e1dc;--pen-size:54px;--pen-gap:4px;--tool-columns:7;--dock-bottom:180px}
 header,main>.tools,main>.save-panel,.book-heading,.writing-mode,.quick-tool,.hint,#page-summary,.mobile-dock{display:none!important}
 main,.reading{display:contents!important}#viewport{display:contents}#page-wrap{position:fixed;margin:0;pointer-events:none}#surface{background:transparent;box-shadow:none;pointer-events:none}#input{pointer-events:auto}#original,.rw-other-original{display:none!important}
 #chrome-safe{position:fixed;visibility:hidden;pointer-events:none;padding:env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left)}
 .native-tools{position:fixed;z-index:2;inset:0 0 auto;height:var(--dock-bottom);pointer-events:none;transition:transform .24s ease;overflow:hidden}
-#pen-tray{position:absolute;display:flex;justify-content:center;gap:var(--pen-gap);min-height:0;max-width:none;margin:0;border:0;border-radius:0;background:none;overflow:hidden;pointer-events:none}
+#pen-tray{position:absolute;display:flex;justify-content:center;gap:var(--pen-gap);min-height:0;max-width:none;margin:0;border:0;border-radius:0;background:none;overflow:visible;pointer-events:none}
 .pen-item,.pen-item:hover,.pen-item[aria-pressed=true]{width:var(--pen-size);min-width:var(--pen-size);flex:0 0 var(--pen-size);height:100%;pointer-events:auto;transform:none;background:transparent!important;padding:0;touch-action:none;user-select:none;-webkit-user-select:none;-webkit-touch-callout:none}
 .pen-item svg{width:var(--pen-size);height:calc(var(--pen-size)*130/60);flex:none;overflow:visible;filter:drop-shadow(2px 3px 2px #183e3838)}
 .pen-item svg,.pen-item span{transform:translateY(-24px);transition:transform .2s ease}
@@ -13,7 +13,7 @@ main,.reading{display:contents!important}#viewport{display:contents}#page-wrap{p
 .pen-width{font:700 17px system-ui;fill:#25373c;paint-order:stroke;stroke:#fff9;stroke-width:2px}.pen-brush .pen-width{fill:white;stroke:#25373c}
 .pen-unit{font:600 11px system-ui;fill:#25373c;paint-order:stroke;stroke:#fff9;stroke-width:1px}.pen-brush .pen-unit{fill:white;stroke:#25373c}
 #tool-field{position:absolute;pointer-events:auto;margin:0;border:0;padding:0;max-width:none}#tool-field legend{display:none}
-#tools{display:grid;grid-template-columns:repeat(6,44px);gap:0;justify-content:center;position:relative;isolation:isolate}
+#tools{display:grid;grid-template-columns:repeat(7,44px);gap:0;justify-content:center;position:relative;isolation:isolate}
 /* Flat rails, with one selection treatment. The individual controls keep 44 px targets. */
 #tools::before{content:'';position:absolute;inset:3px -4px;background:#f9fcfbd9;border-radius:16px;z-index:-1;backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px)}
 #tools button,#native-history button{position:relative;width:44px;height:44px;min-height:44px;padding:8px;border:0;border-radius:12px;background:transparent;color:#294740;box-shadow:none;touch-action:manipulation}
@@ -87,7 +87,7 @@ main,.reading{display:contents!important}#viewport{display:contents}#page-wrap{p
 #mobile-sheet[data-panel=settings] .arrow-ends{display:flex;gap:12px;flex-wrap:wrap}
 #mobile-sheet[data-panel=settings] .arrow-ends label{display:inline-flex;align-items:center;min-height:36px;margin:0}
 #mobile-sheet[data-panel=settings] #line-style-control{margin-bottom:8px}
-#mobile-sheet[data-panel=settings] #sheet-body #palette{grid-template-columns:repeat(6,44px);gap:6px}
+#mobile-sheet[data-panel=settings] #sheet-body #palette{grid-template-columns:repeat(7,44px);gap:6px}
 #mobile-sheet[data-panel=settings] #sheet-body #color-name{margin:0 0 6px}
 #mobile-sheet[data-panel=settings] #selection-hint{margin:6px 0 0}
 #mobile-sheet[data-panel=settings] #sheet-actions{padding:6px 12px max(6px,env(safe-area-inset-bottom))}
@@ -131,17 +131,17 @@ main,.reading{display:contents!important}#viewport{display:contents}#page-wrap{p
 /* Compact screens use one continuous, swipeable tool shelf. */
 #tool-scroll,#tool-scroll-track{display:contents}
 #tool-scroll:focus-visible{outline:2px solid #318c82;outline-offset:-2px}
-:host([data-tools-layout=scroll]) #tool-scroll{display:block;position:absolute;overflow-x:auto;overflow-y:hidden;pointer-events:auto;touch-action:pan-x;overscroll-behavior-x:contain;scrollbar-width:thin;scrollbar-color:#78958c66 transparent;border-radius:12px;-webkit-overflow-scrolling:touch}
-:host([data-tools-layout=scroll]) #tool-scroll-track{display:block;position:relative;width:748px;height:108px}
+:host([data-tools-layout=scroll]) #tool-scroll{display:block;position:absolute;overflow-x:auto;overflow-y:hidden;pointer-events:auto;touch-action:pan-x;overscroll-behavior-x:contain;scrollbar-width:none;border-radius:0;-webkit-overflow-scrolling:touch}
+:host([data-tools-layout=scroll]) #tool-scroll-track{display:block;position:relative;width:792px;height:var(--dock-bottom)}
 :host([data-tools-layout=scroll]) #native-history{position:absolute;transition:none}
 :host([data-tools-layout=scroll][data-tools-stowed=true]) #native-history{opacity:1;visibility:visible}
 :host([data-tools-layout=scroll]) #native-fit{display:none}
 #active-tool-label{display:none!important}
-:host([data-tools-layout=scroll]) #tools-reveal{top:calc(var(--tools-top) + 112px);left:8px;right:8px;width:calc(100% - 16px);height:28px;min-height:28px;opacity:1;pointer-events:auto;touch-action:none;transition:top .24s ease,transform .24s ease}
-:host([data-tools-layout=scroll][data-tools-stowed=true]) #tools-reveal{top:var(--tools-top)}
-:host([data-tools-layout=scroll]) #tools-reveal span{width:64px;min-width:64px;height:20px;margin:0;border-radius:10px;background:#f9fffde0;box-shadow:0 1px 5px #17342c22}
+:host([data-tools-layout=scroll]) #tools-reveal{top:var(--safe-top,0px);left:calc(50% - 44px);right:auto;width:88px;height:44px;min-height:44px;opacity:1;pointer-events:auto;touch-action:none;transition:top .24s ease,transform .24s ease}
+:host([data-tools-layout=scroll][data-tools-stowed=true]) #tools-reveal{top:var(--safe-top,0px)}
+:host([data-tools-layout=scroll]) #tools-reveal span{width:44px;min-width:44px;height:4px;margin:0;position:absolute;top:5px;left:22px;background:transparent;box-shadow:none}
 :host([data-tools-layout=scroll]) #tools-reveal svg{display:none}
-:host([data-tools-layout=scroll]) #tools-reveal span::after{content:'';width:32px;height:3px;border-radius:4px;background:#44665f}
+:host([data-tools-layout=scroll]) #tools-reveal span::after{content:'';width:32px;height:3px;border-radius:4px;background:#44665f99;box-shadow:0 0 0 1px #ffffff99}
 :host([data-drawer-dragging=true]) .native-tools,:host([data-drawer-dragging=true]) #tools-reveal{transition:none}
 @media(prefers-reduced-motion:reduce){:host([data-tools-layout=scroll]) #tools-reveal{transition:none}}
 :host([data-tools-layout=scroll]) #pen-tray{overflow:visible}
@@ -177,3 +177,10 @@ main,.reading{display:contents!important}#viewport{display:contents}#page-wrap{p
 #mobile-sheet[data-panel=layers],#mobile-sheet[data-panel=history]{box-shadow:0 10px 36px #183e382b;border:1px solid #b8cbc3}
 #mobile-sheet[data-panel=history] #history{min-height:160px;height:45dvh;max-height:420px}#mobile-sheet[data-panel=history] #history option{padding:8px}
 #mobile-sheet[data-panel=history] #history-section,#mobile-sheet[data-panel=history] .edit-actions{display:none}#mobile-sheet[data-panel=history] #restore{width:100%;min-height:44px}
+
+/* The thin edge mark is the only persistent drawer chrome. Scroll remains native. */
+:host([data-tools-layout=scroll]) #tool-scroll::-webkit-scrollbar{display:none}
+:host([data-tools-layout=scroll]) #tool-scroll,:host([data-tools-layout=scroll]) #tool-scroll-track{pointer-events:none}
+:host([data-tools-layout=scroll]) #tool-field,:host([data-tools-layout=scroll]) #pen-tray,:host([data-tools-layout=scroll]) #native-history{pointer-events:auto}
+.pen-nib{transform-box:view-box;transform-origin:30px 90px;transform:scaleX(var(--nib-scale,1));transition:transform .16s ease}
+@media(prefers-reduced-motion:reduce){.pen-nib{transition:none}}

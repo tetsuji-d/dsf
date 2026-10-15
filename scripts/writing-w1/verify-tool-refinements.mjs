@@ -14,8 +14,8 @@ assert.ok(Math.abs(Math.max(...box.map(p=>p[0]))-Math.min(...box.map(p=>p[0]))-5
 for(const end of [{x:200,y:100},{x:100,y:200},{x:50,y:50}]){
     const polygons=highlighterPolygons([dot,{...dot,...end}]);
     assert.ok(polygons.every(p=>p.length>=4&&p.flat().every(Number.isFinite)));
-    // Both rectangular endpoints are inside the swept convex hull, including a diagonal stroke.
-    const hull=polygons[1];for(const p of [...box,...highlighterPolygons([{...dot,...end}])[0]]){
+    // The broad edge follows the direction; both cap centres remain inside the sweep.
+    const hull=polygons[1];for(const p of [[dot.x,dot.y],[end.x,end.y]]){
         assert.ok(hull.every((a,i)=>{const b=hull[(i+1)%hull.length];return (b[0]-a[0])*(p[1]-a[1])-(b[1]-a[1])*(p[0]-a[0])>=-1e-8;}));
     }
 }

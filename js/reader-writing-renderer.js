@@ -53,7 +53,7 @@ export function renderWritingLayer(layer, objects, families, selected) {
         }
         }
         cache.set(o.id,{object:o,item});layer.append(item);
-        if (selected === o.id) {
+        if (selected instanceof Set ? selected.has(o.id) : selected === o.id) {
             if(o.type==='text'){const [x,y,w,h]=writingBounds(o),box=document.createElement('div');box.className='rw-selection';
                 Object.assign(box.style,{left:`${x-4}px`,top:`${y-4}px`,width:`${w+8}px`,height:`${h+8}px`});layer.append(box);
             }else{
@@ -66,7 +66,7 @@ export function renderWritingLayer(layer, objects, families, selected) {
                 for(const child of item.querySelector('svg').children){const copy=child.cloneNode(true);copy.removeAttribute('opacity');for(const node of copy.querySelectorAll('[opacity]'))node.removeAttribute('opacity');ink.append(copy);}
                 outline.append(ink);layer.append(outline);
             }
-            for(const p of o.locked?[]:writingControlPoints(o)){const knob=document.createElement('span');knob.className='rw-handle';knob.dataset.handle=p.key;
+            for(const p of o.locked||selected instanceof Set&&selected.size>1?[]:writingControlPoints(o)){const knob=document.createElement('span');knob.className='rw-handle';knob.dataset.handle=p.key;
                 Object.assign(knob.style,{left:`${p.x}px`,top:`${p.y}px`});layer.append(knob);}}
     }
     renderedLayers.set(layer,{fontKey,objects:cache});

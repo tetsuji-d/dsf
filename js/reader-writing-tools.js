@@ -60,7 +60,7 @@ export function editWritingPoint(o,key,p,square=false) {
 }
 
 /** Speed, direction and distance-based entry / travel / exit, frozen as ordinary saved point widths. */
-export function brushDryness(distance,speed=0){return Math.min(1,.65*(1-Math.exp(-distance/140))+.35*speed/(speed+.7));}
+export function brushDryness(distance,speed=0){return Math.min(1,.24*(1-Math.exp(-distance/220))+.76*speed*speed/(speed*speed+.36));}
 export function brushGeometry(raw,baseWidth,finished=false,dynamics=false) {
     if(!raw.length)return [];
     const samples=[{...raw[0],distance:0,speed:0}];let total=0;
@@ -72,7 +72,7 @@ export function brushGeometry(raw,baseWidth,finished=false,dynamics=false) {
         total+=length;
     }
     if(samples.length===1)return [{x:raw[0].x,y:raw[0].y,pressure:raw[0].pressure,width:Math.max(.1,baseWidth*.55),...(dynamics?{dryness:0}:{})}];
-    let lastWidth=baseWidth*.35;
+    let lastWidth=baseWidth*.35,lastDryness=0;
     return samples.map((p,i)=>{
         const a=samples[Math.max(0,i-1)],b=samples[Math.min(samples.length-1,i+1)],angle=Math.atan2(b.y-a.y,b.x-a.x);
         const pressure=p.pen?Math.max(.05,p.pressure):.35+.65/(1+p.speed*.65);
@@ -83,7 +83,8 @@ export function brushGeometry(raw,baseWidth,finished=false,dynamics=false) {
         const exit=finished?exitTip+(1-exitTip)*Math.min(1,(total-p.distance)/Math.max(7,baseWidth*2)):1;
         const desired=baseWidth*(.35+pressure*.85)*direction*entry;
         lastWidth=lastWidth*.3+desired*.7;
-        return {x:p.x,y:p.y,pressure,width:Math.max(.06,lastWidth*exit),...(dynamics?{dryness:brushDryness(p.distance,p.speed)}:{})};
+        lastDryness=lastDryness*.7+brushDryness(p.distance,p.speed)*.3;
+        return {x:p.x,y:p.y,pressure,width:Math.max(.06,lastWidth*exit),...(dynamics?{dryness:lastDryness}:{})};
     });
 }
 
@@ -160,25 +161,31 @@ export function naturalBrushInkPaths(points,inkAmount,dynamics=false) {
 }
 
 export function highlighterPolygons(points) {
-    const corners=p=>{const x=p.width*.14,y=p.width/2;return [[p.x-x,p.y-y],[p.x+x,p.y-y],[p.x+x,p.y+y],[p.x-x,p.y+y]];};
+    // Rotate the rectangular nib with each segment: the broad edge always lies
+    // across the movement. Use the same orientation at both ends, including taps.
+    const corners=(p,angle)=>{const x=p.width*.14,y=p.width/2,c=Math.cos(angle),s=Math.sin(angle);return [[-x,-y],[x,-y],[x,y],[-x,y]].map(([a,b])=>[p.x+a*c-b*s,p.y+a*s+b*c]);};
     const cross=(a,b,c)=>(b[0]-a[0])*(c[1]-a[1])-(b[1]-a[1])*(c[0]-a[0]);
     return points.map((p,i)=>{
-        const sorted=[...corners(points[Math.max(0,i-1)]),...corners(p)].sort((a,b)=>a[0]-b[0]||a[1]-b[1]);
+        const previous=points[Math.max(0,i-1)],next=points[Math.min(points.length-1,i+1)],angle=i?Math.atan2(p.y-previous.y,p.x-previous.x):Math.atan2(next.y-p.y,next.x-p.x);
+        const sorted=[...corners(previous,angle),...corners(p,angle)].sort((a,b)=>a[0]-b[0]||a[1]-b[1]);
         const half=items=>{const hull=[];for(const v of items){while(hull.length>1&&cross(hull.at(-2),hull.at(-1),v)<=0)hull.pop();hull.push(v);}return hull.slice(0,-1);};
         return [...half(sorted),...half([...sorted].reverse())];
     });
 }
 
+/** A restrained visual range keeps the original pen silhouette recognizable. */
+export function penTipScale(tool,width){const defaults=toolDefaults(),ratio=width/defaults[tool].width;return .3+1.4*ratio/(1+ratio);}
+
 /** Inline vector pen illustrations remain crisp at every display scale. */
 export function createPenButton(documentRef,id,name) {
     const button=documentRef.createElement('button');button.className=`pen-item pen-${id}`;button.dataset.tool=id;button.type='button';button.setAttribute('aria-label',name);button.title=name;
     const tips={
-        pen:'<path d="M19 78H41L34 102H26Z" fill="url(#metal-pen)"/><path d="M27 99H33L31 111H29Z" fill="#a6aeb6"/><circle cx="30" cy="112" r="2" class="ink-fill"/>',
-        brush:'<path d="M19 74H41L38 91H22Z" fill="#b5ae9b"/><path d="M23 88Q19 105 30 122Q37 104 37 88Z" class="ink-fill"/><path d="M27 92Q24 107 30 119" fill="none" stroke="#ffffff55"/>',
-        marker:'<path d="M19 77H41L36 94H24Z" fill="#a6aca9"/><path d="M24 90H36V112Q30 118 24 112Z" class="ink-fill"/>',
-        highlighter:'<path d="M12 72H48L43 92H17Z" fill="#dadfd6"/><path d="M18 88H42V112L18 121Z" class="ink-fill"/>',
-        correction:'<path d="M17 77H43L34 102H26Z" fill="#dae2e5"/><path d="M26 99H34V113H26Z" fill="#fafafa" stroke="#9dacb2"/>',
+        pen:'<path d="M19 78H41L34 102H26Z" fill="url(#metal-pen)"/><g class="pen-nib"><path d="M27 99H33L31 111H29Z" fill="#a6aeb6"/><circle cx="30" cy="112" r="2" class="ink-fill"/></g>',
+        brush:'<path d="M19 74H41L38 91H22Z" fill="#b5ae9b"/><g class="pen-nib"><path d="M23 88Q19 105 30 122Q37 104 37 88Z" class="ink-fill"/><path d="M27 92Q24 107 30 119" fill="none" stroke="#ffffff55"/></g>',
+        marker:'<path d="M19 77H41L36 94H24Z" fill="#a6aca9"/><g class="pen-nib"><path d="M24 90H36V112Q30 118 24 112Z" class="ink-fill"/></g>',
+        highlighter:'<path d="M12 72H48L43 92H17Z" fill="#dadfd6"/><g class="pen-nib"><path d="M18 88H42V112L18 121Z" class="ink-fill"/></g>',
+        correction:'<path d="M17 77H43L34 102H26Z" fill="#dae2e5"/><g class="pen-nib"><path d="M26 99H34V113H26Z" fill="#fafafa" stroke="#9dacb2"/></g>',
     };
-    button.innerHTML=`<svg viewBox="0 0 60 130" aria-hidden="true"><defs><linearGradient id="barrel-${id}"><stop stop-color="#a4afb3"/><stop offset=".24" stop-color="#fafcfb"/><stop offset=".63" stop-color="#e0e7e5"/><stop offset="1" stop-color="#a2afb1"/></linearGradient><linearGradient id="metal-${id}"><stop stop-color="#677c89"/><stop offset=".45" stop-color="#f4f6f5"/><stop offset="1" stop-color="#80959e"/></linearGradient></defs><rect x="${id==='highlighter'?10:17}" y="-12" width="${id==='highlighter'?40:26}" height="92" rx="7" fill="url(#barrel-${id})" stroke="#85999e"/><rect x="${id==='highlighter'?10:17}" y="14" width="${id==='highlighter'?40:26}" height="6" class="ink-fill"/><path d="M22 26V64M27 26V64" stroke="#8f9e9c" stroke-width="1" opacity=".5"/>${tips[id]}</svg><span>${name}</span>`;
+    button.innerHTML=`<svg viewBox="0 0 60 130" aria-hidden="true"><defs><linearGradient id="barrel-${id}"><stop stop-color="#a4afb3"/><stop offset=".24" stop-color="#fafcfb"/><stop offset=".63" stop-color="#e0e7e5"/><stop offset="1" stop-color="#a2afb1"/></linearGradient><linearGradient id="metal-${id}"><stop stop-color="#677c89"/><stop offset=".45" stop-color="#f4f6f5"/><stop offset="1" stop-color="#80959e"/></linearGradient></defs><rect x="${id==='highlighter'?10:17}" y="-1200" width="${id==='highlighter'?40:26}" height="1280" rx="7" fill="url(#barrel-${id})" stroke="#85999e"/><rect x="${id==='highlighter'?10:17}" y="14" width="${id==='highlighter'?40:26}" height="6" class="ink-fill"/><path d="M22 26V64M27 26V64" stroke="#8f9e9c" stroke-width="1" opacity=".5"/>${tips[id]}</svg><span>${name}</span>`;
     return button;
 }

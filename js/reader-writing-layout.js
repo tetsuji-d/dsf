@@ -5,8 +5,8 @@ export function writingChromeLayout({width,height,paper,controls=[],header,safe=
         const end=Math.min(width-Math.max(8,safe.right),...controls.filter(r=>r.height>r.width&&r.left>300&&r.top<top+164).map(r=>r.left-12));
         return {mode:'scroll',short:height<520,size,gap,top,
             rail:{left:edge,top,width:end-edge,height:112},
-            pens:{left:492,top:0,width:size*5+gap*4,height:108},
-            tools:{left:204,top:24,width:264,height:52,columns:6},
+            pens:{left:536,top:0,width:size*5+gap*4,height:108},
+            tools:{left:204,top:24,width:308,height:52,columns:7},
             history:{left:4,top:28,width:176,height:44},
             context:{left:edge,top:top+112,width:Math.min(280,end-edge),height:44}};
     }
@@ -24,21 +24,21 @@ export function writingChromeLayout({width,height,paper,controls=[],header,safe=
         mode='side';const zoneWidth=Math.min(332,availableLeft),x=paper.left-16-zoneWidth;
         // Below the menu, a six-tool rail can use the full gutter. Keep every row on
         // one axis instead of wrapping the same tools into an unrelated 3 x 2 grid.
-        const toolWidth=264,center=Math.min(x+zoneWidth/2,paper.left-16-Math.max(toolWidth,penWidth)/2);
+        const toolWidth=308,center=Math.min(x+zoneWidth/2,paper.left-16-Math.max(toolWidth,penWidth)/2);
         pens={left:center-penWidth/2,top,width:penWidth,height:penHeight};
         context={left:center-penWidth/2,top:top+penHeight,width:penWidth,height:44};
-        tools={left:center-toolWidth/2,top:context.top+context.height+12,width:toolWidth,height:52,columns:6};
+        tools={left:center-toolWidth/2,top:context.top+context.height+12,width:toolWidth,height:52,columns:7};
         history={left:tools.left-historyWidth-historyGap,top:tools.top+4,width:historyWidth,height:44};
     }else{
         // A Reader control in the top band reserves that whole interval.
         const end=Math.min(right,...controls.filter(r=>r.top<top+160&&r.bottom>top).map(r=>r.left-12));
-        const space=Math.max(0,end-left),allWidth=264+24+penWidth,topHistory=space>=allWidth+historyWidth+historyGap;
+        const space=Math.max(0,end-left),allWidth=308+24+penWidth,topHistory=space>=allWidth+historyWidth+historyGap;
         mode=space>=allWidth?'inline':'compact';
         const groupLeft=left+(space-(mode==='inline'?allWidth+(topHistory?historyWidth+historyGap:0):penWidth))/2;
         const x=groupLeft+(topHistory?historyWidth+historyGap:0);
-        pens={left:Math.max(left,x+(mode==='inline'?288:0)),top,width:penWidth,height:penHeight};
-        const toolWidth=264;
-        tools={left:mode==='inline'?x:Math.max(8,Math.min(width-toolWidth-8,left+(space-toolWidth)/2)),top:top+(mode==='inline'?Math.max(20,(penHeight-52)/2):space<toolWidth?56:8),width:toolWidth,height:52,columns:6};
+        pens={left:Math.max(left,x+(mode==='inline'?332:0)),top,width:penWidth,height:penHeight};
+        const toolWidth=308;
+        tools={left:mode==='inline'?x:Math.max(8,Math.min(width-toolWidth-8,left+(space-toolWidth)/2)),top:top+(mode==='inline'?Math.max(20,(penHeight-52)/2):space<toolWidth?56:8),width:toolWidth,height:52,columns:7};
         context={left:pens.left,top:top+penHeight,width:penWidth,height:44};
         const bottomControls=controls.filter(r=>r.top>height*.6&&r.width>r.height);
         const bottom=Math.min(height-safe.bottom,paper.bottom,...bottomControls.map(r=>r.top-8));
