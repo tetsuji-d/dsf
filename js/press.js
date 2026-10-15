@@ -1590,7 +1590,7 @@ function _renderPressFlowLocalReleaseSize() {
             return;
         }
         if (_pressFlowLocalReleasePackageState === 'ready' && _pressFlowLocalReleasePackageResult?.summary) {
-            element.textContent = `Horizon ≈ ${_formatPressPayloadBytes(summary.horizonPayloadBytes)} ／ ダウンロード.dsf ${_formatPressPayloadBytes(_pressFlowLocalReleasePackageResult.summary.zipByteLength)}（実測）`;
+            element.textContent = `Horizon ≈ ${_formatPressPayloadBytes(summary.horizonPayloadBytes)} ／ ダウンロード.dsfr ${_formatPressPayloadBytes(_pressFlowLocalReleasePackageResult.summary.zipByteLength)}（実測）`;
             return;
         }
         const suffix = _pressFlowLocalReleasePackageState === 'error' ? '（ZIP検証失敗）' : '（payload）';

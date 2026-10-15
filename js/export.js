@@ -1,3 +1,4 @@
+import {dsfFilename,projectFilename} from './file-extensions.js';
 import { normalizeBookSpineDesign } from './book-spine-design.js';
 import { mapProjectAssetUrls, validateProjectAssets } from './project-assets.js';
 import JSZip from 'jszip';
@@ -221,7 +222,7 @@ export async function buildDSP(options = {}) {
 
     // 4. Determine Filename
     const safeTitle = (meta.title || 'project').replace(/[\\/:*?"<>|]/g, '_');
-    const defaultFilename = `${safeTitle}.dsp`;
+    const defaultFilename = projectFilename(safeTitle);
     let filename = options.returnBlob ? defaultFilename : options.chooseFilename ? await options.chooseFilename(defaultFilename) : prompt("保存するファイル名を入力してください:", defaultFilename);
 
     if (filename === null) {
@@ -229,8 +230,8 @@ export async function buildDSP(options = {}) {
     }
     if (!filename.trim()) {
         filename = defaultFilename;
-    } else if (!filename.toLowerCase().endsWith('.dsp')) {
-        filename += '.dsp';
+    } else {
+        filename = projectFilename(filename);
     }
 
     // 5. Generate ZIP ArrayBuffer
@@ -382,7 +383,7 @@ export async function buildDSF(options = {}) {
 
         // 4. Determine Filename
         const safeTitle = (meta.title || 'comic').replace(/[\\/:*?"<>|]/g, '_');
-        const defaultFilename = `${safeTitle}.dsf`;
+        const defaultFilename = dsfFilename(safeTitle);
         if(options.preview){const blob=await zip.generateAsync({type:"blob"});options.check?.();return blob;}
         let filename = options.chooseFilename ? await options.chooseFilename(defaultFilename) : prompt("配信データのエクスポート名を入力してください:", defaultFilename);
 
@@ -391,8 +392,8 @@ export async function buildDSF(options = {}) {
         }
         if (!filename.trim()) {
             filename = defaultFilename;
-        } else if (!filename.toLowerCase().endsWith('.dsf')) {
-            filename += '.dsf';
+        } else {
+            filename = dsfFilename(filename);
         }
 
         throwIfPressRenderCancelled();
@@ -414,14 +415,14 @@ export async function parseAndLoadDSP(file) {
 
     // Read meta.json
     const metaFile = zip.file("meta.json");
-    if (!metaFile) throw new Error("Invalid .dsp file: meta.json missing");
+    if (!metaFile) throw new Error("Invalid DSF project file: meta.json missing");
     const metaStr = await metaFile.async("text");
     const meta = JSON.parse(metaStr);
-    if (meta.format !== "dsp") throw new Error("Invalid format: not a .dsp file");
+    if (meta.format !== "dsp") throw new Error("Invalid format: not a DSF project file");
 
     // Read project.json
     const projectFile = zip.file("project.json");
-    if (!projectFile) throw new Error("Invalid .dsp file: project.json missing");
+    if (!projectFile) throw new Error("Invalid DSF project file: project.json missing");
     const projectStr = await projectFile.async("text");
     const projectData = JSON.parse(projectStr);
     const hasAuthoringTitle = Object.prototype.hasOwnProperty.call(projectData, 'title');
@@ -544,9 +545,10 @@ export async function parseAndLoadDSF(file) {
 
     // Read meta.json
     const metaFile = zip.file("meta.json");
-    if (!metaFile) throw new Error("Invalid .dsf/.dsp file: meta.json missing");
+    if (!metaFile) throw new Error("Invalid DSF archive: meta.json missing");
     const metaStr = await metaFile.async("text");
     const meta = JSON.parse(metaStr);
+    if (!["dsf", "dsp"].includes(meta.format)) throw new Error("Invalid DSF archive: unsupported format");
 
     // Read content.json (DSF) or fallback to project.json (DSP)
     let contentData = null;

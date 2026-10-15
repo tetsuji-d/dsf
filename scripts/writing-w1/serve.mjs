@@ -10,6 +10,7 @@ const port=Number(process.argv[2]||5193),origin=`http://127.0.0.1:${port}`;
 function route(url,file,cache=true){routes.set(url,path.join(root,file));if(cache)cached.add(url);}
 for(const name of ['index.html','app.mjs','fixture.mjs','font-worker.js','sw.js'])route(name==='index.html'?'/':'/'+name,'scripts/writing-w1/'+name);
 for(const name of ['writing.html','writing.css','reader-writing.mjs','reader-runtime.mjs'])route('/'+name,'scripts/writing-w1/'+name);
+route('/sample.dsfr','outputs/writing-w1/preview-sample.dsf');
 route('/sample.dsf','outputs/writing-w1/preview-sample.dsf');
 route('/catalog.json','outputs/writing-w1/catalog.json');route('/w0/subsetter.mjs','scripts/writing-w0/subsetter.mjs');
 async function moduleTree(file){const url='/'+path.relative(root,file).split(path.sep).join('/');if(routes.has(url))return;routes.set(url,file);cached.add(url);
@@ -17,14 +18,14 @@ async function moduleTree(file){const url='/'+path.relative(root,file).split(pat
 for(const file of ['js/dsf-writing-package.js','js/viewer-fixed-text.js','js/reader-writing-model.js','js/reader-writing-renderer.js','js/reader-writing-storage.js','js/reader-writing-layout.js','js/reader-writing-hit.js','js/reader-writing-spread.js','js/reader-writing-page-gestures.js','scripts/writing-w1/fixture.mjs'])await moduleTree(path.join(root,file));
 for(const a of JSON.parse(await readFile(path.join(root,'outputs/writing-w0/assets.json'),'utf8')))if(a.url.startsWith('/assets/vendor/'))route(a.url,'outputs/writing-w0/'+a.url.slice(8));
 for(const c of JSON.parse(await readFile(path.join(root,'outputs/writing-w1/catalog.json'),'utf8'))){route(`/assets/fonts/${c.id}.woff2`,`outputs/writing-w0/fonts/${c.id}.woff2`,false);route(`/notices/${c.id}.txt`,`docs/writing-w0-licenses/${c.id}-asset.txt`,false);}
-const types={'.mjs':'text/javascript','.js':'text/javascript','.json':'application/json','.wasm':'application/wasm','.woff2':'font/woff2','.html':'text/html','.txt':'text/plain','.css':'text/css','.dsf':'application/vnd.dsf.content+zip'};
+const types={'.mjs':'text/javascript','.js':'text/javascript','.json':'application/json','.wasm':'application/wasm','.woff2':'font/woff2','.html':'text/html','.txt':'text/plain','.css':'text/css','.dsfr':'application/vnd.dsf.content+zip','.dsf':'application/vnd.dsf.content+zip'};
 http.createServer(async(req,res)=>{try{
     if(req.headers.host!==`127.0.0.1:${port}`){res.writeHead(403);res.end();return;}const url=new URL(req.url,origin);
     if(req.method==='POST'&&url.pathname==='/record-file'){
         if(req.headers.origin!==origin){res.writeHead(403);res.end();return;}
         const chunks=[];let size=0;for await(const chunk of req){size+=chunk.length;if(size>16*1024*1024)throw new Error('Fixture size exceeded');chunks.push(chunk);}const bytes=Buffer.concat(chunks),sha256=createHash('sha256').update(bytes).digest('hex');
         if(sha256!==req.headers['x-dsf-sha256']||bytes.readUInt32LE(0)!==0x04034b50)throw new Error('Fixture identity failed');
-        const dir=path.join(root,'outputs/writing-w1/browser-saved');await mkdir(dir,{recursive:true});const file=`browser-${Date.now()}-${sha256.slice(0,12)}.dsf`;
+        const dir=path.join(root,'outputs/writing-w1/browser-saved');await mkdir(dir,{recursive:true});const file=`browser-${Date.now()}-${sha256.slice(0,12)}.dsfr`;
         await writeFile(path.join(dir,file),bytes,{flag:'wx'});res.setHeader('Content-Type','application/json');res.end(JSON.stringify({file:`outputs/writing-w1/browser-saved/${file}`,sha256,byteLength:size}));return;
     }
     if(req.method!=='GET'){res.writeHead(405);res.end();return;}

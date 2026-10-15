@@ -27,7 +27,7 @@ function normalizeArchiveAssetPath(reference) {
         || /[\u0000-\u001f\u007f]/u.test(reference)) {
         fail(
             'DSP_PUBLICATION_THUMBNAIL_REFERENCE_INVALID',
-            'Invalid .dsp file: publicationThumbnailUrl must reference an embedded assets/ image.',
+            'Invalid DSF project file: publicationThumbnailUrl must reference an embedded assets/ image.',
             { reference },
         );
     }
@@ -35,7 +35,7 @@ function normalizeArchiveAssetPath(reference) {
     if (segments.length < 2 || segments.some((segment) => !segment || segment === '.' || segment === '..')) {
         fail(
             'DSP_PUBLICATION_THUMBNAIL_REFERENCE_INVALID',
-            'Invalid .dsp file: publicationThumbnailUrl contains an unsafe archive path.',
+            'Invalid DSF project file: publicationThumbnailUrl contains an unsafe archive path.',
             { reference },
         );
     }
@@ -43,7 +43,7 @@ function normalizeArchiveAssetPath(reference) {
     if (!IMAGE_MIME_BY_EXTENSION[extension]) {
         fail(
             'DSP_PUBLICATION_THUMBNAIL_EXTENSION_UNSUPPORTED',
-            'Invalid .dsp file: publication thumbnail uses an unsupported image extension.',
+            'Invalid DSF project file: publication thumbnail uses an unsupported image extension.',
             { reference, extension },
         );
     }
@@ -137,7 +137,7 @@ export async function validateDspPublicationThumbnailArchiveAsset({
     if (typeof getArchiveEntry !== 'function') {
         fail(
             'DSP_PUBLICATION_THUMBNAIL_ARCHIVE_INVALID',
-            'Invalid .dsp file: publication thumbnail archive lookup is unavailable.',
+            'Invalid DSF project file: publication thumbnail archive lookup is unavailable.',
         );
     }
     const byteLimit = Number.isSafeInteger(maximumBytes) && maximumBytes > 0
@@ -147,7 +147,7 @@ export async function validateDspPublicationThumbnailArchiveAsset({
     if (!entry || entry.dir || typeof entry.async !== 'function') {
         fail(
             'DSP_PUBLICATION_THUMBNAIL_ASSET_MISSING',
-            'Invalid .dsp file: publication thumbnail asset is missing.',
+            'Invalid DSF project file: publication thumbnail asset is missing.',
             { relativePath },
         );
     }
@@ -156,7 +156,7 @@ export async function validateDspPublicationThumbnailArchiveAsset({
         && (!Number.isSafeInteger(declaredBytes) || declaredBytes < 1 || declaredBytes > byteLimit)) {
         fail(
             'DSP_PUBLICATION_THUMBNAIL_SIZE_INVALID',
-            'Invalid .dsp file: publication thumbnail exceeds the 25 MB import limit.',
+            'Invalid DSF project file: publication thumbnail exceeds the 25 MB import limit.',
             { relativePath, byteLength: declaredBytes, maximumBytes: byteLimit },
         );
     }
@@ -166,14 +166,14 @@ export async function validateDspPublicationThumbnailArchiveAsset({
     } catch (error) {
         fail(
             'DSP_PUBLICATION_THUMBNAIL_READ_FAILED',
-            'Invalid .dsp file: publication thumbnail could not be read.',
+            'Invalid DSF project file: publication thumbnail could not be read.',
             { relativePath, cause: error?.message || String(error) },
         );
     }
     if (!(bytes instanceof Uint8Array) || bytes.byteLength < 1 || bytes.byteLength > byteLimit) {
         fail(
             'DSP_PUBLICATION_THUMBNAIL_SIZE_INVALID',
-            'Invalid .dsp file: publication thumbnail exceeds the 25 MB import limit.',
+            'Invalid DSF project file: publication thumbnail exceeds the 25 MB import limit.',
             { relativePath, byteLength: bytes?.byteLength, maximumBytes: byteLimit },
         );
     }
@@ -181,7 +181,7 @@ export async function validateDspPublicationThumbnailArchiveAsset({
     if (!mimeType) {
         fail(
             'DSP_PUBLICATION_THUMBNAIL_FORMAT_INVALID',
-            'Invalid .dsp file: publication thumbnail is not a supported image.',
+            'Invalid DSF project file: publication thumbnail is not a supported image.',
             { relativePath },
         );
     }
@@ -189,7 +189,7 @@ export async function validateDspPublicationThumbnailArchiveAsset({
     if (IMAGE_MIME_BY_EXTENSION[extension] !== mimeType) {
         fail(
             'DSP_PUBLICATION_THUMBNAIL_FORMAT_MISMATCH',
-            'Invalid .dsp file: publication thumbnail extension does not match its image bytes.',
+            'Invalid DSF project file: publication thumbnail extension does not match its image bytes.',
             { relativePath, mimeType },
         );
     }
@@ -202,7 +202,7 @@ export async function validateDspPublicationThumbnailArchiveAsset({
     } catch (error) {
         fail(
             'DSP_PUBLICATION_THUMBNAIL_DECODE_FAILED',
-            'Invalid .dsp file: publication thumbnail image could not be decoded.',
+            'Invalid DSF project file: publication thumbnail image could not be decoded.',
             { relativePath, mimeType, cause: error?.message || String(error) },
         );
     }
@@ -217,7 +217,7 @@ export async function validateDspPublicationThumbnailArchiveAsset({
         || (width * height) > DSP_PUBLICATION_THUMBNAIL_MAX_IMPORT_PIXELS) {
         fail(
             'DSP_PUBLICATION_THUMBNAIL_DIMENSIONS_INVALID',
-            'Invalid .dsp file: publication thumbnail dimensions are unsupported.',
+            'Invalid DSF project file: publication thumbnail dimensions are unsupported.',
             { relativePath, width, height },
         );
     }

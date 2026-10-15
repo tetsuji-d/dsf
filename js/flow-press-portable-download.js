@@ -27,7 +27,7 @@ function fail(code, message) {
 function normalizeDownloadBaseName(title) {
     const raw = String(title || 'Untitled')
         .normalize('NFC')
-        .replace(/\.dsf$/i, '')
+        .replace(/\.(dsfr|dsf)$/i, '')
         .replace(/[\u0000-\u001f\u007f<>:"/\\|?*]/gu, '_')
         .trim()
         .replace(/[. ]+$/u, '');
@@ -83,7 +83,7 @@ export function createFlowPressPortableDownloadArtifact(input = {}) {
     return Object.freeze({
         downloadVersion: FLOW_PRESS_PORTABLE_DOWNLOAD_VERSION,
         downloadKind: 'portable-local-file',
-        filename: `${normalizeDownloadBaseName(title)}.dsf`,
+        filename: `${normalizeDownloadBaseName(title)}.dsfr`,
         mimeType: DSF_CONTENT_MIMETYPE,
         byteLength: zipPackage.byteLength,
         sha256: zipPackage.sha256,

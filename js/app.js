@@ -5,7 +5,7 @@ import {initializePlatformMenu} from './platform-menu.js';
 import {workLanguageOptionLabel} from './work-languages.js';
 import {dspOpenErrorMessage} from './dsp-open-status.js';
 import {installFileLaunch} from './file-launch-ui.js';
-import {createDspFileSession,fingerprintDspFile,DSP_FILE_TYPES,dspFilename} from './dsp-file-session.js';
+import {createDspFileSession,fingerprintDspFile,DSP_FILE_TYPES,DSP_OPEN_FILE_TYPES,dspFilename} from './dsp-file-session.js';
 import {createRecentActivityClient} from './recent-activity-client.js';
 import '../css/recent-works.css';
 import {createRecentWorksUI} from './recent-works-ui.js';
@@ -10151,7 +10151,7 @@ async function saveDspFile({saveAs=false,download=false}={}) {
     const disabled=buttons.map(b=>b.disabled);buttons.forEach(b=>{b.disabled=true;b.setAttribute('aria-busy','true');});
     const epoch=getProjectSessionEpoch(),local=isLocalDraft();
     try {
-        if(!download&&(typeof window.showSaveFilePicker==='function'||(!saveAs&&dspFileSession.read().name))){
+        if(!download&&(typeof window.showSaveFilePicker==='function'||(!saveAs&&dspFileSession.read().name.toLowerCase().endsWith('.dsfp')))){
             const result=await dspFileSession.save({saveAs,
                 chooseHandle:()=>window.showSaveFilePicker({suggestedName:dspFilename(dspFileSession.read().name||state.projectName||state.title),types:DSP_FILE_TYPES,excludeAcceptAllOption:true}),
                 buildBlob:async()=>{const token=localDraftStatus.checkpoint();const result=await buildDSP({returnBlob:true});return {...result,token};}
@@ -10191,7 +10191,7 @@ window.exportDSF = async () => {
         btn.setAttribute('aria-busy', 'true');
     });
     try {
-        await buildDSF({chooseFilename:name=>chooseDspFilename(name,getUILang()==='en','dsf')});
+        await buildDSF({chooseFilename:name=>chooseDspFilename(name,getUILang()==='en','dsfr')});
     } catch (e) {
         console.error("Export DSF failed:", e);
         if (e?.code === 'PRESS_RENDER_CANCELLED') {
@@ -11229,10 +11229,11 @@ const MOBILE_ROOM_ACTIONS = {
         { key: 'pages', icon: 'view_carousel', labelKey: 'bottom_pages', sheet: 'pages' },
         { key: 'add', icon: 'add_circle', labelKey: 'bottom_add', sheet: 'add' },
         { key: 'edit', icon: 'tune', labelKey: 'bottom_edit', sheet: 'edit' },
-        { key: 'export', icon: 'ios_share', labelKey: 'bottom_export', sheet: 'export' },
-        { key: 'menu', icon: 'menu', labelKey: 'bottom_menu', sheet: 'menu' }
+        { key: 'press', icon: 'publish', labelKey: 'nav_press', onClick: () => window.switchRoom('press') },
+        { key: 'manuscript', icon: 'description', labelKey: 'bottom_manuscript', sheet: 'manuscript' }
     ],
     press: [
+        { key: 'editor', icon: 'arrow_back', labelKey: 'nav_editor', onClick: () => window.switchRoom('editor') },
         { key: 'menu', icon: 'menu', labelKey: 'bottom_menu', sheet: 'menu' }
     ],
     works: [
@@ -11404,7 +11405,7 @@ window.openMobileSheet = (sheetName) => {
     const map = {
         menu: 'mobile-sheet-menu',
         add: 'mobile-sheet-add',
-        export: 'mobile-sheet-export',
+        manuscript: 'mobile-sheet-manuscript',
         lang: 'mobile-sheet-lang'
     };
     openMobileActionSheet(map[sheetName] || 'mobile-sheet-menu');
@@ -12433,7 +12434,7 @@ window.openDSP=async()=>{
     try{
         assertExternalDspOpenReady();
         if(typeof window.showOpenFilePicker!=='function'){document.getElementById('dsp-upload').click();return;}
-        const [handle]=await window.showOpenFilePicker({types:DSP_FILE_TYPES,multiple:false,excludeAcceptAllOption:true});
+        const [handle]=await window.showOpenFilePicker({types:DSP_OPEN_FILE_TYPES,multiple:false,excludeAcceptAllOption:true});
         await studioBootReady;
         const file=await handle.getFile();
         await window.importDSP({target:{files:[file],value:''}},{external:true,handle});
@@ -12463,7 +12464,7 @@ function assertExternalDspOpenReady() {
     if(reason)throw Object.assign(Error('busy'),{reason});
     if(isLocalDraft() ? localDraftStatus.read().needsSave : state.projectId && !getEditorSaveStatus().cloudCurrent)throw Error('unsaved');
 }
-installFileLaunch({extension:'.dsp',getLocale:getUILang,beforeOpen:async()=>{
+installFileLaunch({extension:['.dsfp','.dsp'],getLocale:getUILang,beforeOpen:async()=>{
     try{await studioBootReady;}catch{throw Error('not-ready');}
     assertExternalDspOpenReady();
 },openFile:async (file,handle)=>{

@@ -127,7 +127,7 @@ const writingBridge=createReaderWritingBridge({button:document.getElementById('v
     onMode:active=>{if(active){bookPinch?.cancel();pointerCache=[];lastTapTime=0;resetZoom();readerChrome?.openReading();window.toggleUi(true);clearViewerUiAutoHide();}else scheduleViewerUiAutoHide();},
     onReturn:async data=>{
         const preference=viewerSpreadPreference;
-        await loadViewerFile(new File([data.bytes],viewerWritingFile?.name||'writing.dsf',{type:'application/vnd.dsf.content+zip'}),{preview:true});
+        await loadViewerFile(new File([data.bytes],viewerWritingFile?.name||'writing.dsfr',{type:'application/vnd.dsf.content+zip'}),{preview:true});
         if(state.languages.includes(data.language))window.switchViewerLang(data.language);
         viewerSpreadPreference=preference;
         dispatch({type:actionTypes.SET_ACTIVE_INDEX,payload:Math.max(0,Math.min(getTotal()-1,data.pageIndex))});
@@ -290,7 +290,7 @@ const VIEWER_UI = {
         developerModeOff: 'Developer mode: OFF',
         loadError: '読み込みエラー: {message}',
         standaloneTitle: 'DSFファイルを開く',
-        standaloneBody: 'DSF Readerはリードを読むための標準環境です。公開リードのリンクや、この端末の .dsf / .dsp / .zip / .json を開けます。',
+        standaloneBody: 'DSF Readerはリードを読むための標準環境です。公開リードのリンクや、この端末の .dsfr / .dsfp / .zip / .json（旧 .dsf / .dsp も対応） を開けます。',
         standaloneOpen: 'ファイルを選択',
         standaloneHint: 'ファイルをここへドラッグして開くこともできます。',
         infoPanel: 'リード情報',
@@ -383,7 +383,7 @@ const VIEWER_UI = {
         developerModeOff: 'Developer mode: OFF',
         loadError: 'Load error: {message}',
         standaloneTitle: 'Open a DSF file',
-        standaloneBody: 'DSF Reader is the standard environment for reading Reads. Open a published Read link or a local .dsf, .dsp, .zip, or .json file.',
+        standaloneBody: 'DSF Reader is the standard environment for reading Reads. Open a published Read link or a local .dsfr, .dsfp, .zip, or .json (legacy .dsf and .dsp also supported) file.',
         standaloneOpen: 'Choose file',
         standaloneHint: 'You can also drag a file here.',
         infoPanel: 'Read info',
@@ -601,7 +601,7 @@ async function init() {
         const receive=async event=>{
             if(event.source!==source||event.origin!==origin||event.data?.nonce!==editorPreview||event.data?.type!=='dsf-editor-preview-package'||!(event.data.blob instanceof Blob))return;
             window.removeEventListener('message',receive);
-            try{await loadViewerFile(new File([event.data.blob],'editor-preview.dsf',{type:event.data.blob.type}),{preview:true});resizeCanvas();updateUiVisibility();source.postMessage({type:'dsf-editor-preview-loaded',nonce:editorPreview},origin);}catch{showStandaloneEmpty();document.getElementById('viewer-empty-title').textContent='プレビューを読み込めませんでした。 / Unable to load preview.';document.getElementById('viewer-empty-body').textContent='エディターへ戻り、プレビューをもう一度開いてください。 / Return to the editor and try again.';source.postMessage({type:'dsf-editor-preview-failed',nonce:editorPreview},origin);}
+            try{await loadViewerFile(new File([event.data.blob],'editor-preview.dsfr',{type:event.data.blob.type}),{preview:true});resizeCanvas();updateUiVisibility();source.postMessage({type:'dsf-editor-preview-loaded',nonce:editorPreview},origin);}catch{showStandaloneEmpty();document.getElementById('viewer-empty-title').textContent='プレビューを読み込めませんでした。 / Unable to load preview.';document.getElementById('viewer-empty-body').textContent='エディターへ戻り、プレビューをもう一度開いてください。 / Return to the editor and try again.';source.postMessage({type:'dsf-editor-preview-failed',nonce:editorPreview},origin);}
         };
         window.addEventListener('message',receive);
         showStandaloneEmpty();
@@ -1145,7 +1145,7 @@ async function loadViewerFile(file, {preview = false} = {}) {
     if (!file) return;
     document.body.style.cursor = 'wait';
     try {
-        if (/\.(dsf|zip)$/i.test(file.name)) {
+        if (/\.(dsfr|dsf|zip)$/i.test(file.name)) {
             const { loadDsfLocalViewerPackage } = await import('./dsf-local-viewer-package.js');
             const portableSession = await loadDsfLocalViewerPackage({ file,allowWriting:writingEnabled });
             if (portableSession) {
@@ -1165,7 +1165,7 @@ async function loadViewerFile(file, {preview = false} = {}) {
                 return;
             }
             loadProjectData(await parseAndLoadDSF(file), { source: 'file' });
-        } else if (/\.dsp$/i.test(file.name)) {
+        } else if (/\.(dsfp|dsp)$/i.test(file.name)) {
             loadProjectData(await parseAndLoadDSF(file), { source: 'file' });
         } else {
             loadProjectData(JSON.parse(await file.text()), { source: 'file' });
@@ -1185,8 +1185,8 @@ async function loadRemoteDsf(src) {
         const res = await fetch(src, { mode: 'cors' });
         if (!res.ok) throw new Error(`${res.status} ${res.statusText}`.trim());
         const blob = await res.blob();
-        const name = decodeURIComponent(new URL(src, window.location.href).pathname.split('/').pop() || 'remote.dsf');
-        if (/\.(dsf|dsp|zip)$/i.test(name) || /zip|octet-stream/i.test(blob.type || '')) {
+        const name = decodeURIComponent(new URL(src, window.location.href).pathname.split('/').pop() || 'remote.dsfr');
+        if (/\.(dsfr|dsfp|dsf|dsp|zip)$/i.test(name) || /zip|octet-stream/i.test(blob.type || '')) {
             await loadViewerFile(new File([blob],name,{type:blob.type||'application/zip'}),{preview:true});
         } else {
             loadProjectData(JSON.parse(await blob.text()), { source: 'file' });
@@ -5574,7 +5574,7 @@ function esc(s) {
 // ── Boot ──────────────────────────────────────────────────────
 const fileLaunchReady=init();
 void fileLaunchReady.catch((e) => console.warn('[Viewer] init failed:', e));
-installFileLaunch({extension:'.dsf',getLocale:()=>viewerUiLang,beforeOpen:async()=>{await fileLaunchReady;},openFile:file=>loadViewerFile(file,{preview:true})});
+installFileLaunch({extension:['.dsfr','.dsf'],getLocale:()=>viewerUiLang,beforeOpen:async()=>{await fileLaunchReady;},openFile:file=>loadViewerFile(file,{preview:true})});
 
 installReaderPageLinks({pages:getPages,renderThumbnail:page=>renderPageContentHTML(page,state.activeLang),navigate:id=>{
     const token=++pageLinkJourneyToken;let cancelled=false;const language=state.activeLang,revision=viewerDocumentRevision,spread=spreadMode;

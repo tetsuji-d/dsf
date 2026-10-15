@@ -1,6 +1,9 @@
-# DSF & DSP File Format Specification
+# DSF Read & Project File Format Specification
 
 ## 概要
+
+> 2026-10-15 拡張子: 新規出力は `.dsfr`（DSF Read）と `.dsfp`（DSF Project）。旧 `.dsf` / `.dsp` は対応する既存形式の入力名として受け付ける。拡張子だけで内容を信用せず、従来の内部形式・整合性検証を通す。内部の `format`、MIME、ZIP entry、schema version は変更しない。以下の開発履歴にある旧拡張子表記は当時の記録。
+> Writingの編集用・共有用はいずれも `.dsfr`。旧 `.dsp` の保存は新しい `.dsfp` の保存先を選び、旧ファイルを上書きしない。OS/PWAの新しい関連付けは新拡張子だけとし、既存クラウドURL・storage keyは変更しない。
 
 > 2026-10-11 Writing形式3: [W1ファイル処理](dsf-writing-w1-report.md) の通常版／編集用／共有用ZIP APIをローカル実装した。形式3では原本とWriting・履歴・派生font／noticeを分離し、原本bytesを再保存で保持する。製品Press／Readerの既定経路は未切替であり、以下の既存形式を一括置換した状態ではない。形式3の現行entry契約・対応ZIP方式・検証制限は同記録を参照。
 
@@ -8,7 +11,7 @@
 
 **DSF（Digital Spread Format）** は、スマートフォン向け固定レイアウト出版のためのフォーマット総称です。リフロー型の EPUB とは対照的に、ZIP コンテナ内の **`manifest.json` / `meta.json` / `content.json`** とアセットにより、ページ構成・多言語・表示メタ（アスペクト比・綴じ方向など）を管理します。
 
-本書は DSF Studio における 2 つの主要アーカイブ（**`.dsf`（配信）** および **`.dsp`（編集用プロジェクト）**）の構造とデータモデルを定義します。どちらも **ZIP アーカイブ** をコンテナとし、Excel（`.xlsx`）や EPUB と同様に、将来の拡張に対して上位/下位互換を保ちやすい設計を目指します。
+本書は DSF Studio における 2 つの主要アーカイブ（**`.dsfr`（配信）** および **`.dsfp`（編集用プロジェクト）**）の構造とデータモデルを定義します。どちらも **ZIP アーカイブ** をコンテナとし、Excel（`.xlsx`）や EPUB と同様に、将来の拡張に対して上位/下位互換を保ちやすい設計を目指します。
 
 **論理ページ（9:16）の基準**: アプリ内の編集・組版・Press の座標系は **`360×640` 論理ピクセル**を正とする（実装は `js/page-geometry.js`、表示トークンは `css/variables.css` の `--dsf-canonical-page-*`）。画像ページの配信用ラスタは **少なくとも `1080×1920`（論理の 3 倍）** を最低ラインとする。固定テキストページは同じ論理座標上の組版済み行／縦書き列を保持し、Viewerで再組版しない。どちらも`meta.json`の`presentation.aspectRatio`（例: `"9:16"`）と整合させる。
 
@@ -17,14 +20,14 @@
 ## 1. ファイル拡張子と用途の違い
 根本的な内部構造（ZIP圧縮されたJSONと画像群）は同一ですが、用途と含まれるデータ粒度が異なります。
 
-### `.dsp` (Digital Smart Project)
+### `.dsfp` (DSF Project)
 *   **用途**: DSF Studio 上での**編集用プロジェクトファイル**。バックアップや、別の端末・ユーザー間で作業状態をそのまま移行するために使用。
 *   **特徴**:
     *   エディタのUI設定（サムネイルの列数、ズーム状態など）、編集途中のメタデータ、未翻訳の言語設定などを全て保持する。
     *   ユーザーが画質調整や切り抜きをやり直せるよう、**無劣化のオリジナル高解像度画像** を含む。
     *   編集履歴（Undo/Redoスタック）などを将来的に含める拡張の余地がある。
 
-### `.dsf`（DSF 配信パッケージ / Digital Spread Format）
+### `.dsfr`（DSF 配信パッケージ / Digital Spread Format）
 *   **用途**: エンドユーザー（読者）へ向けた**配信・配布用ファイル**。ブラウザ Viewer や将来のサードパーティリーダーでの閲覧に特化。（歴史的文脈では「Digital Smart Format」表記の資料もある）
 *   **特徴**:
     *   エディタ固有のUI設定や不要なメタデータをパージし、ファイルサイズを最小限まで削ぎ落とす。
@@ -108,7 +111,7 @@ exactly oneに結び付け、実bytesの構造、寸法、byteLength、SHA-256�
 どちらのファイルも、ZIP展開すると以下のようなファイル・ディレクトリ構造を持ちます。
 
 ```text
-filename.dsf / filename.dsp
+filename.dsfr / filename.dsfp
  ├── mimetype                // 必須: ファイル形式を定義する識別子（非圧縮配置を推奨）
  ├── manifest.json           // アーカイブ内の全ファイル一覧とそのハッシュ等
  ├── meta.json               // 作品のメタデータ（タイトル、作者、バージョン、言語構成など）
@@ -133,8 +136,8 @@ filename.dsf / filename.dsp
 
 ### `mimetype`
 ファイルの先頭に非圧縮で配置するテキストファイル（ePub仕様を参考）。
-*   `.dsp` の場合: `application/vnd.dsf.project+zip`
-*   `.dsf` の場合: `application/vnd.dsf.content+zip`
+*   `.dsfp` の場合: `application/vnd.dsf.project+zip`
+*   `.dsfr` の場合: `application/vnd.dsf.content+zip`
 
 ### `manifest.json`
 

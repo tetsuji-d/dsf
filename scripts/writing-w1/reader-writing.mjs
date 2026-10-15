@@ -1,3 +1,4 @@
+import {dsfFilename} from '/js/file-extensions.js';
 import {loadDsfV3,resaveDsfV3,writingFontText} from '/js/dsf-writing-package.js';
 import {writingArchiveKind} from '/js/dsf-writing-zip.js';
 import {createReaderWritingModel,writingId,moveWritingObject,writingBounds,createWritingText,reorderWritingObject,reorderWritingObjectAt,writingMarqueeObjects,moveWritingSelection,styleWritingSelection} from '/js/reader-writing-model.js';
@@ -447,7 +448,7 @@ async function openBytes(bytes,draft) {
         if(!model.locked)persist();
     }catch(e){loaded.forEach(f=>document.fonts.delete(f));throw e;}
 }
-$('sample').onclick=()=>task('サンプル読込',async()=>{const r=await fetch('/sample.dsf');if(!r.ok)throw new Error('SAMPLE_LOAD');await openBytes(new Uint8Array(await r.arrayBuffer()));});
+$('sample').onclick=()=>task('サンプル読込',async()=>{const r=await fetch('/sample.dsfr');if(!r.ok)throw new Error('SAMPLE_LOAD');await openBytes(new Uint8Array(await r.arrayBuffer()));});
 $('file').onchange=()=>task('DSF読込',async()=>{const f=$('file').files[0];try{if(f){if(f.size>257*1024*1024)throw new Error('ZIP_LIMIT');await openBytes(new Uint8Array(await f.arrayBuffer()));}}finally{$('file').value='';}});
 $('resume').onclick=()=>task('下書き復元',async()=>{const d=await readWritingDraft($('drafts').value);if(!d)throw new Error('DRAFT_MISSING');await openBytes(d.bytes,d);});
 $('prepare').onclick=()=>task('オフライン準備',async()=>{await runtime.prepareOffline();$('offline-status').textContent=host?'入力用2書体をこの端末に保存しました。Reader画面のオフライン起動は引き続き検証中です。':'画面と入力用2書体の準備が完了しました。この端末で通信を切って書き込み・保存を試せます。';});
@@ -679,7 +680,7 @@ async function buildFile(shared=false) {
     const output=shared?await resaveDsfV3(editable.handle,{copyKind:'writing-shared'}):editable;
     if(output.handle.baseHash!==handle.baseHash)throw new Error('DSF3_ORIGINAL_CHANGED');
     clearGenerated();generated=output;downloadUrl=URL.createObjectURL(output.blob);
-    $('download').href=downloadUrl;$('download').download=`${(handle.meta.title||'DSF').replace(/[\\/:*?"<>|]/g,'_')}-${shared?'shared':'writing'}.dsf`;
+    $('download').href=downloadUrl;$('download').download=dsfFilename(`${(handle.meta.title||'DSF').replace(/\.(dsfr|dsf)$/i,'')}-${shared?'shared':'writing'}`);
     $('download').textContent=`${shared?'共有用':'編集用'}DSFをダウンロード`;$('download').hidden=$('reopen').hidden=false;
     $('file-status').textContent=`作成済み · ${(output.bytes.length/1024).toFixed(1)} KB。ダウンロードしてファイルとして保管してください。${shared?' 編集中の下書きと履歴はそのまま残っています。':''}`;
 }

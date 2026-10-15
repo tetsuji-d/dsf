@@ -32,7 +32,7 @@
       "action": "/studio.html?fileLaunch=dsp",
       "accept": {
         "application/octet-stream": [
-          ".dsp"
+          ".dsfp"
         ]
       },
       "icons": [
@@ -53,7 +53,7 @@
       "action": "/viewer.html?fileLaunch=dsf",
       "accept": {
         "application/octet-stream": [
-          ".dsf"
+          ".dsfr"
         ]
       },
       "icons": [

@@ -1,7 +1,8 @@
+import {matchesFileExtension} from './file-extensions.js';
 // Transient same-origin handoff. No IndexedDB, uploads or source-window navigation.
 export function fileLaunchPath(name){
- if(/\.dsp$/i.test(name))return '/studio.html?fileLaunch=dsp';
- if(/\.dsf$/i.test(name))return '/viewer.html?fileLaunch=dsf';
+ if(/\.(dsfp|dsp)$/i.test(name))return '/studio.html?fileLaunch=dsp';
+ if(/\.(dsfr|dsf)$/i.test(name))return '/viewer.html?fileLaunch=dsf';
  return null;
 }
 export function transferFileLaunch(handle,target=window){
@@ -30,7 +31,7 @@ export function receiveFileTransfer(receive,extension,target=window){
  const onMessage=event=>{
   if(done||event.source!==opener||event.origin!==origin||event.data?.nonce!==nonce||event.data.type!=='horizon-file-delivery')return;
   const handle=event.data.handle;
-  if(handle?.kind!=='file'||typeof handle.getFile!=='function'||!String(handle.name).toLowerCase().endsWith(extension))return;
+  if(handle?.kind!=='file'||typeof handle.getFile!=='function'||!matchesFileExtension(handle.name,extension))return;
   receive({files:[handle]});done=true;target.removeEventListener('message',onMessage);
   opener.postMessage({type:'horizon-file-received',nonce},origin);
   target.history.replaceState(target.history.state,'',target.location.pathname+target.location.search);

@@ -12,7 +12,7 @@ export async function writingStagingAssets(){
     const put=(name,data)=>files.set(prefix+name,Buffer.from(data));
     const read=file=>readFile(resolve(root,file));
     const copy=async(name,file)=>put(name,await read(file));
-    const scoped=text=>text.replace(/(['"`])\/(js\/|assets\/|notices\/|w0\/|catalog\.json|font-worker\.js|legacy-import\.mjs|reader-runtime\.mjs|sample\.dsf|sw\.js)/g,'$1/writing/$2');
+    const scoped=text=>text.replace(/(['"`])\/(js\/|assets\/|notices\/|w0\/|catalog\.json|font-worker\.js|legacy-import\.mjs|reader-runtime\.mjs|sample\.dsfr?|sw\.js)/g,'$1/writing/$2');
     let html=(await read('scripts/writing-w1/writing.html')).toString().replaceAll('href="/writing.css"','href="/writing/writing.css"').replaceAll('src="/reader-writing.mjs"','src="/writing/reader-writing.mjs"');
     html=html.replace('開発プレビュー','ステージング確認版').replace('<head>','<head><meta name="robots" content="noindex,nofollow">').replace('<button id="record" disabled>','<button id="record" hidden disabled>');
     html=html.replace('<h2>保存</h2>','<h2>保存</h2><p id="writing-test-intro" class="subtle">この確認ページでは、ファイルと書き込みを端末内で扱います。まず「サンプルを開く」で試せます。</p>');
@@ -48,9 +48,10 @@ export async function writingStagingAssets(){
     await moduleTree(resolve(root,'js','reader-writing-page-cache.js'));
     await moduleTree(resolve(root,'js','reader-writing-style-controls.js'));
     await moduleTree(resolve(root,'js','reader-writing-i18n.js'));
+    await moduleTree(resolve(root,'js','file-extensions.js'));
     const sample=await read('outputs/writing-w1/preview-sample.dsf');
     if(hash(sample)!=='5fdf726363255acdc0cfaa8cbcf5369252d50c84343771b2d99173f224acbfd8')throw Error('Only the reviewed synthetic eight-page sample may be published');
-    put('sample.dsf',sample);
+    put('sample.dsfr',sample);put('sample.dsf',sample); // Legacy sample URLs remain usable.
     const catalog=JSON.parse(await read('outputs/writing-w1/catalog.json'));
     put('catalog.json',JSON.stringify(catalog));
     const licenses=[['DSF取込ライブラリ','licenses/import.txt']];

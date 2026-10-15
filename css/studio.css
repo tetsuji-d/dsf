@@ -6762,6 +6762,31 @@ body[data-theme="dark"] #mobile-overlay-backdrop {
         grid-template-columns: 1fr;
     }
 
+    .mobile-sheet-heading {
+        grid-column: 1 / -1;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+    }
+    .mobile-sheet-heading h2 { margin: 0; font-size: 17px; }
+    .mobile-sheet-heading button { min-height: 44px; }
+    .mobile-sheet-section-title {
+        grid-column: 1 / -1;
+        margin: 8px 0 0;
+        font-size: 12px;
+        font-weight: 600;
+        opacity: .75;
+    }
+    #mobile-sheet-manuscript > .btn-tool {
+        min-height: 48px;
+        height: auto;
+        white-space: normal;
+        text-align: left;
+        line-height: 1.4;
+    }
+
+
     .mobile-menu-brand {
         display: flex;
         align-items: center;

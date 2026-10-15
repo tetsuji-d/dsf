@@ -152,7 +152,7 @@
                         </div>
                         <div class="home-section-actions">
                             <button class="home-action-btn" onclick="openDSP()">
-                                <span class="material-icons">folder_open</span> <span data-i18n="home_open_file">ファイルから開く (.dsp)</span>
+                                <span class="material-icons">folder_open</span> <span data-i18n="home_open_file">ファイルから開く (.dsfp)</span>
                             </button>
                         </div>
                     </div>
@@ -284,7 +284,7 @@
                 </div>
                 <div class="ribbon-panel" data-ribbon-panel="export">
                     <div class="ribbon-group">
-                        <button class="btn-tool btn-tool-icon" onclick="exportDSP()" title="名前を付けて保存 (.dsp)">
+                        <button class="btn-tool btn-tool-icon" onclick="exportDSP()" title="名前を付けて保存 (.dsfp)">
                             <span class="material-icons" aria-hidden="true">save_as</span><span data-i18n="btn_save_dsp">名前を付けて保存</span>
                         </button>
                         <button class="btn-tool btn-tool-icon" onclick="downloadDSP()" title="DSPをダウンロード保存"><span class="material-icons" aria-hidden="true">download</span><span data-i18n="btn_download_dsp">ダウンロード保存</span></button>
@@ -298,7 +298,7 @@
                         </button>
                     </div>
                 </div>
-                <input type="file" id="dsp-upload" style="display: none;" accept=".dsp" onchange="openDspInput(event)">
+                <input type="file" id="dsp-upload" style="display: none;" onchange="openDspInput(event)">
             </div>
         </header>
 
@@ -717,12 +717,6 @@
         <div id="mobile-action-sheet">
             <div id="mobile-sheet-menu" class="mobile-sheet-content mobile-sheet-menu">
                 <button class="btn-tool btn-tool-icon" onclick="openMobileSheet('lang')"><span class="material-icons" aria-hidden="true">translate</span><span data-i18n="bottom_lang">リード言語</span></button>
-                <button class="btn-tool btn-tool-icon" onclick="saveProject()" data-authoring-save data-mobile-room-only="editor"><span class="material-icons" aria-hidden="true">save</span><span data-i18n="btn_save">保存</span></button>
-                <button class="btn-tool btn-tool-icon" onclick="shareProject()" data-auth-required data-mobile-room-only="editor"><span class="material-icons" aria-hidden="true">share</span><span data-i18n="btn_share">共有</span></button>
-                <button class="btn-tool btn-tool-icon" onclick="performUndo()" data-mobile-room-only="editor"><span class="material-icons" aria-hidden="true">undo</span><span data-i18n="btn_undo">元に戻す</span></button>
-                <button class="btn-tool btn-tool-icon" onclick="performRedo()" data-mobile-room-only="editor"><span class="material-icons" aria-hidden="true">redo</span><span data-i18n="btn_redo">やり直す</span></button>
-                <button type="button" class="btn-tool btn-tool-icon" data-edit-history data-mobile-room-only="editor" aria-label="編集履歴"><span class="material-icons" aria-hidden="true">history</span></button>
-                <button class="btn-tool btn-tool-icon" onclick="closeMobileSheet(); openProjectSettings();" data-mobile-room-only="editor"><span class="material-icons" aria-hidden="true">settings</span><span data-i18n="mobile_home_project_settings">プロジェクト設定</span></button>
             </div>
             <div id="mobile-sheet-add" class="mobile-sheet-content">
                 <button class="btn-tool btn-tool-icon" onclick="insertSectionBeforeActive()"><span class="material-icons" aria-hidden="true">add_box</span><span data-i18n="btn_add_section">画像ページ</span></button>
@@ -731,15 +725,22 @@
                 <button class="btn-tool btn-tool-icon" onclick="addBubbleFab()" data-fixed-page-edit><span class="material-icons" aria-hidden="true">text_fields</span><span data-i18n="btn_add_bubble">テキスト追加</span></button>
                 <button class="btn-tool btn-tool-icon" onclick="document.getElementById('file-upload').click()" data-fixed-page-edit><span class="material-icons" aria-hidden="true">image</span><span data-i18n="btn_add_image">画像追加</span></button>
             </div>
-            <div id="mobile-sheet-export" class="mobile-sheet-content">
-                <button class="btn-tool btn-tool-icon" onclick="saveToCloud()"><span class="material-icons" aria-hidden="true">cloud_upload</span><span data-i18n="mobile_save_cloud">クラウド保存</span></button>
+            <div id="mobile-sheet-manuscript" class="mobile-sheet-content" aria-labelledby="mobile-manuscript-title">
+                <div class="mobile-sheet-heading"><h2 id="mobile-manuscript-title" data-i18n="bottom_manuscript">原稿</h2><button type="button" class="btn-tool" onclick="closeMobileSheet()" data-i18n="btn_close">閉じる</button></div>
+                <h3 class="mobile-sheet-section-title" data-i18n="mobile_manuscript_files">保存とファイル</h3>
+                <button class="btn-tool btn-tool-icon" onclick="saveProject()" data-authoring-save><span class="material-icons" aria-hidden="true">save</span><span data-i18n="btn_save">保存</span></button>
+                <button class="btn-tool btn-tool-icon" onclick="exportDSP()"><span class="material-icons" aria-hidden="true">save_as</span><span data-i18n="mobile_export_dsp">名前を付けて保存 (.dsfp)</span></button>
+                <button class="btn-tool btn-tool-icon" onclick="downloadDSP()"><span class="material-icons" aria-hidden="true">download</span><span data-i18n="mobile_download_project">原稿をダウンロード (.dsfp)</span></button>
+                <button class="btn-tool btn-tool-icon" onclick="openDSP()"><span class="material-icons" aria-hidden="true">folder_open</span><span data-i18n="mobile_open_local">ローカルから開く (.dsfp)</span></button>
+                <input type="file" id="dsp-upload-mobile" style="display:none" onchange="openDspInput(event)">
+                <h3 class="mobile-sheet-section-title" data-i18n="mobile_manuscript_settings">原稿の設定</h3>
+                <button class="btn-tool btn-tool-icon" onclick="closeMobileSheet(); openProjectSettings();"><span class="material-icons" aria-hidden="true">settings</span><span data-i18n="mobile_home_project_settings">プロジェクト設定</span></button>
+                <button class="btn-tool btn-tool-icon" onclick="openMobileSheet('lang')"><span class="material-icons" aria-hidden="true">translate</span><span data-i18n="bottom_lang">リードの言語</span></button>
                 <button class="btn-tool btn-tool-icon" onclick="shareProject()" data-auth-required><span class="material-icons" aria-hidden="true">share</span><span data-i18n="btn_share">共有</span></button>
-                <button class="btn-tool btn-tool-icon" onclick="openDSP()"><span class="material-icons" aria-hidden="true">folder_open</span><span data-i18n="mobile_open_local">ローカルから開く (.dsp)</span></button>
-                <input type="file" id="dsp-upload-mobile" style="display: none;" accept=".dsp" onchange="openDspInput(event)">
-                <button class="btn-tool btn-tool-icon" onclick="exportDSP()"><span class="material-icons" aria-hidden="true">save_as</span><span data-i18n="mobile_export_dsp">名前を付けて保存 (.dsp)</span></button>
-                <button class="btn-tool btn-tool-icon" onclick="downloadDSP()"><span class="material-icons" aria-hidden="true">download</span><span data-i18n="btn_download_dsp">ダウンロード保存</span></button>
-                <button class="btn-tool btn-tool-icon" onclick="exportDSF()" data-flow-publication-required data-flow-portable-download><span class="material-icons" aria-hidden="true">publish</span><span data-i18n="mobile_export_dsf">Publish (.dsf)</span></button>
-                <button class="btn-tool btn-tool-icon" onclick="openProjectModal()" data-auth-required><span class="material-icons" aria-hidden="true">folder</span><span data-i18n="mobile_projects">プロジェクト一覧</span></button>
+                <h3 class="mobile-sheet-section-title" data-i18n="mobile_manuscript_history">編集履歴</h3>
+                <button class="btn-tool btn-tool-icon" onclick="performUndo()"><span class="material-icons" aria-hidden="true">undo</span><span data-i18n="btn_undo">元に戻す</span></button>
+                <button class="btn-tool btn-tool-icon" onclick="performRedo()"><span class="material-icons" aria-hidden="true">redo</span><span data-i18n="btn_redo">やり直す</span></button>
+                <button type="button" class="btn-tool btn-tool-icon" data-edit-history><span class="material-icons" aria-hidden="true">history</span><span data-i18n="mobile_manuscript_history">編集履歴</span></button>
             </div>
             <div id="mobile-sheet-lang" class="mobile-sheet-content" hidden></div>
         </div>
@@ -826,7 +827,7 @@
                             <div class="press-publish-actions">
                                 <button class="press-publish-btn primary" onclick="exportDSF()" data-flow-publication-required data-flow-portable-download>
                                     <span class="material-icons">download</span>
-                                    <span><span data-i18n="btn_export_dsf">DSF 書き出し</span><small data-i18n="btn_export_dsf_sub">.dsf ファイルを保存</small></span>
+                                    <span><span data-i18n="btn_export_dsf">DSF 書き出し</span><small data-i18n="btn_export_dsf_sub">.dsfr ファイルを保存</small></span>
                                 </button>
                                 <button id="press-publish-cloud-btn" class="press-publish-btn" onclick="publishToCloud()" data-auth-required data-flow-publication-required>
                                     <span class="material-icons">cloud_upload</span>

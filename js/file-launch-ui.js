@@ -1,3 +1,4 @@
+import {FILE_EXTENSIONS,PROJECT_EXTENSIONS,READ_EXTENSIONS,matchesFileExtension} from './file-extensions.js';
 import {transferFileLaunch,receiveFileTransfer} from './file-launch-transfer.js';
 import {registerPlatformLaunch} from './platform-launch.js';
 import {createFileLaunchInbox} from './file-launch.js';
@@ -21,7 +22,7 @@ export function installFileLaunch({extension,openFile,beforeOpen,getLocale=()=> 
     let inbox;
     function render({items,busy}) {
         heading.textContent=en()?'Open received files':'受け取ったファイルを開く';
-        note.textContent=en()?'Choose a file to open. DSP opens as a local manuscript; DSF opens for reading. A different screen opens in a separate window so your current work is kept. Files are not uploaded. Later keeps this list until this window closes.':'開くファイルを選んでください。DSPは端末の原稿、DSFは閲覧用として開きます。別の画面が必要な場合は、現在の作業を残して専用ウィンドウへ渡します。クラウドへの送信は行いません。「あとで」の一覧は、タブまたはアプリのウィンドウを閉じるまで保持します。';
+        note.textContent=en()?'Choose a file to open. DSFP opens as a local manuscript; DSFR opens for reading. A different screen opens in a separate window so your current work is kept. Files are not uploaded. Later keeps this list until this window closes.':'開くファイルを選んでください。DSFPは端末の原稿、DSFRは閲覧用として開きます。別の画面が必要な場合は、現在の作業を残して専用ウィンドウへ渡します。クラウドへの送信は行いません。「あとで」の一覧は、タブまたはアプリのウィンドウを閉じるまで保持します。';
         close.textContent=en()?'Later':'あとで';close.disabled=busy;
         reopen.textContent=(en()?'Received files':'受け取ったファイル')+' ('+items.length+')';reopen.hidden=!items.length;
         list.replaceChildren();
@@ -29,7 +30,7 @@ export function installFileLaunch({extension,openFile,beforeOpen,getLocale=()=> 
             const row=document.createElement('li'),name=document.createElement('strong'),actions=document.createElement('div');
             name.textContent=item.name;
             const label=document.createElement('div');label.className='file-launch-name';
-            const kind=item.name.toLowerCase().endsWith('.dsp')?'dsp':item.name.toLowerCase().endsWith('.dsf')?'dsf':null;
+            const kind=matchesFileExtension(item.name,PROJECT_EXTENSIONS)?'dsp':matchesFileExtension(item.name,READ_EXTENSIONS)?'dsf':null;
             if(kind){const icon=document.createElement('img');icon.src='/file-icons/'+kind+'.svg';icon.alt='';icon.width=icon.height=40;label.append(icon);}
             label.append(name);row.append(label);
             if(item.error){const error=document.createElement('p');error.setAttribute('role','alert');error.textContent=errors()[item.error];row.append(error);}
@@ -43,7 +44,7 @@ export function installFileLaunch({extension,openFile,beforeOpen,getLocale=()=> 
         if(!items.length&&dialog.open)dialog.close();
         else if(dialog.open&&!busy)close.focus();
     }
-    inbox=createFileLaunchInbox({extension:['.dsp','.dsf'],beforeOpen:name=>name.toLowerCase().endsWith(extension)?beforeOpen?.():undefined,openFile:(file,handle)=>file.name.toLowerCase().endsWith(extension)?openFile(file,handle):transferFileLaunch(handle,target),onChange:render});
+    inbox=createFileLaunchInbox({extension:FILE_EXTENSIONS,beforeOpen:name=>matchesFileExtension(name,extension)?beforeOpen?.():undefined,openFile:(file,handle)=>matchesFileExtension(file.name,extension)?openFile(file,handle):transferFileLaunch(handle,target),onChange:render});
     const show=()=>{if(inbox.read().items.length&&!dialog.open){dialog.showModal();close.focus();}};
     close.onclick=()=>dialog.close();reopen.onclick=show;
     dialog.addEventListener('cancel',event=>{if(inbox.read().busy)event.preventDefault();});

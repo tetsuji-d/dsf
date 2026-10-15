@@ -39,7 +39,7 @@ const artifact = createFlowPressPortableDownloadArtifact({
 assert.equal(Object.isFrozen(artifact), true);
 assert.equal(artifact.downloadVersion, FLOW_PRESS_PORTABLE_DOWNLOAD_VERSION);
 assert.equal(artifact.downloadKind, 'portable-local-file');
-assert.equal(artifact.filename, 'Flow_ 第一章_.dsf');
+assert.equal(artifact.filename, 'Flow_ 第一章_.dsfr');
 assert.equal(artifact.blob, blob);
 assert.equal(artifact.byteLength, blob.size);
 assert.equal(artifact.sha256, sha256);
@@ -52,7 +52,7 @@ const reservedArtifact = createFlowPressPortableDownloadArtifact({
     expectedSignature: 'reserved',
     currentSignature: 'reserved',
 });
-assert.equal(reservedArtifact.filename, 'CON_.dsf');
+assert.equal(reservedArtifact.filename, 'CON_.dsfr');
 
 assert.throws(
     () => createFlowPressPortableDownloadArtifact({
@@ -108,7 +108,7 @@ assert.match(exportSource, /saveAs\(currentArtifact\.blob, currentArtifact\.file
 assert.doesNotMatch(exportSource, /検証済みFlow配信データのエクスポート名/);
 assert.doesNotMatch(exportSource, /FLOW_PUBLICATION_NOT_CONNECTED/);
 assert.match(appSource, /flowPortableState/);
-assert.equal((studioSource.match(/data-flow-portable-download/g) || []).length, 2);
+assert.equal((studioSource.match(/data-flow-portable-download/g) || []).length, 1);
 assert.match(studioSource, /press-publish-cloud-btn[^>]*data-auth-required data-flow-publication-required/);
 
 console.log('Flow Press verified portable download handoff passed.');

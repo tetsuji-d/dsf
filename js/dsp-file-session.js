@@ -1,9 +1,8 @@
+import {projectFilename} from './file-extensions.js';
 // Session-only file access. Never persist handles, permissions or fingerprints in DSP/IDB.
-export const DSP_FILE_TYPES=[{description:'DSF Studio Project (.dsp)',accept:{'application/vnd.dsf.project+zip':['.dsp']}}];
-export function dspFilename(name='project') {
-    const clean=String(name||'project').replace(/[\\/:*?"<>|]/g,'_').trim()||'project';
-    return clean.toLowerCase().endsWith('.dsp')?clean:clean+'.dsp';
-}
+export const DSP_FILE_TYPES=[{description:'DSF Studio Project (.dsfp)',accept:{'application/vnd.dsf.project+zip':['.dsfp']}}];
+export const DSP_OPEN_FILE_TYPES=[{description:'DSF Studio Project (.dsfp, .dsp)',accept:{'application/vnd.dsf.project+zip':['.dsfp','.dsp']}}];
+export const dspFilename=projectFilename;
 export async function fingerprintDspFile(file) {
     const hash=await crypto.subtle.digest('SHA-256',await file.arrayBuffer());
     return {size:file.size,modified:file.lastModified??null,hash:Array.from(new Uint8Array(hash),b=>b.toString(16).padStart(2,'0')).join('')};
@@ -28,14 +27,14 @@ export function createDspFileSession({readScope,canBind=()=>true,onChange=()=>{}
             try {
                 // Pick/request permission synchronously from the user's click, before preparing the ZIP.
                 let handle;
-                if(saveAs||!previous){
+                if(saveAs||!previous||!previous.handle.name.toLowerCase().endsWith('.dsfp')){
                     try{handle=await chooseHandle();}catch(error){if(error?.name==='AbortError')return {status:'cancelled'};throw error;}
                 } else {
                     handle=previous.handle;
                     if(typeof handle.requestPermission==='function'&&await handle.requestPermission({mode:'readwrite'})!=='granted')fail('DSP_FILE_PERMISSION');
                 }
                 check();
-                if(!handle||typeof handle.createWritable!=='function'||!String(handle.name).toLowerCase().endsWith('.dsp'))fail('DSP_FILE_INVALID');
+                if(!handle||typeof handle.createWritable!=='function'||!String(handle.name).toLowerCase().endsWith('.dsfp'))fail('DSP_FILE_INVALID');
                 const same=previous&&(handle===previous.handle||await handle.isSameEntry(previous.handle));
                 check();
                 const original=await fingerprintDspFile(await handle.getFile());check();
