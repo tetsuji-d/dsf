@@ -1489,6 +1489,23 @@ body[data-room="works"] #works-room {
     }
 }
 
+.press-publish-blocker {
+    padding: 12px;
+    border: 1px solid #d8a34b;
+    border-radius: 10px;
+    background: #fff8e5;
+    color: #713f12;
+    white-space: pre-line;
+    overflow-wrap: anywhere;
+    font-size: 13px;
+    line-height: 1.6;
+}
+.press-publish-blocker[hidden] { display: none; }
+body[data-theme="dark"] .press-publish-blocker {
+    background: #32291d;
+    color: #ffe1a6;
+}
+
 .press-publish-panel {
     background: #fff;
     position: sticky;
@@ -6335,6 +6352,12 @@ body[data-theme="dark"] #mobile-overlay-backdrop {
 
     body[data-device="mobile"] #press-room .press-publish-panel {
         order: -1;
+        position: static;
+    }
+
+    body[data-device="mobile"] #press-room .press-readiness-panel {
+        max-height: none;
+        overflow: visible;
     }
 
     body[data-device="mobile"] #press-room .press-resolution-row {

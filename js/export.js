@@ -235,7 +235,7 @@ export async function buildDSP(options = {}) {
     }
 
     // 5. Generate ZIP ArrayBuffer
-    const content = await zip.generateAsync({ type: "blob" });
+    const content = await zip.generateAsync({ type: "blob", mimeType: "application/vnd.dsf.project+zip" });
 
     if(options.returnBlob)return {status:'ready',blob:content,filename};
 
@@ -399,7 +399,7 @@ export async function buildDSF(options = {}) {
         throwIfPressRenderCancelled();
 
         // 5. Generate ZIP ArrayBuffer
-        const content = await zip.generateAsync({ type: "blob" });
+        const content = await zip.generateAsync({ type: "blob", mimeType: "application/vnd.dsf.content+zip" });
 
         // 6. Trigger Download
         saveAs(content, filename);

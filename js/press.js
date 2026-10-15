@@ -1036,7 +1036,18 @@ function _renderPressFlowPreflightDevSummary() {
     `;
 }
 
+function _setPressPublishBlocker(reasons = []) {
+    const hint = document.getElementById('press-publish-blocker');
+    if (!hint) return;
+    hint.hidden = reasons.length === 0;
+    hint.textContent = reasons.length ? [
+        getUILang() === 'en' ? 'Release preparation stopped' : '発行準備が停止しています',
+        ...reasons,
+    ].join('\n') : '';
+}
+
 function _renderPressFlowProductionPreparationSummary() {
+    _setPressPublishBlocker();
     const thumbs = document.getElementById('press-page-thumbs');
     if (!thumbs) return;
     let summary = document.getElementById('press-flow-production-preparation-summary');
@@ -1065,7 +1076,9 @@ function _renderPressFlowProductionPreparationSummary() {
         return;
     }
     if (_pressFlowProductionPreparationState === 'error') {
-        summary.innerHTML = `<strong>${_esc(t('press_flow_production_title'))}</strong><span role="alert">${_esc(_pressFlowProductionPreparationError?.message || t('press_flow_production_failed'))}</span>`;
+        const message = _pressFlowProductionPreparationError?.message || t('press_flow_production_failed');
+        summary.innerHTML = `<strong>${_esc(t('press_flow_production_title'))}</strong><span role="alert">${_esc(message)}</span>`;
+        _setPressPublishBlocker([message]);
         return;
     }
     const languageResults = _pressFlowProductionPreparationResult?.languages || [];
@@ -1073,13 +1086,18 @@ function _renderPressFlowProductionPreparationSummary() {
         summary.innerHTML = `<strong>${_esc(t('press_flow_production_title'))}</strong><span>${_esc(t('press_flow_production_no_result'))}</span>`;
         return;
     }
+    const blockingReasons = [];
     const rows = languageResults.map((result) => {
-        const firstIssue = result.preparationIssues?.[0] || result.preflight?.issues?.[0] || null;
+        const firstIssue = [...(result.preparationIssues || []), ...(result.preflight?.issues || [])]
+            .find(issue => issue.severity !== 'warning' && issue.severity !== 'info') || null;
         const issueMessage = firstIssue
-            ? (_pressFlowProductionPreparationModule?.getFlowPressPublicationPreparationIssueMessage(firstIssue)
+            ? ((getUILang() === 'en' ? firstIssue.message : _pressFlowProductionPreparationModule?.getFlowPressPublicationPreparationIssueMessage(firstIssue))
                 || firstIssue.message
                 || t('press_flow_production_failed'))
             : '';
+        if (result.state !== 'ready') {
+            blockingReasons.push(`${String(result.language).toUpperCase()}: ${issueMessage || t('press_flow_production_not_ready')}${firstIssue?.code ? ` (${firstIssue.code})` : ''}${firstIssue?.path ? ` — ${firstIssue.path}` : ''}`);
+        }
         const flowPages = result.preflight?.summary?.flowPageCount ?? 0;
         const stateLabel = result.state === 'ready'
             ? `<b>${_esc(t('press_flow_production_language_ready', { count: flowPages }))}</b>`
@@ -1090,6 +1108,7 @@ function _renderPressFlowProductionPreparationSummary() {
             ${firstIssue ? `<code>${_esc(firstIssue.code || 'UNKNOWN')}</code><span>${_esc(issueMessage)}</span>` : ''}
         </li>`;
     }).join('');
+    _setPressPublishBlocker(blockingReasons);
     const fontCount = _pressFlowProductionPreparationResult.productionFontCount ?? 0;
     summary.innerHTML = `
         <strong>${_esc(t('press_flow_production_title'))}</strong>
