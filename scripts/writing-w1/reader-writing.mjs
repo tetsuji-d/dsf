@@ -1,6 +1,6 @@
 import {loadDsfV3,resaveDsfV3,writingFontText} from '/js/dsf-writing-package.js';
 import {writingArchiveKind} from '/js/dsf-writing-zip.js';
-import {createReaderWritingModel,writingId,moveWritingObject,writingBounds,createWritingText,reorderWritingObject,reorderWritingObjectAt,writingMarqueeObjects,moveWritingSelection} from '/js/reader-writing-model.js';
+import {createReaderWritingModel,writingId,moveWritingObject,writingBounds,createWritingText,reorderWritingObject,reorderWritingObjectAt,writingMarqueeObjects,moveWritingSelection,styleWritingSelection} from '/js/reader-writing-model.js';
 import {renderWritingLayer} from '/js/reader-writing-renderer.js';
 import {INK_COLORS,HIGHLIGHTER_COLORS,PEN_WIDTHS,PEN_TOOLS,penPixels,penMillimeters,penWidthLabel,toolDefaults,createPenButton,writingControlPoints,snapWritingPoint,constrainedRect,editWritingPoint,brushGeometry,brushDryness,penTipScale} from '/js/reader-writing-tools.js';
 import {listWritingDrafts,readWritingDraft,saveWritingDraft} from '/js/reader-writing-storage.js';
@@ -24,11 +24,11 @@ const listenWindow=(name,fn)=>window.addEventListener(name,fn,{signal:lifetime.s
 let noticeTimer,hostView,lastHostLayout,lastChromeLayout,disposed=false;
 let queueToolsHide=()=>{};
 let textPan={x:0,y:0};
-const toolNames = {select:'選択・移動',marquee:'矩形選択',pen:'ボールペン',brush:'筆ペン',marker:'サインペン',highlighter:'蛍光マーカー',correction:'修正液',text:'文字',line:'線',arrow:'矢印',rect:'四角',ellipse:'楕円'};
+const toolNames = {select:'選択・移動',pen:'ボールペン',brush:'筆ペン',marker:'サインペン',highlighter:'蛍光マーカー',correction:'修正液',text:'文字',line:'線',arrow:'矢印',rect:'四角',ellipse:'楕円'};
 const labels = {text:'文字',stroke:'筆跡',line:'線',shape:'図形'};
 let handle,model,baseBytes,language,pageIndex=0,context,busy=false,tool='pen',selected=null,gesture=null,textPlacement,textSerial=0;
 let selectionIds=new Set();
-const selectionTool=()=>['select','marquee'].includes(tool);
+const selectionTool=()=>tool==='select';
 function selectObjects(ids=[]){selectionIds=new Set(ids);selected=ids.at(-1)||null;}
 let draftId,draftVersion=0,saveQueue=Promise.resolve(),generation=0,saveSequence=0,unsaved=false,storageFailed=false,generated;
 let families={},originalFaces=[],imageUrls=new Map(),downloadUrl;
@@ -45,10 +45,12 @@ const otherOriginal=document.createElement('div'),otherLayer=document.createElem
 const textBoxPreview=document.createElement('div');textBoxPreview.id='text-box-preview';textBoxPreview.hidden=true;$('surface').append(textBoxPreview);
 const activeColumn=()=>Math.max(0,visiblePages.indexOf(pageIndex));
 const settings=toolDefaults();
+settings.group={color:'#20272b',width:penPixels(.5)};
+let groupStyleFields=new Set();
 settings.geometry.arrow='end';settings.geometry.arrowHead='open';settings.geometry.lineStyle='solid';
 settings.text.boxStyle={stroke:null,fill:null,width:penPixels(.3)};
 const inputFamilies = {};
-const toolIcons={marquee:'<rect x="3" y="4" width="18" height="16" rx="1" stroke-dasharray="3 3"/>',select:'<path d="m5 3 14 10-7 1-3 7Z"/>',text:'<path d="M5 5h14M12 5v15M8 20h8M5 5v3M19 5v3"/>',line:'<path d="m5 19 14-14"/><circle cx="5" cy="19" r="2"/><circle cx="19" cy="5" r="2"/>',arrow:'<path d="m4 20 16-16M10 4h10v10"/>',rect:'<rect x="4" y="5" width="16" height="14" rx="1"/>',ellipse:'<ellipse cx="12" cy="12" rx="9" ry="7"/>'};
+const toolIcons={select:'<path d="m5 3 14 10-7 1-3 7Z"/>',text:'<path d="M5 5h14M12 5v15M8 20h8M5 5v3M19 5v3"/>',line:'<path d="m5 19 14-14"/><circle cx="5" cy="19" r="2"/><circle cx="19" cy="5" r="2"/>',arrow:'<path d="m4 20 16-16M10 4h10v10"/>',rect:'<rect x="4" y="5" width="16" height="14" rx="1"/>',ellipse:'<ellipse cx="12" cy="12" rx="9" ry="7"/>'};
 for (const [id,name] of Object.entries(toolNames)) {
     const pen=PEN_TOOLS.includes(id),b=pen?createPenButton(document,id,name):document.createElement('button');
     if(!pen){b.innerHTML=`<svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">${toolIcons[id]}</svg><span>${name}</span>`;b.dataset.tool=id;b.title=name;b.setAttribute('aria-label',name);}b.onclick=()=>setTool(id);(pen?$('pen-tray'):$('tools')).append(b);$('quick-tool').add(new Option(name,id));
@@ -66,7 +68,7 @@ function clearObjectHold(){clearTimeout(objectHoldTimer);objectHoldStart=null;}
 function hideObjectActions(){objectActions.hidden=true;clearObjectHold();}
 function showObjectActions(x,y){
     if(busy||!model||model.locked||readingMode||(!selectedObject()&&!objectClipboard))return;
-    for(const b of objectActions.children){const o=selectedObject(),action=b.dataset.action;b.disabled=action==='paste'?!objectClipboard:!o||(o.locked&&!['copy','lock'].includes(action))||(action==='settings'&&selectionIds.size!==1);if(action==='lock'){const label=o?.locked?'ロック解除':'ロック';b.title=label;b.setAttribute('aria-label',label);b.querySelector('span').textContent=label;}}
+    for(const b of objectActions.children){const o=selectedObject(),action=b.dataset.action;b.disabled=action==='paste'?!objectClipboard:!o||(o.locked&&!['copy','lock'].includes(action));if(action==='lock'){const label=o?.locked?'ロック解除':'ロック';b.title=label;b.setAttribute('aria-label',label);b.querySelector('span').textContent=label;}}
     objectActions.hidden=false;const r=objectActions.getBoundingClientRect(),v=window.visualViewport;
     const left=v?.offsetLeft||0,top=v?.offsetTop||0,w=v?.width||innerWidth,h=v?.height||innerHeight;
     // Keep group actions over the paper, away from Reader's side navigation.
@@ -77,14 +79,14 @@ function showObjectActions(x,y){
 }
 function armObjectHold(e){
     clearObjectHold();objectHoldStart=[e.clientX,e.clientY];$('input').setPointerCapture(e.pointerId);
-    objectHoldTimer=setTimeout(()=>{const position=objectHoldStart;gesture=null;snapTarget=null;render();clearObjectHold();if(position)showObjectActions(...position);},550);
+    objectHoldTimer=setTimeout(()=>{const position=objectHoldStart;gesture=null;textBoxPreview.hidden=true;snapTarget=null;render();clearObjectHold();if(position)showObjectActions(...position);},550);
 }
 function objectAction(action){
     if(busy||!model||model.locked||readingMode)return;
     const o=selectedObject(),group=selectedObjects(),ids=new Set(group.map(item=>item.id));hideObjectActions();
     if(action==='lock'&&o){mutate(o.locked?'ロックを解除':'オブジェクトをロック',all=>all.map(item=>ids.has(item.id)?{...item,locked:!o.locked}:item));return;}
     if(o?.locked&&!['copy','paste'].includes(action))return;
-    if(action==='settings'&&o&&group.length===1){openObjectSettings();return;}
+    if(action==='settings'&&o){openObjectSettings();return;}
     if(action==='copy'&&o){objectClipboard=structuredClone(group);say('書き込みをコピーしました。ページの長押しから貼り付けできます。');return;}
     if((action==='cut'||action==='delete')&&o){
         if(mutate(action==='cut'?'書き込みを切り取り':'書き込みを削除',all=>all.filter(item=>!ids.has(item.id)||item.locked))){if(action==='cut')objectClipboard=structuredClone(group);selectObjects();render();updatePanels();}return;
@@ -111,12 +113,12 @@ sheet.addEventListener('close',()=>{if(sheet.open)return;cancelStyleDraft();rest
 for(const button of root.querySelectorAll('[data-panel]'))button.onclick=()=>{
     if(sheet.open)closeSheet();
     const name=button.dataset.panel;sheetPanel=panels[name];if(name==='layers'){layerPanel.hidden=false;updateLayersPanel();}sheetPlaceholder=document.createComment('panel');sheetPanel.before(sheetPlaceholder);
-    const editing=name==='settings'&&selectionIds.size===1&&selectedObject()&&selectedObject().type!=='text';
+    const editing=name==='settings'&&selectedObject()&&(selectionIds.size>1||selectedObject().type!=='text');
     styleDraft=editing?{id:selected,key:styleKey(),before:structuredClone(settings[styleKey()])}:null;
     sheetActions.hidden=!editing&&!['layers','history'].includes(name);$('sheet-style-actions').hidden=!editing;$('sheet-history-actions').hidden=!['layers','history'].includes(name);
     $('sheet-action-hint').textContent=editing?'選択した書き込みの変更を「適用」で確定します。':'';
     $('sheet-body').append(sheetPanel);$('sheet-title').textContent={layers:'レイヤー・重ね順',settings:'色・道具の設定',history:'書き込みと履歴',save:'DSFの保存'}[name];sheet.dataset.panel=name;sheet.showModal();body.classList.add('sheet-open');
-    if(name==='settings')$('sheet-title').textContent=editing?'選択した書き込みの設定':`${toolNames[tool]}の設定`;
+    if(name==='settings')$('sheet-title').textContent=editing?(selectionIds.size>1?'複数の書き込みの設定':'選択した書き込みの設定'):`${toolNames[tool]}の設定`;
     $('sheet-close').textContent=editing?'キャンセル':'閉じる';$('sheet-close').setAttribute('aria-label',editing?'変更をキャンセルして閉じる':'パネルを閉じる');
     controls();
     if(host)positionSheet();
@@ -179,26 +181,28 @@ const page = () => context?.manifest.pages[pageIndex];
 const objects = () => model?.objects(language,page()?.id)||[];
 const selectedObject=()=>objects().find(o=>o.id===selected);
 const selectedObjects=()=>objects().filter(o=>selectionIds.has(o.id));
-const styleKey=()=>{const o=selectedObject();return o?(o.type==='stroke'?o.tool:o.type==='text'?'text':'geometry'):PEN_TOOLS.includes(tool)?tool:tool==='text'?'text':'geometry';};
+const styleKey=()=>{if(selectionIds.size>1)return 'group';const o=selectedObject();return o?(o.type==='stroke'?o.tool:o.type==='text'?'text':'geometry'):PEN_TOOLS.includes(tool)?tool:tool==='text'?'text':'geometry';};
 function syncStyle(fromSelection=false){
-    const o=selectedObject(),key=styleKey(),config=settings[key];
-    if(fromSelection&&o&&o.type!=='text'){config.color=o.color;config.width=o.type==='stroke'?o.baseWidth:o.width;}
+    const o=selectedObject(),key=styleKey(),config=settings[key],group=key==='group';
+    if(group&&fromSelection){groupStyleFields.clear();config.color=o.type==='text'?o.runs[0].color:o.color;const ink=selectedObjects().find(item=>item.type!=='text');config.width=ink?(ink.baseWidth??ink.width):penPixels(.5);}
+    if(!group&&fromSelection&&o&&o.type!=='text'){config.color=o.color;config.width=o.type==='stroke'?o.baseWidth:o.width;}
     if(fromSelection&&o?.tool==='brush')config.inkAmount=o.inkAmount??.65;
     if(fromSelection&&o?.type==='line'){config.arrow=o.arrow;config.arrowHead=o.arrowHead||'open';}
     if(fromSelection&&['line','shape'].includes(o?.type))config.lineStyle=o.lineStyle||'solid';
     $('ink-control').hidden=key!=='brush';$('ink-amount').value=Math.round((config.inkAmount??.65)*100);$('ink-label').textContent=`${$('ink-amount').value}%`;
-    $('style-title').textContent=`${key==='geometry'?'線・図形':toolNames[key]}の設定`;
+    $('style-title').textContent=group?'複数の書き込みの設定':`${key==='geometry'?'線・図形':toolNames[key]}の設定`;
     $('color').value=config.color;$('width').value=penMillimeters(config.width);$('width-label').textContent=penWidthLabel(config.width);
+    if(group&&!groupStyleFields.has('width')&&new Set(selectedObjects().filter(item=>item.type!=='text').map(item=>item.baseWidth??item.width)).size>1)$('width-label').textContent=t('混在');
     $('pen-sizes').hidden=key!=='pen';$('width-control').hidden=key==='pen';$('palette').hidden=key==='correction';
-    const textStyle=key==='text',shapeStyle=o?.type==='shape'||['rect','ellipse'].includes(tool),lineStyle=o?.type==='line'||['line','arrow'].includes(tool);
+    const textStyle=key==='text',shapeStyle=!group&&(o?.type==='shape'||['rect','ellipse'].includes(tool)),lineStyle=!group&&(o?.type==='line'||['line','arrow'].includes(tool));
     for(const id of ['font','size','weight','vertical'])$(id).closest('label').hidden=!textStyle;
     $('square').closest('label').hidden=!shapeStyle;$('snap').closest('label').hidden=!lineStyle;
-    $('width-control').hidden=key==='pen'||textStyle;$('apply-style').hidden=!o||textStyle;
-    const colors=key==='highlighter'?HIGHLIGHTER_COLORS:INK_COLORS;$('palette').replaceChildren();let group;
-    for(const entry of colors){if(entry.group&&group!==entry.group){group=entry.group;const title=document.createElement('span');title.className='palette-group';title.textContent=group;$('palette').append(title);}
-        const b=document.createElement('button');b.type='button';b.className='color-swatch';b.style.setProperty('--swatch',entry.color);b.title=entry.name;b.setAttribute('aria-label',entry.name);b.setAttribute('aria-pressed',entry.color===config.color);
-        b.onclick=()=>{config.color=entry.color;syncStyle();};$('palette').append(b);}
-    $('color-name').textContent=key==='correction'?'不透明の白を重ねます。選択して削除・Undoできます。':`${colors.find(c=>c.color===config.color)?.name||config.color} / ${colors.length}色`;
+    $('width-control').hidden=key==='pen'||textStyle||(group&&!selectedObjects().some(item=>item.type!=='text'));$('apply-style').hidden=!o||textStyle;
+    const colors=key==='highlighter'?HIGHLIGHTER_COLORS:INK_COLORS;$('palette').replaceChildren();let paletteGroup;
+    for(const entry of colors){if(entry.group&&paletteGroup!==entry.group){paletteGroup=entry.group;const title=document.createElement('span');title.className='palette-group';title.textContent=paletteGroup;$('palette').append(title);}
+        const b=document.createElement('button');b.type='button';b.className='color-swatch';b.style.setProperty('--swatch',entry.color);b.title=entry.name;b.setAttribute('aria-label',entry.name);b.setAttribute('aria-pressed',entry.color===config.color&&(!group||groupStyleFields.has('color')||selectedObjects().every(item=>item.type==='text'?item.runs.every(run=>run.color===config.color):item.color===config.color)));
+        b.onclick=()=>{config.color=entry.color;if(group)groupStyleFields.add('color');syncStyle();};$('palette').append(b);}
+    $('color-name').textContent=group&&!groupStyleFields.has('color')&&new Set(selectedObjects().flatMap(item=>item.type==='text'?item.runs.map(run=>run.color):[item.color])).size>1?'色は混在しています':key==='correction'?'不透明の白を重ねます。選択して削除・Undoできます。':`${colors.find(c=>c.color===config.color)?.name||config.color} / ${colors.length}色`;
     for(const b of $('pen-sizes').children)b.setAttribute('aria-pressed',Math.abs(penPixels(Number(b.dataset.mm))-config.width)<.01);
     for(const b of $('pen-tray').children){const c=settings[b.dataset.tool];b.style.setProperty('--ink',c.color);b.style.setProperty('--nib-scale',penTipScale(b.dataset.tool,c.width));const label=b.querySelector('.pen-width');if(label)label.textContent=penWidthLabel(c.width);b.title=`${toolNames[b.dataset.tool]} · ${penWidthLabel(c.width)} mm`;}
     if($('active-tool-label')){
@@ -213,14 +217,14 @@ function syncStyle(fromSelection=false){
     if($('tools-reveal')){$('tools-reveal').setAttribute('aria-label',innerWidth<900?'道具ドロワー：下へスワイプで開く、上へスワイプで閉じる':`${toolNames[tool]}を使用中。道具を表示`);$('tools-reveal').title=innerWidth<900?'上下にスワイプして道具を出し入れ':'上端に触れて道具を表示';$('reveal-icon').innerHTML=toolIcons[tool]||'<path d="M8 3h8v10l-4 8-4-8ZM8 13h8M12 16v5"/>';}
     $('arrow-control').hidden=!lineStyle;$('arrow-start').checked=['start','both'].includes(config.arrow);$('arrow-end').checked=['end','both'].includes(config.arrow);$('arrow-head').value=config.arrowHead||'open';
     $('line-style-control').hidden=!shapeStyle&&!lineStyle;syncStyleChoices(root,config);
-    $('selection-hint').textContent=o?.type==='line'?'両端の点をドラッグして再編集。近くの端点にスナップします。':o?.type==='shape'?'8個のハンドルで再編集。Ctrlで正方形・正円。':key==='brush'?'動きの速さと向きで起筆・送筆・収筆を疑似表現します。':'';
+    $('selection-hint').textContent=group?'変更した色・太さだけを一括適用します。文字は色のみ変更します。':o?.type==='line'?'両端の点をドラッグして再編集。近くの端点にスナップします。':o?.type==='shape'?'8個のハンドルで再編集。Ctrlで正方形・正円。':key==='brush'?'動きの速さと向きで起筆・送筆・収筆を疑似表現します。':'';
     $('style-preview').hidden=key==='text';
-    if(key!=='text')renderStyleSample($('style-preview'),{key,tool,object:o,config});
+    if(key!=='text')renderStyleSample($('style-preview'),{key:group?'geometry':key,tool,object:group?null:o,config:group?{color:config.color,width:config.width,arrow:'none'}:config});
     controls();
 }
 function setReadingMode(value){if(!model||busy||model.locked&&!value)return;cancelGesture();readingMode=value;selectObjects();render();if(model)updatePanels();syncStyle();updateHint();}
 function updateHint(){
-    $('hint').textContent=readingMode?'閲覧モード：書き込みは表示したまま、描画を停止しています。':tool==='marquee'?'囲んだ書き込みをまとめて選択。選択した筆跡をドラッグして移動できます。':tool==='select'?'書き込みを選び、移動・端点編集・ハンドルでのサイズ変更ができます。':tool==='text'?'文字を置く位置をページ上でクリックしてください。':tool==='correction'?'白い修正液を重ねます。原本を消す操作ではありません。':tool==='brush'?'ゆっくり、速く、方向を変えて。入りと抜きのある筆跡を試してください。':'ペン先を選んでドラッグ。線は端点へスナップ、Ctrlで正方形・正円になります。';
+    $('hint').textContent=readingMode?'閲覧モード：書き込みは表示したまま、描画を停止しています。':tool==='select'?'書き込みを押して選択。空いている場所からドラッグしてまとめて選択できます。':tool==='text'?'文字を置く位置をページ上でクリックしてください。':tool==='correction'?'白い修正液を重ねます。原本を消す操作ではありません。':tool==='brush'?'ゆっくり、速く、方向を変えて。入りと抜きのある筆跡を試してください。':'ペン先を選んでドラッグ。線は端点へスナップ、Ctrlで正方形・正円になります。';
     $('hint').textContent+=' ページめくりは前後ボタン・矢印キー、書き込み中は2本指、閲覧中は1本指スワイプ。';
 }
 const say = (message,error=false) => {$('status').textContent=message;$('status').dataset.error=error;clearTimeout(noticeTimer);$('status').dataset.notice=true;noticeTimer=setTimeout(()=>$('status').dataset.notice=false,3500);};
@@ -256,7 +260,7 @@ function controls() {
     if($('active-tool-label'))$('active-tool-label').disabled=editLocked||!!selectedObject()?.locked||tool==='select'&&!selectedObject();
     $('sheet-undo').disabled=$('undo').disabled;$('sheet-redo').disabled=$('redo').disabled;
     $('delete').disabled=editLocked||!selected||!!selectedObject()?.locked;$('edit-text').disabled=selectionIds.size>1||editLocked||selectedObject()?.type!=='text'||!!selectedObject()?.locked;
-    $('apply-style').disabled=selectionIds.size>1||editLocked||!selected||selectedObject()?.type==='text'||!!selectedObject()?.locked;
+    $('apply-style').disabled=editLocked||!selected||(selectionIds.size===1&&selectedObject()?.type==='text')||!!selectedObject()?.locked||(selectionIds.size>1&&!groupStyleFields.size);
     $('sheet-apply').disabled=$('apply-style').disabled;
     $('restore').disabled=editLocked;$('history').disabled=editLocked;$('objects').disabled=editLocked;
     for(const id of ['save','share'])$(id).disabled=locked;
@@ -289,11 +293,11 @@ function persist() {
     }).catch(e=>{if(epoch===generation){storageFailed=true;unsaved=true;$('draft-status').textContent=explain(e);$('draft-status').dataset.error=true;}});
 }
 function openObjectSettings(){
-    const o=selectedObject();if(!o||o.locked||selectionIds.size!==1)return;closeSheet();syncStyle(true);
+    const o=selectedObject();if(!o||o.locked)return;closeSheet();syncStyle(true);
     // A settings sheet opened from Layers must not retain its bottom history
     // button as the anchor when the window switches to a narrow layout.
     if(host)sheetAnchor=$('active-tool-label');
-    if(o.type==='text')textDialog({x:o.layout[0].x,y:o.layout[0].y},o);
+    if(o.type==='text'&&selectionIds.size===1)textDialog({x:o.layout[0].x,y:o.layout[0].y},o);
     else root.querySelector('[data-panel="settings"]').click();
 }
 for(const [direction,label] of Object.entries({front:'最前面',up:'一つ手前',down:'一つ奥',back:'最背面',settings:'設定'})){
@@ -455,10 +459,12 @@ $('prev').onclick=()=>turn(-1);$('next').onclick=()=>turn(1);
 $('spread').onclick=()=>{cancelGesture();spread=!spread;showPage();};
 listenWindow('keydown',e=>{if(!context||busy||e.ctrlKey||e.metaKey||e.altKey||e.composedPath().some(n=>n.matches?.('input,textarea,select,dialog')))return;
     if(!host&&(e.key==='ArrowLeft'||e.key==='ArrowRight')){e.preventDefault();turn((e.key==='ArrowRight'?1:-1)*(rtl()?-1:1));}});
-$('width').oninput=()=>{settings[styleKey()].width=penPixels(Number($('width').value));syncStyle();};
+$('width').oninput=()=>{settings[styleKey()].width=penPixels(Number($('width').value));if(selectionIds.size>1)groupStyleFields.add('width');syncStyle();};
 $('ink-amount').oninput=()=>{settings.brush.inkAmount=Number($('ink-amount').value)/100;syncStyle();};
 $('objects').onchange=()=>{selectObjects($('objects').value?[$('objects').value]:[]);tool='select';readingMode=false;render();syncStyle(true);updateHint();};
-function applyStyle(){const o=selectedObject();if(selectionIds.size!==1||!o||o.locked||o.type==='text')return false;const config=settings[styleKey()],next=structuredClone(o);next.color=config.color;
+function applyStyle(){
+    if(selectionIds.size>1){const patch=Object.fromEntries([...groupStyleFields].map(key=>[key,settings.group[key]]));return mutate('道具の設定を変更',all=>styleWritingSelection(all,selectionIds,patch));}
+    const o=selectedObject();if(selectionIds.size!==1||!o||o.locked||o.type==='text')return false;const config=settings[styleKey()],next=structuredClone(o);next.color=config.color;
     if(o.type==='stroke'){const factor=config.width/o.baseWidth;next.baseWidth=config.width;next.points.forEach(p=>p.width*=factor);}
     else next.width=config.width;if(o.type==='line'){next.arrow=config.arrow;next.arrowHead=config.arrowHead;}
     if(['line','shape'].includes(o.type))next.lineStyle=config.lineStyle||'solid';
@@ -527,9 +533,9 @@ $('input').onpointerdown=e=>{
     const existing=selectedObject(),knob=selectionTool()&&selectionIds.size===1&&existing&&!existing.locked?writingControlPoints(existing).find(h=>Math.hypot(h.x-p.x,h.y-p.y)<10):null;
     if(knob){gesture={pointerId:e.pointerId,mode:'handle',key:knob.key,start:p,original:existing,object:existing,moved:false};armObjectHold(e);$('input').setPointerCapture(e.pointerId);return;}
     const target=selectionTool()?hit(p):null;
-    if(tool==='marquee'&&(!target||!selectionIds.has(target.id))){
+    if(selectionTool()&&!target){
         selectObjects();gesture={pointerId:e.pointerId,mode:'marquee',start:p,box:[p.x,p.y,0,0]};
-        textBoxPreview.hidden=false;previewGesture(e);$('input').setPointerCapture(e.pointerId);return;
+        textBoxPreview.hidden=false;previewGesture(e);if(objectClipboard)armObjectHold(e);$('input').setPointerCapture(e.pointerId);return;
     }
     if(!target||!selectionIds.has(target.id))selectObjects(target?[target.id]:[]);controls();
     if(selectionTool()){
@@ -840,12 +846,12 @@ if(host){
         b.onclick=()=>{if(b.dataset.tool===tool&&!readingMode&&!selected&&!selectionTool())showPanel('settings',b);else setTool(b.dataset.tool);};
         let timer,held=false,start;
         const clear=()=>clearTimeout(timer);toolHolds.add(clear);lifetime.signal.addEventListener('abort',clear,{once:true});
-        b.addEventListener('pointerdown',e=>{if(e.button!==0||b.disabled||['select','marquee'].includes(b.dataset.tool))return;held=false;start=[e.clientX,e.clientY];timer=setTimeout(()=>{held=true;setTool(b.dataset.tool);showPanel('settings',b);},500);});
+        b.addEventListener('pointerdown',e=>{if(e.button!==0||b.disabled||(b.dataset.tool==='select'))return;held=false;start=[e.clientX,e.clientY];timer=setTimeout(()=>{held=true;setTool(b.dataset.tool);showPanel('settings',b);},500);});
         b.addEventListener('pointermove',e=>{if(start&&Math.hypot(e.clientX-start[0],e.clientY-start[1])>9)clear();});
         for(const type of ['pointerup','pointercancel','pointerleave'])b.addEventListener(type,clear);
         b.addEventListener('click',e=>{if(held){e.stopImmediatePropagation();e.preventDefault();held=false;}},true);
-        b.addEventListener('contextmenu',e=>{e.preventDefault();clear();if(['select','marquee'].includes(b.dataset.tool)){if(selectedObject())openObjectSettings();return;}setTool(b.dataset.tool);showPanel('settings',b);});
-        b.addEventListener('keydown',e=>{if(e.key==='F2'&&!['select','marquee'].includes(b.dataset.tool)){e.preventDefault();setTool(b.dataset.tool);showPanel('settings',b);}});
+        b.addEventListener('contextmenu',e=>{e.preventDefault();clear();if((b.dataset.tool==='select')){if(selectedObject())openObjectSettings();return;}setTool(b.dataset.tool);showPanel('settings',b);});
+        b.addEventListener('keydown',e=>{if(e.key==='F2'&&!(b.dataset.tool==='select')){e.preventDefault();setTool(b.dataset.tool);showPanel('settings',b);}});
         if(PEN_TOOLS.includes(b.dataset.tool)){const t=document.createElementNS('http://www.w3.org/2000/svg','text');t.classList.add('pen-width');t.setAttribute('x','30');t.setAttribute('y','48');t.setAttribute('text-anchor','middle');const unit=t.cloneNode();unit.classList.replace('pen-width','pen-unit');unit.setAttribute('y','62');unit.textContent='mm';b.querySelector('svg').append(t,unit);}
     }
     root.addEventListener('keydown',e=>{if(e.target.closest('dialog'))e.stopPropagation();});

@@ -1,4 +1,4 @@
-:host{position:fixed;inset:0;z-index:950;pointer-events:none;font:14px/1.5 system-ui,sans-serif;color:#233e43;--accent:#216b69;--line:#d8e1dc;--pen-size:54px;--pen-gap:4px;--tool-columns:7;--dock-bottom:180px}
+:host{position:fixed;inset:0;z-index:950;pointer-events:none;font:14px/1.5 system-ui,sans-serif;color:#233e43;--accent:#216b69;--line:#d8e1dc;--pen-size:54px;--pen-gap:4px;--tool-columns:6;--dock-bottom:180px}
 header,main>.tools,main>.save-panel,.book-heading,.writing-mode,.quick-tool,.hint,#page-summary,.mobile-dock{display:none!important}
 main,.reading{display:contents!important}#viewport{display:contents}#page-wrap{position:fixed;margin:0;pointer-events:none}#surface{background:transparent;box-shadow:none;pointer-events:none}#input{pointer-events:auto}#original,.rw-other-original{display:none!important}
 #chrome-safe{position:fixed;visibility:hidden;pointer-events:none;padding:env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left)}
@@ -13,7 +13,7 @@ main,.reading{display:contents!important}#viewport{display:contents}#page-wrap{p
 .pen-width{font:700 17px system-ui;fill:#25373c;paint-order:stroke;stroke:#fff9;stroke-width:2px}.pen-brush .pen-width{fill:white;stroke:#25373c}
 .pen-unit{font:600 11px system-ui;fill:#25373c;paint-order:stroke;stroke:#fff9;stroke-width:1px}.pen-brush .pen-unit{fill:white;stroke:#25373c}
 #tool-field{position:absolute;pointer-events:auto;margin:0;border:0;padding:0;max-width:none}#tool-field legend{display:none}
-#tools{display:grid;grid-template-columns:repeat(7,44px);gap:0;justify-content:center;position:relative;isolation:isolate}
+#tools{display:grid;grid-template-columns:repeat(6,44px);gap:0;justify-content:center;position:relative;isolation:isolate}
 /* Flat rails, with one selection treatment. The individual controls keep 44 px targets. */
 #tools::before{content:'';position:absolute;inset:3px -4px;background:#f9fcfbd9;border-radius:16px;z-index:-1;backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px)}
 #tools button,#native-history button{position:relative;width:44px;height:44px;min-height:44px;padding:8px;border:0;border-radius:12px;background:transparent;color:#294740;box-shadow:none;touch-action:manipulation}

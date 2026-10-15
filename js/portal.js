@@ -606,7 +606,7 @@ document.addEventListener("DOMContentLoaded", () => {
         bindEvents();
         document.getElementById('library-drawer')?.remove();
         document.getElementById('portal-scrim')?.remove();
-        initializePlatformMenu({surface:'portal',triggers:[document.getElementById('btn-library-menu')],beforeOpen:()=>{document.getElementById('auth-dropdown')?.classList.remove('open');document.getElementById('create-menu-popover')?.classList.remove('open');}});
+        initializePlatformMenu({surface:'portal',triggers:[document.getElementById('btn-library-menu')],fileHref:'/viewer',beforeOpen:()=>{document.getElementById('auth-dropdown')?.classList.remove('open');document.getElementById('create-menu-popover')?.classList.remove('open');}});
         subscribePlatformLanguage(lang=>{if(lang!==currentLang)setLang(lang);});
 
         // The public feed does not require authentication. Start it before the

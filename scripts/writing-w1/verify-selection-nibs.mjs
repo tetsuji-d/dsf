@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import {readFile} from 'node:fs/promises';
-import {writingMarqueeObjects,moveWritingSelection,createReaderWritingModel} from '../../js/reader-writing-model.js';
+import {writingMarqueeObjects,moveWritingSelection,createReaderWritingModel,styleWritingSelection} from '../../js/reader-writing-model.js';
 import {highlighterPolygons,brushGeometry,naturalBrushInkPaths,penPixels,penTipScale,PEN_TOOLS} from '../../js/reader-writing-tools.js';
 import {writingHitTest} from '../../js/reader-writing-hit.js';
 import {loadDsfV3,resaveDsfV3} from '../../js/dsf-writing-package.js';
@@ -33,6 +33,18 @@ assert.ok(mixed[110].dryness<mixed[65].dryness-.3,'Ink recovers when slowing dow
 assert.notDeepEqual(naturalBrushInkPaths(slow,.65,true),naturalBrushInkPaths(fast,.65,true));
 
 const options=await nodeRuntime(),original=await loadDsfV3(new Uint8Array(await readFile(new URL('../../outputs/writing-w1/original.dsf',import.meta.url))),options);
+const stroke={id:'stroke',type:'stroke',tool:'brush',color:'#123456',baseWidth:4,geometryVersion:4,inkAmount:.4,opacity:1,points:[{x:20,y:20,width:2,pressure:.5,dryness:.3},{x:90,y:90,width:4,pressure:.7,dryness:.7}]};
+const text={id:'text',type:'text',runs:[{color:'#112233'},{color:'#445566'}],layout:[{x:30,y:30}]};
+const line={id:'line',type:'line',from:[20,20],to:[90,90],color:'#abcdef',width:3,arrow:'both',arrowHead:'circle',lineStyle:'dash-dot'};
+const mixedObjects=[a,stroke,text,line,locked,b],ids=['a','stroke','text','line','locked'];
+const recolored=styleWritingSelection(mixedObjects,ids,{color:'#ff0000'});
+assert.equal(recolored[1].baseWidth,4);assert.equal(recolored[3].width,3);
+assert.deepEqual(recolored[2].runs,[{color:'#ff0000'},{color:'#ff0000'}]);assert.deepEqual(recolored[2].layout,text.layout);
+const resized=styleWritingSelection(mixedObjects,ids,{width:8});
+assert.deepEqual(resized.map(o=>o.color),mixedObjects.map(o=>o.color));assert.deepEqual(resized[1].points.map(p=>p.width),[4,8]);
+assert.deepEqual(resized[1].points.map(p=>p.dryness),[.3,.7]);assert.equal(resized[1].inkAmount,.4);
+assert.equal(resized[3].arrowHead,'circle');assert.equal(resized[3].lineStyle,'dash-dot');assert.deepEqual(resized[2],text);
+assert.deepEqual(resized[4],locked);assert.deepEqual(resized[5],b);assert.equal(stroke.baseWidth,4);
 const model=createReaderWritingModel(original,options.catalog.map(c=>c.id));
 model.change('ja','page1','objects',()=>[a,b,locked]);const before=model.head;
 model.change('ja','page1','move selection',()=>[...moved,locked]);const after=model.head;
@@ -40,6 +52,10 @@ model.restore(before);assert.deepEqual(model.objects('ja','page1'),[a,b,locked])
 model.restore(after);assert.deepEqual(model.objects('ja','page1'),[...moved,locked]);
 model.change('ja','page1','delete selection',all=>all.filter(o=>o.locked));assert.equal(model.objects('ja','page1').length,1);
 model.restore(after);assert.equal(model.objects('ja','page1').length,3);
+model.change('ja','page1','group style',all=>styleWritingSelection(all,['a','b','locked'],{width:6,color:'#ff0000'}));
+const styled=model.head;assert.equal(model.objects('ja','page1')[0].width,6);assert.deepEqual(model.objects('ja','page1')[2],locked);
+assert.equal(model.parent,after,'One group style edit is one undo operation');
+model.restore(after);assert.deepEqual(model.objects('ja','page1'),[...moved,locked]);model.restore(styled);
 const output=await resaveDsfV3(original,{copyKind:'writing-editable',envelope:model.envelope}),reopened=await loadDsfV3(output.bytes,options);
 assert.deepEqual(reopened.envelope,model.envelope);
 for(const e of JSON.parse(new TextDecoder().decode(original.readBytes('base.json'))).entries)assert.deepEqual(reopened.readBytes(e.path),original.readBytes(e.path));

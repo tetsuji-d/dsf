@@ -137,6 +137,24 @@ export function writingMarqueeObjects(objects,rect){
     return objects.filter(o=>{const [a,b,c,d]=writingBounds(o);return !o.locked&&a>=x&&b>=y&&a+c<=x+w&&b+d<=y+h;});
 }
 
+/** Apply only explicitly edited common properties; keep text layout and tool-specific style. */
+export function styleWritingSelection(objects,ids,patch){
+    const selected=new Set(ids);
+    return objects.map(object=>{
+        if(!selected.has(object.id)||object.locked)return object;
+        const o=clone(object);
+        if(patch.color!==undefined){
+            if(o.type==='text')o.runs.forEach(run=>{run.color=patch.color;});
+            else o.color=patch.color;
+        }
+        if(Number.isFinite(patch.width)&&patch.width>0&&o.type!=='text'){
+            if(o.type==='stroke'){const factor=patch.width/o.baseWidth;o.baseWidth=patch.width;o.points.forEach(p=>{p.width*=factor;});}
+            else o.width=patch.width;
+        }
+        return o;
+    });
+}
+
 /** Clamp one shared displacement, preserving the spacing of a multiple selection. */
 export function moveWritingSelection(objects,dx,dy){
     if(!objects.length)return [];
