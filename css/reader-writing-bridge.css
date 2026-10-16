@@ -16,3 +16,14 @@ body.reader-writing-active #viewer-header .viewer-brand-navigation{pointer-event
 /* Writing owns paper gestures; Safari must not magnify the surrounding Reader UI. */
 body.reader-writing-active #viewer-layout{touch-action:none}
 body.reader-writing-active button,body.reader-writing-active select{touch-action:manipulation}
+
+/* Keep Reader navigation reachable while the bottom Writing rail is expanded. */
+@media(max-width:899px){
+ body.reader-writing-active #viewer-reader-controls{left:50%;top:auto;bottom:max(8px,env(safe-area-inset-bottom));right:auto;transform:translateX(-50%);flex-direction:row;gap:6px;--reader-control-size:44px}
+ body.reader-writing-active #viewer-reader-controls button{flex-shrink:0}
+ body.reader-writing-active.reader-writing-text-editing #viewer-reader-controls{visibility:hidden;pointer-events:none}
+}
+
+@media(min-width:900px){
+ body.reader-writing-active #viewer-reader-controls{left:auto;right:max(8px,env(safe-area-inset-right))}
+}

@@ -1,14 +1,15 @@
-:host{position:fixed;inset:0;z-index:950;pointer-events:none;font:14px/1.5 system-ui,sans-serif;color:#233e43;--accent:#216b69;--line:#d8e1dc;--pen-size:54px;--pen-gap:4px;--tool-columns:6;--dock-bottom:180px}
+:host{position:fixed;inset:0;z-index:950;pointer-events:none;font:14px/1.5 system-ui,sans-serif;color:#233e43;--accent:#216b69;--line:#d8e1dc;--pen-size:54px;--pen-gap:4px;--tool-columns:6;--dock-bottom:0px}
 header,main>.tools,main>.save-panel,.book-heading,.writing-mode,.quick-tool,.hint,#page-summary,.mobile-dock{display:none!important}
 main,.reading{display:contents!important}#viewport{display:contents}#page-wrap{position:fixed;margin:0;pointer-events:none}#surface{background:transparent;box-shadow:none;pointer-events:none}#input{pointer-events:auto}#original,.rw-other-original{display:none!important}
 #chrome-safe{position:fixed;visibility:hidden;pointer-events:none;padding:env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left)}
-.native-tools{position:fixed;z-index:2;inset:0 0 auto;height:var(--dock-bottom);pointer-events:none;transition:transform .24s ease;overflow:hidden}
+.native-tools{position:fixed;z-index:2;inset:0;pointer-events:none;animation:writing-dock-enter .24s ease-out}
+@keyframes writing-dock-enter{from{opacity:0;translate:0 36px}to{opacity:1;translate:0 0}}
 #pen-tray{position:absolute;display:flex;justify-content:center;gap:var(--pen-gap);min-height:0;max-width:none;margin:0;border:0;border-radius:0;background:none;overflow:visible;pointer-events:none}
 .pen-item,.pen-item:hover,.pen-item[aria-pressed=true]{width:var(--pen-size);min-width:var(--pen-size);flex:0 0 var(--pen-size);height:100%;pointer-events:auto;transform:none;background:transparent!important;padding:0;touch-action:none;user-select:none;-webkit-user-select:none;-webkit-touch-callout:none}
 .pen-item svg{width:var(--pen-size);height:calc(var(--pen-size)*130/60);flex:none;overflow:visible;filter:drop-shadow(2px 3px 2px #183e3838)}
-.pen-item svg,.pen-item span{transform:translateY(-24px);transition:transform .2s ease}
-.pen-item:hover svg,.pen-item:hover span{transform:translateY(-18px)}
-.pen-item[aria-pressed=true] svg,.pen-item[aria-pressed=true] span{transform:translateY(-5px)}
+.pen-item svg,.pen-item span{transform:translateY(20px);transition:transform .2s ease}
+.pen-item:hover svg,.pen-item:hover span{transform:translateY(14px)}
+.pen-item[aria-pressed=true] svg,.pen-item[aria-pressed=true] span{transform:translateY(0)}
 .pen-item span{display:none}
 .pen-width{font:700 17px system-ui;fill:#25373c;paint-order:stroke;stroke:#fff9;stroke-width:2px}.pen-brush .pen-width{fill:white;stroke:#25373c}
 .pen-unit{font:600 11px system-ui;fill:#25373c;paint-order:stroke;stroke:#fff9;stroke-width:1px}.pen-brush .pen-unit{fill:white;stroke:#25373c}
@@ -35,26 +36,10 @@ main,.reading{display:contents!important}#viewport{display:contents}#page-wrap{p
 .active-tool-swatch{width:12px;height:12px;flex:none;border-radius:50%;background:var(--active-ink);box-shadow:0 0 0 1px #29474025}
 #active-tool-name{font-weight:600}#active-tool-detail{font-size:11px;color:#63766e;font-variant-numeric:tabular-nums}
 #active-tool-label svg{width:14px;height:14px;color:#62796f}#active-tool-label[data-configurable=false] svg,#active-tool-label[data-configurable=false] .active-tool-swatch{display:none}
-#tool-cycle{position:fixed;right:max(6px,env(safe-area-inset-right));top:calc(var(--tools-top,0px) + 6px);width:44px;height:44px;padding:9px;border:0;border-radius:50%;background:#203532e6;color:white;pointer-events:auto;box-shadow:0 1px 6px #0003;transition:transform .24s ease}
-#tool-cycle svg{width:25px;height:25px;vertical-align:middle}
-:host(:not([data-tools-layout=compact])) #tool-cycle{display:none}
-:host([data-tools-layout=compact][data-tools=pens]) #tool-field,:host([data-tools-layout=compact][data-tools=tools]) #pen-tray{display:none}
-:host([data-tools-layout=compact][data-tools=tools]) #active-tool-label{left:var(--context-tools-left)!important;top:var(--context-tools-top)!important;width:var(--context-tools-width)!important}
-:host([data-tools-layout=compact][data-tools=hidden]) .native-tools{visibility:hidden}
-:host([data-tools-layout=compact]) .pen-item span,:host([data-short=true]) .pen-item span{display:none}
-#native-history{position:fixed;z-index:3;display:flex;gap:0;pointer-events:auto;transition:opacity .24s ease,visibility .24s ease;isolation:isolate}
+#native-history{position:absolute;z-index:3;display:flex;gap:0;pointer-events:auto;transition:opacity .24s ease,visibility .24s ease;isolation:isolate}
 #native-history::before{content:'';position:absolute;inset:0 -4px;border-radius:14px;background:#f9fcfbde;backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);z-index:-1}
 #native-fit::before{content:'';position:absolute;left:0;top:12px;height:20px;border-left:1px solid #29474025}
 #native-history button:disabled{opacity:.32}
-:host([data-tools-stowed=true]) .native-tools{transform:translateY(calc(-1*var(--dock-bottom)));pointer-events:none}
-:host([data-tools-stowed=true]) .native-tools *{pointer-events:none!important}
-:host([data-tools-stowed=true]) #tool-cycle{transform:translateY(-80px);pointer-events:none}
-:host([data-tools-stowed=true]) #native-history,:host([data-tools-layout=compact][data-tools=hidden]) #native-history{opacity:0;visibility:hidden;pointer-events:none}
-#tools-reveal{position:fixed;top:var(--tools-top,0px);left:56px;right:56px;width:calc(100% - 112px);height:44px;min-height:44px;padding:0;border:0;border-radius:0;background:transparent;pointer-events:none;touch-action:manipulation;opacity:0;transition:opacity .2s}
-#tools-reveal span{display:inline-flex;align-items:center;justify-content:center;margin:0 auto 8px;min-width:56px;height:28px;border-radius:0 0 12px 12px;background:#f9fffde8;color:#234d47;box-shadow:0 1px 5px #17342c22}
-#tools-reveal svg{width:20px;height:20px}
-:host([data-tools-stowed=true]) #tools-reveal,:host([data-tools-layout=compact][data-tools=hidden]) #tools-reveal{opacity:1;pointer-events:auto}
-#tools-reveal[data-hot=true]{pointer-events:auto}
 #status{position:fixed;left:50%;transform:translateX(-50%);bottom:96px;width:max-content;max-width:min(340px,calc(100vw - 32px));border:0;border-radius:12px;background:#203532ed;color:white;padding:9px 14px;opacity:0;transition:opacity .2s;pointer-events:none;font-size:12px;white-space:normal;text-align:center}#status[data-notice=true],#status[data-error=true]{opacity:1}#status[data-error=true]{color:#ffe1d9}
 #mobile-sheet,#text-dialog{pointer-events:auto}
 #mobile-sheet{padding:0;max-height:82dvh;max-width:calc(100vw - 16px);overflow:hidden}
@@ -106,7 +91,6 @@ main,.reading{display:contents!important}#viewport{display:contents}#page-wrap{p
 #layer-order button{font-size:12px}
 :host button,:host select{touch-action:manipulation}#sheet-body select,#text-dialog select,#text-dialog textarea{font-size:16px}
 :host button:focus-visible{outline:2px solid #1b7771;outline-offset:3px}
-@media(prefers-reduced-motion:reduce){.native-tools,.pen-item svg,.pen-item span,#tool-cycle,#native-history,#tools-reveal,#status{transition:none}}
 
 /* A non-modal, page-aligned text box; its toolbar remains at screen scale. */
 #text-box-preview{position:absolute;border:1.5px dashed #247d83;background:#a7d7d518;pointer-events:none;z-index:3}
@@ -128,32 +112,18 @@ main,.reading{display:contents!important}#viewport{display:contents}#page-wrap{p
 .pen-item svg{filter:drop-shadow(1px 2px 1px #183e383d) drop-shadow(3px 5px 4px #183e3826)}
 #inline-text-toolbar .text-size-controls{margin:2px 0 0;gap:2px;flex-wrap:nowrap}#inline-text-toolbar .text-size-controls select{margin:0;width:90px;min-height:40px;font-size:14px}#inline-text-toolbar .text-size-controls input{width:58px}#inline-text-toolbar .text-size-controls button{width:32px}
 #inline-text-toolbar #text-colors{margin:8px 0 4px;gap:5px}#inline-text-toolbar #text-colors input{margin:0}
-/* Compact screens use one continuous, swipeable tool shelf. */
-#tool-scroll,#tool-scroll-track{display:contents}
+/* One native scroll surface, including the gaps between tool groups. */
+#tool-scroll{position:fixed;display:block;overflow-x:auto;overflow-y:hidden;pointer-events:auto;touch-action:pan-x;overscroll-behavior-x:contain;scrollbar-width:none;-webkit-overflow-scrolling:touch;isolation:isolate}
+#tool-scroll::-webkit-scrollbar{display:none}
+#tool-scroll::before{content:'';position:absolute;inset:52px 0 0;background:linear-gradient(transparent,#f4faf7ee);pointer-events:none;z-index:-1}
+#tool-scroll-track{display:block;position:relative;height:116px;pointer-events:auto;touch-action:pan-x}
 #tool-scroll:focus-visible{outline:2px solid #318c82;outline-offset:-2px}
-:host([data-tools-layout=scroll]) #tool-scroll{display:block;position:absolute;overflow-x:auto;overflow-y:hidden;pointer-events:auto;touch-action:pan-x;overscroll-behavior-x:contain;scrollbar-width:none;border-radius:0;-webkit-overflow-scrolling:touch}
-:host([data-tools-layout=scroll]) #tool-scroll-track{display:block;position:relative;width:792px;height:var(--dock-bottom)}
-:host([data-tools-layout=scroll]) #native-history{position:absolute;transition:none}
-:host([data-tools-layout=scroll][data-tools-stowed=true]) #native-history{opacity:1;visibility:visible}
 :host([data-tools-layout=scroll]) #native-fit{display:none}
 #active-tool-label{display:none!important}
-:host([data-tools-layout=scroll]) #tools-reveal{top:var(--safe-top,0px);left:calc(50% - 44px);right:auto;width:88px;height:44px;min-height:44px;opacity:1;pointer-events:auto;touch-action:none;transition:top .24s ease,transform .24s ease}
-:host([data-tools-layout=scroll][data-tools-stowed=true]) #tools-reveal{top:var(--safe-top,0px)}
-:host([data-tools-layout=scroll]) #tools-reveal span{width:44px;min-width:44px;height:4px;margin:0;position:absolute;top:5px;left:22px;background:transparent;box-shadow:none}
-:host([data-tools-layout=scroll]) #tools-reveal svg{display:none}
-:host([data-tools-layout=scroll]) #tools-reveal span::after{content:'';width:32px;height:3px;border-radius:4px;background:#44665f99;box-shadow:0 0 0 1px #ffffff99}
-:host([data-drawer-dragging=true]) .native-tools,:host([data-drawer-dragging=true]) #tools-reveal{transition:none}
-@media(prefers-reduced-motion:reduce){:host([data-tools-layout=scroll]) #tools-reveal{transition:none}}
-:host([data-tools-layout=scroll]) #pen-tray{overflow:visible}
-:host([data-tools-layout=scroll]) #tools button,:host([data-tools-layout=scroll]) .pen-item,:host([data-tools-layout=scroll]) #native-history button{touch-action:pan-x}
-:host([data-tools-layout=scroll]) #active-tool-label{gap:4px;font-size:11px;justify-content:flex-start;padding:0 8px;overflow:hidden}
-:host([data-tools-layout=scroll]) #active-tool-name{overflow:hidden;text-overflow:ellipsis}
-:host([data-tools-layout=scroll]) #active-tool-detail{display:block;flex:none;font-size:10px}
-:host([data-tools-layout=scroll]) #active-tool-label svg{flex:none;width:12px}
-:host([data-tools-layout=scroll]) .active-tool-swatch{width:8px;height:8px}
-:host([data-text-editing=true]) .native-tools,:host([data-text-editing=true]) #native-history,:host([data-text-editing=true]) #tools-reveal{visibility:hidden;pointer-events:none}
+:host #tool-scroll button{touch-action:pan-x}
+:host([data-text-editing=true]) .native-tools{visibility:hidden;pointer-events:none}
+@media(prefers-reduced-motion:reduce){.native-tools{animation:none}.pen-item svg{transition:none}}
 #text-format-toggle{display:none}
-#tools-reveal{z-index:4}
 #inline-text-toolbar .dialog-options label[for=text-size]{display:none}
 #text-quick-size{display:inline-block}
 #inline-text-toolbar[data-mobile=true]{display:grid;grid-template-columns:44px minmax(108px,1fr) auto;gap:4px;padding:5px 6px;align-items:center;overflow:auto;overscroll-behavior:contain}
@@ -178,9 +148,5 @@ main,.reading{display:contents!important}#viewport{display:contents}#page-wrap{p
 #mobile-sheet[data-panel=history] #history{min-height:160px;height:45dvh;max-height:420px}#mobile-sheet[data-panel=history] #history option{padding:8px}
 #mobile-sheet[data-panel=history] #history-section,#mobile-sheet[data-panel=history] .edit-actions{display:none}#mobile-sheet[data-panel=history] #restore{width:100%;min-height:44px}
 
-/* The thin edge mark is the only persistent drawer chrome. Scroll remains native. */
-:host([data-tools-layout=scroll]) #tool-scroll::-webkit-scrollbar{display:none}
-:host([data-tools-layout=scroll]) #tool-scroll,:host([data-tools-layout=scroll]) #tool-scroll-track{pointer-events:none}
-:host([data-tools-layout=scroll]) #tool-field,:host([data-tools-layout=scroll]) #pen-tray,:host([data-tools-layout=scroll]) #native-history{pointer-events:auto}
 .pen-nib{transform-box:view-box;transform-origin:30px 90px;transform:scaleX(var(--nib-scale,1));transition:transform .16s ease}
 @media(prefers-reduced-motion:reduce){.pen-nib{transition:none}}

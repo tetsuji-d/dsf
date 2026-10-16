@@ -2,34 +2,26 @@ import assert from 'node:assert/strict';
 import {writingChromeLayout,writingInspectorPlacement,writingTextPan} from '../../js/reader-writing-layout.js';
 import {writingHitTest} from '../../js/reader-writing-hit.js';
 
-const fixtures=[
- [320,568,2,3,316,562,'compact'],[390,844,3,80,385,684,'compact'],
- [768,1024,97,0,575,1022,'inline'],[820,1180,78,1,663,1179,'inline'],
- [812,390,297,0,218,388,'compact'],[844,390,313,0,218,388,'compact'],[1440,900,467,1,504,896,'inline'],[1920,1080,657,1,605,1076,'side'],
-];
-for(const [width,height,x,y,w,h,mode] of fixtures){
- const paper={left:x,top:y,right:x+w,bottom:y+h,width:w,height:h};
- const controls=width<600?[{left:30,top:height-54,right:width-30,bottom:height-10,width:width-60,height:44}]:[{left:paper.right+12,top:height/2-147,right:paper.right+56,bottom:height/2+147,width:44,height:294}];
- const a=writingChromeLayout({width,height,paper,controls});assert.equal(a.mode,width<900?'scroll':mode,`${width}x${height}`);assert.ok(a.size>=44);
- const visible=a.rail?[a.rail,a.context]:[a.pens,a.tools,a.context];
- for(const r of visible){assert.ok(r.left>=0&&r.top>=0&&r.left+r.width<=width+.1&&r.top+r.height<=height,JSON.stringify(r));
-  for(const c of controls)assert.ok(r.left+r.width<=c.left||r.left>=c.right||r.top+r.height<=c.top||r.top>=c.bottom,`Writing/Reader collision ${width}x${height}`);}
- assert.ok(a.history.left>=0&&a.history.left+a.history.width<=width&&a.history.top+a.history.height<=height);
- assert.equal(a.tools.columns,6,'The drawing-tool order must not wrap when the viewport changes');
- if(!a.rail)assert.ok(a.pens.left>=50,'Top-edge pens must leave the Reader menu clear');
- else{assert.ok(a.history.left+a.history.width<a.tools.left);assert.equal(a.history.top+22,a.tools.top+26);assert.ok(a.tools.left+a.tools.width<a.pens.left);assert.ok(a.rail.top+a.rail.height<=a.context.top);}
- if(a.mode==='side')for(const r of [a.pens,a.tools,a.context]){
-  assert.ok(r.left+r.width<paper.left,'Side tools must leave the paper clear');
-  assert.equal(r.left+r.width/2,a.pens.left+a.pens.width/2,'One center axis for all dock groups');
- }
- if(width>=1440){assert.ok(a.history.left+a.history.width<a.tools.left,'Wide screen history belongs left of the drawing tools');assert.equal(a.history.top+22,a.tools.top+26);}
- for(const panel of ['layers','history']){const r=writingInspectorPlacement({width,height,anchor:{...a.history,right:a.history.left+a.history.width,bottom:a.history.top+a.history.height},panel});assert.ok(r.height>=Math.min(600,height-16),'Lists need usable height even from a bottom trigger');assert.ok(r.top>=8&&r.top+r.height<=height-8);assert.ok(r.left>=8&&r.left+r.width<=width-8);}
- const header={left:width-(width<600?108:162),top:15,right:width-12,bottom:57,width:width<600?96:150,height:42};
- const withHeader=writingChromeLayout({width,height,paper,controls,header});
- for(const r of withHeader.rail?[withHeader.rail,withHeader.context]:[withHeader.pens,withHeader.tools,withHeader.context]){
-  assert.ok(r.left+r.width<=header.left||r.left>=header.right||r.top+r.height<=header.top||r.top>=header.bottom,`Reader header collision ${width}x${height}`);
+const fixtures=[[320,568],[390,844],[768,1024],[820,1180],[812,390],[844,390],[900,700],[1440,900],[1920,1080]];
+for(const [width,height] of fixtures){
+ for(const safe of [{left:0,right:0,top:0,bottom:0},{left:44,right:44,top:47,bottom:34}]){
+  const a=writingChromeLayout({width,height,safe});
+  assert.equal(a.mode,width<900?'scroll':'full');assert.ok(a.size>=44);
+  const r=a.rail;assert.ok(r.left>=safe.left&&r.top>=safe.top&&r.left+r.width<=width-safe.right&&r.top+r.height<=height-safe.bottom);
+  assert.equal(a.tools.columns,6);assert.ok(a.history.left+a.history.width<a.tools.left);assert.ok(a.tools.left+a.tools.width<a.pens.left);
+  assert.equal(a.history.top+22,a.tools.top+26,'Action and drawing tools share one baseline');
+  for(const item of [a.history,a.tools,a.pens])assert.ok(item.left>=0&&item.left+item.width<=a.trackWidth&&item.top+item.height<=r.height);
+  if(width>=900){assert.ok(a.trackWidth<=r.width,'Desktop exposes every tool without scrolling');assert.ok(r.left+r.width<=width-Math.max(8,safe.right)-64,'Keep the Reader controls clear at the right edge');}
+  else assert.ok(r.top+r.height<=height-Math.max(8,safe.bottom)-58,'Reader navigation stays below the rail');
+  for(const panel of ['layers','history','settings']){
+   const anchor={left:r.left+a.history.left,top:r.top+a.history.top,width:44,right:r.left+a.history.left+44,bottom:r.top+a.history.top+44};
+   const pos=writingInspectorPlacement({width,height,anchor,panel});
+   assert.ok(pos.top>=8&&pos.top+pos.height<=height-8);assert.ok(pos.left>=8&&pos.left+pos.width<=width-8);
+  }
  }
 }
+const shortDesktop=writingChromeLayout({width:1200,height:390,controls:[{left:400,top:336,width:330,height:44}]});
+assert.ok(shortDesktop.rail.top+shortDesktop.rail.height<=328,'Bottom Reader controls also stay clear on short desktop windows');
 const ellipse={type:'shape',shape:'ellipse',rect:[40,50,240,180],width:2,fill:null};
 for(const width of [320,390,844])for(const height of [340,480,844])for(const y of [20,240,600]){
  const box={left:width/2-80,top:y,width:160,height:100},viewport={left:0,top:0,width,height};
@@ -48,8 +40,6 @@ for(const [width,height,offsetLeft,offsetTop] of [[673,833,0,0],[740,920,0,0],[3
   assert.ok(r.left>=offsetLeft+8&&r.left+r.width<=offsetLeft+width-8,'Settings fit the visible viewport horizontally');
  }
 }
-const low=writingChromeLayout({width:844,height:390,paper:{left:313,right:531,top:0,bottom:388},controls:[{left:313,right:531,top:354,bottom:388,width:218,height:34}]});
-assert.ok(low.history.top+low.history.height<354,'History must not overlap the Reader page-segment scrubber');
 assert.equal(writingHitTest(ellipse,{x:160,y:140}),false,'A hollow ellipse cannot intercept an object inside');
 assert.equal(writingHitTest(ellipse,{x:160,y:50}),true);
 assert.equal(writingHitTest({...ellipse,fill:'#fff'},{x:160,y:140}),true);
@@ -61,4 +51,4 @@ const stroke={type:'stroke',tool:'pen',points:[{x:30,y:120,width:2},{x:260,y:150
 assert.equal(writingHitTest(stroke,{x:160,y:137}),true);assert.equal(writingHitTest(stroke,{x:30,y:150}),false);
 const marker={...stroke,tool:'highlighter',points:[{x:30,y:120,width:20},{x:260,y:120,width:20}]};
 assert.equal(writingHitTest(marker,{x:100,y:129},0),true);assert.equal(writingHitTest(marker,{x:20,y:120},0),false);
-console.log('8 viewport layouts: minimum pen size, Reader/header collisions, menu clearance, single-row tools, shared dock axis, context/history bounds passed; hollow/filled shapes, diagonal ink and marker hit tests passed.');
+console.log('9 bottom-dock viewport layouts and safe insets: all desktop tools, mobile scroll bounds, Reader navigation clearance, aligned controls and inspector bounds passed; hollow/filled shapes, diagonal ink and marker hit tests passed.');

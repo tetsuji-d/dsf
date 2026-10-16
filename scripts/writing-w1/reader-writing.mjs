@@ -8,7 +8,7 @@ import {listWritingDrafts,readWritingDraft,saveWritingDraft} from '/js/reader-wr
 import {prepareDsfViewerFixedTextContext,createDsfFixedTextPageElement} from '/js/viewer-fixed-text.js';
 import {createReaderWritingRuntime} from '/reader-runtime.mjs';
 import {writingSpreadPages,writingTurnTarget,spreadStrokeParts} from '/js/reader-writing-spread.js';
-import {installWritingPageGestures,installWritingToolDrawer} from '/js/reader-writing-page-gestures.js';
+import {installWritingPageGestures} from '/js/reader-writing-page-gestures.js';
 import {writingChromeLayout,writingInspectorPlacement,writingTextPan} from '/js/reader-writing-layout.js';
 import {writingHitTest} from '/js/reader-writing-hit.js';
 import {TEXT_SIZES,TEXT_COLORS,ARROW_HEADS,textSize,stepTextSize} from '/js/reader-writing-format.js';
@@ -23,7 +23,6 @@ const locale=installWritingLocale(root,{signal:lifetime.signal,onChange:()=>{if(
 const t=source=>locale.t(source);
 const listenWindow=(name,fn)=>window.addEventListener(name,fn,{signal:lifetime.signal});
 let noticeTimer,hostView,lastHostLayout,lastChromeLayout,disposed=false;
-let queueToolsHide=()=>{};
 let textPan={x:0,y:0};
 const toolNames = {select:'選択・移動',pen:'ボールペン',brush:'筆ペン',marker:'サインペン',highlighter:'蛍光マーカー',correction:'修正液',text:'文字',line:'線',arrow:'矢印',rect:'四角',ellipse:'楕円'};
 const labels = {text:'文字',stroke:'筆跡',line:'線',shape:'図形'};
@@ -110,7 +109,7 @@ sheet.append(sheetActions);
 function cancelStyleDraft(){if(styleDraft){settings[styleDraft.key]=styleDraft.before;styleDraft=null;syncStyle();render();}}
 function restoreSheetPanel(){if(sheetPanel){sheetPlaceholder.replaceWith(sheetPanel);if(sheetPanel===layerPanel)layerPanel.hidden=true;sheetPanel=null;}body.classList.remove('sheet-open');}
 function closeSheet(){if(sheet.open){cancelStyleDraft();restoreSheetPanel();sheet.close();}}
-sheet.addEventListener('close',()=>{if(sheet.open)return;cancelStyleDraft();restoreSheetPanel();queueToolsHide();});
+sheet.addEventListener('close',()=>{if(sheet.open)return;cancelStyleDraft();restoreSheetPanel();});
 for(const button of root.querySelectorAll('[data-panel]'))button.onclick=()=>{
     if(sheet.open)closeSheet();
     const name=button.dataset.panel;sheetPanel=panels[name];if(name==='layers'){layerPanel.hidden=false;updateLayersPanel();}sheetPlaceholder=document.createComment('panel');sheetPanel.before(sheetPlaceholder);
@@ -215,7 +214,6 @@ function syncStyle(fromSelection=false){
         $('active-tool-label').title=tool==='select'&&!o?'ページ上の書き込みを選択':o?'選択した書き込みの設定':'色・太さなどを調整';
         $('active-tool-label').dataset.configurable=!!o||!selectionTool();
     }
-    if($('tools-reveal')){$('tools-reveal').setAttribute('aria-label',innerWidth<900?'道具ドロワー：下へスワイプで開く、上へスワイプで閉じる':`${toolNames[tool]}を使用中。道具を表示`);$('tools-reveal').title=innerWidth<900?'上下にスワイプして道具を出し入れ':'上端に触れて道具を表示';$('reveal-icon').innerHTML=toolIcons[tool]||'<path d="M8 3h8v10l-4 8-4-8ZM8 13h8M12 16v5"/>';}
     $('arrow-control').hidden=!lineStyle;$('arrow-start').checked=['start','both'].includes(config.arrow);$('arrow-end').checked=['end','both'].includes(config.arrow);$('arrow-head').value=config.arrowHead||'open';
     $('line-style-control').hidden=!shapeStyle&&!lineStyle;syncStyleChoices(root,config);
     $('selection-hint').textContent=group?'変更した色・太さだけを一括適用します。文字は色のみ変更します。':o?.type==='line'?'両端の点をドラッグして再編集。近くの端点にスナップします。':o?.type==='shape'?'8個のハンドルで再編集。Ctrlで正方形・正円。':key==='brush'?'動きの速さと向きで起筆・送筆・収筆を疑似表現します。':'';
@@ -583,7 +581,7 @@ function textDialog(p,existing,box) {
     }else $('text-dialog').showModal();
     $('text').focus({preventScroll:true});
 }
-function endTextView(){delete body.dataset.textEditing;textPan={x:0,y:0};host?.textView?.(null);queueToolsHide();}
+function endTextView(){delete body.dataset.textEditing;textPan={x:0,y:0};host?.textView?.(null);}
 function cancelText(){if(!busy){textSerial++;$('text-dialog').close();textPlacement=null;endTextView();render();}}
 function inlineTextSignature(){return JSON.stringify([$('text').value,...['font','size','weight','color'].map(id=>$(`text-${id}`).value),$('text-vertical').checked,textPlacement?.box,textFrame()]);}
 $('text-cancel').onclick=cancelText;
@@ -746,16 +744,11 @@ function layoutChrome(paper){
     const key=JSON.stringify([innerWidth,innerHeight,paper,controls,header,safe]);if(key===lastChromeLayout)return;lastChromeLayout=key;
     const layout=writingChromeLayout({width:innerWidth,height:innerHeight,paper,controls,header,safe});body.dataset.toolsLayout=layout.mode;body.dataset.short=layout.short;
     const rect=(el,r)=>Object.assign(el.style,{left:`${r.left}px`,top:`${r.top}px`,width:r.width?`${r.width}px`:'',height:r.height?`${r.height}px`:''});
-    const atShelf=r=>layout.rail?{...r,top:r.top+layout.rail.top}:r;
-    rect($('pen-tray'),atShelf(layout.pens));rect($('tool-field'),atShelf(layout.tools));rect($('native-history'),atShelf(layout.history));
-    const rail=$('tool-scroll');if(layout.rail)rect(rail,{...layout.rail,top:0,height:layout.rail.top+layout.rail.height});else rail.removeAttribute('style');
-    body.style.setProperty('--pen-size',`${layout.size}px`);body.style.setProperty('--pen-gap',`${layout.gap}px`);body.style.setProperty('--tool-columns',layout.tools.columns);
-    body.style.setProperty('--dock-bottom',`${Math.max(layout.rail?layout.rail.top+layout.rail.height:layout.pens.top+layout.pens.height,layout.rail?0:layout.tools.top+layout.tools.height,layout.rail?0:layout.history.top+44)+8}px`);
+    rect($('pen-tray'),layout.pens);rect($('tool-field'),layout.tools);rect($('native-history'),layout.history);
+    rect($('tool-scroll'),layout.rail);
+    $('tool-scroll-track').style.width=`${layout.trackWidth}px`;
+    body.style.setProperty('--pen-size',`${layout.size}px`);body.style.setProperty('--pen-gap',`${layout.gap}px`);
     rect($('active-tool-label'),layout.context);
-    body.style.setProperty('--context-tools-top',`${layout.tools.top+layout.tools.height+6}px`);
-    body.style.setProperty('--context-tools-left',`${layout.tools.left}px`);
-    body.style.setProperty('--context-tools-width',`${layout.tools.width}px`);
-    body.style.setProperty('--tools-top',`${layout.top}px`);body.style.setProperty('--safe-top',`${safe.top}px`);
     if(sheet.open)positionSheet();
     if(host&&$('text-dialog').open)positionInlineText();
 }
@@ -787,7 +780,8 @@ if(host){
     const toolbar=document.createElement('div');toolbar.className='native-tools';
     const rail=document.createElement('div');rail.id='tool-scroll';rail.setAttribute('role','region');rail.setAttribute('aria-label','左右にスワイプして道具を選択');rail.tabIndex=0;
     const track=document.createElement('div');track.id='tool-scroll-track';track.append($('tool-field'),$('pen-tray'));rail.append(track);toolbar.append(rail);root.append(toolbar);
-    rail.addEventListener('scroll',()=>{queueToolsHide();},{passive:true});
+    // Keep trackpad scrolling in this rail; the Reader also listens for wheel turns.
+    rail.addEventListener('wheel',e=>e.stopPropagation(),{passive:true});
     rail.addEventListener('keydown',e=>{if(e.target===rail&&['ArrowLeft','ArrowRight'].includes(e.key)){e.preventDefault();e.stopPropagation();rail.scrollBy({left:e.key==='ArrowRight'?160:-160,behavior:'smooth'});}});
     let railStart,railMoved=false;
     rail.addEventListener('pointerdown',e=>{railStart=[e.clientX,e.clientY];railMoved=false;},{capture:true});
@@ -804,43 +798,18 @@ if(host){
         if(id!=='layers')b.innerHTML=`<svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${{undo:'<path d="m8 5-5 5 5 5M3 10h11a6 6 0 0 1 6 6v2"/>',redo:'<path d="m16 5 5 5-5 5m5-5H10a6 6 0 0 0-6 6v2"/>',fit:'<path d="M8 3H3v5m13-5h5v5M3 16v5h5m13-5v5h-5"/>',timeline:'<path d="M4 8a9 9 0 1 1 0 8M4 3v5h5M12 7v6l4 2"/>'}[id]}</svg>`;
         b.onclick=()=>{cancelGesture();if(id==='fit')host.resetView?.();else if(['layers','timeline'].includes(id)){sheetAnchor=b;root.querySelector(`[data-panel="${id==='timeline'?'history':'layers'}"]`).click();}else $(id).click();};historyBar.append(b);
     }track.prepend(historyBar);
-    const cycle=document.createElement('button');cycle.id='tool-cycle';cycle.type='button';cycle.title='ペン → 道具 → 非表示';
-    const cycleIcons={pens:'<path d="M8 3h8v10l-4 8-4-8ZM8 13h8M12 16v5"/>',tools:'<path d="m3 3 8 5-5 1-1 5Z"/><rect x="13" y="3" width="8" height="8"/><circle cx="16" cy="18" r="4"/>',hidden:'<path d="m3 3 18 18M3 12s3-6 9-6 9 6 9 6-3 6-9 6-9-6-9-6Z"/>'};
-    function cycleLabel(){const state=body.dataset.tools;cycle.innerHTML=`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" aria-hidden="true">${cycleIcons[{pens:'tools',tools:'hidden',hidden:'pens'}[state]]}</svg>`;cycle.setAttribute('aria-label',`道具の表示：${{pens:'ペン',tools:'道具',hidden:'非表示'}[state]}。押すと${{pens:'道具',tools:'非表示',hidden:'ペン'}[state]}`);cycle.title=cycle.getAttribute('aria-label');}
-    cycle.onclick=()=>{body.dataset.tools={pens:'tools',tools:'hidden',hidden:'pens'}[body.dataset.tools];cycleLabel();};cycleLabel();root.append(cycle);
-    const edge=document.createElement('button');edge.id='tools-reveal';edge.type='button';edge.setAttribute('aria-label','道具を表示');edge.title='上端に触れて道具を表示';edge.innerHTML='<span><svg id="reveal-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"></svg><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="m8 9 4 4 4-4"/></svg></span>';root.append(edge);
-    let hideTimer,hovered=false;
-    const stow=()=>{clearTimeout(hideTimer);hideTip();body.dataset.toolsStowed='true';toolbar.inert=true;cycle.inert=true;historyBar.inert=true;edge.tabIndex=0;edge.setAttribute('aria-expanded','false');};
-    queueToolsHide=()=>{clearTimeout(hideTimer);if(innerWidth<900)return;hideTimer=setTimeout(()=>{
-        const focused=root.activeElement,keyboardFocus=focused?.matches(':focus-visible')&&(toolbar.contains(focused)||historyBar.contains(focused));
-        if(sheet.open||$('text-dialog').open||hovered||keyboardFocus){queueToolsHide();return;}
-        stow();
-    },3500);};
-    const reveal=()=>{body.dataset.toolsStowed='false';toolbar.inert=false;cycle.inert=false;historyBar.inert=false;if(body.dataset.tools==='hidden'){body.dataset.tools='pens';cycleLabel();}edge.tabIndex=innerWidth<900?0:-1;edge.setAttribute('aria-expanded','true');queueToolsHide();};
-    // Keep the hover target until the pointer leaves: the following click must not become an ink dot.
-    edge.onclick=()=>{if(innerWidth<900&&body.dataset.toolsStowed!=='true')stow();else reveal();};edge.onpointerenter=e=>{if(e.pointerType==='mouse'&&innerWidth>=900){edge.dataset.hot='true';reveal();}};edge.onpointerleave=()=>{edge.dataset.hot='false';};
-    toolbar.onpointerenter=e=>{if(e.pointerType==='mouse'){hovered=true;clearTimeout(hideTimer);}};
-    toolbar.onpointerleave=()=>{hovered=false;queueToolsHide();};
-    toolbar.addEventListener('pointerdown',()=>clearTimeout(hideTimer));toolbar.addEventListener('pointerup',queueToolsHide);toolbar.addEventListener('pointercancel',queueToolsHide);
-    toolbar.addEventListener('focusin',reveal);cycle.addEventListener('click',queueToolsHide);
-    lifetime.signal.addEventListener('abort',()=>clearTimeout(hideTimer),{once:true});reveal();
     const showPanel=(name,anchor=activeTool)=>{closeSheet();sheetAnchor=anchor;root.querySelector(`[data-panel="${name}"]`).click();};
     const tooltip=document.createElement('div');tooltip.id='writing-tool-tip';tooltip.setAttribute('role','tooltip');tooltip.hidden=true;root.append(tooltip);
     let tooltipTarget,tooltipTitle;
     const hideTip=()=>{tooltip.hidden=true;if(tooltipTarget){tooltipTarget.removeAttribute('aria-describedby');if(tooltipTitle)tooltipTarget.title=tooltipTitle;}tooltipTarget=null;};
     for(const b of [...root.querySelectorAll('[data-tool]'),...historyBar.children]){
-        const showTip=()=>{if(body.dataset.toolsStowed==='true')return;hideTip();tooltipTarget=b;tooltipTitle=b.title;b.removeAttribute('title');tooltip.textContent=t(tooltipTitle||b.getAttribute('aria-label'));tooltip.hidden=false;b.setAttribute('aria-describedby',tooltip.id);const r=b.getBoundingClientRect(),w=tooltip.getBoundingClientRect().width;tooltip.style.left=`${Math.max(8,Math.min(innerWidth-w-8,r.left+r.width/2-w/2))}px`;tooltip.style.top=`${r.bottom+6}px`;};
+        const showTip=()=>{hideTip();tooltipTarget=b;tooltipTitle=b.title;b.removeAttribute('title');tooltip.textContent=t(tooltipTitle||b.getAttribute('aria-label'));tooltip.hidden=false;b.setAttribute('aria-describedby',tooltip.id);const r=b.getBoundingClientRect(),w=tooltip.getBoundingClientRect().width;tooltip.style.left=`${Math.max(8,Math.min(innerWidth-w-8,r.left+r.width/2-w/2))}px`;tooltip.style.top=`${Math.max(8,r.top-tooltip.getBoundingClientRect().height-8)}px`;};
         b.addEventListener('pointerenter',e=>{if(e.pointerType==='mouse')showTip();});b.addEventListener('pointerleave',hideTip);b.addEventListener('focus',()=>{if(b.matches(':focus-visible'))showTip();});b.addEventListener('blur',hideTip);b.addEventListener('pointerdown',hideTip);
     }
     rail.addEventListener('scroll',hideTip,{passive:true});
     listenWindow('resize',hideTip);
     const toolHolds=new Set();
-    const drawer={enabled:()=>innerWidth<900&&!sheet.open&&!$('text-dialog').open,isOpen:()=>body.dataset.toolsStowed!=='true',
-        settle:open=>open?reveal():stow(),signal:lifetime.signal,
-        drag:(dy,open)=>{clearTimeout(hideTimer);for(const clear of toolHolds)clear();hideTip();body.dataset.drawerDragging='true';const distance=parseFloat(body.style.getPropertyValue('--dock-bottom'))||180,start=open?0:-distance,offset=Math.max(-distance,Math.min(0,start+dy));toolbar.style.transform=`translateY(${offset}px)`;},
-        finish:()=>{delete body.dataset.drawerDragging;toolbar.style.removeProperty('transform');edge.style.removeProperty('transform');}};
-    installWritingToolDrawer(edge,{...drawer,captureStart:true});installWritingToolDrawer(rail,drawer);
-    if(innerWidth<900)stow();
+    rail.addEventListener('scroll',()=>{for(const clear of toolHolds)clear();},{passive:true});
     activeTool.onclick=()=>{sheetAnchor=activeTool;if(selectedObject())openObjectSettings();else if(!selectionTool())showPanel('settings');};
     for(const b of root.querySelectorAll('[data-tool]')){
         // The selected tool opens its inspector on a second tap, just as a long press does.
@@ -853,7 +822,16 @@ if(host){
         b.addEventListener('click',e=>{if(held){e.stopImmediatePropagation();e.preventDefault();held=false;}},true);
         b.addEventListener('contextmenu',e=>{e.preventDefault();clear();if((b.dataset.tool==='select')){if(selectedObject())openObjectSettings();return;}setTool(b.dataset.tool);showPanel('settings',b);});
         b.addEventListener('keydown',e=>{if(e.key==='F2'&&!(b.dataset.tool==='select')){e.preventDefault();setTool(b.dataset.tool);showPanel('settings',b);}});
-        if(PEN_TOOLS.includes(b.dataset.tool)){const t=document.createElementNS('http://www.w3.org/2000/svg','text');t.classList.add('pen-width');t.setAttribute('x','30');t.setAttribute('y','48');t.setAttribute('text-anchor','middle');const unit=t.cloneNode();unit.classList.replace('pen-width','pen-unit');unit.setAttribute('y','62');unit.textContent='mm';b.querySelector('svg').append(t,unit);}
+        if(PEN_TOOLS.includes(b.dataset.tool)){
+            // Rotate the original artwork, including its long barrel and textured nib.
+            // Width labels remain outside the group, so they stay upright and readable.
+            const svg=b.querySelector('svg'),art=document.createElementNS('http://www.w3.org/2000/svg','g');
+            art.classList.add('pen-art');art.setAttribute('transform','translate(60 130) rotate(180)');
+            for(const child of [...svg.children])if(child.tagName.toLowerCase()!=='defs')art.append(child);
+            svg.append(art);
+            const t=document.createElementNS('http://www.w3.org/2000/svg','text');t.classList.add('pen-width');t.setAttribute('x','30');t.setAttribute('y','70');t.setAttribute('text-anchor','middle');
+            const unit=t.cloneNode();unit.classList.replace('pen-width','pen-unit');unit.setAttribute('y','85');unit.textContent='mm';svg.append(t,unit);
+        }
     }
     root.addEventListener('keydown',e=>{if(e.target.closest('dialog'))e.stopPropagation();});
     root.addEventListener('pointerdown',e=>e.stopPropagation());root.addEventListener('click',e=>e.stopPropagation());
