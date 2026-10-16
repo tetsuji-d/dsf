@@ -1,19 +1,17 @@
-/** Bottom Writing rail. All coordinates inside the rail are local, never page-scaled. */
-export function writingChromeLayout({width,height,controls=[],safe={left:0,right:0,top:0,bottom:0}}){
-    const mobile=width<900,edge=Math.max(8,safe.left,safe.right),available=width-edge*2-(mobile?0:64);
-    const size=mobile?48:available<800?44:available<830?48:54,gap=size===44?0:4,groupGap=size===44?12:24;
-    const historyWidth=mobile?176:220,toolsLeft=historyWidth+groupGap,pensLeft=toolsLeft+264+groupGap;
+/** Writing occupies a segment of the Reader's single, horizontally scrollable row. */
+export function writingChromeLayout({width,height,safe={left:0,right:0,top:0,bottom:0}}){
+    const compact=width<900,edge=Math.max(8,safe.left,safe.right),size=compact?48:54,gap=4;
+    const historyWidth=compact?176:220,toolsLeft=historyWidth+24,pensLeft=toolsLeft+264+24;
     const trackWidth=pensLeft+size*5+gap*4+12,railHeight=116;
-    // Compact screens keep the Reader's navigation row below the tools.
-    const readerBottom=controls.filter(r=>r.width>r.height&&r.top>height*.6).reduce((n,r)=>Math.max(n,height-r.top+8),0);
-    const bottom=Math.max(Math.max(8,safe.bottom)+(mobile?58:0),readerBottom);
-    const railWidth=Math.min(trackWidth,available),left=edge+(available-railWidth)/2,top=Math.max(safe.top,height-bottom-railHeight);
-    return {mode:mobile?'scroll':'full',short:height<520,size,gap,top,trackWidth,
+    // Six existing Reader buttons, plus the six gaps around the inserted Writing segment.
+    const totalWidth=trackWidth+6*44+6*6,railWidth=Math.min(totalWidth,width-edge*2);
+    const left=(width-railWidth)/2,top=Math.max(safe.top,height-Math.max(8,safe.bottom)-railHeight);
+    return {mode:railWidth<totalWidth?'scroll':'full',compact,short:height<520,size,gap,top,trackWidth,totalWidth,
         rail:{left,top,width:railWidth,height:railHeight},
         pens:{left:pensLeft,top:8,width:size*5+gap*4,height:108},
         tools:{left:toolsLeft,top:60,width:264,height:52,columns:6},
         history:{left:8,top:64,width:historyWidth,height:44},
-        context:{left,top,width:railWidth,height:44}};
+        context:{left:left+100,top,width:Math.min(trackWidth,railWidth),height:44}};
 }
 
 /** Pan, never shrink, a page-aligned text box into the area above the keyboard. */

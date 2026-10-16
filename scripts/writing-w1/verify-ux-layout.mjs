@@ -6,13 +6,14 @@ const fixtures=[[320,568],[390,844],[768,1024],[820,1180],[812,390],[844,390],[9
 for(const [width,height] of fixtures){
  for(const safe of [{left:0,right:0,top:0,bottom:0},{left:44,right:44,top:47,bottom:34}]){
   const a=writingChromeLayout({width,height,safe});
-  assert.equal(a.mode,width<900?'scroll':'full');assert.ok(a.size>=44);
+  assert.equal(a.mode,a.totalWidth>width-Math.max(8,safe.left,safe.right)*2?'scroll':'full');assert.ok(a.size>=44);
   const r=a.rail;assert.ok(r.left>=safe.left&&r.top>=safe.top&&r.left+r.width<=width-safe.right&&r.top+r.height<=height-safe.bottom);
   assert.equal(a.tools.columns,6);assert.ok(a.history.left+a.history.width<a.tools.left);assert.ok(a.tools.left+a.tools.width<a.pens.left);
   assert.equal(a.history.top+22,a.tools.top+26,'Action and drawing tools share one baseline');
   for(const item of [a.history,a.tools,a.pens])assert.ok(item.left>=0&&item.left+item.width<=a.trackWidth&&item.top+item.height<=r.height);
-  if(width>=900){assert.ok(a.trackWidth<=r.width,'Desktop exposes every tool without scrolling');assert.ok(r.left+r.width<=width-Math.max(8,safe.right)-64,'Keep the Reader controls clear at the right edge');}
-  else assert.ok(r.top+r.height<=height-Math.max(8,safe.bottom)-58,'Reader navigation stays below the rail');
+  assert.equal(a.totalWidth,a.trackWidth+300,'Six Reader controls and Writing occupy the same row');
+  assert.equal(r.top+r.height,height-Math.max(8,safe.bottom),'Only one bottom row is reserved');
+  if(width>=1200)assert.equal(a.mode,'full','Wide desktop shows all Reader and Writing controls together');
   for(const panel of ['layers','history','settings']){
    const anchor={left:r.left+a.history.left,top:r.top+a.history.top,width:44,right:r.left+a.history.left+44,bottom:r.top+a.history.top+44};
    const pos=writingInspectorPlacement({width,height,anchor,panel});
@@ -20,8 +21,6 @@ for(const [width,height] of fixtures){
   }
  }
 }
-const shortDesktop=writingChromeLayout({width:1200,height:390,controls:[{left:400,top:336,width:330,height:44}]});
-assert.ok(shortDesktop.rail.top+shortDesktop.rail.height<=328,'Bottom Reader controls also stay clear on short desktop windows');
 const ellipse={type:'shape',shape:'ellipse',rect:[40,50,240,180],width:2,fill:null};
 for(const width of [320,390,844])for(const height of [340,480,844])for(const y of [20,240,600]){
  const box={left:width/2-80,top:y,width:160,height:100},viewport={left:0,top:0,width,height};
@@ -51,4 +50,4 @@ const stroke={type:'stroke',tool:'pen',points:[{x:30,y:120,width:2},{x:260,y:150
 assert.equal(writingHitTest(stroke,{x:160,y:137}),true);assert.equal(writingHitTest(stroke,{x:30,y:150}),false);
 const marker={...stroke,tool:'highlighter',points:[{x:30,y:120,width:20},{x:260,y:120,width:20}]};
 assert.equal(writingHitTest(marker,{x:100,y:129},0),true);assert.equal(writingHitTest(marker,{x:20,y:120},0),false);
-console.log('9 bottom-dock viewport layouts and safe insets: all desktop tools, mobile scroll bounds, Reader navigation clearance, aligned controls and inspector bounds passed; hollow/filled shapes, diagonal ink and marker hit tests passed.');
+console.log('9 bottom-dock viewport layouts and safe insets: all desktop tools, mobile scroll bounds, single-row Reader integration, aligned controls and inspector bounds passed; hollow/filled shapes, diagonal ink and marker hit tests passed.');

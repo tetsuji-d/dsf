@@ -738,14 +738,14 @@ function layoutHost(){
     $('page-wrap').hidden=hostView.suspended;
 }
 function layoutChrome(paper){
-    const controls=[...document.querySelectorAll('#viewer-reader-controls,.viewer-page-segments')].map(e=>e.getBoundingClientRect()).filter(r=>r.width&&r.height).map(r=>({left:r.left,top:r.top,right:r.right,bottom:r.bottom,width:r.width,height:r.height}));
     const inset=getComputedStyle($('chrome-safe')),safe={left:parseFloat(inset.paddingLeft)||0,right:parseFloat(inset.paddingRight)||0,top:parseFloat(inset.paddingTop)||0,bottom:parseFloat(inset.paddingBottom)||0};
-    const hr=document.querySelector('#viewer-header .ui-controls')?.getBoundingClientRect(),header=hr?{left:hr.left,top:hr.top,right:hr.right,bottom:hr.bottom,width:hr.width,height:hr.height}:null;
-    const key=JSON.stringify([innerWidth,innerHeight,paper,controls,header,safe]);if(key===lastChromeLayout)return;lastChromeLayout=key;
-    const layout=writingChromeLayout({width:innerWidth,height:innerHeight,paper,controls,header,safe});body.dataset.toolsLayout=layout.mode;body.dataset.short=layout.short;
+    const key=JSON.stringify([innerWidth,innerHeight,safe]);if(key===lastChromeLayout)return;lastChromeLayout=key;
+    const layout=writingChromeLayout({width:innerWidth,height:innerHeight,safe});body.dataset.toolsLayout=layout.mode;body.dataset.compact=layout.compact;
+    const readerRail=document.getElementById('viewer-reader-controls');
+    readerRail.style.setProperty('--writing-dock-left',`${layout.rail.left}px`);readerRail.style.setProperty('--writing-dock-top',`${layout.rail.top}px`);readerRail.style.setProperty('--writing-dock-width',`${layout.rail.width}px`);
+    body.style.setProperty('--writing-track-width',`${layout.trackWidth}px`);
     const rect=(el,r)=>Object.assign(el.style,{left:`${r.left}px`,top:`${r.top}px`,width:r.width?`${r.width}px`:'',height:r.height?`${r.height}px`:''});
     rect($('pen-tray'),layout.pens);rect($('tool-field'),layout.tools);rect($('native-history'),layout.history);
-    rect($('tool-scroll'),layout.rail);
     $('tool-scroll-track').style.width=`${layout.trackWidth}px`;
     body.style.setProperty('--pen-size',`${layout.size}px`);body.style.setProperty('--pen-gap',`${layout.gap}px`);
     rect($('active-tool-label'),layout.context);
@@ -778,15 +778,18 @@ if(host){
     const prepare=$('prepare');prepare.textContent='入力用書体の準備';root.querySelector('.save-panel').append(prepare);
     $('offline-status').textContent='準備した入力用書体は通信なしでも使えます。Reader画面のオフライン起動は引き続き検証中です。';
     const toolbar=document.createElement('div');toolbar.className='native-tools';
-    const rail=document.createElement('div');rail.id='tool-scroll';rail.setAttribute('role','region');rail.setAttribute('aria-label','左右にスワイプして道具を選択');rail.tabIndex=0;
+    const rail=document.createElement('div');rail.id='tool-scroll';rail.setAttribute('role','group');rail.setAttribute('aria-label','道具');
     const track=document.createElement('div');track.id='tool-scroll-track';track.append($('tool-field'),$('pen-tray'));rail.append(track);toolbar.append(rail);root.append(toolbar);
-    // Keep trackpad scrolling in this rail; the Reader also listens for wheel turns.
-    rail.addEventListener('wheel',e=>e.stopPropagation(),{passive:true});
-    rail.addEventListener('keydown',e=>{if(e.target===rail&&['ArrowLeft','ArrowRight'].includes(e.key)){e.preventDefault();e.stopPropagation();rail.scrollBy({left:e.key==='ArrowRight'?160:-160,behavior:'smooth'});}});
+    const scrollRail=document.getElementById('viewer-reader-controls');
+    const oldTabIndex=scrollRail.getAttribute('tabindex');scrollRail.tabIndex=0;
+    lifetime.signal.addEventListener('abort',()=>{if(oldTabIndex===null)scrollRail.removeAttribute('tabindex');else scrollRail.setAttribute('tabindex',oldTabIndex);},{once:true});
+    // The real Reader rail owns scrolling, including both original controls and Writing.
+    scrollRail.addEventListener('wheel',e=>e.stopPropagation(),{passive:true,signal:lifetime.signal});
+    scrollRail.addEventListener('keydown',e=>{if(e.target===scrollRail&&['ArrowLeft','ArrowRight'].includes(e.key)){e.preventDefault();e.stopPropagation();scrollRail.scrollBy({left:e.key==='ArrowRight'?160:-160,behavior:'smooth'});}},{signal:lifetime.signal});
     let railStart,railMoved=false;
-    rail.addEventListener('pointerdown',e=>{railStart=[e.clientX,e.clientY];railMoved=false;},{capture:true});
-    rail.addEventListener('pointermove',e=>{if(railStart&&Math.hypot(e.clientX-railStart[0],e.clientY-railStart[1])>9)railMoved=true;},{capture:true});
-    rail.addEventListener('click',e=>{if(railMoved){e.preventDefault();e.stopImmediatePropagation();}railStart=null;},{capture:true});
+    scrollRail.addEventListener('pointerdown',e=>{railStart=[e.clientX,e.clientY];railMoved=false;},{capture:true,signal:lifetime.signal});
+    scrollRail.addEventListener('pointermove',e=>{if(railStart&&Math.hypot(e.clientX-railStart[0],e.clientY-railStart[1])>9)railMoved=true;},{capture:true,signal:lifetime.signal});
+    scrollRail.addEventListener('click',e=>{if(railMoved){e.preventDefault();e.stopImmediatePropagation();}railStart=null;},{capture:true,signal:lifetime.signal});
     const safe=document.createElement('span');safe.id='chrome-safe';root.append(safe);
     const activeTool=document.createElement('button');activeTool.id='active-tool-label';activeTool.type='button';
     activeTool.innerHTML='<span class="active-tool-swatch" aria-hidden="true"></span><span id="active-tool-name"></span><span id="active-tool-detail"></span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="m9 5 7 7-7 7"/></svg>';
@@ -806,10 +809,10 @@ if(host){
         const showTip=()=>{hideTip();tooltipTarget=b;tooltipTitle=b.title;b.removeAttribute('title');tooltip.textContent=t(tooltipTitle||b.getAttribute('aria-label'));tooltip.hidden=false;b.setAttribute('aria-describedby',tooltip.id);const r=b.getBoundingClientRect(),w=tooltip.getBoundingClientRect().width;tooltip.style.left=`${Math.max(8,Math.min(innerWidth-w-8,r.left+r.width/2-w/2))}px`;tooltip.style.top=`${Math.max(8,r.top-tooltip.getBoundingClientRect().height-8)}px`;};
         b.addEventListener('pointerenter',e=>{if(e.pointerType==='mouse')showTip();});b.addEventListener('pointerleave',hideTip);b.addEventListener('focus',()=>{if(b.matches(':focus-visible'))showTip();});b.addEventListener('blur',hideTip);b.addEventListener('pointerdown',hideTip);
     }
-    rail.addEventListener('scroll',hideTip,{passive:true});
+    scrollRail.addEventListener('scroll',()=>{hideTip();if(sheet.open)positionSheet();},{passive:true,signal:lifetime.signal});
     listenWindow('resize',hideTip);
     const toolHolds=new Set();
-    rail.addEventListener('scroll',()=>{for(const clear of toolHolds)clear();},{passive:true});
+    scrollRail.addEventListener('scroll',()=>{for(const clear of toolHolds)clear();},{passive:true,signal:lifetime.signal});
     activeTool.onclick=()=>{sheetAnchor=activeTool;if(selectedObject())openObjectSettings();else if(!selectionTool())showPanel('settings');};
     for(const b of root.querySelectorAll('[data-tool]')){
         // The selected tool opens its inspector on a second tap, just as a long press does.

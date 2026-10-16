@@ -17,13 +17,16 @@ body.reader-writing-active #viewer-header .viewer-brand-navigation{pointer-event
 body.reader-writing-active #viewer-layout{touch-action:none}
 body.reader-writing-active button,body.reader-writing-active select{touch-action:manipulation}
 
-/* Keep Reader navigation reachable while the bottom Writing rail is expanded. */
-@media(max-width:899px){
- body.reader-writing-active #viewer-reader-controls{left:50%;top:auto;bottom:max(8px,env(safe-area-inset-bottom));right:auto;transform:translateX(-50%);flex-direction:row;gap:6px;--reader-control-size:44px}
- body.reader-writing-active #viewer-reader-controls button{flex-shrink:0}
- body.reader-writing-active.reader-writing-text-editing #viewer-reader-controls{visibility:hidden;pointer-events:none}
+/* Insert Writing directly after the pencil; the existing controls share its scroll row.
+   No transform or containment here: the page-aligned input surface stays viewport-fixed. */
+body.reader-writing-active #viewer-reader-controls{
+ left:var(--writing-dock-left,8px);top:var(--writing-dock-top);right:auto;bottom:auto;
+ width:var(--writing-dock-width,calc(100vw - 16px));height:116px;box-sizing:border-box;
+ transform:none;flex-direction:row;align-items:flex-end;gap:6px;padding:0 0 8px;
+ overflow-x:auto;overflow-y:hidden;overscroll-behavior-x:contain;scrollbar-width:none;
+ touch-action:pan-x;--reader-control-size:44px;pointer-events:auto;
 }
-
-@media(min-width:900px){
- body.reader-writing-active #viewer-reader-controls{left:auto;right:max(8px,env(safe-area-inset-right))}
-}
+body.reader-writing-active #viewer-reader-controls::-webkit-scrollbar{display:none}
+body.reader-writing-active #viewer-reader-controls>button{flex:0 0 44px;position:relative;inset:auto;z-index:3;touch-action:pan-x}
+body.reader-writing-active.reader-writing-text-editing #viewer-reader-controls{visibility:visible;pointer-events:none}
+body.reader-writing-active.reader-writing-text-editing #viewer-reader-controls>button{visibility:hidden;pointer-events:none}
