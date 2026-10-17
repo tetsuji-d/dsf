@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import {writingBackdropStyle,writingImageRect} from '../../js/reader-writing-contrast.js';
+import {writingBackdropStyle,writingImageRect,createWritingContrast} from '../../js/reader-writing-contrast.js';
 const pixels=(color,n=144)=>new Uint8ClampedArray(Array.from({length:n},()=>[...color,255]).flat());
 assert.deepEqual(writingBackdropStyle(pixels([15,25,55])),{tone:'dark',mixed:false});
 assert.deepEqual(writingBackdropStyle(pixels([249,246,228]),'dark'),{tone:'light',mixed:false});
@@ -14,3 +14,19 @@ assert.deepEqual(writingImageRect(box,200,100,'contain'),{left:100,top:75,width:
 assert.deepEqual(writingImageRect(box,200,100,'cover','100% 50%'),{left:0,top:50,width:200,height:100});
 assert.deepEqual(writingImageRect(box,200,100,'fill'),box);
 console.log('Backdrop: dark/light/mixed, unreadable fallback, hysteresis and image crop mapping passed.');
+
+// Exercise page invalidation with two entire tool groups outside the viewport.
+let pending,background=[15,25,55],samples=0;
+const rect=(left,width)=>({left,right:left+width,top:700,bottom:744,width,height:44});
+const groups=[0,200,500].map(left=>({dataset:{},getBoundingClientRect:()=>rect(left,180)}));
+const rail={scrollWidth:800,clientWidth:190,getBoundingClientRect:()=>rect(0,190)};
+const ctx={setTransform(){},fillRect(){},getImageData(){samples++;return {data:pixels(background)};}};
+const doc={documentElement:{},body:{},createElement:()=>({getContext:()=>ctx}),querySelectorAll:()=>[],addEventListener(){},removeEventListener(){},defaultView:{innerWidth:190,innerHeight:844,setTimeout:fn=>{pending=fn;return 0;},getComputedStyle:()=>({backgroundColor:'#fff',backgroundImage:'none'}),MutationObserver:class{observe(){} disconnect(){}}}};
+const contrast=createWritingContrast({documentRef:doc,groups,rail,isVisible:()=>true});
+contrast.invalidate();pending();
+assert.ok(groups.every(group=>group.dataset.backdrop==='dark'),'hidden tools must receive the page tone before scrolling');
+assert.equal(samples,1,'a mobile rail uses one backdrop sample');
+background=[249,246,228];contrast.invalidate();pending();
+assert.ok(groups.every(group=>group.dataset.backdrop==='light'),'page changes update all offscreen tools');
+contrast.dispose();
+console.log('Scrollable rail: all hidden groups update together on page changes.');

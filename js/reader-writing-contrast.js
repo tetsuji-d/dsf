@@ -63,16 +63,22 @@ export function createWritingContrast({documentRef=document,groups,rail,isVisibl
         timer=null;if(disposed||!isVisible())return;
         const viewport={left:0,top:0,right:win.innerWidth,bottom:win.innerHeight};
         const clip=intersect(viewport,rail.getBoundingClientRect());if(!clip)return;
+        // A scrolling rail is one stable surface: update hidden tools too, before
+        // they enter the viewport. Scrolling changes tools, not the backdrop area.
+        const shared=rail.scrollWidth>rail.clientWidth+1;
+        const frame=groups[0]?.getBoundingClientRect();
+        const sharedBox=shared&&frame?intersect(clip,{...clip,top:frame.top,bottom:frame.bottom}):null;
+        const classify=(box,previous)=>{try{return writingBackdropStyle(sample(box),previous);}catch{return {tone:'dark',mixed:true};}};
+        const sharedStyle=sharedBox?classify(sharedBox,groups[0].dataset.backdrop):null;
         for(const group of groups){
-            const box=intersect(clip,group.getBoundingClientRect());if(!box)continue;
-            let result;try{result=writingBackdropStyle(sample(box),group.dataset.backdrop);}catch{result={tone:'dark',mixed:true};}
+            const box=sharedBox||intersect(clip,group.getBoundingClientRect());if(!box)continue;
+            const result=sharedStyle||classify(box,group.dataset.backdrop);
             group.dataset.backdrop=result.tone;group.dataset.backdropMixed=String(result.mixed);
         }
     }
     function invalidate(){if(disposed)return;clearTimeout(timer);timer=win.setTimeout(update,80);}
     const onImage=e=>{if(e.target?.matches?.('img')&&e.target.closest('[data-writing-page]'))invalidate();};
     documentRef.addEventListener('load',onImage,true);documentRef.addEventListener('error',onImage,true);
-    rail.addEventListener('scroll',invalidate,{passive:true});
     const theme=new win.MutationObserver(invalidate);theme.observe(documentRef.body,{attributes:true,attributeFilter:['data-theme']});
-    return {invalidate,dispose(){disposed=true;clearTimeout(timer);theme.disconnect();rail.removeEventListener('scroll',invalidate);documentRef.removeEventListener('load',onImage,true);documentRef.removeEventListener('error',onImage,true);canvas.width=canvas.height=0;}};
+    return {invalidate,dispose(){disposed=true;clearTimeout(timer);theme.disconnect();documentRef.removeEventListener('load',onImage,true);documentRef.removeEventListener('error',onImage,true);canvas.width=canvas.height=0;}};
 }
