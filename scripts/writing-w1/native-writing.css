@@ -28,7 +28,6 @@ main,.reading{display:contents!important}#viewport{display:contents}#page-wrap{p
 .pen-item svg{position:absolute;left:0;top:18px;width:var(--pen-size);height:calc(var(--pen-size)*130/60);overflow:visible;filter:drop-shadow(1px 2px 2px #183e3840);transform:translateY(12px);transition:transform .2s ease}
 .pen-item:hover svg{transform:translateY(6px)}
 .pen-item[aria-pressed=true] svg{transform:translateY(0)}
-.pen-item[aria-pressed=true]::after{content:'';position:absolute;left:8px;right:8px;bottom:2px;border-bottom:2px solid #276f63}
 .pen-item span{display:none}
 .pen-width{font:650 14px system-ui;fill:#25373c;paint-order:stroke;stroke:#fff9;stroke-width:1px}.pen-brush .pen-width{fill:white;stroke:#25373c}
 #tool-field{position:absolute;pointer-events:auto;margin:0;border:0;padding:0;max-width:none}#tool-field legend{display:none}

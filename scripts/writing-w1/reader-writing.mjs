@@ -862,7 +862,10 @@ if(host){
     let tooltipTarget,tooltipTitle;
     const hideTip=()=>{tooltip.hidden=true;if(tooltipTarget){tooltipTarget.removeAttribute('aria-describedby');if(tooltipTitle)tooltipTarget.title=tooltipTitle;}tooltipTarget=null;};
     for(const b of [...root.querySelectorAll('[data-tool]'),...historyBar.children]){
-        const showTip=()=>{hideTip();tooltipTarget=b;tooltipTitle=b.title;b.removeAttribute('title');tooltip.textContent=t(tooltipTitle||b.getAttribute('aria-label'));tooltip.hidden=false;b.setAttribute('aria-describedby',tooltip.id);const r=b.getBoundingClientRect(),w=tooltip.getBoundingClientRect().width;tooltip.style.left=`${Math.max(8,Math.min(innerWidth-w-8,r.left+r.width/2-w/2))}px`;tooltip.style.top=`${Math.max(8,r.top-tooltip.getBoundingClientRect().height-8)}px`;};
+        const showTip=()=>{hideTip();tooltipTarget=b;tooltipTitle=b.title;b.removeAttribute('title');tooltip.textContent=t(tooltipTitle||b.getAttribute('aria-label'));tooltip.hidden=false;b.setAttribute('aria-describedby',tooltip.id);
+            // Include the protruding pen artwork and its hover/selection travel, not just the 44px button.
+            const r=(b.querySelector('.pen-visual')||b).getBoundingClientRect(),w=tooltip.getBoundingClientRect().width;
+            tooltip.style.left=`${Math.max(8,Math.min(innerWidth-w-8,r.left+r.width/2-w/2))}px`;tooltip.style.top=`${Math.max(8,r.top-tooltip.getBoundingClientRect().height-8)}px`;};
         b.addEventListener('pointerenter',e=>{if(e.pointerType==='mouse')showTip();});b.addEventListener('pointerleave',hideTip);b.addEventListener('focus',()=>{if(b.matches(':focus-visible'))showTip();});b.addEventListener('blur',hideTip);b.addEventListener('pointerdown',hideTip);
     }
     rail.addEventListener('scroll',()=>{hideTip();if(sheet.open)positionSheet();},{passive:true});
