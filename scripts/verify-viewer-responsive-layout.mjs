@@ -67,6 +67,22 @@ for(const thickness of [8,32,64])for(const side of [-1,1]){
 }
 console.log('Responsive controls stay in safe viewport; curved single faces fit uniformly; page sequence has no skipped faces.');
 
+// The installed phone row follows the visible screen edge, not the paper.
+for(const [width,height,safeBottom] of [[390,844,34],[430,932,34],[320,568,0]])for(const count of [5,6]){
+    const viewport={left:0,top:13,width,height,safeTop:59,safeBottom};
+    const page={left:6,top:120,width:width-12,height:600,right:width-6};
+    const browser=readerControlLayout(viewport,page,count);
+    const pwa=readerControlLayout({...viewport,displayMode:'standalone'},page,count);
+    assert.equal(pwa.dock,'bottom');
+    assert.equal(pwa.top-browser.top,safeBottom?12:0);
+    assert.ok(pwa.top+pwa.height<=viewport.top+height-2);
+    assert.ok(pwa.size>=44&&pwa.width>=count*pwa.size);
+    assert.equal(pwa.top,readerControlLayout({...viewport,displayMode:'standalone'},{...page,top:200,height:400},count).top);
+}
+const landscape={width:844,height:390,safeLeft:47,safeRight:47,safeBottom:21};
+const landscapePage={left:310,top:20,width:220,height:350,right:530};
+assert.deepEqual(readerControlLayout({...landscape,displayMode:'standalone'},landscapePage,6),readerControlLayout(landscape,landscapePage,6));
+
 // PWA and browser heights fit the safe viewport without reserving menu rows.
 for(const [width,height] of [[320,568],[390,664],[390,844],[430,740],[430,932]])for(const safeTop of [0,47,59]){
  const v={left:0,top:13,width,height,safeTop,safeBottom:34,safeLeft:0,safeRight:0};

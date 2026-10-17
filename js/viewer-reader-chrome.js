@@ -215,12 +215,13 @@ export function initializeViewerReaderChrome({getSnapshot, onLayoutChange, befor
         const {rect, pages, title, total, thickness, busy} = snapshot;
         onPoseChange?.(mode,snapshot);
         const viewport=snapshot.viewport;
-        const controlLayout=readerControlLayout(viewport,getPeek()?.bounds||rect,writing&&!writing.hidden?6:5);
+        const displayMode=document.fullscreenElement||matchMedia('(display-mode: fullscreen)').matches?'fullscreen'
+            :matchMedia('(display-mode: standalone)').matches||navigator.standalone===true?'standalone':'browser';
+        const controlLayout=readerControlLayout({...viewport,displayMode},getPeek()?.bounds||rect,writing&&!writing.hidden?6:5);
         rail.dataset.dock=controlLayout.dock;
         document.body.classList.toggle('viewer-phone-centered',controlLayout.dock==='bottom');
         if(controlLayout.dock==='bottom')document.documentElement.style.setProperty('--reader-header-top',readerHeaderTop(viewport,rect.top)+'px');
-        rail.dataset.displayMode=document.fullscreenElement||matchMedia('(display-mode: fullscreen)').matches?'fullscreen'
-            :matchMedia('(display-mode: standalone)').matches?'standalone':'browser';
+        rail.dataset.displayMode=displayMode;
         const style = document.documentElement.style;
         style.setProperty('--reader-controls-width',controlLayout.width+'px');
         style.setProperty('--reader-control-size',`${controlLayout.size}px`);
