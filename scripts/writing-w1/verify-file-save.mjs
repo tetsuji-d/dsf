@@ -38,7 +38,7 @@ try{
     globalThis.setTimeout=fn=>{fn();return 0;};
     for(const outcome of ['shared','cancelled','failed','unsupported']){
         let completed=0,calls=0;
-        Object.defineProperty(globalThis,'navigator',{configurable:true,value:{canShare:()=>outcome!=='unsupported',share:async()=>{
+        Object.defineProperty(globalThis,'navigator',{configurable:true,value:{userAgent:'iPhone',canShare:()=>outcome!=='unsupported',share:async()=>{
             calls++;if(outcome!=='shared')throw new DOMException('test',outcome==='cancelled'?'AbortError':'NotAllowedError');
         }}});
         const container=doc.createElement('div');
@@ -54,6 +54,16 @@ try{
         assert.equal(confirm.hidden,false);assert.equal(completed,0,'a download click is not save confirmation');
         confirm.onclick();assert.equal(completed,1);
         ui.dispose();assert.equal(download.onclick,null);
+    }
+    for(const [platform,mobile] of [[{userAgent:'Windows Chrome'},false],[{userAgent:'Macintosh',platform:'MacIntel',maxTouchPoints:0},false],[{userAgent:'Macintosh',platform:'MacIntel',maxTouchPoints:5},true],[{userAgent:'Android'},true]]){
+        let shares=0;
+        Object.defineProperty(globalThis,'navigator',{configurable:true,value:{...platform,canShare:()=>true,share:async()=>{shares++;}}});
+        const container=doc.createElement('div'),ui=mountWritingFileExport(container,{bytes,name:'sample.dsfr'});
+        const share=container.children.find(n=>n.tag==='button'&&n.textContent==='保存・共有');
+        assert.equal(share.hidden,!mobile);
+        await share.onclick();assert.equal(shares,mobile?1:0,'desktop must not invoke OS sharing even if canShare returns true');
+        assert.equal(container.children.find(n=>n.tag==='a').hidden,false);
+        ui.dispose();
     }
 }finally{
     globalThis.setTimeout=originalTimeout;

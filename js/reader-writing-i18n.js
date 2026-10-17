@@ -6,6 +6,7 @@ const EN={
     '保存・共有':'Save / share',
     'ダウンロードで保存':'Save by downloading',
     '共有メニューが使えない場合はこちら':'Use this if the share menu is unavailable.',
+    '「ダウンロードで保存」を押してください。ブラウザーの設定に応じて、保存先の選択画面が開くか、ダウンロードフォルダに保存されます。':'Choose Save by downloading. Depending on your browser settings, you can choose a location or the file will be saved in Downloads.',
     'ファイルに保存しました':'I saved the file',
     '保存したのでReaderに戻る':'I saved it — return to Reader',
     '保存ファイルを用意しました。保存後、この画面に戻ってください。':'Your file is ready. Return here after saving it.',
