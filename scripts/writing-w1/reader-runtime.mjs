@@ -1,7 +1,11 @@
 import {sha256} from '/js/dsf-writing-contract.js';
+let catalogPromise;
+export function warmWritingRuntime(){
+    if(!catalogPromise)catalogPromise=fetch('/catalog.json').then(r=>{if(!r.ok)throw Error('CATALOG_LOAD');return r.json();}).catch(e=>{catalogPromise=null;throw e;});
+    return catalogPromise;
+}
 export async function createReaderWritingRuntime() {
-    const response = await fetch('/catalog.json'); if (!response.ok) throw new Error('CATALOG_LOAD');
-    const catalog = await response.json(), inputFaces = new Map();
+    const catalog = await warmWritingRuntime(), inputFaces = new Map();
     let worker, requestId = 0; const pending = new Map();
     function dispose() {worker?.terminate(); worker = null; for (const p of pending.values()) {clearTimeout(p.timer);p.reject(new Error('FONT_PROCESS_FAILED'));} pending.clear();}
     function rpc(method,...args) {

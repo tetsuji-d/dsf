@@ -3,6 +3,16 @@ header,main>.tools,main>.save-panel,.book-heading,.writing-mode,.quick-tool,.hin
 main,.reading{display:contents!important}#viewport{display:contents}#page-wrap{position:fixed;margin:0;pointer-events:none}#surface{background:transparent;box-shadow:none;pointer-events:none}#input{pointer-events:auto}#original,.rw-other-original{display:none!important}
 #chrome-safe{position:fixed;visibility:hidden;pointer-events:none;padding:env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left)}
 .native-tools{position:fixed;z-index:2;inset:0;pointer-events:none;animation:writing-dock-enter .24s ease-out}
+:host([data-tools-visible=false]) .native-tools,:host([data-tools-visible=false]) #native-history{visibility:hidden;pointer-events:none}
+:host([data-tools-visible=false]) #native-history{transition:none}
+:host([data-tools-visible=false]) #writing-tool-tip{display:none}
+:host([data-tools-visible=false]) #tool-scroll{pointer-events:none}
+:host([data-preparing=true]) #input{pointer-events:none}
+:host([data-preparing=true]) .native-tools{opacity:.65;pointer-events:none}
+:host([data-preparing=true]) #tool-scroll{pointer-events:none}
+:host([data-preparing=true]) .native-tools *{pointer-events:none!important}
+:host([data-preparing=true]) #native-history{opacity:.65;pointer-events:none}
+:host([data-preparing=true])::after{content:attr(data-loading-label);position:fixed;left:50%;bottom:190px;transform:translateX(-50%);padding:8px 16px;border-radius:16px;background:#eef6f2ed;color:#234d47;box-shadow:0 2px 12px #183e3820;white-space:nowrap}
 @keyframes writing-dock-enter{from{opacity:0;translate:0 36px}to{opacity:1;translate:0 0}}
 /* Transparent, equal-height frames. Pens extend above their frame. */
 #pen-tray{position:absolute;display:flex;justify-content:center;gap:var(--pen-gap);min-height:0;max-width:none;margin:0;border:0;border-radius:0;background:none;overflow:visible;pointer-events:none;isolation:isolate}

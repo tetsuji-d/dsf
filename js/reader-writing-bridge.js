@@ -10,9 +10,15 @@ export function installWritingViewportGuards(document,isActive){
 }
 /** Native Reader overlay. The existing Reader remains responsible for page rendering and navigation. */
 export function createReaderWritingBridge({button,read,onReturn,view,turn,goTo,onMode,resetView,textView}) {
-    let container,editor,opening=false,finishing=false,frame,menu,menuLocale,source,syncing=false;
+    let container,editor,opening=false,finishing=false,frame,menu,menuLocale,source,syncing=false,chromePromise,warmScheduled=false,toolsVisible=true,exitPending;
     const t=source=>writingUiText(source,getPlatformLanguage('viewer'));
-    const updateButtonLabel=()=>{button.title=t(editor?'書き込みを終了してReaderに戻る':read()?.locked?'共有用DSFは書き込みロックされています':'書き込み / Writing');button.setAttribute('aria-label',button.title);};
+    const updateButtonLabel=()=>{button.title=t(opening?'Writingを準備しています…':editor?(toolsVisible?'道具を隠す。長押しでReaderに戻る':'道具を表示。長押しでReaderに戻る'):read()?.locked?'共有用DSFは書き込みロックされています':'書き込み / Writing');button.setAttribute('aria-label',button.title);button.setAttribute('aria-expanded',String(!!editor&&toolsVisible));};
+    function loadChrome(){
+        const moduleUrl='/writing/reader-writing.mjs';
+        if(!chromePromise)chromePromise=Promise.all([import(/* @vite-ignore */ moduleUrl).then(async module=>{await module.warmWritingRuntime();return module;}),fetch('/writing/').then(async r=>{if(!r.ok)throw Error('Writingを読み込めませんでした。');return r.text();}),...['/writing/writing.css','/writing/native-writing.css'].map(url=>fetch(url).then(r=>{if(!r.ok)throw Error('Writingの表示設定を読み込めませんでした。');return r.text();}))]).catch(error=>{chromePromise=null;throw error;});
+        return chromePromise;
+    }
+    function warm(){if(warmScheduled||!read()?.file)return;warmScheduled=true;setTimeout(()=>void loadChrome().catch(()=>{warmScheduled=false;}),250);}
     subscribePlatformLanguage(updateButtonLabel);
     installWritingViewportGuards(document,()=>!!editor);
     function updateLayers(){
@@ -33,12 +39,38 @@ export function createReaderWritingBridge({button,read,onReturn,view,turn,goTo,o
         textView?.(null);
         cancelAnimationFrame(frame);editor?.dispose();editor=null;container?.remove();container=null;menuLocale?.dispose();menu?.remove();menu=null;source=null;
         document.body.classList.remove('reader-writing-active','reader-writing-turning');onMode(false);
-        button.removeAttribute('aria-pressed');button.title=t('書き込み / Writing');button.setAttribute('aria-label',button.title);button.focus();
+        button.removeAttribute('aria-pressed');updateButtonLabel();button.focus({preventScroll:true});
+    }
+    async function exitChoice(){
+        const dialog=document.createElement('dialog');dialog.className='reader-writing-exit';dialog.setAttribute('aria-labelledby','writing-exit-title');
+        const title=document.createElement('h2');title.id='writing-exit-title';title.textContent=t('書き込みを保存しますか？');
+        const message=document.createElement('p');message.textContent=t('元のファイルは上書きされません。保存せず戻っても、書き込みはReaderと端末内の下書きに残ります。');
+        const actions=document.createElement('div');dialog.append(title,message,actions);document.body.append(dialog);
+        return new Promise(resolve=>{
+            let url,preparing=false;const done=value=>{dialog.close();dialog.remove();if(url)setTimeout(()=>URL.revokeObjectURL(url),60000);resolve(value);};
+            const add=(label,action)=>{const b=document.createElement('button');b.type='button';b.textContent=t(label);b.onclick=action;actions.append(b);return b;};
+            add('編集用DSFRを保存',async()=>{
+                preparing=true;for(const b of actions.children)b.disabled=true;message.textContent=t('保存ファイルを準備しています…');
+                try{const result=await editor.finish();url=URL.createObjectURL(new Blob([result.bytes],{type:'application/octet-stream'}));
+                    const link=document.createElement('a');link.className='writing-exit-download';link.href=url;link.download='writing.dsfr';link.textContent=t('ダウンロードしてReaderに戻る');
+                    link.onclick=()=>done(result);actions.replaceChildren(link);add('書き込みを続ける',()=>done(null));message.textContent=t('保存ファイルの準備ができました。ダウンロードを押してください。');link.focus();
+                }catch(error){message.textContent=t(error.message);for(const b of actions.children)b.disabled=false;}finally{preparing=false;}
+            });
+            add('ファイルに保存せず戻る',()=>done('return'));
+            add('書き込みを続ける',()=>done(null));
+            dialog.addEventListener('keydown',e=>e.stopPropagation());
+            dialog.addEventListener('cancel',e=>{e.preventDefault();if(!preparing)done(null);});dialog.showModal();
+        });
     }
     async function finish(){
         if(!editor||opening||finishing)return false;
+        if(exitPending)return false;
+        if(editor.hasChanges){exitPending=true;let choice;try{choice=await exitChoice();}finally{exitPending=false;}if(!choice)return false;if(choice!=='return')return complete(choice);}
+        return complete();
+    }
+    async function complete(prepared){
         finishing=true;button.disabled=true;
-        try{const result=await editor.finish();await onReturn(result);cleanup();return true;}
+        try{const result=prepared||await editor.finish();await onReturn(result);cleanup();return true;}
         catch(error){editor?.notice(error.message||'Readerに戻せませんでした。書き込みは保持しています。');return false;}
         finally{finishing=false;button.disabled=false;}
     }
@@ -53,14 +85,12 @@ export function createReaderWritingBridge({button,read,onReturn,view,turn,goTo,o
         menuLocale=installWritingLocale(menu);
     }
     async function open(){
-        if(editor){await finish();return;}
+        if(editor&&!opening){editor.toggleTools();return;}
         if(opening)return;source=read();if(!source?.file||source.locked)return;
-        opening=true;button.disabled=true;
+        opening=true;button.disabled=true;button.setAttribute('aria-busy','true');updateButtonLabel();
         try{
-            const moduleUrl='/writing/reader-writing.mjs';
-            const [module,response]=await Promise.all([import(/* @vite-ignore */ moduleUrl),fetch('/writing/')]);
-            if(!response.ok)throw Error('Writingを読み込めませんでした。');
-            const html=new DOMParser().parseFromString(await response.text(),'text/html');
+            const [module,markup]=await loadChrome();
+            const html=new DOMParser().parseFromString(markup,'text/html');
             html.querySelectorAll('script').forEach(node=>node.remove());
             container=document.createElement('dsf-writing-overlay');container.id='reader-writing-overlay';container.style.visibility='hidden';
             const root=container.attachShadow({mode:'open'});
@@ -70,19 +100,29 @@ export function createReaderWritingBridge({button,read,onReturn,view,turn,goTo,o
                 link.onload=()=>{clearTimeout(timer);resolve();};link.onerror=()=>{clearTimeout(timer);reject(Error('Writingの表示設定を読み込めませんでした。'));};root.append(link);
             }));
             root.append(...html.body.childNodes);document.body.append(container);await Promise.all(styles);
-            editor=await module.mountReaderWriting(root,{turn,goTo,view,changed:updateLayers,resetView,textView});
+            editor=await module.mountReaderWriting(root,{turn,goTo,view,changed:updateLayers,resetView,textView,toolsVisibility:visible=>{toolsVisible=visible;updateButtonLabel();}});
+            toolsVisible=true;container.dataset.preparing='true';container.dataset.loadingLabel=t('Writingを準備しています…');
+            document.body.classList.add('reader-writing-active');onMode(true);editor.prepare();container.style.visibility='';
             await editor.open(source);
-            document.body.classList.add('reader-writing-active');onMode(true);addMenu();updateLayers();
-            button.setAttribute('aria-pressed','true');button.setAttribute('aria-label',t('書き込みを終了してReaderに戻る'));
+            delete container.dataset.preparing;addMenu();updateLayers();
+            button.setAttribute('aria-pressed','true');
             await tick();container.style.visibility='';
         }catch(error){cleanup();window.alert(t(error.message||'Writingを開始できませんでした。'));}
-        finally{opening=false;button.disabled=false;}
+        finally{opening=false;button.disabled=false;button.removeAttribute('aria-busy');updateButtonLabel();}
     }
-    button.addEventListener('click',()=>void open());
+    let holdTimer,held=false,start;
+    const cancelHold=()=>clearTimeout(holdTimer);
+    button.addEventListener('pointerdown',e=>{held=false;if(!editor||opening||e.button!==0)return;start=[e.clientX,e.clientY];holdTimer=setTimeout(()=>{held=true;void finish();},550);});
+    button.addEventListener('pointermove',e=>{if(start&&Math.hypot(e.clientX-start[0],e.clientY-start[1])>10)cancelHold();});
+    for(const name of ['pointerup','pointercancel','pointerleave'])button.addEventListener(name,cancelHold);
+    button.addEventListener('click',e=>{if(held){e.preventDefault();held=false;return;}void open();});
+    button.addEventListener('contextmenu',e=>{e.preventDefault();cancelHold();if(editor&&!exitPending)void finish();});
+    button.addEventListener('keydown',e=>{if(e.key==='Enter'&&e.shiftKey){e.preventDefault();void finish();}});
+    button.addEventListener('pointerenter',()=>void loadChrome().catch(()=>{}));
     return {
         get active(){return !!editor||opening;},
         layer(pageId,lang){return editor?.layer(pageId,lang);},
         async beforeFile(){if(opening)return false;return !editor||finishing||await finish();},
-        sync(){const current=read();button.hidden=!current?.file;button.disabled=opening||finishing||!!current?.locked;updateButtonLabel();}
+        sync(){const current=read();button.hidden=!current?.file;button.disabled=opening||finishing||!!current?.locked;updateButtonLabel();warm();}
     };
 }

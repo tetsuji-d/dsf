@@ -7,6 +7,7 @@ import {INK_COLORS,HIGHLIGHTER_COLORS,PEN_WIDTHS,PEN_TOOLS,penPixels,penMillimet
 import {listWritingDrafts,readWritingDraft,saveWritingDraft} from '/js/reader-writing-storage.js';
 import {prepareDsfViewerFixedTextContext,createDsfFixedTextPageElement} from '/js/viewer-fixed-text.js';
 import {createReaderWritingRuntime} from '/reader-runtime.mjs';
+export {warmWritingRuntime} from '/reader-runtime.mjs';
 import {writingSpreadPages,writingTurnTarget,spreadStrokeParts} from '/js/reader-writing-spread.js';
 import {installWritingPageGestures} from '/js/reader-writing-page-gestures.js';
 import {writingChromeLayout,writingInspectorPlacement,writingTextPan} from '/js/reader-writing-layout.js';
@@ -31,6 +32,8 @@ let selectionIds=new Set();
 const selectionTool=()=>tool==='select';
 function selectObjects(ids=[]){selectionIds=new Set(ids);selected=ids.at(-1)||null;}
 let draftId,draftVersion=0,saveQueue=Promise.resolve(),generation=0,saveSequence=0,unsaved=false,storageFailed=false,generated;
+let savedHead,generatedHead,toolsVisible=true;
+function showTools(visible){toolsVisible=visible;body.dataset.toolsVisible=String(visible);if(!visible){closeSheet();hideObjectActions();}host?.toolsVisibility?.(visible);}
 let families={},originalFaces=[],imageUrls=new Map(),downloadUrl;
 const pageCache=createWritingPageCache({load:preparePage,dispose:entry=>{entry.layer.remove();entry.original.remove();
     for(const path of entry.assets){const asset=imageUrls.get(path);if(asset&&!--asset.users){URL.revokeObjectURL(asset.url);imageUrls.delete(path);}}}});
@@ -403,6 +406,9 @@ function setTool(next) {if(sheet.open)closeSheet();hideObjectActions();if(gestur
 function scale() {if(host){layoutHost();return;}const columns=Math.max(1,visiblePages.length),size=Math.min(360,$('viewport').clientWidth/columns,...((mobileMedia.matches||readerNonce)&&!pageZoom?[Math.max(1,$('viewport').clientHeight-4)*360/640]:[]));$('page-wrap').style.width=`${size*columns}px`;$('page-wrap').style.height=`${640*size/360}px`;$('surface').style.width=`${360*columns}px`;$('surface').style.transform=`scale(${size/360})`;}
 const resizeObserver=new ResizeObserver(scale);if(!host)resizeObserver.observe($('viewport'));
 async function contextFor(next,lang,fontFamilies) {
+    // The native Reader already owns the original fonts and page renderer.
+    // loadDsfV3 has validated this bundle; Writing only needs its page index here.
+    if(host)return {manifest:next.bundle.manifests[lang]};
     const bundle=next.bundle,certificates={};for(const [id,d] of Object.entries(bundle.index.fonts)){d.family=fontFamilies[id];certificates[id]={...d};}
     return prepareDsfViewerFixedTextContext({bundle,language:lang,certifiedFonts:certificates,fontFaceSet:document.fonts});
 }
@@ -441,7 +447,7 @@ async function openBytes(bytes,draft) {
     const next=await loadDsfV3(bytes,runtime.options),nextModel=createReaderWritingModel(next,runtime.catalog.map(c=>c.id),draft?.envelope);
     const loaded=[],fontFamilies={},originalFamilies={};
     try {
-        for(const area of ['original','writing'])for(const r of next.resources[area]?.fonts||[]){
+        for(const area of host?['writing']:['original','writing'])for(const r of next.resources[area]?.fonts||[]){
             const family=`RW_${area}_${r.sha256}`,face=await new FontFace(family,next.readBytes(r.path),{weight:'100 900'}).load();document.fonts.add(face);loaded.push(face);
             (area==='original'?originalFamilies:fontFamilies)[r.sourceFontId]=family;
         }
@@ -456,6 +462,7 @@ async function openBytes(bytes,draft) {
         originalFaces.forEach(f=>document.fonts.delete(f));originalFaces=loaded;pageCache.clear();
         objectClipboard=null;handle=next;model=nextModel;baseBytes=bytes;families=fontFamilies;context=nextContext;language=lang;pageIndex=Math.min(draft?.pageIndex||0,context.manifest.pages.length-1);
         generation++;storageFailed=false;draftId=draft?.id||writingId();draftVersion=draft?.version||0;unsaved=false;
+        savedHead=nextModel.head;
         $('title').textContent=next.meta.title||'DSF';$('kind').textContent=model.locked?'共有用 · 書き込みロック':'Writing · 原本を保護';
         $('language').replaceChildren();for(const lang of Object.keys(next.bundle.manifests))$('language').add(new Option(lang,lang));$('language').value=language;
         clearGenerated();showPage();setTool('pen');
@@ -539,7 +546,7 @@ function cancelGesture() {hideObjectActions();gesture=null;snapTarget=null;textB
 $('input').onpointerdown=e=>{
     if(host&&$('text-dialog').open){e.preventDefault();return;}
     if(gesture){if(e.pointerId!==gesture.pointerId)cancelGesture();return;}
-    if(busy||!model||model.locked||readingMode||!e.isPrimary||e.button!==0)return;e.preventDefault();$('input').focus();
+    if(busy||!model||model.locked||readingMode||!e.isPrimary||e.button!==0)return;e.preventDefault();if(host&&!selectionTool())showTools(false);$('input').focus({preventScroll:true});
     const column=Math.min(visiblePages.length-1,Math.floor(point(e,true).x/360));if(visiblePages[column]!==pageIndex){pageIndex=visiblePages[column];showPage();}
     const cross=PEN_TOOLS.includes(tool)&&visiblePages.length===2;let p=point(e,cross);
     if(tool==='text'){
@@ -695,7 +702,7 @@ async function buildFile(shared=false) {
     const editable=await resaveDsfV3(handle,{copyKind:'writing-editable',envelope:model.envelope});
     const output=shared?await resaveDsfV3(editable.handle,{copyKind:'writing-shared'}):editable;
     if(output.handle.baseHash!==handle.baseHash)throw new Error('DSF3_ORIGINAL_CHANGED');
-    clearGenerated();generated=output;downloadUrl=URL.createObjectURL(output.blob);
+    clearGenerated();generated=output;generatedHead=model.head;downloadUrl=URL.createObjectURL(output.blob);
     $('download').href=downloadUrl;$('download').download=dsfFilename(`${(handle.meta.title||'DSF').replace(/\.(dsfr|dsf)$/i,'')}-${shared?'shared':'writing'}`);
     $('download').textContent=`${shared?'共有用':'編集用'}DSFをダウンロード`;$('download').hidden=$('reopen').hidden=false;
     $('file-status').textContent=`作成済み · ${(output.bytes.length/1024).toFixed(1)} KB。ダウンロードしてファイルとして保管してください。${shared?' 編集中の下書きと履歴はそのまま残っています。':''}`;
@@ -709,7 +716,8 @@ listenWindow('keydown',e=>{if(busy||!model||model.locked||readingMode||e.compose
     if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='z'){e.preventDefault();const id=e.shiftKey?model.children.at(-1)?.id:model.parent;if(id)restore(id);}
     if(e.key==='Delete'&&selected){e.preventDefault();$('delete').click();}if(e.key==='Escape'){cancelGesture();selectObjects();render();controls();}});
 listenWindow('beforeunload',e=>{if(unsaved){e.preventDefault();e.returnValue='';}});
-try {await refreshDrafts();say('DSFを開くか、サンプルで書き込みを試してください。');}catch(e){say(explain(e),true);}
+if(!host)try {await refreshDrafts();say('DSFを開くか、サンプルで書き込みを試してください。');}catch(e){say(explain(e),true);}
+$('download').addEventListener('click',()=>{if(generated)savedHead=generatedHead;});
 setTool('pen');controls();
 
 if(!host&&readerNonce&&window.parent!==window){
@@ -867,7 +875,10 @@ if(host){
     root.addEventListener('pointerdown',e=>e.stopPropagation());root.addEventListener('click',e=>e.stopPropagation());
     return {
         async open(data){spread=data.spread===true;readerUnits=data.units;await openBytes(new Uint8Array(await data.file.arrayBuffer()),{language:data.language,pageIndex:data.pageIndex});if($('status').dataset.error!=='true'){$('status').textContent='書き込みモード';$('status').dataset.notice=false;}},
-        sync:syncHost,panel:showPanel,
+        sync:syncHost,panel:(name)=>{showTools(true);showPanel(name);},
+        get hasChanges(){return !!model&&model.head!==savedHead;},
+        showTools, toggleTools(){showTools(!toolsVisible);},
+        prepare(){const snapshot=host.view();if(snapshot.pages.length){const first=snapshot.pages[0],last=snapshot.pages.at(-1);layoutChrome({left:first.left,top:first.top,right:last.right,bottom:first.top+first.height,width:last.right-first.left,height:first.height});}},
         async finish(){if(busy)throw Error('処理が完了するまでお待ちください。');if($('text-dialog').open)throw Error('入力中の文字を配置するか、キャンセルしてください。');cancelGesture();await saveQueue;
             busy=true;controls();try{const output=await resaveDsfV3(handle,{copyKind:'writing-editable',envelope:model.envelope});return {bytes:output.bytes,language,pageIndex};}finally{busy=false;runtime.dispose();controls();}},
         layer(pageId,lang){const layer=document.createElement('div');layer.className='reader-writing-saved-layer';renderWritingLayer(layer,model?.objects(lang,pageId)||[],{...families,...inputFamilies});return layer.outerHTML;},

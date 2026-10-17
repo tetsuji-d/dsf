@@ -2,6 +2,14 @@ import {getPlatformLanguage,subscribePlatformLanguage} from './ui-language.js';
 
 // UI copy only. Manuscripts, object text, filenames and saved operation names are never rewritten.
 const EN={
+    'Writingを準備しています…':'Preparing Writing…',
+    '道具を隠す。長押しでReaderに戻る':'Hide tools. Hold to return to Reader',
+    '道具を表示。長押しでReaderに戻る':'Show tools. Hold to return to Reader',
+    '書き込みを保存しますか？':'Save your Writing?',
+    '元のファイルは上書きされません。保存せず戻っても、書き込みはReaderと端末内の下書きに残ります。':'The original file is not overwritten. Returning without a file export keeps your Writing in Reader and the local draft.',
+    '編集用DSFRを保存':'Save editable DSFR','ファイルに保存せず戻る':'Return without a file export','書き込みを続ける':'Continue Writing',
+    '保存ファイルを準備しています…':'Preparing the file…','ダウンロードしてReaderに戻る':'Download and return to Reader',
+    '保存ファイルの準備ができました。ダウンロードを押してください。':'Your file is ready. Choose Download to continue.',
     '以前のWriting画面が開いています。必要な内容をDSFに保存してから、その画面を閉じて再試行してください。':'An older Writing screen is still open. Export any changes to DSF, close it, then try again.',
     'このDSFは今回の読込対象外の形式です。形式2またはWriting形式3のDSFを選んでください。元のファイルは変更していません。':'This DSF format is not supported. Choose a format 2 or Writing format 3 file. The original file is unchanged.',
     'このDSFの原本書体は、Writing形式へのコピーにまだ対応していません。元のファイルは変更していません。':'The original font cannot yet be copied into Writing format. The original file is unchanged.',
