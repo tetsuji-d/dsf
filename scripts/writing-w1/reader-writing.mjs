@@ -2,7 +2,7 @@ import {dsfFilename} from '/js/file-extensions.js';
 import {loadDsfV3,resaveDsfV3,writingFontText} from '/js/dsf-writing-package.js';
 import {writingArchiveKind} from '/js/dsf-writing-zip.js';
 import {createReaderWritingModel,writingId,moveWritingObject,writingBounds,createWritingText,reorderWritingObject,reorderWritingObjectAt,writingMarqueeObjects,moveWritingSelection,styleWritingSelection} from '/js/reader-writing-model.js';
-import {renderWritingLayer} from '/js/reader-writing-renderer.js';
+import {renderWritingLayer,renderWritingStrokePreview} from '/js/reader-writing-renderer.js';
 import {INK_COLORS,HIGHLIGHTER_COLORS,PEN_WIDTHS,PEN_TOOLS,penPixels,penMillimeters,penWidthLabel,toolDefaults,createPenButton,writingControlPoints,snapWritingPoint,constrainedRect,editWritingPoint,brushGeometry,brushDryness,penTipScale} from '/js/reader-writing-tools.js';
 import {listWritingDrafts,readWritingDraft,saveWritingDraft} from '/js/reader-writing-storage.js';
 import {prepareDsfViewerFixedTextContext,createDsfFixedTextPageElement} from '/js/viewer-fixed-text.js';
@@ -17,6 +17,7 @@ import {createWritingPageCache,writingPageWindow} from '/js/reader-writing-page-
 import {installStyleChoices,syncStyleChoices,renderStyleSample} from '/js/reader-writing-style-controls.js';
 import {installWritingLocale} from '/js/reader-writing-i18n.js';
 import {createWritingContrast} from '/js/reader-writing-contrast.js';
+import {writingPointerSamples,writingFrameQueue} from '/js/reader-writing-input.js';
 
 export async function mountReaderWriting(root=document,host=null) {
 const $ = id => root.querySelector('#'+id), runtime = await createReaderWritingRuntime();
@@ -46,6 +47,17 @@ const rtl=()=>handle?.bundle.index.languages[language]?.pageDirection==='rtl';
 const spreadIndices=()=>context?writingSpreadPages(pageIndex,context.manifest.pages.length,spread,rtl(),readerUnits):[];
 const nextIndex=delta=>writingTurnTarget(pageIndex,context.manifest.pages.length,delta,spread,rtl(),readerUnits);
 const otherOriginal=document.createElement('div'),otherLayer=document.createElement('div');otherOriginal.className='rw-other-original';otherLayer.className='rw-other-layer';$('surface').insertBefore(otherOriginal,$('input'));$('surface').insertBefore(otherLayer,$('input'));
+const strokePreviews=[0,1].map(column=>{const layer=document.createElement('div');layer.className='rw-live-stroke';
+    Object.assign(layer.style,{position:'absolute',left:`${column*360}px`,top:'0',width:'360px',height:'640px',overflow:'hidden',pointerEvents:'none'});
+    $('surface').insertBefore(layer,$('input'));return layer;});
+const strokeFrames=writingFrameQueue(()=>paintStrokePreview());
+function clearStrokePreview(){strokeFrames.clear();for(const layer of strokePreviews)layer.replaceChildren();}
+function paintStrokePreview(){const g=gesture;if(g?.mode!=='draw'||g.object?.type!=='stroke')return;
+    if(g.raw)g.object.points=brushGeometry(g.raw,g.object.baseWidth,false,true);
+    if(g.cross)for(const part of spreadStrokeParts(g.object,visiblePages,context.manifest.pages.map(p=>p.id),()=>g.object.id))
+        renderWritingStrokePreview(strokePreviews[visiblePages.findIndex(i=>context.manifest.pages[i].id===part.pageId)],part.object);
+    else renderWritingStrokePreview(strokePreviews[activeColumn()],g.object);
+}
 const textBoxPreview=document.createElement('div');textBoxPreview.id='text-box-preview';textBoxPreview.hidden=true;$('surface').append(textBoxPreview);
 const activeColumn=()=>Math.max(0,visiblePages.indexOf(pageIndex));
 const settings=toolDefaults();
@@ -395,6 +407,7 @@ function updatePanels() {
     $('evidence').textContent=JSON.stringify({baseHash:handle.baseHash,copyKind:handle.copyKind,writingObjects:all.length,historyOperations:Math.max(0,revisions.length-1),historyLimit:30,pageCache:pageCache.keys,head:current},null,2);controls();
 }
 function render(objectsOverride) {
+    clearStrokePreview();
     if(!model||!page())return;
     const current=pageCache.get(pageIndex);renderWritingLayer(current.layer,objectsOverride||model.pageObjects(language,page().id),{...families,...inputFamilies},selectionTool()&&!$('text-dialog').open?selectionIds:null);$('layer').replaceChildren(current.layer);
     if(host&&$('text-dialog').open&&textPlacement?.existing)for(const el of current.layer.children)if(el.dataset.objectId===textPlacement.existing.id)el.style.visibility='hidden';
@@ -510,17 +523,24 @@ async function restore(id) {if(!id||busy)return;try{
 $('undo').onclick=()=>restore(model.parent);$('redo').onclick=()=>restore(model.children.at(-1).id);$('restore').onclick=()=>restore($('history').value);
 $('delete').onclick=()=>objectAction('delete');
 $('edit-text').onclick=()=>{const o=objects().find(o=>o.id===selected);if(o?.type==='text')textDialog({x:o.layout[0].x,y:o.layout[0].y},o);};
-function point(event,global=false) {const r=$('surface').getBoundingClientRect(),width=360*Math.max(1,visiblePages.length),x=(event.clientX-r.left)*width/r.width;
+function point(event,global=false,r=$('surface').getBoundingClientRect()) {const width=360*Math.max(1,visiblePages.length),x=(event.clientX-r.left)*width/r.width;
     return {x:Math.max(0,Math.min(global?width:360,x-(global?0:activeColumn()*360))),y:Math.max(0,Math.min(640,(event.clientY-r.top)*640/r.height))};}
 function strokeParts(o){return spreadStrokeParts(o,visiblePages,context.manifest.pages.map(p=>p.id),writingId);}
-function renderSpreadStroke(o){render();for(const part of strokeParts(o)){
-    const layer=part.pageId===page().id?$('layer'):otherLayer;renderWritingLayer(layer,[...model.objects(language,part.pageId),part.object],{...families,...inputFamilies});}}
 function hit(p) {const screenScale=$('surface').getBoundingClientRect().height/640;return objects().reverse().find(o=>writingHitTest(o,p,6/Math.max(.25,screenScale)));}
 function penPoint(p,e,width) {const pressure=e.pointerType==='pen'?Math.max(.02,e.pressure):.5;return {...p,pressure,width};}
 function rawBrushPoint(p,e){return {...p,pressure:e.pointerType==='pen'?Math.max(.05,e.pressure):.5,pen:e.pointerType==='pen',time:e.timeStamp};}
 function snapped(p,exclude){if(!$('snap').checked){snapTarget=null;return p;}const result=snapWritingPoint(p,objects(),exclude);snapTarget=result.target;return result.point;}
-function previewGesture(e) {
+function previewGesture(e,final=false) {
     if(!gesture)return;let p=point(e,!!gesture.cross);const g=gesture,square=e.ctrlKey||$('square').checked;snapTarget=null;
+    if(g.mode==='draw'&&g.object?.type==='stroke'){
+        const bounds=$('surface').getBoundingClientRect(),samples=writingPointerSamples(e);
+        for(const [index,sample] of samples.entries()){
+            const p=point(sample,!!g.cross,bounds),points=g.raw||g.object.points,last=points.at(-1),distance=Math.hypot(p.x-last.x,p.y-last.y);
+            if(distance>0&&(distance>(g.raw ? .35 : .5)||(final&&index===samples.length-1))&&points.length<(g.raw?2000:10000))
+                points.push(g.raw?rawBrushPoint(p,sample):penPoint(p,sample,g.object.baseWidth));
+        }
+        strokeFrames.schedule();return;
+    }
     if(['text-box','marquee'].includes(g.mode)){g.box=constrainedRect(g.start,p);const [x,y,w,h]=g.box;Object.assign(textBoxPreview.style,{left:`${x+activeColumn()*360}px`,top:`${y}px`,width:`${w}px`,height:`${h}px`});return;}
     if(g.mode==='group-move'){
         g.objects=moveWritingSelection(g.originals,p.x-g.start.x,p.y-g.start.y);g.moved=Math.abs(p.x-g.start.x)+Math.abs(p.y-g.start.y)>1;
@@ -535,13 +555,9 @@ function previewGesture(e) {
         g.object=moveWritingObject(g.original,dx,dy);
         if(g.object.type==='line')for(const key of ['from','to']){const endpoint={x:g.object[key][0],y:g.object[key][1]},s=snapped(endpoint,g.object.id);if(snapTarget){g.object=moveWritingObject(g.object,s.x-endpoint.x,s.y-endpoint.y);break;}}
         g.moved=Math.abs(dx)+Math.abs(dy)>1;render(objects().map(o=>o.id===g.object.id?g.object:o));return;}
-    if(g.object.type==='stroke') {
-        if(g.raw){const last=g.raw.at(-1);if(Math.hypot(p.x-last.x,p.y-last.y)>.35&&g.raw.length<2000)g.raw.push(rawBrushPoint(p,e));g.object.points=brushGeometry(g.raw,g.object.baseWidth,false,true);}
-        else {const last=g.object.points.at(-1);if(Math.hypot(p.x-last.x,p.y-last.y)>.5&&g.object.points.length<10000)g.object.points.push(penPoint(p,e,g.object.baseWidth));}
-    }
-    else if(g.object.type==='line'){p=snapped(p,g.object.id);g.object.to=[p.x,p.y];}
+    if(g.object.type==='line'){p=snapped(p,g.object.id);g.object.to=[p.x,p.y];}
     else g.object.rect=constrainedRect(g.start,p,square);
-    if(g.cross)renderSpreadStroke(g.object);else render([...objects(),g.object]);
+    render([...objects(),g.object]);
 }
 function cancelGesture() {hideObjectActions();gesture=null;snapTarget=null;textBoxPreview.hidden=true;render();}
 $('input').onpointerdown=e=>{
@@ -572,11 +588,12 @@ $('input').onpointerdown=e=>{
             object={id:writingId(),type:'stroke',tool,color,opacity:tool==='highlighter'?.48:1,baseWidth:width,geometryVersion:tool==='brush'?4:1,...(tool==='brush'?{inkAmount:settings.brush.inkAmount}:{}),points:[{...penPoint(p,e,width),...(tool==='brush'?{dryness:0}:{})}]};}
         else if(['line','arrow'].includes(tool)){p=snapped(p);object={id:writingId(),type:'line',from:[p.x,p.y],to:[p.x,p.y],color,width,arrow:settings.geometry.arrow,arrowHead:settings.geometry.arrowHead,lineStyle:settings.geometry.lineStyle};}
         else object={id:writingId(),type:'shape',shape:tool,rect:[p.x,p.y,1,1],color,fill:null,width,opacity:1,lineStyle:settings.geometry.lineStyle};
-        gesture={pointerId:e.pointerId,mode:'draw',start:p,object,cross,...(tool==='brush'?{raw:[rawBrushPoint(p,e)]}:{})};if(cross)renderSpreadStroke(object);else render([...objects(),object]);}
+        gesture={pointerId:e.pointerId,mode:'draw',start:p,object,cross,...(tool==='brush'?{raw:[rawBrushPoint(p,e)]}:{})};
+        if(object.type==='stroke'){render();paintStrokePreview();}else render([...objects(),object]);}
     if(gesture)$('input').setPointerCapture(e.pointerId);
 };
 $('input').onpointermove=e=>{if(objectHoldStart){if(Math.hypot(e.clientX-objectHoldStart[0],e.clientY-objectHoldStart[1])<=8)return;clearObjectHold();}if(gesture?.pointerId===e.pointerId)previewGesture(e);};
-$('input').onpointerup=e=>{const holding=!!objectHoldStart;clearObjectHold();if(gesture?.pointerId!==e.pointerId)return;if(!holding)previewGesture(e);const g=gesture;gesture=null;
+$('input').onpointerup=e=>{const holding=!!objectHoldStart;clearObjectHold();if(gesture?.pointerId!==e.pointerId)return;if(!holding)previewGesture(e,true);const g=gesture;gesture=null;clearStrokePreview();
     if(g.mode==='marquee'){textBoxPreview.hidden=true;selectObjects(writingMarqueeObjects(objects(),g.box).map(o=>o.id));render();updatePanels();syncStyle(true);if(selected)showObjectActions(e.clientX,e.clientY);return;}
     if(g.mode==='group-move'){if(g.moved){const replacements=new Map(g.objects.map(o=>[o.id,o]));mutate('書き込みを移動',all=>all.map(o=>replacements.get(o.id)||o));}else{render();updatePanels();}return;}
     if(g.mode==='text-box'){textBoxPreview.hidden=true;textDialog(g.start,null,g.box[2]>=24&&g.box[3]>=24?g.box:null);return;}
@@ -888,7 +905,7 @@ if(host){
             busy=true;controls();try{const output=await resaveDsfV3(handle,{copyKind:'writing-editable',envelope:model.envelope});return {bytes:output.bytes,language,pageIndex};}finally{busy=false;runtime.dispose();controls();}},
         layer(pageId,lang){const layer=document.createElement('div');layer.className='reader-writing-saved-layer';renderWritingLayer(layer,model?.objects(lang,pageId)||[],{...families,...inputFamilies});return layer.outerHTML;},
         notice:message=>say(message,true),
-        dispose(){disposed=true;chromeContrast?.dispose();host.textView?.(null);lifetime.abort();clearTimeout(noticeTimer);resizeObserver.disconnect();mobileMedia.removeEventListener('change',mediaChanged);closeSheet();runtime.destroy();originalFaces.forEach(f=>document.fonts.delete(f));pageCache.clear();if(downloadUrl)URL.revokeObjectURL(downloadUrl);}
+        dispose(){disposed=true;clearStrokePreview();chromeContrast?.dispose();host.textView?.(null);lifetime.abort();clearTimeout(noticeTimer);resizeObserver.disconnect();mobileMedia.removeEventListener('change',mediaChanged);closeSheet();runtime.destroy();originalFaces.forEach(f=>document.fonts.delete(f));pageCache.clear();if(downloadUrl)URL.revokeObjectURL(downloadUrl);}
     };
 }
 }

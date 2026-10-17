@@ -4,7 +4,25 @@ import {writingControlPoints,strokeOutline,highlighterPolygons,brushInkPaths,nat
 const NS = 'http://www.w3.org/2000/svg';
 let selectionSerial=0;
 const renderedLayers=new WeakMap();
+const liveStrokes=new WeakMap();
 function svg(name, attrs) {const el = document.createElementNS(NS, name); for (const [k,v] of Object.entries(attrs)) el.setAttribute(k, v); return el;}
+
+/** Live ink is separate from saved objects. Constant-width pens need only two nodes. */
+export function renderWritingStrokePreview(layer,stroke) {
+    if(stroke.tool==='brush'||stroke.tool==='highlighter'){
+        liveStrokes.delete(layer);renderWritingLayer(layer,[stroke],{});return;
+    }
+    let live=liveStrokes.get(layer);
+    if(!live||live.id!==stroke.id||live.item.parentNode!==layer){
+        const item=document.createElement('div');item.className='rw-object';item.dataset.objectId=stroke.id;
+        const root=svg('svg',{viewBox:'0 0 360 640','aria-hidden':'true'}),group=svg('g',{opacity:stroke.opacity});
+        const line=svg('polyline',{fill:'none',stroke:stroke.color,'stroke-width':stroke.baseWidth,'stroke-linecap':'round','stroke-linejoin':'round'});
+        const dot=svg('circle',{r:stroke.baseWidth/2,fill:stroke.color});group.append(line,dot);root.append(group);item.append(root);layer.replaceChildren(item);
+        live={id:stroke.id,item,line,dot};liveStrokes.set(layer,live);
+    }
+    live.line.setAttribute('points',stroke.points.map(p=>`${p.x},${p.y}`).join(' '));
+    live.dot.setAttribute('cx',stroke.points[0].x);live.dot.setAttribute('cy',stroke.points[0].y);
+}
 
 /** Render only saved Writing geometry. Parent surface is always 360 x 640. */
 export function renderWritingLayer(layer, objects, families, selected) {
