@@ -27,11 +27,13 @@ body.reader-writing-active #viewer-header .viewer-brand-navigation{pointer-event
 body.reader-writing-active #viewer-layout{touch-action:none}
 body.reader-writing-active button,body.reader-writing-active select{touch-action:manipulation}
 
-/* Keep Reader navigation reachable while the bottom Writing rail is expanded. */
+/* Keep the portrait navigation geometry owned by Reader, including its PWA inset.
+   Writing positions its separate tool rail from this row's measured bounds. */
+body.reader-writing-active.reader-writing-text-editing #viewer-reader-controls{visibility:hidden;pointer-events:none}
 @media(max-width:899px){
- body.reader-writing-active #viewer-reader-controls{left:50%;top:auto;bottom:max(8px,env(safe-area-inset-bottom));right:auto;transform:translateX(-50%);flex-direction:row;gap:6px;--reader-control-size:44px}
+ /* Compact landscape still needs the existing horizontal navigation row. */
+ body.reader-writing-active #viewer-reader-controls[data-dock=side]{left:50%;top:auto;bottom:max(8px,env(safe-area-inset-bottom));right:auto;transform:translateX(-50%);flex-direction:row;gap:6px;--reader-control-size:44px}
  body.reader-writing-active #viewer-reader-controls button{flex-shrink:0}
- body.reader-writing-active.reader-writing-text-editing #viewer-reader-controls{visibility:hidden;pointer-events:none}
 }
 
 @media(min-width:900px){

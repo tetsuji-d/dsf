@@ -16,6 +16,7 @@ import {TEXT_SIZES,TEXT_COLORS,ARROW_HEADS,textSize,stepTextSize} from '/js/read
 import {createWritingPageCache,writingPageWindow} from '/js/reader-writing-page-cache.js';
 import {installStyleChoices,syncStyleChoices,renderStyleSample} from '/js/reader-writing-style-controls.js';
 import {installWritingLocale} from '/js/reader-writing-i18n.js';
+import {createWritingContrast} from '/js/reader-writing-contrast.js';
 
 export async function mountReaderWriting(root=document,host=null) {
 const $ = id => root.querySelector('#'+id), runtime = await createReaderWritingRuntime();
@@ -23,7 +24,7 @@ const body=root.host||document.body,lifetime=new AbortController();
 const locale=installWritingLocale(root,{signal:lifetime.signal,onChange:()=>{if(model)updatePanels();if(host&&$('text-dialog').open)positionInlineText();}});
 const t=source=>locale.t(source);
 const listenWindow=(name,fn)=>window.addEventListener(name,fn,{signal:lifetime.signal});
-let noticeTimer,hostView,lastHostLayout,lastChromeLayout,disposed=false;
+let noticeTimer,hostView,lastHostLayout,lastChromeLayout,disposed=false,chromeContrast;
 let textPan={x:0,y:0};
 const toolNames = {select:'選択・移動',pen:'ボールペン',brush:'筆ペン',marker:'サインペン',highlighter:'蛍光マーカー',correction:'修正液',text:'文字',line:'線',arrow:'矢印',rect:'四角',ellipse:'楕円'};
 const labels = {text:'文字',stroke:'筆跡',line:'線',shape:'図形'};
@@ -33,7 +34,7 @@ const selectionTool=()=>tool==='select';
 function selectObjects(ids=[]){selectionIds=new Set(ids);selected=ids.at(-1)||null;}
 let draftId,draftVersion=0,saveQueue=Promise.resolve(),generation=0,saveSequence=0,unsaved=false,storageFailed=false,generated;
 let savedHead,generatedHead,toolsVisible=true;
-function showTools(visible){toolsVisible=visible;body.dataset.toolsVisible=String(visible);if(!visible){closeSheet();hideObjectActions();}host?.toolsVisibility?.(visible);}
+function showTools(visible){toolsVisible=visible;body.dataset.toolsVisible=String(visible);if(!visible){closeSheet();hideObjectActions();}else chromeContrast?.invalidate();host?.toolsVisibility?.(visible);}
 let families={},originalFaces=[],imageUrls=new Map(),downloadUrl;
 const pageCache=createWritingPageCache({load:preparePage,dispose:entry=>{entry.layer.remove();entry.original.remove();
     for(const path of entry.assets){const asset=imageUrls.get(path);if(asset&&!--asset.users){URL.revokeObjectURL(asset.url);imageUrls.delete(path);}}}});
@@ -775,6 +776,7 @@ function layoutChrome(paper){
     $('tool-scroll-track').style.width=`${layout.trackWidth}px`;
     body.style.setProperty('--pen-size',`${layout.size}px`);body.style.setProperty('--pen-gap',`${layout.gap}px`);
     rect($('active-tool-label'),layout.context);
+    chromeContrast?.invalidate();
     if(sheet.open)positionSheet();
     if(host&&$('text-dialog').open)positionInlineText();
 }
@@ -792,6 +794,7 @@ function positionSheet(){
 }
 
 async function syncHost(view){
+    const resumed=hostView?.suspended&&!view.suspended;
     if(disposed||!model||busy)return;
     if(!view.pages.length){cancelGesture();$('page-wrap').hidden=true;lastHostLayout=null;return;}
     const key=`${view.language}:${view.pages.map(p=>p.index).join(',')}`;
@@ -801,9 +804,9 @@ async function syncHost(view){
             pageCache.clear();language=view.language;context=await contextFor(handle,language,orig);}
         if(disposed)return;
         hostView={...view,key};pageIndex=view.pages.some(p=>p.index===view.pageIndex)?view.pageIndex:view.pages[0].index;
-        spread=view.pages.length>1;showPage();persist();
+        spread=view.pages.length>1;showPage();persist();chromeContrast?.invalidate();
     }else hostView={...view,key};
-    if(view.suspended&&gesture)cancelGesture();layoutHost();
+    if(view.suspended&&gesture)cancelGesture();layoutHost();if(resumed)chromeContrast?.invalidate();
 }
 if(host){
     body.dataset.keyboard='false';
@@ -835,6 +838,8 @@ if(host){
         if(id!=='layers')b.innerHTML=`<svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${{undo:'<path d="m8 5-5 5 5 5M3 10h11a6 6 0 0 1 6 6v2"/>',redo:'<path d="m16 5 5 5-5 5m5-5H10a6 6 0 0 0-6 6v2"/>',fit:'<path d="M8 3H3v5m13-5h5v5M3 16v5h5m13-5v5h-5"/>',timeline:'<path d="M4 8a9 9 0 1 1 0 8M4 3v5h5M12 7v6l4 2"/>'}[id]}</svg>`;
         b.onclick=()=>{cancelGesture();if(id==='fit')host.resetView?.();else if(['layers','timeline'].includes(id)){if(sheet.open&&sheetAnchor===b){closeSheet();return;}sheetAnchor=b;root.querySelector(`[data-panel="${id==='timeline'?'history':'layers'}"]`).click();}else $(id).click();};historyBar.append(b);
     }track.prepend(historyBar);
+    chromeContrast=createWritingContrast({documentRef:document,groups:[historyBar,$('tools'),$('pen-tray')],rail,isVisible:()=>toolsVisible&&!hostView?.suspended&&!disposed});
+    chromeContrast.invalidate();
     const showPanel=(name,anchor=activeTool)=>{closeSheet();sheetAnchor=anchor;root.querySelector(`[data-panel="${name}"]`).click();};
     const tooltip=document.createElement('div');tooltip.id='writing-tool-tip';tooltip.setAttribute('role','tooltip');tooltip.hidden=true;root.append(tooltip);
     let tooltipTarget,tooltipTitle;
@@ -883,7 +888,7 @@ if(host){
             busy=true;controls();try{const output=await resaveDsfV3(handle,{copyKind:'writing-editable',envelope:model.envelope});return {bytes:output.bytes,language,pageIndex};}finally{busy=false;runtime.dispose();controls();}},
         layer(pageId,lang){const layer=document.createElement('div');layer.className='reader-writing-saved-layer';renderWritingLayer(layer,model?.objects(lang,pageId)||[],{...families,...inputFamilies});return layer.outerHTML;},
         notice:message=>say(message,true),
-        dispose(){disposed=true;host.textView?.(null);lifetime.abort();clearTimeout(noticeTimer);resizeObserver.disconnect();mobileMedia.removeEventListener('change',mediaChanged);closeSheet();runtime.destroy();originalFaces.forEach(f=>document.fonts.delete(f));pageCache.clear();if(downloadUrl)URL.revokeObjectURL(downloadUrl);}
+        dispose(){disposed=true;chromeContrast?.dispose();host.textView?.(null);lifetime.abort();clearTimeout(noticeTimer);resizeObserver.disconnect();mobileMedia.removeEventListener('change',mediaChanged);closeSheet();runtime.destroy();originalFaces.forEach(f=>document.fonts.delete(f));pageCache.clear();if(downloadUrl)URL.revokeObjectURL(downloadUrl);}
     };
 }
 }

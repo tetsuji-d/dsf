@@ -15,6 +15,7 @@ route('/sample.dsf','outputs/writing-w1/preview-sample.dsf');
 route('/catalog.json','outputs/writing-w1/catalog.json');route('/w0/subsetter.mjs','scripts/writing-w0/subsetter.mjs');
 async function moduleTree(file){const url='/'+path.relative(root,file).split(path.sep).join('/');if(routes.has(url))return;routes.set(url,file);cached.add(url);
     for(const match of (await readFile(file,'utf8')).matchAll(/(?:from\s*|import\s*)['"](\.[^'"]+)['"]/g))await moduleTree(path.resolve(path.dirname(file),match[1]));}
+await moduleTree(path.join(root,'js/reader-writing-contrast.js'));
 for(const file of ['js/dsf-writing-package.js','js/viewer-fixed-text.js','js/reader-writing-model.js','js/reader-writing-renderer.js','js/reader-writing-storage.js','js/reader-writing-layout.js','js/reader-writing-hit.js','js/reader-writing-spread.js','js/reader-writing-page-gestures.js','scripts/writing-w1/fixture.mjs'])await moduleTree(path.join(root,file));
 for(const a of JSON.parse(await readFile(path.join(root,'outputs/writing-w0/assets.json'),'utf8')))if(a.url.startsWith('/assets/vendor/'))route(a.url,'outputs/writing-w0/'+a.url.slice(8));
 for(const c of JSON.parse(await readFile(path.join(root,'outputs/writing-w1/catalog.json'),'utf8'))){route(`/assets/fonts/${c.id}.woff2`,`outputs/writing-w0/fonts/${c.id}.woff2`,false);route(`/notices/${c.id}.txt`,`docs/writing-w0-licenses/${c.id}-asset.txt`,false);}

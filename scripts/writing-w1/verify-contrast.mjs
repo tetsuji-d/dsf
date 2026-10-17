@@ -1,0 +1,16 @@
+import assert from 'node:assert/strict';
+import {writingBackdropStyle,writingImageRect} from '../../js/reader-writing-contrast.js';
+const pixels=(color,n=144)=>new Uint8ClampedArray(Array.from({length:n},()=>[...color,255]).flat());
+assert.deepEqual(writingBackdropStyle(pixels([15,25,55])),{tone:'dark',mixed:false});
+assert.deepEqual(writingBackdropStyle(pixels([249,246,228]),'dark'),{tone:'light',mixed:false});
+const mixed=new Uint8ClampedArray([...pixels([10,10,10],72),...pixels([245,245,245],72)]);
+assert.equal(writingBackdropStyle(mixed).mixed,true,'a photo with light and dark patches needs stronger glass');
+assert.deepEqual(writingBackdropStyle([]),{tone:'dark',mixed:true},'unknown backdrops stay legible');
+assert.equal(writingBackdropStyle(pixels([149,149,149]),'light').tone,'light');
+assert.equal(writingBackdropStyle(pixels([149,149,149]),'dark').tone,'dark','small luminance changes do not flicker');
+const box={left:100,top:50,width:100,height:100};
+assert.deepEqual(writingImageRect(box,200,100,'cover'),{left:50,top:50,width:200,height:100});
+assert.deepEqual(writingImageRect(box,200,100,'contain'),{left:100,top:75,width:100,height:50});
+assert.deepEqual(writingImageRect(box,200,100,'cover','100% 50%'),{left:0,top:50,width:200,height:100});
+assert.deepEqual(writingImageRect(box,200,100,'fill'),box);
+console.log('Backdrop: dark/light/mixed, unreadable fallback, hysteresis and image crop mapping passed.');
