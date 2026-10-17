@@ -110,6 +110,9 @@ function cancelStyleDraft(){if(styleDraft){settings[styleDraft.key]=styleDraft.b
 function restoreSheetPanel(){if(sheetPanel){sheetPlaceholder.replaceWith(sheetPanel);if(sheetPanel===layerPanel)layerPanel.hidden=true;sheetPanel=null;}body.classList.remove('sheet-open');}
 function closeSheet(){if(sheet.open){cancelStyleDraft();restoreSheetPanel();sheet.close();}}
 sheet.addEventListener('close',()=>{if(sheet.open)return;cancelStyleDraft();restoreSheetPanel();});
+// Reader handles wheel events at document level; keep native scrolling in the inspector.
+sheet.addEventListener('wheel',e=>e.stopPropagation(),{passive:true});
+sheet.addEventListener('keydown',e=>{if(e.key==='Escape'){e.preventDefault();closeSheet();}e.stopPropagation();});
 for(const button of root.querySelectorAll('[data-panel]'))button.onclick=()=>{
     if(sheet.open)closeSheet();
     const name=button.dataset.panel;sheetPanel=panels[name];if(name==='layers'){layerPanel.hidden=false;updateLayersPanel();}sheetPlaceholder=document.createComment('panel');sheetPanel.before(sheetPlaceholder);
@@ -117,9 +120,9 @@ for(const button of root.querySelectorAll('[data-panel]'))button.onclick=()=>{
     styleDraft=editing?{id:selected,key:styleKey(),before:structuredClone(settings[styleKey()])}:null;
     sheetActions.hidden=!editing&&!['layers','history'].includes(name);$('sheet-style-actions').hidden=!editing;$('sheet-history-actions').hidden=!['layers','history'].includes(name);
     $('sheet-action-hint').textContent=editing?'選択した書き込みの変更を「適用」で確定します。':'';
-    $('sheet-body').append(sheetPanel);$('sheet-title').textContent={layers:'レイヤー・重ね順',settings:'色・道具の設定',history:'書き込みと履歴',save:'DSFの保存'}[name];sheet.dataset.panel=name;sheet.showModal();body.classList.add('sheet-open');
+    $('sheet-body').append(sheetPanel);$('sheet-title').textContent={layers:'レイヤー・重ね順',settings:'色・道具の設定',history:'書き込みと履歴',save:'DSFの保存'}[name];sheet.dataset.panel=name;if(host)sheet.show();else sheet.showModal();body.classList.add('sheet-open');
     if(name==='settings')$('sheet-title').textContent=editing?(selectionIds.size>1?'複数の書き込みの設定':'選択した書き込みの設定'):`${toolNames[tool]}の設定`;
-    $('sheet-close').textContent=editing?'キャンセル':'閉じる';$('sheet-close').setAttribute('aria-label',editing?'変更をキャンセルして閉じる':'パネルを閉じる');
+    $('sheet-close').textContent='×';$('sheet-close').setAttribute('aria-label',editing?'変更をキャンセルして閉じる':'パネルを閉じる');
     controls();
     if(host)positionSheet();
     $('sheet-body').scrollTop=0;
@@ -381,7 +384,7 @@ function render(objectsOverride) {
     if(snapTarget){const ring=document.createElement('span');ring.className='rw-snap';ring.style.left=`${snapTarget.x}px`;ring.style.top=`${snapTarget.y}px`;$('layer').append(ring);}}
 function changed(message) {hideObjectActions();clearGenerated();render();updatePanels();syncStyle();persist();say(message);host?.changed();}
 function mutate(message,transform) {try {model.change(language,page().id,message,transform);changed(message);return true;}catch(e){say(explain(e),true);render();return false;}}
-function setTool(next) {hideObjectActions();if(gesture)cancelGesture();if(next!==tool&&['line','arrow'].includes(next))settings.geometry.arrow=next==='arrow'?'end':'none';tool=next;readingMode=!!model?.locked;selectObjects();render();if(model)updatePanels();else controls();syncStyle();updateHint();}
+function setTool(next) {if(sheet.open)closeSheet();hideObjectActions();if(gesture)cancelGesture();if(next!==tool&&['line','arrow'].includes(next))settings.geometry.arrow=next==='arrow'?'end':'none';tool=next;readingMode=!!model?.locked;selectObjects();render();if(model)updatePanels();else controls();syncStyle();updateHint();}
 function scale() {if(host){layoutHost();return;}const columns=Math.max(1,visiblePages.length),size=Math.min(360,$('viewport').clientWidth/columns,...((mobileMedia.matches||readerNonce)&&!pageZoom?[Math.max(1,$('viewport').clientHeight-4)*360/640]:[]));$('page-wrap').style.width=`${size*columns}px`;$('page-wrap').style.height=`${640*size/360}px`;$('surface').style.width=`${360*columns}px`;$('surface').style.transform=`scale(${size/360})`;}
 const resizeObserver=new ResizeObserver(scale);if(!host)resizeObserver.observe($('viewport'));
 async function contextFor(next,lang,fontFamilies) {
@@ -738,14 +741,14 @@ function layoutHost(){
     $('page-wrap').hidden=hostView.suspended;
 }
 function layoutChrome(paper){
+    const controls=[...document.querySelectorAll('#viewer-reader-controls,.viewer-page-segments')].map(e=>e.getBoundingClientRect()).filter(r=>r.width&&r.height).map(r=>({left:r.left,top:r.top,right:r.right,bottom:r.bottom,width:r.width,height:r.height}));
     const inset=getComputedStyle($('chrome-safe')),safe={left:parseFloat(inset.paddingLeft)||0,right:parseFloat(inset.paddingRight)||0,top:parseFloat(inset.paddingTop)||0,bottom:parseFloat(inset.paddingBottom)||0};
-    const key=JSON.stringify([innerWidth,innerHeight,safe]);if(key===lastChromeLayout)return;lastChromeLayout=key;
-    const layout=writingChromeLayout({width:innerWidth,height:innerHeight,safe});body.dataset.toolsLayout=layout.mode;body.dataset.compact=layout.compact;
-    const readerRail=document.getElementById('viewer-reader-controls');
-    readerRail.style.setProperty('--writing-dock-left',`${layout.rail.left}px`);readerRail.style.setProperty('--writing-dock-top',`${layout.rail.top}px`);readerRail.style.setProperty('--writing-dock-width',`${layout.rail.width}px`);
-    body.style.setProperty('--writing-track-width',`${layout.trackWidth}px`);
+    const hr=document.querySelector('#viewer-header .ui-controls')?.getBoundingClientRect(),header=hr?{left:hr.left,top:hr.top,right:hr.right,bottom:hr.bottom,width:hr.width,height:hr.height}:null;
+    const key=JSON.stringify([innerWidth,innerHeight,paper,controls,header,safe]);if(key===lastChromeLayout)return;lastChromeLayout=key;
+    const layout=writingChromeLayout({width:innerWidth,height:innerHeight,paper,controls,header,safe});body.dataset.toolsLayout=layout.mode;body.dataset.short=layout.short;
     const rect=(el,r)=>Object.assign(el.style,{left:`${r.left}px`,top:`${r.top}px`,width:r.width?`${r.width}px`:'',height:r.height?`${r.height}px`:''});
     rect($('pen-tray'),layout.pens);rect($('tool-field'),layout.tools);rect($('native-history'),layout.history);
+    rect($('tool-scroll'),layout.rail);
     $('tool-scroll-track').style.width=`${layout.trackWidth}px`;
     body.style.setProperty('--pen-size',`${layout.size}px`);body.style.setProperty('--pen-gap',`${layout.gap}px`);
     rect($('active-tool-label'),layout.context);
@@ -755,9 +758,14 @@ function layoutChrome(paper){
 function positionSheet(){
     const source=sheetAnchor?.isConnected?sheetAnchor:$('active-tool-label');let anchor=source.getBoundingClientRect();
     if(anchor.bottom<=0||!anchor.width){const fallback=$('active-tool-label').style;anchor={left:parseFloat(fallback.left)||8,top:parseFloat(fallback.top)||56,width:parseFloat(fallback.width)||264,height:44};anchor.bottom=anchor.top+44;anchor.right=anchor.left+anchor.width;}
-    const v=window.visualViewport,r=writingInspectorPlacement({width:v?.width||innerWidth,height:v?.height||innerHeight,offsetLeft:v?.offsetLeft||0,offsetTop:v?.offsetTop||0,anchor,panel:sheet.dataset.panel});
+    if(source.classList.contains('pen-item'))anchor={...anchor.toJSON(),top:Math.min(anchor.top,source.querySelector('svg').getBoundingClientRect().top)};
+    const v=window.visualViewport,args={width:v?.width||innerWidth,height:v?.height||innerHeight,offsetLeft:v?.offsetLeft||0,offsetTop:v?.offsetTop||0,anchor,panel:sheet.dataset.panel};
+    let r=writingInspectorPlacement(args);
     sheet.dataset.placement='anchored';Object.assign(sheet.style,{left:`${r.left}px`,top:`${r.top}px`,width:`${r.width}px`,height:['layers','history'].includes(sheet.dataset.panel)?`${r.height}px`:'auto',maxHeight:`${r.height}px`});
+    // Use the actual content height so a short panel still meets its tool's upper edge.
+    r=writingInspectorPlacement({...args,contentHeight:sheet.getBoundingClientRect().height});sheet.style.top=`${r.top}px`;
 }
+
 async function syncHost(view){
     if(disposed||!model||busy)return;
     if(!view.pages.length){cancelGesture();$('page-wrap').hidden=true;lastHostLayout=null;return;}
@@ -778,18 +786,15 @@ if(host){
     const prepare=$('prepare');prepare.textContent='入力用書体の準備';root.querySelector('.save-panel').append(prepare);
     $('offline-status').textContent='準備した入力用書体は通信なしでも使えます。Reader画面のオフライン起動は引き続き検証中です。';
     const toolbar=document.createElement('div');toolbar.className='native-tools';
-    const rail=document.createElement('div');rail.id='tool-scroll';rail.setAttribute('role','group');rail.setAttribute('aria-label','道具');
+    const rail=document.createElement('div');rail.id='tool-scroll';rail.setAttribute('role','region');rail.setAttribute('aria-label','左右にスワイプして道具を選択');rail.tabIndex=0;
     const track=document.createElement('div');track.id='tool-scroll-track';track.append($('tool-field'),$('pen-tray'));rail.append(track);toolbar.append(rail);root.append(toolbar);
-    const scrollRail=document.getElementById('viewer-reader-controls');
-    const oldTabIndex=scrollRail.getAttribute('tabindex');scrollRail.tabIndex=0;
-    lifetime.signal.addEventListener('abort',()=>{if(oldTabIndex===null)scrollRail.removeAttribute('tabindex');else scrollRail.setAttribute('tabindex',oldTabIndex);},{once:true});
-    // The real Reader rail owns scrolling, including both original controls and Writing.
-    scrollRail.addEventListener('wheel',e=>e.stopPropagation(),{passive:true,signal:lifetime.signal});
-    scrollRail.addEventListener('keydown',e=>{if(e.target===scrollRail&&['ArrowLeft','ArrowRight'].includes(e.key)){e.preventDefault();e.stopPropagation();scrollRail.scrollBy({left:e.key==='ArrowRight'?160:-160,behavior:'smooth'});}},{signal:lifetime.signal});
+    // Keep trackpad scrolling in this rail; the Reader also listens for wheel turns.
+    rail.addEventListener('wheel',e=>e.stopPropagation(),{passive:true});
+    rail.addEventListener('keydown',e=>{if(e.target===rail&&['ArrowLeft','ArrowRight'].includes(e.key)){e.preventDefault();e.stopPropagation();rail.scrollBy({left:e.key==='ArrowRight'?160:-160,behavior:'smooth'});}});
     let railStart,railMoved=false;
-    scrollRail.addEventListener('pointerdown',e=>{railStart=[e.clientX,e.clientY];railMoved=false;},{capture:true,signal:lifetime.signal});
-    scrollRail.addEventListener('pointermove',e=>{if(railStart&&Math.hypot(e.clientX-railStart[0],e.clientY-railStart[1])>9)railMoved=true;},{capture:true,signal:lifetime.signal});
-    scrollRail.addEventListener('click',e=>{if(railMoved){e.preventDefault();e.stopImmediatePropagation();}railStart=null;},{capture:true,signal:lifetime.signal});
+    rail.addEventListener('pointerdown',e=>{railStart=[e.clientX,e.clientY];railMoved=false;},{capture:true});
+    rail.addEventListener('pointermove',e=>{if(railStart&&Math.hypot(e.clientX-railStart[0],e.clientY-railStart[1])>9)railMoved=true;},{capture:true});
+    rail.addEventListener('click',e=>{if(railMoved){e.preventDefault();e.stopImmediatePropagation();}railStart=null;},{capture:true});
     const safe=document.createElement('span');safe.id='chrome-safe';root.append(safe);
     const activeTool=document.createElement('button');activeTool.id='active-tool-label';activeTool.type='button';
     activeTool.innerHTML='<span class="active-tool-swatch" aria-hidden="true"></span><span id="active-tool-name"></span><span id="active-tool-detail"></span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="m9 5 7 7-7 7"/></svg>';
@@ -809,10 +814,10 @@ if(host){
         const showTip=()=>{hideTip();tooltipTarget=b;tooltipTitle=b.title;b.removeAttribute('title');tooltip.textContent=t(tooltipTitle||b.getAttribute('aria-label'));tooltip.hidden=false;b.setAttribute('aria-describedby',tooltip.id);const r=b.getBoundingClientRect(),w=tooltip.getBoundingClientRect().width;tooltip.style.left=`${Math.max(8,Math.min(innerWidth-w-8,r.left+r.width/2-w/2))}px`;tooltip.style.top=`${Math.max(8,r.top-tooltip.getBoundingClientRect().height-8)}px`;};
         b.addEventListener('pointerenter',e=>{if(e.pointerType==='mouse')showTip();});b.addEventListener('pointerleave',hideTip);b.addEventListener('focus',()=>{if(b.matches(':focus-visible'))showTip();});b.addEventListener('blur',hideTip);b.addEventListener('pointerdown',hideTip);
     }
-    scrollRail.addEventListener('scroll',()=>{hideTip();if(sheet.open)positionSheet();},{passive:true,signal:lifetime.signal});
+    rail.addEventListener('scroll',()=>{hideTip();if(sheet.open)positionSheet();},{passive:true});
     listenWindow('resize',hideTip);
     const toolHolds=new Set();
-    scrollRail.addEventListener('scroll',()=>{for(const clear of toolHolds)clear();},{passive:true,signal:lifetime.signal});
+    rail.addEventListener('scroll',()=>{for(const clear of toolHolds)clear();},{passive:true});
     activeTool.onclick=()=>{sheetAnchor=activeTool;if(selectedObject())openObjectSettings();else if(!selectionTool())showPanel('settings');};
     for(const b of root.querySelectorAll('[data-tool]')){
         // The selected tool opens its inspector on a second tap, just as a long press does.
@@ -832,8 +837,9 @@ if(host){
             art.classList.add('pen-art');art.setAttribute('transform','translate(60 130) rotate(180)');
             for(const child of [...svg.children])if(child.tagName.toLowerCase()!=='defs')art.append(child);
             svg.append(art);
-            const t=document.createElementNS('http://www.w3.org/2000/svg','text');t.classList.add('pen-width');t.setAttribute('x','30');t.setAttribute('y','70');t.setAttribute('text-anchor','middle');
-            const unit=t.cloneNode();unit.classList.replace('pen-width','pen-unit');unit.setAttribute('y','85');unit.textContent='mm';svg.append(t,unit);
+            const t=document.createElementNS('http://www.w3.org/2000/svg','text');t.classList.add('pen-width');t.setAttribute('x','30');t.setAttribute('y','80');t.setAttribute('text-anchor','middle');
+            svg.append(t);
+            const window=document.createElement('div');window.className='pen-visual';window.setAttribute('aria-hidden','true');b.prepend(window);window.append(svg);
         }
     }
     root.addEventListener('keydown',e=>{if(e.target.closest('dialog'))e.stopPropagation();});

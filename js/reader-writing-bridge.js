@@ -33,7 +33,6 @@ export function createReaderWritingBridge({button,read,onReturn,view,turn,goTo,o
         textView?.(null);
         cancelAnimationFrame(frame);editor?.dispose();editor=null;container?.remove();container=null;menuLocale?.dispose();menu?.remove();menu=null;source=null;
         document.body.classList.remove('reader-writing-active','reader-writing-turning');onMode(false);
-        document.getElementById('viewer-reader-controls')?.scrollTo({left:0});
         button.removeAttribute('aria-pressed');button.title=t('書き込み / Writing');button.setAttribute('aria-label',button.title);button.focus();
     }
     async function finish(){
@@ -73,7 +72,6 @@ export function createReaderWritingBridge({button,read,onReturn,view,turn,goTo,o
             root.append(...html.body.childNodes);document.body.append(container);await Promise.all(styles);
             editor=await module.mountReaderWriting(root,{turn,goTo,view,changed:updateLayers,resetView,textView});
             await editor.open(source);
-            button.after(container);
             document.body.classList.add('reader-writing-active');onMode(true);addMenu();updateLayers();
             button.setAttribute('aria-pressed','true');button.setAttribute('aria-label',t('書き込みを終了してReaderに戻る'));
             await tick();container.style.visibility='';
