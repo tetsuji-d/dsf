@@ -2,6 +2,20 @@ import {getPlatformLanguage,subscribePlatformLanguage} from './ui-language.js';
 
 // UI copy only. Manuscripts, object text, filenames and saved operation names are never rewritten.
 const EN={
+    '元のファイルを自動で上書きすることはありません。保存せず戻っても、書き込みはReaderと端末内の下書きに残ります。':'The original file is not overwritten automatically. Returning without a file export keeps your Writing in Reader and the local draft.',
+    '保存・共有':'Save / share',
+    'ダウンロードで保存':'Save by downloading',
+    '共有メニューが使えない場合はこちら':'Use this if the share menu is unavailable.',
+    'ファイルに保存しました':'I saved the file',
+    '保存したのでReaderに戻る':'I saved it — return to Reader',
+    '保存ファイルを用意しました。保存後、この画面に戻ってください。':'Your file is ready. Return here after saving it.',
+    '「保存・共有」を押し、次の画面で「“ファイル”に保存」を選んでください。':'Choose Save / share, then choose Save to Files on the next screen.',
+    'ダウンロード後にプレビューが開いた場合は、「次の方法で開く」または共有ボタンから「“ファイル”に保存」を選んでください。':'If a preview opens after downloading, use Open in or the share button, then choose Save to Files.',
+    '上書きしたい場合は、元と同じフォルダ・ファイル名で保存し、置き換え確認が出たら承認してください。':'To replace the original, save in the same folder with the same filename and confirm Replace if prompted.',
+    '保存先で保存を完了してください。この画面では保存結果を確認できません。':'Finish saving at the destination. This screen cannot verify whether the file was saved.',
+    '共有をキャンセルしました。書き込みは保持されています。':'Sharing was cancelled. Your Writing is preserved.',
+    '共有を開けませんでした。「ダウンロードで保存」をお使いください。書き込みは保持されています。':'Could not open sharing. Choose Save by downloading. Your Writing is preserved.',
+    '保存の確認を受け付けました。書き込みを続けられます。':'You confirmed saving the file. You can continue writing.',
     'Writingを準備しています…':'Preparing Writing…',
     '道具を隠す。長押しでReaderに戻る':'Hide tools. Hold to return to Reader',
     '道具を表示。長押しでReaderに戻る':'Show tools. Hold to return to Reader',

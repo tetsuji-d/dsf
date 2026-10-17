@@ -1,5 +1,6 @@
 import {installWritingLocale,writingUiText} from './reader-writing-i18n.js';
 import {getPlatformLanguage,subscribePlatformLanguage} from './ui-language.js';
+import {writingExportName,mountWritingFileExport} from './reader-writing-file-save.js';
 /** Prevent browser viewport gestures only on the active Writing surface, not Reader or dialogs. */
 export function installWritingViewportGuards(document,isActive){
     const inDialog=e=>e.composedPath().some(node=>node.matches?.('dialog,[role=dialog]'));
@@ -44,16 +45,18 @@ export function createReaderWritingBridge({button,read,onReturn,view,turn,goTo,o
     async function exitChoice(){
         const dialog=document.createElement('dialog');dialog.className='reader-writing-exit';dialog.setAttribute('aria-labelledby','writing-exit-title');
         const title=document.createElement('h2');title.id='writing-exit-title';title.textContent=t('書き込みを保存しますか？');
-        const message=document.createElement('p');message.textContent=t('元のファイルは上書きされません。保存せず戻っても、書き込みはReaderと端末内の下書きに残ります。');
+        const message=document.createElement('p');message.textContent=t('元のファイルを自動で上書きすることはありません。保存せず戻っても、書き込みはReaderと端末内の下書きに残ります。');
         const actions=document.createElement('div');dialog.append(title,message,actions);document.body.append(dialog);
         return new Promise(resolve=>{
-            let url,preparing=false;const done=value=>{dialog.close();dialog.remove();if(url)setTimeout(()=>URL.revokeObjectURL(url),60000);resolve(value);};
+            let fileExport,preparing=false;const done=value=>{fileExport?.dispose();dialog.close();dialog.remove();resolve(value);};
             const add=(label,action)=>{const b=document.createElement('button');b.type='button';b.textContent=t(label);b.onclick=action;actions.append(b);return b;};
             add('編集用DSFRを保存',async()=>{
                 preparing=true;for(const b of actions.children)b.disabled=true;message.textContent=t('保存ファイルを準備しています…');
-                try{const result=await editor.finish();url=URL.createObjectURL(new Blob([result.bytes],{type:'application/octet-stream'}));
-                    const link=document.createElement('a');link.className='writing-exit-download';link.href=url;link.download='writing.dsfr';link.textContent=t('ダウンロードしてReaderに戻る');
-                    link.onclick=()=>done(result);actions.replaceChildren(link);add('書き込みを続ける',()=>done(null));message.textContent=t('保存ファイルの準備ができました。ダウンロードを押してください。');link.focus();
+                try{const result=await editor.finish(),exportArea=document.createElement('div');
+                    fileExport=mountWritingFileExport(exportArea,{bytes:result.bytes,name:writingExportName(source?.file?.name),t,
+                        confirmLabel:'保存したのでReaderに戻る',onConfirm:()=>done(result)});
+                    actions.replaceChildren(exportArea);add('書き込みを続ける',()=>done(null));message.textContent=t('保存ファイルを用意しました。保存後、この画面に戻ってください。');
+                    exportArea.querySelector('button:not([hidden]),a').focus();
                 }catch(error){message.textContent=t(error.message);for(const b of actions.children)b.disabled=false;}finally{preparing=false;}
             });
             add('ファイルに保存せず戻る',()=>done('return'));

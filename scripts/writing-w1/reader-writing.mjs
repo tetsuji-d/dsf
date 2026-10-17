@@ -1,4 +1,4 @@
-import {dsfFilename} from '/js/file-extensions.js';
+import {writingExportName,mountWritingFileExport} from '/js/reader-writing-file-save.js';
 import {loadDsfV3,resaveDsfV3,writingFontText} from '/js/dsf-writing-package.js';
 import {writingArchiveKind} from '/js/dsf-writing-zip.js';
 import {createReaderWritingModel,writingId,moveWritingObject,writingBounds,createWritingText,reorderWritingObject,reorderWritingObjectAt,writingMarqueeObjects,moveWritingSelection,styleWritingSelection} from '/js/reader-writing-model.js';
@@ -36,7 +36,7 @@ function selectObjects(ids=[]){selectionIds=new Set(ids);selected=ids.at(-1)||nu
 let draftId,draftVersion=0,saveQueue=Promise.resolve(),generation=0,saveSequence=0,unsaved=false,storageFailed=false,generated;
 let savedHead,generatedHead,toolsVisible=true;
 function showTools(visible){toolsVisible=visible;body.dataset.toolsVisible=String(visible);if(!visible){closeSheet();hideObjectActions();}else chromeContrast?.invalidate();host?.toolsVisibility?.(visible);}
-let families={},originalFaces=[],imageUrls=new Map(),downloadUrl;
+let families={},originalFaces=[],imageUrls=new Map(),fileExport,sourceFilename='';
 const pageCache=createWritingPageCache({load:preparePage,dispose:entry=>{entry.layer.remove();entry.original.remove();
     for(const path of entry.assets){const asset=imageUrls.get(path);if(asset&&!--asset.users){URL.revokeObjectURL(asset.url);imageUrls.delete(path);}}}});
 let readingMode=false,snapTarget=null,pageZoom=false;
@@ -267,7 +267,7 @@ function explain(e) {
     return messages[e.message]||`処理できませんでした（${e.message}）。現在の内容は保持しています。`;
 }
 function clearGenerated() {
-    generated=null;if(downloadUrl)URL.revokeObjectURL(downloadUrl);downloadUrl=null;
+    generated=null;fileExport?.dispose();fileExport=null;$('file-export').hidden=true;
     $('download').hidden=$('reopen').hidden=true;$('file-status').textContent='';$('receipt').textContent='';$('record').disabled=true;
 }
 function controls() {
@@ -449,7 +449,7 @@ function showPage() {
     otherOriginal.hidden=otherLayer.hidden=visiblePages.length<2;
     $('page-label').textContent=`${visiblePages.map(i=>i+1).join('–')} / ${context.manifest.pages.length}`;render();updatePanels();syncStyle();scale();
 }
-async function openBytes(bytes,draft) {
+async function openBytes(bytes,draft,filename='') {
     await saveQueue;
     if(unsaved&&!generated)throw new Error('DRAFT_UNSAVED');
     const kind=writingArchiveKind(bytes);let imported;
@@ -474,7 +474,7 @@ async function openBytes(bytes,draft) {
         const lang=draft?.language&&next.bundle.manifests[draft.language]?draft.language:next.bundle.index.defaultLang;
         const nextContext=await contextFor(next,lang,originalFamilies);
         originalFaces.forEach(f=>document.fonts.delete(f));originalFaces=loaded;pageCache.clear();
-        objectClipboard=null;handle=next;model=nextModel;baseBytes=bytes;families=fontFamilies;context=nextContext;language=lang;pageIndex=Math.min(draft?.pageIndex||0,context.manifest.pages.length-1);
+        objectClipboard=null;handle=next;model=nextModel;baseBytes=bytes;sourceFilename=filename;families=fontFamilies;context=nextContext;language=lang;pageIndex=Math.min(draft?.pageIndex||0,context.manifest.pages.length-1);
         generation++;storageFailed=false;draftId=draft?.id||writingId();draftVersion=draft?.version||0;unsaved=false;
         savedHead=nextModel.head;
         $('title').textContent=next.meta.title||'DSF';$('kind').textContent=model.locked?'共有用 · 書き込みロック':'Writing · 原本を保護';
@@ -485,8 +485,8 @@ async function openBytes(bytes,draft) {
         if(!model.locked)persist();
     }catch(e){loaded.forEach(f=>document.fonts.delete(f));throw e;}
 }
-$('sample').onclick=()=>task('サンプル読込',async()=>{const r=await fetch('/sample.dsfr');if(!r.ok)throw new Error('SAMPLE_LOAD');await openBytes(new Uint8Array(await r.arrayBuffer()));});
-$('file').onchange=()=>task('DSF読込',async()=>{const f=$('file').files[0];try{if(f){if(f.size>257*1024*1024)throw new Error('ZIP_LIMIT');await openBytes(new Uint8Array(await f.arrayBuffer()));}}finally{$('file').value='';}});
+$('sample').onclick=()=>task('サンプル読込',async()=>{const r=await fetch('/sample.dsfr');if(!r.ok)throw new Error('SAMPLE_LOAD');await openBytes(new Uint8Array(await r.arrayBuffer()),undefined,'sample.dsfr');});
+$('file').onchange=()=>task('DSF読込',async()=>{const f=$('file').files[0];try{if(f){if(f.size>257*1024*1024)throw new Error('ZIP_LIMIT');await openBytes(new Uint8Array(await f.arrayBuffer()),undefined,f.name);}}finally{$('file').value='';}});
 $('resume').onclick=()=>task('下書き復元',async()=>{const d=await readWritingDraft($('drafts').value);if(!d)throw new Error('DRAFT_MISSING');await openBytes(d.bytes,d);});
 $('prepare').onclick=()=>task('オフライン準備',async()=>{await runtime.prepareOffline();$('offline-status').textContent=host?'入力用2書体をこの端末に保存しました。Reader画面のオフライン起動は引き続き検証中です。':'画面と入力用2書体の準備が完了しました。この端末で通信を切って書き込み・保存を試せます。';});
 $('language').onchange=()=>task('言語切替',async()=>{cancelGesture();readerUnits=null;const lang=$('language').value,orig={};for(const f of handle.resources.original.fonts)orig[f.sourceFontId]=`RW_original_${f.sha256}`;
@@ -720,13 +720,14 @@ async function buildFile(shared=false) {
     const editable=await resaveDsfV3(handle,{copyKind:'writing-editable',envelope:model.envelope});
     const output=shared?await resaveDsfV3(editable.handle,{copyKind:'writing-shared'}):editable;
     if(output.handle.baseHash!==handle.baseHash)throw new Error('DSF3_ORIGINAL_CHANGED');
-    clearGenerated();generated=output;generatedHead=model.head;downloadUrl=URL.createObjectURL(output.blob);
-    $('download').href=downloadUrl;$('download').download=dsfFilename(`${(handle.meta.title||'DSF').replace(/\.(dsfr|dsf)$/i,'')}-${shared?'shared':'writing'}`);
-    $('download').textContent=`${shared?'共有用':'編集用'}DSFをダウンロード`;$('download').hidden=$('reopen').hidden=false;
-    $('file-status').textContent=`作成済み · ${(output.bytes.length/1024).toFixed(1)} KB。ダウンロードしてファイルとして保管してください。${shared?' 編集中の下書きと履歴はそのまま残っています。':''}`;
+    clearGenerated();generated=output;generatedHead=model.head;
+    fileExport=mountWritingFileExport($('file-export'),{bytes:output.bytes,name:writingExportName(sourceFilename,handle.meta.title,shared),t,download:$('download'),
+        onConfirm:()=>{if(!shared)savedHead=generatedHead;$('file-status').textContent=t('保存の確認を受け付けました。書き込みを続けられます。');}});
+    $('reopen').hidden=false;
+    $('file-status').textContent=`${(output.bytes.length/1024).toFixed(1)} KB`;
 }
 $('save').onclick=()=>task('編集用DSF作成',()=>buildFile());$('share').onclick=()=>task('共有用DSF作成',()=>buildFile(true));
-$('reopen').onclick=()=>task('作成したDSFの再読込',async()=>{const bytes=generated.bytes;await openBytes(bytes);});
+$('reopen').onclick=()=>task('作成したDSFの再読込',async()=>{const bytes=generated.bytes,name=$('download').download;await openBytes(bytes,undefined,name);});
 $('record').onclick=()=>task('検証フォルダーへの保存',async()=>{const r=await fetch('/record-file',{method:'POST',headers:{'Content-Type':'application/vnd.dsf.content+zip','X-DSF-SHA256':generated.sha256},body:generated.blob});
     if(!r.ok)throw new Error('TEST_FILE_WRITE');const receipt=await r.json();$('receipt').textContent=receipt.file;$('evidence').textContent+=`\nfileSha256: ${receipt.sha256}`;});
 listenWindow('keydown',e=>{if(busy||!model||model.locked||readingMode||e.composedPath().some(n=>n.matches?.('input,textarea,select,dialog')))return;
@@ -735,7 +736,6 @@ listenWindow('keydown',e=>{if(busy||!model||model.locked||readingMode||e.compose
     if(e.key==='Delete'&&selected){e.preventDefault();$('delete').click();}if(e.key==='Escape'){cancelGesture();selectObjects();render();controls();}});
 listenWindow('beforeunload',e=>{if(unsaved){e.preventDefault();e.returnValue='';}});
 if(!host)try {await refreshDrafts();say('DSFを開くか、サンプルで書き込みを試してください。');}catch(e){say(explain(e),true);}
-$('download').addEventListener('click',()=>{if(generated)savedHead=generatedHead;});
 setTool('pen');controls();
 
 if(!host&&readerNonce&&window.parent!==window){
@@ -749,7 +749,7 @@ if(!host&&readerNonce&&window.parent!==window){
             await task('Readerから読込',async()=>{
                 try{if(!(data.file instanceof Blob)||data.file.size>257*1024*1024)throw Error('ZIP_LIMIT');
                     spread=data.spread===true;readerUnits=Array.isArray(data.units)?data.units:null;
-                    await openBytes(new Uint8Array(await data.file.arrayBuffer()),{language:data.language,pageIndex:Math.max(0,Number.isInteger(data.pageIndex)?data.pageIndex:0)});
+                    await openBytes(new Uint8Array(await data.file.arrayBuffer()),{language:data.language,pageIndex:Math.max(0,Number.isInteger(data.pageIndex)?data.pageIndex:0)},data.file.name);
                     reply({type:'dsf-writing-opened'});
                 }catch(error){reply({type:'dsf-writing-error',message:explain(error)});throw error;}
             });
@@ -896,7 +896,7 @@ if(host){
     root.addEventListener('keydown',e=>{if(e.target.closest('dialog'))e.stopPropagation();});
     root.addEventListener('pointerdown',e=>e.stopPropagation());root.addEventListener('click',e=>e.stopPropagation());
     return {
-        async open(data){spread=data.spread===true;readerUnits=data.units;await openBytes(new Uint8Array(await data.file.arrayBuffer()),{language:data.language,pageIndex:data.pageIndex});if($('status').dataset.error!=='true'){$('status').textContent='書き込みモード';$('status').dataset.notice=false;}},
+        async open(data){spread=data.spread===true;readerUnits=data.units;await openBytes(new Uint8Array(await data.file.arrayBuffer()),{language:data.language,pageIndex:data.pageIndex},data.file.name);if($('status').dataset.error!=='true'){$('status').textContent='書き込みモード';$('status').dataset.notice=false;}},
         sync:syncHost,panel:(name)=>{showTools(true);showPanel(name);},
         get hasChanges(){return !!model&&model.head!==savedHead;},
         showTools, toggleTools(){showTools(!toolsVisible);},
@@ -905,7 +905,7 @@ if(host){
             busy=true;controls();try{const output=await resaveDsfV3(handle,{copyKind:'writing-editable',envelope:model.envelope});return {bytes:output.bytes,language,pageIndex};}finally{busy=false;runtime.dispose();controls();}},
         layer(pageId,lang){const layer=document.createElement('div');layer.className='reader-writing-saved-layer';renderWritingLayer(layer,model?.objects(lang,pageId)||[],{...families,...inputFamilies});return layer.outerHTML;},
         notice:message=>say(message,true),
-        dispose(){disposed=true;clearStrokePreview();chromeContrast?.dispose();host.textView?.(null);lifetime.abort();clearTimeout(noticeTimer);resizeObserver.disconnect();mobileMedia.removeEventListener('change',mediaChanged);closeSheet();runtime.destroy();originalFaces.forEach(f=>document.fonts.delete(f));pageCache.clear();if(downloadUrl)URL.revokeObjectURL(downloadUrl);}
+        dispose(){disposed=true;clearStrokePreview();chromeContrast?.dispose();host.textView?.(null);lifetime.abort();clearTimeout(noticeTimer);resizeObserver.disconnect();mobileMedia.removeEventListener('change',mediaChanged);closeSheet();runtime.destroy();originalFaces.forEach(f=>document.fonts.delete(f));pageCache.clear();fileExport?.dispose();}
     };
 }
 }

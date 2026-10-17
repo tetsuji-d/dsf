@@ -5,6 +5,10 @@
 @media(prefers-reduced-motion:reduce){#viewer-writing-btn[aria-busy=true]{animation:none;opacity:.6}}
 .reader-writing-exit{box-sizing:border-box;width:min(420px,calc(100vw - 32px));max-height:calc(100dvh - 32px);overflow:auto;border:1px solid #b8cec8;border-radius:18px;padding:22px;color:#23433e;background:#f4faf7;box-shadow:0 10px 40px #001c2340;font:15px/1.6 system-ui}
 .reader-writing-exit::backdrop{background:#10262655}
+.reader-writing-exit .writing-file-export{display:flex;flex-direction:column;gap:10px;min-width:0}
+.reader-writing-exit .writing-file-export p{font-size:13px;line-height:1.5;margin:0;overflow-wrap:anywhere}
+.reader-writing-exit .writing-export-name{font-weight:600}
+.reader-writing-exit [hidden]{display:none!important}
 .reader-writing-exit h2{font-size:18px;margin:0 0 12px}.reader-writing-exit p{margin:0 0 18px}
 .reader-writing-exit>div{display:flex;flex-direction:column;gap:10px}
 .reader-writing-exit button,.reader-writing-exit a{box-sizing:border-box;display:block;min-height:44px;padding:10px 14px;border:1px solid #8ba9a0;border-radius:10px;background:#fff;color:#23433e;text-decoration:none;font:inherit;text-align:center;cursor:pointer}
