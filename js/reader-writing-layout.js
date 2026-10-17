@@ -25,11 +25,14 @@ export function writingTextPan({box,viewport,toolbarBottom}){
 }
 
 /** Anchor the inspector immediately above its tool, with viewport clamping. */
-export function writingInspectorPlacement({width,height,anchor,offsetLeft=0,offsetTop=0,panel='settings',contentHeight=680}){
-    const edge=8,leftEdge=offsetLeft+edge,topEdge=offsetTop+edge;
-    const w=Math.min(['layers','history'].includes(panel)||width>=640?420:360,width-2*edge);
-    const available=Math.max(44,anchor.top-8-topEdge);
-    const h=Math.min(contentHeight,available,height-2*edge);
-    return {left:Math.max(leftEdge,Math.min(anchor.left+anchor.width/2-w/2,offsetLeft+width-edge-w)),
-        top:Math.max(topEdge,anchor.top-8-h),width:w,height:h};
+export function writingInspectorPlacement({width,height,anchor,offsetLeft=0,offsetTop=0,panel='settings',contentHeight=680,canvas,headerBottom=0}){
+    const edge=8,leftEdge=Math.max(offsetLeft,canvas?.left??offsetLeft)+edge;
+    const rightEdge=Math.min(offsetLeft+width,canvas?.right??offsetLeft+width)-edge;
+    const topEdge=Math.max(offsetTop,canvas?.top??offsetTop,headerBottom)+edge;
+    const bottomEdge=Math.min(offsetTop+height,canvas?.bottom??offsetTop+height)-edge;
+    const w=Math.min(['layers','history'].includes(panel)||width>=640?420:360,Math.max(1,rightEdge-leftEdge));
+    const bottom=Math.min(bottomEdge,Math.max(topEdge+1,anchor.top-edge));
+    const h=Math.min(contentHeight,Math.max(1,bottom-topEdge));
+    return {left:Math.max(leftEdge,Math.min(anchor.left+anchor.width/2-w/2,rightEdge-w)),
+        top:Math.max(topEdge,bottom-h),width:w,height:h};
 }

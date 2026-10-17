@@ -22,6 +22,15 @@ for(const [width,height] of fixtures){
  }
 }
 const ellipse={type:'shape',shape:'ellipse',rect:[40,50,240,180],width:2,fill:null};
+// iPhone safe area and Reader header must never cover the close button.
+for(const [width,height] of [[390,844],[453,980],[844,390],[1440,900]]){
+ const canvas={left:5,right:width-5,top:90,bottom:height-55};
+ for(const panel of ['settings','history','layers']){
+  const pos=writingInspectorPlacement({width,height,canvas,headerBottom:134,anchor:{left:width-90,top:height-160,width:44},panel});
+  assert.ok(pos.top>=142&&pos.top+pos.height<=canvas.bottom-8,'Inspector stays below Reader header and inside paper');
+  assert.ok(pos.left>=canvas.left+8&&pos.left+pos.width<=canvas.right-8,'Inspector stays inside paper horizontally');
+ }
+}
 for(const width of [320,390,844])for(const height of [340,480,844])for(const y of [20,240,600]){
  const box={left:width/2-80,top:y,width:160,height:100},viewport={left:0,top:0,width,height};
  const pan=writingTextPan({box,viewport,toolbarBottom:116});

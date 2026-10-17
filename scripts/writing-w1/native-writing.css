@@ -87,7 +87,9 @@ main,.reading{display:contents!important}#viewport{display:contents}#page-wrap{p
 #layer-list .layer-grip{width:44px;min-height:98px}#layer-list .layer-delete{color:#8c4b42}
 #layer-order button{font-size:12px}
 :host button,:host select{touch-action:manipulation}#sheet-body select,#text-dialog select,#text-dialog textarea{font-size:16px}
-:host button:focus-visible{outline:2px solid #1b7771;outline-offset:3px}
+:host([data-keyboard=true]) button:focus-visible{outline:2px solid #3279ab;outline-offset:2px}
+:host([data-keyboard=false]) :focus{outline:none!important}
+#input:focus,#tool-scroll:focus{outline:none!important}
 
 /* A non-modal, page-aligned text box; its toolbar remains at screen scale. */
 #text-box-preview{position:absolute;border:1.5px dashed #247d83;background:#a7d7d518;pointer-events:none;z-index:3}
@@ -112,7 +114,7 @@ main,.reading{display:contents!important}#viewport{display:contents}#page-wrap{p
 #tool-scroll{position:fixed;display:block;overflow-x:auto;overflow-y:hidden;pointer-events:auto;touch-action:pan-x;overscroll-behavior-x:contain;scrollbar-width:none;-webkit-overflow-scrolling:touch;isolation:isolate}
 #tool-scroll::-webkit-scrollbar{display:none}
 #tool-scroll-track{display:block;position:relative;height:116px;pointer-events:auto;touch-action:pan-x}
-#tool-scroll:focus-visible{outline:2px solid #318c82;outline-offset:-2px}
+#tool-scroll:focus-visible{outline:none}
 :host([data-tools-layout=scroll]) #native-fit{display:none}
 #active-tool-label{display:none!important}
 :host #tool-scroll button{touch-action:pan-x}
@@ -140,7 +142,11 @@ main,.reading{display:contents!important}#viewport{display:contents}#page-wrap{p
 #writing-tool-tip{position:fixed;z-index:7;max-width:220px;padding:6px 10px;background:#203b36f2;color:#fff;border-radius:8px;box-shadow:0 3px 12px #142c3630;pointer-events:none;font-size:12px;line-height:1.4}
 #mobile-sheet[data-panel=history]{background:rgba(249,253,250,.76);backdrop-filter:blur(2px);-webkit-backdrop-filter:blur(2px)}#mobile-sheet[data-panel=history] #sheet-body aside{background:transparent}#mobile-sheet[data-panel=history]::backdrop{background:rgba(19,45,55,.08)}
 #mobile-sheet[data-panel=layers],#mobile-sheet[data-panel=history]{box-shadow:0 10px 36px #183e382b;border:1px solid #b8cbc3}
-#mobile-sheet[data-panel=history] #history{min-height:160px;height:45dvh;max-height:420px}#mobile-sheet[data-panel=history] #history option{padding:8px}
+#history-rows{display:none}
+#mobile-sheet[data-panel=history] #history-rows{display:flex;flex-direction:column;gap:4px;max-height:min(360px,34dvh);overflow-y:auto;overflow-x:hidden;overscroll-behavior:contain;margin:0 0 12px;padding:3px}
+#history-rows button{flex:none;min-height:44px;width:100%;text-align:left;white-space:normal;overflow-wrap:anywhere;padding:9px 12px;background:#ffffff45;border:1px solid #567c7033}
+#history-rows button[aria-pressed=true]{background:#216b6924;color:#174d49;border-color:#216b69}
+#history-rows button[aria-current=step]{font-weight:650}
 #mobile-sheet[data-panel=history] #history-section,#mobile-sheet[data-panel=history] .edit-actions{display:none}#mobile-sheet[data-panel=history] #restore{width:100%;min-height:44px}
 
 .pen-nib{transform-box:view-box;transform-origin:30px 90px;transform:scaleX(var(--nib-scale,1));transition:transform .16s ease}

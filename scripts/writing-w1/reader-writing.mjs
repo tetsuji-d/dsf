@@ -102,6 +102,12 @@ const mobileMedia=matchMedia('(max-width:760px)'),sheet=$('mobile-sheet');
 const layerPanel=document.createElement('aside');layerPanel.className='layer-panel';layerPanel.hidden=true;layerPanel.innerHTML='<p class="subtle">現在のページ · 上ほど手前。原稿本体は最背面に固定されています。</p><div id="layer-list" role="group" aria-label="書き込みの重ね順"></div><div id="layer-order"></div>';(root===document?document.body:root).append(layerPanel);
 const layerTrigger=document.createElement('button');layerTrigger.dataset.panel='layers';layerTrigger.textContent='レイヤー';root.querySelector('.mobile-dock').append(layerTrigger);
 const panels={layers:layerPanel,settings:root.querySelector('.tools'),history:root.querySelector('.tools'),save:root.querySelector('.save-panel')};
+// iOS renders select[size] as a picker, so show real rows in the Reader inspector.
+let historyRows;
+if(host){
+    const label=$('history').closest('label');label.hidden=true;
+    historyRows=document.createElement('div');historyRows.id='history-rows';historyRows.setAttribute('role','group');historyRows.setAttribute('aria-label','履歴');label.after(historyRows);
+}
 let sheetPanel,sheetPlaceholder,styleDraft,sheetAnchor;
 const sheetActions=document.createElement('div');sheetActions.id='sheet-actions';sheetActions.hidden=true;
 sheetActions.innerHTML='<p id="sheet-action-hint"></p><div id="sheet-style-actions"><button id="sheet-cancel" type="button">キャンセル</button><button id="sheet-apply" class="primary" type="button">適用</button></div><div id="sheet-history-actions"><button id="sheet-undo" type="button" aria-label="元に戻す">↶ 元に戻す</button><button id="sheet-redo" type="button" aria-label="やり直す">↷ やり直す</button></div>';
@@ -371,7 +377,16 @@ function updatePanels() {
         const pages=r.pages.map(p=>p.language===language?context.manifest.pages.findIndex(page=>page.id===p.pageId)+1:`${p.language}:${p.pageId}`).join('・');
         $('history').add(new Option(`${i?`${i}. ${t(r.operation)}`:t('開始時点')}${pages?(locale.language==='en'?` (p. ${pages})`:`（${pages}ページ）`):''}${r.id===current?' — '+t('現在'):''}`,r.id));
     }
-    $('history').value=current||'';$('history-count').textContent=model.locked?'共有用：履歴なし・編集ロック':`本全体で直近 ${Math.max(0,revisions.length-1)} / 30 操作。戻った後に編集すると、やり直しの履歴は消えます。古い履歴を整理しても書き込みは残ります。`;
+    $('history').value=current||'';
+    if(historyRows){
+        historyRows.replaceChildren();
+        for(const option of [...$('history').options].reverse()){
+            const row=document.createElement('button');row.type='button';row.dataset.revision=option.value;row.dataset.writingUserLabel='true';row.textContent=option.textContent;
+            row.setAttribute('aria-pressed',option.value===current);if(option.value===current)row.setAttribute('aria-current','step');row.disabled=busy||model.locked;
+            row.onclick=()=>{$('history').value=option.value;for(const b of historyRows.children)b.setAttribute('aria-pressed',b===row);};historyRows.append(row);
+        }
+    }
+    $('history-count').textContent=model.locked?'共有用：履歴なし・編集ロック':`本全体で直近 ${Math.max(0,revisions.length-1)} / 30 操作。戻った後に編集すると、やり直しの履歴は消えます。古い履歴を整理しても書き込みは残ります。`;
     $('page-summary').textContent=`${page()?.pageLabel||pageIndex+1} ページ · 書き込み ${all.length} 件`;
     $('evidence').textContent=JSON.stringify({baseHash:handle.baseHash,copyKind:handle.copyKind,writingObjects:all.length,historyOperations:Math.max(0,revisions.length-1),historyLimit:30,pageCache:pageCache.keys,head:current},null,2);controls();
 }
@@ -759,9 +774,11 @@ function positionSheet(){
     const source=sheetAnchor?.isConnected?sheetAnchor:$('active-tool-label');let anchor=source.getBoundingClientRect();
     if(anchor.bottom<=0||!anchor.width){const fallback=$('active-tool-label').style;anchor={left:parseFloat(fallback.left)||8,top:parseFloat(fallback.top)||56,width:parseFloat(fallback.width)||264,height:44};anchor.bottom=anchor.top+44;anchor.right=anchor.left+anchor.width;}
     if(source.classList.contains('pen-item'))anchor={...anchor.toJSON(),top:Math.min(anchor.top,source.querySelector('svg').getBoundingClientRect().top)};
-    const v=window.visualViewport,args={width:v?.width||innerWidth,height:v?.height||innerHeight,offsetLeft:v?.offsetLeft||0,offsetTop:v?.offsetTop||0,anchor,panel:sheet.dataset.panel};
+    const pages=hostView?.pages||[],canvas=pages.length?{left:Math.min(...pages.map(p=>p.left)),right:Math.max(...pages.map(p=>p.right)),top:Math.min(...pages.map(p=>p.top)),bottom:Math.max(...pages.map(p=>p.top+p.height))}:undefined;
+    const headerBottom=[...document.querySelectorAll('#viewer-header .ui-controls,#viewer-header .viewer-brand-navigation')].filter(e=>e.getClientRects().length).reduce((y,e)=>Math.max(y,e.getBoundingClientRect().bottom),0);
+    const v=window.visualViewport,args={width:v?.width||innerWidth,height:v?.height||innerHeight,offsetLeft:v?.offsetLeft||0,offsetTop:v?.offsetTop||0,anchor,panel:sheet.dataset.panel,canvas,headerBottom};
     let r=writingInspectorPlacement(args);
-    sheet.dataset.placement='anchored';Object.assign(sheet.style,{left:`${r.left}px`,top:`${r.top}px`,width:`${r.width}px`,height:['layers','history'].includes(sheet.dataset.panel)?`${r.height}px`:'auto',maxHeight:`${r.height}px`});
+    sheet.dataset.placement='anchored';Object.assign(sheet.style,{left:`${r.left}px`,top:`${r.top}px`,width:`${r.width}px`,height:sheet.dataset.panel==='layers'?`${r.height}px`:'auto',maxHeight:`${r.height}px`});
     // Use the actual content height so a short panel still meets its tool's upper edge.
     r=writingInspectorPlacement({...args,contentHeight:sheet.getBoundingClientRect().height});sheet.style.top=`${r.top}px`;
 }
@@ -781,6 +798,10 @@ async function syncHost(view){
     if(view.suspended&&gesture)cancelGesture();layoutHost();
 }
 if(host){
+    body.dataset.keyboard='false';
+    root.addEventListener('pointerdown',()=>{body.dataset.keyboard='false';},{capture:true,signal:lifetime.signal});
+    document.addEventListener('keydown',e=>{if(e.key==='Tab')body.dataset.keyboard='true';},{capture:true,signal:lifetime.signal});
+    for(const type of ['resize','scroll'])window.visualViewport?.addEventListener(type,()=>{if(sheet.open)positionSheet();},{signal:lifetime.signal});
     body.dataset.tools='pens';
     $('writing-test-intro')?.remove();
     const prepare=$('prepare');prepare.textContent='入力用書体の準備';root.querySelector('.save-panel').append(prepare);
@@ -804,7 +825,7 @@ if(host){
         const b=document.createElement('button');b.id=`native-${id}`;b.type='button';b.title=label;b.setAttribute('aria-label',label);b.textContent=icon;
         if(id==='layers')b.innerHTML='<svg viewBox="0 0 24 24" width="25" height="25" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="m3 7 9-5 9 5-9 5ZM3 12l9 5 9-5M3 17l9 5 9-5"/></svg>';
         if(id!=='layers')b.innerHTML=`<svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${{undo:'<path d="m8 5-5 5 5 5M3 10h11a6 6 0 0 1 6 6v2"/>',redo:'<path d="m16 5 5 5-5 5m5-5H10a6 6 0 0 0-6 6v2"/>',fit:'<path d="M8 3H3v5m13-5h5v5M3 16v5h5m13-5v5h-5"/>',timeline:'<path d="M4 8a9 9 0 1 1 0 8M4 3v5h5M12 7v6l4 2"/>'}[id]}</svg>`;
-        b.onclick=()=>{cancelGesture();if(id==='fit')host.resetView?.();else if(['layers','timeline'].includes(id)){sheetAnchor=b;root.querySelector(`[data-panel="${id==='timeline'?'history':'layers'}"]`).click();}else $(id).click();};historyBar.append(b);
+        b.onclick=()=>{cancelGesture();if(id==='fit')host.resetView?.();else if(['layers','timeline'].includes(id)){if(sheet.open&&sheetAnchor===b){closeSheet();return;}sheetAnchor=b;root.querySelector(`[data-panel="${id==='timeline'?'history':'layers'}"]`).click();}else $(id).click();};historyBar.append(b);
     }track.prepend(historyBar);
     const showPanel=(name,anchor=activeTool)=>{closeSheet();sheetAnchor=anchor;root.querySelector(`[data-panel="${name}"]`).click();};
     const tooltip=document.createElement('div');tooltip.id='writing-tool-tip';tooltip.setAttribute('role','tooltip');tooltip.hidden=true;root.append(tooltip);
@@ -821,7 +842,7 @@ if(host){
     activeTool.onclick=()=>{sheetAnchor=activeTool;if(selectedObject())openObjectSettings();else if(!selectionTool())showPanel('settings');};
     for(const b of root.querySelectorAll('[data-tool]')){
         // The selected tool opens its inspector on a second tap, just as a long press does.
-        b.onclick=()=>{if(b.dataset.tool===tool&&!readingMode&&!selected&&!selectionTool())showPanel('settings',b);else setTool(b.dataset.tool);};
+        b.onclick=()=>{if(sheet.open&&sheetAnchor===b){closeSheet();return;}if(b.dataset.tool===tool&&!readingMode&&!selected&&!selectionTool())showPanel('settings',b);else setTool(b.dataset.tool);};
         let timer,held=false,start;
         const clear=()=>clearTimeout(timer);toolHolds.add(clear);lifetime.signal.addEventListener('abort',clear,{once:true});
         b.addEventListener('pointerdown',e=>{if(e.button!==0||b.disabled||(b.dataset.tool==='select'))return;held=false;start=[e.clientX,e.clientY];timer=setTimeout(()=>{held=true;setTool(b.dataset.tool);showPanel('settings',b);},500);});
