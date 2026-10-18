@@ -1,0 +1,25 @@
+import assert from 'node:assert/strict';
+import {readFile,writeFile} from 'node:fs/promises';
+import {nodeRuntime} from './node-runtime.mjs';
+import {loadDsfV3,resaveDsfV3} from '../../js/dsf-writing-package.js';
+import {createReaderWritingModel} from '../../js/reader-writing-model.js';
+const path=process.argv[2];assert.ok(path,'Pass the offline UI-generated DSFR');
+const options=await nodeRuntime();
+options.getFont=options.getNotice=()=>{throw Error('EXTERNAL_RESOURCE_FORBIDDEN');};
+const bytes=new Uint8Array(await readFile(path)),saved=await loadDsfV3(bytes,options);
+const base=await loadDsfV3(new Uint8Array(await readFile(new URL('../../outputs/writing-w1/preview-sample.dsf',import.meta.url))),options);
+assert.equal(saved.baseHash,base.baseHash);
+const entries=JSON.parse(new TextDecoder().decode(base.readBytes('base.json'))).entries;
+for(const {path} of entries)assert.deepEqual(saved.readBytes(path),base.readBytes(path));
+const text=h=>h.document.pages.flatMap(p=>p.objects).filter(o=>o.type==='text').map(o=>o.text).join('\n');
+assert.ok(text(saved.envelope).includes('通信なしで銀河と珈琲'));
+const model=createReaderWritingModel(saved,options.catalog.map(c=>c.id));assert.ok(model.parent);model.restore(model.parent);
+assert.ok(text(model.envelope).includes('再起動前の書き込み'));
+const resaved=await resaveDsfV3(saved);assert.deepEqual(resaved.bytes,bytes);
+const shared=await resaveDsfV3(saved,{copyKind:'writing-shared'});assert.equal(shared.handle.envelope.history,null);
+assert.ok(text(shared.handle.envelope).includes('通信なしで銀河と珈琲'));
+for(const {path} of entries)assert.deepEqual(shared.handle.readBytes(path),base.readBytes(path));
+const result={ok:true,byteLength:bytes.length,originalEntriesIdentical:entries.length,offlineNewGlyphs:true,priorTextRestorable:true,externalFontsForbidden:true,identicalResave:true,sharedHistoryRemoved:true};
+await writeFile(new URL('../../outputs/writing-w1/offline-restart-20261019/file-proof.json',import.meta.url),JSON.stringify(result,null,2));
+console.log(result);
+

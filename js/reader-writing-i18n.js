@@ -2,6 +2,13 @@ import {getPlatformLanguage,subscribePlatformLanguage} from './ui-language.js';
 
 // UI copy only. Manuscripts, object text, filenames and saved operation names are never rewritten.
 const EN={
+    'Reader／Writingをオフライン用に準備':'Prepare Reader / Writing for offline use',
+    '準備状態を確認しています…':'Checking offline resources…',
+    '準備済み。通信なしでReaderを開き、書き込み・保存できます。':'Ready. Open Reader, write and save without internet.',
+    '準備が必要です。接続して準備を実行してください。':'Preparation is needed. Connect and prepare offline resources.',
+    '準備状態を確認できませんでした。接続して準備を実行してください。':'Could not verify readiness. Connect and prepare offline resources.',
+    '準備に失敗しました。接続と空き容量を確認してください。前回の準備と下書きは保持しています。':'Preparation failed. Check the connection and free space. Previous offline resources and drafts are kept.',
+    'アプリが更新されています。書き込みをDSFRに保存してReaderを開き直してください。':'The app has updated. Save your writing as DSFR and reopen Reader.',
     '元のファイルを自動で上書きすることはありません。保存せず戻っても、書き込みはReaderと端末内の下書きに残ります。':'The original file is not overwritten automatically. Returning without a file export keeps your Writing in Reader and the local draft.',
     '保存・共有':'Save / share',
     'ダウンロードで保存':'Save by downloading',

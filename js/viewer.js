@@ -111,7 +111,7 @@ function setWritingTextView(value){
     if(!value){writingTextCanvas=null;canvas.style.removeProperty('translate');document.body.classList.remove('reader-writing-text-editing');scheduleViewerResize();}
 }
 const writingEnabled=__WRITING_ENABLED__;
-const writingBridge=createReaderWritingBridge({button:document.getElementById('viewer-writing-btn'),
+const writingBridge=createReaderWritingBridge({button:document.getElementById('viewer-writing-btn'),enabled:writingEnabled,openFile:file=>loadViewerFile(file,{preview:true}),
     read:()=>writingEnabled&&viewerWritingFile?{file:viewerWritingFile,language:state.activeLang,pageIndex:getIndex(),spread:spreadMode,
         locked:viewerLocalPortableSession?.writingLocked===true,
         units:hasBookModel()?getBookUnits().map(u=>[u.left?.sourcePageIndex,u.right?.sourcePageIndex,u.center?.sourcePageIndex].filter(Number.isInteger)):null}:null,
@@ -640,7 +640,10 @@ async function init() {
         return;
     }
 
-    await initAuth().catch((e) => console.warn('[Viewer] initAuth failed:', e));
+    // Local files and drafts must open even when auth redirect resolution is offline.
+    // Cloud routes still wait for the initial identity before loading protected data.
+    const authStart = initAuth().catch((e) => console.warn('[Viewer] initAuth failed:', e));
+    if (ownerDraftPid || workId || pid) await authStart;
     if (ownerDraftPid) {
         sharedProjectRef = { ownerDraftPid, requestedReleaseId };
         attemptLoad();

@@ -3,6 +3,8 @@ const FULL_OFFLINE=__STUDIO_FULL_OFFLINE__;
 const VERSION=__STUDIO_VERSION__, CACHE='dsf-studio-shell-'+VERSION+(FULL_OFFLINE?'':'-web');
 const SHELL=__STUDIO_PRECACHE__;
 const BUILD=__STUDIO_BUILD_INFO__;
+let readerWritingCached=async()=>undefined;
+/* READER_WRITING_WORKER */
 const SDK=['app','auth','firestore','storage'].map(name=>'https://www.gstatic.com/firebasejs/10.7.1/firebase-'+name+'.js');
 const FONT_CSS=[
  'https://fonts.googleapis.com/css2?family=Noto+Sans:wght@400;700&family=Noto+Sans+JP:wght@400;700&family=Noto+Serif:wght@400;700&family=Noto+Serif+JP:wght@400;700&display=swap'];
@@ -67,6 +69,7 @@ const appCache=name=>['dsf-studio-shell-','dsf-viewer-shell-','dsf-reader-shell-
 async function cachedResource(key){
  const names=[CACHE,...(await caches.keys()).filter(name=>name!==CACHE&&appCache(name)).reverse()];
  for(const name of names){const hit=await (await caches.open(name)).match(key);if(validResource(key,hit))return hit;}
+ return readerWritingCached(key);
 }
 self.addEventListener('fetch',event=>{
  const request=event.request,url=new URL(request.url);
@@ -83,7 +86,7 @@ self.addEventListener('fetch',event=>{
     if(!validResource(entry||request.url,response))throw Error('APP_RESPONSE_INVALID');
     // Keep the installed offline snapshot intact; do not cache newer HTML with older assets.
     return entry?navigationResponse(response):response;
-   }catch(error){const hit=await cachedResource(entry?absolute(entry):request.url);if(hit)return entry?navigationResponse(hit):hit;throw error;}
+   }catch(error){const hit=(entry==='/viewer.html'?await readerWritingCached('/viewer.html'):null)||await cachedResource(entry?absolute(entry):request.url);if(hit)return entry?navigationResponse(hit):hit;throw error;}
   }
   const hit=await cachedResource(request.url);if(hit)return hit;
   const response=await fetch(request);

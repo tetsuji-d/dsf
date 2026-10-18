@@ -263,6 +263,8 @@ function explain(e) {
         DSF3_REQUIRED:'このDSFは今回の読込対象外の形式です。形式2またはWriting形式3のDSFを選んでください。元のファイルは変更していません。',
         WRITING_IMPORT_FONT:'このDSFの原本書体は、Writing形式へのコピーにまだ対応していません。元のファイルは変更していません。',
         DSF_PROJECT:'これは編集用DSPの構造です。Writingでは配信用DSFを開いてください。',
+        OFFLINE_FAILED:'準備に失敗しました。接続と空き容量を確認してください。前回の準備と下書きは保持しています。',
+        OFFLINE_REOPEN_REQUIRED:'アプリが更新されています。書き込みをDSFRに保存してReaderを開き直してください。',
         WRITING_OBJECT_LOCKED:'このオブジェクトはロックされています。レイヤーで解除してください。',WRITING_LIMIT:'試作版の履歴・データ上限です。現在の内容は保持しています。',DSF3_SHARED_LOCKED:'共有用DSFは書き込みがロックされています。'};
     return messages[e.message]||`処理できませんでした（${e.message}）。現在の内容は保持しています。`;
 }
@@ -307,7 +309,7 @@ async function refreshDrafts() {
 }
 function persist() {
     if(!model||model.locked)return;
-    const captured={id:draftId,title:handle.meta.title||'DSF',bytes:baseBytes,...model.takeDraftUpdate(draftVersion===0),language,pageIndex},epoch=generation,sequence=++saveSequence;
+    const captured={id:draftId,title:handle.meta.title||'DSF',filename:sourceFilename,bytes:baseBytes,...model.takeDraftUpdate(draftVersion===0),language,pageIndex},epoch=generation,sequence=++saveSequence;
     unsaved=true;$('draft-status').textContent='端末内の下書きに保存中…';
     saveQueue=saveQueue.then(async()=>{
         if(epoch!==generation)return;
@@ -474,7 +476,7 @@ async function openBytes(bytes,draft,filename='') {
         const lang=draft?.language&&next.bundle.manifests[draft.language]?draft.language:next.bundle.index.defaultLang;
         const nextContext=await contextFor(next,lang,originalFamilies);
         originalFaces.forEach(f=>document.fonts.delete(f));originalFaces=loaded;pageCache.clear();
-        objectClipboard=null;handle=next;model=nextModel;baseBytes=bytes;sourceFilename=filename;families=fontFamilies;context=nextContext;language=lang;pageIndex=Math.min(draft?.pageIndex||0,context.manifest.pages.length-1);
+        objectClipboard=null;handle=next;model=nextModel;baseBytes=bytes;sourceFilename=filename||draft?.filename||'';families=fontFamilies;context=nextContext;language=lang;pageIndex=Math.min(draft?.pageIndex||0,context.manifest.pages.length-1);
         generation++;storageFailed=false;draftId=draft?.id||writingId();draftVersion=draft?.version||0;unsaved=false;
         savedHead=nextModel.head;
         $('title').textContent=next.meta.title||'DSF';$('kind').textContent=model.locked?'共有用 · 書き込みロック':'Writing · 原本を保護';
@@ -488,7 +490,7 @@ async function openBytes(bytes,draft,filename='') {
 $('sample').onclick=()=>task('サンプル読込',async()=>{const r=await fetch('/sample.dsfr');if(!r.ok)throw new Error('SAMPLE_LOAD');await openBytes(new Uint8Array(await r.arrayBuffer()),undefined,'sample.dsfr');});
 $('file').onchange=()=>task('DSF読込',async()=>{const f=$('file').files[0];try{if(f){if(f.size>257*1024*1024)throw new Error('ZIP_LIMIT');await openBytes(new Uint8Array(await f.arrayBuffer()),undefined,f.name);}}finally{$('file').value='';}});
 $('resume').onclick=()=>task('下書き復元',async()=>{const d=await readWritingDraft($('drafts').value);if(!d)throw new Error('DRAFT_MISSING');await openBytes(d.bytes,d);});
-$('prepare').onclick=()=>task('オフライン準備',async()=>{await runtime.prepareOffline();$('offline-status').textContent=host?'入力用2書体をこの端末に保存しました。Reader画面のオフライン起動は引き続き検証中です。':'画面と入力用2書体の準備が完了しました。この端末で通信を切って書き込み・保存を試せます。';});
+$('prepare').onclick=()=>task('オフライン準備',async()=>{try{await (host?host.prepareOffline():runtime.prepareOffline());}catch(error){$('offline-status').textContent='準備に失敗しました。接続と空き容量を確認してください。前回の準備と下書きは保持しています。';throw Error(error.message==='OFFLINE_REOPEN_REQUIRED'?error.message:'OFFLINE_FAILED');}$('offline-status').textContent=host?'準備済み。通信なしでReaderを開き、書き込み・保存できます。':'画面と入力用2書体の準備が完了しました。この端末で通信を切って書き込み・保存を試せます。';});
 $('language').onchange=()=>task('言語切替',async()=>{cancelGesture();readerUnits=null;const lang=$('language').value,orig={};for(const f of handle.resources.original.fonts)orig[f.sourceFontId]=`RW_original_${f.sha256}`;
     const next=await contextFor(handle,lang,orig);pageCache.clear();language=lang;context=next;pageIndex=0;showPage();});
 function turn(delta){if(host){if($('text-dialog').open){void commitText().then(ok=>{if(ok)host.turn(delta);});return;}cancelGesture();host.turn(delta);return;}if(busy||!context||$('text-dialog').open)return;cancelGesture();pageIndex=nextIndex(delta);showPage();persist();}
@@ -832,8 +834,9 @@ if(host){
     for(const type of ['resize','scroll'])window.visualViewport?.addEventListener(type,()=>{if(sheet.open)positionSheet();},{signal:lifetime.signal});
     body.dataset.tools='pens';
     $('writing-test-intro')?.remove();
-    const prepare=$('prepare');prepare.textContent='入力用書体の準備';root.querySelector('.save-panel').append(prepare);
-    $('offline-status').textContent='準備した入力用書体は通信なしでも使えます。Reader画面のオフライン起動は引き続き検証中です。';
+    const prepare=$('prepare');prepare.textContent='Reader／Writingをオフライン用に準備';root.querySelector('.save-panel').append(prepare);
+    $('offline-status').textContent='準備状態を確認しています…';
+    void host.offlineStatus().then(state=>{$('offline-status').textContent=state.ready?'準備済み。通信なしでReaderを開き、書き込み・保存できます。':'準備が必要です。接続して準備を実行してください。';}).catch(()=>{$('offline-status').textContent='準備状態を確認できませんでした。接続して準備を実行してください。';});
     const toolbar=document.createElement('div');toolbar.className='native-tools';
     const rail=document.createElement('div');rail.id='tool-scroll';rail.setAttribute('role','region');rail.setAttribute('aria-label','左右にスワイプして道具を選択');rail.tabIndex=0;
     const track=document.createElement('div');track.id='tool-scroll-track';track.append($('tool-field'),$('pen-tray'));rail.append(track);toolbar.append(rail);root.append(toolbar);
@@ -899,7 +902,7 @@ if(host){
     root.addEventListener('keydown',e=>{if(e.target.closest('dialog'))e.stopPropagation();});
     root.addEventListener('pointerdown',e=>e.stopPropagation());root.addEventListener('click',e=>e.stopPropagation());
     return {
-        async open(data){spread=data.spread===true;readerUnits=data.units;await openBytes(new Uint8Array(await data.file.arrayBuffer()),{language:data.language,pageIndex:data.pageIndex},data.file.name);if($('status').dataset.error!=='true'){$('status').textContent='書き込みモード';$('status').dataset.notice=false;}},
+        async open(data){spread=data.spread===true;readerUnits=data.units;await openBytes(new Uint8Array(await data.file.arrayBuffer()),data.draft||{language:data.language,pageIndex:data.pageIndex},data.file.name);if($('status').dataset.error!=='true'){$('status').textContent='書き込みモード';$('status').dataset.notice=false;}},
         sync:syncHost,panel:(name)=>{showTools(true);showPanel(name);},
         get hasChanges(){return !!model&&model.head!==savedHead;},
         showTools, toggleTools(){showTools(!toolsVisible);},

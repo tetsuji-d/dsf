@@ -1,3 +1,4 @@
+import {createReaderOffline,installReaderOfflineMenu} from './reader-writing-offline.js';
 import {installWritingLocale,writingUiText} from './reader-writing-i18n.js';
 import {getPlatformLanguage,subscribePlatformLanguage} from './ui-language.js';
 import {writingExportName,mountWritingFileExport} from './reader-writing-file-save.js';
@@ -10,9 +11,18 @@ export function installWritingViewportGuards(document,isActive){
     document.addEventListener('wheel',e=>{if(isActive()&&e.ctrlKey&&!inDialog(e))e.preventDefault();},{passive:false});
 }
 /** Native Reader overlay. The existing Reader remains responsible for page rendering and navigation. */
-export function createReaderWritingBridge({button,read,onReturn,view,turn,goTo,onMode,resetView,textView}) {
+export function createReaderWritingBridge({button,read,onReturn,view,turn,goTo,onMode,resetView,textView,enabled=false,openFile}) {
     let container,editor,opening=false,finishing=false,frame,menu,menuLocale,source,syncing=false,chromePromise,warmScheduled=false,toolsVisible=true,exitPending;
     const t=source=>writingUiText(source,getPlatformLanguage('viewer'));
+    const offline=createReaderOffline();
+    if(enabled)installReaderOfflineMenu({offline,openDraft:async draft=>{
+        if(opening||finishing)return;
+        if(editor&&!await finish())return;
+        const file=new File([draft.bytes],draft.filename||'writing.dsfr',{type:'application/vnd.dsf.content+zip'});
+        await openFile(file);
+        goTo(draft.pageIndex||0,draft.language);
+        await open(draft);
+    }});
     const updateButtonLabel=()=>{button.title=t(opening?'Writingを準備しています…':editor?(toolsVisible?'道具を隠す。長押しでReaderに戻る':'道具を表示。長押しでReaderに戻る'):read()?.locked?'共有用DSFは書き込みロックされています':'書き込み / Writing');button.setAttribute('aria-label',button.title);button.setAttribute('aria-expanded',String(!!editor&&toolsVisible));};
     function loadChrome(){
         const moduleUrl='/writing/reader-writing.mjs';
@@ -87,7 +97,7 @@ export function createReaderWritingBridge({button,read,onReturn,view,turn,goTo,o
         appMenu.querySelector('header').after(menu);
         menuLocale=installWritingLocale(menu);
     }
-    async function open(){
+    async function open(draft){
         if(editor&&!opening){editor.toggleTools();return;}
         if(opening)return;source=read();if(!source?.file||source.locked)return;
         opening=true;button.disabled=true;button.setAttribute('aria-busy','true');updateButtonLabel();
@@ -103,10 +113,10 @@ export function createReaderWritingBridge({button,read,onReturn,view,turn,goTo,o
                 link.onload=()=>{clearTimeout(timer);resolve();};link.onerror=()=>{clearTimeout(timer);reject(Error('Writingの表示設定を読み込めませんでした。'));};root.append(link);
             }));
             root.append(...html.body.childNodes);document.body.append(container);await Promise.all(styles);
-            editor=await module.mountReaderWriting(root,{turn,goTo,view,changed:updateLayers,resetView,textView,toolsVisibility:visible=>{toolsVisible=visible;updateButtonLabel();}});
+            editor=await module.mountReaderWriting(root,{turn,goTo,view,changed:updateLayers,resetView,textView,prepareOffline:offline.prepare,offlineStatus:offline.inspect,toolsVisibility:visible=>{toolsVisible=visible;updateButtonLabel();}});
             toolsVisible=true;container.dataset.preparing='true';container.dataset.loadingLabel=t('Writingを準備しています…');
             document.body.classList.add('reader-writing-active');onMode(true);editor.prepare();container.style.visibility='';
-            await editor.open(source);
+            await editor.open({...source,draft});
             delete container.dataset.preparing;addMenu();updateLayers();
             button.setAttribute('aria-pressed','true');
             await tick();container.style.visibility='';
