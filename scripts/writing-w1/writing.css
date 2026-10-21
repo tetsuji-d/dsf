@@ -59,3 +59,5 @@
 .writing-file-export .writing-export-name{font-weight:600}
 .writing-file-export button,.writing-file-export a{box-sizing:border-box;min-height:44px;max-width:100%;white-space:normal;text-align:center}
 .writing-file-export a[aria-disabled=true]{opacity:.5}
+
+.writing-operation-progress {padding:10px 12px;border-radius:8px;background:#eaf2f8;color:#18374c;font-size:13px;line-height:1.5;}

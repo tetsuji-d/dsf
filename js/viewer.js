@@ -1,3 +1,4 @@
+import {createWritingProgress,readerProgressPanel} from './reader-writing-progress.js';
 import {installReaderPageLinks} from './reader-page-links.js';
 import {createReaderWritingBridge} from './reader-writing-bridge.js';
 import '../css/reader-writing-bridge.css';
@@ -1146,11 +1147,13 @@ function updateStandaloneEmptyText() {
 async function loadViewerFile(file, {preview = false} = {}) {
     if(!await writingBridge.beforeFile())return;
     if (!file) return;
+    const progress=createWritingProgress('reader-load',readerProgressPanel());
     document.body.style.cursor = 'wait';
     try {
+        await progress.stage('read','ファイルを読み込んでいます…','Reading the file…');
         if (/\.(dsfr|dsf|zip)$/i.test(file.name)) {
             const { loadDsfLocalViewerPackage } = await import('./dsf-local-viewer-package.js');
-            const portableSession = await loadDsfLocalViewerPackage({ file,allowWriting:writingEnabled });
+            const portableSession = await loadDsfLocalViewerPackage({ file,allowWriting:writingEnabled,onProgress:progress.stage });
             if (portableSession) {
                 try {
                     loadProjectData(portableSession.project, {
@@ -1178,6 +1181,7 @@ async function loadViewerFile(file, {preview = false} = {}) {
         alert(vt('loadError', { message: e.message }));
         if (!projectLoaded) showStandaloneEmpty();
     } finally {
+        progress.end();
         document.body.style.cursor = '';
     }
 }

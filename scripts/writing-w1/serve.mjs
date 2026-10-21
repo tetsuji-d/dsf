@@ -15,6 +15,7 @@ route('/sample.dsf','outputs/writing-w1/preview-sample.dsf');
 route('/catalog.json','outputs/writing-w1/catalog.json');route('/w0/subsetter.mjs','scripts/writing-w0/subsetter.mjs');
 async function moduleTree(file){const url='/'+path.relative(root,file).split(path.sep).join('/');if(routes.has(url))return;routes.set(url,file);cached.add(url);
     for(const match of (await readFile(file,'utf8')).matchAll(/(?:from\s*|import\s*)['"](\.[^'"]+)['"]/g))await moduleTree(path.resolve(path.dirname(file),match[1]));}
+await moduleTree(path.join(root,'js/reader-writing-progress.js'));
 await moduleTree(path.join(root,'js/reader-writing-contrast.js'));
 await moduleTree(path.join(root,'js/reader-writing-input.js'));
 await moduleTree(path.join(root,'js/reader-writing-file-save.js'));

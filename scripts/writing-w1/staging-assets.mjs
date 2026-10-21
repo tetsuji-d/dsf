@@ -39,6 +39,7 @@ export async function writingStagingAssets({production=false}={}){
     if(runtime.includes('navigator.serviceWorker.ready'))throw Error('Writing worker registration changed');
     put('reader-runtime.mjs',runtime);
     put('font-worker.js',scoped((await read('scripts/writing-w1/font-worker.js')).toString()));
+    await moduleTree(resolve(root,'js/reader-writing-progress.js'));
     await copy('w0/subsetter.mjs','scripts/writing-w0/subsetter.mjs');
     async function moduleTree(file){
         const name=relative(root,file).split(sep).join('/');if(!name.startsWith('js/')||name.includes('..'))throw Error('Writing module outside js');

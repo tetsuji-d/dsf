@@ -559,6 +559,15 @@ export async function loadDsfLocalViewerPackage(input = {}) {
     const cryptoRef = input.cryptoRef || globalThis.crypto;
     const hashBytes = async (bytes) => sha256DsfBytes(bytes, { cryptoRef });
     const archiveBytes = new Uint8Array(await file.arrayBuffer());
+    await input.onProgress?.('archive','ファイルの構造を確認しています…','Checking the file structure…');
+    if(input.allowWriting){
+        const {writingArchiveKind}=await import('./dsf-writing-zip.js');
+        if(writingArchiveKind(archiveBytes)==='writing'){
+            // The strict v3 loader checks directory, CRC and every entry hash.
+            const {loadWritingReaderSession}=await import('./reader-writing-session.js');
+            return loadWritingReaderSession(file,{bytes:archiveBytes,onProgress:input.onProgress});
+        }
+    }
     let zip;
     try {
         zip = await JSZip.loadAsync(archiveBytes, { checkCRC32: true, createFolders: false });
@@ -569,7 +578,7 @@ export async function loadDsfLocalViewerPackage(input = {}) {
     }
     if (zip.file('format.json') && input.allowWriting) {
         const {loadWritingReaderSession}=await import('./reader-writing-session.js');
-        return loadWritingReaderSession(file);
+        return loadWritingReaderSession(file,{bytes:archiveBytes,onProgress:input.onProgress});
     }
     const detectedIndex = await readContentIndexForDetection(zip);
     if (detectedIndex?.schemaVersion !== 2) return null;

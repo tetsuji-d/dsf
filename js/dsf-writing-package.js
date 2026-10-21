@@ -100,6 +100,7 @@ export async function createDsfV3Original({bundle,meta,images=[]},options) {
 export async function loadDsfV3(input,options) {
     ensure(options&&Array.isArray(options.catalog)&&options.engine,'DSF3_TRUST_CONTEXT');
     if(input instanceof Blob){ensure(input.size<=WRITING_LIMITS.expandedBytes+1024*1024,'ZIP_LIMIT');input=new Uint8Array(await input.arrayBuffer());}
+    await options.onProgress?.('integrity','ファイルの内容を確認しています…','Checking file contents…');
     const files=readWritingZip(input),byPath=new Map(files.map(f=>[f.path,f.bytes]));
     ensure(decoder.decode(byPath.get('mimetype'))===DSF_V3_MIME,'DSF3_MIMETYPE');const manifest=json(byPath.get('manifest.json'));
     exact(manifest,['schemaVersion','format','files']);ensure(manifest.schemaVersion===2&&manifest.format==='dsf-archive-manifest-2'&&Array.isArray(manifest.files),'DSF3_MANIFEST');
@@ -110,12 +111,14 @@ export async function loadDsfV3(input,options) {
     ensure(sameKeys(names,[...byPath.keys()].filter(p=>p!=='manifest.json')),'DSF3_ENTRY_SET');
     const format=json(byPath.get('format.json')),descriptor=json(byPath.get('base.json'));exact(descriptor,['schemaVersion','entries']);
     ensure(descriptor.schemaVersion===1&&Array.isArray(descriptor.entries),'DSF3_BASE');
+    await options.onProgress?.('original-fonts','本文の書体を確認しています…','Checking document fonts…');
     const baseFiles=descriptor.entries.map(d=>file(d.path,byPath.get(d.path))),base=await verifyBase(baseFiles,options);
     ensure(await sha256(canonicalBytes(descriptor))===base.described.sha256,'DSF3_BASE_DESCRIPTOR');
     const context={baseHash:base.described.sha256,pageKeys:base.pageKeys,fontIds:new Set(options.catalog.map(c=>c.id))};
     const document=byPath.has('writing/document.json')?json(byPath.get('writing/document.json')):null,history=byPath.has('writing/history.json')?json(byPath.get('writing/history.json')):null;
     const envelope={format,document,history};validateWritingEnvelope(envelope,context);
     const used=new Set(['mimetype','manifest.json','format.json','base.json',...baseFiles.map(f=>f.path)]);let resources=null;
+    await options.onProgress?.('writing-fonts','書き込みと履歴を確認しています…','Checking writing and history…');
     if(document) {resources=json(byPath.get('writing/resources.json'));used.add('writing/document.json');used.add('writing/resources.json');if(history)used.add('writing/history.json');
         await verifyResources(resources,writingFontText(envelope),'writing',byPath,used,options);}
     ensure(sameKeys(used,byPath.keys()),'DSF3_UNUSED_ENTRY');
@@ -142,10 +145,12 @@ export async function resaveDsfV3(handle,{copyKind=handle.copyKind,envelope}={})
     ensure(next.format.copyKind===copyKind,'DSF3_COPY_KIND');
     const resources=s.resources?.fonts||[],getStored=id=>resources.find(r=>r.sourceFontId===id);
     const options={...s.options,getNotice:async id=>{const r=getStored(id);return r?s.byPath.get(r.license.noticePath):s.options.getNotice(id);}};
+    await options.onProgress?.('subset','保存用の文字をまとめています…','Preparing text for the saved file…');
     const generated=next.document?await derivedFiles(writingFontText(next),'writing',async id=>{
         const r=getStored(id);if(r){const bytes=s.byPath.get(r.path);try{await s.options.engine.verify(bytes,writingFontText(next)[id],sourceFor(options,id),false);return bytes;}catch(e){if(e.message!=='FONT_GLYPH_MISSING')throw e;}}
         const bytes=await s.options.getFont(id);ensure(await sha256(bytes)===sourceFor(options,id).asset.sha256,'DSF3_SOURCE_BYTES');return bytes;
     },options):{resources:null,files:[]};
+    await options.onProgress?.('package','保存ファイルを作成しています…','Creating the file…');
     const output=await packageFiles(s.baseFiles,next,generated.resources,generated.files,options);
     ensure(output.handle.baseHash===handle.baseHash,'DSF3_ORIGINAL_CHANGED');return output;
 }

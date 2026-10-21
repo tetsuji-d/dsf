@@ -3,13 +3,15 @@ import {prepareDsfViewerFixedTextContext} from './viewer-fixed-text.js';
 import {renderWritingLayer} from './reader-writing-renderer.js';
 
 /** Verified portable v3 only. No remote release is promoted to a downloadable copy. */
-export async function loadWritingReaderSession(file) {
+export async function loadWritingReaderSession(file,{bytes=file,onProgress}={}) {
     const runtimeUrl='/writing/reader-runtime.mjs';
     const {createReaderWritingRuntime}=await import(/* @vite-ignore */ runtimeUrl);
     const runtime=await createReaderWritingRuntime(),faces=[],urls=[],assetUrls=new Map();
     const dispose=()=>{faces.forEach(f=>document.fonts.delete(f));urls.forEach(URL.revokeObjectURL);runtime.dispose();};
+    runtime.options.onProgress=onProgress;
     try {
-        const handle=await loadDsfV3(file,runtime.options),bundle=handle.bundle,meta=handle.meta,certifiedFonts={},families={};
+        const handle=await loadDsfV3(bytes,runtime.options),bundle=handle.bundle,meta=handle.meta,certifiedFonts={},families={};
+        await onProgress?.('display','文字とページを表示しています…','Displaying text and pages…');
         for(const area of ['original','writing'])for(const resource of handle.resources[area]?.fonts||[]){
             const family=`ReaderWriting_${area}_${resource.sha256}`,face=await new FontFace(family,handle.readBytes(resource.path),{weight:'100 900'}).load();
             document.fonts.add(face);faces.push(face);

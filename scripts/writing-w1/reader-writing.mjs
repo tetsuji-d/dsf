@@ -1,3 +1,4 @@
+import {createWritingProgress} from '/js/reader-writing-progress.js';
 import {writingExportName,mountWritingFileExport} from '/js/reader-writing-file-save.js';
 import {loadDsfV3,resaveDsfV3,writingFontText} from '/js/dsf-writing-package.js';
 import {writingArchiveKind} from '/js/dsf-writing-zip.js';
@@ -297,10 +298,15 @@ function controls() {
     $('prev').textContent=rtl()?'→':'←';$('next').textContent=rtl()?'←':'→';
     $('language').disabled=busy||!model;$('input').dataset.reading=readingMode||locked;
 }
+function operationProgress(name,parent){
+    const panel=document.createElement('p');panel.setAttribute('role','status');panel.className='writing-operation-progress';parent.append(panel);
+    return createWritingProgress(name,text=>{if(text===null)panel.remove();else panel.textContent=text;});
+}
 async function task(name,fn) {
     if(busy)return;busy=true;controls();say(`${name}…`);
-    try {await fn();say(`${name}が完了しました。`);}catch(e){say(explain(e),true);console.error(e);}
-    finally {runtime.dispose();busy=false;controls();}
+    const progress=operationProgress(name.includes('DSF作成')?'file-save':'writing-task',sheet.open?$('sheet-body'):$('status').parentElement);runtime.options.onProgress=progress.stage;
+    try {await progress.stage('prepare','処理を準備しています…','Preparing…');await fn();say(`${name}が完了しました。`);}catch(e){say(explain(e),true);console.error(e);}
+    finally {runtime.options.onProgress=undefined;progress.end();runtime.dispose();busy=false;controls();}
 }
 async function refreshDrafts() {
     const current=$('drafts').value,list=await listWritingDrafts();$('drafts').replaceChildren();
@@ -639,7 +645,9 @@ async function commitText(){
     if(host&&textPlacement.existing&&textPlacement.initial===inlineTextSignature()){cancelText();return true;}
     busy=true;controls();$('text-apply').disabled=true;$('text-error').textContent='書体と文字を確認中…';
     for(const field of $('text-form').querySelectorAll('input,select,textarea,button'))field.disabled=true;
+    const progress=createWritingProgress('text-commit',text=>{if(text!==null)$('text-error').textContent=text;});
     try {const fontId=$('text-font').value,text=$('text').value,size=Number($('text-size').value),weight=Number($('text-weight').value);
+        await progress.stage('font','書体と文字を確認しています…','Checking the font and characters…');
         await runtime.verifyInput(fontId,text);inputFamilies[fontId]=await runtime.inputFamily(fontId);
         const canvas=document.createElement('canvas'),ctx=canvas.getContext('2d');ctx.font=`${weight} ${size}px "${inputFamilies[fontId]}"`;
         const old=textPlacement.existing,o=createWritingText({id:old?.id,text,x:textPlacement.x,y:textPlacement.y,fontId,size,weight,color:$('text-color').value,vertical:$('text-vertical').checked,measure:s=>ctx.measureText(s).width,box:host?textPlacement.box:undefined});
@@ -649,7 +657,7 @@ async function commitText(){
         settings.text.boxStyle=structuredClone(o.boxStyle);
         selectObjects([o.id]);$('text-dialog').close();textPlacement=null;textSerial++;endTextView();if(host)tool='select';changed('文字を配置しました。');return true;
     }catch(e){$('text-error').textContent=explain(e);return false;}
-    finally{runtime.dispose();busy=false;for(const field of $('text-form').querySelectorAll('input,select,textarea,button'))field.disabled=false;controls();syncTextFrame();}
+    finally{progress.end();runtime.dispose();busy=false;for(const field of $('text-form').querySelectorAll('input,select,textarea,button'))field.disabled=false;controls();syncTextFrame();}
 }
 $('text-form').onsubmit=e=>{e.preventDefault();void commitText();};
 function inlinePageRect(){return hostView?.pages.find(p=>p.index===textPlacement?.pageIndex);}
@@ -902,7 +910,7 @@ if(host){
     root.addEventListener('keydown',e=>{if(e.target.closest('dialog'))e.stopPropagation();});
     root.addEventListener('pointerdown',e=>e.stopPropagation());root.addEventListener('click',e=>e.stopPropagation());
     return {
-        async open(data){spread=data.spread===true;readerUnits=data.units;await openBytes(new Uint8Array(await data.file.arrayBuffer()),data.draft||{language:data.language,pageIndex:data.pageIndex},data.file.name);if($('status').dataset.error!=='true'){$('status').textContent='書き込みモード';$('status').dataset.notice=false;}},
+        async open(data){runtime.options.onProgress=data.onProgress;try{spread=data.spread===true;readerUnits=data.units;await openBytes(new Uint8Array(await data.file.arrayBuffer()),data.draft||{language:data.language,pageIndex:data.pageIndex},data.file.name);if($('status').dataset.error!=='true'){$('status').textContent='書き込みモード';$('status').dataset.notice=false;}}finally{runtime.options.onProgress=undefined;}},
         sync:syncHost,panel:(name)=>{showTools(true);showPanel(name);},
         get hasChanges(){return !!model&&model.head!==savedHead;},
         showTools, toggleTools(){showTools(!toolsVisible);},

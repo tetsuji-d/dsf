@@ -15,14 +15,22 @@ function fontNames(bytes) {
     return out;
 }
 export function createWritingFontEngine({hb,decode,encode,subset}) {
+    // Bounded, in-memory caches. Keys include the actual bytes and trust metadata.
+    const opened=new Map(),verified=new Map(),derived=new Map();
+    const remember=(map,key,value,limit)=>{map.delete(key);map.set(key,value);while(map.size>limit)map.delete(map.keys().next().value);return value;};
+    const identity=async(bytes,text,source,exact)=>JSON.stringify([await sha256(bytes),text,source.nameRecords,exact]);
     async function open(bytes) {
         ensure(bytes instanceof Uint8Array&&bytes.length>=48&&bytes.length<=WRITING_LIMITS.fontBytes,'FONT_BYTES');
         const h=new DataView(bytes.buffer,bytes.byteOffset,bytes.length);
         ensure(h.getUint32(0)===0x774f4632&&h.getUint32(8)===bytes.length&&h.getUint32(16)<=WRITING_LIMITS.sfntBytes,'FONT_HEADER');
+        const key=await sha256(bytes);if(opened.has(key))return opened.get(key);
         const sfnt=new Uint8Array(await decode(bytes));ensure(sfnt.length===h.getUint32(16),'FONT_EXPANDED_SIZE');
-        return {sfnt,face:new hb.Face(new hb.Blob(sfnt.buffer.slice(sfnt.byteOffset,sfnt.byteOffset+sfnt.byteLength)))};
+        const value={sfnt,face:new hb.Face(new hb.Blob(sfnt.buffer.slice(sfnt.byteOffset,sfnt.byteOffset+sfnt.byteLength)))};
+        // At most two input/subset faces; large fonts are not retained.
+        if(sfnt.byteLength<=16*1024*1024)remember(opened,key,value,2);
+        return value;
     }
-    async function verify(bytes,text,source,exact=true) {
+    async function verifyUncached(bytes,text,source,exact=true) {
         const {sfnt,face}=await open(bytes),characters=fontCharacterSet(text),wanted=new Set([...characters].map(c=>c.codePointAt(0))),font=new hb.Font(face);
         for(const c of wanted)ensure(font.glyph(c),'FONT_GLYPH_MISSING');
         if(exact) {
@@ -35,7 +43,7 @@ export function createWritingFontEngine({hb,decode,encode,subset}) {
         ensure(JSON.stringify(fontNames(sfnt))===JSON.stringify(source.nameRecords),'FONT_NAMES_CHANGED');
         return {valid:true,codepoints:[...face.collectUnicodes()]};
     }
-    async function derive(bytes,text,source) {
+    async function deriveUncached(bytes,text,source) {
         await verify(bytes,text,source,false);const {sfnt,face}=await open(bytes);
         const result=new Uint8Array(await encode(await subset(sfnt,{text:fontCharacterSet(text)})));
         await verify(result,text,source,true);const target=(await open(result)).face;
@@ -47,6 +55,23 @@ export function createWritingFontEngine({hb,decode,encode,subset}) {
         for(const s of text.split(/\r?\n/))if(s)for(const weight of [400,700])for(const dir of [hb.Direction.LTR,hb.Direction.TTB])
             ensure(JSON.stringify(shape(face,s,dir,weight))===JSON.stringify(shape(target,s,dir,weight)),'FONT_SHAPE_CHANGED');
         ensure(JSON.stringify(face.getAxisInfos())===JSON.stringify(target.getAxisInfos()),'FONT_AXES_CHANGED');return result;
+    }
+    async function verify(bytes,text,source,exact=true) {
+        // Own input while hashing asynchronously; callers cannot poison cache keys.
+        bytes=bytes.slice();source={...source,nameRecords:structuredClone(source.nameRecords)};
+        const key=await identity(bytes,fontCharacterSet(text),source,exact);
+        if(verified.has(key))return structuredClone(verified.get(key));
+        const result=await verifyUncached(bytes,text,source,exact);
+        remember(verified,key,result,32);return structuredClone(result);
+    }
+    async function derive(bytes,text,source) {
+        bytes=bytes.slice();source={...source,nameRecords:structuredClone(source.nameRecords)};
+        // Full run text matters for shaping validation, not just its character set.
+        const key=await identity(bytes,text,source,true);
+        if(derived.has(key))return derived.get(key).slice();
+        const result=await deriveUncached(bytes,text,source);
+        if(result.byteLength<=512*1024)remember(derived,key,result.slice(),8);
+        return result;
     }
     return {verify,derive};
 }

@@ -1,3 +1,4 @@
+import {createWritingProgress,readerProgressPanel} from './reader-writing-progress.js';
 import {createReaderOffline,installReaderOfflineMenu} from './reader-writing-offline.js';
 import {installWritingLocale,writingUiText} from './reader-writing-i18n.js';
 import {getPlatformLanguage,subscribePlatformLanguage} from './ui-language.js';
@@ -101,7 +102,9 @@ export function createReaderWritingBridge({button,read,onReturn,view,turn,goTo,o
         if(editor&&!opening){editor.toggleTools();return;}
         if(opening)return;source=read();if(!source?.file||source.locked)return;
         opening=true;button.disabled=true;button.setAttribute('aria-busy','true');updateButtonLabel();
+        const progress=createWritingProgress('writing-open',readerProgressPanel());
         try{
+            await progress.stage('tools','書き込みの道具を準備しています…','Preparing writing tools…');
             const [module,markup]=await loadChrome();
             const html=new DOMParser().parseFromString(markup,'text/html');
             html.querySelectorAll('script').forEach(node=>node.remove());
@@ -116,12 +119,12 @@ export function createReaderWritingBridge({button,read,onReturn,view,turn,goTo,o
             editor=await module.mountReaderWriting(root,{turn,goTo,view,changed:updateLayers,resetView,textView,prepareOffline:offline.prepare,offlineStatus:offline.inspect,toolsVisibility:visible=>{toolsVisible=visible;updateButtonLabel();}});
             toolsVisible=true;container.dataset.preparing='true';container.dataset.loadingLabel=t('Writingを準備しています…');
             document.body.classList.add('reader-writing-active');onMode(true);editor.prepare();container.style.visibility='';
-            await editor.open({...source,draft});
+            await editor.open({...source,draft,onProgress:progress.stage});
             delete container.dataset.preparing;addMenu();updateLayers();
             button.setAttribute('aria-pressed','true');
             await tick();container.style.visibility='';
         }catch(error){cleanup();window.alert(t(error.message||'Writingを開始できませんでした。'));}
-        finally{opening=false;button.disabled=false;button.removeAttribute('aria-busy');updateButtonLabel();}
+        finally{progress.end();opening=false;button.disabled=false;button.removeAttribute('aria-busy');updateButtonLabel();}
     }
     let holdTimer,held=false,start;
     const cancelHold=()=>clearTimeout(holdTimer);

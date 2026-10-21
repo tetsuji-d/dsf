@@ -3445,3 +3445,5 @@ body.viewer-empty #viewer-header {opacity:1;visibility:visible;pointer-events:au
 body.viewer-empty #viewer-page-settings,body.viewer-empty #viewer-fullscreen-btn {display:none!important;}
 @media(max-width:768px) {.viewer-brand-navigation {gap:6px;}#viewer-app-menu-button {min-width:40px;}}
 body.reader-writing-text-editing #viewer-reader-controls,body.reader-writing-text-editing .viewer-page-segments{visibility:hidden;pointer-events:none;}
+
+.reader-operation-progress {position:fixed;z-index:10000;left:50%;bottom:100px;transform:translateX(-50%);max-width:calc(100vw - 32px);padding:12px 18px;border-radius:12px;background:#162b3e;color:white;box-shadow:0 4px 16px #0004;font:14px/1.5 system-ui;pointer-events:none;}
