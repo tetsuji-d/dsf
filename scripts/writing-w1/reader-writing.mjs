@@ -926,7 +926,8 @@ if(host){
     root.addEventListener('pointerdown',e=>e.stopPropagation());root.addEventListener('click',e=>e.stopPropagation());
     return {
         async open(data){runtime.options.onProgress=data.onProgress;try{spread=data.spread===true;readerUnits=data.units;await openBytes(new Uint8Array(await data.file.arrayBuffer()),data.draft||{language:data.language,pageIndex:data.pageIndex},data.file.name);if($('status').dataset.error!=='true'){$('status').textContent='書き込みモード';$('status').dataset.notice=false;}}finally{runtime.options.onProgress=undefined;}},
-        sync:syncHost,panel:(name)=>{showTools(true);showPanel(name);},
+        sync:syncHost,panel:(name,focus)=>{showTools(true);showPanel(name);if(focus)$(focus)?.focus();},
+        text(pageId,lang){return (model?.pageObjects(lang,pageId)||[]).filter(o=>o.type==='text').map(o=>o.text).join('\n');},
         get hasChanges(){return !!model&&model.head!==savedHead;},
         showTools, toggleTools(){showTools(!toolsVisible);},
         prepare(){const snapshot=host.view();if(snapshot.pages.length){const first=snapshot.pages[0],last=snapshot.pages.at(-1);layoutChrome({left:first.left,top:first.top,right:last.right,bottom:first.top+first.height,width:last.right-first.left,height:first.height});}},

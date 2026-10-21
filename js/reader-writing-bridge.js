@@ -1,6 +1,6 @@
 import {createWritingProgress,readerProgressPanel} from './reader-writing-progress.js';
 import {createReaderOffline,installReaderOfflineMenu} from './reader-writing-offline.js';
-import {installWritingLocale,writingUiText} from './reader-writing-i18n.js';
+import {writingUiText} from './reader-writing-i18n.js';
 import {getPlatformLanguage,subscribePlatformLanguage} from './ui-language.js';
 import {writingExportName,mountWritingFileExport} from './reader-writing-file-save.js';
 /** Prevent browser viewport gestures only on the active Writing surface, not Reader or dialogs. */
@@ -13,7 +13,7 @@ export function installWritingViewportGuards(document,isActive){
 }
 /** Native Reader overlay. The existing Reader remains responsible for page rendering and navigation. */
 export function createReaderWritingBridge({button,read,onReturn,view,turn,goTo,onMode,resetView,textView,enabled=false,openFile}) {
-    let container,editor,opening=false,finishing=false,frame,menu,menuLocale,source,syncing=false,chromePromise,warmScheduled=false,toolsVisible=true,exitPending;
+    let container,editor,opening=false,finishing=false,frame,source,syncing=false,chromePromise,warmScheduled=false,toolsVisible=true,exitPending;
     const t=source=>writingUiText(source,getPlatformLanguage('viewer'));
     const offline=createReaderOffline();
     if(enabled)installReaderOfflineMenu({offline,openDraft:async draft=>{
@@ -49,7 +49,7 @@ export function createReaderWritingBridge({button,read,onReturn,view,turn,goTo,o
     }
     function cleanup(){
         textView?.(null);
-        cancelAnimationFrame(frame);editor?.dispose();editor=null;container?.remove();container=null;menuLocale?.dispose();menu?.remove();menu=null;source=null;
+        cancelAnimationFrame(frame);editor?.dispose();editor=null;container?.remove();container=null;source=null;
         document.body.classList.remove('reader-writing-active','reader-writing-turning');onMode(false);
         button.removeAttribute('aria-pressed');updateButtonLabel();button.focus({preventScroll:true});
     }
@@ -88,16 +88,6 @@ export function createReaderWritingBridge({button,read,onReturn,view,turn,goTo,o
         catch(error){editor?.notice(error.message||'Readerに戻せませんでした。書き込みは保持しています。');return false;}
         finally{finishing=false;button.disabled=false;}
     }
-    function addMenu(){
-        const appMenu=document.getElementById('platform-app-menu');if(!appMenu)return;
-        menu=document.createElement('nav');menu.className='reader-writing-menu';menu.setAttribute('aria-label','Writing');
-        for(const [label,panel] of [['書き込みを保存・書き出し','save'],['書き込みの設定','settings'],['書き込みの履歴','history'],['Readerに戻る','exit']]){
-            const b=document.createElement('button');b.type='button';b.textContent=label;
-            b.onclick=()=>{appMenu.close();if(panel==='exit')void finish();else editor.panel(panel);};menu.append(b);
-        }
-        appMenu.querySelector('header').after(menu);
-        menuLocale=installWritingLocale(menu);
-    }
     async function open(draft){
         if(editor&&!opening){editor.toggleTools();return;}
         if(opening)return;source=read();if(!source?.file||source.locked)return;
@@ -120,7 +110,7 @@ export function createReaderWritingBridge({button,read,onReturn,view,turn,goTo,o
             toolsVisible=true;container.dataset.preparing='true';container.dataset.loadingLabel=t('Writingを準備しています…');
             document.body.classList.add('reader-writing-active');onMode(true);editor.prepare();container.style.visibility='';
             await editor.open({...source,draft,onProgress:progress.stage});
-            delete container.dataset.preparing;addMenu();updateLayers();
+            delete container.dataset.preparing;updateLayers();
             button.setAttribute('aria-pressed','true');
             await tick();container.style.visibility='';
         }catch(error){cleanup();window.alert(t(error.message||'Writingを開始できませんでした。'));}
@@ -137,6 +127,8 @@ export function createReaderWritingBridge({button,read,onReturn,view,turn,goTo,o
     button.addEventListener('pointerenter',()=>void loadChrome().catch(()=>{}));
     return {
         get active(){return !!editor||opening;},
+        async save(shared=false){if(!editor)await open();editor?.panel('save',shared?'share':'save');},
+        text(pageId,lang){return editor?.text(pageId,lang);},
         layer(pageId,lang){return editor?.layer(pageId,lang);},
         async beforeFile(){if(opening)return false;return !editor||finishing||await finish();},
         sync(){const current=read();button.hidden=!current?.file;button.disabled=opening||finishing||!!current?.locked;updateButtonLabel();warm();}

@@ -3447,3 +3447,20 @@ body.viewer-empty #viewer-page-settings,body.viewer-empty #viewer-fullscreen-btn
 body.reader-writing-text-editing #viewer-reader-controls,body.reader-writing-text-editing .viewer-page-segments{visibility:hidden;pointer-events:none;}
 
 .reader-operation-progress {position:fixed;z-index:10000;left:50%;bottom:100px;transform:translateX(-50%);max-width:calc(100vw - 32px);padding:12px 18px;border-radius:12px;background:#162b3e;color:white;box-shadow:0 4px 16px #0004;font:14px/1.5 system-ui;pointer-events:none;}
+/* Document actions are shared by Reader and Writing. */
+#viewer-page-settings>summary[hidden]{display:none!important}
+.reader-pose-choices{display:flex;flex-wrap:wrap;gap:4px;margin-bottom:12px}
+.reader-pose-choices [aria-pressed=true]{background:#41766c;color:#fff}
+.reader-action-dialog{box-sizing:border-box;width:min(540px,calc(100vw - 24px));max-height:calc(100dvh - 32px);overflow:auto;border:1px solid #b9c9cd;border-radius:18px;padding:22px;background:#f7fafb;color:#19343e;font:15px/1.6 system-ui;box-shadow:0 18px 70px #0005}
+.reader-action-dialog::backdrop{background:#16293366}
+.reader-action-dialog h2{font-size:20px;margin:0 70px 18px 0}
+.reader-action-dialog button{font:inherit;cursor:pointer;border:1px solid #b9c9cd;border-radius:10px;background:#fff;color:inherit;padding:10px 14px;min-height:44px}
+.reader-action-dialog button:disabled{opacity:.5;cursor:default}
+.reader-action-dialog button:focus-visible,.reader-action-dialog input:focus-visible{outline:3px solid #2e887f;outline-offset:2px}
+.reader-action-close{position:absolute;top:16px;right:16px}
+.reader-file-action{display:flex;align-items:center;gap:12px;width:100%;margin:10px 0;text-align:start}
+.reader-action-dialog p{font-size:13px}
+.reader-action-dialog input[type=search]{box-sizing:border-box;width:100%;font:inherit;padding:12px;border:1px solid #9cb1b6;border-radius:10px;background:#fff;color:#19343e}
+.reader-search-results{display:grid;gap:8px}.reader-search-results button{text-align:start;overflow-wrap:anywhere}
+body.viewer-empty #viewer-save-menu{display:none!important}
+#viewer-page-settings{padding:0;margin:0;border:0;background:transparent;max-width:none;max-height:none;overflow:visible}
