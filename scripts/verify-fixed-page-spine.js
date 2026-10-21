@@ -234,8 +234,8 @@ const appSource = readFileSync(new URL('../js/app.js', import.meta.url), 'utf8')
 const sectionsSource = readFileSync(new URL('../js/sections.js', import.meta.url), 'utf8');
 assert.match(appSource, /moveFixedPageRangeInSpine\(state\.blocks \|\| \[\]/,
     'Project v6 thumbnail drops must use the canonical mixed-spine operation');
-assert.match(appSource, /if \(state\.version === 6\) return false;/,
-    'The legacy flat-Section insertion path must reject Project v6');
+assert.match(appSource, /if \(\[6,7\]\.includes\(state\.version\)\) return false;/,
+    'The legacy flat-Section insertion path must reject Project v6/v7');
 assert.match(appSource, /if \(!canDeleteActive\(\)\) return;/,
     'Rejected deletes must not create an empty History entry or autosave');
 console.log('Fixed page mixed-spine verification passed.');

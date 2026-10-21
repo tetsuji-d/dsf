@@ -1,3 +1,6 @@
+import {resolveBasicLayoutContext} from './basic-layout-context.js';
+import {createBasicLayoutPage,duplicateFixedPage,inspectPageDuplication,layoutInsertionIndex} from './basic-page-layouts.js';
+import {openBasicPageLayouts} from './studio-page-layouts.js';
 import {addPageAnchor,addPageLink,removePageLink,reconcilePageNavigation,trackPageNavigationStructure,numberedNavigationPages,resolveNavigationTarget,resolveNavigationLink,syncNavigationReferences,readPageNavigationText,findPageNavigationObject} from './page-navigation.js';
 import {readRecentCloudThumbnail} from './firebase.js';
 import {subscribePlatformLanguage} from './ui-language.js';
@@ -92,7 +95,7 @@ import { loadSharedProject, checkSharedStudioAccess, sharedStudioLockAction } fr
 import { sharedDraftRecovery, prepareSharedSpaceLeave, finishSharedSpaceLeave, getEditorSaveStatus, restorePreviousCloudAuthoring, getLoadedPrivateAuthoringHead, saveProject as persistProject, loadProject, uploadToStorage, prepareAuthoringImage, uploadCoverToStorage, uploadStructureToStorage, triggerAutoSave, flushSave, flushPendingSave, removeLocalRecentProject, restoreLocalRecentProject, generateCroppedThumbnail, listLocalRecentProjects, loadLocalRecentProject, cacheLocalRecentProject, ensureUserBootstrap, storePublicationThumbnailFile, auth as firebaseAuth, authReady, db } from './firebase.js';
 import { initGIS, renderGISButton, signInWithGoogle, signOutUser, onAuthChanged, handleRedirectResult } from './gis-auth.js';
 import { handleCanvasClick, selectBubble, renderBubbleHTML, getBubbleText, setBubbleText, addBubbleAtCenter, startDrag, startTailDrag, startSpikeDrag } from './bubbles.js';
-import { addSection, addTextSection, changeSection, changeBlock, insertStructureBlock, renderThumbs, canDeleteActive, deleteActive, deleteSectionAt, insertSectionAt, insertSpreadImageAt, duplicateSectionAt, moveSection, moveSectionRange, insertPageNearBlock, duplicateBlockAt, moveBlockAt, getOptimizedImageUrl } from './sections.js';
+import { addSection, addTextSection, changeSection, changeBlock, insertStructureBlock, renderThumbs, canDeleteActive, deleteActive, deleteSectionAt, insertSectionAt, insertSpreadImageAt, moveSection, moveSectionRange, insertPageNearBlock, moveBlockAt, getOptimizedImageUrl } from './sections.js';
 import { pushState, endHistoryGroup, undo, redo, getHistoryInfo, clearHistory, listHistoryEntries, readHistoryEntry, getHistoryGuard } from './history.js';
 import { openProjectModal, closeProjectModal, fetchCloudProjects, getCoverImage, getPageCount, deleteCloudProject, restoreCloudProject } from './projects.js';
 import { openWorksRoom, closeWorksRoom, refreshWorksRoomLanguage } from './works.js';
@@ -5678,6 +5681,14 @@ function refresh(options = {}) {
 
     syncBlocksFromState();
     const activeBlock = getActiveBlock();
+    const duplicateStatus=inspectPageDuplication(state.blocks,state.activeBlockIdx);
+    for(const button of document.querySelectorAll('[data-page-duplicate]')){
+        button.disabled=!canEditSharedStudio()||!duplicateStatus.ok;
+        button.title=t(duplicateStatus.ok?'page_duplicate_hint':'page_duplicate_fixed_only');
+        const caption=button.querySelector('[data-duplicate-label]');
+        if(caption)caption.textContent=t(duplicateStatus.ok&&duplicateStatus.indices.length===2?'page_duplicate_spread':'page_duplicate');
+    }
+    for(const button of document.querySelectorAll('[data-basic-layout]'))button.disabled=!canEditSharedStudio();
     const flowPreviewTargetBlock = getFlowPreviewTargetBlock(activeBlock);
     const s = state.sections[state.activeIdx];
     const render = document.getElementById('content-render');
@@ -8642,6 +8653,9 @@ window.showTailPageAddMenu = (e) => {
         rect.left + rect.width - 220,
         rect.top - 8,
         `
+            <button type="button" class="context-menu-item" onclick="showBasicPageLayouts(true)">
+                <span class="material-icons">dashboard</span> ${t('page_basic_layout')}
+            </button>
             <div class="context-menu-item" onclick="addSectionByType('flow', event)">
                 <span class="material-icons">article</span> ${t('flow_add_manuscript')}
             </div>
@@ -9336,8 +9350,8 @@ function renderFixedPagePreview(contentEl, adjSection, renderLang, adjIdx) {
         );
 
         if (!bgUrl) {
-            // 画像未設定: プレースホルダー
-            contentEl.innerHTML =
+            // A composed graphic page already has content; only empty pages need an upload hint.
+            contentEl.innerHTML = adjSection.graphicObjects?.length ? '' :
                 `<div style="width:100%;height:100%;display:flex;align-items:center;justify-content:center;color:#aaa;">
                     <span class="material-icons" style="font-size:48px;">add_photo_alternate</span>
                 </div>`;
@@ -9489,15 +9503,9 @@ window.insertSectionAtIndex = (idx, e) => {
     insertSectionAt(insertAt, refresh);
     triggerAutoSave();
 };
-window.duplicateSectionByIndex = (idx, e) => {
-    if (e) {
-        e.preventDefault();
-        e.stopPropagation();
-    }
-    if ([6,7].includes(state.version)) return;
-    pushState();
-    duplicateSectionAt(idx, refresh);
-    triggerAutoSave();
+window.duplicateSectionByIndex = (idx,e) => {
+    e?.preventDefault();e?.stopPropagation();
+    duplicateEditorPage(getBlockIndexFromPageIndex(state.blocks,Number(idx)));
 };
 window.insertPageNearBlock = (blockIdx, position, e) => {
     if (e) {
@@ -9508,15 +9516,48 @@ window.insertPageNearBlock = (blockIdx, position, e) => {
     insertPageNearBlock(blockIdx, position, refresh);
     triggerAutoSave();
 };
-window.duplicateBlockByIndex = (blockIdx, e) => {
-    if (e) {
-        e.preventDefault();
-        e.stopPropagation();
-    }
-    if (state.blocks?.[blockIdx]?.kind === 'flow') return;
-    pushState();
-    duplicateBlockAt(blockIdx, refresh);
-    triggerAutoSave();
+function duplicateEditorPage(blockIndex) {
+    if(!canEditSharedStudio() || editorDragBlocked(false))return;
+    if(!inspectPageDuplication(state.blocks,blockIndex).ok)return;
+    try { applyEditorSpineChange(duplicateFixedPage(state,blockIndex)); }
+    catch { alert(t('page_duplicate_failed')); }
+}
+window.duplicateBlockByIndex = (blockIdx,e) => {
+    e?.preventDefault();e?.stopPropagation();
+    const index=Number(blockIdx),source=state.blocks?.[index];
+    if(source?.kind==='page'){duplicateEditorPage(index);return;}
+    if(!canEditSharedStudio()||editorDragBlocked(false)||!['chapter','section','item','item_end','toc'].includes(source?.kind))return;
+    const copy=structuredClone(source);copy.id=createId(source.kind);
+    const blocks=state.blocks.slice();blocks.splice(index+1,0,copy);
+    applyEditorSpineChange({blocks,activeBlockIndex:index+1});
+};
+window.duplicateSelectedPage = () => duplicateEditorPage(state.activeBlockIdx);
+window.showBasicPageLayouts = (atTail=false) => {
+    hideContextMenu();
+    if(!canEditSharedStudio() || editorDragBlocked(false))return;
+    const epoch=getProjectSessionEpoch(),snapshot=JSON.stringify(state.blocks.map(block=>block.id)),sourceIndex=state.activeBlockIdx;
+    const context=resolveBasicLayoutContext(state,sourceIndex),contextKey=JSON.stringify(context);
+    let insertAt;
+    try{insertAt=atTail?state.blocks.length:layoutInsertionIndex(state.blocks,state.activeBlockIdx);}
+    catch{alert(t('page_duplicate_failed'));return;}
+    const current=()=>getProjectSessionEpoch()===epoch && contextKey===JSON.stringify(resolveBasicLayoutContext(state,sourceIndex))
+        && JSON.stringify(state.blocks.map(block=>block.id))===snapshot && canEditSharedStudio() && !editorDragBlocked(false);
+    openBasicPageLayouts({context,insert:async(preset,file,isOpen,layoutOptions)=>{
+        if(!current()||!isOpen())return false;
+        let asset;
+        if(file){
+            const image=await prepareAuthoringImage(file,{maxLongEdge:7680});
+            asset={id:createId('asset'),name:file.name,background:image.mainUrl,thumbnail:image.thumbUrl,
+                width:image.width,height:image.height,byteLength:image.byteLength,mimeType:'image/webp'};
+        }
+        if(!current()||!isOpen())return false;
+        const page=createBasicLayoutPage(preset,{...layoutOptions,imageAsset:asset});
+        const blocks=state.blocks.slice();blocks.splice(insertAt,0,page);
+        const projectAssets=asset?[...(state.projectAssets||[]),asset]:[...(state.projectAssets||[])];
+        validateGraphicObjects({...state,blocks,projectAssets});
+        applyEditorSpineChange({blocks,activeBlockIndex:insertAt,projectAssets});
+        return true;
+    }});
 };
 window.moveBlockByIndex = (blockIdx, direction, e) => {
     if (e) {
@@ -9541,6 +9582,7 @@ function applyEditorSpineChange(result, options = {}) {
     pushState({ editorFocus, ...options.history });
     clearFlowDirectEditRuntime();
     if (result.projectAssets) { state.version = state.pageNavigation ? 7 : 6; state.projectAssets = result.projectAssets; }
+    if (result.pageNavigation) state.pageNavigation = result.pageNavigation;
     trackPageNavigationStructure(state.pageNavigation,state.blocks,result.blocks);
     dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'blocks', value: result.blocks } });
     reconcilePageNavigation(state);
@@ -10462,6 +10504,9 @@ function initializeNewProject(choice, draft = null, {autosave=true} = {}) {
 };
 
 function setRibbonTab(tabName) {
+    const ribbon=document.getElementById('ribbon-bar');
+    if(ribbon?.classList.contains('ribbon-collapsed'))document.getElementById('ribbon-collapse')?.click();
+    document.dispatchEvent(new Event('studio-ribbon-tab-change'));
     document.querySelectorAll('.ribbon-tab').forEach((tab) => {
         const active = tab.dataset.ribbonTab === tabName;
         tab.classList.toggle('active', active); tab.setAttribute('role','tab');
@@ -12006,7 +12051,12 @@ function openThumbnailContextMenu(event, thumb, initialPosition = null) {
             {label:t('flow_join_previous'), disabled:!joinStatus.eligible && !unifiedStatus.eligible, reason:joinStatus.eligible?'':reasonText(blockedStatus), run:joinMenu},
             {label:t('flow_open_source'), run:()=>{hideContextMenu();window.changeFlowSourceBlock(index);}},
             {label:t('thumb_delete_flow'), run:()=>{hideContextMenu();selectFlowSource(block.id);if (!deleteActiveFlowGroup(block)) { selectFlowGeneratedPage(block.id); refreshForThumbSelection(); }}},
-        ] : [{label:t('thumb_delete_page'), disabled:!canDeleteActive(), run:()=>{hideContextMenu();window.deleteActive();}}]),
+        ] : [
+            {label:t(block.content?.spreadImage?.groupId?'page_duplicate_spread':'page_duplicate'), disabled:!inspectPageDuplication(state.blocks,index).ok,
+                run:()=>{hideContextMenu();duplicateEditorPage(index);}},
+            {label:t('page_basic_layout'),run:()=>window.showBasicPageLayouts()},
+            {label:t('thumb_delete_page'), disabled:!canDeleteActive(), run:()=>{hideContextMenu();window.deleteActive();}}
+        ]),
     ]);
     if (block.kind === 'flow' && !joinStatus.eligible) {
         const note = document.createElement('div'); note.className='context-menu-note'; note.textContent=reasonText(blockedStatus);

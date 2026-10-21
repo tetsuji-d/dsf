@@ -15,6 +15,9 @@ export default defineConfig(({ mode }) => {
     if (mode !== 'production') input.flowPreview = resolve(__dirname, 'flow-preview.html');
 
     return {
+        // Studio holds unsaved authoring state. Apply development changes only
+        // on manual reload; opt into HMR for disposable development sessions.
+        server: { hmr: process.env.DSF_DEV_HMR === '1' },
         plugins: [viewerBookSamplesPlugin(mode),writingStagingPlugin(mode),studioPwaPlugin()].filter(Boolean),
         build: {
             rollupOptions: { input },

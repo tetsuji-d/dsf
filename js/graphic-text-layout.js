@@ -1,6 +1,7 @@
 /** Shared canvas line layout. Offsets are UTF-16 offsets into the source text. */
 export function layoutGraphicText(ctx, text, style, frame) {
     const s=style, w=frame.width, h=frame.height, pad=s.padding, step=s.fontSize*1.4;
+    ctx.textBaseline='top';
     ctx.font=`${s.italic?'italic ':''}${s.bold?'bold ':''}${s.fontSize}px ${s.fontFamily}`;
     const lines=[]; let offset=0;
     if(s.writingMode==='vertical-rl') {
@@ -11,7 +12,7 @@ export function layoutGraphicText(ctx, text, style, frame) {
             offset++;
         }
         const used=lines.length*step;
-        let x=s.valign==='center'?(w+used)/2-step:s.valign==='bottom'?pad+used-step:w-pad-step;
+        let x=s.valign==='center'?(w+used)/2-step+(step-s.fontSize)/2:s.valign==='bottom'?pad+used-step:w-pad-step;
         return lines.map(line=>{const space=h-pad*2-Array.from(line.text).length*s.fontSize;
             const result={...line,x,y:pad+(s.align==='center'?space/2:s.align==='right'?space:0),vertical:true};x-=step;return result;});
     }
@@ -26,6 +27,13 @@ export function layoutGraphicText(ctx, text, style, frame) {
     }
     const total=lines.length*step;
     let y=s.valign==='center'?(h-total)/2:s.valign==='bottom'?h-pad-total:pad;
+    // Center a single line by its visible glyph bounds, not the taller line advance.
+    if(s.valign==='center'&&lines.length===1&&lines[0].text){
+        const metrics=ctx.measureText(lines[0].text);
+        if(Number.isFinite(metrics.actualBoundingBoxAscent)&&Number.isFinite(metrics.actualBoundingBoxDescent)){
+            y=(h-metrics.actualBoundingBoxAscent-metrics.actualBoundingBoxDescent)/2+metrics.actualBoundingBoxAscent;
+        }
+    }
     return lines.map(line=>{const width=ctx.measureText(line.text).width;
         const result={...line,x:s.align==='center'?(w-width)/2:s.align==='right'?w-pad-width:pad,y,vertical:false};y+=step;return result;});
 }

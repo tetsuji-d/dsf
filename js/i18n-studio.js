@@ -8,6 +8,13 @@ import {getPlatformLanguage,setPlatformLanguage} from './ui-language.js';
 
 export const STRINGS = {
     ja: {
+        page_basic_layout: '基本レイアウト',
+        page_duplicate: 'ページを複製',
+        page_duplicate_spread: '見開きを複製',
+        page_duplicate_hint: '直後に複製します。元に戻す操作で取り消せます。',
+        page_duplicate_fixed_only: '固定ページを選択してください。Flow原稿から生成されたページは個別に複製できません。',
+        page_duplicate_failed: 'ページを複製・追加できませんでした。見開きの組み合わせを確認してください。',
+
         authoring_restore: '前のクラウド原稿に戻す',
         authoring_restore_confirm: '現在の編集を保存してから、直前のクラウド原稿を新しい保存として復元します。公開済みのリードは変更しません。続けますか？',
         authoring_restore_done: '前のクラウド原稿を復元しました。',
@@ -774,6 +781,13 @@ export const STRINGS = {
         zip_generating:          '⏳ ZIP生成中...',
     },
     en: {
+        page_basic_layout: 'Basic layouts',
+        page_duplicate: 'Duplicate page',
+        page_duplicate_spread: 'Duplicate spread',
+        page_duplicate_hint: 'Insert a copy immediately after this page. Undo is available.',
+        page_duplicate_fixed_only: 'Select a fixed page. Individual pages generated from a Flow manuscript cannot be duplicated.',
+        page_duplicate_failed: 'Could not copy or add the page. Check the image spread.',
+
         authoring_restore: 'Restore previous cloud manuscript',
         authoring_restore_confirm: 'Save current edits, then restore the previous cloud manuscript as a new save. Published releases stay unchanged. Continue?',
         authoring_restore_done: 'Previous cloud manuscript restored.',

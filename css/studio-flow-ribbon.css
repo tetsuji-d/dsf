@@ -93,12 +93,22 @@
   #ribbon-image-rotation { width:70px; height:27px; min-height:27px; padding:3px 5px; background:var(--studio-field-bg); color:var(--studio-text); border:1px solid var(--studio-border); border-radius:4px; }
 }
 
-/* Always-visible desktop commands. Keep live nodes/controllers and mobile tabs. */
+/* One command row per category. Keep live authoring controls and mobile sheets. */
 @media(min-width:1024px) {
-  #editor-room #ribbon-bar.studio-compact-ribbon .ribbon-command-row { display:none; }
+  #editor-room #ribbon-bar.studio-compact-ribbon .ribbon-command-row { display:flex; }
   #editor-room #ribbon-bar.studio-compact-ribbon .ribbon-top-row { flex-wrap:wrap; }
-  #editor-room #ribbon-bar.studio-compact-ribbon .ribbon-panel-row { display:flex; flex-wrap:wrap; justify-content:flex-start; align-items:center; gap:4px 0; min-height:40px; overflow:visible; padding:5px 8px; }
-  #editor-room #ribbon-bar.studio-compact-ribbon .ribbon-panel { display:contents!important; }
+  #editor-room #ribbon-bar.studio-compact-ribbon .ribbon-panel-row { display:block; min-height:44px; overflow-x:auto; padding:5px 8px; }
+  #editor-room #ribbon-bar.studio-compact-ribbon .ribbon-panel { display:none; min-height:32px; flex-wrap:nowrap; align-items:center; }
+  #editor-room #ribbon-bar.studio-compact-ribbon .ribbon-panel.active { display:flex; }
+  #editor-room #ribbon-bar.studio-compact-ribbon .ribbon-tabs { display:flex; flex-wrap:nowrap; flex-shrink:0; }
+  #editor-room #ribbon-bar.studio-compact-ribbon .ribbon-tab[hidden] { display:none; }
+  #editor-room #ribbon-bar.studio-compact-ribbon .ribbon-context-tab { color:var(--primary); }
+  #editor-room #ribbon-bar.studio-compact-ribbon .ribbon-panel > * { flex-shrink:0; }
+  #editor-room #ribbon-bar.studio-compact-ribbon .graphic-toolbar,
+  #editor-room #ribbon-bar.studio-compact-ribbon .graphic-object-tools { flex-wrap:nowrap; max-width:none; }
+  #editor-room #ribbon-bar.studio-compact-ribbon .graphic-toolbar > *,
+  #editor-room #ribbon-bar.studio-compact-ribbon .graphic-object-tools > * { flex-shrink:0; }
+  #editor-room #ribbon-bar.studio-compact-ribbon .graphic-object-tools { border:0; margin:0; padding:0; }
   #editor-room #ribbon-bar.studio-compact-ribbon .flow-ribbon-tools { display:contents; min-height:0; }
   #editor-room #ribbon-bar.studio-compact-ribbon .flow-ribbon-tools[hidden] { display:none!important; }
   #editor-room #ribbon-bar.studio-compact-ribbon .flow-ribbon-group,
@@ -107,8 +117,7 @@
   #editor-room #ribbon-bar.studio-compact-ribbon .studio-ribbon-icon { width:28px; }
   #editor-room #ribbon-bar.studio-compact-ribbon .ribbon-group:empty { display:none; }
   #editor-room #flow-ribbon-home > .flow-ribbon-alignment,
-  #editor-room #flow-ribbon-home > .flow-ribbon-display,
-  #editor-room #flow-ribbon-insert { display:none!important; }
+  #editor-room #flow-ribbon-home > .flow-ribbon-display { display:none!important; }
   #editor-room #ribbon-bar.studio-compact-ribbon #flow-ribbon-indent { min-width:0; }
   #flow-ribbon-indent .flow-indent-body { display:flex; align-items:center; gap:5px; }
   #flow-ribbon-indent .flow-indent-field input { width:38px!important; }

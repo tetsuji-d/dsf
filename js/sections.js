@@ -1,3 +1,4 @@
+import {duplicateFixedPage} from './basic-page-layouts.js';
 import {appendFlowGraphicPreview} from './graphic-object-renderer.js';
 import { appendGraphicThumbnail } from './graphic-object-renderer.js';
 /**
@@ -529,17 +530,7 @@ export function insertSpreadImageAt(insertIndex, refresh) {
  * @param {function} refresh - 画面更新コールバック
  */
 export function duplicateSectionAt(sourceIndex, refresh) {
-    const idx = Number(sourceIndex);
-    if (!Number.isInteger(idx) || !state.sections[idx]) return;
-    const cloned = deepClone(state.sections[idx]);
-    const list = [...state.sections];
-    list.splice(idx + 1, 0, cloned);
-    dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'sections', value: list } });
-    dispatch({ type: actionTypes.SET_ACTIVE_INDEX, payload: idx + 1 });
-    dispatch({ type: actionTypes.SET_ACTIVE_BLOCK_INDEX, payload: null });
-    dispatch({ type: actionTypes.SET_ACTIVE_BUBBLE_INDEX, payload: null });
-    syncModelsFromLegacy();
-    refresh();
+    return duplicateBlockAt(getBlockIndexFromPageIndex(state.blocks,Number(sourceIndex)),refresh);
 }
 
 /**
@@ -722,35 +713,21 @@ export function insertPageNearBlock(blockIndex, position, refresh, sectionType =
 }
 
 export function duplicateBlockAt(blockIndex, refresh) {
-    const idx = Number(blockIndex);
-    const list = [...(state.blocks || [])];
-    if (!Number.isInteger(idx) || idx < 0 || idx >= list.length) return;
-    const target = list[idx];
-    if (!target || target.kind === 'cover_front' || target.kind === 'cover_back' || target.kind === 'flow') return;
-
-    if (target.kind === 'page') {
-        const pageIdx = getPageIndexFromBlockIndex(state.blocks, idx);
-        if (!Number.isInteger(pageIdx) || pageIdx < 0 || !state.sections[pageIdx]) return;
-        const clonedSection = deepClone(state.sections[pageIdx]);
-        const newSections = [...state.sections];
-        newSections.splice(pageIdx + 1, 0, clonedSection);
-        dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'sections', value: newSections } });
-        syncModelsFromLegacy();
-        const nextBlockIdx = getBlockIndexFromPageIndex(state.blocks, pageIdx + 1);
-        if (nextBlockIdx >= 0) dispatch({ type: actionTypes.SET_ACTIVE_BLOCK_INDEX, payload: nextBlockIdx });
-        dispatch({ type: actionTypes.SET_ACTIVE_INDEX, payload: pageIdx + 1 });
-        dispatch({ type: actionTypes.SET_ACTIVE_BUBBLE_INDEX, payload: null });
-        refresh();
-        return;
+    const idx=Number(blockIndex);
+    const source=state.blocks?.[idx];let result;
+    if(source?.kind==='page'){
+        try{result=duplicateFixedPage(state,idx);}catch{return;}
+    }else{
+        if(!['chapter','section','item','item_end','toc'].includes(source?.kind))return;
+        const copy=deepClone(source);copy.id=createId(source.kind);
+        const blocks=state.blocks.slice();blocks.splice(idx+1,0,copy);
+        result={blocks,activeBlockIndex:idx+1};
     }
-
-    const cloned = deepClone(target);
-    cloned.id = createId(target.kind || 'block');
-    list.splice(idx + 1, 0, cloned);
-    dispatch({ type: actionTypes.SET_STATE_FIELD, payload: { key: 'blocks', value: list } });
-    dispatch({ type: actionTypes.SET_ACTIVE_BLOCK_INDEX, payload: idx + 1 });
-    dispatch({ type: actionTypes.SET_ACTIVE_BUBBLE_INDEX, payload: null });
-    syncModelsFromLegacy();
+    dispatch({type:actionTypes.SET_STATE_FIELD,payload:{key:'blocks',value:result.blocks}});
+    if(result.pageNavigation)state.pageNavigation=result.pageNavigation;
+    state.sections=extractSectionsFromBlocks(result.blocks);state.pages=blocksToPages(result.blocks);
+    state.activeBlockIdx=result.activeBlockIndex;
+    state.activeIdx=getPageIndexFromBlockIndex(result.blocks,result.activeBlockIndex);state.activeBubbleIdx=null;
     refresh();
 }
 
@@ -901,9 +878,8 @@ export function renderThumbs() {
             const insertAfterAction = strictAuthoring
                 ? `insertPageNearBlock(${blockIdx}, 'after', event)`
                 : `insertSectionAtIndex(${pageIdx + 1}, event)`;
-            const duplicateButton = strictAuthoring
-                ? ''
-                : `<button class="thumb-duplicate-btn" title="ページを複製" ontouchstart="event.stopPropagation()" onclick="duplicateSectionByIndex(${pageIdx}, event)"><span class="material-icons">content_copy</span></button>`;
+            const duplicateLabel=t(spreadGroupId?'page_duplicate_spread':'page_duplicate');
+            const duplicateButton = `<button type="button" class="thumb-duplicate-btn" title="${escapeAttr(duplicateLabel)}" aria-label="${escapeAttr(duplicateLabel)}" ontouchstart="event.stopPropagation()" onclick="duplicateBlockByIndex(${blockIdx}, event)"><span class="material-icons" aria-hidden="true">content_copy</span></button>`;
 
             if (s.type === 'image') {
                 const thumbImg = renderPositionedThumbImageHtml(s, state.activeLang, pageLabel, pageIdx);

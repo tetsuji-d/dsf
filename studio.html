@@ -191,6 +191,14 @@
             <div class="ribbon-row ribbon-panel-row">
                 <div class="ribbon-panel active" data-ribbon-panel="home">
                     <div class="ribbon-group">
+                        <button type="button" class="btn-tool" data-basic-layout onclick="showBasicPageLayouts()">
+                            <span class="material-icons" aria-hidden="true">dashboard</span><span data-i18n="page_basic_layout">基本レイアウト</span>
+                        </button>
+                        <button type="button" class="btn-tool" data-page-duplicate onclick="duplicateSelectedPage()">
+                            <span class="material-icons" aria-hidden="true">content_copy</span><span data-duplicate-label data-i18n="page_duplicate">ページを複製</span>
+                        </button>
+                    </div>
+                    <div class="ribbon-group">
                         <button id="btn-undo" class="btn-tool btn-tool-icon" onclick="performUndo()" title="元に戻す (Ctrl+Z)" disabled>
                             <span class="material-icons" aria-hidden="true">undo</span><span data-i18n="btn_undo">元に戻す</span>
                         </button>
@@ -230,6 +238,7 @@
                     </div>
                 </div>
                 <div class="ribbon-panel" data-ribbon-panel="insert">
+
                     <div class="ribbon-group">
                         <button class="btn-tool btn-tool-icon" onclick="insertFlowGroupBeforeActive()" title="ページ境界を意識せず編集するFlow原稿を追加">
                             <span class="material-icons" aria-hidden="true">subject</span><span>Flow原稿</span>
@@ -371,6 +380,10 @@
                                 <span class="material-icons" style="font-size:16px;vertical-align:middle;">auto_stories</span>
                                 <span data-i18n="label_spread_view">見開き表示</span>
                             </button>
+                        </div>
+                        <div class="sidebar-pages-controls">
+                            <button type="button" class="btn-sm" data-basic-layout onclick="showBasicPageLayouts()" data-i18n="page_basic_layout">基本レイアウト</button>
+                            <button type="button" class="btn-sm" data-page-duplicate onclick="duplicateSelectedPage()"><span data-duplicate-label data-i18n="page_duplicate">ページを複製</span></button>
                         </div>
                         <!-- ページナビ -->
                         <div class="sidebar-pages-nav">

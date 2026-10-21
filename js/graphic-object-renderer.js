@@ -1,3 +1,5 @@
+import {verticalGlyphText} from './text-press-html.js';
+import {languageTextDirection} from './basic-layout-context.js';
 import {layoutGraphicText} from './graphic-text-layout.js';
 import {placedFlowObject} from './flow-page-placement.js';
 // Fixed-page authoring objects. Public delivery uses flattened WebP pages.
@@ -79,12 +81,14 @@ async function drawGraphicObject(ctx, o, assets, language, defaultLanguage) {
     ctx.font = `${s.italic ? "italic " : ""}${s.bold ? "bold " : ""}${s.fontSize}px ${s.fontFamily}`;
     ctx.fillStyle = s.color;
     ctx.textBaseline = "top";
+    ctx.direction = languageTextDirection(o.texts[language] != null ? language : defaultLanguage);
+    ctx.textAlign = "left";
     const pad = s.padding, lineHeight = s.fontSize * 1.4;
     ctx.beginPath();
     ctx.rect(pad, pad, Math.max(0, w - pad * 2), Math.max(0, h - pad * 2));
     ctx.clip();
     for(const line of layoutGraphicText(ctx,text,s,f)) {
-      if(line.vertical)Array.from(line.text).forEach((ch,i)=>ctx.fillText(ch,line.x,line.y+i*s.fontSize));
+      if(line.vertical)Array.from(line.text).forEach((ch,i)=>ctx.fillText(verticalGlyphText(ch),line.x,line.y+i*s.fontSize));
       else {
         ctx.fillText(line.text,line.x,line.y);
         if(s.underline)ctx.fillRect(line.x,line.y+s.fontSize+1,ctx.measureText(line.text).width,1);

@@ -11,6 +11,7 @@ const desktop = () => window.matchMedia('(min-width: 1024px)').matches;
 const mirrors = [];
 let imageContext = { active: false, adjusting: false, bubbleSelected: false, position: null };
 let objectContext = null;
+let lastSelectedObject = null;
 let noteHome, noteAnchor;
 function icon(name) {
     const span = document.createElement('span');
@@ -152,6 +153,8 @@ export function initFlowRibbon() {
     const viewTab = document.createElement('button'); viewTab.className = 'ribbon-tab'; viewTab.dataset.ribbonTab = 'view'; viewTab.dataset.i18n = 'tab_view'; viewTab.textContent = t('tab_view');
     tabs.querySelector('[data-ribbon-tab="export"]').before(viewTab);
     const view = document.createElement('div'); view.className = 'ribbon-panel'; view.dataset.ribbonPanel = 'view'; root.querySelector('.ribbon-panel-row').append(view);
+    const formatTab = document.createElement('button'); formatTab.type='button'; formatTab.className='ribbon-tab ribbon-context-tab'; formatTab.dataset.ribbonTab='format'; formatTab.hidden=true; tabs.append(formatTab);
+    const formatPanel=document.createElement('div');formatPanel.className='ribbon-panel';formatPanel.dataset.ribbonPanel='format';root.querySelector('.ribbon-panel-row').append(formatPanel);
     // Reuse the existing canvas controls on View for both Flow and Fixed pages.
     const canvasView=group(view,'label_canvas');
     canvasView.append(arrange.querySelector('[onclick="resetCanvasView()"]'));
@@ -167,7 +170,7 @@ export function initFlowRibbon() {
     labelButton(byId('btn-toggle-panel'), 'tune', 'btn_edit_panel');
     // Remove only emptied layout wrappers, keeping all live original controls and IDs.
     home.querySelectorAll(':scope > .ribbon-group').forEach(g => { if (!g.children.length) g.remove(); });
-    const flow = document.createElement('div'); flow.id = 'flow-ribbon-home'; flow.className = 'flow-ribbon-tools'; home.append(flow);
+    const flow = document.createElement('div'); flow.id = 'flow-ribbon-home'; flow.className = 'flow-ribbon-tools'; formatPanel.append(flow);
     const edit = group(flow, 'ribbon_manuscript');
     originalAction(edit, 'flow-open-source', 'article', 'flow_open_source');
     originalAction(edit, 'flow-direct-resume', 'edit', 'flow_direct_resume');
@@ -195,7 +198,7 @@ export function initFlowRibbon() {
     const flowInsert = document.createElement('div'); flowInsert.id = 'flow-ribbon-insert'; flowInsert.className = 'flow-ribbon-tools'; insert.append(flowInsert);
     originalAction(flowInsert, 'flow-direct-page-break', 'insert_page_break', 'flow_direct_page_break');
     const insertImage = button('add_photo_alternate', 'flow_image_insert'); insertImage.dataset.flowInsertImage = ''; flowInsert.append(insertImage);
-    const imageTools = document.createElement('div'); imageTools.id = 'image-ribbon-home'; imageTools.className = 'flow-ribbon-tools'; home.append(imageTools);
+    const imageTools = document.createElement('div'); imageTools.id = 'image-ribbon-home'; imageTools.className = 'flow-ribbon-tools'; formatPanel.append(imageTools);
     const imageActions = group(imageTools, 'ribbon_image_tools');
     const change = button('image', 'btn_change_image', () => {
         if (imageContext.active) byId('file-upload').click();
@@ -221,6 +224,7 @@ export function initFlowRibbon() {
     const imageHint=document.createElement('small'); imageHint.dataset.i18n='ribbon_image_hint'; imageHint.textContent=t('ribbon_image_hint'); transforms.append(imageHint);
     const done=button('check', 'ribbon_image_done', () => { if (imageContext.active && imageContext.adjusting) window.toggleImageAdjustment(); }); transforms.append(done);
     for (const b of root.querySelectorAll('.ribbon-panel .btn-tool')) {
+        if (b.matches('[data-basic-layout],[data-page-duplicate]')) { b.classList.add('studio-ribbon-labeled','studio-page-command'); continue; }
         if (b.classList.contains('studio-ribbon-icon')) continue;
         const key = b.querySelector('[data-i18n]')?.dataset.i18n || b.dataset.i18n;
         const name = b.querySelector('.material-icons')?.textContent.trim()
@@ -232,17 +236,13 @@ export function initFlowRibbon() {
         }
     }
     const top = root.querySelector('.ribbon-top-row');
-    const flatLayout = () => {
-        const wide = desktop();
-        (wide ? top : tabRow).append(quick);
-        (wide ? root.querySelector('.ribbon-panel-row') : tabRow).append(root.querySelector('.ribbon-auth'));
-        root.querySelectorAll('.ribbon-panel').forEach(panel => {
-            panel.setAttribute('role', wide ? 'group' : 'tabpanel');
-            if (wide) { panel.removeAttribute('aria-labelledby'); panel.setAttribute('aria-label', t('tab_' + panel.dataset.ribbonPanel)); }
-            else { panel.removeAttribute('aria-label'); panel.setAttribute('aria-labelledby', 'studio-ribbon-tab-' + panel.dataset.ribbonPanel); }
-        });
+    // Categories retain the original controls and their authoring callbacks.
+    const layouts=group(insert,'page_basic_layout');insert.prepend(layouts);layouts.append(home.querySelector('[data-basic-layout]'));
+    const responsiveLayout = () => {
+        (desktop() ? top : tabRow).append(quick);
+        tabRow.append(root.querySelector('.ribbon-auth'));
     };
-    flatLayout(); window.matchMedia('(min-width: 1024px)').addEventListener('change', flatLayout);
+    responsiveLayout(); window.matchMedia('(min-width: 1024px)').addEventListener('change', responsiveLayout);
     const status = document.createElement('div'); status.className = 'flow-ribbon-status'; status.innerHTML = '<span id="ribbon-flow-context"></span><span id="ribbon-flow-note"></span><span id="ribbon-flow-scope"></span><span id="ribbon-status" role="status"></span><span id="flow-placement-status" role="status"></span>'; root.append(status);
     root.addEventListener('mousedown', event => {
         // Toolbar clicks must not collapse the semantic text selection; fields retain native focus.
@@ -252,7 +252,7 @@ export function initFlowRibbon() {
     document.addEventListener('studio-ui-language-change',queueRefresh);
     document.addEventListener('dsf-flow-indent-ui-change', queueRefresh);
     tabs.addEventListener('keydown', event => {
-        const all = [...tabs.querySelectorAll('.ribbon-tab')], index = all.indexOf(event.target);
+        const all = [...tabs.querySelectorAll('.ribbon-tab')].filter(tab=>!tab.hidden), index = all.indexOf(event.target);
         if (index < 0 || !['ArrowLeft','ArrowRight','Home','End'].includes(event.key)) return;
         event.preventDefault(); const next = event.key === 'Home' ? 0 : event.key === 'End' ? all.length-1 : (index+(event.key==='ArrowRight'?1:all.length-1))%all.length;
         all[next].click(); all[next].focus();
@@ -360,6 +360,16 @@ function refreshToolContext(){
     const en=getUILang()==='en',selected=!!objectContext;
     document.body.classList.toggle('object-ribbon-context',selected);
     document.body.classList.toggle('flow-source-ribbon-context',!!context.active && !!context.source);
+    const formatTab=byId('studio-ribbon-tab-format');
+    if(formatTab){
+        formatTab.hidden=!(selected || context.active || imageContext.active);
+        const names={text:en?'Text format':'文字の書式',shape:en?'Shape format':'図形の書式',image:en?'Picture format':'画像の書式',legacy:en?'Bubble format':'吹き出しの書式'};
+        formatTab.textContent=selected?(names[objectContext.kind] || (en?'Format':'書式')):context.active?(en?'Text format':'本文の書式'):(en?'Page image':'ページ画像');
+        const selection=selected?(objectContext.id || objectContext.kind):null;
+        if(desktop() && selection && selection!==lastSelectedObject)formatTab.click();
+        else if(formatTab.hidden && formatTab.classList.contains('active'))byId('studio-ribbon-tab-home').click();
+        lastSelectedObject=selection;
+    }
     const note=byId('ribbon-selection-context');if(!note)return;
     let title,hint;
     if(selected){

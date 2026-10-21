@@ -1,3 +1,4 @@
+import {languageTextDirection} from './basic-layout-context.js';
 import { initializeGraphicObjects, createGraphicObject, graphicOrder, GRAPHIC_SHAPES } from "./graphic-object-model.js";
 import { renderGraphicLayerCanvas, getGraphicFrame } from "./graphic-object-renderer.js";
 import "../css/studio-object-toolbar.css";
@@ -15,7 +16,7 @@ function createStudioObjectToolbar({ state, commit, refresh, prepareImage, selec
   const fixedCommit=commit,fixedCanEdit=canEdit;
   commit=fn=>flow?.active()?flow.commit(fn):fixedCommit(fn);
   canEdit=()=>flow?.active()?flow.canEdit():fixedCanEdit();
-  let selected = null, pageKey = "", root, tools, popup, busy = false, sequence = 0, clipboard = null, cropCleanup = null;
+  let selected = null, pageKey = "", root, insertion, tools, popup, busy = false, sequence = 0, clipboard = null, cropCleanup = null;
   const label = (ja, en) => getUILang() === "en" ? en : ja;
   const key = () => [state.projectId, state.localProjectId, state.uid, state.activeBlockIdx, state.activeLang].join("|");
   const block = () => flow?.active() ? flow.asBlock() : state.blocks?.[state.activeBlockIdx];
@@ -483,7 +484,9 @@ function createStudioObjectToolbar({ state, commit, refresh, prepareImage, selec
     if (root) return;
     root = el("div", null, "graphic-toolbar");
     root.id = "graphic-toolbar";
+    insertion=el("div",null,"graphic-toolbar graphic-insert-toolbar");insertion.id="graphic-insert-toolbar";
     (document.querySelector(".ribbon-panel-row") || document.querySelector("#editor-main")).append(root);
+    document.addEventListener("studio-ribbon-tab-change",closePopup);
     document.addEventListener("studio-ui-language-change", () => {
       closePopup();
       render();
@@ -503,7 +506,7 @@ function createStudioObjectToolbar({ state, commit, refresh, prepareImage, selec
     // Canvas editors stop bubbling pointer events; dismiss before those handlers run.
     document.addEventListener("pointerdown", (e) => {
       if (!popup || popup.contains(e.target)) return;
-      if (popup.classList.contains("graphic-context-menu") || (!root.contains(e.target) && !e.target.closest(".graphic-crop-overlay"))) closePopup();
+      if (popup.classList.contains("graphic-context-menu") || (!root.contains(e.target) && !insertion.contains(e.target) && !e.target.closest(".graphic-crop-overlay"))) closePopup();
     }, true);
     document.addEventListener("keydown", (e) => { if (e.key === "Escape") closePopup(); }, true);
     const dismissContextMenu = () => { if (popup?.classList.contains("graphic-context-menu")) closePopup(); };
@@ -546,13 +549,15 @@ function createStudioObjectToolbar({ state, commit, refresh, prepareImage, selec
     }, true);
   }
   function controls() {
-    root.replaceChildren();
+    root.replaceChildren();insertion.replaceChildren();
+    const insertHost=innerWidth>=1024?document.querySelector('[data-ribbon-panel="insert"]'):root;
+    insertHost.append(insertion);
     delete root.dataset.selected;
     const o = object(), legacy = block()?.content?.bubbles?.[state.activeBubbleIdx];
-    onSelectionChange(o ? {kind:o.kind,name:o.name,locked:!!o.locked} : legacy ? {kind:'legacy',name:legacy.name || '',locked:!!legacy.locked} : null);
-    const insertLabel=el('span',label('追加','Add'),'graphic-insert-label');root.append(insertLabel);
-    if(!flow?.active()) button(root, "text_fields", label("テキストボックスを追加", "Add text box"), () => add("text"));
-    const shapes = button(root, "category", label("図形を追加", "Add shape"), () => {
+    onSelectionChange(o ? {id:o.id,kind:o.kind,name:o.name,locked:!!o.locked} : legacy ? {id:legacy.id || 'legacy-'+state.activeBubbleIdx,kind:'legacy',name:legacy.name || '',locked:!!legacy.locked} : null);
+    const insertLabel=el('span',label('追加','Add'),'graphic-insert-label');insertion.append(insertLabel);
+    if(!flow?.active()) button(insertion, "text_fields", label("テキストボックスを追加", "Add text box"), () => add("text"));
+    const shapes = button(insertion, "category", label("図形を追加", "Add shape"), () => {
       const p = pop(shapes), grid = el("div", null, "graphic-shape-gallery");
       p.append(grid);
       for (const shape of GRAPHIC_SHAPES) {
@@ -564,8 +569,8 @@ function createStudioObjectToolbar({ state, commit, refresh, prepareImage, selec
         grid.append(b);
       }
     });
-    button(root, "add_photo_alternate", label("画像を配置", "Place image"), () => upload());
-    const layer = !flow?.active() && button(root, "layers", label("重なり一覧", "Layers"), () => layers(layer));
+    button(insertion, "add_photo_alternate", label("画像を配置", "Place image"), () => upload());
+    const layer = !flow?.active() && button(insertion, "layers", label("重なり一覧", "Layers"), () => layers(layer));
     tools = el("div", null, "graphic-object-tools");
     root.append(tools);
     if(o || legacy){
@@ -760,6 +765,7 @@ function createStudioObjectToolbar({ state, commit, refresh, prepareImage, selec
       text.value = o.texts[state.activeLang] ?? o.texts[state.defaultLang] ?? "";
       text.setAttribute("aria-label", label("オブジェクト本文", "Object text"));
       text.style.writingMode = o.style.writingMode;
+      text.dir = languageTextDirection(state.activeLang);
       text.style.fontSize = o.style.fontSize + "px";
       text.style.color = o.style.color;
       text.oninput = () => {
@@ -776,7 +782,7 @@ function createStudioObjectToolbar({ state, commit, refresh, prepareImage, selec
   }
   function render() {
     ensure();
-    const host = innerWidth >= 1024 ? document.querySelector(".ribbon-panel-row") : document.getElementById("editor-room");
+    const host = innerWidth >= 1024 ? document.querySelector('[data-ribbon-panel="format"]') : document.getElementById("editor-room");
     if (root.parentElement !== host) {
       if (innerWidth >= 1024) host.append(root);
       else host.insertBefore(root, document.getElementById("workspace"));
@@ -784,7 +790,7 @@ function createStudioObjectToolbar({ state, commit, refresh, prepareImage, selec
     const fixed = block()?.kind === "page";
     document.body.classList.toggle("graphic-page-context", fixed);
     ++sequence;
-    root.hidden = !fixed;
+    root.hidden = !fixed;insertion.hidden = !fixed;
     const context = key();
     if (pageKey !== context) {
       closePopup();
@@ -796,7 +802,7 @@ function createStudioObjectToolbar({ state, commit, refresh, prepareImage, selec
     flow?.render({selected,attachHandle});
     if (!fixed) {onSelectionChange(null);return;}
     controls();
-    if (!canEdit()) root.querySelectorAll("button,input,select").forEach((n) => n.disabled = true);
+    if (!canEdit()) [root,insertion].forEach(host=>host.querySelectorAll("button,input,select").forEach(n=>n.disabled=true));
     if(flow?.active())return;
     const layer = document.getElementById("bubble-layer");
     if (!layer) return;
