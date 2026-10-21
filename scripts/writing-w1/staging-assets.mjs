@@ -7,16 +7,18 @@ const root=fileURLToPath(new URL('../../',import.meta.url));
 const hash=b=>createHash('sha256').update(b).digest('hex');
 const prefix='writing/';
 // Explicit allowlist: never copy outputs/, private drafts, logs, or W0 test apps.
-export async function writingStagingAssets(){
+export async function writingStagingAssets({production=false}={}){
     const files=new Map();
     const put=(name,data)=>files.set(prefix+name,Buffer.from(data));
-    const read=file=>readFile(resolve(root,file));
+    const read=file=>readFile(file.startsWith('outputs/') && process.env.DSF_WRITING_BUILD_ASSETS
+        ? resolve(process.env.DSF_WRITING_BUILD_ASSETS,file.slice('outputs/'.length)) : resolve(root,file));
     const copy=async(name,file)=>put(name,await read(file));
     const scoped=text=>text.replace(/(['"`])\/(js\/|assets\/|notices\/|w0\/|catalog\.json|font-worker\.js|legacy-import\.mjs|reader-runtime\.mjs|sample\.dsfr?|sw\.js)/g,'$1/writing/$2');
     let html=(await read('scripts/writing-w1/writing.html')).toString().replaceAll('href="/writing.css"','href="/writing/writing.css"').replaceAll('src="/reader-writing.mjs"','src="/writing/reader-writing.mjs"');
     html=html.replace('開発プレビュー','ステージング確認版').replace('<head>','<head><meta name="robots" content="noindex,nofollow">').replace('<button id="record" disabled>','<button id="record" hidden disabled>');
     html=html.replace('<h2>保存</h2>','<h2>保存</h2><p id="writing-test-intro" class="subtle">この確認ページでは、ファイルと書き込みを端末内で扱います。まず「サンプルを開く」で試せます。</p>');
     html=html.replace('<details><summary>検証情報</summary>','<details><summary>試し方・書体ライセンス</summary><p>① サンプルを開く → 描く → 元に戻す。② 編集用DSFを作成し、ダウンロードしたファイルを「DSFを開く」から読み直す。③ オフライン準備の完了後、通信を切ってこのページを再読込し、端末内の下書きを開く。</p><p>Writing形式3の試作です。現行Pressの形式2は検証後に形式3のコピーとして開きます。元ファイルは上書きしません。さらに古い形式は対象外です。書き込みはクラウドへ同期されません。更新後の画面を使うときはオンラインでオフライン準備を実行し、再読込してください。</p><a href="./licenses.html">使用書体とライブラリのライセンス</a></details><details><summary>検証情報</summary>');
+    if(production)html=html.replaceAll('ステージング確認版','DSF Writing').replace('この確認ページでは、','ここでは、').replace('試し方・書体ライセンス','使い方・書体ライセンス').replace('Writing形式3の試作です。','Writing形式3に対応しています。');
     put('index.html',html);await copy('writing.css','scripts/writing-w1/writing.css');await copy('native-writing.css','scripts/writing-w1/native-writing.css');
     let ui=scoped((await read('scripts/writing-w1/reader-writing.mjs')).toString());
     const record=/\$\('record'\)\.onclick=\(\)=>task\('検証フォルダーへの保存',[\s\S]*?\nlistenWindow\('keydown'/;
@@ -77,7 +79,7 @@ export async function writingStagingAssets(){
     return files;
 }
 export function writingStagingPlugin(mode){
-    if(mode==='production'||process.env.DSF_WRITING_PREVIEW!=='1')return null;
+    if(mode==='production' ? process.env.DSF_WRITING_RELEASE!=='1' : process.env.DSF_WRITING_PREVIEW!=='1')return null;
     return {name:'writing-staging-preview',configureServer(server){
         let assets;
         server.watcher.on('change',path=>{if(/reader-writing|writing-w1/.test(path))assets=null;});
@@ -90,7 +92,7 @@ export function writingStagingPlugin(mode){
             }catch(error){next(error);}
         });
     },async generateBundle(){
-        for(const [fileName,source] of await writingStagingAssets())this.emitFile({type:'asset',fileName,source});
+        for(const [fileName,source] of await writingStagingAssets({production:mode==='production'}))this.emitFile({type:'asset',fileName,source});
         const headers=await readFile(resolve(root,'public/_headers'),'utf8');
         this.emitFile({type:'asset',fileName:'_headers',source:headers+'\n/writing/*\n  X-Robots-Tag: noindex, nofollow\n  X-Content-Type-Options: nosniff\n  Cache-Control: no-cache\n/writing/*.mjs\n  Content-Type: application/javascript\n/writing/sw.js\n  Service-Worker-Allowed: /writing/\n'});
     }};

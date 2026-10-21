@@ -25,7 +25,7 @@ export default defineConfig(({ mode }) => {
         // VITE_ENV をクライアントコードで参照可能にする
         define: {
             __APP_ENV__: JSON.stringify(mode),
-            __WRITING_ENABLED__: JSON.stringify(mode!=='production' && process.env.DSF_WRITING_PREVIEW==='1'),
+            __WRITING_ENABLED__: JSON.stringify(mode==='production' ? process.env.DSF_WRITING_RELEASE==='1' : process.env.DSF_WRITING_PREVIEW==='1'),
         },
     };
 });
