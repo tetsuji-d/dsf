@@ -1,0 +1,42 @@
+import assert from 'node:assert/strict';
+import {readFile,writeFile,mkdir} from 'node:fs/promises';
+import {nodeRuntime} from './node-runtime.mjs';
+import {loadDsfV3,resaveDsfV3} from '../../js/dsf-writing-package.js';
+import {createReaderWritingModel,moveWritingObject,duplicateWritingObject,createWritingText} from '../../js/reader-writing-model.js';
+import {eraseWritingObjects,writingPointErased,writingEraseMask,resizeWritingErasures} from '../../js/reader-writing-eraser.js';
+import {writingHitTest} from '../../js/reader-writing-hit.js';
+import {editWritingPoint} from '../../js/reader-writing-tools.js';
+const out=new URL('../../outputs/writing-eraser-20261021/',import.meta.url);await mkdir(out,{recursive:true});
+const options=await nodeRuntime(),original=await loadDsfV3(new Uint8Array(await readFile(new URL('../../outputs/writing-w1/preview-sample.dsf',import.meta.url))),options);
+const m=createReaderWritingModel(original,options.catalog.map(c=>c.id)),pages=original.bundle.manifests.ja.pages;
+const stroke=(id,tool='pen')=>({id,type:'stroke',tool,color:tool==='correction'?'#ffffff':'#2363bc',opacity:1,baseWidth:10,geometryVersion:1,points:[{x:30,y:250,pressure:.5,width:10},{x:300,y:250,pressure:.5,width:10}]});
+const ink=stroke('ink'),white=stroke('white','correction'),locked={...stroke('locked'),locked:true};
+const shape={id:'shape',type:'shape',shape:'rect',rect:[30,200,270,100],width:2,color:'#20272b',fill:'#dd8899',opacity:1};
+const text=createWritingText({id:'text',text:'消しゴム',x:140,y:240,fontId:options.catalog[0].id,size:20,weight:400,color:'#224466',measure:()=>20});
+const path={baseWidth:24,points:[{x:160,y:180},{x:160,y:320}]};
+m.changePages('ja','fixtures',pages.slice(0,2).map(p=>({pageId:p.id,transform:()=>p===pages[0]?[ink,white,locked,shape,text]:[{...ink,id:'other'}]})));const before=m.envelope,head=m.head;
+m.changePages('ja','消しゴム',pages.slice(0,2).map(p=>({pageId:p.id,transform:all=>eraseWritingObjects(all,path,writingHitTest)})));const erased=m.envelope,eraseHead=m.head;
+assert.equal(m.revisions.length,before.history.revisions.length+1);
+const objects=m.objects('ja',pages[0].id);for(const o of objects){assert.equal(!!o.erasures,!o.locked);if(!o.locked){assert.ok(writingPointErased(o,{x:160,y:250}));assert.ok(!writingHitTest(o,{x:160,y:250},0));assert.ok(writingEraseMask(o).startsWith('url("data:image/svg+xml,'));}}
+assert.equal(objects.find(o=>o.id==='white').color,'#ffffff');assert.equal(objects.find(o=>o.id==='white').opacity,1);
+assert.ok(writingHitTest(objects[0],{x:80,y:250},0));assert.ok(!writingPointErased(ink,{x:160,y:250}));
+m.restore(head);assert.deepEqual(m.envelope.document,before.document);m.restore(eraseHead);assert.deepEqual(m.envelope,erased);
+const moved=moveWritingObject(objects[0],20,15);assert.ok(writingPointErased(moved,{x:180,y:265}));assert.ok(!writingPointErased(moved,{x:160,y:250}));
+assert.ok(writingPointErased(duplicateWritingObject(objects[0],10,10),{x:170,y:260}));
+const resized=editWritingPoint(objects.find(o=>o.id==='shape'),'e',{x:350,y:250});assert.ok(writingPointErased(resized,{x:30+(160-30)*320/270,y:250}));
+const nextText=structuredClone(objects.find(o=>o.type==='text'));resizeWritingErasures(nextText,nextText.rect,[nextText.rect[0]+20,nextText.rect[1],nextText.rect[2]*2,nextText.rect[3]]);assert.ok(nextText.erasures);
+const widened=eraseWritingObjects([objects[0]],{baseWidth:48,points:[{x:160,y:250}]},writingHitTest)[0];assert.ok(writingPointErased(widened,{x:180,y:250}),'larger eraser expands an existing hole');
+const stable=m.envelope;
+for(const masks of [Array.from({length:129},()=>({width:2,points:[[1,1]],transform:[1,1,0,0]})),[{width:2,points:Array.from({length:200001},()=>[1,1]),transform:[1,1,0,0]}]]){assert.throws(()=>m.change('ja',pages[0].id,'limit',all=>all.map(o=>o.id==='ink'?{...o,erasures:masks}:o)),/WRITING_LIMIT/);assert.deepEqual(m.envelope,stable);}
+for(const mask of [{width:0,points:[[1,1]],transform:[1,1,0,0]},{width:1,points:[],transform:[1,1,0,0]},{width:1,points:[[1,1]],transform:[0,1,0,0]}]){assert.throws(()=>m.change('ja',pages[0].id,'invalid',all=>all.map(o=>o.id==='ink'?{...o,erasures:[mask]}:o)));assert.deepEqual(m.envelope,stable);}
+const noHit=m.change('ja',pages[0].id,'empty',all=>eraseWritingObjects(all,{baseWidth:4,points:[{x:10,y:10}]},writingHitTest));assert.equal(noHit,false);
+m.change('ja',pages[0].id,'later',all=>[...all,stroke('later')]);assert.equal(m.objects('ja',pages[0].id).at(-1).erasures,undefined);m.restore(m.parent);
+const saved=await resaveDsfV3(original,{copyKind:'writing-editable',envelope:m.envelope});
+const offline={...options,getFont(){throw Error('NETWORK_FORBIDDEN');},getNotice(){throw Error('NETWORK_FORBIDDEN');}};
+const read=await loadDsfV3(saved.bytes,offline),resumed=createReaderWritingModel(read,options.catalog.map(c=>c.id));assert.deepEqual(read.envelope,m.envelope);
+resumed.restore(resumed.parent);assert.deepEqual(resumed.envelope.document,before.document);resumed.restore(eraseHead);assert.deepEqual(resumed.envelope,m.envelope);
+const shared=await resaveDsfV3(read,{copyKind:'writing-shared'}),sharedRead=await loadDsfV3(shared.bytes,offline);assert.deepEqual(sharedRead.envelope.document.pages,m.envelope.document.pages);
+for(const e of JSON.parse(new TextDecoder().decode(original.readBytes('base.json'))).entries)assert.deepEqual(read.readBytes(e.path),original.readBytes(e.path));
+await writeFile(new URL('erased-editable.dsfr',out),saved.bytes);await writeFile(new URL('erased-shared.dsfr',out),shared.bytes);
+await writeFile(new URL('verification.json',out),JSON.stringify({ok:true,partialErase:true,lockedPreserved:true,whiteoutUnchanged:true,futureInkUnaffected:true,spreadAtomicUndoRedo:true,moveResizeDuplicate:true,invalidRejectedAtomically:true,emptyGestureNoHistory:true,offlineEditableSharedRoundtrip:true,undoRedoAfterReload:true,originalBytesIdentical:true},null,2));
+console.log('Eraser: geometry, lock, whiteout, future ink, spread Undo/Redo, transforms, validation, offline ZIP roundtrip and base identity passed.');

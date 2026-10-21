@@ -1,3 +1,4 @@
+import {eraseWritingObjects,resizeWritingErasures} from '/js/reader-writing-eraser.js';
 import {createWritingProgress} from '/js/reader-writing-progress.js';
 import {writingExportName,mountWritingFileExport} from '/js/reader-writing-file-save.js';
 import {loadDsfV3,resaveDsfV3,writingFontText} from '/js/dsf-writing-package.js';
@@ -28,7 +29,7 @@ const t=source=>locale.t(source);
 const listenWindow=(name,fn)=>window.addEventListener(name,fn,{signal:lifetime.signal});
 let noticeTimer,hostView,lastHostLayout,lastChromeLayout,disposed=false,chromeContrast;
 let textPan={x:0,y:0};
-const toolNames = {select:'選択・移動',pen:'ボールペン',brush:'筆ペン',marker:'サインペン',highlighter:'蛍光マーカー',correction:'修正液',text:'文字',line:'線',arrow:'矢印',rect:'四角',ellipse:'楕円'};
+const toolNames = {select:'選択・移動',pen:'ボールペン',brush:'筆ペン',marker:'サインペン',highlighter:'蛍光マーカー',correction:'修正液',eraser:'消しゴム',text:'文字',line:'線',arrow:'矢印',rect:'四角',ellipse:'楕円'};
 const labels = {text:'文字',stroke:'筆跡',line:'線',shape:'図形'};
 let handle,model,baseBytes,language,pageIndex=0,context,busy=false,tool='pen',selected=null,gesture=null,textPlacement,textSerial=0;
 let selectionIds=new Set();
@@ -54,6 +55,12 @@ const strokePreviews=[0,1].map(column=>{const layer=document.createElement('div'
 const strokeFrames=writingFrameQueue(()=>paintStrokePreview());
 function clearStrokePreview(){strokeFrames.clear();for(const layer of strokePreviews)layer.replaceChildren();}
 function paintStrokePreview(){const g=gesture;if(g?.mode!=='draw'||g.object?.type!=='stroke')return;
+    if(g.object.tool==='eraser'){
+        const parts=g.cross?strokeParts(g.object):[{pageId:page().id,object:g.object}];
+        for(const part of parts){const index=context.manifest.pages.findIndex(p=>p.id===part.pageId),entry=pageCache.get(index);
+            renderWritingLayer(entry.layer,eraseWritingObjects(model.pageObjects(language,part.pageId),part.object,writingHitTest),{...families,...inputFamilies});}
+        return;
+    }
     if(g.raw)g.object.points=brushGeometry(g.raw,g.object.baseWidth,false,true);
     if(g.cross)for(const part of spreadStrokeParts(g.object,visiblePages,context.manifest.pages.map(p=>p.id),()=>g.object.id))
         renderWritingStrokePreview(strokePreviews[visiblePages.findIndex(i=>context.manifest.pages[i].id===part.pageId)],part.object);
@@ -219,7 +226,7 @@ function syncStyle(fromSelection=false){
     $('style-title').textContent=group?'複数の書き込みの設定':`${key==='geometry'?'線・図形':toolNames[key]}の設定`;
     $('color').value=config.color;$('width').value=penMillimeters(config.width);$('width-label').textContent=penWidthLabel(config.width);
     if(group&&!groupStyleFields.has('width')&&new Set(selectedObjects().filter(item=>item.type!=='text').map(item=>item.baseWidth??item.width)).size>1)$('width-label').textContent=t('混在');
-    $('pen-sizes').hidden=key!=='pen';$('width-control').hidden=key==='pen';$('palette').hidden=key==='correction';
+    $('pen-sizes').hidden=key!=='pen';$('width-control').hidden=key==='pen';$('palette').hidden=['correction','eraser'].includes(key);
     const textStyle=key==='text',shapeStyle=!group&&(o?.type==='shape'||['rect','ellipse'].includes(tool)),lineStyle=!group&&(o?.type==='line'||['line','arrow'].includes(tool));
     for(const id of ['font','size','weight','vertical'])$(id).closest('label').hidden=!textStyle;
     $('square').closest('label').hidden=!shapeStyle;$('snap').closest('label').hidden=!lineStyle;
@@ -228,7 +235,7 @@ function syncStyle(fromSelection=false){
     for(const entry of colors){if(entry.group&&paletteGroup!==entry.group){paletteGroup=entry.group;const title=document.createElement('span');title.className='palette-group';title.textContent=paletteGroup;$('palette').append(title);}
         const b=document.createElement('button');b.type='button';b.className='color-swatch';b.style.setProperty('--swatch',entry.color);b.title=entry.name;b.setAttribute('aria-label',entry.name);b.setAttribute('aria-pressed',entry.color===config.color&&(!group||groupStyleFields.has('color')||selectedObjects().every(item=>item.type==='text'?item.runs.every(run=>run.color===config.color):item.color===config.color)));
         b.onclick=()=>{config.color=entry.color;if(group)groupStyleFields.add('color');syncStyle();};$('palette').append(b);}
-    $('color-name').textContent=group&&!groupStyleFields.has('color')&&new Set(selectedObjects().flatMap(item=>item.type==='text'?item.runs.map(run=>run.color):[item.color])).size>1?'色は混在しています':key==='correction'?'不透明の白を重ねます。選択して削除・Undoできます。':`${colors.find(c=>c.color===config.color)?.name||config.color} / ${colors.length}色`;
+    $('color-name').textContent=group&&!groupStyleFields.has('color')&&new Set(selectedObjects().flatMap(item=>item.type==='text'?item.runs.map(run=>run.color):[item.color])).size>1?'色は混在しています':key==='eraser'?'書き込みだけを消します。元のページは変わりません。':key==='correction'?'不透明の白を重ねます。選択して削除・Undoできます。':`${colors.find(c=>c.color===config.color)?.name||config.color} / ${colors.length}色`;
     for(const b of $('pen-sizes').children)b.setAttribute('aria-pressed',Math.abs(penPixels(Number(b.dataset.mm))-config.width)<.01);
     for(const b of $('pen-tray').children){const c=settings[b.dataset.tool];b.style.setProperty('--ink',c.color);b.style.setProperty('--nib-scale',penTipScale(b.dataset.tool,c.width));const label=b.querySelector('.pen-width');if(label)label.textContent=penWidthLabel(c.width);b.title=`${toolNames[b.dataset.tool]} · ${penWidthLabel(c.width)} mm`;}
     if($('active-tool-label')){
@@ -249,7 +256,7 @@ function syncStyle(fromSelection=false){
 }
 function setReadingMode(value){if(!model||busy||model.locked&&!value)return;cancelGesture();readingMode=value;selectObjects();render();if(model)updatePanels();syncStyle();updateHint();}
 function updateHint(){
-    $('hint').textContent=readingMode?'閲覧モード：書き込みは表示したまま、描画を停止しています。':tool==='select'?'書き込みを押して選択。空いている場所からドラッグしてまとめて選択できます。':tool==='text'?'文字を置く位置をページ上でクリックしてください。':tool==='correction'?'白い修正液を重ねます。原本を消す操作ではありません。':tool==='brush'?'ゆっくり、速く、方向を変えて。入りと抜きのある筆跡を試してください。':'ペン先を選んでドラッグ。線は端点へスナップ、Ctrlで正方形・正円になります。';
+    $('hint').textContent=readingMode?'閲覧モード：書き込みは表示したまま、描画を停止しています。':tool==='select'?'書き込みを押して選択。空いている場所からドラッグしてまとめて選択できます。':tool==='text'?'文字を置く位置をページ上でクリックしてください。':tool==='eraser'?'なぞった部分の書き込みを消して、元のページを表示します。ロックした書き込みは残ります。':tool==='correction'?'白い修正液を重ねます。原本を消す操作ではありません。':tool==='brush'?'ゆっくり、速く、方向を変えて。入りと抜きのある筆跡を試してください。':'ペン先を選んでドラッグ。線は端点へスナップ、Ctrlで正方形・正円になります。';
     $('hint').textContent+=' ページめくりは前後ボタン・矢印キー、書き込み中は2本指、閲覧中は1本指スワイプ。';
 }
 const say = (message,error=false) => {$('status').textContent=message;$('status').dataset.error=error;clearTimeout(noticeTimer);$('status').dataset.notice=true;noticeTimer=setTimeout(()=>$('status').dataset.notice=false,3500);};
@@ -605,6 +612,12 @@ $('input').onpointerup=e=>{const holding=!!objectHoldStart;clearObjectHold();if(
     if(g.mode==='marquee'){textBoxPreview.hidden=true;selectObjects(writingMarqueeObjects(objects(),g.box).map(o=>o.id));render();updatePanels();syncStyle(true);if(selected)showObjectActions(e.clientX,e.clientY);return;}
     if(g.mode==='group-move'){if(g.moved){const replacements=new Map(g.objects.map(o=>[o.id,o]));mutate('書き込みを移動',all=>all.map(o=>replacements.get(o.id)||o));}else{render();updatePanels();}return;}
     if(g.mode==='text-box'){textBoxPreview.hidden=true;textDialog(g.start,null,g.box[2]>=24&&g.box[3]>=24?g.box:null);return;}
+    if(g.mode==='draw'&&g.object.tool==='eraser'){
+        selectObjects();try{const parts=g.cross?strokeParts(g.object):[{pageId:page().id,object:g.object}];
+            const didChange=model.changePages(language,'消しゴム',parts.map(part=>({pageId:part.pageId,transform:all=>eraseWritingObjects(all,part.object,writingHitTest)})));
+            if(didChange)changed('書き込みを消しました。');else {render();updatePanels();}
+        }catch(error){say(explain(error),true);render();}return;
+    }
     selectObjects([g.object.id]);
     snapTarget=null;if(g.raw)g.object.points=brushGeometry(g.raw,g.object.baseWidth,true,true);
     if(g.cross){try{const parts=strokeParts(g.object);model.changePages(language,`${toolNames[tool]}を追加`,parts.map(p=>({pageId:p.pageId,transform:all=>[...all,p.object]})));selectObjects();changed('見開きへの書き込みを追加しました。');}catch(error){say(explain(error),true);render();}return;}
@@ -652,6 +665,7 @@ async function commitText(){
         const canvas=document.createElement('canvas'),ctx=canvas.getContext('2d');ctx.font=`${weight} ${size}px "${inputFamilies[fontId]}"`;
         const old=textPlacement.existing,o=createWritingText({id:old?.id,text,x:textPlacement.x,y:textPlacement.y,fontId,size,weight,color:$('text-color').value,vertical:$('text-vertical').checked,measure:s=>ctx.measureText(s).width,box:host?textPlacement.box:undefined});
         o.boxStyle=textFrame();
+        if(old?.erasures){o.erasures=structuredClone(old.erasures);resizeWritingErasures(o,old.rect,o.rect);}
         model.change(textPlacement.language||language,textPlacement.pageId||page().id,old?'文字を編集':'文字を追加',all=>old?all.map(item=>item.id===old.id?o:item):[...all,o]);
         for(const id of ['font','size','weight','color'])$(id).value=$(`text-${id}`).value;settings.text.color=$('text-color').value;$('vertical').checked=$('text-vertical').checked;
         settings.text.boxStyle=structuredClone(o.boxStyle);

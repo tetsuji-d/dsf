@@ -40,6 +40,4 @@ body.reader-writing-active.reader-writing-text-editing #viewer-reader-controls{v
  body.reader-writing-active #viewer-reader-controls button{flex-shrink:0}
 }
 
-@media(min-width:900px){
- body.reader-writing-active #viewer-reader-controls{left:auto;right:max(8px,env(safe-area-inset-right))}
-}
+/* Desktop Writing uses the same page-relative controls position as Reader. */

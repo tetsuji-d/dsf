@@ -26,6 +26,10 @@ export function syncStyleChoices(root,config){
 /** The inspector uses the same renderer as the page and layer thumbnails. */
 export function renderStyleSample(container,{key,tool,object,config,textSize=20}){
     container.dataset.kind=key;
+    if(key==='eraser'){
+        const radius=Math.max(2,Math.min(40,config.width/2));
+        container.innerHTML='<svg viewBox="0 0 360 60" aria-hidden="true"><path d="M25 30H'+(180-radius)+'M'+(180+radius)+' 30H335" fill="none" stroke="#2363bc" stroke-width="8"/><circle cx="180" cy="30" r="'+radius+'" fill="none" stroke="#687982" stroke-dasharray="3 3"/></svg>';return;
+    }
     let sample;
     if(key==='geometry'){
         const shape=object?.type==='shape'?object.shape:['rect','ellipse'].includes(tool)?tool:null;

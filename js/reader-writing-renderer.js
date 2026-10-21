@@ -1,3 +1,4 @@
+import {writingEraseMask} from './reader-writing-eraser.js';
 import {writingBounds} from './reader-writing-model.js';
 import {arrowHeadGeometry,arrowShaftGeometry,lineStrokeAttributes} from './reader-writing-format.js';
 import {writingControlPoints,strokeOutline,highlighterPolygons,brushInkPaths,naturalBrushInkPaths} from './reader-writing-tools.js';
@@ -34,6 +35,7 @@ export function renderWritingLayer(layer, objects, families, selected) {
         const item = reusable?previous.item:document.createElement('div'); item.className = 'rw-object'; item.dataset.objectId = o.id;
         item.style.visibility='';
         if(!reusable){
+        const mask=writingEraseMask(o);if(mask)Object.assign(item.style,{maskImage:mask,webkitMaskImage:mask,maskSize:'100% 100%',maskRepeat:'no-repeat'});
         if (o.type === 'text') {
             if(o.boxStyle){const [x,y,width,height]=o.rect,frame=svg('svg',{viewBox:'0 0 360 640','aria-hidden':'true'});
                 frame.append(svg('rect',{x,y,width,height,fill:o.boxStyle.fill||'none',stroke:o.boxStyle.stroke||'none','stroke-width':o.boxStyle.width}));item.append(frame);}

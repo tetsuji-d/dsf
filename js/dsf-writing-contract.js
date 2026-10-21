@@ -74,8 +74,13 @@ export function validateWritingPages(pages, pageKeys, fonts) {
             id(o.id); ensure(!seenObjects.has(o.id), 'WRITING_DUPLICATE_OBJECT'); seenObjects.add(o.id);
             ensure(seenObjects.size <= WRITING_LIMITS.objects, 'WRITING_LIMIT');
             if(Object.hasOwn(o,'locked'))ensure(typeof o.locked==='boolean','WRITING_OBJECT_LOCK');
+            if(Object.hasOwn(o,'erasures')){
+                list(o.erasures,128);ensure(o.erasures.length>0,'WRITING_ERASURES');
+                for(const mask of o.erasures){exact(mask,['width','points','transform']);finite(mask.width,.01,360);list(mask.points,WRITING_LIMITS.points);ensure(mask.points.length>0,'WRITING_ERASURES');mask.points.forEach(point);points+=mask.points.length;
+                    list(mask.transform,4);ensure(mask.transform.length===4,'WRITING_ERASURES');finite(mask.transform[0],.000001,1000000);finite(mask.transform[1],.000001,1000000);finite(mask.transform[2],-1000000000,1000000000);finite(mask.transform[3],-1000000000,1000000000);}
+            }
             if (o.type === 'text') {
-                exact(o, [...(Object.hasOwn(o,'locked')?['locked']:[]),...(Object.hasOwn(o,'boxStyle')?['boxStyle']:[]),'id', 'type', 'text', 'rect', 'writingMode', 'align', 'runs', 'layout']); rect(o.rect);
+                exact(o, [...(Object.hasOwn(o,'erasures')?['erasures']:[]),...(Object.hasOwn(o,'locked')?['locked']:[]),...(Object.hasOwn(o,'boxStyle')?['boxStyle']:[]),'id', 'type', 'text', 'rect', 'writingMode', 'align', 'runs', 'layout']); rect(o.rect);
                 if(Object.hasOwn(o,'boxStyle')){exact(o.boxStyle,['stroke','fill','width']);if(o.boxStyle.stroke!==null)color(o.boxStyle.stroke);if(o.boxStyle.fill!==null)color(o.boxStyle.fill);finite(o.boxStyle.width,.01,360);}
                 ensure(typeof o.text === 'string' && o.text.isWellFormed(), 'WRITING_TEXT'); textUnits += o.text.length;
                 ensure(['horizontal-tb', 'vertical-rl'].includes(o.writingMode) && ['start', 'center', 'end'].includes(o.align), 'WRITING_TEXT_STYLE');
@@ -99,7 +104,7 @@ export function validateWritingPages(pages, pageKeys, fonts) {
                 ensure(layoutEnd === o.text.length, 'WRITING_LAYOUT');
             } else if (o.type === 'stroke') {
                 const inkBrush=o.tool==='brush'&&[2,3,4].includes(o.geometryVersion);
-                exact(o, [...(Object.hasOwn(o,'locked')?['locked']:[]),'id', 'type', 'tool', 'color', 'opacity', 'baseWidth', 'geometryVersion', 'points', ...(inkBrush?['inkAmount']:[])]);
+                exact(o, [...(Object.hasOwn(o,'erasures')?['erasures']:[]),...(Object.hasOwn(o,'locked')?['locked']:[]),'id', 'type', 'tool', 'color', 'opacity', 'baseWidth', 'geometryVersion', 'points', ...(inkBrush?['inkAmount']:[])]);
                 ensure(['pen', 'brush', 'marker', 'highlighter', 'correction'].includes(o.tool) && (o.geometryVersion === 1||inkBrush), 'WRITING_STROKE');
                 if(inkBrush)finite(o.inkAmount,0,1);
                 if(o.tool==='correction')ensure(typeof o.color==='string'&&o.color.toLowerCase()==='#ffffff'&&o.opacity===1,'WRITING_CORRECTION');
@@ -107,11 +112,11 @@ export function validateWritingPages(pages, pageKeys, fonts) {
                 for (const p of o.points) { exact(p, ['x', 'y', 'pressure', 'width',...(o.geometryVersion===4?['dryness']:[])]); point([p.x, p.y]); finite(p.pressure, 0, 1); finite(p.width, 0.01, 360);if(o.geometryVersion===4)finite(p.dryness,0,1); }
                 points += o.points.length;
             } else if (o.type === 'line') {
-                exact(o, [...(Object.hasOwn(o,'locked')?['locked']:[]),...(Object.hasOwn(o,'arrowHead')?['arrowHead']:[]),...(Object.hasOwn(o,'lineStyle')?['lineStyle']:[]),'id', 'type', 'from', 'to', 'color', 'width', 'arrow']); point(o.from); point(o.to); color(o.color); finite(o.width, 0.01, 360);
+                exact(o, [...(Object.hasOwn(o,'erasures')?['erasures']:[]),...(Object.hasOwn(o,'locked')?['locked']:[]),...(Object.hasOwn(o,'arrowHead')?['arrowHead']:[]),...(Object.hasOwn(o,'lineStyle')?['lineStyle']:[]),'id', 'type', 'from', 'to', 'color', 'width', 'arrow']); point(o.from); point(o.to); color(o.color); finite(o.width, 0.01, 360);
                 ensure(['none', 'start', 'end', 'both'].includes(o.arrow), 'WRITING_ARROW');
                 if(Object.hasOwn(o,'arrowHead'))ensure(['open','triangle','circle','diamond'].includes(o.arrowHead),'WRITING_ARROW_HEAD');
             } else if (o.type === 'shape') {
-                exact(o, [...(Object.hasOwn(o,'locked')?['locked']:[]),...(Object.hasOwn(o,'lineStyle')?['lineStyle']:[]),'id', 'type', 'shape', 'rect', 'color', 'fill', 'width', 'opacity']); rect(o.rect); color(o.color);
+                exact(o, [...(Object.hasOwn(o,'erasures')?['erasures']:[]),...(Object.hasOwn(o,'locked')?['locked']:[]),...(Object.hasOwn(o,'lineStyle')?['lineStyle']:[]),'id', 'type', 'shape', 'rect', 'color', 'fill', 'width', 'opacity']); rect(o.rect); color(o.color);
                 ensure(['rect', 'ellipse'].includes(o.shape), 'WRITING_SHAPE'); if (o.fill !== null) color(o.fill);
                 finite(o.width, 0.01, 360); finite(o.opacity, 0, 1);
             } else ensure(false, 'WRITING_OBJECT_TYPE');

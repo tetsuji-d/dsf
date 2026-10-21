@@ -2,6 +2,9 @@ import {getPlatformLanguage,subscribePlatformLanguage} from './ui-language.js';
 
 // UI copy only. Manuscripts, object text, filenames and saved operation names are never rewritten.
 const EN={
+    '消しゴム':'Eraser','消しゴムの設定':'Eraser settings','書き込みを消しました。':'Writing erased.',
+    '書き込みだけを消します。元のページは変わりません。':'Erases only Writing. The original page stays unchanged.',
+    'なぞった部分の書き込みを消して、元のページを表示します。ロックした書き込みは残ります。':'Rub over Writing to reveal the original page. Locked objects are preserved.',
     'Reader／Writingをオフライン用に準備':'Prepare Reader / Writing for offline use',
     '準備状態を確認しています…':'Checking offline resources…',
     '準備済み。通信なしでReaderを開き、書き込み・保存できます。':'Ready. Open Reader, write and save without internet.',

@@ -1,3 +1,4 @@
+import {transformWritingErasures} from './reader-writing-eraser.js';
 import {makeFormat, validateWritingEnvelope, validateWritingPages, canonicalBytes, WRITING_LIMITS} from './dsf-writing-contract.js';
 import {WRITING_HISTORY_OPERATIONS,writingPageKey,writingPageDelta,applyWritingDelta,upgradeWritingHistory} from './reader-writing-history.js';
 import {arrowHeadGeometry} from './reader-writing-format.js';
@@ -37,7 +38,7 @@ export function createReaderWritingModel(handle, fontIds, draft) {
     let revisions=envelope.history?.revisions||[],cursor=revisions.findIndex(r=>r.id===envelope.document.headRevisionId),serial=0;
     const dirty=new Set(pageMap.keys()),stats=new Map(),objectOwners=new Map(),versions=new Map(),empty=Object.freeze([]);
     const pageStats=p=>({bytes:canonicalBytes(p).length,objects:p.objects.length,
-        points:p.objects.reduce((n,o)=>n+(o.points?.length||0),0),textUnits:p.objects.reduce((n,o)=>n+(o.text?.length||0),0)});
+        points:p.objects.reduce((n,o)=>n+(o.points?.length||0)+(o.erasures||[]).reduce((sum,m)=>sum+m.points.length,0),0),textUnits:p.objects.reduce((n,o)=>n+(o.text?.length||0),0)});
     for(const [key,p] of pageMap){stats.set(key,pageStats(p));for(const o of p.objects)objectOwners.set(o.id,key);}
     const revisionBytes=new WeakMap();
     const bytes=r=>{if(!revisionBytes.has(r))revisionBytes.set(r,canonicalBytes(r).length);return revisionBytes.get(r);};
@@ -109,7 +110,7 @@ export function createReaderWritingModel(handle, fontIds, draft) {
 }
 
 export function moveWritingObject(object, dx, dy) {
-    const o = clone(object);
+    const o = transformWritingErasures(clone(object),1,1,dx,dy);
     if (o.type === 'stroke') o.points.forEach(p => {p.x += dx; p.y += dy;});
     else if (o.type === 'line') {o.from = [o.from[0] + dx, o.from[1] + dy]; o.to = [o.to[0] + dx, o.to[1] + dy];}
     else {o.rect[0] += dx; o.rect[1] += dy; if (o.type === 'text') o.layout.forEach(p => {p.x += dx; p.y += dy;});}

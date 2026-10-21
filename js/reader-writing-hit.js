@@ -1,3 +1,4 @@
+import {writingPointErased} from './reader-writing-eraser.js';
 import {highlighterPolygons} from './reader-writing-tools.js';
 import {arrowHeadGeometry,arrowShaftGeometry} from './reader-writing-format.js';
 
@@ -11,7 +12,8 @@ const polygonHit=(p,points,tolerance)=>{
     }return inside;
 };
 /** Select visible ink rather than the empty interior of an object's bounding rectangle. */
-export function writingHitTest(o,p,tolerance=6){
+export function writingHitTest(o,p,tolerance=6,ignoreErasure=false){
+    if(!ignoreErasure&&writingPointErased(o,p))return false;
     if(o.type==='text'){const [x,y,w,h]=o.rect;return p.x>=x-tolerance&&p.x<=x+w+tolerance&&p.y>=y-tolerance&&p.y<=y+h+tolerance;}
     if(o.type==='stroke'){
         if(o.tool==='highlighter')return highlighterPolygons(o.points).some(poly=>polygonHit(p,poly,tolerance));

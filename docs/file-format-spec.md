@@ -483,3 +483,13 @@ Writing確認版のlineには任意の `arrowHead: 'open' | 'triangle' | 'circle
 Writing編集用の履歴を本全体で直近30操作に限定する。formatVersion 3とdocumentのページ配列は維持し、`writing/history.json`だけschemaVersion 2とする。revisionは`id,parentId,operation,createdAt,changes`、changeは`language,pageId,beforeOrder,afterOrder,objects`、object差分は`id,before,after`を持つ。nullは不在を表す。基準1件 + 最大30操作の線形配列で、先頭のparentはnull、changesは空。documentの現在状態とheadをチェックポイントとして双方向に再構築する。全到達状態の整合性を読込・書出し時に検証する。詳細は`dsf-writing-spec.md` §8。
 
 元の本のbytesを変えず、古い履歴を削除しても現在の筆跡を保持する。保持中のUndo／Redoに必要な削除済み文字もfont subsetへ収録する。共有用は現在の書き込みだけから再構築し、履歴を収録しない。
+
+### Writing 消しゴム（2026-10-21）
+
+既存の修正液（correction、白、不透明）は維持する。消しゴムは原本を変更せず、操作時点に存在するロックされていない書き込みの、なぞった範囲だけを透明にする。後から描いた書き込みには影響しない。
+
+Writing schemaVersion 1 の各 object（text / stroke / line / shape）に任意の `erasures` 配列を追加する。各要素は `{width, points:[[x,y],...], transform:[sx,sy,tx,ty]}`。width は円形消しゴムの直径、points はページ座標系の中心軌跡。round cap / join で掃引し、transform による拡縮・平行移動後の領域をその object のアルファから除く。ページ全体・後続 object への合成操作ではない。
+
+最大128軌跡/object、非空points、width 0.01〜360、既存の座標範囲、正のscale 0.000001〜1000000、translation ±1000000000。全マスクの点数も既存の20万点上限に含める。無効な入力や上限超過時は変更全体を拒否する。見開きの1ジェスチャーは本全体の1履歴操作として保存しUndo/Redoする。移動・複製・拡縮時は消去範囲を追従させる。
+
+編集用DSFRには消去範囲と履歴、共有用DSFRには現在の消去範囲を保存する。原本ZIPエントリーは変更しない。これは機密情報の墨消し機能ではなく、書き込みデータはマスク下にも残る。この任意フィールドに未対応の旧Readerは厳密検証で拒否するため、消しゴムを使用したファイルには対応Readerが必要。
