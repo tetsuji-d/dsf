@@ -1,11 +1,12 @@
 import assert from 'node:assert/strict';
+import {PEN_TOOLS} from '../../js/reader-writing-tools.js';
 import {writingChromeLayout,writingInspectorPlacement,writingTextPan} from '../../js/reader-writing-layout.js';
 import {writingHitTest} from '../../js/reader-writing-hit.js';
 
 const fixtures=[[320,568],[390,844],[768,1024],[820,1180],[812,390],[844,390],[900,700],[1440,900],[1920,1080]];
 for(const [width,height] of fixtures){
  for(const safe of [{left:0,right:0,top:0,bottom:0},{left:44,right:44,top:47,bottom:34}]){
-  const a=writingChromeLayout({width,height,safe});
+  const a=writingChromeLayout({width,height,safe,penCount:PEN_TOOLS.length});
   assert.equal(a.mode,width<900?'scroll':'full');assert.ok(a.size>=44);
   const r=a.rail;assert.ok(r.left>=safe.left&&r.top>=safe.top&&r.left+r.width<=width-safe.right&&r.top+r.height<=height-safe.bottom);
   assert.equal(a.tools.columns,6);assert.ok(a.history.left+a.history.width<a.tools.left);assert.ok(a.tools.left+a.tools.width<a.pens.left);
@@ -60,3 +61,15 @@ assert.equal(writingHitTest(stroke,{x:160,y:137}),true);assert.equal(writingHitT
 const marker={...stroke,tool:'highlighter',points:[{x:30,y:120,width:20},{x:260,y:120,width:20}]};
 assert.equal(writingHitTest(marker,{x:100,y:129},0),true);assert.equal(writingHitTest(marker,{x:20,y:120},0),false);
 console.log('9 bottom-dock viewport layouts and safe insets: all desktop tools, mobile scroll bounds, separate Reader row and equal-height tool frames, aligned controls and inspector bounds passed; hollow/filled shapes, diagonal ink and marker hit tests passed.');
+
+// Every tool, including the final eraser, stays inside its tray and can be scrolled fully into view.
+for(const width of [320,390,768,900,1280,1920])for(const penCount of [5,6,8]){
+ const l=writingChromeLayout({width,height:900,penCount});
+ const lastRight=l.pens.left+(penCount-1)*(l.size+l.gap)+l.size;
+ assert.equal(lastRight,l.pens.left+l.pens.width,'Tray contains every pen hit target');
+ assert.ok(lastRight+4<=l.trackWidth,'Glass edge and shadow have room');
+ const endScroll=Math.max(0,l.trackWidth-l.rail.width);
+ assert.ok(lastRight-endScroll<=l.rail.width,'Last pen is fully reachable at the scroll end');
+ if(width>=1280)assert.equal(endScroll,0,'Desktop exposes all current tools without clipping');
+}
+console.log('Dynamic pen counts: tray containment, end-scroll reachability and desktop visibility passed.');

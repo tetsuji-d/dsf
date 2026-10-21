@@ -809,8 +809,9 @@ function layoutChrome(paper){
     const controls=[...document.querySelectorAll('#viewer-reader-controls,.viewer-page-segments')].map(e=>e.getBoundingClientRect()).filter(r=>r.width&&r.height).map(r=>({left:r.left,top:r.top,right:r.right,bottom:r.bottom,width:r.width,height:r.height}));
     const inset=getComputedStyle($('chrome-safe')),safe={left:parseFloat(inset.paddingLeft)||0,right:parseFloat(inset.paddingRight)||0,top:parseFloat(inset.paddingTop)||0,bottom:parseFloat(inset.paddingBottom)||0};
     const hr=document.querySelector('#viewer-header .ui-controls')?.getBoundingClientRect(),header=hr?{left:hr.left,top:hr.top,right:hr.right,bottom:hr.bottom,width:hr.width,height:hr.height}:null;
-    const key=JSON.stringify([innerWidth,innerHeight,paper,controls,header,safe]);if(key===lastChromeLayout)return;lastChromeLayout=key;
-    const layout=writingChromeLayout({width:innerWidth,height:innerHeight,paper,controls,header,safe});body.dataset.toolsLayout=layout.mode;body.dataset.short=layout.short;
+    const penCount=$('pen-tray').children.length;
+    const key=JSON.stringify([innerWidth,innerHeight,paper,controls,header,safe,penCount]);if(key===lastChromeLayout)return;lastChromeLayout=key;
+    const layout=writingChromeLayout({width:innerWidth,height:innerHeight,paper,controls,header,safe,penCount});body.dataset.toolsLayout=layout.mode;body.dataset.short=layout.short;
     const rect=(el,r)=>Object.assign(el.style,{left:`${r.left}px`,top:`${r.top}px`,width:r.width?`${r.width}px`:'',height:r.height?`${r.height}px`:''});
     rect($('pen-tray'),layout.pens);rect($('tool-field'),layout.tools);rect($('native-history'),layout.history);
     rect($('tool-scroll'),layout.rail);
