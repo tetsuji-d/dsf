@@ -50,6 +50,18 @@ Firebase Hosting の URL は通常確認先にしない。必要なときだけ 
 
 ---
 
+## 開発・ビルド用Node.js（2026-10-22）
+
+- Node.js **24.22.1以上・25未満**を使用する。2026-10-21のセキュリティ修正を最低基準とする。
+- `.nvmrc`は基準版24.22.1、`package.json`の`engines.node`は同じ24系の後続修正版も許可する。
+- `npm run check:node`で実際の版と実行ファイルを確認する。`dev`、`dev:local`、`build`、`build:staging`、`preview`の開始前にも確認し、古い版では停止する。
+- Windowsの通常インストールは公式Node.js 24系を更新する。`.nvmrc`だけではインストールや切替は行われない。更新後はターミナル・開発サーバーを再起動する。
+- 依存パッケージは既存のlockfileを維持する。Node更新だけを理由に一括更新しない。
+- 本番はローカルビルド済み`dist`をCloudflare Pagesへアップロードする。FunctionsはWorkers runtimeであり、ここに記載したNode版は本番APIの実行版ではない。
+- Codex等に同梱されたNode.jsは別管理。DSFのNodeを更新しても同梱版は更新されない。
+
+---
+
 ## ビルドごとの接続先
 
 ### `npm run dev`
