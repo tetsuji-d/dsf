@@ -5,7 +5,7 @@ import vm from 'node:vm';
 const hash=b=>createHash('sha256').update(b).digest('hex');
 const origin='https://reader.example',build={id:'20261019000000000',schema:1},stores=new Map(),handlers={};
 const key=k=>new URL(typeof k==='string'?k:k.url||k.href,origin).href;
-let offline=false,failure='',quota=false;
+let offline=false,failure='',quota=false,staleHttpCache=false;
 const caches={keys:async()=>[...stores.keys()],delete:async n=>stores.delete(n),open:async n=>{
  if(!stores.has(n))stores.set(n,new Map());const store=stores.get(n);
  return {match:async k=>store.get(key(k))?.clone(),keys:async()=>[...store.keys()].map(url=>({url})),put:async(k,v)=>{
@@ -18,9 +18,10 @@ const source=(await readFile(new URL('../../js/studio-service-worker.js',import.
  .replace('__STUDIO_FULL_OFFLINE__','false').replace('__STUDIO_VERSION__','"test"').replace('__STUDIO_BUILD_INFO__',JSON.stringify(build))
  .replace('__STUDIO_PRECACHE__','["/viewer.html","/assets/reader.js"]')
  .replace('/* READER_WRITING_WORKER */',(await readFile(new URL('../../js/reader-writing-offline-worker.js',import.meta.url),'utf8')).replace('__READER_WRITING_ASSETS__',JSON.stringify(writing)));
-const fetch=async input=>{
+const fetch=async (input,options={})=>{
  if(offline)throw Error('OFFLINE');
  const url=new URL(typeof input==='string'?input:input.url||input.href,origin),body=resources.get(url.pathname)??'sdk module';
+ if(staleHttpCache&&url.pathname==='/writing/app.mjs'&&options.cache!=='no-store')return new Response('stale browser code');
  if(failure==='network'&&url.pathname==='/writing/app.mjs')throw Error('NETWORK');
  return new Response(failure==='integrity'&&url.pathname==='/writing/app.mjs'?'wrong version':body,{headers:{'Content-Type':url.pathname.endsWith('.html')?'text/html':'application/javascript'}});
 };
@@ -33,6 +34,12 @@ assert.equal((await message('READER_WRITING_STATUS')).ready,false);
 assert.equal((await message('READER_WRITING_PREPARE',{buildId:'wrong'})).ok,false);
 assert.equal((await message('READER_WRITING_PREPARE',{buildId:build.id})).ready,true);
 assert.equal((await message('READER_WRITING_STATUS')).ready,true);
+// A long-lived browser HTTP cache must not mix old tools with the new Reader shell.
+staleHttpCache=true;resources.set('/writing/app.mjs','new writing code');
+assert.equal(await (await request('/writing/app.mjs')).text(),'new writing code','online requests bypass stale HTTP assets');
+offline=true;
+assert.equal(await (await request('/writing/app.mjs')).text(),'writing code','offline retains the last verified snapshot');
+offline=false;staleHttpCache=false;resources.set('/writing/app.mjs','writing code');
 const control=await caches.open('dsf-reader-writing-control-v1'),marker='/__reader_writing_snapshot__',first=await (await control.match(marker)).text();
 for(const mode of ['network','integrity','quota']){
  failure=mode;quota=mode==='quota';
