@@ -2,7 +2,16 @@
   "name": "dsf-studio-pro",
   "version": "1.0.0",
   "type": "module",
+  "engines": {
+    "node": ">=24.22.1 <25"
+  },
   "scripts": {
+    "check:node": "node scripts/check-node-version.mjs",
+    "predev": "npm run check:node",
+    "predev:local": "npm run check:node",
+    "prebuild": "npm run check:node",
+    "prebuild:staging": "npm run check:node",
+    "prepreview": "npm run check:node",
     "verify:page-navigation": "node scripts/verify-page-link-draft.js && node scripts/verify-page-navigation.js",
     "dev": "vite",
     "dev:local": "vite",
