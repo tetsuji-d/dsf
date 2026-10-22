@@ -11,6 +11,7 @@ const iconPaths = {
     book:'<path d="M2 6q5-4 10 1 5-5 10-1v13q-5-4-10 1-5-5-10-1zM12 7v13"/>',
     open:'<path d="M3 5q5-2 9 1 4-3 9-1v14q-5-2-9 1-4-3-9-1zM12 6v14"/>',
     left:'<path d="m15.5 5-7 7 7 7"/>',
+    search:'<circle cx="10" cy="10" r="6"/><path d="m15 15 6 6"/>',
     right:'<path d="m8.5 5 7 7-7 7"/>',
 };
 export function setViewerReaderIcon(button, icon, label) {
@@ -66,18 +67,17 @@ export function initializeViewerReaderChrome({getSnapshot, onLayoutChange, befor
     const labels = document.createElement('div'); labels.id = 'viewer-page-furniture';
     const rail = document.createElement('nav'); rail.id = 'viewer-reader-controls'; rail.setAttribute('aria-label','本の表示とページ操作');
     const pose = document.createElement('div'); pose.id = 'viewer-book-pose'; pose.hidden = true;
-    const up = document.createElement('button'), down = document.createElement('button');
-    for (const [button, direction] of [[up,'up'],[down,'down']]) {
-        button.type='button';button.dataset.bookDirection=direction;
-        button.setAttribute('aria-keyshortcuts',direction==='up'?'ArrowUp':'ArrowDown');
-        button.onclick=()=>step(direction);
-    }
+    const viewButton=document.createElement('button'),searchButton=document.createElement('button');
+    viewButton.type=searchButton.type='button';viewButton.id='viewer-view-menu';searchButton.id='viewer-search-btn';
+    setViewerReaderIcon(searchButton,'search','全文検索');
+    searchButton.onclick=()=>document.dispatchEvent(new Event('reader-search-open'));
+    viewButton.onclick=()=>{settings.open=!settings.open;};
     const info=document.getElementById('viewer-info-btn');setViewerReaderIcon(info,'info','リード情報');
     const writing=document.getElementById('viewer-writing-btn');if(writing)setViewerReaderIcon(writing,'writing','書き込み / Writing');
-    rail.append(info, ...(writing?[writing]:[]), up, down, document.getElementById('viewer-nav-left'), document.getElementById('viewer-nav-right'));
+    rail.append(info, ...(writing?[writing]:[]), viewButton, searchButton, document.getElementById('viewer-nav-left'), document.getElementById('viewer-nav-right'));
     rail.hidden = true;
     document.body.append(labels, rail, pose);
-    const settings = document.createElement('details'); settings.id = 'viewer-page-settings';
+    const settings = document.createElement('dialog'); settings.id = 'viewer-page-settings';settings.setAttribute('aria-label','ページの表示設定');
     settings.innerHTML = `<summary title="ページの表示設定">表示</summary><div class="viewer-page-settings-panel">
         <strong>ページの表示</strong><p>設定はこの端末に保存されます。</p>
         <label><input type="checkbox" name="number"> ページ番号</label>
@@ -93,13 +93,20 @@ export function initializeViewerReaderChrome({getSnapshot, onLayoutChange, befor
     while(walker.nextNode()){const node=walker.currentNode;if(node.textContent.trim())textNodes.push([node,node.textContent]);}
     document.querySelector('#viewer-header .ui-controls').prepend(settings);
     const panel=settings.querySelector('.viewer-page-settings-panel');
+    const poseChoices=document.createElement('div');poseChoices.className='reader-pose-choices';panel.prepend(poseChoices);
+    for(const target of ['reading','book','peek','edge','spine']){
+        const b=document.createElement('button');b.type='button';b.dataset.pose=target;
+        b.onclick=()=>{changeTo(target);settings.open=false;};poseChoices.append(b);
+    }
+    settings.querySelector('summary').hidden=true;
+    viewButton.setAttribute('aria-controls','viewer-page-settings');viewButton.setAttribute('aria-expanded','false');
     const spread=document.getElementById('viewer-spread-btn'),guides=document.getElementById('viewer-reading-guide');
     const layoutRow=document.createElement('div');layoutRow.className='reader-layout-setting';
     const caption=document.createElement('strong');caption.textContent='ページの並べ方';layoutRow.append(caption,spread);panel.prepend(layoutRow);
     const guideSummary=guides.querySelector('summary');guideSummary.textContent='読書補助';guideSummary.className='';panel.insertBefore(guides,panel.querySelector('.reader-settings-reset'));
     function refreshLabels() {
         for(const [node,original] of textNodes)node.textContent=original.replace(original.trim(),readerText(original.trim()));
-        settings.querySelector('summary').title=readerText('ページの表示設定');
+        settings.querySelector('summary').title=readerText('ページの表示設定');settings.setAttribute('aria-label',readerText('ページの表示設定'));
         caption.textContent=readerText('ページの並べ方');guideSummary.textContent=readerText('読書補助');
         rail.setAttribute('aria-label',readerText('本の表示とページ操作'));
         info.setAttribute('aria-label',readerText('リード情報'));syncControls();
@@ -120,26 +127,19 @@ export function initializeViewerReaderChrome({getSnapshot, onLayoutChange, befor
     });
     settings.querySelector('.reader-settings-reset').onclick = () => {prefs = {...defaults}; syncInputs(); save();};
     settings.querySelector('.reader-settings-close').onclick = () => {settings.open = false;};
-    settings.addEventListener('toggle', () => {if(settings.open) window.toggleUi(true); onSettingsChange?.(settings.open);});
-    settings.addEventListener('keydown', e => {if(e.key==='Escape') {settings.open=false; settings.querySelector('summary').focus();}});
-    document.addEventListener('pointerdown', e => {if(!settings.contains(e.target)) settings.open = false;});
+    new MutationObserver(()=>{viewButton.setAttribute('aria-expanded',String(settings.open));if(settings.open)window.toggleUi(true);onSettingsChange?.(settings.open);}).observe(settings,{attributes:true,attributeFilter:['open']});
+    settings.addEventListener('keydown', e => {if(e.key==='Escape') {settings.open=false; viewButton.focus();}});
+    document.addEventListener('pointerdown', e => {if(!settings.contains(e.target)&&!viewButton.contains(e.target)) settings.open = false;});
     document.addEventListener('viewer-chrome-change', () => {if(!document.body.classList.contains('viewer-ui-visible')) settings.open=false;});
     const states=()=>canReadBook()?['spine','edge','peek','book','reading']:['spine','edge','peek','reading'];
     const viewLabels={spine:'背表紙表示',edge:'小口表示',peek:'覗き見表示',book:'ブック表示',reading:'通常表示'};
     function state(){return transition?.from || (mode==='edge'&&phase==='peek'?(getPeek()?.reading===1?'book':'peek'):mode||'reading');}
     function syncControls(){
-        const current=state(),at=states().indexOf(current),snapshot=getSnapshot();rail.dataset.bookState=current;
-        for(const [button,offset] of [[up,-1],[down,1]]){
-            const target=states()[at+offset],icon=target||current;
-            const label=readerText(viewLabels[target||current]);
-            setViewerReaderIcon(button,icon==='reading'?'open':icon,label);
-            if(!button.querySelector('.reader-direction-mark')){
-                const mark=document.createElement('span');mark.className='reader-direction-mark';mark.setAttribute('aria-hidden','true');
-                mark.innerHTML=`<svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="${offset<0?'M6 10V2M2.5 5.5 6 2l3.5 3.5':'M6 2v8M2.5 6.5 6 10l3.5-3.5'}"/></svg>`;button.append(mark);
-            }
-            button.dataset.targetState=target||'';button.title=label+(offset<0?'（↑）':'（↓）');
-            button.disabled=!target||!snapshot?.thickness||snapshot.busy||!!transition;
-        }
+        const current=state(),snapshot=getSnapshot();rail.dataset.bookState=current;
+        setViewerReaderIcon(viewButton,current==='reading'?'open':current,document.documentElement.lang==='en'?'Display settings':'表示切替');
+        viewButton.title=viewButton.getAttribute('aria-label');
+        searchButton.setAttribute('aria-label',document.documentElement.lang==='en'?'Search all pages':'全文検索');
+        for(const b of poseChoices.children){b.textContent=readerText(viewLabels[b.dataset.pose]);b.setAttribute('aria-label',b.textContent);b.setAttribute('aria-pressed',String(b.dataset.pose===current));b.disabled=!states().includes(b.dataset.pose)||!snapshot?.thickness||snapshot.busy||!!transition;}
     }
     function setEdgePhase(value){phase=value;syncControls();}
     const header=document.getElementById('viewer-header');

@@ -31,6 +31,7 @@ export async function loadWritingReaderSession(file,{bytes=file,onProgress}={}) 
             bookMode:meta.presentation?.spread==='none'?'none':'simple',dsfResolution:'360x640',dsfTotalBytes:file.size};
         const writing=handle.envelope.document;
         return {project,index,manifests:bundle.manifests,contextsByLanguage,pagesByLanguage,assetUrls,dispose,writingLocked:handle.copyKind==='writing-shared',
+            text(pageId,language){return (writing?.pages.find(p=>p.pageId===pageId&&p.language===language)?.objects||[]).filter(o=>o.type==='text').map(o=>o.text).join('\n');},
             layer(pageId,language){const objects=writing?.pages.find(p=>p.pageId===pageId&&p.language===language)?.objects;if(!objects?.length)return '';
                 const layer=document.createElement('div');layer.className='reader-writing-saved-layer';renderWritingLayer(layer,objects,families);return layer.outerHTML;}};
     }catch(error){dispose();throw error;}finally{runtime.dispose();}

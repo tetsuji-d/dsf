@@ -1,3 +1,4 @@
+import {installReaderActions,readerPageText} from './viewer-document-actions.js';
 import {createWritingProgress,readerProgressPanel} from './reader-writing-progress.js';
 import {installReaderPageLinks} from './reader-page-links.js';
 import {createReaderWritingBridge} from './reader-writing-bridge.js';
@@ -576,6 +577,11 @@ async function init() {
     }});
 
     appMenu=initializeViewerAppMenu({beforeOpen:()=>{window.setViewerInfoPanelState('closed');closeViewerAuthDropdown();const settings=document.getElementById('viewer-page-settings');if(settings)settings.open=false;window.toggleUi(true);clearViewerUiAutoHide();},onClose:scheduleViewerUiAutoHide});
+    installReaderActions({getFile:()=>viewerWritingFile,canWrite:()=>!!viewerWritingFile&&writingEnabled&&!viewerLocalPortableSession?.writingLocked,
+        saveWriting:shared=>writingBridge.save(shared),
+        getPages:()=>getPages().map((page,index)=>({label:document.documentElement.lang==='en'?`Page ${index+1}`:`${index+1}ページ目`,text:readerPageText(page,writingBridge.text(page.id,state.activeLang)??viewerLocalPortableSession?.text?.(page.id,state.activeLang)??'')})),
+        goTo:index=>{readerChrome?.cancelPose();resetZoom();dispatch({type:actionTypes.SET_ACTIVE_INDEX,payload:index});bookSpreadIndex=findBookUnitIndexForPage(index);refresh();}
+    });
     document.addEventListener('keydown', onKeydown);
     document.addEventListener('wheel', onWheel, { passive: false });
     window.addEventListener('resize', scheduleViewerResize);

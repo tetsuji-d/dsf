@@ -15,7 +15,7 @@ for(const dims of [[390,844],[844,390],[1920,1080]]){
  const p=writingInspectorPlacement({width,height,anchor});assert.ok(p.left>=8&&p.left+p.width<=width-8&&p.top>=8&&p.top+p.height<=height-8);
  assert.ok(p.left<anchor.right+16,'Inspector stays near its invoking tool');
 }
-const layout=writingChromeLayout({width:390,height:844,paper:{left:2,right:388,top:80,bottom:760},header:{left:230,right:378,top:8,bottom:56,width:148,height:48}});
+const layout=writingChromeLayout({penCount:6,width:390,height:844,paper:{left:2,right:388,top:80,bottom:760},header:{left:230,right:378,top:8,bottom:56,width:148,height:48}});
 assert.ok(layout.rail.top>56&&layout.rail.top+layout.history.top>56,'Scrollable shelf and history leave the Reader header available');
 const original=await loadDsfV3(new Uint8Array(await readFile(new URL('../../outputs/writing-w1/preview-sample.dsf',import.meta.url))),options);
 assert.equal(original.bundle.manifests.ja.pages.length,8);
