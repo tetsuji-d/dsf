@@ -19,7 +19,7 @@ import {createWritingPageCache,writingPageWindow} from '/js/reader-writing-page-
 import {installStyleChoices,syncStyleChoices,renderStyleSample} from '/js/reader-writing-style-controls.js';
 import {installWritingLocale} from '/js/reader-writing-i18n.js';
 import {createWritingContrast} from '/js/reader-writing-contrast.js';
-import {writingPointerSamples,writingFrameQueue,installWritingToolsReveal} from '/js/reader-writing-input.js';
+import {writingPointerSamples,writingFrameQueue,createWritingDock,writingDockRelease} from '/js/reader-writing-input.js';
 
 export async function mountReaderWriting(root=document,host=null) {
 const $ = id => root.querySelector('#'+id), runtime = await createReaderWritingRuntime();
@@ -36,8 +36,8 @@ let selectionIds=new Set();
 const selectionTool=()=>tool==='select';
 function selectObjects(ids=[]){selectionIds=new Set(ids);selected=ids.at(-1)||null;}
 let draftId,draftVersion=0,saveQueue=Promise.resolve(),generation=0,saveSequence=0,unsaved=false,storageFailed=false,generated;
-let savedHead,generatedHead,toolsVisible=true;
-function showTools(visible){toolsVisible=visible;body.dataset.toolsVisible=String(visible);if(!visible){closeSheet();hideObjectActions();}else chromeContrast?.invalidate();host?.toolsVisibility?.(visible);}
+let savedHead,generatedHead,toolsVisible=true,dockController;
+function showTools(visible){toolsVisible=visible;body.dataset.toolsVisible=String(visible);if(!visible){closeSheet();hideObjectActions();}else chromeContrast?.invalidate();host?.toolsVisibility?.(visible);const rail=$('tool-scroll'),grip=$('writing-dock-handle');if(rail)rail.inert=!visible;if(grip){grip.setAttribute('aria-expanded',String(visible));const label=t(visible?'道具バーを右端に収納':'道具バーを引き出す');grip.title=label;grip.setAttribute('aria-label',label);}if(visible)dockController?.arm();else dockController?.clear();}
 let families={},originalFaces=[],imageUrls=new Map(),fileExport,sourceFilename='';
 const pageCache=createWritingPageCache({load:preparePage,dispose:entry=>{entry.layer.remove();entry.original.remove();
     for(const path of entry.assets){const asset=imageUrls.get(path);if(asset&&!--asset.users){URL.revokeObjectURL(asset.url);imageUrls.delete(path);}}}});
@@ -578,7 +578,7 @@ function cancelGesture() {hideObjectActions();gesture=null;snapTarget=null;textB
 $('input').onpointerdown=e=>{
     if(host&&$('text-dialog').open){e.preventDefault();return;}
     if(gesture){if(e.pointerId!==gesture.pointerId)cancelGesture();return;}
-    if(busy||!model||model.locked||readingMode||!e.isPrimary||e.button!==0)return;e.preventDefault();if(host&&!selectionTool())showTools(false);$('input').focus({preventScroll:true});
+    if(busy||!model||model.locked||readingMode||!e.isPrimary||e.button!==0)return;e.preventDefault();dockController?.clear();$('input').focus({preventScroll:true});
     const column=Math.min(visiblePages.length-1,Math.floor(point(e,true).x/360));if(visiblePages[column]!==pageIndex){pageIndex=visiblePages[column];showPage();}
     const cross=PEN_TOOLS.includes(tool)&&visiblePages.length===2;let p=point(e,cross);
     if(tool==='text'){
@@ -814,8 +814,10 @@ function layoutChrome(paper){
     const layout=writingChromeLayout({width:innerWidth,height:innerHeight,paper,controls,header,safe,penCount});body.dataset.toolsLayout=layout.mode;body.dataset.short=layout.short;
     const rect=(el,r)=>Object.assign(el.style,{left:`${r.left}px`,top:`${r.top}px`,width:r.width?`${r.width}px`:'',height:r.height?`${r.height}px`:''});
     rect($('pen-tray'),layout.pens);rect($('tool-field'),layout.tools);rect($('native-history'),layout.history);
-    rect($('tool-scroll'),layout.rail);
-    $('writing-tools-reveal').style.top=`${layout.rail.top+layout.rail.height-44}px`;
+    rect($('writing-tools-dock'),layout.dock);
+    body.style.setProperty('--dock-shift',layout.dock.shift+'px');
+    body.style.setProperty('--tool-group-gap',(layout.pens.left-layout.tools.left-layout.tools.width)+'px');
+    rect($('tool-scroll'),{...layout.rail,left:32,top:0});
     $('tool-scroll-track').style.width=`${layout.trackWidth}px`;
     body.style.setProperty('--pen-size',`${layout.size}px`);body.style.setProperty('--pen-gap',`${layout.gap}px`);
     rect($('active-tool-label'),layout.context);
@@ -852,16 +854,6 @@ async function syncHost(view){
     if(view.suspended&&gesture)cancelGesture();layoutHost();if(resumed)chromeContrast?.invalidate();
 }
 if(host){
-    const canRevealTools=()=>!disposed&&!toolsVisible&&!busy&&!!model&&!gesture&&!readingMode&&!hostView?.suspended&&!$('page-wrap').hidden&&!sheet.open&&!$('text-dialog').open;
-    const revealTools=()=>{if(canRevealTools())showTools(true);};
-    const cancelReveal=installWritingToolsReveal({target:document,signal:lifetime.signal,
-        bottom:()=>{const v=window.visualViewport;return v?v.offsetTop+v.height:innerHeight;},
-        canReveal:canRevealTools,reveal:revealTools});
-    listenWindow('blur',cancelReveal);
-    const revealHandle=document.createElement('button');revealHandle.id='writing-tools-reveal';revealHandle.type='button';
-    revealHandle.title=t('道具バーを表示');revealHandle.setAttribute('aria-label',t('道具バーを表示'));revealHandle.setAttribute('aria-controls','tool-scroll');
-    revealHandle.innerHTML='<span aria-hidden="true"></span>';
-    revealHandle.onclick=()=>{revealTools();if(toolsVisible)$('tool-scroll').focus({preventScroll:true});};root.append(revealHandle);
     body.dataset.keyboard='false';
     root.addEventListener('pointerdown',()=>{body.dataset.keyboard='false';},{capture:true,signal:lifetime.signal});
     document.addEventListener('keydown',e=>{if(e.key==='Tab')body.dataset.keyboard='true';},{capture:true,signal:lifetime.signal});
@@ -873,7 +865,40 @@ if(host){
     void host.offlineStatus().then(state=>{$('offline-status').textContent=state.ready?'準備済み。通信なしでReaderを開き、書き込み・保存できます。':'準備が必要です。接続して準備を実行してください。';}).catch(()=>{$('offline-status').textContent='準備状態を確認できませんでした。接続して準備を実行してください。';});
     const toolbar=document.createElement('div');toolbar.className='native-tools';
     const rail=document.createElement('div');rail.id='tool-scroll';rail.setAttribute('role','region');rail.setAttribute('aria-label','左右にスワイプして道具を選択');rail.tabIndex=0;
-    const track=document.createElement('div');track.id='tool-scroll-track';track.append($('tool-field'),$('pen-tray'));rail.append(track);toolbar.append(rail);root.append(toolbar);
+    const track=document.createElement('div');track.id='tool-scroll-track';track.append($('tool-field'),$('pen-tray'));rail.append(track);
+    const dock=document.createElement('div');dock.id='writing-tools-dock';
+    const glass=document.createElement('div');glass.id='writing-dock-glass';glass.setAttribute('aria-hidden','true');dock.append(glass);
+    const grip=document.createElement('button');grip.id='writing-dock-handle';grip.type='button';grip.setAttribute('aria-controls','tool-scroll');
+    grip.innerHTML='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 5 7 7-7 7"/></svg>';dock.append(grip,rail);toolbar.append(dock);root.append(toolbar);
+    let hovering=false,pointerHeld=false,handleDrag=null,suppressHandleClick=false;
+    const blocked=()=>busy||!model||!!gesture||readingMode||hostView?.suspended||$('page-wrap').hidden||sheet.open||$('text-dialog').open||hovering||pointerHeld||document.hidden||
+        (body.dataset.keyboard==='true'&&dock.contains(root.activeElement));
+    dockController=createWritingDock({isOpen:()=>toolsVisible,blocked,setOpen:showTools});
+    lifetime.signal.addEventListener('abort',()=>dockController.dispose(),{once:true});
+    dock.addEventListener('pointerenter',e=>{if(e.pointerType==='mouse'){hovering=true;dockController.clear();}});
+    dock.addEventListener('pointerleave',e=>{if(e.pointerType==='mouse'){hovering=false;dockController.arm();}});
+    dock.addEventListener('click',()=>dockController.arm());
+    dock.addEventListener('keydown',()=>dockController.arm());
+    dock.addEventListener('focusout',()=>dockController.arm());
+    document.addEventListener('pointerdown',()=>{pointerHeld=true;dockController.clear();},{capture:true,signal:lifetime.signal});
+    for(const type of ['pointerup','pointercancel'])document.addEventListener(type,()=>{pointerHeld=false;dockController.arm();},{capture:true,signal:lifetime.signal});
+    listenWindow('blur',()=>{pointerHeld=false;hovering=false;dockController.clear();});listenWindow('focus',()=>dockController.arm());
+    grip.addEventListener('pointerdown',e=>{if(!e.isPrimary||e.button!==0)return;e.preventDefault();suppressHandleClick=false;
+        handleDrag={id:e.pointerId,x:e.clientX,y:e.clientY,open:toolsVisible};grip.setPointerCapture(e.pointerId);dock.dataset.dragging='true';});
+    grip.addEventListener('pointermove',e=>{if(handleDrag?.id!==e.pointerId)return;
+        const dx=e.clientX-handleDrag.x,dy=e.clientY-handleDrag.y;
+        if(Math.hypot(dx,dy)>8)suppressHandleClick=true;
+        const shift=parseFloat(body.style.getPropertyValue('--dock-shift'))||0;
+        const delta=handleDrag.open?Math.max(0,Math.min(shift,dx)):Math.min(0,Math.max(-shift,dx));
+        dock.style.setProperty('--dock-drag',delta+'px');});
+    const endHandle=(e,cancelled=false)=>{if(handleDrag?.id!==e.pointerId)return;const drag=handleDrag;handleDrag=null;
+        dock.style.removeProperty('--dock-drag');delete dock.dataset.dragging;
+        if(!cancelled)showTools(writingDockRelease(drag.open,e.clientX-drag.x,e.clientY-drag.y));
+        if(grip.hasPointerCapture(e.pointerId))grip.releasePointerCapture(e.pointerId);};
+    grip.addEventListener('pointerup',e=>endHandle(e));grip.addEventListener('pointercancel',e=>{suppressHandleClick=true;endHandle(e,true);});
+    grip.addEventListener('lostpointercapture',e=>endHandle(e,true));
+    grip.onclick=e=>{if(suppressHandleClick){e.preventDefault();suppressHandleClick=false;return;}showTools(!toolsVisible);};
+    showTools(true);
     // Keep trackpad scrolling in this rail; the Reader also listens for wheel turns.
     rail.addEventListener('wheel',e=>e.stopPropagation(),{passive:true});
     rail.addEventListener('keydown',e=>{if(e.target===rail&&['ArrowLeft','ArrowRight'].includes(e.key)){e.preventDefault();e.stopPropagation();rail.scrollBy({left:e.key==='ArrowRight'?160:-160,behavior:'smooth'});}});
@@ -892,7 +917,7 @@ if(host){
         if(id!=='layers')b.innerHTML=`<svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${{undo:'<path d="m8 5-5 5 5 5M3 10h11a6 6 0 0 1 6 6v2"/>',redo:'<path d="m16 5 5 5-5 5m5-5H10a6 6 0 0 0-6 6v2"/>',fit:'<rect x="7" y="3" width="10" height="18" rx="1.5"/><path d="M1 12h4m-2-2 2 2-2 2m20-2h-4m2-2-2 2 2 2"/>',timeline:'<path d="M4 8a9 9 0 1 1 0 8M4 3v5h5M12 7v6l4 2"/>'}[id]}</svg>`;
         b.onclick=()=>{cancelGesture();if(id==='fit')host.resetView?.();else if(['layers','timeline'].includes(id)){if(sheet.open&&sheetAnchor===b){closeSheet();return;}sheetAnchor=b;root.querySelector(`[data-panel="${id==='timeline'?'history':'layers'}"]`).click();}else $(id).click();};historyBar.append(b);
     }track.prepend(historyBar);
-    chromeContrast=createWritingContrast({documentRef:document,groups:[historyBar,$('tools'),$('pen-tray')],rail,isVisible:()=>toolsVisible&&!hostView?.suspended&&!disposed});
+    chromeContrast=createWritingContrast({documentRef:document,groups:[glass],rail:dock,isVisible:()=>toolsVisible&&!hostView?.suspended&&!disposed});
     chromeContrast.invalidate();
     const showPanel=(name,anchor=activeTool)=>{closeSheet();sheetAnchor=anchor;root.querySelector(`[data-panel="${name}"]`).click();};
     const tooltip=document.createElement('div');tooltip.id='writing-tool-tip';tooltip.setAttribute('role','tooltip');tooltip.hidden=true;root.append(tooltip);

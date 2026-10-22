@@ -3,7 +3,7 @@ header,main>.tools,main>.save-panel,.book-heading,.writing-mode,.quick-tool,.hin
 main,.reading{display:contents!important}#viewport{display:contents}#page-wrap{position:fixed;margin:0;pointer-events:none}#surface{background:transparent;box-shadow:none;pointer-events:none}#input{pointer-events:auto}#original,.rw-other-original{display:none!important}
 #chrome-safe{position:fixed;visibility:hidden;pointer-events:none;padding:env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left)}
 .native-tools{position:fixed;z-index:2;inset:0;pointer-events:none;animation:writing-dock-enter .24s ease-out}
-:host([data-tools-visible=false]) .native-tools,:host([data-tools-visible=false]) #native-history{visibility:hidden;pointer-events:none}
+:host([data-tools-visible=false]) #tool-scroll{pointer-events:none}
 :host([data-tools-visible=false]) #native-history{transition:none}
 :host([data-tools-visible=false]) #writing-tool-tip{display:none}
 :host([data-tools-visible=false]) #tool-scroll{pointer-events:none}
@@ -16,13 +16,13 @@ main,.reading{display:contents!important}#viewport{display:contents}#page-wrap{p
 @keyframes writing-dock-enter{from{opacity:0;translate:0 36px}to{opacity:1;translate:0 0}}
 /* Transparent, equal-height frames. Pens extend above their frame. */
 #pen-tray{position:absolute;display:flex;justify-content:center;gap:var(--pen-gap);min-height:0;max-width:none;margin:0;border:0;border-radius:0;background:none;overflow:visible;pointer-events:none;isolation:isolate}
-#pen-tray,#tools,#native-history{--tool-icon:#294740;--tool-glass:#edf5f061;--tool-solid:#e5eeeb;--tool-shadow:#ffffff99;--tool-selected:#145f59;--tool-selected-bg:#216b6924;--tool-hover:#216b6914;--tool-divider:#29474025}
-#pen-tray[data-backdrop=dark],#tools[data-backdrop=dark],#native-history[data-backdrop=dark]{--tool-icon:#f4fbff;--tool-glass:#0c171d66;--tool-solid:#202e34;--tool-shadow:#0009;--tool-selected:#f4fbff;--tool-selected-bg:#216b69cc;--tool-hover:#ffffff1f;--tool-divider:#ffffff55}
-:is(#pen-tray,#tools,#native-history)[data-backdrop-mixed=true]{--tool-glass:#edf5f0b3}
-:is(#pen-tray,#tools,#native-history)[data-backdrop=dark][data-backdrop-mixed=true]{--tool-glass:#0c171dad}
-#pen-tray::before,#tools::before,#native-history::before{content:'';position:absolute;inset:0 -4px;border:1px solid #ffffff8c;border-bottom-color:#688d875e;border-radius:14px;background:linear-gradient(145deg,#ffffff35,#d1eeeb0a 48%,#b6d8d421),var(--tool-glass);backdrop-filter:blur(4px) saturate(125%);-webkit-backdrop-filter:blur(4px) saturate(125%);box-shadow:inset 0 1px 0 #ffffffcc,inset 0 -1px 0 #ffffff40,0 3px 10px #183e3826,0 0 0 1px #456c6626;pointer-events:none;z-index:-1}
-@media(prefers-reduced-transparency:reduce){#pen-tray::before,#tools::before,#native-history::before{background:var(--tool-solid);backdrop-filter:none;-webkit-backdrop-filter:none}}
-@media(forced-colors:active){#pen-tray::before,#tools::before,#native-history::before{border-color:ButtonText;background:Canvas;box-shadow:none}}
+#writing-tools-dock{--tool-icon:#294740;--tool-glass:#edf5f061;--tool-solid:#e5eeeb;--tool-shadow:#ffffff99;--tool-selected:#145f59;--tool-selected-bg:#216b6924;--tool-hover:#216b6914;--tool-divider:#29474025}
+#writing-tools-dock:has(>#writing-dock-glass[data-backdrop=dark]){--tool-icon:#f4fbff;--tool-glass:#0c171d66;--tool-solid:#202e34;--tool-shadow:#0009;--tool-selected:#f4fbff;--tool-selected-bg:#216b69cc;--tool-hover:#ffffff1f;--tool-divider:#ffffff55}
+#writing-tools-dock:has(>#writing-dock-glass[data-backdrop-mixed=true]){--tool-glass:#edf5f0b3}
+#writing-tools-dock:has(>#writing-dock-glass[data-backdrop=dark][data-backdrop-mixed=true]){--tool-glass:#0c171dad}
+#writing-dock-glass::before{content:'';position:absolute;inset:0;border:1px solid #ffffff8c;border-bottom-color:#688d875e;border-radius:14px;background:linear-gradient(145deg,#ffffff35,#d1eeeb0a 48%,#b6d8d421),var(--tool-glass);backdrop-filter:blur(4px) saturate(125%);-webkit-backdrop-filter:blur(4px) saturate(125%);box-shadow:inset 0 1px 0 #ffffffcc,inset 0 -1px 0 #ffffff40,0 3px 10px #183e3826,0 0 0 1px #456c6626;pointer-events:none;z-index:-1}
+@media(prefers-reduced-transparency:reduce){#writing-dock-glass::before{background:var(--tool-solid);backdrop-filter:none;-webkit-backdrop-filter:none}}
+@media(forced-colors:active){#writing-dock-glass::before{border-color:ButtonText;background:Canvas;box-shadow:none}}
 .pen-item,.pen-item:hover,.pen-item[aria-pressed=true]{position:relative;width:var(--pen-size);min-width:var(--pen-size);flex:0 0 var(--pen-size);height:44px;min-height:44px;pointer-events:auto;transform:none;background:transparent!important;padding:0;border:0;border-radius:10px;overflow:visible;touch-action:pan-x;user-select:none;-webkit-user-select:none;-webkit-touch-callout:none}
 .pen-visual{position:absolute;left:0;right:0;top:-64px;bottom:0;overflow:hidden;pointer-events:auto;touch-action:pan-x}
 .pen-item svg{position:absolute;left:0;top:18px;width:var(--pen-size);height:calc(var(--pen-size)*130/60);overflow:visible;filter:drop-shadow(1px 2px 2px #183e3840);transform:translateY(12px);transition:transform .2s ease}
@@ -166,8 +166,20 @@ main,.reading{display:contents!important}#viewport{display:contents}#page-wrap{p
 .pen-nib{transform-box:view-box;transform-origin:30px 90px;transform:scaleX(var(--nib-scale,1));transition:transform .16s ease}
 @media(prefers-reduced-motion:reduce){.pen-nib{transition:none}}
 
-/* A small, focusable handle keeps hidden tools reachable without hover. */
-#writing-tools-reveal{display:none;position:fixed;z-index:4;left:50%;bottom:auto;transform:translateX(-50%);width:72px;height:44px;min-height:44px;padding:0;border:0;border-radius:16px;background:#edf5f0e8;color:#294740;box-shadow:0 1px 5px #183e3833;pointer-events:auto;touch-action:manipulation;align-items:center;justify-content:center}
-#writing-tools-reveal span{width:32px;height:4px;border-radius:2px;background:currentColor}
-:host([data-tools-visible=false]:not([data-preparing=true])) #writing-tools-reveal{display:flex}
-#writing-tools-reveal:focus-visible{outline:2px solid #216b69;outline-offset:2px}
+/* The handle is the left end of the rail, parked at the right screen edge. */
+#writing-tools-dock{position:fixed;pointer-events:none;isolation:isolate;transform:translateX(calc(var(--dock-offset,0px) + var(--dock-drag,0px)));transition:transform .26s cubic-bezier(.22,.75,.25,1)}
+#writing-tools-dock #tool-scroll{position:absolute;z-index:1}
+#writing-dock-glass{position:absolute;left:0;right:0;top:64px;height:44px;pointer-events:none;isolation:isolate}
+#tool-field::before,#pen-tray::after{content:"";position:absolute;left:calc(var(--tool-group-gap,24px) / -2);top:10px;height:24px;border-left:1px solid var(--tool-divider);pointer-events:none}
+#writing-dock-handle::after{content:"";position:absolute;right:0;top:10px;height:24px;border-left:1px solid var(--tool-divider);pointer-events:none}
+:host([data-tools-visible=false]) #writing-tools-dock{--dock-offset:var(--dock-shift)}
+#writing-tools-dock[data-dragging=true]{transition:none}
+#writing-dock-handle{position:absolute;z-index:2;left:0;top:64px;width:32px;height:44px;min-height:44px;padding:0;border:0;border-radius:14px;background:transparent;color:var(--tool-icon);isolation:isolate;pointer-events:auto;touch-action:none;user-select:none;cursor:grab;display:flex;align-items:center;justify-content:center}
+
+#writing-dock-handle svg{width:16px;height:20px;flex:none;filter:drop-shadow(0 1px 1px var(--tool-shadow))}
+:host([data-tools-visible=false]) #writing-dock-handle{left:-28px;width:44px;justify-content:flex-end;padding-right:3px}
+
+:host([data-tools-visible=false]) #writing-dock-handle svg{width:12px;transform:rotate(180deg)}
+#writing-dock-handle:focus-visible{outline:2px solid #216b69;outline-offset:2px}
+#writing-tools-dock[data-dragging=true] #writing-dock-handle{cursor:grabbing}
+@media(prefers-reduced-motion:reduce){#writing-tools-dock{transition:none}}

@@ -18,19 +18,16 @@ export function writingFrameQueue(paint,request=requestAnimationFrame,cancel=can
         clear,flush(){clear();paint();}};
 }
 
-/** Reveal only after an idle mouse dwell; never while a pointer is drawing. */
-export function installWritingToolsReveal({target,signal,bottom,canReveal,reveal,
-    schedule=setTimeout,cancel=clearTimeout}) {
-    let timer=null;
+/** One idle deadline, cancelled on interaction and disposal. */
+export function createWritingDock({isOpen,blocked,setOpen,schedule=setTimeout,cancel=clearTimeout}) {
+    let timer=null,disposed=false;
     const clear=()=>{if(timer!==null)cancel(timer);timer=null;};
-    target.addEventListener('pointermove',event=>{
-        const edge=bottom();
-        if(event.pointerType!=='mouse'||event.buttons||event.clientY<edge-24||event.clientY>edge||!canReveal()){
-            clear();return;
-        }
-        if(timer===null)timer=schedule(()=>{timer=null;if(canReveal())reveal();},200);
-    },{capture:true,signal});
-    for(const type of ['pointerdown','pointercancel','pointerleave'])target.addEventListener(type,clear,{capture:true,signal});
-    signal.addEventListener('abort',clear,{once:true});
-    return clear;
+    const arm=()=>{clear();if(disposed||!isOpen())return;
+        timer=schedule(()=>{timer=null;if(disposed||!isOpen())return;if(blocked()){arm();return;}setOpen(false);},3000);};
+    return {arm,clear,dispose(){disposed=true;clear();}};
+}
+/** Only a horizontal pull on the handle changes the dock state. */
+export function writingDockRelease(open,dx,dy){
+    if(Math.abs(dx)<24||Math.abs(dx)<Math.abs(dy)*1.25)return open;
+    return dx<0;
 }

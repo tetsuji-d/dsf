@@ -1,6 +1,6 @@
 /** Bottom Writing rail. All coordinates inside the rail are local, never page-scaled. */
 export function writingChromeLayout({width,height,penCount=0,controls=[],safe={left:0,right:0,top:0,bottom:0}}){
-    const mobile=width<900,edge=Math.max(8,safe.left,safe.right),available=width-edge*2-(mobile?0:64);
+    const mobile=width<900,edge=Math.max(8,safe.left,safe.right),available=width-edge*2-(mobile?32:96);
     const size=mobile?48:available<800?44:available<830?48:54,gap=size===44?0:4,groupGap=size===44?12:24;
     const historyWidth=mobile?176:220,toolsLeft=historyWidth+groupGap,pensLeft=toolsLeft+264+groupGap;
     const pensWidth=size*penCount+gap*Math.max(0,penCount-1);
@@ -8,9 +8,10 @@ export function writingChromeLayout({width,height,penCount=0,controls=[],safe={l
     // Compact screens keep the Reader's navigation row below the tools.
     const readerBottom=controls.filter(r=>r.width>r.height&&r.top>height*.6).reduce((n,r)=>Math.max(n,height-r.top+8),0);
     const bottom=Math.max(Math.max(8,safe.bottom)+(mobile?58:0),readerBottom);
-    const railWidth=Math.min(trackWidth,available),left=edge+(available-railWidth)/2,top=Math.max(safe.top,height-bottom-railHeight);
+    const railWidth=Math.min(trackWidth,available),left=edge+32+(available-railWidth)/2,top=Math.max(safe.top,height-bottom-railHeight);
     return {mode:mobile?'scroll':'full',short:height<520,size,gap,top,trackWidth,
         rail:{left,top,width:railWidth,height:railHeight},
+        dock:{left:left-32,top,width:railWidth+32,height:railHeight,shift:Math.max(0,width-safe.right-16-(left-32))},
         pens:{left:pensLeft,top:64,width:pensWidth,height:44},
         tools:{left:toolsLeft,top:64,width:264,height:44,columns:6},
         history:{left:8,top:64,width:historyWidth,height:44},
