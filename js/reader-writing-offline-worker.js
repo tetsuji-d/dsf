@@ -70,7 +70,7 @@ self.addEventListener('fetch',event=>{
  if(!RW_ASSETS.length||request.method!=='GET'||request.headers.has('Authorization')||url.origin!==self.location.origin||!url.pathname.startsWith('/writing/'))return;
  event.respondWith((async()=>{
   // Live Reader uses the live deployment. Offline uses the last complete snapshot.
-  try{const response=await fetch(request);if(!response.ok)throw Error('WRITING_FETCH');return response;}
+  try{const response=await fetch(request,{cache:'no-store'});if(!response.ok)throw Error('WRITING_FETCH');return response;}
   catch(error){const hit=await rwCached(url.pathname==='/writing/'?'/writing/':url.pathname);if(hit)return hit;throw error;}
  })());
 });
