@@ -28,6 +28,8 @@ const EN={
     '共有を開けませんでした。「ダウンロードで保存」をお使いください。書き込みは保持されています。':'Could not open sharing. Choose Save by downloading. Your Writing is preserved.',
     '保存の確認を受け付けました。書き込みを続けられます。':'You confirmed saving the file. You can continue writing.',
     'Writingを準備しています…':'Preparing Writing…',
+    '道具バーを右端に収納':'Dock tools to the right',
+    '道具バーを引き出す':'Pull out tools',
     '道具を隠す。長押しでReaderに戻る':'Hide tools. Hold to return to Reader',
     '道具を表示。長押しでReaderに戻る':'Show tools. Hold to return to Reader',
     '書き込みを保存しますか？':'Save your Writing?',

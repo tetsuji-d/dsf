@@ -17,3 +17,17 @@ export function writingFrameQueue(paint,request=requestAnimationFrame,cancel=can
     return {schedule(){if(frame===null)frame=request(()=>{frame=null;paint();});},
         clear,flush(){clear();paint();}};
 }
+
+/** One idle deadline, cancelled on interaction and disposal. */
+export function createWritingDock({isOpen,blocked,setOpen,schedule=setTimeout,cancel=clearTimeout}) {
+    let timer=null,disposed=false;
+    const clear=()=>{if(timer!==null)cancel(timer);timer=null;};
+    const arm=()=>{clear();if(disposed||!isOpen())return;
+        timer=schedule(()=>{timer=null;if(disposed||!isOpen())return;if(blocked()){arm();return;}setOpen(false);},3000);};
+    return {arm,clear,dispose(){disposed=true;clear();}};
+}
+/** Only a horizontal pull on the handle changes the dock state. */
+export function writingDockRelease(open,dx,dy){
+    if(Math.abs(dx)<24||Math.abs(dx)<Math.abs(dy)*1.25)return open;
+    return dx<0;
+}
