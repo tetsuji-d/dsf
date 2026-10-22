@@ -4318,7 +4318,7 @@ let isUiVisible = !usesMobileTapMenu();
 
 window.toggleUi = (force) => {
     clearViewerUiAutoHide();
-    isUiVisible = writingBridge.active || viewerInfoPanelState!=='closed' || (typeof force === 'boolean' ? force : !isUiVisible);
+    isUiVisible = viewerInfoPanelState!=='closed' || (typeof force === 'boolean' ? force : !isUiVisible);
     updateUiVisibility();
     if(isUiVisible) scheduleViewerUiAutoHide();
 };
@@ -4574,7 +4574,7 @@ function bindViewerSliderPreview() {
 let mobileMarginStart=null;
 document.addEventListener('pointerdown',e=>{
     mobileMarginStart=null;
-    if(!usesMobileTapMenu()||!e.target.closest?.('#viewer-layout'))return;
+    if(writingBridge.active||!usesMobileTapMenu()||!e.target.closest?.('#viewer-layout'))return;
     const r=document.getElementById('viewer-canvas')?.getBoundingClientRect();
     if(r&&(e.clientX<r.left||e.clientX>r.right||e.clientY<r.top||e.clientY>r.bottom)){
         mobileMarginStart={id:e.pointerId,x:e.clientX,y:e.clientY};e.stopPropagation();
@@ -4591,6 +4591,13 @@ document.addEventListener('pointercancel',()=>mobileMarginStart=null,true);
 // The prototype shares one chrome state: page tap hides it, center tap restores it.
 // Legacy mobile viewers keep their margin/page-count entry points.
 document.addEventListener('click', e => {
+    // Writing owns page input. Only the surrounding margin toggles Reader chrome.
+    if(writingBridge.active && e.target.closest?.('#viewer-layout')) {
+        const r=document.getElementById('viewer-canvas')?.getBoundingClientRect();
+        const onPage=r&&e.clientX>=r.left&&e.clientX<=r.right&&e.clientY>=r.top&&e.clientY<=r.bottom;
+        if(!onPage && Date.now()>suppressZoneClickUntil)window.toggleUi();
+        e.stopPropagation();return;
+    }
     if(readerChrome && !readingGuides?.isAssisting()) {
         if(e.target.closest?.('#viewer-ui,#viewer-info-panel,#reader-assist-panel,#viewer-bottom-navigation,#viewer-reader-controls')) return;
         if(!e.target.closest?.('#viewer-layout')) return;

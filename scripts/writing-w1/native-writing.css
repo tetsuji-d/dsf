@@ -165,3 +165,9 @@ main,.reading{display:contents!important}#viewport{display:contents}#page-wrap{p
 
 .pen-nib{transform-box:view-box;transform-origin:30px 90px;transform:scaleX(var(--nib-scale,1));transition:transform .16s ease}
 @media(prefers-reduced-motion:reduce){.pen-nib{transition:none}}
+
+/* A small, focusable handle keeps hidden tools reachable without hover. */
+#writing-tools-reveal{display:none;position:fixed;z-index:4;left:50%;bottom:auto;transform:translateX(-50%);width:72px;height:44px;min-height:44px;padding:0;border:0;border-radius:16px;background:#edf5f0e8;color:#294740;box-shadow:0 1px 5px #183e3833;pointer-events:auto;touch-action:manipulation;align-items:center;justify-content:center}
+#writing-tools-reveal span{width:32px;height:4px;border-radius:2px;background:currentColor}
+:host([data-tools-visible=false]:not([data-preparing=true])) #writing-tools-reveal{display:flex}
+#writing-tools-reveal:focus-visible{outline:2px solid #216b69;outline-offset:2px}

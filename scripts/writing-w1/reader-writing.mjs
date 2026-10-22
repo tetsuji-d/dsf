@@ -19,7 +19,7 @@ import {createWritingPageCache,writingPageWindow} from '/js/reader-writing-page-
 import {installStyleChoices,syncStyleChoices,renderStyleSample} from '/js/reader-writing-style-controls.js';
 import {installWritingLocale} from '/js/reader-writing-i18n.js';
 import {createWritingContrast} from '/js/reader-writing-contrast.js';
-import {writingPointerSamples,writingFrameQueue} from '/js/reader-writing-input.js';
+import {writingPointerSamples,writingFrameQueue,installWritingToolsReveal} from '/js/reader-writing-input.js';
 
 export async function mountReaderWriting(root=document,host=null) {
 const $ = id => root.querySelector('#'+id), runtime = await createReaderWritingRuntime();
@@ -815,6 +815,7 @@ function layoutChrome(paper){
     const rect=(el,r)=>Object.assign(el.style,{left:`${r.left}px`,top:`${r.top}px`,width:r.width?`${r.width}px`:'',height:r.height?`${r.height}px`:''});
     rect($('pen-tray'),layout.pens);rect($('tool-field'),layout.tools);rect($('native-history'),layout.history);
     rect($('tool-scroll'),layout.rail);
+    $('writing-tools-reveal').style.top=`${layout.rail.top+layout.rail.height-44}px`;
     $('tool-scroll-track').style.width=`${layout.trackWidth}px`;
     body.style.setProperty('--pen-size',`${layout.size}px`);body.style.setProperty('--pen-gap',`${layout.gap}px`);
     rect($('active-tool-label'),layout.context);
@@ -851,6 +852,16 @@ async function syncHost(view){
     if(view.suspended&&gesture)cancelGesture();layoutHost();if(resumed)chromeContrast?.invalidate();
 }
 if(host){
+    const canRevealTools=()=>!disposed&&!toolsVisible&&!busy&&!!model&&!gesture&&!readingMode&&!hostView?.suspended&&!$('page-wrap').hidden&&!sheet.open&&!$('text-dialog').open;
+    const revealTools=()=>{if(canRevealTools())showTools(true);};
+    const cancelReveal=installWritingToolsReveal({target:document,signal:lifetime.signal,
+        bottom:()=>{const v=window.visualViewport;return v?v.offsetTop+v.height:innerHeight;},
+        canReveal:canRevealTools,reveal:revealTools});
+    listenWindow('blur',cancelReveal);
+    const revealHandle=document.createElement('button');revealHandle.id='writing-tools-reveal';revealHandle.type='button';
+    revealHandle.title=t('道具バーを表示');revealHandle.setAttribute('aria-label',t('道具バーを表示'));revealHandle.setAttribute('aria-controls','tool-scroll');
+    revealHandle.innerHTML='<span aria-hidden="true"></span>';
+    revealHandle.onclick=()=>{revealTools();if(toolsVisible)$('tool-scroll').focus({preventScroll:true});};root.append(revealHandle);
     body.dataset.keyboard='false';
     root.addEventListener('pointerdown',()=>{body.dataset.keyboard='false';},{capture:true,signal:lifetime.signal});
     document.addEventListener('keydown',e=>{if(e.key==='Tab')body.dataset.keyboard='true';},{capture:true,signal:lifetime.signal});

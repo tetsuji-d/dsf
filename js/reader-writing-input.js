@@ -17,3 +17,20 @@ export function writingFrameQueue(paint,request=requestAnimationFrame,cancel=can
     return {schedule(){if(frame===null)frame=request(()=>{frame=null;paint();});},
         clear,flush(){clear();paint();}};
 }
+
+/** Reveal only after an idle mouse dwell; never while a pointer is drawing. */
+export function installWritingToolsReveal({target,signal,bottom,canReveal,reveal,
+    schedule=setTimeout,cancel=clearTimeout}) {
+    let timer=null;
+    const clear=()=>{if(timer!==null)cancel(timer);timer=null;};
+    target.addEventListener('pointermove',event=>{
+        const edge=bottom();
+        if(event.pointerType!=='mouse'||event.buttons||event.clientY<edge-24||event.clientY>edge||!canReveal()){
+            clear();return;
+        }
+        if(timer===null)timer=schedule(()=>{timer=null;if(canReveal())reveal();},200);
+    },{capture:true,signal});
+    for(const type of ['pointerdown','pointercancel','pointerleave'])target.addEventListener(type,clear,{capture:true,signal});
+    signal.addEventListener('abort',clear,{once:true});
+    return clear;
+}
