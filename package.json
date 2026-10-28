@@ -113,6 +113,8 @@
     "verify:flow-press-horizon-release-handoff": "node scripts/verify-flow-press-horizon-release-handoff.js",
     "verify:flow-press-horizon-release-upload": "node scripts/verify-flow-press-horizon-release-upload.js",
     "verify:flow-press-horizon-draft-write": "node scripts/verify-flow-press-horizon-draft-write.js",
+    "verify:editions": "node scripts/verify-editions.js && node scripts/verify-edition-uploads.js",
+    "verify:edition-rules:emulator": "firebase emulators:exec --only firestore --project staging \"node scripts/verify-edition-rules-emulator.js\"",
     "verify:works-dsf-release": "node scripts/verify-works-dsf-release.js",
     "verify:works-release-history": "node scripts/verify-works-release-history.js",
     "verify:fixed-text-delivery-projection": "node scripts/verify-fixed-text-delivery-projection.js",

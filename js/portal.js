@@ -4,7 +4,7 @@ import {initializePlatformMenu} from './platform-menu.js';
  * portal.js — DSF Portal (index.html) のロジック
  * i18n対応: UI言語 + コンテンツ言語の切り替え
  */
-import { collection, query, orderBy, limit, getDocs } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
+import { collection, query, orderBy, limit, getDocs, where, documentId, startAfter } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
 import { onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js";
 import { db, auth } from './firebase-core.js';
 import { ensureUserBootstrap } from './firebase.js';
@@ -15,6 +15,20 @@ import { resolveProjectDisplayTitle } from './project-display-title.js';
 
 const DEFAULT_THUMB_URL = "https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?q=80&w=400&auto=format&fit=crop";
 const FETCH_LIMIT = 20;
+let feedDocuments = new Map();
+let feedSources = ['public_editions', 'public_projects'].map(name => ({ name, cursor:null, more:true }));
+let feedFetching = false;
+function renderFeedMore() {
+    let button = document.getElementById('horizon-feed-more');
+    if (!button) {
+        button = document.createElement('button'); button.id = 'horizon-feed-more'; button.type = 'button';
+        document.getElementById('public-feed')?.after(button);
+        button.addEventListener('click', () => void loadPublicProjects(true));
+    }
+    button.hidden = !feedSources.some(source => source.more);
+    button.disabled = feedFetching;
+    button.textContent = currentLang === 'en' ? 'Load more' : 'さらに読み込む';
+}
 const SEARCH_DEBOUNCE_MS = 120;
 const SUPPORTED_LANGS = ["ja", "en"];
 
@@ -188,7 +202,8 @@ function formatDate(publishedAt) {
     return `${yyyy}/${mm}/${dd}`;
 }
 
-function buildViewerUrl(workId, authorUid) {
+function buildViewerUrl(workId, authorUid, editionId) {
+    if (/^e_[a-f0-9]{64}$/.test(editionId || '')) return `/viewer?edition=${encodeURIComponent(editionId)}`;
     void authorUid;
     return `/viewer.html?work=${encodeURIComponent(workId)}`;
 }
@@ -249,7 +264,7 @@ function cardMarkup(project) {
     const title      = escapeHtml(resolveProjectDisplayTitle(project, { locale: currentLang }) || t("untitled"));
     const authorName = escapeHtml(localize(project.authorNameRaw, t("anonymous")));
     const thumb      = escapeHtml(getOptimizedThumbUrl(project.thumbnail));
-    const date       = escapeHtml(project.publishedDate);
+    const date       = escapeHtml([project.editionLabel,project.publishedDate].filter(Boolean).join(' · '));
 
     const body = `
         <div class="card-thumb-container">
@@ -265,7 +280,7 @@ function cardMarkup(project) {
     `;
 
     if (project.canOpen) {
-        const href = escapeHtml(buildViewerUrl(project.workId || project.id, project.authorUid));
+        const href = escapeHtml(buildViewerUrl(project.workId || project.id, project.authorUid, project.editionId));
         return `<a href="${href}" class="project-card" data-role="project-card">${body}</a>`;
     }
     return `<article class="project-card is-disabled" aria-disabled="true">${body}</article>`;
@@ -297,6 +312,7 @@ function getFilteredProjects() {
 function renderProjects() {
     const feedEl = document.getElementById("public-feed");
     if (!feedEl) return;
+    renderFeedMore();
 
     if (portalState.isLoading) { renderLoadingSkeleton(); return; }
     if (portalState.hasError) { feedEl.innerHTML = ""; return; }
@@ -328,6 +344,8 @@ function normalizeProject(docSnap) {
     const authorUid = typeof data.authorUid === "string" ? data.authorUid.trim() : "";
     return {
         id:            docSnap.id,
+        editionId:     data.editionId || null,
+        editionLabel:  typeof data.editionLabel === 'string' ? data.editionLabel : '',
         projectId:     typeof data.projectId === "string" ? data.projectId : "",
         workId:        typeof data.workId === "string" ? data.workId : docSnap.id,
         title:         data.title ?? "",        // 代表文字列または旧言語別オブジェクト
@@ -344,9 +362,12 @@ function normalizeProject(docSnap) {
     };
 }
 
-async function loadPublicProjects() {
+async function loadPublicProjects(more = false) {
+    if (feedFetching) return;
+    feedFetching = true;
+    if (!more) { feedDocuments = new Map(); feedSources = ['public_editions', 'public_projects'].map(name => ({name,cursor:null,more:true})); }
     const feedEl = document.getElementById("public-feed");
-    if (!feedEl) return;
+    if (!feedEl) { feedFetching = false; return; }
 
     portalState.isLoading = true;
     portalState.hasError = false;
@@ -355,26 +376,36 @@ async function loadPublicProjects() {
     renderLoadingSkeleton();
 
     try {
-        const q = query(collection(db, "public_projects"), orderBy("updatedAt", "desc"), limit(FETCH_LIMIT));
-        const snap = await getDocs(q);
-        portalState.projects = snap.docs
-            .filter(d => {
-                const data = d.data() || {};
-                const status = data.dsfStatus || 'public';
-                return status === 'public' && isPublicationActive(data.publication || {}, status);
-            })
+        const pages = await Promise.all(feedSources.map(async source => {
+            if (!source.more) return null;
+            return getDocs(query(collection(db, source.name), where('dsfStatus', '==', 'public'),
+                orderBy(documentId()), ...(source.cursor ? [startAfter(source.cursor)] : []), limit(FETCH_LIMIT)));
+        }));
+        pages.forEach((page, i) => {
+            if (!page) return;
+            const source = feedSources[i]; source.cursor = page.docs.at(-1) || source.cursor; source.more = page.size === FETCH_LIMIT;
+            page.docs.forEach(doc => feedDocuments.set(source.name + '/' + doc.id, doc));
+        });
+        const docs = [...feedDocuments.values()];
+        const editions = new Set(docs.filter(d => d.data().editionId).map(d => JSON.stringify([d.data().authorUid,d.data().workId,d.data().releaseId])));
+        portalState.projects = docs.filter(d => d.data().editionId || !editions.has(JSON.stringify([d.data().authorUid,d.data().workId,d.data().releaseId])))
+            .filter(d => !d.data().moderationRejected && isPublicationActive(d.data().publication || {}, d.data().dsfStatus))
+            .sort((a,b) => (b.data().updatedAt?.toMillis?.() || 0) - (a.data().updatedAt?.toMillis?.() || 0))
+            .filter((d,i,array) => array.findIndex(other => other.data().editionId && other.data().editionId === d.data().editionId) === i || !d.data().editionId)
             .map(normalizeProject);
         portalState.isLoading = false;
         renderProjects();
     } catch (err) {
         console.error("[Portal] fetch error:", err);
-        portalState.projects = [];
+        if (!more) portalState.projects = [];
         portalState.isLoading = false;
-        portalState.hasError = true;
-        feedEl.innerHTML = "";
+        portalState.hasError = !more;
+        if (!more) feedEl.innerHTML = "";
+        else renderProjects();
         setStatus(t("loadError"));
         showFeedback("error", t("loadError"), t("loadErrorDesc"), true);
-    }
+    } finally { feedFetching = false; renderFeedMore(); }
+
 }
 
 // ---- Auth UI -------------------------------------------------------------

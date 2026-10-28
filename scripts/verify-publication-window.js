@@ -53,7 +53,7 @@ assert.equal(toDate(firestoreTimestampLike)?.toISOString(), '2026-09-04T03:00:00
 
 const viewerSource = readFileSync(new URL('../js/viewer.js', import.meta.url), 'utf8');
 const portalSource = readFileSync(new URL('../js/portal.js', import.meta.url), 'utf8');
-const worksSource = readFileSync(new URL('../js/works.js', import.meta.url), 'utf8');
+const worksSource = readFileSync(new URL('../server/editions.js', import.meta.url), 'utf8');
 
 const publicLoaderStart = viewerSource.indexOf('async function loadWorkFromPublicIndex');
 const publicLoaderEnd = viewerSource.indexOf('async function loadHorizonProjection', publicLoaderStart);
@@ -67,15 +67,7 @@ assert.ok(
     viewerWindowGate < viewerV2Branch && viewerWindowGate < viewerV1Branch,
     'the publication window gate must run before both v2 and v1 delivery branches',
 );
-assert.match(
-    portalSource,
-    /status === 'public' && isPublicationActive\(data\.publication \|\| \{\}, status\)/,
-    'Horizon must exclude public works outside their publication window',
-);
-assert.match(
-    worksSource,
-    /\(newStatus === 'public' \|\| newStatus === 'unlisted'\) && !isPublicationActive\(publication, newStatus\)/,
-    'Works must reject a public transition whose publication window is already inactive',
-);
-
+assert.ok(portalSource.includes("where('dsfStatus', '==', 'public')"), 'Horizon fetches public editions only');
+assert.ok(portalSource.includes('isPublicationActive(d.data().publication || {}, d.data().dsfStatus)'), 'Horizon excludes inactive editions');
+assert.ok(worksSource.includes('check(isPublicationActive(publication, status'), 'the edition API rejects an expired publication');
 console.log('Publication start/end boundary and shared v1/v2 gate verification passed.');

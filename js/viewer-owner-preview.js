@@ -5,6 +5,7 @@
  * the private owner namespace; an author UID is never trusted from the URL.
  */
 
+import { isPrivateAuthoringId } from './private-authoring-ids.js';
 const SAFE_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/;
 
 function isRecord(value) {
@@ -20,7 +21,8 @@ function fail(code, message) {
 
 function assertSafeId(value, field) {
     const normalized = String(value || '').trim();
-    if (!SAFE_ID_PATTERN.test(normalized)) {
+    const legacyId = ['projectId', 'release.projectId', 'workId', 'work.workId', 'release.workId'].includes(field);
+    if (!(legacyId ? isPrivateAuthoringId(normalized) : SAFE_ID_PATTERN.test(normalized))) {
         fail('OWNER_PREVIEW_ID_INVALID', `${field} must be a safe document ID.`);
     }
     return normalized;

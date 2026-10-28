@@ -945,11 +945,18 @@ service cloud.firestore {
                       && legacyProjectLink(uid, request.resource.data);
         allow delete: if accountCanEdit(uid) && legacyProjectLink(uid, resource.data);
 
+        match /edition_states/{releaseId} {
+          allow read: if isOwner(uid) || isStaff();
+          allow write: if false;
+        }
+
         match /releases/{releaseId} {
           allow read: if isOwner(uid) || isStaff() || publicReleaseCanRead(uid, workId, releaseId);
-          allow create, update, delete: if accountCanEdit(uid) && legacyWork(uid, workId)
-            && (!existsAfter(/databases/$(database)/documents/users/$(uid)/works/$(workId))
-              || legacyProjectLink(uid, getAfter(/databases/$(database)/documents/users/$(uid)/works/$(workId)).data));
+          allow create: if accountCanEdit(uid) && legacyWork(uid, workId)
+            && !exists(/databases/$(database)/documents/users/$(uid)/works/$(workId)/edition_states/$(releaseId))
+            && request.resource.data.workId == workId && request.resource.data.releaseId == releaseId
+            && legacyProjectLink(uid, request.resource.data);
+          allow update, delete: if false;
         }
       }
 
@@ -989,24 +996,17 @@ service cloud.firestore {
             && legacyWork(resource.data.authorUid, pid)));
     }
 
+    // Edition lifecycle and legacy URL bindings are server-managed.
+    match /public_editions/{editionId} {
+      allow read: if true;
+      allow write: if false;
+    }
     match /public_projects/{pid} {
       allow read: if true;
-      allow create, update: if (accountCanPublish(request.auth.uid)
-                              && request.resource.data.authorUid == request.auth.uid
-                              && legacyProjectLink(request.auth.uid, request.resource.data)
-                              && legacyWork(request.auth.uid, pid)
-                              && (!exists(/databases/$(database)/documents/public_projects/$(pid))
-                                || legacyProjectLink(request.auth.uid, resource.data))
-                              && publicIndexActiveAllowed(request.auth.uid, pid)
-                              && publicProjectPublicationIsValid(request.auth.uid))
-                            || staffPublicSnapshotWrite(pid);
-      allow delete: if (isSignedIn()
-                        && resource.data.authorUid == request.auth.uid
-                        && legacyProjectLink(request.auth.uid, resource.data)
-                        && legacyWork(request.auth.uid, pid)
-                        && !userIsDisabled(request.auth.uid))
-                    || isAdmin()
-                    || isOperator();
+      allow create, update: if staffPublicSnapshotWrite(pid)
+        && (!exists(/databases/$(database)/documents/public_projects/$(pid))
+          || request.resource.data.releaseId == resource.data.releaseId);
+      allow delete: if isAdmin() || isOperator();
     }
 
     match /metric_events/{eventId} {

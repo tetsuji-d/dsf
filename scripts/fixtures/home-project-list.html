@@ -1,0 +1,20 @@
+<!doctype html><html lang="ja"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>編集用リード一覧のローカル検証</title>
+<link rel="stylesheet" href="/css/variables.css"><link rel="stylesheet" href="/css/studio.css"><link rel="stylesheet" href="/css/home-workspace.css">
+<style>body{width:auto;min-width:0;box-sizing:border-box;display:block;height:auto;overflow:auto;margin:24px;background:var(--studio-surface);color:var(--studio-text);font:14px system-ui}#home-room{display:block;max-width:1400px;margin:24px auto}#home-room [hidden]{display:none!important}#home-cloud-grid{margin-top:24px}.fixture-tools{display:flex;gap:12px}</style>
+<div class="fixture-tools"><button id="theme">ライト／ダーク</button><button id="locale">日本語／English</button></div>
+<p>ローカルサンプル。実クラウドの読み書きは行いません。</p>
+<main id="home-room"><div class="home-list-toolbar"><label class="home-start-search"><input data-home-search type="search"></label><label class="home-list-sort"><span data-home-sort-label></span><select data-home-sort></select></label></div><p data-home-search-empty hidden></p><button data-home-resume hidden></button><div data-home-views="projects"><div id="home-cloud-grid"></div></div></main>
+<script type="module">
+import {editableReadTable,editableReadRow} from '/js/home-project-list.js';
+import {installHomeStart} from '/js/home-start.js';
+const phoneQuery=matchMedia('(max-width: 1023px)');
+const syncDevice=()=>{document.body.dataset.device=phoneQuery.matches?'mobile':'desktop';};
+phoneQuery.addEventListener('change',syncDevice);syncDevice();
+const projects=[{id:'a',projectName:'編集用 10',title:'図書館 2',updatedAt:'2026-10-23T08:30:00Z'},{id:'b',projectName:'編集用 2',title:'図書館 10',updatedAt:'2026-10-24T08:30:00Z'},{id:'c',projectName:'タイトル未設定',updatedAt:'invalid'}];
+let locale='ja';
+function render(){document.getElementById('home-cloud-grid').innerHTML=editableReadTable(projects.map(p=>editableReadRow(p,{locale,pageCount:12,actions:'<button>⋮</button>',thumbnail:p.id==='a'?'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="90" height="160"%3E%3Cpath fill="white" d="M0 0h90v160H0z"/%3E%3C/svg%3E':''})).join(''),locale);window.dispatchEvent(new Event('home-start-refresh'));}
+installHomeStart({root:document.getElementById('home-room'),getLocale:()=>locale,readState:()=>({uid:'fixture'}),readShared:()=>null,onResume:()=>{}});render();
+document.getElementById('theme').onclick=()=>{document.body.dataset.theme=document.body.dataset.theme==='dark'?'light':'dark';};
+document.getElementById('locale').onclick=()=>{locale=locale==='ja'?'en':'ja';render();};
+</script></html>

@@ -4,9 +4,9 @@ const escape = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp
 const copy = {
     ja: { title:'スペース', hint:'マイスペースで個人の原稿を作成し、出版スペースでリードを管理・発行できます。表示を切り替えてもリードの保存先は変わりません。',
         settings:'基本情報を設定', description:'概要', website:'Webサイト', icon:'アイコン', banner:'背景画像', remove:'画像を削除', preview:'保存後の表示プレビュー', imageHint:'PNG・JPEG・WebP（20MBまで）。中央を切り抜き、アイコンは正方形、背景は3:1のWebPで保存します。', imageError:'画像を読み込めませんでした。別の画像を選択してください。', readImageError:'画像を取得できませんでした。再読み込みしてください。', blankDescription:'概要はまだありません。',
-        all:'すべてのクラウド原稿', unassigned:'マイスペース', select:'表示するスペース', create:'出版スペースを開設', name:'スペース名',
+        all:'すべての編集用リード', unassigned:'マイスペース', select:'表示するスペース', create:'出版スペースを開設', name:'スペース名',
         submit:'開設', cancel:'キャンセル', rename:'名前を変更', save:'変更を保存', login:'ログインすると出版スペースを開設・管理できます。',
-        loading:'出版スペースを読み込み中…', unavailable:'保存先を確認できませんでした。再読み込みするか、「すべてのクラウド原稿」から開いてください。',
+        loading:'出版スペースを読み込み中…', unavailable:'保存先を確認できませんでした。再読み込みするか、「すべての編集用リード」から開いてください。',
         retry:'再読み込み', empty:'出版スペースはまだありません。マイスペースで制作を始められます。',
         assignment:'保存先のスペース', moveError:'所属を変更できませんでした。最新の一覧を確認して、もう一度操作してください。',
         conflict:'別の画面で更新されています。最新の一覧を確認して、もう一度操作してください。',
@@ -151,7 +151,7 @@ export function createPublishingSpaceUI({ root, request, getLocale, getUid, onCh
             const locked=busy || converting || opening;
             popup.innerHTML='<h3>'+t.title+'</h3>' + (!uid ? '<p>'+t.login+'</p>' : failed ? '<p>'+errorMessage(failureCode)+'</p><button type="button" data-switcher-retry>'+t.retry+'</button><button type="button" class="space-switcher-choice" data-space-choice="all">'+t.all+'</button>' : !data ? '<p role="status">'+t.loading+'</p>' :
                 '<div class="space-switcher-list">'+[{id:'unassigned',name:t.unassigned},...data.spaces,{id:'all',name:t.all}].map(space=>
-                    '<button type="button" class="space-switcher-choice" data-space-choice="'+escape(space.id)+'" aria-pressed="'+String(selected===space.id)+'" '+(locked?'disabled':'')+'><span class="space-switcher-avatar" data-space-avatar="'+escape(space.id)+'"></span><span class="space-switcher-name">'+escape(space.name)+'</span><span aria-hidden="true" class="space-switcher-check">'+(selected===space.id?'✓':'')+'</span></button>').join('')+'</div><button type="button" class="space-switcher-create" data-switcher-create '+(locked?'disabled':'')+'>＋ '+t.create+'</button><p class="space-switcher-note">'+(en?'Choose a space to view its dashboard.':'スペースを選ぶとダッシュボードを表示します。')+'</p>');
+                    '<button type="button" class="space-switcher-choice" data-space-choice="'+escape(space.id)+'" aria-pressed="'+String(selected===space.id)+'" '+(locked?'disabled':'')+'><span class="space-switcher-avatar" data-space-avatar="'+escape(space.id)+'"></span><span class="space-switcher-name">'+escape(space.name)+'</span><span aria-hidden="true" class="space-switcher-check">'+(selected===space.id?'✓':'')+'</span></button>').join('')+'</div><button type="button" class="space-switcher-create" data-switcher-create '+(locked?'disabled':'')+'>＋ '+t.create+'</button><p class="space-switcher-note">'+(en?'Choose a space to view its editable Reads.':'スペースを選ぶと編集用リードの一覧を表示します。')+'</p>');
             if(uid&&requestJoined){
                 popup.insertAdjacentHTML('beforeend','<h4>'+ (en?'Joined spaces':'参加しているスペース') +'</h4>'+joined.map(space=>'<button type="button" class="space-switcher-choice" data-space-choice="'+escape(spaceKey(space))+'" aria-pressed="'+String(selected===spaceKey(space))+'"><span class="space-switcher-avatar" data-space-avatar="'+escape(space.id)+'"></span><span class="space-switcher-name">'+escape(space.name)+'<small> · '+(en?'Joined':'参加中')+'</small></span></button>').join('')+(joinedFailed?'<p role="status">'+(en?'Could not load joined spaces.':'参加スペースを取得できませんでした。')+'</p><button data-joined-retry>'+t.retry+'</button>':joinedPending?'<p role="status">'+t.loading+'</p>':!joined.length?'<p>'+(en?'No joined spaces yet.':'参加しているスペースはまだありません。')+'</p>':'')+(joinedCursor?'<button data-joined-more>'+(en?'Show more':'さらに表示')+'</button>':''));
             }

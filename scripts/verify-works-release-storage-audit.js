@@ -106,14 +106,7 @@ assert.match(worksSource, /user\.getIdToken\(false\)/);
 assert.match(worksSource, /fetchDsfReleaseInventoryPages\(\{ token \}\)/);
 assert.match(worksSource, /createDsfReleaseStorageAudit\(/);
 assert.match(worksSource, /where\('authorUid', '==', ownerUid\)/);
-assert.match(worksSource, /if \(!projects\.length\) return;/,
-    'audit panel binding must happen before the empty-project early return');
-assert.match(worksSource, /data-works-operation-diagnostic/);
-assert.match(worksSource, /_clearWorksOperationDiagnostic\(row\);/);
-assert.match(worksSource, /_renderWorksOperationDiagnostic\(row, err, newStatus\);/);
-assert.doesNotMatch(worksSource, /alert\(t\('works_status_failed'/,
-    'status failures should use the redacted inline diagnostic');
-
+assert.match(worksSource, /public_editions/, 'storage audit must include independently published editions');
 assert.doesNotMatch(clientSource, /\b(?:put|delete)\s*\(/i);
 assert.doesNotMatch(endpointSource, /R2_BUCKET\.(?:put|delete)\s*\(/);
 assert.match(endpointSource, /R2_BUCKET\.list\(/);

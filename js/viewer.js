@@ -1,3 +1,10 @@
+import { embedEditionId, prepareEmbeddedReader, finishEmbeddedReader, updateEmbedView, updateEmbedControls, toggleEmbedControls, noteEmbedPageTurn, holdEmbedControls } from './viewer-embed.js';
+import { useEmbedSpread, resolveEmbedStart } from './embed-layout.js';
+import {readReaderPosition,restoreReaderPosition} from './reader-position-link.js';
+const readerPositionRequest=embedEditionId?null:readReaderPosition(location.search);
+import { startReaderViewSession } from './reader-view-session.js';
+let qualifiedView = null;
+import { resolvePublicEdition } from './edition-reader.js';
 import {installReaderActions,readerPageText} from './viewer-document-actions.js';
 import {createWritingProgress,readerProgressPanel} from './reader-writing-progress.js';
 import {installReaderPageLinks} from './reader-page-links.js';
@@ -11,6 +18,7 @@ import {workLanguageOptionLabel} from './work-languages.js';
 import {initializeViewerAppMenu} from './viewer-app-menu.js';
 import {readerPageInsets,readerInfoPlacement} from './viewer-responsive-layout.js';
 import {initializeViewerPageSegments} from './viewer-page-segment-control.js';
+import '../css/viewer-page-bar.css';
 import {createViewerBookWheel} from './viewer-book-wheel.js';
 import {createViewerFlick} from './viewer-flick.js';
 import {createViewerEdgePeek} from './viewer-edge-peek.js';
@@ -78,6 +86,7 @@ let ownerPreviewGeneration = 0;
 let ownerPreviewAbort = null;
 let isProjectLoading = false;
 let projectLoaded = false;
+let editionNotice = null;
 let lastLoadErrorCode = '';
 let privateLoginPromptActive = false;
 let privateLoginRequested = false;
@@ -112,7 +121,7 @@ function setWritingTextView(value){
     if(value?.offset&&writingTextCanvas)canvas.style.translate=`${value.offset.x}px ${value.offset.y}px`;
     if(!value){writingTextCanvas=null;canvas.style.removeProperty('translate');document.body.classList.remove('reader-writing-text-editing');scheduleViewerResize();}
 }
-const writingEnabled=__WRITING_ENABLED__;
+const writingEnabled=__WRITING_ENABLED__ && !embedEditionId;
 const writingBridge=createReaderWritingBridge({button:document.getElementById('viewer-writing-btn'),enabled:writingEnabled,openFile:file=>loadViewerFile(file,{preview:true}),
     read:()=>writingEnabled&&viewerWritingFile?{file:viewerWritingFile,language:state.activeLang,pageIndex:getIndex(),spread:spreadMode,
         locked:viewerLocalPortableSession?.writingLocked===true,
@@ -277,6 +286,7 @@ const VIEWER_UI = {
         signIn: 'サインイン',
         signOut: 'サインアウト',
         imageMissing: '画像未設定',
+        editionPageMissing: 'この版には、この言語のページが収録されていません。',
         authError: '認証エラー: {message}',
         uidRequired: 'URLにuidが必要です。',
         projectNotFound: 'プロジェクトが見つかりません: {pid}',
@@ -370,6 +380,7 @@ const VIEWER_UI = {
         signIn: 'Sign in',
         signOut: 'Sign out',
         imageMissing: 'No image',
+        editionPageMissing: 'This edition does not include this page in the selected language.',
         authError: 'Authentication error: {message}',
         uidRequired: 'The URL requires a uid parameter.',
         projectNotFound: 'Project not found: {pid}',
@@ -446,6 +457,7 @@ if (!VIEWER_UI[viewerUiLang]) viewerUiLang = 'ja';
 
 // ── Init ──────────────────────────────────────────────────────
 async function init() {
+    await prepareEmbeddedReader();
     applyTheme();
     bindThemePreferenceListener(() => {
         applyTheme();
@@ -473,6 +485,7 @@ async function init() {
         getPublisher: () => viewerProjectMeta.labelName || '',
         text: key => vt({preparing:'coverPreparing',turning:'coverTurning',unavailable:'coverUnavailable'}[key]),
         onGesture: () => {
+            if(embedEditionId)noteEmbedPageTurn();
             pointerCache = []; activeGesturePointerId = null; curlGesture = null; resetSingleSpreadSwipe();
             suppressZoneClickUntil = Date.now() + 900; clearViewerUiAutoHide();
         },
@@ -481,22 +494,23 @@ async function init() {
         button: document.getElementById('viewer-fullscreen-btn'), text: vt,
         onChange: () => { coverTurn?.cancel(); scheduleViewerResize(); },
     });
-    if (viewerBookEdgesRequested) readerChrome = initializeViewerReaderChrome({
+    if (viewerBookEdgesRequested || embedEditionId) readerChrome = initializeViewerReaderChrome({
         getSnapshot: getViewerReaderSnapshot, onLayoutChange: scheduleViewerResize,
         onSettingsChange: open => {clearViewerUiAutoHide(); if(!open) scheduleViewerUiAutoHide();},
         onPoseChange: (mode,data) => edgePeek?.update(mode,data),
         getPeek: () => edgePeek,
-        canReadBook:()=>getViewerBookThickness()!==undefined,
+        canReadBook:()=>embedEditionId?hasBookModel()&&viewerAllowsLegacyCoverLoop:getViewerBookThickness()!==undefined,
+        onViewChange:state=>{if(embedEditionId)updateEmbedView({...state,fromReader:true});},
         renderPosePage:index=>{const surface=getViewerSurfaceForDisplayIndex(index);return surface?renderSurfaceContentHTML(surface,state.activeLang)+renderSurfaceBubblesHTML(surface,state.activeLang):'';},
         beforePose: () => {riffle?.stop();coverTurn?.cancel(); activePageCurl?.cancel(); clearViewerUiAutoHide();},
     });
     if(readerChrome) {
         edgePeek=createViewerEdgePeek({
             getNumberSettings:()=>readerChrome.pageNumberSettings,
-            onConfirm:()=>readerChrome.openReading(),
+            onConfirm:()=>{if(!embedEditionId)readerChrome.openReading();else toggleEmbedControls();},
             navigationBusy:()=>!!bookWheel?.active||readerChrome.transitioning,
             onPhaseChange:phase=>{readerChrome.setEdgePhase(phase);syncViewerProgress();},
-            onSelection:()=>syncViewerProgress(),
+            onSelection:()=>{syncViewerProgress();if(embedEditionId){noteEmbedPageTurn();qualifiedView?.page(String(edgePeek?.sourceIndex),'book_navigation');}},
             getLayout:index=>getViewerPeekLayout({units:getBookUnits().map(unit=>normalizeSpreadUnitForLang(unit,state.activeLang)),covers:viewerBookModel.covers,sourceIndex:index,rtl:getPageDirection()==='rtl',bodyPageCount:viewerBookModel.bodyPages.length}),
             renderSurface:surface=>surface&&!surface.virtualBlank?renderSurfaceContentHTML(surface,state.activeLang)+renderSurfaceBubblesHTML(surface,state.activeLang):'',
             formatSurface:surface=>surface&&!surface.virtualBlank?formatViewerSurfaceSliderLabel(surface):'',
@@ -505,15 +519,15 @@ async function init() {
         });
         const delta=side=>(side==='left'?1:-1)*(getPageDirection()==='rtl'?1:-1);
         riffle=createViewerRiffle({
-            canRun:()=>!!getPages().length&&!readerChrome.active&&viewScale<=1.05&&!readingGuides?.isAssisting()&&!coverTurn?.active,
+            canRun:()=>!embedEditionId&&!!getPages().length&&!readerChrome.active&&viewScale<=1.05&&!readingGuides?.isAssisting()&&!coverTurn?.active,
             canStep:side=>{const n=spreadMode&&hasBookModel()?bookSpreadIndex:getIndex(),total=spreadMode&&hasBookModel()?getBookUnits().length:getTotal();return n+delta(side)>=0&&n+delta(side)<total;},
             busy:()=>!!activePageCurl?.active,
             step:side=>{delta(side)>0?goNext():goPrev();},cancelTurn:()=>activePageCurl?.cancel(),
             epoch:()=>`${viewerDocumentRevision}:${state.activeLang}:${spreadMode}`,
         });
     }
-    if(readerChrome) flick=createViewerFlick({eligible:()=>!!riffle&&!readerChrome.active&&viewScale<=1.05&&!readingGuides?.isAssisting()&&!coverTurn?.active});
-    if(readerChrome) bookSwipe=createViewerBookSwipe({
+    if(readerChrome || embedEditionId) flick=createViewerFlick({eligible:()=>!readerChrome?.active&&viewScale<=1.05&&!readingGuides?.isAssisting()&&!coverTurn?.active});
+    if(readerChrome && !embedEditionId) bookSwipe=createViewerBookSwipe({
         canvas:document.getElementById('viewer-canvas'),
         enabled:()=>getViewerBookThickness()!==undefined && viewScale<=1.05 && !readingGuides?.isAssisting() && !coverTurn?.active && !activePageCurl?.active,
         contextKey:()=>`${viewerDocumentRevision}:${state.activeLang}:${getIndex()}:${bookSpreadIndex}`,
@@ -523,7 +537,7 @@ async function init() {
         canOpenEdge:()=>readerChrome.mode==='edge'&&!edgePeek?.opened,
         onBegin:action=>readerChrome.beginGesture(action),onProgress:p=>readerChrome.drawGesture(p),onFinish:accept=>readerChrome.finishGesture(accept),
     });
-    if(readerChrome) bookWheel=createViewerBookWheel({
+    if(readerChrome && !embedEditionId) bookWheel=createViewerBookWheel({
         enabled:()=>getViewerBookThickness()!==undefined&&viewScale<=1.05&&!readingGuides?.isAssisting(),
         busy:()=>readerChrome.transitioning||!!edgePeek?.busy||!!activePageCurl?.active||(!!coverTurn?.active&&!coverTurn.atSpine),
         onClaim:()=>{edgePeek?.stopRiffle();edgePeek?.holdHover();},
@@ -547,7 +561,7 @@ async function init() {
             if(forward)goNext();else goPrev();
         },
     });
-    if(readerChrome) bookPinch=createViewerBookPinch({
+    if(readerChrome && !embedEditionId) bookPinch=createViewerBookPinch({
         enabled:()=>!writingBridge.active&&getViewerBookThickness()!==undefined&&!readingGuides?.isAssisting(),
         state:()=>readerChrome.state,scale:()=>viewScale,wide:()=>readerChrome.canReadBook(),
         busy:()=>readerChrome.transitioning||!!edgePeek?.busy||!!activePageCurl?.active,
@@ -597,7 +611,13 @@ async function init() {
 
     bindViewerInfoPanelLayoutSync();
     bindViewerSliderPreview();
-    pageSegments=initializeViewerPageSegments({host:document.getElementById("page-slider").parentElement,snapshot:getViewerSegmentSnapshot,preview:showViewerSegmentPreview,hidePreview:hideSliderPreview,navigate:seekViewerSegment,onHold:held=>{clearViewerUiAutoHide();if(!held)scheduleViewerUiAutoHide();}});
+    const segmentHost=embedEditionId?document.getElementById('embed-progress'):document.createElement('div');
+    if(!embedEditionId){
+        segmentHost.id='viewer-reading-progress';document.body.append(segmentHost);
+    }
+    segmentHost.append(document.getElementById('page-slider-preview'));
+    document.getElementById('page-slider').parentElement.hidden=true;
+    pageSegments=initializeViewerPageSegments({host:segmentHost,snapshot:getViewerSegmentSnapshot,preview:showViewerSegmentPreview,hidePreview:hideSliderPreview,navigate:seekViewerSegment,onHold:held=>{if(embedEditionId){holdEmbedControls(held);return;}clearViewerUiAutoHide();if(!held)scheduleViewerUiAutoHide();}});
     bindViewerHoverChrome();
     applyViewerDevSmoothingClass();
 
@@ -617,6 +637,23 @@ async function init() {
         document.getElementById('viewer-empty-open').hidden=true;
         document.getElementById('viewer-empty-hint').textContent='';
         source.postMessage({type:'dsf-editor-preview-ready',nonce:editorPreview},origin);
+        return;
+    }
+    if (embedEditionId) { params.set('edition',embedEditionId); }
+    const editionId = params.get('edition');
+    if (params.has('edition')) {
+        if (params.getAll('edition').length !== 1 || ['draft','work','w','project','id','src','file','url','r'].some(key => params.has(key))) {
+            showEditionEnded(); return;
+        }
+        sharedProjectRef = { editionId };
+        if (!embedEditionId) void initAuth().catch(() => {});
+        await attemptLoad(); resizeCanvas(); updateUiVisibility();
+        if(embedEditionId)finishEmbeddedReader({ready:projectLoaded&&!editionNotice&&getTotal()>0,begin:beginEmbeddedReader});
+        else if(projectLoaded&&!editionNotice&&getTotal()>0)restoreReaderPosition(readerPositionRequest,{
+            languages:()=>state.languages,selectLanguage:code=>{if(code!==state.activeLang)window.switchViewerLang(code);},total:getTotal,
+            selectPage:index=>{dispatch({type:actionTypes.SET_ACTIVE_INDEX,payload:index});bookSpreadIndex=findBookUnitIndexForPage(index);refresh();},
+            canReadBook:()=>!!readerChrome?.canReadBook(),openBook:()=>readerChrome.restoreBook(),
+        });
         return;
     }
     const ownerDraftPid = String(params.get('draft') || '').trim();
@@ -776,7 +813,7 @@ async function initAuth() {
             }
             if (projectLoaded && user) {
                 bookmarkRestoreAttempted = false;
-                void restoreBookmarkIfAvailable();
+                if (!embedEditionId) void restoreBookmarkIfAvailable();
             }
         }, firebaseAuth);
     });
@@ -848,11 +885,13 @@ async function attemptLoad() {
     if (!sharedProjectRef || isProjectLoading) return;
     isProjectLoading = true;
     try {
-        const ok = sharedProjectRef.ownerDraftPid
+        const ok = sharedProjectRef.editionId
+            ? await loadEditionFromPublicIndex(sharedProjectRef.editionId)
+            : sharedProjectRef.ownerDraftPid
             ? await loadOwnerDraft(sharedProjectRef.ownerDraftPid, sharedProjectRef.requestedReleaseId)
             : sharedProjectRef.workId
                 ? await loadWorkFromPublicIndex(sharedProjectRef.workId, sharedProjectRef.requestedReleaseId)
-                : await loadFromFirestore(sharedProjectRef.pid, sharedProjectRef.uid);
+                : await loadLegacyProjectBinding(sharedProjectRef.pid, sharedProjectRef.uid);
         if (ok) { projectLoaded = true; lastLoadErrorCode = ''; }
     } finally {
         isProjectLoading = false;
@@ -861,6 +900,18 @@ async function attemptLoad() {
 }
 
 // ── Firestore ─────────────────────────────────────────────────
+async function loadLegacyProjectBinding(pid, uid) {
+    try {
+        const direct = await getDoc(doc(db, 'public_projects', pid));
+        if (direct.exists()) return await loadWorkFromPublicIndex(pid);
+        if (!uid) { showEditionEnded(); return true; }
+        const bindings = await getDocs(query(collection(db, 'public_projects'), where('authorUid', '==', uid), where('projectId', '==', pid), limit(3)));
+        const releases = new Set(bindings.docs.map(snapshot => snapshot.data().releaseId));
+        if (!bindings.empty && releases.size === 1) return await loadWorkFromPublicIndex(bindings.docs[0].id);
+        showEditionEnded(); return true;
+    } catch (error) { lastLoadErrorCode = error.code || 'EDITION_UNAVAILABLE'; showEditionEnded(null, true); return false; }
+}
+
 async function loadOwnerDraft(pid, requestedReleaseId = '') {
     if (!state.uid) {
         lastLoadErrorCode = 'permission-denied';
@@ -892,6 +943,11 @@ async function loadOwnerDraft(pid, requestedReleaseId = '') {
             releaseId: projectData.releaseId || '',
         }, workData);
         const releaseSnap = await getDoc(doc(db, 'users', uid, 'works', identity.workId, 'releases', identity.releaseId));
+        const editionStateSnap = await getDoc(doc(db, 'users', uid, 'works', identity.workId, 'edition_states', identity.releaseId));
+        checkOwner();
+        if (editionStateSnap.exists() && editionStateSnap.data().status === 'disposed') {
+            showEditionEnded(); return true;
+        }
         checkOwner();
         if (!releaseSnap.exists()) {
             throw new Error('下書きのReleaseが見つかりません。Pressから下書きを再作成してください。');
@@ -907,6 +963,7 @@ async function loadOwnerDraft(pid, requestedReleaseId = '') {
             dsfContentUrl: releaseData.dsfContentUrl, dsfContentHash: releaseData.dsfContentHash,
             dsfPageCounts: releaseData.dsfPageCounts, dsfLangs: releaseData.dsfLangs,
             languages: releaseData.dsfLangs, defaultLang: releaseData.defaultLang || releaseData.dsfLangs?.[0],
+            languageConfigs: releaseData.languageConfigs,
             book: releaseData.book, bookMode: releaseData.bookMode,
         } : {
             ...workData,
@@ -948,6 +1005,46 @@ async function loadOwnerDraft(pid, requestedReleaseId = '') {
     }
 }
 
+function showEditionEnded(successorUrl = null, failed = false) {
+    editionNotice = { successorUrl, failed };
+    showStandaloneEmpty();
+    const en = viewerUiLang === 'en';
+    document.getElementById('viewer-empty-title').textContent = failed
+        ? (en ? 'Unable to load this edition' : 'この版を読み込めませんでした')
+        : (en ? 'This edition is unavailable' : 'この版は現在公開されていません');
+    const body = document.getElementById('viewer-empty-body');
+    body.textContent = failed ? (en ? 'Check your connection and reload.' : '通信状態を確認して再読み込みしてください。')
+        : (en ? 'This URL will never be reused for another edition.' : 'このURLが別の内容に使われることはありません。');
+    if (embedEditionId && failed) {
+        const retry = document.createElement('button');
+        retry.textContent = en ? 'Retry' : '再試行';
+        retry.style.minHeight = '44px';
+        retry.onclick = () => location.reload();
+        body.append(document.createElement('br'), retry);
+    }
+    if (successorUrl) {
+        const link = document.createElement('a'); link.href = successorUrl;
+        link.textContent = en ? 'Read the successor edition' : '後継の版を読む';
+        body.append(document.createElement('br'), link);
+    }
+    document.getElementById('viewer-empty-open').hidden = true;
+    document.getElementById('viewer-empty-hint').textContent = '';
+}
+async function loadEditionFromPublicIndex(editionId) {
+    try {
+        const resolved = await resolvePublicEdition(editionId, async id => {
+            const snapshot = await getDoc(doc(db, 'public_editions', id));
+            return snapshot.exists() ? snapshot.data() : null;
+        });
+        if (!resolved.available) { showEditionEnded(resolved.successorUrl); return true; }
+        const data = resolved.record;
+        sharedProjectRef = { editionId, workId: data.workId, uid: data.authorUid, pid: data.projectId };
+        if (isDsfHorizonV2MetadataDeclared(data)) return await loadHorizonProjection(data.authorUid, data.workId, data.releaseId, data);
+        if (!Array.isArray(data.dsfPages) || !data.dsfPages.length) throw new Error('EDITION_DELIVERY_MISSING');
+        loadProjectData(data, { source: 'shared' }); return true;
+    } catch (error) { lastLoadErrorCode = error.code || 'EDITION_UNAVAILABLE'; showEditionEnded(null, true); return false; }
+}
+
 async function loadWorkFromPublicIndex(workId, requestedReleaseId = '') {
     try {
         const indexSnap = await getDoc(doc(db, 'public_projects', workId));
@@ -956,11 +1053,11 @@ async function loadWorkFromPublicIndex(workId, requestedReleaseId = '') {
             return false;
         }
         const indexData = indexSnap.data() || {};
-        if (!isPublicationActive(indexData.publication || {}, indexData.dsfStatus || 'public')) {
-            alert(_publicationUnavailableMessage(indexData.publication || {}, indexData.dsfStatus || 'public'));
-            return false;
-        }
         assertRequestedViewerReleaseIsCurrent(requestedReleaseId, indexData.releaseId);
+        if (indexData.editionId) return loadEditionFromPublicIndex(indexData.editionId);
+        if (!['public', 'unlisted'].includes(indexData.dsfStatus || 'public') || !isPublicationActive(indexData.publication || {}, indexData.dsfStatus || 'public')) {
+            showEditionEnded(); return true;
+        }
         const pid = indexData.projectId || indexData.pid || workId;
         const uid = indexData.authorUid || indexData.uid || '';
         if (!uid) {
@@ -1001,12 +1098,8 @@ async function loadWorkFromPublicIndex(workId, requestedReleaseId = '') {
             });
             if (releaseLoaded) return true;
         }
-        return loadFromFirestore(pid, uid, {
-            workId,
-            releaseId: indexData.releaseId || '',
-            publication: indexData.publication || null,
-            dsfStatus: indexData.dsfStatus || 'public'
-        });
+        // An incomplete historical publication needs migration; never read the current manuscript as a substitute.
+        showEditionEnded(); return true;
     } catch (e) {
         lastLoadErrorCode = e?.code || '';
         alert(vt('loadError', { message: e.message }));
@@ -1088,42 +1181,6 @@ function getViewerDsfContentOrigin() {
     return url.origin;
 }
 
-async function loadFromFirestore(pid, uid, resolved = {}) {
-    if (!uid) { alert(vt('uidRequired')); return false; }
-    try {
-        const snap = await getDoc(doc(db, 'users', uid, 'projects', pid));
-        if (!snap.exists()) { alert(vt('projectNotFound', { pid })); return false; }
-        const data = snap.data();
-        data.projectId = pid;
-        data.authorUid = data.authorUid || data.uid || uid;
-        if (resolved.workId && !data.workId) data.workId = resolved.workId;
-        if (resolved.releaseId && !data.releaseId) data.releaseId = resolved.releaseId;
-        if (resolved.publication && !data.publication) data.publication = resolved.publication;
-        if (resolved.dsfStatus && !data.dsfStatus) data.dsfStatus = resolved.dsfStatus;
-        const status = data.dsfStatus || resolved.dsfStatus || 'public';
-        const publication = data.publication || resolved.publication || {};
-        if (state.uid !== uid && !isPublicationActive(publication, status)) {
-            alert(_publicationUnavailableMessage(publication, status));
-            return false;
-        }
-        loadProjectData(data, { source: 'shared' });
-        return true;
-    } catch (e) {
-        lastLoadErrorCode = e?.code || '';
-        if (lastLoadErrorCode === 'permission-denied') {
-            if (!state.uid) {
-                if (privateLoginPromptActive || privateLoginRequested || privateLoginDeclined) return false;
-                showPrivateLoginModal();
-            } else {
-                alert(vt('privateProject'));
-            }
-        } else {
-            alert(vt('loadError', { message: e.message }));
-        }
-        return false;
-    }
-}
-
 // ── Standalone / File Loading ─────────────────────────────────
 function showStandaloneEmpty() {
     document.body.classList.add('viewer-empty');
@@ -1134,12 +1191,16 @@ function showStandaloneEmpty() {
 }
 
 function hideStandaloneEmpty() {
+    editionNotice = null;
+    const open = document.getElementById('viewer-empty-open');
+    if (open) open.hidden = false;
     document.body.classList.remove('viewer-empty', 'viewer-drag-over');
     const empty = document.getElementById('viewer-empty-state');
     if (empty) empty.hidden = true;
 }
 
 function updateStandaloneEmptyText() {
+    if (editionNotice) { showEditionEnded(editionNotice.successorUrl, editionNotice.failed); return; }
     const title = document.getElementById('viewer-empty-title');
     const body = document.getElementById('viewer-empty-body');
     const open = document.getElementById('viewer-empty-open-label');
@@ -1184,6 +1245,8 @@ async function loadViewerFile(file, {preview = false} = {}) {
         }
     } catch (e) {
         if (preview) throw e;
+        progress.end();
+        document.body.style.cursor = '';
         alert(vt('loadError', { message: e.message }));
         if (!projectLoaded) showStandaloneEmpty();
     } finally {
@@ -1305,8 +1368,8 @@ function loadProjectData(raw, options = {}) {
     refresh();
     trackViewStart();
     trackPageView('initial');
-    void restoreBookmarkIfAvailable();
-    void loadViewerReviews();
+    if (!embedEditionId) void restoreBookmarkIfAvailable();
+    if (!embedEditionId) void loadViewerReviews();
 }
 
 function buildViewerProjectMeta(raw, source) {
@@ -1464,6 +1527,8 @@ function renderViewerBookmarkSection() {
 }
 
 async function restoreBookmarkIfAvailable() {
+    // An explicit shared position takes precedence over account bookmark timing.
+    if (readerPositionRequest) return;
     if (bookmarkRestoreAttempted) return;
     if (!state.uid || !viewerProjectMeta.workId || viewerProjectMeta.source !== 'shared') return;
     bookmarkRestoreAttempted = true;
@@ -1893,6 +1958,7 @@ function getMetricSessionId() {
 }
 
 function resetMetricState() {
+    qualifiedView?.dispose(); qualifiedView = null;
     metricViewStarted = false;
     metricReadCompleteSent = false;
     metricPageViewKeys.clear();
@@ -1991,12 +2057,28 @@ function enqueueMetricEvent(eventType, reason = '') {
 }
 
 function trackViewStart() {
+    if (sharedProjectRef?.editionId && shouldTrackMetrics()) {
+        const element = document.getElementById(embedEditionId?'viewer-layout':'viewer-stage');
+        if (!qualifiedView && element && firebaseAuth?.currentUser?.uid !== viewerProjectMeta.authorUid) qualifiedView = startReaderViewSession({
+            editionId: sharedProjectRef.editionId, source: embedEditionId ? 'embed' : 'reader', element,
+            ready: () => {
+                if (!projectLoaded || document.body.classList.contains('embed-waiting') || document.body.classList.contains('embed-checking') || (embedEditionId && readerChrome?.transitioning)) return false;
+                const book = embedEditionId && readerChrome?.state === 'book';
+                if (book && (!edgePeek?.ready || edgePeek.busy)) return false;
+                const surface = book ? edgePeek.element : element.querySelector('#viewer-content');
+                return !!surface?.children.length && !surface.querySelector('.viewer-fixed-text-error, .viewer-page-unavailable')
+                    && [...surface.querySelectorAll('img')].every(img => img.complete && img.naturalWidth > 0);
+            },
+        });
+        return;
+    }
     if (metricViewStarted) return;
     metricViewStarted = true;
-    enqueueMetricEvent('view_start', 'load');
+    // Legacy load events are not qualified views. New counts use edition sessions only.
 }
 
 function trackPageView(reason = 'navigation') {
+    if (sharedProjectRef?.editionId) { qualifiedView?.page(String(getIndex()), reason); return; }
     if(pageLinkJourney)return;
     if (!shouldTrackMetrics()) return;
     const pageIndex = getIndex();
@@ -2672,8 +2754,9 @@ function getViewerReaderSnapshot(requestedIndex) {
     const body=viewerBookModel?.bodyPages||[],bodyPosition=body.findIndex(s=>s.sourcePageIndex===readingIndex);
     return {rect,openRatio:bodyPosition>=0?bodyPosition/Math.max(1,body.length-1):(readingIndex>(body.at(-1)?.sourcePageIndex??Infinity)?1:0),peekIndex:readingIndex,rtl:getPageDirection()==='rtl',peekKey:`${viewerDocumentRevision}:${state.activeLang}`,covers:{front:viewerBookModel?.covers?.c1?.sourcePageIndex,back:viewerBookModel?.covers?.c4?.sourcePageIndex},pages:pages.map(p=>({index:p.surface?.sourcePageIndex,side:p.side,label:formatViewerSurfaceSliderLabel(p.surface),cover:/^C[14]$/.test(String(p.surface?.bookRole||p.surface?.role||''))})),
         title:document.getElementById('ui-title')?.textContent || '',total:getViewerBodyPageTotal(hasBookModel()),
-        thickness:getViewerBookThickness(),design:state.book?.spineDesign,
-        viewport:getViewerViewportMetrics(),singleBook:viewerSpreadPreference==='single'||Math.min(getViewerCanvasSpace().W,document.documentElement.clientWidth)<700,
+        thickness:getViewerBookThickness()??(embedEditionId&&hasBookModel()&&viewerAllowsLegacyCoverLoop?getBookThickness(viewerBookModel.bodyPages.length):undefined),design:state.book?.spineDesign,
+        viewport:getViewerViewportMetrics(),clipSingleBook:!!embedEditionId,
+        singleBook:embedEditionId?!useEmbedSpread(document.documentElement.clientWidth,document.documentElement.clientHeight,new URLSearchParams(location.search).get('layout'),edgePeek?.element.dataset.single==='false'):viewerSpreadPreference==='single'||Math.min(getViewerCanvasSpace().W,document.documentElement.clientWidth)<700,
         author:getViewerLocalizedMeta()?.author||'',publisher:viewerProjectMeta.labelName||'',
         busy:document.body.classList.contains('viewer-zoom-active') || !!readingGuides?.isAssisting()};
 }
@@ -2736,12 +2819,22 @@ function findBookUnitIndexForPage(pageIndex) {
 window.switchViewerLang = (code) => {
     coverTurn?.cancel();
     if (!state.languages?.includes(code)) return;
+    // The curved book owns its selection independently of the flat canvas.
+    // Capture it before refresh cancels the old language's book surfaces.
+    const keepEmbeddedBook = !!embedEditionId && readerChrome?.state === 'book' && !!edgePeek?.opened;
+    const sourceIndex = keepEmbeddedBook && Number.isInteger(edgePeek.sourceIndex) ? edgePeek.sourceIndex : getIndex();
+    const finishLanguageChange = () => {
+        refresh();
+        if (keepEmbeddedBook && readerChrome?.canReadBook()) readerChrome.changeTo('book');
+        queueBookmarkSave();
+        trackPageView('language_change');
+    };
     if (viewerLocalPortableSession?.contextsByLanguage?.has(code)) {
         const sourceLanguage = state.activeLang;
         const sourceManifest = viewerLocalPortableSession.manifests?.[sourceLanguage];
         const targetManifest = viewerLocalPortableSession.manifests?.[code];
         const mapping = sourceManifest && targetManifest
-            ? mapDsfLanguagePage(sourceManifest, targetManifest, getIndex())
+            ? mapDsfLanguagePage(sourceManifest, targetManifest, sourceIndex)
             : { pageIndex: 0 };
         const pages = viewerLocalPortableSession.pagesByLanguage.get(code) || [];
         const pageIndex = pages.length
@@ -2758,17 +2851,17 @@ window.switchViewerLang = (code) => {
         bookSpreadIndex = findBookUnitIndexForPage(pageIndex);
         closeViewerLangMenu();
         renderViewerLanguagePicker();
-        refresh();
-        queueBookmarkSave();
-        trackPageView('language_change');
+        finishLanguageChange();
         return;
     }
     dispatch({ type: actionTypes.SET_ACTIVE_LANG, payload: code });
+    if (keepEmbeddedBook) {
+        dispatch({ type: actionTypes.SET_ACTIVE_INDEX, payload: sourceIndex });
+        bookSpreadIndex = findBookUnitIndexForPage(sourceIndex);
+    }
     closeViewerLangMenu();
     renderViewerLanguagePicker();
-    refresh();
-    queueBookmarkSave();
-    trackPageView('language_change');
+    finishLanguageChange();
 };
 
 function getPageDirection() {
@@ -3020,7 +3113,11 @@ function applyViewerUiLanguage() {
     const zonePrev = document.getElementById('zone-prev');
     const zoneNext = document.getElementById('zone-next');
     const zoneMenu = document.getElementById('zone-menu');
-    if (zoneMenu) zoneMenu.title = vt('toggleUi');
+    if (zoneMenu) {
+        zoneMenu.setAttribute('aria-label', vt('toggleUi'));
+        if (embedEditionId) zoneMenu.removeAttribute('title');
+        else zoneMenu.title = vt('toggleUi');
+    }
     if (zonePrev) zonePrev.title = vt('prevPage');
     if (zoneNext) zoneNext.title = vt('nextPage');
     updateStandaloneEmptyText();
@@ -3287,7 +3384,7 @@ function renderPageContentHTML(page, lang) {
     const url = getPageAssetUrl(page, lang);
     const renderKind = getDsfViewerPageRenderKind(page);
     if ((renderKind === 'legacyImage' || renderKind === 'image') && !url) {
-        return `<div style="width:100%;height:100%;display:flex;align-items:center;justify-content:center;color:#666;font-size:14px;">${vt('imageMissing')}</div>`;
+        return `<div class="viewer-page-unavailable" role="status" style="width:100%;height:100%;box-sizing:border-box;padding:24px;display:flex;align-items:center;justify-content:center;background:#fff;color:#333;font-size:14px;line-height:1.6;text-align:center;">${vt('editionPageMissing')}</div>`;
     }
     const spreadRole = getSurfacePhysicalSpreadRole(page, lang);
     const spreadClass = spreadRole ? ` viewer-page-image-spread viewer-page-image-spread-${spreadRole}` : '';
@@ -3977,6 +4074,7 @@ function startPageCurl(delta,interactive=false){
         sameUnit=hasBookModel()?findBookUnitIndexForPage(before)===findBookUnitIndexForPage(after):from?.key===to?.key;
     }
     if(!from||!to)return false;
+    if(embedEditionId)noteEmbedPageTurn();
     clearTransitionLayers();
     const viewport=getViewerViewportMetrics(),safeY=Math.max(viewport.safeTop,viewport.safeBottom);
     const inset=usesMobileTapMenu()&&isUiVisible?Math.max(Number(document.body.dataset.viewerBottomHeight||0),document.getElementById('viewer-header')?.getBoundingClientRect().bottom-viewport.top||0,safeY):safeY;
@@ -3989,7 +4087,7 @@ function startPageCurl(delta,interactive=false){
     }
     const edgeFrom = getViewerBookEdgeState(before);
     const edgeTo = getViewerBookEdgeState(after, spreadMode ? bookSpreadIndex + delta : findBookUnitIndexForPage(after));
-    const turnDuration=riffle?.active?riffle.turnDuration:520;
+    const turnDuration=riffle?.active?riffle.turnDuration:420;
     activePageCurl=createViewerPageCurl({canvas:document.getElementById('viewer-canvas'),from,to,rtl:getPageDirection()==='rtl',forward:delta>0,spread:spreadMode,sameUnit,targetWidth,edgeFrom,edgeTo,turnDuration,width:CANONICAL_PAGE_WIDTH,height:CANONICAL_PAGE_HEIGHT,
         render:surface=>renderSurfaceContentHTML(surface,lang)+renderSurfaceBubblesHTML(surface,lang),
         commit:()=>{if(getIndex()!==before||state.activeLang!==lang)return;committingPageCurl=true;try{delta>0?goNext():goPrev();}finally{committingPageCurl=false;}}
@@ -3999,6 +4097,7 @@ function startPageCurl(delta,interactive=false){
 }
 
 function goNext() {
+    if(embedEditionId)noteEmbedPageTurn();
     readerChrome?.cancelPose();
     if (!committingPageCurl && coverTurn?.step(1)) return;
     if(startPageCurl(1))return;
@@ -4019,6 +4118,7 @@ function goNext() {
 }
 
 function goPrev() {
+    if(embedEditionId)noteEmbedPageTurn();
     readerChrome?.cancelPose();
     if (!committingPageCurl && coverTurn?.step(-1)) return;
     if(startPageCurl(-1))return;
@@ -4265,7 +4365,32 @@ function getViewerBodyPageTotal(isBook) {
     return getPages().filter((page) => !isViewerCoverRole(page?.bookRole || page?.role || '')).length;
 }
 
+function syncEmbeddedReaderControls(){
+    if(!embedEditionId)return;
+    const index=edgePeek?.opened&&Number.isInteger(edgePeek.sourceIndex)?edgePeek.sourceIndex:getIndex();
+    const unit=hasBookModel()?findBookUnitIndexForPage(index):0;
+    const single=edgePeek?.opened?edgePeek.element.dataset.single==='true':!spreadMode;
+    updateEmbedControls({index,total:getTotal(),languages:state.languages,language:state.activeLang,direction:getPageDirection(),spread:!single,
+        canPrevious:single||!hasBookModel()?index>0:unit>0,canNext:single||!hasBookModel()?index<getTotal()-1:unit<getBookUnits().length-1});
+}
+function beginEmbeddedReader({page,intent,view}){
+    const groups=hasBookModel()?getBookUnits().map(u=>[u.center,u.left,u.right].filter(s=>s&&!s.virtualBlank&&Number.isInteger(s.sourcePageIndex)).map(s=>s.sourcePageIndex).sort((a,b)=>a-b)):[];
+    const index=resolveEmbedStart({page,total:getTotal(),intent,groups,spread:spreadMode});
+    dispatch({type:actionTypes.SET_ACTIVE_INDEX,payload:index});bookSpreadIndex=findBookUnitIndexForPage(index);refresh();
+    if(view==='book'&&readerChrome?.canReadBook())readerChrome.changeTo('book');
+    else updateEmbedView({view:'flat',available:!!readerChrome?.canReadBook()});
+}
+function stepEmbeddedReader(delta){
+    noteEmbedPageTurn();if(readerChrome?.transitioning)return;
+    if(edgePeek?.opened){edgePeek.handleKey({key:(delta>0)===(getPageDirection()==='rtl')?'ArrowLeft':'ArrowRight',preventDefault(){}});return;}
+    if(delta>0)goNext();else goPrev();
+}
+window.setEmbeddedReaderView=view=>{
+    if(!embedEditionId||!readerChrome||readerChrome.transitioning)return;
+    if(view==='book')readerChrome.changeTo('book');else readerChrome.openReading();
+};
 function refreshChrome() {
+    syncEmbeddedReaderControls();
     syncViewerBookEdges();
     readerChrome?.update();
     const pages = getPages();
@@ -4317,6 +4442,7 @@ function usesMobileTapMenu() { return matchMedia('(max-width:650px), (pointer:co
 let isUiVisible = !usesMobileTapMenu();
 
 window.toggleUi = (force) => {
+    if(embedEditionId){toggleEmbedControls(force);return;}
     clearViewerUiAutoHide();
     isUiVisible = viewerInfoPanelState!=='closed' || (typeof force === 'boolean' ? force : !isUiVisible);
     updateUiVisibility();
@@ -4366,6 +4492,7 @@ function revealViewerUiForPointer() {
 }
 
 function bindViewerHoverChrome() {
+    if(embedEditionId)return;
     document.addEventListener('pointermove', (event) => {
         if (!usesPointerHoverChrome()) return;
         // Reading chrome is toggled by a click/tap, never by page hover.
@@ -4401,6 +4528,7 @@ function getViewerDisplayIndex() {
 }
 
 function syncViewerProgress(){
+    if(embedEditionId){syncEmbeddedReaderControls();pageSegments?.update();}
     const slider=document.getElementById('page-slider'),label=document.getElementById('page-slider-label');
     if(!slider||!getPages().length)return;
     const total=getViewerDisplayTotal(),index=getViewerDisplayIndex();
@@ -4591,6 +4719,20 @@ document.addEventListener('pointercancel',()=>mobileMarginStart=null,true);
 // The prototype shares one chrome state: page tap hides it, center tap restores it.
 // Legacy mobile viewers keep their margin/page-count entry points.
 document.addEventListener('click', e => {
+    if (embedEditionId && e.target.closest?.('#viewer-layout')) {
+        // Pointer capture can retarget a page tap from its zone to the layout.
+        // Keep embedded chrome independent from the normal Reader UI state.
+        e.stopPropagation();
+        if (Date.now() <= suppressZoneClickUntil) return;
+        const rect = document.getElementById('viewer-canvas')?.getBoundingClientRect();
+        if (!rect) return;
+        const onPage = e.clientX >= rect.left && e.clientX <= rect.right && e.clientY >= rect.top && e.clientY <= rect.bottom;
+        const center = e.clientX >= rect.left + rect.width * .3 && e.clientX <= rect.left + rect.width * .7;
+        if (!onPage || center || usesMobileTapMenu()) toggleEmbedControls();
+        else if (e.clientX < rect.left + rect.width * .3) window.viewerNavLeft();
+        else window.viewerNavRight();
+        return;
+    }
     // Writing owns page input. Only the surrounding margin toggles Reader chrome.
     if(writingBridge.active && e.target.closest?.('#viewer-layout')) {
         const r=document.getElementById('viewer-canvas')?.getBoundingClientRect();
@@ -4631,6 +4773,8 @@ document.addEventListener('click', e => {
 
 document.addEventListener('click', (e) => {
     // Reading controls are not a request to toggle the surrounding chrome.
+    if (embedEditionId) return;
+    if(e.target.closest?.('#viewer-reading-progress'))return;
     if (e.target.closest?.('#reader-assist-panel, #viewer-bottom-navigation, #viewer-reader-controls, #viewer-page-furniture, #viewer-edge-peek, #viewer-book-pose')) return;
     if (!isUiVisible) {
         if (Date.now() <= suppressZoneClickUntil) return;
@@ -4668,7 +4812,9 @@ function canUseViewerAutoSpread() {
 }
 
 function syncViewerAutoSpreadMode() {
-    const shouldSpread = viewerSpreadPreference === 'auto' ? canUseViewerAutoSpread() : viewerSpreadPreference === 'spread';
+    const shouldSpread = embedEditionId
+        ? useEmbedSpread(document.documentElement.clientWidth,document.documentElement.clientHeight,new URLSearchParams(location.search).get('layout'),spreadMode)
+        : viewerSpreadPreference === 'auto' ? canUseViewerAutoSpread() : viewerSpreadPreference === 'spread';
     updateViewerSpreadButton();
     if (spreadMode === shouldSpread) return false;
     spreadMode = shouldSpread;
@@ -4694,6 +4840,7 @@ function readViewerSafeArea(name) {
 }
 
 function getViewerViewportMetrics() {
+    if(embedEditionId) return {left:0,top:0,width:Math.max(1,document.documentElement.clientWidth),height:Math.max(1,document.documentElement.clientHeight),safeTop:0,safeRight:0,safeBottom:0,safeLeft:0};
     const visualViewport = window.visualViewport;
     const width = Math.max(1, visualViewport?.width || document.documentElement.clientWidth || window.innerWidth || 1);
     const height = Math.max(1, visualViewport?.height || document.documentElement.clientHeight || window.innerHeight || 1);
@@ -4746,6 +4893,7 @@ function handleViewerResize() {
  * visual viewport と safe-area を基準に、単ページ／見開きを物理画面の中央へ収める。
  */
 function getViewerCanvasSpace(viewport = getViewerViewportMetrics()) {
+    if (embedEditionId) return {W:Math.max(1,viewport.width-4),H:Math.max(1,viewport.height-4)};
     const drawerOpen = viewerInfoLayoutMode === 'drawer' && viewerInfoPanelState !== 'closed';
     const safeX = Math.max(viewport.safeLeft, viewport.safeRight);
     const safeY = Math.max(viewport.safeTop, viewport.safeBottom);
@@ -4806,6 +4954,7 @@ function resizeCanvas() {
         ? Math.min(w / (CANONICAL_PAGE_WIDTH * 2), h / CANONICAL_PAGE_HEIGHT)
         : Math.min(w / CANONICAL_PAGE_WIDTH, h / CANONICAL_PAGE_HEIGHT);
     const displayPageWidth = Math.max(1, Math.floor(CANONICAL_PAGE_WIDTH * rawScale));
+    if(embedEditionId)document.getElementById('embed-progress')?.style.setProperty('--embed-progress-width',`${displayPageWidth*.9}px`);
     const displayScale = displayPageWidth / CANONICAL_PAGE_WIDTH;
     const displayPageHeight = CANONICAL_PAGE_HEIGHT * displayScale;
     const spreadLeftX = showSpread ? Math.floor((w - displayPageWidth * 2) / 2) : 0;
@@ -4833,6 +4982,7 @@ function resizeCanvas() {
     syncViewerBookEdges();
     readerChrome?.update();
     syncViewerCanvasChromePlacement(canvas, w);
+    if(embedEditionId)syncViewerProgress();
     applyTransform();
 }
 
@@ -5137,6 +5287,7 @@ function updateSingleSpreadSwipe(e) {
         if (Math.abs(dx) < 10 || Math.abs(dx) <= Math.abs(dy)) return false;
         singleSpreadSwipe.dragging = true;
         pointerGestureConsumed = true;
+        if (embedEditionId) noteEmbedPageTurn();
         suppressZoneClickUntil = Date.now() + 900;
     }
 
@@ -5174,6 +5325,7 @@ function finishSingleSpreadSwipe(e) {
         singleSpreadSwipe.dragging = true;
     }
 
+    if (embedEditionId) noteEmbedPageTurn();
     const stage = document.getElementById('content-stage');
     const width = stage?.getBoundingClientRect?.().width || 1;
     const attempted = singleSpreadSwipe.basePercent + (dx / width) * 50;
@@ -5305,7 +5457,7 @@ document.addEventListener('pointerdown',e=>{
     if(curlGesture){activePageCurl?.cancel();curlGesture=null;return;}
     const r=document.getElementById('viewer-canvas').getBoundingClientRect();
     if(e.clientX<r.left||e.clientX>r.right||e.clientY<r.top||e.clientY>r.bottom)return;
-    if(!readerChrome&&e.clientX-r.left>r.width*.25&&r.right-e.clientX>r.width*.25)return;
+    if(!readerChrome&&!embedEditionId&&e.clientX-r.left>r.width*.25&&r.right-e.clientX>r.width*.25)return;
     curlGesture={id:e.pointerId,x:e.clientX,y:e.clientY,width:r.width,started:false};
 },true);
 document.addEventListener('pointermove',e=>{
@@ -5342,13 +5494,13 @@ document.addEventListener('pointerup',e=>{
         return;
     }
     if(curlGesture?.id!==e.pointerId||!curlGesture.started){
-        if(impulse&&riffle?.fling(impulse.side,impulse.speed)){e.preventDefault();e.stopImmediatePropagation();pointerCache=[];activeGesturePointerId=null;curlGesture=null;resetSingleSpreadSwipe();suppressZoneClickUntil=Date.now()+900;}
+        // A release impulse never starts a second or inertial page turn.
         return;
     }
     curlGesture=null;
     e.stopPropagation();e.preventDefault();pointerCache=[];activeGesturePointerId=null;resetSingleSpreadSwipe();suppressZoneClickUntil=Date.now()+900;
     activePageCurl?.finish(!!impulse||activePageCurl.progress>.4,impulse?160:undefined);
-    if(impulse)riffle?.fling(impulse.side,impulse.speed);
+
 },true);
 document.addEventListener('pointercancel',e=>{edgeTap.up(e,true);if(bookPinch?.pointerEnd(e,true))return;flick?.up(e,true);if(bookSwipe?.pointerCancel(e))return;if(coverTurn?.pointerCancel(e))return;if(curlGesture?.started)activePageCurl?.cancel();curlGesture=null;},true);
 
@@ -5573,10 +5725,10 @@ function onKeydown(e) {
     if(e.target.closest?.('#viewer-info-panel'))return;
     if(e.key==='Escape') {bookWheel?.cancel();riffle?.stop();}
     if (readerChrome?.active && e.key==='Escape') {if(readerChrome.state==='book')readerChrome.openReading();else readerChrome.cancelPose();return;}
-    if (readerChrome && e.target.closest?.('input,select,textarea,summary,[contenteditable="true"],#viewer-page-settings')) return;
+    if (e.target.closest?.('input,select,textarea,summary,[contenteditable="true"],#viewer-page-settings')) return;
     if (e.key === 'Escape' && coverTurn?.active) { coverTurn.cancel(); return; }
     if (readingGuides?.handleKey(e)) return;
-    if (readerChrome && ['ArrowUp','ArrowDown'].includes(e.key)) {e.preventDefault(); if(!e.repeat)stepViewerBookVertical(e.key==='ArrowUp'?'up':'down');return;}
+    if (readerChrome && !embedEditionId && ['ArrowUp','ArrowDown'].includes(e.key)) {e.preventDefault(); if(!e.repeat)stepViewerBookVertical(e.key==='ArrowUp'?'up':'down');return;}
     if(readerChrome?.transitioning){if(['ArrowLeft','ArrowRight'].includes(e.key))e.preventDefault();return;}
     if (edgePeek?.handleKey(e)) return;
     if(['ArrowLeft','ArrowRight'].includes(e.key)&&['edge','spine'].includes(readerChrome?.mode)&&!edgePeek?.opened){e.preventDefault();if(!e.repeat)readerChrome.openReading();return;}
@@ -5592,9 +5744,10 @@ function esc(s) {
 }
 
 // ── Boot ──────────────────────────────────────────────────────
+window.embedReaderStep = stepEmbeddedReader;
 const fileLaunchReady=init();
 void fileLaunchReady.catch((e) => console.warn('[Viewer] init failed:', e));
-installFileLaunch({extension:['.dsfr','.dsf'],getLocale:()=>viewerUiLang,beforeOpen:async()=>{await fileLaunchReady;},openFile:file=>loadViewerFile(file,{preview:true})});
+if (!embedEditionId) installFileLaunch({extension:['.dsfr','.dsf'],getLocale:()=>viewerUiLang,beforeOpen:async()=>{await fileLaunchReady;},openFile:file=>loadViewerFile(file,{preview:true})});
 
 installReaderPageLinks({pages:getPages,renderThumbnail:page=>renderPageContentHTML(page,state.activeLang),navigate:id=>{
     const token=++pageLinkJourneyToken;let cancelled=false;const language=state.activeLang,revision=viewerDocumentRevision,spread=spreadMode;

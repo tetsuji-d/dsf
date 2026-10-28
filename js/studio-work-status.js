@@ -1,4 +1,4 @@
-// Runtime-only view of the open manuscript. No source or persistence schema changes.
+// Runtime-only view of the open editable Read. No source or persistence schema changes.
 export function describeStudioWork({open=false,title='',thumbnail='',identity='',local=false,file={},save={},busy='',shared=false,canEdit=true,online=true}={}) {
     let status = 'none';
     if (open) {
@@ -19,19 +19,19 @@ export function describeStudioWork({open=false,title='',thumbnail='',identity=''
 
 export function studioWorkText(work,en=false) {
     const labels = {
-        none:['開いている原稿はありません','No manuscript is open'],
+        none:['編集中のリードはありません','No editable Read is open'],
         saving:['保存・処理中…','Saving or processing…'],
         dirty:['未保存の変更があります','Unsaved changes'],
-        restored:['復元した原稿・保存確認待ち','Recovered manuscript · Saving unconfirmed'],
-        'saved-file':['DSPファイルに保存済み','Saved to DSP file'],
+        restored:['復元した編集用リード・保存確認待ち','Recovered editable Read · Saving unconfirmed'],
+        'saved-file':['編集用ファイルに保存済み','Saved to editable file'],
         'saved-cloud':['クラウドに保存済み','Saved to cloud'],
-        'unconfirmed-file':['DSPファイルへの保存が未確認です','DSP file saving is unconfirmed'],
+        'unconfirmed-file':['編集用ファイルへの保存が未確認です','editable file saving is unconfirmed'],
         waiting:['同期待ち・オフライン','Waiting to sync · Offline'],
         unconfirmed:['クラウドへの保存を確認してください','Confirm cloud saving'],
         error:['保存に失敗しました','Saving failed'],
     };
     if (['AUTHORING_CONFLICT','AUTHORING_REVISION_CONFLICT','AUTHORING_STALE','AUTHORING_RELOAD_REQUIRED'].includes(work.errorCode))
-        return en ? 'Changes need review. Your manuscript is kept.' : '変更の確認が必要です。原稿は保持されています。';
+        return en ? 'Changes need review. Your editable Read is kept.' : '変更の確認が必要です。編集用リードは保持されています。';
     return labels[work.status]?.[en?1:0] || labels.unconfirmed[en?1:0];
 }
 
@@ -50,18 +50,18 @@ export function installStudioWorkStatus({host,read,getLocale,onResume,onSave,onE
     actions.append(resume,save,exportFile,close);section.append(cover,info,actions);host.append(section);
     let pending=false,error='';
     function render(){const work=read(),en=getLocale()==='en';section.hidden=!work.open;section.dataset.state=work.status;
-        caption.textContent=en?'Open manuscript':'開いている原稿';title.textContent=work.title||(en?'Untitled manuscript':'無題の原稿');
+        caption.textContent=en?'Open editable Read':'編集中のリード';title.textContent=work.title||(en?'Untitled editable Read':'無題の編集用リード');
         const src=/^(https:|blob:|data:image\/)/i.test(work.thumbnail||'')?work.thumbnail:'';
         if(image.dataset.source!==src){image.dataset.source=src;image.hidden=!src;fallback.hidden=!!src;if(src)image.src=src;else image.removeAttribute('src');}
         status.textContent=error||studioWorkText(work,en);resume.textContent=en?'Continue editing':'編集を続ける';
         resume.className='studio-current-work-primary';
-        save.textContent=work.local?(en?'Save DSP file':'DSPファイルに保存'):(en?'Save to cloud':'クラウドに保存');
-        exportFile.textContent=en?'Save a DSP copy':'DSPに退避';close.textContent=en?'Close manuscript':'原稿を閉じる';
+        save.textContent=work.local?(en?'Save editable file':'編集用ファイルに保存'):(en?'Save to cloud':'クラウドに保存');
+        exportFile.textContent=en?'Save an editable file copy':'編集用ファイルに退避';close.textContent=en?'Close editable Read':'編集用リードを閉じる';
         save.hidden=!work.blocked;save.disabled=pending||!work.canSave;resume.disabled=pending;
         exportFile.hidden=work.local||!work.blocked||!work.canExport;exportFile.disabled=pending;
-        close.hidden=work.shared;close.disabled=pending||!work.canClose;close.title=work.canClose?(en?'Saved data and backups are kept':'保存済みデータとバックアップは残ります'):(en?'Save the manuscript before closing':'保存を確認してから閉じられます');
+        close.hidden=work.shared;close.disabled=pending||!work.canClose;close.title=work.canClose?(en?'Saved data and backups are kept':'保存済みデータとバックアップは残ります'):(en?'Save the editable Read before closing':'保存を確認してから閉じられます');
     }
-    async function run(action){if(pending)return;pending=true;error='';render();try{await action();}catch{error=getLocale()==='en'?'Could not complete the operation. Your manuscript is kept.':'操作を完了できませんでした。原稿は保持されています。';}finally{pending=false;render();}}
+    async function run(action){if(pending)return;pending=true;error='';render();try{await action();}catch{error=getLocale()==='en'?'Could not complete the operation. Your editable Read is kept.':'操作を完了できませんでした。編集用リードは保持されています。';}finally{pending=false;render();}}
     resume.onclick=onResume;save.onclick=()=>run(onSave);exportFile.onclick=()=>run(onExport);close.onclick=()=>run(onClose);
     for(const name of ['studio-work-status','local-draft-status','home-start-refresh','online','offline'])window.addEventListener(name,()=>{error='';render();});
     document.addEventListener('studio-ui-language-change',render);render();return {render};

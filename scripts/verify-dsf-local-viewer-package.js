@@ -383,7 +383,7 @@ for (const forbidden of ['firebase', 'firestore', 'public_projects', 'upload', '
 }
 assert.match(viewerSource, /import\('\.\/dsf-local-viewer-package\.js'\)/);
 assert.match(viewerSource, /source: 'local-portable-v2'/);
-assert.match(viewerSource, /mapDsfLanguagePage\(sourceManifest, targetManifest, getIndex\(\)\)/);
+assert.match(viewerSource, /mapDsfLanguagePage\(sourceManifest, targetManifest, sourceIndex\)/);
 assert.match(viewerSource, /replaceViewerLocalPortableSession\(options\.localPortableSession \|\| null\)/);
 const readerFileInput = viewerHtml.match(/<input\b[^>]*\bid="file-input"[^>]*>/)?.[0];
 assert.ok(readerFileInput, 'Reader file picker must exist.');

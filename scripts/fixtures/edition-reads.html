@@ -1,0 +1,11 @@
+<!doctype html>
+<html lang="ja"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>リーズ・版固定のローカル検証</title>
+<link rel="stylesheet" href="/css/variables.css"><link rel="stylesheet" href="/css/studio.css">
+<style>body{width:auto;min-width:0;box-sizing:border-box;display:block;height:auto;overflow:auto;margin:24px;background:var(--studio-surface);color:var(--studio-text);font:16px system-ui}main{max-width:1050px;margin:auto}.edition-reads button{cursor:pointer}dialog:not(.edition-embed-dialog){max-width:420px;border:1px solid #ccd4df;border-radius:12px;padding:24px}#fixture-controls{display:flex;gap:8px;flex-wrap:wrap;margin:16px 0}#fixture-log{white-space:pre-wrap;overflow-wrap:anywhere;max-width:100%}#fixture-controls button{max-width:100%;white-space:normal}button{min-height:44px} .works-room-list{padding:0}select{max-width:100%}</style>
+<main><h1>リーズの版管理</h1><p>ローカルの使い捨てサンプルです。クラウドデータは読み書きしません。初版・第二版は同じ作品、写真集は別作品です。</p>
+<div id="fixture-controls"><button id="fixture-light">ライト</button><button id="fixture-dark">ダーク</button><button id="fixture-reset">サンプルをリセット</button><button id="fixture-lang">English</button><button id="fixture-fail">次の操作を通信失敗にする</button><button id="fixture-owner">所有者を切り替える</button></div>
+<button id="fixture-hang">次の読み込みを停止（2秒で再試行案内）</button>
+<section id="works-room"><div id="fixture-reads" class="works-room-list"></div></section><output id="fixture-log" aria-live="polite"></output>
+
+</main><script type="module" src="./edition-reads.js"></script></html>

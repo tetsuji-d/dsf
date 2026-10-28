@@ -1,6 +1,6 @@
 # Data Model Documentation
 
-**最終更新**: 2026-08-23
+**最終更新**: 2026-10-24
 **ステータス**: Architect 管理下（変更には Architect 承認が必要）
 
 > **2026-08-23 9A-0承認方針**: 既存WebP-only DSF v1の後方互換を維持しつつ、グラフィックはWebP、
@@ -1116,3 +1116,29 @@ Flowを含む作品のDSF／Horizon発行はhybrid delivery v2の検証済みpro
 ## ページリンク拡張（2026-10-10、ローカル実装）
 
 Architect承認済み。リンク使用原稿はProject v7 / DSP meta schemaVersion 2。privateなpageNavigationに対象ID・範囲・参照先を保持する。生成番号は本文・キャプション内のキャッシュとして描画し、正本は参照先ID／絶対本文番号。DSF v2には解決済みpageLinksを付与する。詳細と実環境での未検証範囲は[ページリンク統合記録](page-links-editor-integration.md)を参照。未使用原稿の形式は維持する。
+## 2026-10-24: Horizon版固定・リーズ管理の追加契約
+
+Architect合意済み。詳細は [horizon-editions-spec.md](horizon-editions-spec.md)。下記は本作業ブランチの実装契約であり、実環境へのRules/Functions配備は別工程。
+
+- Workは作品の集合、Releaseは不変の配信snapshot。Pressは新Releaseを作成し、旧public_projectsを削除しない。
+- `users/{uid}/works/{workId}/edition_states/{releaseId}` にschemaVersion:1、editionId、revision、status（public/unlisted/private/archived/disposed）、publication、firstPublishedAtMs、publicSnapshot、editionLabel、successorEditionId、requestId/signature、cleanupPendingを保存する。owner/staff read、client write禁止。公開・アーカイブ・復元・廃棄は認証済み `/api/editions` を通す。
+- `public_editions/{editionId}` は匿名read/server-only write。editionIdは `[uid,workId,releaseId]` のJSON UTF-8 SHA-256に `e_` を付ける。閲覧可能な版は公開snapshot、非公開/archived/disposedは配信locatorを持たない恒久tombstoneとする。
+- 既存public_projectsは旧URLの固定snapshotとして保持する。owner clientから新規作成・変更・削除を禁止し、新版を同じURLに差し替えない。旧indexと新indexが同一版を指す場合、Horizonで重複表示しない。
+- Releaseはclientから新規作成のみ可能。更新・削除は禁止。edition_statesが存在するIDの再作成も禁止。物理廃棄はserverでのみ行い、恒久状態を残す。
+- 廃棄時は版専用R2 prefixだけを分割削除し、完了後にRelease metadataを削除する。原稿本体・他版・共有font・共有thumbnailは保持する。Projectが廃棄版を現在版として参照している場合は、原稿を残したまま配信projectionとDashboard summaryだけをクリアする。
+- R2の `edition-tombstones/{uid}/{workId}/{releaseId}` は廃棄済み版への再uploadを拒否するため残す。これは公開配信データではない。旧Firebase資産など専用prefix外のデータは安全な移行なしに削除済みと扱わない。
+- DSP/DSF ZIP、FlowDocument、Pageのschemaは変更しない。原稿の通常保存から版の内容・公開snapshotを更新しない。
+
+## 2026-10-25: Horizon埋め込み・条件付き閲覧数（staging）
+
+ユーザーの実装指示に基づく追加契約。本番未反映。仕様は [horizon-embed-spec.md](horizon-embed-spec.md)。
+
+- `edition_states/{releaseId}.embedPolicy` は `{version:1,mode:'off'|'any'|'allowlist',allowedOrigins:string[]}`。未設定はoff。許可先は正規化済みのHTTPS origin（標準port、最大20件、wwwやsubdomainは別）。既存revision/requestId/所有者検証で変更し、Release本文と恒久URLは変えない。
+- `/embed/{editionId}` は公開状態・期間・設定をserverで照合し、版別のCSP frame-ancestorsを返す。通常Readerは外部frame拒否だが、通常のトップレベルリンクは設定に関係なく公開状態に従う。HTML/APIはno-store。
+- `/api/reader-metrics` は同一originからの匿名POSTを受け、公開版・有効なticket・固定30分窓・受付上限を検証。ticketはランダムUUIDをserverで保持して照合し、署名トークンではない。
+- `reader_view_sessions/{sha256(editionId:sessionId:window)}` は `token,editionId,window,createdAtMs,counted,expiresAt`、確定時に `source,reason,countedAtMs` を保存。生のsessionIdは保存しない。expiresAtは窓の終了+30日。TTL削除をstagingで有効化。
+- `reader_view_totals/{editionId}` と `reader_view_days/{editionId}_{UTC日付}` は `schemaVersion:2,editionId,views,embed,reader,updatedAt`、日次はdayを持つ。session確定と二つの集計を同一Firestore transactionで更新する。API再送と同時送信で二重加算しない。
+- `reader_rate_limits/{dailyKey}_{minute}` は `count,expiresAt`。IPをserverの秘密値と日付を含むSHA-256へ通してdailyKeyを作り、生IP・外部URLパス・端末指紋は保存しない。ticketと確定を合計120回/分に制限し、1日後にTTL削除対象とする。
+- 新collectionは全てserver専用。既存Firestore Rulesのdefault denyで直接アクセスを拒否するためRulesの追加許可は不要。ownerの集計表示は認証済み `/api/editions` のstatsを通す。
+- 版URLの新計測は旧metric_eventsと分離。旧load由来viewは新viewに合算せず、新版clientからload由来view_startは送らない。editionへ移行されていない旧URLのpage_view等は旧系列のまま。
+- TTL削除は非同期で、期限を過ぎたticketは削除完了を待たずAPIが拒否する。30分窓はUTC epochを基準とした固定境界であり、直前の閲覧から必ず30分空ける方式ではない。

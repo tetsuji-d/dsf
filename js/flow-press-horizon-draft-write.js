@@ -251,6 +251,9 @@ export function createFlowPressHorizonDraftWrite(input = {}) {
             publication: deepClone(publication),
         },
         releaseDocument: {
+            languageConfigs: isRecord(input.project.languageConfigs) ? deepClone(input.project.languageConfigs) : {},
+            title: normalizeString(input.project.title),
+            meta: deepClone(projectFields.meta),
             releaseId: identity.releaseId,
             workId: identity.workId,
             projectId: input.projectId,

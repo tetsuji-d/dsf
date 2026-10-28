@@ -146,6 +146,6 @@ const source = readFileSync(new URL('../functions/upload.js', import.meta.url), 
 assert.match(source, /PUBLICATION_THUMBNAIL_FILENAME_PATTERN/);
 assert.match(source, /subtle\.digest\('SHA-256', buffer\)/);
 assert.match(source, /thumbnailAddress\.applies && !thumbnailAddress\.matches/);
-assert.equal(source.includes('R2_BUCKET.head'), false, 'legacy upload endpoint still allows same-byte retry writes');
+assert.match(source, /if \(edition\)/, 'immutability checks only apply to exact edition storage paths');
 
 console.log('Publication thumbnail upload hash verification passed.');

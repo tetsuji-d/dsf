@@ -6,9 +6,9 @@ export function createRecentWorksUI({root,getLocale=()=> 'ja',onCloud,onLocal,on
  const thumbnails=new Map(); let thumbnailUid;
  function render(next=data){observer?.disconnect();if(thumbnailUid!==next.uid){thumbnails.clear();thumbnailUid=next.uid;}data=next;if(!root)return;const focused=root.contains(document.activeElement)&&document.activeElement.type==='search';const selection=focused?document.activeElement.selectionStart:null;const en=getLocale()==='en',t=(ja,english)=>en?english:ja;root.replaceChildren();
   const title=el('h3',t('最近の作業','Recent work'));root.append(title);
-  const toolbar=el('div',null,'recent-works-toolbar'),search=el('input');search.type='search';search.value=query;search.placeholder=t('リード名・プロジェクト名・スペース名で検索','Search Reads, projects or spaces');search.setAttribute('aria-label',t('スペース横断で検索','Search across spaces'));
+  const toolbar=el('div',null,'recent-works-toolbar'),search=el('input');search.type='search';search.value=query;search.placeholder=t('リード名・管理名・スペース名で検索','Search Reads, projects or spaces');search.setAttribute('aria-label',t('スペース横断で検索','Search across spaces'));
   const select=el('select');select.setAttribute('aria-label',t('最近の作業の表示範囲','Recent work scope'));
-  const options=[['all',t('すべてのスペースとこの端末','All spaces and this device')],['personal',t('マイスペース（クラウド）','My Space (cloud)')],['device',t('この端末のみの原稿','Device-only manuscripts')],...(data.catalogue?.spaces||[]).map(s=>[s.id,s.name]),...(data.directory?.spaces||[]).map(s=>[s.id,s.name])];
+  const options=[['all',t('すべてのスペースとこの端末','All spaces and this device')],['personal',t('マイスペース（クラウド）','My Space (cloud)')],['device',t('この端末のみの編集用リード','Device-only editable Reads')],...(data.catalogue?.spaces||[]).map(s=>[s.id,s.name]),...(data.directory?.spaces||[]).map(s=>[s.id,s.name])];
   for(const [value,label]of options.filter((x,i,a)=>a.findIndex(y=>y[0]===x[0])===i)){const o=el('option',label);o.value=value;select.append(o);}if(!options.some(o=>o[0]===scope))scope='all';select.value=scope;
   const refresh=el('button',t('一覧を更新','Refresh'),'home-action-btn');refresh.type='button';refresh.onclick=onRefresh;toolbar.append(search,select,refresh);root.append(toolbar);
   const status=el('p',null,'recent-works-status');status.setAttribute('role','status');root.append(status);
@@ -16,16 +16,14 @@ export function createRecentWorksUI({root,getLocale=()=> 'ja',onCloud,onLocal,on
   const recovery=el('button',t('ブラウザーの復元用コピーを確認','Review browser recovery copies'),'home-action-btn');recovery.type='button';recovery.onclick=onRecovery;recovery.hidden=!onRecovery;root.append(recovery);
   const list=el('div',null,'recent-works-shelf');list.tabIndex=0;list.setAttribute('aria-label',t('最近の作業一覧','Recent work list'));root.append(list);
   const controls=el('div',null,'recent-works-controls');
-  for(const [step,label]of [[-1,t('前のリード','Previous Reads')],[1,t('次のリード','Next Reads')]]){const b=el('button',label,'home-action-btn');b.type='button';b.dataset.step=step;b.onclick=()=>list.scrollBy({left:step*Math.max(260,list.clientWidth-40),behavior:window.matchMedia('(prefers-reduced-motion: reduce)').matches?'instant':'smooth'});controls.append(b);}
   const moreCards=el('button',t('さらに表示','Show more'),'home-action-btn');moreCards.type='button';moreCards.onclick=()=>{limit+=24;draw();};controls.append(moreCards);
   if(data.directory?.more||data.directory?.failed){const more=el('button',data.directory.failed?t('参加スペースを再取得','Retry joined spaces'):t('参加スペースのリーズをさらに取得','Load more joined Reads'),'home-action-btn');more.type='button';more.disabled=!!data.directory.busy;more.onclick=onMore;controls.append(more);}
   root.append(controls);
-  function arrows(){for(const b of controls.querySelectorAll('[data-step]'))b.disabled=Number(b.dataset.step)<0?list.scrollLeft<=1:list.scrollLeft+list.clientWidth>=list.scrollWidth-1;}
-  list.addEventListener('scroll',arrows,{passive:true});
+
   function draw(){const grouped=buildRecentWorks(data),separated=separateRecentRecovery(grouped),rows=separated.manuscripts,filtered=filterRecentWorks(rows,{query,scope});list.replaceChildren();
-   note.textContent=t('復元用コピーは専用の画面に保管しています。この端末だけにある原稿は、この一覧に表示します。','Recovery copies are kept in their own view. Manuscripts that exist only on this device remain listed here.');
+   note.textContent=t('復元用コピーは専用の画面に保管しています。この端末だけにある編集用リードは、この一覧に表示します。','Recovery copies are kept in their own view. Editable Reads that exist only on this device remain listed here.');
    recovery.hidden=!onRecovery||!separated.recovery.length;
-   const notices=[];if(!data.online)notices.push(t('オフライン：端末の原稿を表示中。クラウド原稿のコピーは復元用コピーから開けます','Offline: device manuscripts shown. Cloud manuscript backups are available in recovery copies'));else if(!data.uid)notices.push(t('ログインするとクラウドリードも表示します','Sign in to include cloud Reads'));else if(data.owned===null)notices.push(t('クラウド一覧は未取得です','Cloud list is unavailable'));
+   const notices=[];if(!data.online)notices.push(t('オフライン：端末の編集用リードを表示中。クラウド編集用リードのコピーは復元用コピーから開けます','Offline: device editable Reads shown. Cloud editable Read backups are available in recovery copies'));else if(!data.uid)notices.push(t('ログインするとクラウドリードも表示します','Sign in to include cloud Reads'));else if(data.owned===null)notices.push(t('クラウド一覧は未取得です','Cloud list is unavailable'));
    if(data.localFailed)notices.push(t('端末コピーを取得できませんでした','Browser copies could not be loaded'));
    if(data.loading)notices.push(t('一覧を読み込み中…','Loading…'));
    if(data.directory?.unavailable)notices.push(t('参加スペースの横断表示は現在このアカウントでは利用できません','Joined-space browsing is not available for this account yet'));
@@ -40,27 +38,28 @@ export function createRecentWorksUI({root,getLocale=()=> 'ja',onCloud,onLocal,on
    for(const row of filtered.slice(0,limit)){
     const p=row.cloud||row.shared||row.locals[0],card=el('article',null,'recent-work-card');card.dataset.recentKey=row.key;
     const cacheKey=row.key+':'+row.updatedAt;
+    const cover=el('div','▤','recent-work-cover'),info=el('div',null,'recent-work-info'),dates=el('div',null,'recent-work-dates');card.append(cover,info,dates);
     const img=el('img');img.alt='';img.loading='lazy';
     const fallback=()=>{if(!row.cloud||!resolveThumbnail)return;
-        card.loadThumbnail=async()=>{const uid=data.uid;try{const value=await resolveThumbnail(row,()=>card.isConnected&&data.uid===uid);if(value&&card.isConnected&&data.uid===uid){thumbnails.set(cacheKey,value);img.onerror=()=>img.remove();img.src=value;card.prepend(img);}}catch{/* An unavailable private cover must not block the shelf. */}};
+        card.loadThumbnail=async()=>{const uid=data.uid;try{const value=await resolveThumbnail(row,()=>card.isConnected&&data.uid===uid);if(value&&card.isConnected&&data.uid===uid){thumbnails.set(cacheKey,value);img.onerror=()=>img.remove();img.src=value;cover.append(img);}}catch{/* An unavailable private cover must not block the shelf. */}};
         observer.observe(card);
     };
     const thumb=thumbnails.get(cacheKey)||p.listThumbnail||p.thumbnail;
-    if(thumb&&/^(https:|data:image\/|blob:)/.test(thumb)){img.src=thumb;img.onerror=()=>{img.remove();fallback();};card.append(img);}else fallback();
-    card.append(el('h4',resolveProjectName(p)||resolveProjectDisplayTitle(p,{locale:getLocale()})||t('無題の原稿','Untitled manuscript')));
+    if(thumb&&/^(https:|data:image\/|blob:)/.test(thumb)){img.src=thumb;img.onerror=()=>{img.remove();fallback();};cover.append(img);}else fallback();
+    info.append(el('h4',resolveProjectName(p)||resolveProjectDisplayTitle(p,{locale:getLocale()})||t('無題の編集用リード','Untitled editable Read')));
     const label=row.spaceName||(row.spaceId===null?t('マイスペース（クラウド）','My Space (cloud)'):row.spaceId==='device'?t('この端末のみ・スペース未所属','This device only; no space'):row.otherAccount?t('別アカウントのコピー','Copy from another account'):t('所属未確認','Space unconfirmed'));
-    card.append(el('p',label,'recent-work-space'));
-    if(row.cloudTrashed)card.append(el('p',t('クラウド原稿はゴミ箱にあります','Cloud manuscript is in Trash')));
+    info.append(el('p',label,'recent-work-space'));
+    if(row.cloudTrashed)info.append(el('p',t('クラウド編集用リードはゴミ箱にあります','Cloud editable Read is in Trash')));
     const actions=el('div',null,'recent-work-actions');const action=(text,callback)=>{const b=el('button',text,'home-action-btn');b.type='button';b.onclick=async()=>{b.disabled=true;try{await callback();}finally{if(b.isConnected)b.disabled=false;}};actions.append(b);};
-    if(row.shared){if(row.shared.canOpen){const a=el('a',row.shared.canEdit?t('共有原稿を編集','Edit shared manuscript'):t('共有原稿を読む','Read shared manuscript'),'home-action-btn');a.href='/studio?room=editor&sharedSpace='+encodeURIComponent(row.shared.spaceId)+'&sharedWork='+encodeURIComponent(row.shared.workId);actions.append(a);}else actions.append(el('span',t('共有原稿の読込は準備中','Shared opening is not available')));}
-    else if(row.cloud)action(t('クラウドを開く','Open cloud'),()=>onCloud(row));
-    for(const copy of row.locals)action(t('原稿を開く','Open manuscript'),()=>onLocal(copy));
+    if(row.shared){if(row.shared.canOpen){const a=el('a',row.shared.canEdit?t('共有編集用リードを編集','Edit shared editable Read'):t('共有編集用リードを読む','Read shared editable Read'),'home-action-btn');a.href='/studio?room=editor&sharedSpace='+encodeURIComponent(row.shared.spaceId)+'&sharedWork='+encodeURIComponent(row.shared.workId);actions.append(a);}else actions.append(el('span',t('共有編集用リードの読込は準備中','Shared opening is not available')));}
+    else if(row.cloud)action(t('編集を続ける','Continue editing'),()=>onCloud(row));
+    for(const copy of row.locals)action(t('編集を続ける','Continue editing'),()=>onLocal(copy));
     card.append(actions);
-    if(row.openedAt)card.append(el('p',t('最近開いた日時：','Last opened: ')+new Date(row.openedAt).toLocaleString(en?'en-US':'ja-JP'),'recent-works-note'));
-    if(row.updatedAt)card.append(el('p',t('更新：','Updated: ')+new Date(row.updatedAt).toLocaleString(en?'en-US':'ja-JP'),'recent-works-note'));
+    if(row.openedAt)dates.append(el('p',t('最近開いた日時：','Last opened: ')+new Date(row.openedAt).toLocaleString(en?'en-US':'ja-JP'),'recent-works-note'));
+    if(row.updatedAt)dates.append(el('p',t('更新：','Updated: ')+new Date(row.updatedAt).toLocaleString(en?'en-US':'ja-JP'),'recent-works-note'));
     list.append(card);
    }
-   if(!filtered.length)list.append(el('p',t('一致するリードはありません。','No matching Reads.')));moreCards.hidden=filtered.length<=limit;requestAnimationFrame(arrows);
+   if(!filtered.length)list.append(el('p',t('一致するリードはありません。','No matching Reads.')));moreCards.hidden=filtered.length<=limit;
   }
   search.oninput=()=>{query=search.value;limit=24;list.scrollLeft=0;draw();};select.onchange=()=>{scope=select.value;limit=24;list.scrollLeft=0;draw();};draw();if(focused){search.focus({preventScroll:true});search.setSelectionRange(selection,selection);}
  }

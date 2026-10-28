@@ -65,6 +65,7 @@ export function createProjectActions({ db, bucket, service, assertLiveIdentity, 
         },
         async execute(identity, projectId, command) {
             check(command && ['draft', 'publication', 'delete', 'restore', 'profile', 'listing'].includes(command.kind), 'ACTION_INVALID', 400);
+            check(command.kind !== 'publication', 'EDITION_API_REQUIRED', 409);
             check(command.kind !== 'delete', 'PROJECT_TRASH_REQUIRED', 409);
             const stopping = command.kind === 'publication' && ['draft','private'].includes(command.payload?.status);
             segment(command.requestId); segment(command.generationId);
@@ -126,6 +127,7 @@ export function createProjectActions({ db, bucket, service, assertLiveIdentity, 
                     const projection = resolveWorksDsfRelease({ ...payload, workId, releaseId, defaultLang: savedSource.defaultLang }, { uid: identity.uid, workId, releaseId, allowedContentOrigins: origins() });
                     check(projection.releaseKind === 'webp-v1', 'RELEASE_KIND_INVALID', 422);
                     const release = { ...projection.deliveryFields, workId, releaseId, projectId,
+                        title: savedSource.title || '', meta: savedSource.meta || {},
                         book: payload.bookConfig?.book || null, bookMode: payload.bookConfig?.bookMode || 'simple',
                         languageConfigs: savedSource.languageConfigs || {}, thumbnail: payload.thumbnail,
                         dsfStatus: 'draft', publication, dsfRenderStamp: now(), dsfTotalBytes: 0,
@@ -163,11 +165,12 @@ export function createProjectActions({ db, bucket, service, assertLiveIdentity, 
                     result = { state: 'deleted', projectId };
                 } else if (command.kind === 'draft') {
                     check(c.account.status?.moderationHold !== true, 'ACCOUNT_CANNOT_PUBLISH', 403);
-                    check(!release, 'RELEASE_ALREADY_EXISTS', 409);
+                    const [editionState] = await tx.getMany([workPath + '/edition_states/' + segment(releaseId)]);
+                    check(!release && !editionState, 'RELEASE_ALREADY_EXISTS', 409);
                     patch = bounded({ ...draft.projectPatch, dsfPublishedAt: timestamp });
                     tx.set(releasePath, bounded({ ...draft.releaseDocument, createdAt: timestamp, dsfPublishedAt: timestamp }));
                     tx.patch(workPath, bounded({ ...draft.workPatch, updatedAt: timestamp }));
-                    indexPaths.forEach(path => tx.delete(path));
+                    // Earlier editions remain published independently.
                     result = { state: 'committed', releaseId, projectPatch: patch };
                 } else if (command.kind === 'publication') {
                     check(payload.expectedStatus === (c.root.dsfStatus || 'draft') && payload.expectedReleaseId === (c.root.releaseId || null), 'PUBLICATION_STATE_CONFLICT', 409);
@@ -204,7 +207,15 @@ export function createProjectActions({ db, bucket, service, assertLiveIdentity, 
                     patch = { projectBytes: payload.projectBytes, pageCount: payload.pageCount, listThumbnail: payload.listThumbnail };
                     result = { state: 'committed' };
                 }
-                if (patch) { bounded({ ...c.root, ...patch }); tx.patch(c.p.root, patch); tx.set(c.p.summary, createProjectSummaryForPatch(c.root, patch, { projectId })); }
+                if (patch) {
+                    const nextRoot = bounded({ ...c.root, ...patch });
+                    if (command.kind === 'draft' && !payload.upload) {
+                        for (const key of ['dsfContentUrl', 'dsfContentHash', 'dsfPageCounts']) delete nextRoot[key];
+                        nextRoot.dsfSchemaVersion = 1;
+                        tx.set(c.p.root, nextRoot);
+                    } else tx.patch(c.p.root, patch);
+                    tx.set(c.p.summary, createProjectSummaryForPatch(nextRoot, {}, { projectId }));
+                }
                 if (command.kind !== 'delete') tx.set(c.p.control, { ...c.control, mutationRevision: command.mutationRevision + 1 });
                 const usage = usageValue(c.usage, now()); check(usage.operationCount < AUTHORING_LIMITS.operations, 'STORAGE_QUOTA_EXCEEDED', 429);
                 usage.operationCount++; tx.set(c.p.usage, usage);

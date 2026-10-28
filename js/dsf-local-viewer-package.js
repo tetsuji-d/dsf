@@ -560,13 +560,15 @@ export async function loadDsfLocalViewerPackage(input = {}) {
     const hashBytes = async (bytes) => sha256DsfBytes(bytes, { cryptoRef });
     const archiveBytes = new Uint8Array(await file.arrayBuffer());
     await input.onProgress?.('archive','ファイルの構造を確認しています…','Checking the file structure…');
-    if(input.allowWriting){
-        const {writingArchiveKind}=await import('./dsf-writing-zip.js');
-        if(writingArchiveKind(archiveBytes)==='writing'){
-            // The strict v3 loader checks directory, CRC and every entry hash.
-            const {loadWritingReaderSession}=await import('./reader-writing-session.js');
-            return loadWritingReaderSession(file,{bytes:archiveBytes,onProgress:input.onProgress});
+    const {writingArchiveKind}=await import('./dsf-writing-zip.js');
+    if(writingArchiveKind(archiveBytes)==='writing'){
+        if (!input.allowWriting) {
+            fail('LOCAL_DSF_WRITING_UNAVAILABLE', 'format.json',
+                'This Reader build does not include Writing DSFR support. Open this file in a Writing-enabled Reader.');
         }
+        // The strict v3 loader checks directory, CRC and every entry hash.
+        const {loadWritingReaderSession}=await import('./reader-writing-session.js');
+        return loadWritingReaderSession(file,{bytes:archiveBytes,onProgress:input.onProgress});
     }
     let zip;
     try {

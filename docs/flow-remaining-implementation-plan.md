@@ -1,5 +1,7 @@
 # Flow / DSF delivery v2 残実装計画・AI引き継ぎ
 
+2026-10-24追記: 公開機能の新規作業は [Horizon版仕様](horizon-editions-spec.md) と [版管理実装計画](horizon-editions-implementation-plan.md) を参照。以下は以前のcheckpointに基づく履歴であり、版単位の公開と旧URL固定の仕様は新文書を優先する。
+
 最終更新: 2026-09-05
 確認済みcheckpoint: `feature/flow-layout-foundation` / `5cecb17`
 対象: DSF Studio、Press、Works、Horizon、ViewerのFlow原稿とDSF delivery v2

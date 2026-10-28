@@ -65,20 +65,15 @@ const worksSource = readFileSync(new URL('../js/works.js', import.meta.url), 'ut
 const i18nSource = readFileSync(new URL('../js/i18n-studio.js', import.meta.url), 'utf8');
 const viewerSource = readFileSync(new URL('../js/viewer.js', import.meta.url), 'utf8');
 assert.match(appSource, /window\.openDraftViewer/);
-assert.match(
-    worksSource,
-    /const label = p\.dsfStatus === 'draft'\s*\?\s*t\('works_draft_preview'\)\s*:\s*t\('works_private_preview'\);/,
-);
-assert.match(worksSource, /t\('works_open_owner_preview', \{ label \}\)/);
-assert.match(i18nSource, /works_draft_preview:\s*'下書きプレビュー'/);
-assert.match(i18nSource, /works_draft_preview:\s*'Draft preview'/);
-assert.match(i18nSource, /works_private_preview:\s*'非公開プレビュー'/);
-assert.match(i18nSource, /works_private_preview:\s*'Private preview'/);
-assert.match(i18nSource, /works_open_owner_preview:\s*'所有者として\{label\}を開く'/);
-assert.match(i18nSource, /works_open_owner_preview:\s*'Open \{label\} as owner'/);
-assert.match(worksSource, /p\.dsfStatus === 'draft' \|\| p\.dsfStatus === 'private'/);
+const editionSource=readFileSync(new URL('../js/edition-reads.js',import.meta.url),'utf8');
+assert.match(editionSource, /buildOwnerDraftViewerUrl\(location.origin, row.projectId, row.releaseId\)/);
+assert.match(worksSource,/openEditionReads/);
 assert.match(viewerSource, /params\.get\('draft'\)/);
 assert.match(viewerSource, /source: 'owner-draft'/);
 assert.match(viewerSource, /users', uid, 'works', identity\.workId, 'releases', identity\.releaseId/);
 
 console.log('Owner-only draft Viewer route checks passed.');
+const legacy = resolveOwnerDraftWorkIdentity({uid:'owner-1', projectId:'テスト01', project:{workId:'作品１'}});
+assert.equal(new URL(buildOwnerDraftViewerUrl('https://example.com', legacy.projectId, 'rel_1')).searchParams.get('draft'), 'テスト01');
+assertOwnerDraftReleaseMetadata({projectId:'テスト01', workId:'作品１', releaseId:'rel_1'}, {...legacy, releaseId:'rel_1'});
+for (const id of ['../作品', '作品/1', '作品%2F1', '作品?1']) assert.throws(() => normalizeOwnerDraftProjectId(id));

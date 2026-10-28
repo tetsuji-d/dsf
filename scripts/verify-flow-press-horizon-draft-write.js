@@ -216,9 +216,9 @@ for (const forbidden of ['./firebase', './press', 'setDoc(', 'writeBatch(', 'del
     assert.equal(moduleSource.includes(forbidden), false, `draft contract cannot depend on ${forbidden}`);
 }
 const pressSource = readFileSync(new URL('../js/press.js', import.meta.url), 'utf8');
-assert.match(pressSource, /import\('\.\/flow-press-horizon-draft-write\.js'\)/);
+assert.match(pressSource, /from '.\/flow-press-horizon-draft-write.js'/);
 assert.match(pressSource, /await runTransaction\(db, async \(transaction\) =>/);
-assert.match(pressSource, /if \(publicSnap\.exists\(\)\) transaction\.delete\(publicRefs\[index\]\)/);
+assert.doesNotMatch(pressSource, /transaction\.delete\(publicRefs/);
 assert.match(pressSource, /FLOW_HORIZON_DRAFT_PUBLIC_INDEX_OWNER_MISMATCH/);
 assert.match(pressSource, /assertCompatibleFlowPressHorizonRelease\(existingRelease, draft\)/);
 assert.match(pressSource, /if \(hasFlow && isHorizonPublish\)[\s\S]*btn\.disabled = !flowHorizonReady \|\| working \|\| saved/,

@@ -1,0 +1,16 @@
+/* Shared Reader/embed page marks. The visible line is 3px; its control is 44px. */
+.has-page-segments .viewer-page-segments{top:auto;bottom:0;height:44px;min-height:44px;justify-content:stretch;align-items:flex-end}
+.viewer-page-segments .viewer-page-segment-marks{width:100%;height:3px;gap:2px;align-items:stretch}
+.viewer-page-segments .viewer-segment-spread{min-width:0;gap:1px}
+.viewer-page-segments .viewer-segment-spread i{flex:1;min-width:0;width:auto;height:3px;background:#161616cc;box-shadow:none}
+.viewer-page-segments .viewer-segment-gap{min-width:0;height:3px;background:#161616cc}
+.viewer-page-segments .viewer-segment-gap[data-hover=true],.viewer-page-segments .viewer-segment-spread i[data-hover=true]{background:#929292}
+.viewer-page-segments .viewer-segment-gap[data-read=true],.viewer-page-segments .viewer-segment-spread i[data-read=true]{background:#ff0033}
+.viewer-page-segments .viewer-segment-spread i[data-active=true],.viewer-page-segments .viewer-segment-spread i[data-current=true]{background:#ff0033}
+.viewer-page-bar-value{position:absolute;bottom:46px;transform:translateX(-50%);padding:4px 8px;background:#182233;color:#fff;font:12px/1.4 system-ui;white-space:nowrap;pointer-events:none}
+body .has-page-segments.slider-wrapper{height:3px;min-height:3px}
+body:has(#viewer-reader-controls[data-dock=bottom]) :is(#viewer-bottom-navigation,#viewer-footer) .has-page-segments.slider-wrapper{height:3px}
+#viewer-reading-progress{position:fixed;left:0;right:0;bottom:0;height:3px;z-index:100}
+body:not(.viewer-ui-visible) #viewer-reading-progress .viewer-page-segments{pointer-events:none}
+body.reader-writing-text-editing #viewer-reading-progress{visibility:hidden}
+.slider-wrapper[hidden]{display:none!important}

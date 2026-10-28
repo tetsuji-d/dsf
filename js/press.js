@@ -16,12 +16,13 @@ import {appendFlowGraphicPreview} from './graphic-object-renderer.js';
 import {drawGraphicObject} from './graphic-object-renderer.js';
 import { compositeGraphicObjects, appendGraphicThumbnail } from './graphic-object-renderer.js';
 import { calculateHorizonSaveProgress, isManualHorizonSaveCancellation } from './horizon-save-progress.js';
+import { invalidateOwnedEditions } from './edition-list-client.js';
 /**
  * press.js — Press Room ロジック
  * DSP → DSF レンダリング・R2アップロード・Firestore発行
  */
 import {
-    doc, getDoc, serverTimestamp, writeBatch, runTransaction
+    doc, getDoc, serverTimestamp, writeBatch, runTransaction, deleteField
 } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
 import { state, dispatch, actionTypes, getProjectSessionEpoch } from './state.js';
 import { hasFlowGroups as actualFlowGroups } from './flow-project-model.js';
@@ -1197,7 +1198,7 @@ function _getPressFlowReleaseDiagnosticCopy(classification) {
             }
             : {
                 heading: 'そのまま再試行できます',
-                guidance: '一時的な失敗です。同じ配信内容のまま、もう一度「Horizonへ下書き保存」を実行してください。',
+                guidance: '一時的な失敗です。同じ配信内容のまま、もう一度「Horizonに発行」を実行してください。',
             };
     }
     if (classification === 'refresh-required') {
@@ -1497,7 +1498,7 @@ function _renderPressFlowHorizonHandoffStatus() {
             return `<span ${attributes}><b>${_esc(t('press_horizon_draft_title'))}</b> ${_esc(t('press_horizon_draft_saving'))}</span>`;
         }
         if (_pressFlowHorizonDraftState === 'error') {
-            const failed = getUILang() === 'en' ? 'Draft save failed.' : '下書き保存に失敗しました。';
+            const failed = getUILang() === 'en' ? 'Issuing failed.' : '発行に失敗しました。';
             const fileCount = _pressFlowHorizonUploadResult?.summary?.fileCount ?? result.summary?.fileCount;
             const diagnostic = _renderPressFlowReleaseOperationDiagnostic(
                 _pressFlowHorizonDraftError,
@@ -2637,14 +2638,12 @@ async function _writePressFlowHorizonDraftMetadata(upload, account, privateConte
                 { summaryOverrides: { dsfPublishedAt: publishedAt } },
             );
             transaction.set(workRef, { ...draft.workPatch, updatedAt: timestamp }, { merge: true });
-            transaction.set(releaseRef, {
+            if (!existingRelease) transaction.set(releaseRef, {
                 ...draft.releaseDocument,
                 dsfPublishedAt: timestamp,
                 ...(existingRelease ? {} : { createdAt: timestamp }),
             }, { merge: true });
-            publicSnaps.forEach((publicSnap, index) => {
-                if (publicSnap.exists()) transaction.delete(publicRefs[index]);
-            });
+            // A new edition never unpublishes an earlier edition.
         });
         if (requestId !== _pressFlowHorizonDraftRequestId
             || signature !== _pressFlowHorizonUploadSignature
@@ -2677,8 +2676,9 @@ async function _writePressFlowHorizonDraftMetadata(upload, account, privateConte
 }
 
 /** Persist only owner-visible draft metadata; public_projects is deleted atomically. */
-export function writeFlowHorizonDraftMetadata(account, privateContext) {
-    return _writePressFlowHorizonDraftMetadata(_pressFlowHorizonUploadResult, account, privateContext);
+export async function writeFlowHorizonDraftMetadata(account, privateContext) {
+    try { return await _writePressFlowHorizonDraftMetadata(_pressFlowHorizonUploadResult, account, privateContext); }
+    finally { invalidateOwnedEditions(); }
 }
 
 export function getFlowHorizonDraftMetadataState() {
@@ -3389,7 +3389,7 @@ window.updatePressBookCover = (key, value) => {
 
 // ─── レンダリング & 発行 ─────────────────────────────────────────────────────
 
-/** Press Room の「Horizonへ下書き保存」ボタンから呼ばれる */
+/** Press Room の「Horizonに発行」ボタンから呼ばれる */
 window.publishToCloud = async () => {
     if(!await window.prepareHorizonCloudSource?.())return;
     await refreshFlowHorizonDryRunReadiness();
@@ -3431,11 +3431,7 @@ window.publishToCloud = async () => {
             const draft = await writeFlowHorizonDraftMetadata(account, privateContext);
             _setFlowHorizonPublishProgress(t('press_flow_horizon_success'), 1);
             _closeFlowHorizonPublishModal();
-            alert(t('press_flow_horizon_success', {
-                files: upload.summary.fileCount,
-                pages: draft.summary.pageCount,
-            }));
-            window.switchRoom('works');
+            showHorizonIssueComplete();
         } catch (error) {
             if (isManualHorizonSaveCancellation(error, _pressRenderCancelled)) {
                 alert(t('press_flow_horizon_cancelled'));
@@ -3705,11 +3701,12 @@ window.publishToCloud = async () => {
                 dsfLangs: langs, dsfResolution: resStr, dsfQuality: Math.round(qualityProfile.image * 100) });
             publication = result.projectPatch.publication;
             if (state.uid !== uid || state.projectId !== publishingProjectId || getProjectSessionEpoch() !== publishingEpoch) {
-                throw new Error('下書きは保存されましたが、編集中のリードが変わりました。リーズ画面で確認してください。');
+                throw new Error('非公開で発行しましたが、編集中のリードが変わりました。リーズ画面で確認してください。');
             }
         } else {
         const projectBatch = writeBatch(db);
-        projectBatch.set(projectRef, projectPatch, { merge: true });
+        projectBatch.set(projectRef, { ...projectPatch, dsfSchemaVersion: 1,
+            dsfContentUrl: deleteField(), dsfContentHash: deleteField(), dsfPageCounts: deleteField() }, { merge: true });
         stageProjectSummaryWrite(
             projectBatch,
             db,
@@ -3747,6 +3744,10 @@ window.publishToCloud = async () => {
                 releaseId,
                 workId,
                 projectId: state.projectId,
+                title: state.title || '',
+                meta: state.meta || {},
+                defaultLang: langs.includes(state.defaultLang) ? state.defaultLang : langs[0],
+                languageConfigs: structuredClone(state.languageConfigs || {}),
                 dsfPages,
                 ...bookConfig,
                 thumbnail,
@@ -3770,8 +3771,7 @@ window.publishToCloud = async () => {
 
         // Press は新しい DSF を draft として作り直す。
         // 公開インデックスは Works が管理するため、再発行時は stale な公開行を外す。
-        if (publicWorkIndexSnap.exists()) projectBatch.delete(publicWorkIndexRef);
-        if (publicProjectIndexSnap?.exists()) projectBatch.delete(publicProjectIndexRef);
+        // Existing public URLs remain bound to their original edition.
 
         // Project root、Dashboard summary、Work、Release、公開index削除は
         // 同じcommit境界で成功または失敗させ、発行スナップショットの部分保存を防ぐ。
@@ -3783,8 +3783,7 @@ window.publishToCloud = async () => {
         console.log(`[Press] Published ${dsfPages.length} pages → draft`);
         closePressPublishModal();
 
-        // Works Room へ遷移
-        window.switchRoom('works');
+        showHorizonIssueComplete();
 
     } catch (e) {
         if (e?.code === 'PRESS_RENDER_CANCELLED') {
@@ -3796,6 +3795,7 @@ window.publishToCloud = async () => {
         }
         closePressPublishModal();
     } finally {
+        invalidateOwnedEditions();
         window.removeEventListener('keydown', onEscKey, true);
         resetPressRenderCancel();
     }
@@ -4347,4 +4347,18 @@ export async function createEditorFlowPreview({project,languages,signal,check,on
   const {createFlowPressLocalReleasePackage}=_pressFlowLocalReleasePackageModule;
   const result=await createFlowPressLocalReleasePackage({planning,sealedAssets,metadata:_createPressFlowLocalReleaseMetadata(languages),signal});check();
   return result.zipPackage.blob;
+}
+
+function showHorizonIssueComplete() {
+    const en = getUILang() === 'en';
+    const dialog = document.createElement('dialog');
+    dialog.className = 'horizon-issue-complete';
+    const title = document.createElement('h2'); title.textContent = en ? 'Edition issued' : '発行しました';
+    const note = document.createElement('p'); note.textContent = en ? 'Issued privately. Change visibility in Reads.' : '非公開で発行しました。公開設定はリーズで変更できます。';
+    const next = document.createElement('button'); next.type = 'button'; next.textContent = en ? 'Set visibility in Reads' : 'リーズで公開設定へ';
+    const close = document.createElement('button'); close.type = 'button'; close.textContent = en ? 'Close' : '閉じる';
+    next.addEventListener('click', () => { dialog.close(); window.switchRoom('works'); });
+    close.addEventListener('click', () => dialog.close());
+    dialog.addEventListener('close', () => dialog.remove(), { once: true });
+    dialog.append(title, note, next, close); document.body.append(dialog); dialog.showModal(); next.focus();
 }
