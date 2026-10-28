@@ -80,16 +80,19 @@ const appSource = readFileSync(new URL('../js/app.js', import.meta.url), 'utf8')
 const worksSource = readFileSync(new URL('../js/works.js', import.meta.url), 'utf8');
 assert.match(appSource, /import \{ buildPublicViewerUrl \} from '\.\/viewer-release-route\.js';/,
     'Studio public share/copy actions must use the safe Viewer URL builder.');
-assert.match(appSource, /data-release-id="\$\{escapeStudioHtml\(work\.releaseId \|\| ''\)\}"/,
-    'Home Work cards must carry their currently published Release ID.');
+const homeEditions = readFileSync(new URL('../js/home-editions.js', import.meta.url), 'utf8');
+assert.match(homeEditions, /onOpenReads\(folder, row\.state\.editionId\)/,
+    'Home must open the selected edition in Reads, not the latest editable project.');
+assert.match(appSource, /onOpenReads: \(folder, editionId\) => window\.openReads\(folder, editionId\)/);
 for (const call of [
-    "buildPublicViewerUrl(window.location.origin,workId,work.releaseId||'')",
-    'buildPublicViewerUrl(window.location.origin, workId, releaseId)',
     "buildPublicViewerUrl(window.location.origin, state.workId, state.releaseId || '')",
     'buildPublicViewerUrl(window.location.origin, projectWorkId, releaseId)',
 ]) assert.ok(appSource.includes(call), 'Every public action must pass its Work and Release to the safe URL builder: ' + call);
-assert.match(worksSource, /data-release-id="\$\{_esc\(p\.releaseId \|\| ''\)\}"/,
-    'Works rows must carry the Release ID used by their public Viewer link.');
+assert.match(worksSource,/openEditionReads/);
+const editionUi=readFileSync(new URL('../js/edition-reads-view.js',import.meta.url),'utf8');
+assert.match(editionUi,/url = editionShareUrl\(row\)/, 'Displayed and copied URL use the same edition resolver.');
+const readsSource=readFileSync(new URL('../js/edition-reads.js',import.meta.url),'utf8');
+assert.match(readsSource,/\? editionShareUrl\(row\)/, 'Public preview uses that same resolver.');
 assert.match(viewerSource, /const requestedReleaseId = params\.get\('r'\) \|\| '';/,
     'Viewer bootstrap must parse the release lock.');
 assert.match(viewerSource, /sharedProjectRef = \{ workId, requestedReleaseId \};/,
@@ -108,8 +111,8 @@ const publicationGate = loaderSource.indexOf('isPublicationActive(');
 const releaseGate = loaderSource.indexOf('assertRequestedViewerReleaseIsCurrent(');
 const v2Branch = loaderSource.indexOf('isDsfHorizonV2MetadataDeclared(');
 const v1Branch = loaderSource.indexOf('Array.isArray(indexData.dsfPages)');
-assert.ok(publicationGate >= 0 && releaseGate > publicationGate,
-    'Publication availability must be checked before resolving a release lock.');
+assert.ok(publicationGate >= 0 && releaseGate >= 0 && publicationGate < v2Branch && publicationGate < v1Branch,
+    'Publication availability and the legacy release lock must both be checked before delivery.');
 assert.ok(releaseGate < v2Branch && releaseGate < v1Branch,
     'The release lock must fail before either v2 or v1 delivery can load.');
 

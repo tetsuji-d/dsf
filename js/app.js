@@ -1,3 +1,4 @@
+import { renderHomeEditions } from './home-editions.js';
 import {resolveBasicLayoutContext} from './basic-layout-context.js';
 import {createBasicLayoutPage,duplicateFixedPage,inspectPageDuplication,layoutInsertionIndex} from './basic-page-layouts.js';
 import {openBasicPageLayouts} from './studio-page-layouts.js';
@@ -36,6 +37,7 @@ import '../css/space-members-settings.css';
 import { createSpaceMembersSettings } from './space-members-settings.js';
 import { createInvitationsClient } from './publishing-invitations-transport.js';
 import { withHomeDeadline, homeLoadingMarkup } from './home-load.js';
+import { editableReadRow, editableReadTable } from './home-project-list.js';
 import '../css/home-workspace.css';
 import { createHomeWorkspace } from './home-workspace.js';
 import '../css/publishing-spaces.css';
@@ -98,7 +100,7 @@ import { handleCanvasClick, selectBubble, renderBubbleHTML, getBubbleText, setBu
 import { addSection, addTextSection, changeSection, changeBlock, insertStructureBlock, renderThumbs, canDeleteActive, deleteActive, deleteSectionAt, insertSectionAt, insertSpreadImageAt, moveSection, moveSectionRange, insertPageNearBlock, moveBlockAt, getOptimizedImageUrl } from './sections.js';
 import { pushState, endHistoryGroup, undo, redo, getHistoryInfo, clearHistory, listHistoryEntries, readHistoryEntry, getHistoryGuard } from './history.js';
 import { openProjectModal, closeProjectModal, fetchCloudProjects, getCoverImage, getPageCount, deleteCloudProject, restoreCloudProject } from './projects.js';
-import { openWorksRoom, closeWorksRoom, refreshWorksRoomLanguage } from './works.js';
+import { openWorksRoom, closeWorksRoom, refreshWorksRoomLanguage, configureReadsScope, selectReadsEdition } from './works.js';
 import { enterPressRoom, leavePressRoom, refreshFlowHorizonDryRunReadiness } from './press.js';
 import { getLangProps, getAllLangs } from './lang.js';
 import { t, applyI18n, setUILang, getUILang } from './i18n-studio.js';
@@ -4460,7 +4462,7 @@ function getPublishingSpaceUI() {
         root: document.getElementById('home-publishing-spaces'),
         switcherRoots: [document.getElementById('studio-space-switcher'), document.getElementById('mobile-space-switcher'), document.getElementById('home-space-launcher')],
         identityRoots: [document.getElementById('home-space-identity')],
-        onSelect: () => { getHomeWorkspace().select('overview'); if (getCurrentRoom() !== 'home') window.switchRoom('home'); },
+        onSelect: () => { getHomeWorkspace().select('projects'); if (getCurrentRoom() !== 'home') window.switchRoom('home'); },
         requestJoined:studioRollout.invitations?createInvitationsClient({getUser:()=>firebaseAuth.currentUser}):null,
         request: requestPublishingSpaces, getUid: () => state.uid, getLocale: getUILang,
         onChange: () => { void renderHomeDashboard({ refreshSpaces: false }); },
@@ -4494,14 +4496,14 @@ async function saveCloudDestination(choice) {
         await getPublishingSpaceUI().load({notify:true});
         refresh();await refreshFlowHorizonDryRunReadiness();return true;
     } catch(error) {
-        if(current())alert((getUILang()==='en'?'Cloud saving or space assignment did not finish. Keep this manuscript open and retry cloud saving, or save a DSP file.\n':'クラウド保存またはスペースへの所属設定を完了できませんでした。原稿を開いたまま「クラウドに保存」から再試行するか、DSPファイルに保存してください。\n')+(error?.message||''));
+        if(current())alert((getUILang()==='en'?'Cloud saving or space assignment did not finish. Keep this manuscript open and retry cloud saving, or save an editable file.\n':'クラウド保存またはスペースへの所属設定を完了できませんでした。原稿を開いたまま「クラウドに保存」から再試行するか、編集用ファイルに保存してください。\n')+(error?.message||''));
         return false;
     } finally {cloudDestinationBusy=false;}
 }
 window.saveToCloud = async ({purpose='save'}={}) => {
     assertPersonalStudioOperation();
     if(pendingCloudDestination?.projectId===state.projectId&&pendingCloudDestination?.workId===state.workId){
-        if(pendingCloudDestination.uid!==state.uid){alert(getUILang()==='en'?'Sign in with the account that started this cloud save, or save a DSP copy.':'クラウド保存を開始したアカウントでログインして再試行するか、DSPファイルに保存してください。');return false;}
+        if(pendingCloudDestination.uid!==state.uid){alert(getUILang()==='en'?'Sign in with the account that started this cloud save, or save an editable file copy.':'クラウド保存を開始したアカウントでログインして再試行するか、編集用ファイルに保存してください。');return false;}
         return saveCloudDestination(pendingCloudDestination);
     }
     if(state.projectId&&state.uid){try{await persistProject();return true;}catch(error){alert(error.message);return false;}}
@@ -4540,11 +4542,36 @@ function refreshHomeLocalSpaceLabels(localGrid, projects) {
     }
 }
 
+document.addEventListener('error', event => {
+    if (event.target?.matches?.('#home-room .home-project-thumb img')) event.target.hidden = true;
+}, true);
+
+let homeCoverObserver;
+function loadHomeCloudCovers(root, ownerUid, isCurrent) {
+    homeCoverObserver?.disconnect();
+    homeCoverObserver = new IntersectionObserver(entries => {
+        for (const entry of entries) {
+            if (!entry.isIntersecting) continue;
+            homeCoverObserver.unobserve(entry.target);
+            const card = entry.target, slot = card.querySelector('.home-project-thumb');
+            const current = () => isCurrent() && card.isConnected && state.uid === ownerUid;
+            void readRecentCloudThumbnail(card.dataset.id, current).then(src => {
+                if (!src || !current()) return;
+                const image = document.createElement('img'); image.alt = ''; image.decoding = 'async';
+                image.src = src; slot.append(image);
+            }).catch(() => {});
+        }
+    });
+    for (const card of root.querySelectorAll('.home-project-card')) {
+        if (!card.querySelector('.home-project-thumb img')) homeCoverObserver.observe(card);
+    }
+}
+
 function renderHomeCard(project, source) {
     const projectName = resolveProjectName(project);
     const workTitle = resolveProjectDisplayTitle(project, { locale: getUILang() });
     const displayName = projectName || workTitle || t('works_untitled');
-    const workTitleMeta = projectName
+    const workTitleMeta = projectName && workTitle !== projectName
         ? (workTitle
             ? t('home_work_title', { title: workTitle })
             : t('home_work_title_unset'))
@@ -4563,13 +4590,15 @@ function renderHomeCard(project, source) {
     const sizeLabel = formatProjectBytes(project.projectBytes);
     const languageBadges = renderLanguageBadges(project.languages);
 
+    if (source === 'cloud') return editableReadRow(project, { locale: getUILang(), thumbnail: thumb, pageCount,
+        actions: projectActionsMarkup(project, getUILang() === 'en', !!getPublishingSpaceUI().destinations() && !getPublishingSpaceUI().destinations().assignments[project.id]) });
+
     return `
         <div class="home-project-entry" data-project-entry="${escapeStudioHtml(project.id)}">
         <button class="home-project-card" data-home-source="${escapeStudioHtml(source)}" data-id="${escapeStudioHtml(project.id)}">
             <div class="home-project-thumb">
-                ${thumb
-                    ? `<img src="${escapeStudioHtml(thumb)}" alt="${escapeStudioHtml(displayName)}" loading="lazy" decoding="async">`
-                    : `<div class="home-project-thumb-fallback"><span class="material-icons">folder</span></div>`}
+                <div class="home-project-thumb-fallback"><span class="material-icons" aria-hidden="true">description</span></div>
+                ${thumb ? `<img src="${escapeStudioHtml(thumb)}" alt="" loading="lazy" decoding="async">` : ''}
             </div>
             <div class="home-project-info">
                 <div class="home-project-title">${escapeStudioHtml(displayName)}</div>
@@ -4584,46 +4613,6 @@ function renderHomeCard(project, source) {
             </div>
         </button>
         ${source === 'cloud' ? projectActionsMarkup(project,getUILang()==='en',!!getPublishingSpaceUI().destinations()&&!getPublishingSpaceUI().destinations().assignments[project.id]) : ''}
-        </div>
-    `;
-}
-
-function isPublishedHomeWork(project) {
-    return Array.isArray(project?.dsfPages) && project.dsfPages.length > 0;
-}
-
-function getHomeWorkStatus(project) {
-    return String(project?.dsfStatus || project?.visibility || 'draft');
-}
-
-function getHomeWorkStatusLabel(status) {
-    const map = {
-        draft: t('home_status_draft'),
-        public: t('home_status_public'),
-        unlisted: t('home_status_unlisted'),
-        private: t('home_status_private')
-    };
-    return map[status] || status;
-}
-
-function getHomeWorkDate(project) {
-    return formatHomeDate(project?.dsfPublishedAt || project?.updatedAt || project?.lastUpdated);
-}
-
-function formatStudioPublicationDate(value) {
-    return formatPublicationDate(value, getUILang() === 'en' ? 'en-US' : 'ja-JP');
-}
-
-function renderHomePublicationMeta(publication) {
-    if (!publication || typeof publication !== 'object') return '';
-    const listedUntil = formatStudioPublicationDate(publication.listedUntil) || t('publication_no_limit');
-    const publicFrom = formatStudioPublicationDate(publication.publicFrom) || t('publication_immediate');
-    const publicUntil = formatStudioPublicationDate(publication.publicUntil) || t('publication_no_limit');
-    const publicPeriod = `${publicFrom} - ${publicUntil}`;
-    return `
-        <div class="home-work-publication">
-            <span>${escapeStudioHtml(t('publication_listed_until'))}: ${escapeStudioHtml(listedUntil)}</span>
-            <span>${escapeStudioHtml(t('publication_public_period'))}: ${escapeStudioHtml(publicPeriod)}</span>
         </div>
     `;
 }
@@ -4699,129 +4688,6 @@ async function loadHomeReviewSummaries(works) {
 
 function renderHomeStatCard(icon,label,value,hint='',view='activity') {
     return renderHomeStatNavigation({icon,label,value,hint,view,en:getUILang()==='en',escape:escapeStudioHtml});
-}
-
-function renderHomeDashboardStats({ cloudProjects, localProjects, works, reviewTotals, reviewsLoading = false }) {
-    const cloudCount = Array.isArray(cloudProjects) ? cloudProjects.length : 0;
-    const publicCount = works.filter((work) => getHomeWorkStatus(work) === 'public').length;
-    const visibleCount = works.filter((work) => ['public', 'unlisted'].includes(getHomeWorkStatus(work))).length;
-    const draftCount = works.filter((work) => !['public', 'unlisted'].includes(getHomeWorkStatus(work))).length;
-    return [
-        renderHomeStatCard('library_books', t('home_stat_works'), String(works.length), t('home_stat_works_hint', { count: visibleCount })),
-        renderHomeStatCard('public', t('home_stat_public'), String(publicCount), t('home_stat_public_hint', { count: draftCount })),
-        renderHomeStatCard(
-            'rate_review',
-            t('home_stat_reviews'),
-            reviewsLoading ? '…' : String(reviewTotals.reviewCount),
-            reviewsLoading ? t('home_loading') : t('home_stat_reviews_hint', { count: reviewTotals.goodCount })
-        ),
-        renderHomeStatCard('folder', t('home_stat_projects'), String(cloudCount), t('home_stat_projects_hint', { count: localProjects.length }), 'projects')
-    ].join('');
-}
-
-function renderHomeWorkCard(work, reviewSummary) {
-    const workId = work.workId || work.id;
-    const status = getHomeWorkStatus(work);
-    const explicitWorkTitle = resolveProjectDisplayTitle(work, { locale: getUILang() });
-    const projectName = resolveProjectName(work);
-    const title = explicitWorkTitle || projectName || work.id || t('works_untitled');
-    const nameContext = explicitWorkTitle && projectName
-        ? t('works_project_name', { name: projectName })
-        : (!explicitWorkTitle && projectName ? t('works_title_fallback') : '');
-    const thumb = work.listThumbnail || work.thumbnail || getCoverImage(work.dsfPages, work.pages, work.blocks, work.sections);
-    let viewerUrl='';
-    if(['public','unlisted'].includes(status))try{viewerUrl=buildPublicViewerUrl(window.location.origin,workId,work.releaseId||'');}catch{/* Keep management available when the release link is incomplete. */}
-    const pageCount = Array.isArray(work.dsfPages) && work.dsfPages.length
-        ? work.dsfPages.length
-        : getPageCount(work.pages, work.blocks, work.sections);
-    const langs = Array.isArray(work.dsfLangs) && work.dsfLangs.length ? work.dsfLangs : work.languages;
-    const languageBadges = renderLanguageBadges(langs);
-    const date = getHomeWorkDate(work);
-    const publicationMeta = renderHomePublicationMeta(work.publication);
-    const reviewsLoading = reviewSummary?.loading === true;
-    const reviewText = reviewsLoading
-        ? t('home_loading')
-        : reviewSummary?.unavailable
-        ? t('home_reviews_unavailable')
-        : t('home_work_reviews', {
-            reviews: reviewSummary?.reviewCount || 0,
-            good: reviewSummary?.goodCount || 0,
-            bad: reviewSummary?.badCount || 0
-        });
-
-    return `
-        <article class="home-work-card" data-work-id="${escapeStudioHtml(workId)}" data-release-id="${escapeStudioHtml(work.releaseId || '')}" data-project-id="${escapeStudioHtml(work.id)}">
-            <div class="home-work-thumb">
-                ${thumb
-                    ? `<img src="${escapeStudioHtml(thumb)}" alt="${escapeStudioHtml(title)}" loading="lazy" decoding="async">`
-                    : `<div class="home-work-thumb-fallback"><span class="material-icons">auto_stories</span></div>`}
-            </div>
-            <div class="home-work-main">
-                <div class="home-work-topline">
-                    <span class="home-work-status home-work-status-${escapeStudioHtml(status)}">${escapeStudioHtml(getHomeWorkStatusLabel(status))}</span>
-                    <span class="home-lang-badges">${languageBadges}</span>
-                </div>
-                <h4>${escapeStudioHtml(title)}</h4>
-                ${nameContext ? `<p class="home-work-name-context">${escapeStudioHtml(nameContext)}</p>` : ''}
-                <p>${escapeStudioHtml(t('home_work_meta', { pages: pageCount, date: date || '—' }))}</p>
-                ${publicationMeta}
-                <div class="home-work-metrics">
-                    <span><strong>${reviewsLoading ? '…' : escapeStudioHtml(String(reviewSummary?.reviewCount || 0))}</strong>${escapeStudioHtml(t('home_metric_reviews'))}</span>
-                    <span><strong>${reviewsLoading ? '…' : escapeStudioHtml(String(reviewSummary?.goodCount || 0))}</strong>${escapeStudioHtml(t('home_metric_good'))}</span>
-                    <span><strong>${reviewsLoading ? '…' : escapeStudioHtml(String(reviewSummary?.badCount || 0))}</strong>${escapeStudioHtml(t('home_metric_bad'))}</span>
-                </div>
-                <div class="home-work-review-note">${escapeStudioHtml(reviewText)}</div>
-                <div class="home-work-actions">
-                    ${viewerUrl?`<a class="home-work-action" href="${escapeStudioHtml(viewerUrl)}" target="_blank" rel="noopener noreferrer"><span class="material-icons" aria-hidden="true">auto_stories</span>${getUILang()==='en'?'Read publication':'リードを読む'}</a>`:''}
-                    <button type="button" class="home-work-action" data-home-open-project="${escapeStudioHtml(work.id)}">
-                        <span class="material-icons">edit</span>${escapeStudioHtml(t('home_open_project'))}
-                    </button>
-                    <button type="button" class="home-work-action" data-home-copy-work="${escapeStudioHtml(workId)}">
-                        <span class="material-icons">link</span>${escapeStudioHtml(t('home_copy_viewer'))}
-                    </button>
-                    <button type="button" class="home-work-action" onclick="switchRoom('works')">
-                        <span class="material-icons">tune</span>${escapeStudioHtml(t('home_manage_work'))}
-                    </button>
-                </div>
-            </div>
-        </article>
-    `;
-}
-
-function bindHomeWorkActions(workGrid, cloudProjects) {
-    workGrid?.querySelectorAll('[data-home-open-project]').forEach((btn) => {
-        btn.addEventListener('click', async () => {
-            const pid = btn.dataset.homeOpenProject;
-            const project = (cloudProjects || []).find((item) => item.id === pid);
-            if (!project) return;
-            if (!await onLoadProject(pid)) return;
-            await cacheLocalRecentProject(JSON.parse(JSON.stringify(state)), window.localImageMap);
-            refresh();
-            window.switchRoom('editor');
-        });
-    });
-
-    workGrid?.querySelectorAll('[data-home-copy-work]').forEach((btn) => {
-        btn.addEventListener('click', async () => {
-            const workId = btn.dataset.homeCopyWork;
-            if (!workId) return;
-            const releaseId = btn.closest('.home-work-card')?.dataset.releaseId || '';
-            let url = '';
-            try {
-                url = buildPublicViewerUrl(window.location.origin, workId, releaseId);
-            } catch (error) {
-                console.warn('[Home] Viewer URL could not be created:', error?.code || error?.name || 'unknown');
-                alert(t('home_copy_viewer_failed'));
-                return;
-            }
-            try {
-                await navigator.clipboard.writeText(url);
-                alert(t('home_copied_viewer_url', { url }));
-            } catch (_) {
-                prompt(t('home_copy_viewer_prompt'), url);
-            }
-        });
-    });
 }
 
 let deletingLocalCopy=false;
@@ -4994,7 +4860,10 @@ async function renderHomeDashboard({ refreshSpaces = true, forceRefresh = false 
     document.getElementById('home-room')?.classList.toggle('home-joined-space',!!joined);
     const cloudProjectsPromise = !navigator.onLine ? null : fetchHomeCloudProjects();
     void refreshRecentWorks({force:forceRefresh,keepCloudRequest:true});
-    let localProjects = [], statsInput = null;
+    let localProjects = [];
+    void renderHomeEditions({ root: workGrid, stats: statsEl, count: workCount, uid: dashboardUid, scope: spaceUI, locale: getUILang(), force: forceRefresh,
+        isCurrent: () => renderRevision === homeDashboardRenderRevision && state.uid === dashboardUid,
+        onOpenReads: (folder, editionId) => window.openReads(folder, editionId), loadReview: loadHomeReviewSummary });
     void cloudProjectsPromise?.then(() => {
         if (renderRevision !== homeDashboardRenderRevision || state.uid !== dashboardUid) return;
         refreshHomeLocalSpaceLabels(localGrid, localProjects);
@@ -5003,7 +4872,6 @@ async function renderHomeDashboard({ refreshSpaces = true, forceRefresh = false 
         if (renderRevision !== homeDashboardRenderRevision || state.uid !== dashboardUid) return;
         localProjects = projects;
         renderHomeLocalProjects(localGrid, localCount, localProjects);
-        if (statsEl && statsInput) statsEl.innerHTML = renderHomeDashboardStats(statsInput = { ...statsInput, localProjects });
     }).catch(e => {
         if (renderRevision !== homeDashboardRenderRevision || state.uid !== dashboardUid) return;
         console.warn('[Home] Failed to load local recent projects:', e);
@@ -5017,15 +4885,15 @@ async function renderHomeDashboard({ refreshSpaces = true, forceRefresh = false 
         if(statsEl)statsEl.replaceChildren();
         if(cloudCount)cloudCount.textContent='—';
         if(workCount)workCount.textContent='—';
-        const message=getUILang()==='en'?'Cloud Reads and publishing spaces are available when connected. Open a saved DSP or a working copy on this device.':'クラウドリード・出版スペースは接続後に利用できます。保存したDSPや、この端末の作業コピーから制作を続けられます。';
+        const message=getUILang()==='en'?'Cloud Reads and publishing spaces are available when connected. Open a saved editable file or a working copy on this device.':'クラウドリード・出版スペースは接続後に利用できます。保存した編集用ファイルや、この端末の作業コピーから制作を続けられます。';
         for(const grid of [cloudGrid,workGrid]){if(!grid)continue;grid.replaceChildren();const p=document.createElement('p');p.className='home-empty-state';p.textContent=message;grid.append(p);}
         return;
     }
     if(joined){
-        if(trashRoot)trashRoot.textContent=getUILang()==='en'?'The owner manages these manuscripts.':'このスペースの原稿は所有者が管理します。';
+        if(trashRoot)trashRoot.textContent=getUILang()==='en'?'The owner manages these manuscripts.':'このスペースの編集用リードは所有者が管理します。';
         const en=getUILang()==='en';
-        const scope=document.getElementById('home-cloud-scope');if(scope)scope.textContent=(en?'Shared Reads / ':'共有リーズ / ')+spaceUI.label();
-        const heading=document.querySelector('[data-home-cloud-heading]');if(heading)heading.textContent=en?'Shared Reads':'共有リーズ';
+        const scope=document.getElementById('home-cloud-scope');if(scope)scope.textContent=(en?'Shared Reads / ':'共有された編集用リード / ')+spaceUI.label();
+        const heading=document.querySelector('[data-home-cloud-heading]');if(heading)heading.textContent=en?'Shared Reads':'共有された編集用リード';
         const hint=document.querySelector('.home-overview-hint');if(hint)hint.textContent=en?'Only Reads you have access to are shown.':'あなたに共有されているリードだけを表示します。';
         if(statsEl)statsEl.replaceChildren();if(workCount)workCount.textContent='—';
         if(workGrid)workGrid.textContent=en?'Publication management is handled by the owner.':'公開状況の管理は所有者が行います。';
@@ -5047,48 +4915,9 @@ async function renderHomeDashboard({ refreshSpaces = true, forceRefresh = false 
     renderProjectTrash({root:trashRoot,projects:state.uid?spaceProjects:null,en:getUILang()==='en',
         spaceLabel:pid=>{const d=spaceUI.destinations();if(!d)return getUILang()==='en'?'Not confirmed':'未確認';const id=d.assignments[pid];return id?(d.spaces.find(s=>s.id===id)?.name||(getUILang()==='en'?'Unknown space':'不明なスペース')):(getUILang()==='en'?'My Space':'マイスペース');},
         onRestore:async pid=>{await restoreCloudProject(pid,dashboardUid);if(state.uid===dashboardUid)await renderHomeDashboard({forceRefresh:true});},
-        onPublication:()=>getHomeWorkspace().select('activity'),onRetry:()=>void renderHomeDashboard({forceRefresh:true})});
+        onPublication:()=>window.openReads(),onRetry:()=>void renderHomeDashboard({forceRefresh:true})});
     const scopeLabel = document.getElementById('home-cloud-scope');
     if (scopeLabel) scopeLabel.textContent = spaceUI.destination() + ' / ' + spaceUI.label();
-
-    const works = Array.isArray(spaceProjects)
-        ? spaceProjects.filter(isPublishedHomeWork).sort((a, b) => {
-            const aTime = Number(a?.dsfPublishedAt?.toMillis?.() || a?.updatedAt?.toMillis?.() || 0);
-            const bTime = Number(b?.dsfPublishedAt?.toMillis?.() || b?.updatedAt?.toMillis?.() || 0);
-            return bTime - aTime;
-        })
-        : [];
-    const pendingReviewSummaries = new Map(
-        works.slice(0, 6).map((work) => [work.workId || work.id, { loading: true }])
-    );
-    const emptyReviewTotals = { reviewCount: 0, goodCount: 0, badCount: 0 };
-
-    if (statsEl) {
-        statsEl.innerHTML = renderHomeDashboardStats(statsInput = {
-            cloudProjects: Array.isArray(cloudProjects) ? cloudProjects : [],
-            localProjects,
-            works,
-            reviewTotals: emptyReviewTotals,
-            reviewsLoading: works.length > 0
-        });
-    }
-    if (workCount) workCount.textContent = String(works.length);
-    if (workGrid) {
-        if (!state.uid) {
-            workGrid.innerHTML = `<div class="home-empty-state"><span class="material-icons">lock</span><p>${t('home_cloud_login')}</p></div>`;
-        } else if (cloudProjects === null) {
-            workGrid.innerHTML = `<div class="home-empty-state"><span class="material-icons">cloud_off</span><p>${t('home_cloud_error')}</p></div>`;
-        } else if (!works.length) {
-            workGrid.innerHTML = `
-                <div class="home-empty-state">
-                    <span class="material-icons">rocket_launch</span>
-                    <p>${t('home_works_empty')}</p>
-                    <button class="home-action-btn" data-home-nav="projects"><span class="material-icons">library_books</span>${getUILang() === 'en' ? 'Choose a Read' : 'リードを選ぶ'}</button>
-                </div>`;
-        } else {
-            workGrid.innerHTML = works.slice(0, 6).map((work) => renderHomeWorkCard(work, pendingReviewSummaries.get(work.workId || work.id))).join('');
-        }
-    }
 
     if (cloudProjects === null) {
         cloudGrid.innerHTML = `<div class="home-empty-state"><span class="material-icons">cloud_off</span><p>${t('home_cloud_error')}</p></div>`;
@@ -5097,17 +4926,17 @@ async function renderHomeDashboard({ refreshSpaces = true, forceRefresh = false 
         cloudGrid.innerHTML = `<div class="home-empty-state"><span class="material-icons">lock</span><p>${t('home_cloud_login')}</p></div>`;
         if (cloudCount) cloudCount.textContent = '0';
     } else if (cloudProjects.length === 0) {
-        cloudGrid.innerHTML = `<div class="home-empty-state"><span class="material-icons">cloud_done</span><p>${spaceUI.selection() ? (getUILang() === 'en' ? 'No manuscripts in this publishing space yet.' : 'この出版スペースにはまだ原稿がありません。') : t('home_cloud_empty')}</p><button class="home-action-btn primary" onclick="newSpaceProject()">${getUILang() === 'en' ? 'Create your first Read' : '最初のリードを作成'}</button></div>`;
+        cloudGrid.innerHTML = `<div class="home-empty-state"><span class="material-icons">cloud_done</span><p>${spaceUI.selection() ? (getUILang() === 'en' ? 'No editable Reads in this publishing space yet.' : 'この出版スペースにはまだ編集用リードがありません。') : t('home_cloud_empty')}</p><button class="home-action-btn primary" onclick="newSpaceProject()">${getUILang() === 'en' ? 'Create your first Read' : '最初のリードを作成'}</button></div>`;
         if (cloudCount) cloudCount.textContent = '0';
     } else {
-        cloudGrid.innerHTML = cloudProjects.map((project) => renderHomeCard(project, 'cloud')).join('');
+        cloudGrid.innerHTML = editableReadTable(cloudProjects.map((project) => renderHomeCard(project, 'cloud')).join(''), getUILang());
         if (cloudCount) cloudCount.textContent = String(cloudProjects.length);
     }
 
     if(spaceUnavailable){
         cloudGrid.innerHTML='<div class="home-empty-state"><p>'+(getUILang()==='en'?'Your save locations could not be confirmed yet. Retry to load this space.':'保存先をまだ確認できていません。再試行して、このスペースのリードを読み込んでください。')+'</p></div>';
     }
-    if (cloudProjects === null) for (const grid of [cloudGrid, workGrid]) {
+    if (cloudProjects === null) for (const grid of [cloudGrid]) {
         const retry = document.createElement('button');
         retry.className = 'home-action-btn'; retry.textContent = getUILang() === 'en' ? 'Retry' : '再試行';
         retry.dataset.homeRetry = '';
@@ -5131,7 +4960,7 @@ async function renderHomeDashboard({ refreshSpaces = true, forceRefresh = false 
         if(action==='edit'){if(await onLoadProject(pid))window.switchRoom('editor');return;}
         if(action==='preview'){
             try{await refreshCloudProjectListing(pid);await renderHomeDashboard({forceRefresh:true});}
-            catch(e){alert(e.message==='PREVIEW_OPEN_AND_SAVE'?(en?'Open this project and save it to refresh its thumbnail.':'このプロジェクトは編集画面で開いて保存すると一覧画像が更新されます。'):(en?'Could not update the thumbnail. Please retry.':'一覧画像を更新できませんでした。再試行してください。'));}return;
+            catch(e){alert(e.message==='PREVIEW_OPEN_AND_SAVE'?(en?'Open this project and save it to refresh its thumbnail.':'この編集用リードを開いて保存すると表紙画像が更新されます。'):(en?'Could not update the thumbnail. Please retry.':'一覧画像を更新できませんでした。再試行してください。'));}return;
         }
         if(action==='delete'){
             if(!studioRollout.trash)return;
@@ -5149,37 +4978,10 @@ async function renderHomeDashboard({ refreshSpaces = true, forceRefresh = false 
         if(action==='move')openProjectSpaceDialog({name:displayName,spaces:destinations.spaces,currentSpaceId:destinations.assignments[pid],en,
             onSave:async spaceId=>{if(state.uid!==owner||!await spaceUI.assign(pid,spaceId,destinations.assignments[pid]||null))throw new Error('SPACE_CONFLICT');}});
     });
+    loadHomeCloudCovers(cloudGrid, dashboardUid, () => renderRevision === homeDashboardRenderRevision);
     spaceUI.bind(cloudGrid);
-    bindHomeWorkActions(workGrid, spaceProjects);
     syncStudioShell();
 
-    if (!works.length) return;
-
-    const reviewSummaries = await loadHomeReviewSummaries(works);
-    if (renderRevision !== homeDashboardRenderRevision) return;
-
-    const reviewTotals = works.reduce((acc, work) => {
-        const summary = reviewSummaries.get(work.workId || work.id) || {};
-        acc.reviewCount += Number(summary.reviewCount) || 0;
-        acc.goodCount += Number(summary.goodCount) || 0;
-        acc.badCount += Number(summary.badCount) || 0;
-        return acc;
-    }, { reviewCount: 0, goodCount: 0, badCount: 0 });
-
-    if (statsEl) {
-        statsEl.innerHTML = renderHomeDashboardStats(statsInput = {
-            cloudProjects: Array.isArray(cloudProjects) ? cloudProjects : [],
-            localProjects,
-            works,
-            reviewTotals
-        });
-    }
-    if (workGrid) {
-        workGrid.innerHTML = works.slice(0, 6).map((work) => (
-            renderHomeWorkCard(work, reviewSummaries.get(work.workId || work.id))
-        )).join('');
-        bindHomeWorkActions(workGrid, cloudProjects);
-    }
 }
 
 // ── Studio 認証 UI — GIS ボタン + フォールバック Google ──
@@ -5502,7 +5304,7 @@ function getCurrentRoom() {
 
 function getRoomLabel(room) {
     const keyMap = {
-        home: 'nav_dashboard',
+        home: 'nav_editable_reads',
         editor: 'nav_editor',
         press: 'nav_press',
         works: 'nav_works'
@@ -10405,6 +10207,9 @@ window.openProjectModal = () => openProjectModal(async (pid) => {
 window.closeProjectModal = closeProjectModal;
 
 // Works Room
+configureReadsScope(() => getPublishingSpaceUI());
+window.openReads = (folder = 'private', editionId = '') => { selectReadsEdition(folder, editionId); window.switchRoom('works'); };
+window.openHome = (view = 'projects') => { getHomeWorkspace().select(view); window.switchRoom('home'); };
 window.openWorksRoom = openWorksRoom;
 window.closeWorksRoom = closeWorksRoom;
 window.loadWorksRoom  = () => openWorksRoom(true); // true = ルームモード
@@ -11019,7 +10824,7 @@ async function refreshEditorCopyDelete() {
     if(!button||!status)return;
     const en=getUILang()==='en',revision=++editorCopyDeleteRevision,epoch=getProjectSessionEpoch(),id=localRecentId(state);
     document.getElementById('ps-browser-copy-heading').textContent=en?'Recovery copy in this browser':'このブラウザーの復元用コピー';
-    document.getElementById('ps-browser-copy-note').textContent=en?'Delete this manuscript’s recovery copy. Cloud manuscripts and saved DSP files are unchanged.':'この原稿の復元用コピーを削除します。クラウド原稿・保存済みDSPファイルには影響しません。';
+    document.getElementById('ps-browser-copy-note').textContent=en?'Delete this manuscript’s recovery copy. Cloud manuscripts and saved editable files are unchanged.':'この原稿の復元用コピーを削除します。クラウド原稿・保存済み編集用ファイルには影響しません。';
     button.textContent=en?'Delete recovery copy':'復元用コピーを削除';button.disabled=true;button.onclick=null;
     if(readSharedStudioAccess()){status.textContent=en?'Shared editing recovery is managed separately.':'共有編集中の復元データは別に管理されます。';return;}
     status.textContent=en?'Checking the recovery copy…':'復元用コピーを確認しています…';
@@ -12456,7 +12261,7 @@ async function refreshProtectedCopies(){
 document.getElementById('editor-resume-copy')?.addEventListener('click',async()=>{
     try{await flushBeforeSafeResume();
         const kept=await protectCloudBrowserCopy(state.projectId);if(!kept)throw Error('LOCAL_COPY_MISSING');await openProtectedCopy(kept.id);
-    }catch{alert(getUILang()==='en'?'Could not protect this version. Save a DSP file first.':'端末版を保護できませんでした。先にDSPファイルへ保存してください。');}
+    }catch{alert(getUILang()==='en'?'Could not protect this version. Save an editable file first.':'端末版を保護できませんでした。先に編集用ファイルへ保存してください。');}
 });
 window.addEventListener('safe-resume-change',()=>void refreshProtectedCopies());
 window.addEventListener('local-recents-updated',()=>void refreshProtectedCopies());

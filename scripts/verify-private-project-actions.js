@@ -28,22 +28,16 @@ async function ok(f, c) { const r = await send(f, c); assert.equal(r.status, 200
 async function denied(f, c, code, status = 409) { const r = await send(f, c); assert.equal(r.status, status, JSON.stringify(r.data)); assert.equal(r.data.error, code); }
 const v1 = () => ({ releaseId: 'release_new', thumbnail: thumb, dsfLangs: ['ja'], dsfPages: [{ pageNum: 1, pageType: 'normal_image', workId: 'work_1', releaseId: 'release_new', urls: { ja: `${baseUrl}/users/owner_1/dsf/work_1/release_new/ja/page_001.webp` }, bytesByLang: { ja: 100 }, totalBytes: 100 }], bookConfig: { bookMode: 'simple', book: { mode: 'simple', covers: {} } } });
 const publish = (f, status = 'public') => command(f, 'publication', { status, expectedStatus: f.db.docs.get(root).dsfStatus, expectedReleaseId: f.db.docs.get(root).releaseId });
-await test('v1 draft/publication/profile/listing preserve source and legacy immediate deletion is refused', async () => {
-    const f = await setup();
-    await ok(f, command(f, 'draft', v1()));
+await test('draft/listing preserve source; publication must use the edition API', async () => {
+    const f = await setup(); await ok(f, command(f, 'draft', v1()));
     assert.equal(f.db.docs.get(root).dsfStatus, 'draft');
     assert.equal(f.db.docs.get('users/owner_1/works/work_1/releases/release_new').dsfTotalBytes, 100);
-    await ok(f, publish(f)); assert.equal(f.db.docs.get('public_projects/work_1').dsfStatus, 'public');
-    f.db.docs.get('users/owner_1').publicProfile = { displayName: 'Updated', bio: 'Author bio' };
-    await ok(f, command(f, 'profile', { displayName: 'Forged' })); assert.equal(f.db.docs.get('public_projects/work_1').authorName, 'Updated');
-    await ok(f, command(f, 'listing', { projectBytes: 1000, pageCount: 1, listThumbnail: thumb }));
+    await denied(f, publish(f), 'EDITION_API_REQUIRED');
+    assert(!f.db.docs.has('public_projects/work_1'));
+    await ok(f, command(f, 'listing', { projectBytes:1000, pageCount:1, listThumbnail:thumb }));
     assert.equal(f.db.docs.get('users/owner_1/project_summaries/project_1').projectBytes, 1000);
-    await ok(f, publish(f, 'private')); assert(!f.db.docs.has('public_projects/work_1'));
-    await ok(f, publish(f));
-    for (const [path, value] of f.db.docs) if (!path.includes('/authoring')) assert(!JSON.stringify(value).includes('PRIVATE_MANUSCRIPT_SENTINEL'), path);
     await denied(f, command(f, 'delete'), 'PROJECT_TRASH_REQUIRED');
-    assert(f.db.docs.has(root)); assert(f.db.docs.has('public_projects/work_1'));
-    assert.equal(f.db.docs.get(control).status, 'active'); assert.equal(f.r2.objects.size, 1);
+    assert(f.db.docs.has(root)); assert.equal(f.db.docs.get(control).status,'active');
 });
 await test('idempotency never returns a stale state after another metadata/body write or generation change', async () => {
     const f = await setup(), a = command(f, 'listing', { projectBytes: 1000, pageCount: 1, listThumbnail: '' });
@@ -78,16 +72,16 @@ await test('deleted project, stale draft, moderation change and revoked login ca
         assert(!f.db.docs.has('users/owner_1/works/work_1/releases/release_new'));
     }
 });
-await test('publication rejects foreign index, stale release and forbidden metadata inputs', async () => {
-    const f = await setup(); await ok(f, command(f, 'draft', v1()));
-    const c = publish(f); await denied(f, { ...c, payload: { ...c.payload, expectedReleaseId: 'other' } }, 'PUBLICATION_STATE_CONFLICT');
-    f.db.docs.set('public_projects/work_1', { authorUid: 'other' });
-    await denied(f, c, 'PUBLIC_INDEX_OWNER_CONFLICT'); f.db.docs.delete('public_projects/work_1');
-    await denied(f, { ...c, payload: { ...c.payload, publicFrom: 'not a date' } }, 'PUBLICATION_WINDOW_INVALID', 422);
-    const bad = v1(); bad.dsfPages[0].blocks = ['private']; await denied(f, command(f, 'draft', bad), 'RELEASE_PAGES_INVALID', 422);
-    await denied(f, command(f, 'listing', { projectBytes: 1, pageCount: 1, listThumbnail: '' }), 'LISTING_INVALID', 422);
-    const unauth = await send(f, c, { headers: { Authorization: '' } }); assert.equal(unauth.status, 401);
-    const origin = await send(f, c, { headers: { Origin: 'https://other.test' } }); assert.equal(origin.status, 403);
+await test('retired publication route cannot modify an index; draft/listing inputs remain validated', async () => {
+    const f=await setup();await ok(f,command(f,'draft',v1()));
+    f.db.docs.set('public_projects/work_1',{authorUid:'other'});
+    await denied(f,publish(f),'EDITION_API_REQUIRED');
+    assert.equal(f.db.docs.get('public_projects/work_1').authorUid,'other');
+    f.db.docs.delete('public_projects/work_1');
+    const bad=v1();bad.dsfPages[0].blocks=['private'];await denied(f,command(f,'draft',bad),'RELEASE_PAGES_INVALID',422);
+    await denied(f,command(f,'listing',{projectBytes:1,pageCount:1,listThumbnail:''}),'LISTING_INVALID',422);
+    assert.equal((await send(f,publish(f),{headers:{Authorization:''}})).status,401);
+    assert.equal((await send(f,publish(f),{headers:{Origin:'https://other.test'}})).status,403);
 });
 function publicBucket() {
     const objects = new Map();
@@ -118,9 +112,9 @@ await test('v2 draft verifies actual content/manifest hashes, exact receipt set 
         size: file.byteLength, httpMetadata: { contentType: file.mimeType }, customMetadata: { dsfSha256: file.sha256, dsfSchemaVersion: '2' } });
     const verifyRelease = createReleaseVerifier(bucket, baseUrl), f = await setup({ verifyRelease });
     const payload = { upload, thumbnail: thumb, bookConfig: { bookMode: 'simple', book: { mode: 'simple', covers: {} } } };
-    await ok(f, command(f, 'draft', payload)); await ok(f, publish(f));
-    assert.equal(f.db.docs.get('public_projects/work_1').dsfSchemaVersion, 2);
-    assert.deepEqual(f.db.docs.get('public_projects/work_1').dsfPages, []);
+    await ok(f, command(f, 'draft', payload)); await denied(f, publish(f), 'EDITION_API_REQUIRED');
+    assert.equal(f.db.docs.get('users/owner_1/works/work_1/releases/release_v2').dsfSchemaVersion, 2);
+    assert(!f.db.docs.has('public_projects/work_1'));
     const object = bucket.objects.get(plan.files[0].storagePath); object.bytes = new TextEncoder().encode('{}');
     await assert.rejects(verifyRelease({ ...plan.identity, payload, metadata: upload.seal.releaseMetadata }));
     object.bytes = new TextEncoder().encode(plan.files[0].json);
@@ -151,14 +145,8 @@ await test('publishing-space gate protects drafts/publication, preserves saves a
     f.db.docs.set(catalogue,assigned);
     await ok(f, command(f,'draft',v1()));
     f.db.docs.delete(catalogue);
-    for (const status of ['public','unlisted']) await denied(f,publish(f,status),'PUBLISHING_SPACE_REQUIRED');
+    for (const status of ['public','unlisted','private']) await denied(f,publish(f,status),'EDITION_API_REQUIRED');
     assert.equal(f.db.docs.get(root).dsfStatus,'draft');
-    f.db.docs.set(catalogue,assigned); await ok(f,publish(f));
-    f.db.docs.delete(catalogue);
-    await ok(f,publish(f,'unlisted')); await ok(f,publish(f,'public'));
-    assert.equal(f.db.docs.get('public_projects/work_1').dsfStatus,'public');
-    await ok(f,publish(f,'private')); await denied(f,publish(f),'PUBLISHING_SPACE_REQUIRED');
-    f.db.docs.set(catalogue,{...assigned,spaceIds:[]}); await denied(f,publish(f),'PUBLISHING_SPACE_REQUIRED');
 });
 await test('removing assignment during release verification blocks the final commit', async () => {
     let f; f=await setup({requirePublishingSpace:true,verifyRelease:async()=>{
@@ -171,13 +159,11 @@ await test('removing assignment during release verification blocks the final com
     assert(!f.db.docs.has('users/owner_1/works/work_1/releases/release_new'));
 });
 
-await test('trashed private manuscripts keep public delivery and allow only publication stop',async()=>{
- const f=await setup();await ok(f,command(f,'draft',v1()));await ok(f,publish(f));
+await test('trashed manuscripts cannot use the retired publication API',async()=>{
+ const f=await setup();await ok(f,command(f,'draft',v1()));
  f.db.docs.get(root).projectTrash={revision:1,trashedAtMs:1,restoreUntilMs:2};
- assert(f.db.docs.has('public_projects/work_1'));
  assert.equal((await f.request('GET')).status,409);
  await denied(f,command(f,'listing',{projectBytes:1000,pageCount:1,listThumbnail:''}),'PROJECT_TRASHED');
- await denied(f,publish(f,'unlisted'),'PROJECT_TRASHED');
- const context=await f.actions.context(f.identity,'project_1');assert(context.head);
- await ok(f,publish(f,'private'));assert(!f.db.docs.has('public_projects/work_1'));assert(f.db.docs.get(root).projectTrash);
+ await denied(f,publish(f,'private'),'EDITION_API_REQUIRED');
+ assert(f.db.docs.get(root).projectTrash);
 });

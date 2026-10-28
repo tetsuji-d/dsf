@@ -3,6 +3,7 @@ import {studioPwaPlugin} from './scripts/studio-pwa-plugin.js';
 import { resolve } from 'path';
 import {viewerBookSamplesPlugin} from './scripts/viewer-book-samples-plugin.js';
 import {writingStagingPlugin} from './scripts/writing-w1/staging-assets.mjs';
+import {writingBuildEnabled} from './scripts/writing-build-policy.mjs';
 
 export default defineConfig(({ mode }) => {
     const input = {
@@ -25,7 +26,7 @@ export default defineConfig(({ mode }) => {
         // VITE_ENV をクライアントコードで参照可能にする
         define: {
             __APP_ENV__: JSON.stringify(mode),
-            __WRITING_ENABLED__: JSON.stringify(mode==='production' ? process.env.DSF_WRITING_RELEASE==='1' : process.env.DSF_WRITING_PREVIEW==='1'),
+            __WRITING_ENABLED__: JSON.stringify(writingBuildEnabled(mode)),
         },
     };
 });

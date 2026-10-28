@@ -197,6 +197,12 @@ export function createViewerEdgePeek({getItems, getLayout, renderSurface, format
             root.style.setProperty('--fan-offset-x',mix(peekFit.offsetX*peekFit.scale,readingFit.offsetX*readingFit.scale)/scale+'px');
             root.style.setProperty('--fan-offset-y',mix(peekFit.offsetY,readingFit.offsetY)+'px');
         }
+        // Short, wide embed frames still show one complete face when selected.
+        // Keep its binding/shadow, but clip the neighbouring face outside it.
+        if(snapshot?.clipSingleBook&&singleReading()&&readingFit&&!pages?.querySelector('.edge-fan-closed')){
+            const f=readingFit,left=(f.minX+f.offsetX)*f.scale,right=(f.maxX+f.offsetX)*f.scale;
+            root.style.clipPath=`inset(0 ${Math.max(0,snapshot.viewport.width-right-12)}px 0 ${Math.max(0,left-12)}px)`;
+        }else root.style.clipPath='';
     }
     function drawReading(progress){if(!readingMotion)return;readingMotion.progress=Math.max(0,Math.min(1,progress));const {from,to}=readingMotion;setReading(from+(to-from)*readingMotion.progress);}
     function finishReading(accept){
@@ -249,7 +255,7 @@ export function createViewerEdgePeek({getItems, getLayout, renderSurface, format
         void renderSelection(index,rapid);
     }
     function settle(id){if(id!==ticket)return;rendering=false;const next=pendingIndex,rapid=pendingRapid;pendingIndex=null;pendingRapid=false;if(next!==null&&next!==selected)show(next,rapid);else continueRiffle();}
-    async function renderSelection(index,rapid=false,reshape=false) {
+    async function renderSelection(index,rapid=false,reshape=false,decodeTimeoutMs=4000) {
         index=Math.max(0,Math.min(items.length-1,Math.round(index)));
         if(!items[index]||(index===selected&&!reshape))return;
         rendering=true;
@@ -306,7 +312,7 @@ export function createViewerEdgePeek({getItems, getLayout, renderSurface, format
         }
         let timer;
         try {
-            await Promise.race([Promise.all([...next.querySelectorAll('[data-active=true] img,.edge-fan-cover img')].map(img=>img.complete&&img.naturalWidth?Promise.resolve():img.decode())),new Promise((_,reject)=>{timer=setTimeout(()=>reject(new Error('timeout')),4000);})]);
+            await Promise.race([Promise.all([...next.querySelectorAll('[data-active=true] img,.edge-fan-cover img')].map(img=>img.complete&&img.naturalWidth?Promise.resolve():img.decode())),new Promise((_,reject)=>{timer=setTimeout(()=>reject(new Error('timeout')),decodeTimeoutMs);})]);
             if(id!==ticket)return;
             const previousPages=content.firstElementChild;
             const restorePrevious=()=>{
@@ -493,14 +499,7 @@ export function createViewerEdgePeek({getItems, getLayout, renderSurface, format
         if(singleReading()){if(g.ended&&g.target!==null&&!g.started)show(g.target);return;}
         if(g.ended&&g.target!==null&&!g.started)show(g.target);
         if(g.ended&&g.target===null)stepPage(g.sign*(snapshot.rtl?1:-1));
-        if(g.ended&&g.target!==null&&!getLayout(items[g.index].index)?.exterior&&!getLayout(items[g.target].index)?.exterior){
-            const now=e.timeStamp,sample=g.samples.find(s=>now-s.t<=130);
-            const velocity=sample?(e.clientX-sample.x)/Math.max(16,now-sample.t):0;
-            const speed=Math.abs(velocity)*1000/g.width;
-            if(Math.abs(dx)>=Math.max(60,g.width*.2)&&speed>=3.4&&Math.abs(velocity)>=1.25&&Math.sign(velocity)===g.sign){
-                g.flung=true;startRiffle(g.sign*(snapshot.rtl?1:-1),Math.min(6,2+Math.floor((speed-3.4)*.8)));
-            }
-        }
+        // A swipe selects one target only; use the page bar for larger jumps.
     }
     leaf.addEventListener('pointerup',e=>endPeekDrag(e));leaf.addEventListener('pointercancel',e=>endPeekDrag(e,true));
     leaf.addEventListener('lostpointercapture',e=>{if(drag?.id===e.pointerId)endPeekDrag(e,true);});
@@ -562,7 +561,7 @@ export function createViewerEdgePeek({getItems, getLayout, renderSurface, format
         const at=exact>=0?exact:items.findIndex(item=>getLayout(item.index)?.position===position);
         if(at>=0)show(at);
     },
-    async prepare(index){const found=items.findIndex(item=>item.index===index),chosen=found>=0?found:(index===snapshot.covers?.back?items.length-1:0);if(selected===chosen&&ready)return true;await renderSelection(chosen);return ready;},
+    async prepare(index,{decodeTimeoutMs=4000}={}){const found=items.findIndex(item=>item.index===index),chosen=found>=0?found:(index===snapshot.covers?.back?items.length-1:0);if(selected===chosen&&ready)return true;await renderSelection(chosen,false,selected===chosen,decodeTimeoutMs);return ready;},
     update(mode,data) {
         if(mode!=='edge'||!data){clear();return;}
         snapshot=data;root.hidden=false;onPhaseChange(selected>=0?'peek':'edge');

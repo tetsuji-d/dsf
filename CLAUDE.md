@@ -25,9 +25,11 @@ AI エージェント、人間の開発者ともに、まずこの文書を読�
   `.dsp` / `.dsf` の ZIP 構造仕様
 - **[docs/pressroom-spec.md](docs/pressroom-spec.md)**  
   Press / Works / Viewer の公開境界
+- **[docs/horizon-editions-spec.md](docs/horizon-editions-spec.md)** — 版ごとの内容・URL固定、リーズ4フォルダ、アーカイブ・廃棄の現行合意仕様。実装・検証状況は [実装計画](docs/horizon-editions-implementation-plan.md) を参照。
 
 ### 4. 最近の重要テーマ
 
+- **[docs/horizon-embed-spec.md](docs/horizon-embed-spec.md)** — 外部サイトへの埋め込み、任意のドメイン制限、読み込みを数えない閲覧集計。staging実装・検証中。[実装計画](docs/horizon-embed-implementation-plan.md)と[追加検証](docs/horizon-embed-followup-20261025.md)を参照。
 - **[docs/flow-remaining-implementation-plan.md](docs/flow-remaining-implementation-plan.md)** — Flow／DSF delivery v2の現在地、残作業、安全な実装単位、初期公開の完了条件
 - **[docs/environment-topology.md](docs/environment-topology.md)**  
   Cloudflare Pages / Firebase / R2 の役割分担

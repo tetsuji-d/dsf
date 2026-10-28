@@ -14,6 +14,7 @@
  */
 
 import { verifyFirebaseToken } from './upload.js';
+import { editionStorageTombstone } from '../server/edition-storage.js';
 
 export const DSF_RELEASE_UPLOAD_CACHE_CONTROL = 'public, max-age=31536000, immutable';
 
@@ -241,6 +242,9 @@ export async function handleDsfReleaseUpload({
             sha256: declaredSha256,
         });
         const existing = await env.R2_BUCKET.head(storagePath);
+        if (await env.R2_BUCKET.head(editionStorageTombstone(parsedPath.uid, parsedPath.workId, parsedPath.releaseId))) {
+            return jsonError('IMMUTABLE_COLLISION', 409);
+        }
         if (existing) {
             if (!objectMatchesPlan(existing, plan)) return jsonError('IMMUTABLE_COLLISION', 409);
             return Response.json(
@@ -263,6 +267,10 @@ export async function handleDsfReleaseUpload({
             sha256: plan.sha256,
         });
 
+        if (await env.R2_BUCKET.head(editionStorageTombstone(parsedPath.uid, parsedPath.workId, parsedPath.releaseId))) {
+            await env.R2_BUCKET.delete(storagePath);
+            return jsonError('IMMUTABLE_COLLISION', 409);
+        }
         if (!stored) {
             const racedObject = await verifyStoredOrCollision(env.R2_BUCKET, plan);
             if (!racedObject) return jsonError('IMMUTABLE_COLLISION', 409);

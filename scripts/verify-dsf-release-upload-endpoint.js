@@ -219,7 +219,7 @@ assert.equal(
     assert.equal(result.status, 200);
     assert.equal(result.body.reused, true, 'matching concurrent create is an idempotent retry');
     assert.equal(bucket.putCalls.length, 1);
-    assert.equal(bucket.headCalls.length, 2, 'conditional race must be verified by a second R2 HEAD');
+    assert.equal(bucket.headCalls.filter(key => key === webpPath).length, 2, 'conditional race must recheck the same release object');
 }
 
 {
@@ -404,8 +404,8 @@ for (const testCase of rejectedCases) {
 const legacyUploadSource = readFileSync(new URL('../functions/upload.js', import.meta.url), 'utf8');
 assert.match(legacyUploadSource, /POST \/upload\b/);
 assert.match(legacyUploadSource, /Response\.json\(\{ url: publicUrl \}/);
-assert.doesNotMatch(legacyUploadSource, /upload-release/,
-    'legacy authoring image upload must remain separate from the release endpoint');
+assert.doesNotMatch(legacyUploadSource, /handleDsfReleaseUpload|createDsfHorizonReleasePlan/,
+    'legacy authoring images must not invoke the v2 upload executor');
 
 for (const relativePath of ['../js/press.js', '../js/firebase.js', '../js/viewer.js']) {
     const source = readFileSync(new URL(relativePath, import.meta.url), 'utf8');

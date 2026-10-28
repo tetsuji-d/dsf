@@ -3,6 +3,7 @@ import {resolve,relative,dirname,sep} from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {createHash} from 'node:crypto';
 import {buildWritingImport,writingImportNotices} from './build-import.mjs';
+import {writingBuildEnabled} from '../writing-build-policy.mjs';
 const root=fileURLToPath(new URL('../../',import.meta.url));
 const hash=b=>createHash('sha256').update(b).digest('hex');
 const prefix='writing/';
@@ -80,7 +81,7 @@ export async function writingStagingAssets({production=false}={}){
     return files;
 }
 export function writingStagingPlugin(mode){
-    if(mode==='production' ? process.env.DSF_WRITING_RELEASE!=='1' : process.env.DSF_WRITING_PREVIEW!=='1')return null;
+    if(!writingBuildEnabled(mode))return null;
     return {name:'writing-staging-preview',configureServer(server){
         let assets;
         server.watcher.on('change',path=>{if(/reader-writing|writing-w1/.test(path))assets=null;});

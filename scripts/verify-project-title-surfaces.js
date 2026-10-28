@@ -4,6 +4,9 @@ import { readFileSync } from 'node:fs';
 const studioHtml = readFileSync(new URL('../studio.html', import.meta.url), 'utf8');
 const appSource = readFileSync(new URL('../js/app.js', import.meta.url), 'utf8');
 const worksSource = readFileSync(new URL('../js/works.js', import.meta.url), 'utf8');
+const editionSource = readFileSync(new URL('../js/edition-list.js', import.meta.url), 'utf8');
+const editionView = readFileSync(new URL('../js/edition-reads-view.js', import.meta.url), 'utf8');
+const editableList = readFileSync(new URL('../js/home-project-list.js', import.meta.url), 'utf8');
 const i18nSource = readFileSync(new URL('../js/i18n-studio.js', import.meta.url), 'utf8');
 const cssSource = readFileSync(new URL('../css/studio.css', import.meta.url), 'utf8');
 
@@ -22,12 +25,15 @@ assert.doesNotMatch(
     'editing a non-default title must not leak it into the root compatibility title',
 );
 
-assert.match(worksSource, /const explicitWorkTitle = resolveProjectDisplayTitle\(p, \{ locale: getUILang\(\) \}\)/);
-assert.match(worksSource, /const displayTitle = explicitWorkTitle \|\| projectName \|\| t\('works_untitled'\)/);
-assert.match(worksSource, /works-name-context/);
-assert.match(appSource, /function renderHomeWorkCard[\s\S]+const explicitWorkTitle = resolveProjectDisplayTitle\(work, \{ locale: getUILang\(\) \}\)/);
-assert.match(appSource, /function renderHomeWorkCard[\s\S]+const title = explicitWorkTitle \|\| projectName \|\| work\.id \|\| t\('works_untitled'\)/);
-assert.match(appSource, /home-work-name-context/);
+// Reads now renders immutable editions; Home keeps the two editable names separate.
+assert.match(worksSource, /await openEditionReads\(/);
+assert.match(editionSource, /title\(editionState.publicSnapshot \|\| release\)/);
+assert.match(editionSource, /titleIsWorkName: !issuedTitle/);
+assert.match(editionView, /row.titleIsWorkName/);
+assert.match(appSource, /editableReadTable\(cloudProjects.map/);
+assert.match(editableList, /name: resolveProjectName\(project\), title: resolveProjectDisplayTitle\(project, \{ locale \}\)/);
+assert.match(editableList, /esc\(v.name \|\| t.unset\)/);
+assert.match(editableList, /esc\(v.title \|\| t.unset\)/);
 
 for (const key of [
     'label_project_name',

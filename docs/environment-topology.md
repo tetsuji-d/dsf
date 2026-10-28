@@ -77,6 +77,8 @@ Firebase Hosting の URL は通常確認先にしない。必要なときだけ 
 - Firebase project: staging (`vmnn-26345-stg`)
 - Storage backend: Cloudflare R2
 - 用途: Cloudflare Pages staging 用成果物
+- ReaderのWriting付きDSFR対応は常に同梱する（`DSF_WRITING_PREVIEW`の指定忘れで無効にならない）。認定フォント・ライブラリー等のWriting配布素材がない場合はビルドを失敗させる。
+- 分離した作業ツリーでは、既に検証された素材を持つ`outputs`の絶対パスを`DSF_WRITING_BUILD_ASSETS`へ指定できる。配布は`writingStagingAssets`の許可リストとハッシュ検証を通るものだけで、利用者のDSFRや作業ログは含めない。本番の`DSF_WRITING_RELEASE`条件は変更しない。
 
 ### `npm run build`
 

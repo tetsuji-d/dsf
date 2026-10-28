@@ -22,6 +22,7 @@
  *   { error: "<message>" }
  */
 
+import { parseEditionStoragePath, editionStorageTombstone } from '../server/edition-storage.js';
 const PUBLICATION_THUMBNAIL_FILENAME_PATTERN = /^([a-f0-9]{64})\.webp$/i;
 
 export function getPublicationThumbnailExpectedSha256(path, uid) {
@@ -101,9 +102,25 @@ export async function handleImageUpload({
         if (thumbnailAddress.applies && !thumbnailAddress.matches) {
             return jsonError('Publication thumbnail bytes do not match the SHA-256 upload path', 422);
         }
-        await env.R2_BUCKET.put(path, buffer, {
+        const edition = parseEditionStoragePath(path);
+        if (edition?.v2) return jsonError('Use /upload-release for DSF v2 files', 400);
+        if (edition) {
+            if (await env.R2_BUCKET.head(editionStorageTombstone(edition.uid, edition.workId, edition.releaseId))) return jsonError('Edition was disposed', 409);
+            const existing = await env.R2_BUCKET.get(path);
+            if (existing) {
+                if (await sha256Hex(await existing.arrayBuffer(), cryptoRef) !== await sha256Hex(buffer, cryptoRef)) return jsonError('Immutable edition asset collision', 409);
+                return Response.json({ url: `${env.R2_PUBLIC_URL}/${path}` }, { headers: corsHeaders() });
+            }
+        }
+        const stored = await env.R2_BUCKET.put(path, buffer, {
+            ...(edition ? { onlyIf: new Headers({ 'If-None-Match': '*' }) } : {}),
             httpMetadata: { contentType: isWebPContent ? 'image/webp' : (file.type || 'application/octet-stream') },
         });
+        if (edition && await env.R2_BUCKET.head(editionStorageTombstone(edition.uid, edition.workId, edition.releaseId))) {
+            await env.R2_BUCKET.delete(path);
+            return jsonError('Edition was disposed during upload', 409);
+        }
+        if (edition && !stored) return jsonError('Immutable edition asset collision; retry', 409);
 
         // 4. Return the public URL
         const publicUrl = `${env.R2_PUBLIC_URL}/${path}`;
